@@ -18,6 +18,9 @@ build/
 /tmp/
 processed.json
 
+# Client list with real emails — use clients.json.example as template
+clients.json
+
 # Logs
 logs/*.log
 

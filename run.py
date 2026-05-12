@@ -3,9 +3,11 @@ run.py — D to R pipeline entry point.
 מריץ את כל שלבי הפייפליין: סריקה → הורדה → ניתוח → עריכה → העלאה → שליחה.
 """
 
+import json
 import logging
 import os
 import sys
+from pathlib import Path
 
 # ── Logging setup (must happen before importing pipeline modules) ───────────
 os.makedirs("logs", exist_ok=True)
@@ -20,19 +22,56 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Pipeline imports ────────────────────────────────────────────────────────
-import config  # noqa: E402  (import after logging)
+import config  # noqa: E402
 from pipeline.drive import download_video, get_new_videos, mark_as_processed, upload_clip
 from pipeline.analyzer import analyze_video
 from pipeline.editor import cut_and_watermark
 from pipeline.notifier import send_summary_email
 
 
-def process_video(file_meta: dict) -> list[str]:
+# ── Client lookup ──────────────────────────────────────────────────────────
+
+def _load_clients() -> list[dict]:
     """
-    Full pipeline for a single video file.
-    Returns list of Drive clip links (empty list on failure).
+    Load clients.json if it exists.
+    Format: [{"name": "...", "email": "...", "video_pattern": "..."}]
     """
-    file_id: str = file_meta["id"]
+    if not Path(config.CLIENTS_FILE).exists():
+        return []
+    try:
+        with open(config.CLIENTS_FILE) as f:
+            return json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("⚠️ Could not read %s: %s", config.CLIENTS_FILE, e)
+        return []
+
+
+def _find_client_email(video_name: str) -> str | None:
+    """
+    Match the video filename against clients.json patterns (case-insensitive substring).
+    Returns the client email, or None if no match found.
+    If no match → email is sent to OWNER_EMAIL only.
+    """
+    clients = _load_clients()
+    name_lower = video_name.lower()
+    for client in clients:
+        pattern = str(client.get("video_pattern", "")).lower()
+        if pattern and pattern in name_lower:
+            email = client.get("email", "").strip()
+            if email:
+                print(f"✅ Matched client: {client.get('name', email)} → {email}")
+                return email
+    return None
+
+
+# ── Single-video processor ─────────────────────────────────────────────────
+
+def process_video(file_meta: dict) -> dict:
+    """
+    Run the full pipeline for a single video.
+    Returns {"links": [...], "sport": str, "filename": str}.
+    """
+    file_id:  str = file_meta["id"]
     filename: str = file_meta["name"]
     print(f"\n{'='*60}")
     print(f"🎬 Processing: {filename}")
@@ -43,22 +82,26 @@ def process_video(file_meta: dict) -> list[str]:
         local_path = download_video(file_id, filename)
     except Exception:
         logger.error("Skipping %s — download failed", filename)
-        return []
+        return {"links": [], "sport": "unknown", "filename": filename}
 
-    # 2. Analyze with Gemini
+    # 2. Analyze with Claude
     analysis = analyze_video(local_path)
-    sport = analysis.get("sport", "unknown")
+    sport  = analysis.get("sport", "unknown")
     events = analysis.get("events", [])
 
     if not events:
         print(f"⚠️ No highlights detected in '{filename}', skipping.")
         logger.warning("No highlights for %s", filename)
         mark_as_processed(file_id)
-        return []
+        try:
+            os.remove(local_path)
+        except OSError:
+            pass
+        return {"links": [], "sport": sport, "filename": filename}
 
     print(f"🎬 Sport: {sport} | Events to cut: {len(events)}")
 
-    # 3. Cut + watermark each event
+    # 3. Cut + watermark each event, then upload
     clip_links: list[str] = []
     for i, event in enumerate(events, start=1):
         clip_path = cut_and_watermark(local_path, event, index=i)
@@ -72,15 +115,13 @@ def process_video(file_meta: dict) -> list[str]:
             clip_links.append(link)
         except Exception:
             logger.error("Upload failed for %s", clip_name)
-            continue
+        finally:
+            try:
+                os.remove(clip_path)
+            except OSError:
+                pass
 
-        # Clean up local clip to save disk space
-        try:
-            os.remove(clip_path)
-        except OSError:
-            pass
-
-    # 4. Mark original as processed and clean up local download
+    # 4. Mark original as processed and clean up
     mark_as_processed(file_id)
     try:
         os.remove(local_path)
@@ -88,49 +129,57 @@ def process_video(file_meta: dict) -> list[str]:
         pass
 
     print(f"✅ Done with '{filename}' — {len(clip_links)} clip(s) uploaded")
-    return clip_links
+    return {"links": clip_links, "sport": sport, "filename": filename}
 
+
+# ── Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
     print("\n🎬 D to R Pipeline — Starting")
     print(f"📁 Tmp dir: {config.TMP_DIR}")
 
-    # Scan for new videos
     new_videos = get_new_videos()
 
     if not new_videos:
         print("✅ No new videos to process. Exiting.")
         return
 
-    all_links: list[str] = []
-    last_sport = "unknown"
-    last_name = "drone_footage"
+    total_clips = 0
 
     for video_meta in new_videos:
-        links = process_video(video_meta)
-        all_links.extend(links)
-        # Track last processed sport/name for the summary email
-        if links:
-            last_name = video_meta["name"]
-            # Re-read sport from analysis result if we had it — use placeholder
-            # (sport is determined inside process_video; for multi-video runs the
-            # email summarises all clips together under the last detected sport)
-            last_sport = "mixed" if len(new_videos) > 1 else last_sport
+        result   = process_video(video_meta)
+        links    = result["links"]
+        sport    = result["sport"]
+        filename = result["filename"]
 
-    # Send a single summary email for the entire run
-    if all_links:
+        if not links:
+            continue
+
+        total_clips += len(links)
+
+        # Build recipients list: always start with the owner.
+        # Add the filmed client only if their email is in clients.json.
+        # If no client match → email goes to OWNER_EMAIL only.
+        recipients: list[str] = [config.OWNER_EMAIL]
+        client_email = _find_client_email(filename)
+        if client_email and client_email != config.OWNER_EMAIL:
+            recipients.append(client_email)
+        else:
+            print(f"📧 No client match for '{filename}' — sending to owner only")
+
         send_summary_email(
-            client_email=config.NOTIFY_EMAIL,
-            clips_links=all_links,
-            sport_type=last_sport,
-            video_name=last_name if len(new_videos) == 1 else f"{len(new_videos)} videos",
+            recipients=recipients,
+            clips_links=links,
+            sport_type=sport,
+            video_name=filename,
         )
-        print(f"\n🎬 Pipeline complete — {len(all_links)} clip(s) delivered")
+
+    if total_clips:
+        print(f"\n🎬 Pipeline complete — {total_clips} clip(s) delivered across {len(new_videos)} video(s)")
     else:
         print("\n⚠️ Pipeline complete — no clips were produced")
 
-    logger.info("Pipeline run finished. Videos processed: %d, Clips delivered: %d",
-                len(new_videos), len(all_links))
+    logger.info("Pipeline run finished. Videos: %d, Clips: %d", len(new_videos), total_clips)
 
 
 if __name__ == "__main__":

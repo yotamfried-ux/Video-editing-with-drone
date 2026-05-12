@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Gemini AI ──────────────────────────────────────────────────────────────
-GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
+# ── Claude AI (Anthropic) ──────────────────────────────────────────────────
+ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
 
 # ── Google Service Account ─────────────────────────────────────────────────
 GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
@@ -20,10 +20,12 @@ CLIPS_FOLDER_ID: str = os.environ["CLIPS_FOLDER_ID"]       # finished highlight 
 PROCESSED_FOLDER_ID: str = os.environ["PROCESSED_FOLDER_ID"]  # archived originals
 
 # ── Delivery ───────────────────────────────────────────────────────────────
-NOTIFY_EMAIL: str = os.environ["NOTIFY_EMAIL"]             # client email address
+OWNER_EMAIL: str = os.environ["OWNER_EMAIL"]               # pipeline operator — always receives summary
+NOTIFY_EMAIL: str = os.getenv("NOTIFY_EMAIL", "")          # fallback client email (used if clients.json has no match)
 
 # ── Local paths ────────────────────────────────────────────────────────────
 LOGO_PATH: str = os.getenv("LOGO_PATH", "assets/logo.png")
 TMP_DIR: str = os.getenv("TMP_DIR", "/tmp/dtor")
 PROCESSED_IDS_FILE: str = "processed.json"                 # local state file
 LOG_FILE: str = "logs/pipeline.log"
+CLIENTS_FILE: str = "clients.json"                         # maps video patterns → client emails

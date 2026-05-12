@@ -1,0 +1,12 @@
+[
+  {
+    "name": "Yoni Surfer",
+    "email": "yoni@example.com",
+    "video_pattern": "yoni"
+  },
+  {
+    "name": "David Football",
+    "email": "david@example.com",
+    "video_pattern": "david"
+  }
+]

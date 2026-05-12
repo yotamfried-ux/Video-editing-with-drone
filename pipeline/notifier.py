@@ -1,6 +1,6 @@
 """
 pipeline/notifier.py — Gmail delivery via Google service account.
-שולח ללקוח אימייל HTML עם קישורים לקליפים המוכנים.
+שולח אימייל HTML לבעל הפייפליין ולמצולם (אם נמצא ב-clients.json).
 """
 
 import base64
@@ -18,23 +18,23 @@ logger = logging.getLogger(__name__)
 _SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
 _SPORT_EMOJI = {
-    "surfing": "🏄",
+    "surfing":  "🏄",
     "football": "🏈",
-    "other": "🎬",
-    "unknown": "🎬",
+    "mixed":    "🎬",
+    "other":    "🎬",
+    "unknown":  "🎬",
 }
 
 
 def _get_gmail_service(sender_email: str):
     """
     Build Gmail API service using service account with domain-wide delegation.
-    The service account must be granted the gmail.send scope in Google Workspace admin.
+    The service account must have gmail.send scope granted in Google Workspace admin.
     """
     creds = service_account.Credentials.from_service_account_file(
         config.GOOGLE_SERVICE_ACCOUNT_JSON,
         scopes=_SCOPES,
     )
-    # Impersonate the sender so the email appears to come from a real address
     delegated_creds = creds.with_subject(sender_email)
     return build("gmail", "v1", credentials=delegated_creds)
 
@@ -43,6 +43,7 @@ def _build_html(
     clips_links: list[str],
     sport_type: str,
     video_name: str,
+    is_owner: bool,
 ) -> str:
     emoji = _SPORT_EMOJI.get(sport_type, "🎬")
     clip_rows = ""
@@ -63,12 +64,22 @@ def _build_html(
           </td>
         </tr>"""
 
+    owner_note = ""
+    if is_owner:
+        owner_note = """
+        <p style="font-size:12px;background:#f0f4ff;border-left:3px solid #4466cc;
+                  padding:10px 14px;border-radius:4px;color:#334;">
+          🔧 <strong>Owner summary</strong> — you are receiving this as the pipeline operator.
+          Clips are archived in your Google Drive PROCESSED folder.
+        </p>"""
+
     return f"""
 <!DOCTYPE html>
 <html>
 <head><meta charset="UTF-8"></head>
 <body style="font-family:Arial,sans-serif;background:#f4f4f4;padding:30px;">
-  <table width="600" cellpadding="0" cellspacing="0" style="background:#fff;border-radius:10px;overflow:hidden;margin:0 auto;">
+  <table width="600" cellpadding="0" cellspacing="0"
+         style="background:#fff;border-radius:10px;overflow:hidden;margin:0 auto;">
     <tr>
       <td style="background:#1a1a2e;padding:24px 32px;">
         <h1 style="color:#fff;margin:0;font-size:22px;">{emoji} D to R — Highlight Clips Ready</h1>
@@ -76,7 +87,8 @@ def _build_html(
     </tr>
     <tr>
       <td style="padding:28px 32px;">
-        <p style="font-size:15px;color:#333;">
+        {owner_note}
+        <p style="font-size:15px;color:#333;margin-top:16px;">
           Your drone footage has been processed!<br>
           <strong>{len(clips_links)} highlight clip(s)</strong> were extracted from
           <em>{video_name}</em>.
@@ -89,8 +101,7 @@ def _build_html(
         </table>
         <hr style="border:none;border-top:1px solid #eee;margin:28px 0;">
         <p style="font-size:12px;color:#999;">
-          Delivered automatically by the D to R pipeline.<br>
-          Clips are stored in your Google Drive CLIPS folder.
+          Delivered automatically by the D to R pipeline.
         </p>
       </td>
     </tr>
@@ -101,47 +112,61 @@ def _build_html(
 
 
 def send_summary_email(
-    client_email: str,
+    recipients: list[str],
     clips_links: list[str],
     sport_type: str,
     video_name: str,
 ) -> None:
     """
-    Send an HTML summary email to client_email with links to all processed clips.
+    Send an HTML summary email to all recipients.
+
+    The first recipient in the list is treated as the owner (gets an extra operator note).
+    Subsequent recipients are the filmed clients (receive only their clips).
 
     Args:
-        client_email: Recipient email address.
-        clips_links:  List of Google Drive shareable links.
-        sport_type:   "surfing", "football", or "other".
-        video_name:   Original video filename (shown in subject line).
+        recipients:  List of email addresses. recipients[0] = OWNER_EMAIL.
+        clips_links: List of Google Drive shareable links.
+        sport_type:  "surfing", "football", "mixed", or "other".
+        video_name:  Original video filename shown in the subject line.
     """
-    emoji = _SPORT_EMOJI.get(sport_type, "🎬")
-    subject = f"{emoji} Your {sport_type.capitalize()} Highlights Are Ready — {video_name}"
+    if not recipients:
+        logger.warning("⚠️ send_summary_email called with empty recipients list")
+        return
 
-    print(f"📧 Sending summary email to {client_email} ({len(clips_links)} clip link(s))...")
+    emoji   = _SPORT_EMOJI.get(sport_type, "🎬")
+    subject = f"{emoji} Your {sport_type.capitalize()} Highlights Are Ready — {video_name}"
+    sender  = config.OWNER_EMAIL
+
+    print(f"📧 Sending email to {len(recipients)} recipient(s): {', '.join(recipients)}")
 
     try:
-        # Use NOTIFY_EMAIL as the sender (must be authorised for delegation)
-        sender = config.NOTIFY_EMAIL
         service = _get_gmail_service(sender)
-
-        msg = MIMEMultipart("alternative")
-        msg["Subject"] = subject
-        msg["From"] = sender
-        msg["To"] = client_email
-
-        html_body = _build_html(clips_links, sport_type, video_name)
-        msg.attach(MIMEText(html_body, "html"))
-
-        raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-        service.users().messages().send(
-            userId="me",
-            body={"raw": raw},
-        ).execute()
-
-        print(f"✅ Email sent to {client_email}")
-        logger.info("Email sent to %s for video '%s' (%d clips)", client_email, video_name, len(clips_links))
-
     except Exception as e:
-        logger.error("❌ Failed to send email to %s: %s", client_email, e)
-        print(f"❌ Email delivery failed: {e}")
+        logger.error("❌ Failed to build Gmail service: %s", e)
+        print(f"❌ Gmail service setup failed: {e}")
+        return
+
+    for i, recipient in enumerate(recipients):
+        is_owner = (i == 0)
+        try:
+            msg = MIMEMultipart("alternative")
+            msg["Subject"] = subject
+            msg["From"]    = sender
+            msg["To"]      = recipient
+
+            html_body = _build_html(clips_links, sport_type, video_name, is_owner=is_owner)
+            msg.attach(MIMEText(html_body, "html"))
+
+            raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
+            service.users().messages().send(
+                userId="me",
+                body={"raw": raw},
+            ).execute()
+
+            tag = "owner" if is_owner else "client"
+            print(f"✅ Email sent → {recipient} ({tag})")
+            logger.info("Email sent to %s (%s) for '%s' (%d clips)", recipient, tag, video_name, len(clips_links))
+
+        except Exception as e:
+            logger.error("❌ Failed to send email to %s: %s", recipient, e)
+            print(f"❌ Email delivery failed for {recipient}: {e}")
