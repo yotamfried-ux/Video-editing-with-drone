@@ -1,6 +1,7 @@
 """
-pipeline/editor.py — FFmpeg video cutting and watermark overlay.
-חותך קליפים לפי timestamps, מוסיף לוגו שמותאם לרזולוציה, ו-fade in/out.
+pipeline/editor.py — FFmpeg reel compilation pipeline.
+חותך קליפים ל-9:16, מוסיף color grade, ומחבר לריל אחד עם crossfade.
+האתלט בוחר מוזיקה ומעלה ישיר לרשתות.
 """
 
 import logging
@@ -12,156 +13,263 @@ import config
 
 logger = logging.getLogger(__name__)
 
+# ── פורמט תוצאה: 9:16 לאינסטגרם Reels / TikTok ───────────────────────────
+REEL_W, REEL_H = 1080, 1920
+XFADE_DUR      = 0.4   # חפיפה בין קליפים (שניות)
+CLIP_FADE_DUR  = 0.25  # fade in/out בתוך כל קליפ
+MAX_REEL_SEC   = 88    # בטיחות: מתחת ל-90s של Instagram Reels
 
-def _get_video_duration(video_path: str) -> float:
-    """Return video duration in seconds via ffprobe."""
+
+# ── ffprobe helpers ────────────────────────────────────────────────────────
+
+def _get_duration(path: str) -> float:
     cmd = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
         "-of", "default=noprint_wrappers=1:nokey=1",
-        video_path,
+        path,
     ]
     try:
-        out = subprocess.check_output(cmd, text=True, timeout=30).strip()
-        return float(out)
+        return float(subprocess.check_output(cmd, text=True, timeout=30).strip())
     except Exception:
-        return float("inf")  # אם לא ידוע — נניח שהסרטון ארוך מספיק
+        return float("inf")
 
 
-def _clamp_timestamps(start: float, end: float, video_path: str) -> tuple[float, float]:
-    """Clamp start/end so they don't exceed actual video duration."""
-    duration = _get_video_duration(video_path)
-    start = max(0.0, min(start, duration - 4))   # לפחות 4 שניות לפני הסוף
-    end   = min(end, duration)
+def _clamp(start: float, end: float, video_path: str) -> tuple[float, float]:
+    """Clamp timestamps so they don't exceed actual video length."""
+    total = _get_duration(video_path)
+    start = max(0.0, min(start, total - 4))
+    end   = min(end, total)
     if end - start < 4:
-        end = min(start + 4, duration)
+        end = min(start + 4, total)
     return round(start, 2), round(end, 2)
 
 
-def _build_ffmpeg_cmd(
-    video_path: str,
-    start: float,
-    end: float,
-    logo_path: str,
-    output_path: str,
-) -> list[str]:
-    duration = end - start
-    fade_dur = min(0.5, duration / 4)  # fade קצר אם הקליפ קצר מאוד
+# ── שלב 1: חיתוך קליפ בודד ────────────────────────────────────────────────
 
-    # לוגו: 8% מרוחב הסרטון (scale2ref), 85% opacity, פינה ימין-תחתון
-    # fade in + fade out על הוידאו הסופי
-    overlay_filter = (
-        f"[1:v][0:v]scale2ref=w=iw/12:h=-1[logo_scaled][base];"
-        f"[logo_scaled]format=rgba,colorchannelmixer=aa=0.85[logo];"
-        f"[base][logo]overlay=W-w-20:H-h-20[watermarked];"
-        f"[watermarked]fade=t=in:st=0:d={fade_dur:.2f},"
-        f"fade=t=out:st={duration - fade_dur:.2f}:d={fade_dur:.2f}[out]"
-    )
-
-    return [
-        "ffmpeg",
-        "-y",
-        "-ss", str(start),        # fast seek לפני ה-input
-        "-i", video_path,
-        "-i", logo_path,
-        "-t", str(duration),
-        "-filter_complex", overlay_filter,
-        "-map", "[out]",
-        "-map", "0:a?",           # אודיו אופציונלי
-        "-c:v", "libx264",
-        "-crf", "22",             # שדרגנו מ-23 ל-22 לאיכות טובה יותר לספורט
-        "-preset", "fast",
-        "-c:a", "aac",
-        "-b:a", "128k",
-        "-movflags", "+faststart",
-        output_path,
-    ]
-
-
-def cut_and_watermark(video_path: str, event: dict, index: int) -> str | None:
+def cut_clip(video_path: str, event: dict, index: int) -> str | None:
     """
-    Cut a highlight clip and overlay the brand logo.
-
-    Args:
-        video_path: Local path to the source video.
-        event:      Dict with keys: type, start, end, score, description.
-        index:      Clip number (used in output filename).
-
-    Returns:
-        Local path to the rendered clip, or None on failure.
+    חותך רגע שיא אחד ומעבד אותו:
+    - חיתוך לפי timestamps
+    - המרה ל-9:16 (רקע מטושטש + תמונה חדה במרכז)
+    - color grade: contrast / saturation / sharpening
+    - fade in + fade out קצר
+    - ללא אודיו (האתלט מוסיף מוזיקה בעצמו)
     """
-    raw_start: float = event["start"]
-    raw_end:   float = event["end"]
-    event_type: str  = event.get("type", "highlight")
-
-    # אמת timestamps מול אורך הסרטון האמיתי
-    start, end = _clamp_timestamps(raw_start, raw_end, video_path)
-    if (raw_start, raw_end) != (start, end):
-        logger.warning("⚠️ Timestamps clamped: [%.1f,%.1f] → [%.1f,%.1f]", raw_start, raw_end, start, end)
+    start, end = _clamp(event["start"], event["end"], video_path)
+    duration   = end - start
+    event_type = event.get("type", "highlight")
+    clip_fade  = min(CLIP_FADE_DUR, duration / 6)
 
     os.makedirs(config.TMP_DIR, exist_ok=True)
+    out = os.path.join(config.TMP_DIR, f"{Path(video_path).stem}_clip{index:02d}.mp4")
 
-    base_name       = Path(video_path).stem
-    output_filename = f"{base_name}_clip{index:02d}_{event_type}.mp4"
-    output_path     = os.path.join(config.TMP_DIR, output_filename)
+    if (event["start"], event["end"]) != (start, end):
+        logger.warning("⚠️ Timestamps clamped [%.1f,%.1f]→[%.1f,%.1f]",
+                       event["start"], event["end"], start, end)
 
-    logo_path = config.LOGO_PATH
-    if not Path(logo_path).exists():
-        logger.warning("⚠️ Logo not found at %s — cutting without watermark", logo_path)
-        print(f"⚠️ Logo missing — clip will have no watermark")
-        return _cut_only(video_path, start, end, output_path)
+    # split → רקע מטושטש (fill) + תמונה חדה (fit) → overlay → grade → fade
+    vf = (
+        f"[0:v]split[bg_in][fg_in];"
 
-    print(f"🎬 Cutting clip {index}: {start:.1f}s → {end:.1f}s  [{event_type}]  ({end-start:.1f}s)")
+        # רקע: מגדיל עד שממלא 9:16, חותך, מטשטש
+        f"[bg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=increase,"
+        f"crop={REEL_W}:{REEL_H},boxblur=28:5[bg];"
 
-    cmd = _build_ffmpeg_cmd(video_path, start, end, logo_path, output_path)
-    logger.debug("FFmpeg cmd: %s", " ".join(cmd))
+        # תמונה: מכווץ עד שנכנס בתוך 9:16 (ללא חיתוך)
+        f"[fg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=decrease[fg];"
 
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        if result.returncode != 0:
-            logger.error("❌ FFmpeg error clip %d:\n%s", index, result.stderr[-2000:])
-            print(f"❌ FFmpeg failed on clip {index}: {result.stderr[-400:]}")
-            return None
+        # חיבור: תמונה על רקע מטושטש
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
 
-        size_mb = os.path.getsize(output_path) / 1_000_000
-        print(f"✅ Clip {index} rendered: {output_path}  ({size_mb:.1f} MB)")
-        return output_path
+        # color grade: מעט contrast, saturation, חידוד קל
+        f"eq=contrast=1.08:saturation=1.18:brightness=0.01,"
+        f"unsharp=5:5:0.35,"
 
-    except subprocess.TimeoutExpired:
-        logger.error("❌ FFmpeg timed out on clip %d", index)
-        print(f"❌ FFmpeg timed out on clip {index}")
-        return None
-    except FileNotFoundError:
-        logger.error("❌ FFmpeg not found")
-        print("❌ FFmpeg not found — install with: sudo apt install ffmpeg")
-        return None
-    except Exception as e:
-        logger.error("❌ Unexpected editor error clip %d: %s", index, e)
-        print(f"❌ Unexpected error on clip {index}: {e}")
-        return None
+        # fade in + fade out
+        f"fade=t=in:st=0:d={clip_fade:.2f},"
+        f"fade=t=out:st={duration - clip_fade:.2f}:d={clip_fade:.2f}"
 
-
-def _cut_only(video_path: str, start: float, end: float, output_path: str) -> str | None:
-    """Fallback: cut with fade but no watermark."""
-    duration  = end - start
-    fade_dur  = min(0.5, duration / 4)
-    fade_vf   = (
-        f"fade=t=in:st=0:d={fade_dur:.2f},"
-        f"fade=t=out:st={duration - fade_dur:.2f}:d={fade_dur:.2f}"
+        f"[out]"
     )
+
     cmd = [
         "ffmpeg", "-y",
         "-ss", str(start),
         "-i", video_path,
         "-t", str(duration),
-        "-vf", fade_vf,
-        "-c:v", "libx264", "-crf", "22", "-preset", "fast",
-        "-c:a", "aac", "-b:a", "128k",
+        "-filter_complex", vf,
+        "-map", "[out]",
+        "-an",                         # ללא אודיו
+        "-c:v", "libx264",
+        "-crf", "20",
+        "-preset", "fast",
+        "-r", "30",                    # normalize fps
+        "-movflags", "+faststart",
+        out,
+    ]
+
+    print(f"🎬 Clip {index}: {start:.1f}s → {end:.1f}s  [{event_type}]  ({duration:.1f}s)")
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        if r.returncode != 0:
+            logger.error("FFmpeg clip %d: %s", index, r.stderr[-1500:])
+            print(f"❌ Clip {index} failed: {r.stderr[-300:]}")
+            return None
+        return out
+    except subprocess.TimeoutExpired:
+        print(f"❌ Clip {index} timed out")
+        return None
+    except FileNotFoundError:
+        print("❌ FFmpeg not found — install: sudo apt install ffmpeg")
+        return None
+    except Exception as e:
+        logger.error("Clip %d unexpected: %s", index, e)
+        return None
+
+
+# ── שלב 2: compilation לריל אחד ──────────────────────────────────────────
+
+def _xfade_filter(n: int, durations: list[float]) -> str:
+    """
+    בונה filter_complex ל-xfade בין n קליפים.
+    offset לכל xfade = סכום משכי הקליפים הקודמים פחות מספר המעברים כפול XFADE_DUR.
+    """
+    if n == 1:
+        return "[0:v]null[xfout]"
+
+    parts   = []
+    offset  = round(durations[0] - XFADE_DUR, 3)
+    out_lbl = "[xfout]" if n == 2 else "[xf1]"
+    parts.append(
+        f"[0:v][1:v]xfade=transition=fade:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+    )
+
+    cumulative = durations[0] + durations[1] - XFADE_DUR
+    for i in range(2, n):
+        offset  = round(cumulative - XFADE_DUR, 3)
+        prev    = "[xf1]" if i == 2 else f"[xf{i-1}]"
+        out_lbl = "[xfout]" if i == n - 1 else f"[xf{i}]"
+        parts.append(
+            f"{prev}[{i}:v]xfade=transition=fade:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+        )
+        cumulative += durations[i] - XFADE_DUR
+
+    return ";".join(parts)
+
+
+def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str | None:
+    """
+    מחבר את כל הקליפים לריל אחד עם:
+    - crossfade transitions בין קליפים
+    - לוגו watermark בפינה ימין-תחתון
+    - export ב-H.264 ב-CRF 18 (איכות גבוהה לרשתות)
+    """
+    n = len(clip_paths)
+    if n == 0:
+        return None
+
+    durations   = [_get_duration(p) for p in clip_paths]
+    total_dur   = sum(durations) - XFADE_DUR * (n - 1)
+
+    if total_dur > MAX_REEL_SEC:
+        logger.warning("⚠️ Reel %.0fs exceeds Instagram 90s limit", total_dur)
+        print(f"⚠️ Reel {total_dur:.0f}s — longer than Instagram 90s limit")
+
+    # בניית inputs: קליפים + לוגו (אופציונלי)
+    inputs     = []
+    for p in clip_paths:
+        inputs += ["-i", p]
+
+    has_logo  = logo_path and Path(logo_path).exists()
+    logo_idx  = n
+    if has_logo:
+        inputs += ["-i", logo_path]
+
+    # xfade filter chain
+    xfade_f = _xfade_filter(n, durations)
+
+    if has_logo:
+        # לוגו: ~8% מרוחב הריל (1080/13 ≈ 83px), 85% opacity
+        logo_w = REEL_W // 13
+        logo_f = (
+            f"[{logo_idx}:v]scale={logo_w}:-1,format=rgba,"
+            f"colorchannelmixer=aa=0.85[logo];"
+            f"[xfout][logo]overlay=W-w-20:H-h-20[final]"
+        )
+        filter_complex = xfade_f + ";" + logo_f
+        map_out = "[final]"
+    else:
+        filter_complex = xfade_f
+        map_out = "[xfout]"
+
+    cmd = [
+        "ffmpeg", "-y",
+        *inputs,
+        "-filter_complex", filter_complex,
+        "-map", map_out,
+        "-an",
+        "-c:v", "libx264",
+        "-crf", "18",              # איכות גבוהה לתוצאה הסופית
+        "-preset", "fast",
+        "-r", "30",
         "-movflags", "+faststart",
         output_path,
     ]
+
+    print(f"🎬 Compiling reel: {n} clip(s), {total_dur:.0f}s total → {Path(output_path).name}")
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-        return output_path if result.returncode == 0 else None
-    except Exception:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        if r.returncode != 0:
+            logger.error("Reel compile error: %s", r.stderr[-2000:])
+            print(f"❌ Reel compilation failed: {r.stderr[-400:]}")
+            return None
+
+        size_mb = os.path.getsize(output_path) / 1_000_000
+        print(f"✅ Reel ready: {output_path}  ({size_mb:.1f} MB, {total_dur:.0f}s)")
+        return output_path
+
+    except subprocess.TimeoutExpired:
+        print("❌ Reel compilation timed out")
         return None
+    except Exception as e:
+        logger.error("Reel compile unexpected: %s", e)
+        return None
+
+
+# ── ממשק ראשי ─────────────────────────────────────────────────────────────
+
+def create_reel(video_path: str, events: list[dict], sport: str = "") -> str | None:
+    """
+    הכניסה הראשית: מקבל סרטון גולמי + events מ-Claude,
+    מחזיר path לריל מוכן להעלאה.
+    """
+    print(f"\n🎬 Creating reel from '{Path(video_path).name}' ({len(events)} event(s))")
+
+    # שלב 1: חיתוך קליפים בודדים
+    clip_paths = []
+    for i, event in enumerate(events, start=1):
+        clip = cut_clip(video_path, event, i)
+        if clip:
+            clip_paths.append(clip)
+        else:
+            print(f"⚠️ Event {i} skipped")
+
+    if not clip_paths:
+        print("❌ No clips produced — cannot create reel")
+        return None
+
+    # שלב 2: compilation לריל אחד
+    sport_tag = f"_{sport}" if sport else ""
+    reel_name = f"REEL_{Path(video_path).stem}{sport_tag}.mp4"
+    reel_path = os.path.join(config.TMP_DIR, reel_name)
+    reel      = compile_reel(clip_paths, config.LOGO_PATH, reel_path)
+
+    # ניקוי קליפים זמניים
+    for p in clip_paths:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+    return reel

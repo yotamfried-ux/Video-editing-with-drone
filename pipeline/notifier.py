@@ -48,19 +48,20 @@ def _build_html(
     emoji = _SPORT_EMOJI.get(sport_type, "🎬")
     clip_rows = ""
     for i, link in enumerate(clips_links, start=1):
+        label = "▶ Watch / Download Reel" if len(clips_links) == 1 else f"▶ Reel {i}"
         clip_rows += f"""
         <tr>
           <td style="padding:8px 0;">
             <a href="{link}" style="
               display:inline-block;
-              padding:10px 22px;
+              padding:12px 28px;
               background:#1a1a2e;
               color:#e0e0ff;
               text-decoration:none;
               border-radius:6px;
               font-weight:600;
-              font-size:14px;
-            ">▶ Clip {i}</a>
+              font-size:15px;
+            ">{label}</a>
           </td>
         </tr>"""
 
@@ -89,12 +90,15 @@ def _build_html(
       <td style="padding:28px 32px;">
         {owner_note}
         <p style="font-size:15px;color:#333;margin-top:16px;">
-          Your drone footage has been processed!<br>
-          <strong>{len(clips_links)} highlight clip(s)</strong> were extracted from
-          <em>{video_name}</em>.
+          Your highlight reel is ready!<br>
+          Extracted from <em>{video_name}</em> — sport detected:
+          <strong>{sport_type.capitalize()}</strong>.
         </p>
-        <p style="font-size:13px;color:#666;margin-bottom:20px;">
-          Sport detected: <strong>{sport_type.capitalize()}</strong>
+        <p style="font-size:13px;color:#555;margin-bottom:6px;">
+          👇 Click to download your reel, then add music &amp; post directly to Instagram / TikTok.
+        </p>
+        <p style="font-size:12px;color:#888;margin-bottom:20px;">
+          Format: 9:16 vertical · H.264 · ready to upload
         </p>
         <table cellpadding="0" cellspacing="0">
           {clip_rows}
