@@ -143,10 +143,15 @@ def cut_clip(video_path: str, event: dict, index: int, slowmo: bool = False) -> 
         "-t", str(output_dur),      # output option: cap at output_dur (2× for slow-mo)
         "-an",
         "-c:v", "libx264",
+        "-profile:v", "high",       # H.264 High Profile — תקן ל-1080p
         "-crf", "20",
         "-preset", "fast",
         "-r", "30",
-        "-pix_fmt", "yuv420p",      # Instagram חובה: 4:2:0 chroma subsampling
+        "-g", "60",                 # GOP = 2s @ 30fps — תקן Azure/Teams (default של FFmpeg 250f ≈ 8s)
+        "-pix_fmt", "yuv420p",      # 4:2:0 chroma subsampling — חובה לאינסטגרם
+        "-colorspace", "bt709",     # BT.709 — תקן Microsoft ל-HD מעל 720p
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
         "-movflags", "+faststart",
         out,
     ]
@@ -240,10 +245,15 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
         "-map", map_out,
         "-an",
         "-c:v", "libx264",
+        "-profile:v", "high",       # H.264 High Profile — תקן ל-1080p
         "-crf", "18",
         "-preset", "fast",
         "-r", "30",
-        "-pix_fmt", "yuv420p",      # Instagram חובה: 4:2:0 chroma subsampling
+        "-g", "60",                 # GOP = 2s @ 30fps — תקן Azure/Teams
+        "-pix_fmt", "yuv420p",      # 4:2:0 chroma subsampling — חובה לאינסטגרם
+        "-colorspace", "bt709",     # BT.709 — תקן Microsoft ל-HD מעל 720p
+        "-color_primaries", "bt709",
+        "-color_trc", "bt709",
         "-movflags", "+faststart",
         output_path,
     ]
