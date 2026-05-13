@@ -38,7 +38,7 @@ os.environ.setdefault("TMP_DIR",                     "/tmp/dtor_debug")
 import config  # noqa: E402
 from pipeline.editor   import (  # noqa: E402
     create_reel, cut_clip, compile_reel,
-    _narrative_order, _get_source_fps, _get_duration,
+    _narrative_order, _get_source_fps, _get_duration, _pick_music,
 )
 
 # Mock all Google SDK modules before importing pipeline modules that depend on
@@ -397,6 +397,86 @@ def test_compile_reel() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 7b. music overlay
+# ══════════════════════════════════════════════════════
+
+def test_music_overlay() -> None:
+    section("7b / Music overlay (_pick_music + audio in reel)")
+
+    old_music_dir = getattr(config, "MUSIC_DIR", "music")
+
+    # ── no music dir → None ────────────────────────────
+    config.MUSIC_DIR = os.path.join(DEBUG_DIR, "music_nonexistent_xyz")
+    if _pick_music() is None:
+        ok("_pick_music — empty dir → None")
+    else:
+        fail("_pick_music — empty dir", "expected None")
+
+    # ── create synthetic mp3, verify pick ──────────────
+    music_dir = os.path.join(DEBUG_DIR, "music_test")
+    os.makedirs(music_dir, exist_ok=True)
+    test_mp3 = os.path.join(music_dir, "test_track.mp3")
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi", "-i", "sine=frequency=440:duration=30",
+         "-q:a", "0", test_mp3],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        fail("_pick_music", "could not generate test mp3")
+        config.MUSIC_DIR = old_music_dir
+        return
+
+    config.MUSIC_DIR = music_dir
+    picked = _pick_music()
+    if picked and Path(picked).exists():
+        ok("_pick_music — picks file from music dir", Path(picked).name)
+    else:
+        fail("_pick_music", f"expected file, got {picked}")
+
+    # ── compile_reel with music → verify audio stream ──
+    if not Path(VIDEO_60FPS).exists():
+        config.MUSIC_DIR = old_music_dir
+        return
+
+    events = [
+        {"type": "a", "start": 0.0,  "end": 7.0,  "score": 8, "description": ""},
+        {"type": "b", "start": 7.5,  "end": 14.0, "score": 6, "description": ""},
+    ]
+    clips = [cut_clip(VIDEO_60FPS, ev, index=i + 30, slowmo=False)
+             for i, ev in enumerate(events)]
+    clips = [c for c in clips if c and Path(c).exists()]
+
+    if len(clips) < 2:
+        fail("compile_reel with music", "clips not created")
+        config.MUSIC_DIR = old_music_dir
+        return
+
+    reel_out = os.path.join(DEBUG_DIR, "debug_music_reel.mp4")
+    result   = compile_reel(clips, config.LOGO_PATH, reel_out)
+
+    if result and Path(result).exists():
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_name",
+             "-of", "default=noprint_wrappers=1:nokey=1", result],
+            capture_output=True, text=True,
+        )
+        codec = probe.stdout.strip()
+        if codec:
+            ok("compile_reel with music — audio stream present", f"codec: {codec}")
+        else:
+            fail("compile_reel with music", "no audio stream in output")
+    else:
+        fail("compile_reel with music", "output not created")
+
+    for c in clips:
+        try: os.remove(c)
+        except OSError: pass
+
+    config.MUSIC_DIR = old_music_dir
+
+
+# ══════════════════════════════════════════════════════
 # 8. create_reel — end-to-end
 # ══════════════════════════════════════════════════════
 
@@ -537,6 +617,7 @@ if __name__ == "__main__":
     test_analyzer_parsing()
     test_cut_clip()
     test_compile_reel()
+    test_music_overlay()
     test_create_reel()
     test_email_html()
     test_client_matching()

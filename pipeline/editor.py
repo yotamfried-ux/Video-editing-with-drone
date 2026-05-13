@@ -3,8 +3,10 @@ pipeline/editor.py — FFmpeg reel compilation pipeline.
 חותך קליפים ל-9:16, slow-mo אוטומטי ל-60fps, סדר נרטיבי, crossfade.
 """
 
+import glob
 import logging
 import os
+import random
 import subprocess
 from pathlib import Path
 
@@ -58,6 +60,23 @@ def _clamp(start: float, end: float, video_path: str) -> tuple[float, float]:
     if end - start < 4:
         end = min(start + 4, total)
     return round(start, 2), round(end, 2)
+
+
+# ── music picker ──────────────────────────────────────────────────────────
+
+def _pick_music() -> str | None:
+    """בוחר אקראית קובץ מוזיקה מ-MUSIC_DIR. מחזיר None אם התיקייה ריקה/לא קיימת."""
+    music_dir = getattr(config, "MUSIC_DIR", "music")
+    files = (
+        glob.glob(os.path.join(music_dir, "*.mp3")) +
+        glob.glob(os.path.join(music_dir, "*.aac")) +
+        glob.glob(os.path.join(music_dir, "*.m4a"))
+    )
+    if not files:
+        return None
+    chosen = random.choice(files)
+    print(f"🎵 Music: {Path(chosen).name}")
+    return chosen
 
 
 # ── סדר נרטיבי ────────────────────────────────────────────────────────────
@@ -238,12 +257,25 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
         filter_complex = xfade_f
         map_out = "[xfout]"
 
+    music_path = _pick_music()
+    has_music  = bool(music_path)
+    music_idx  = n + (1 if has_logo else 0)
+    if has_music:
+        inputs += ["-i", music_path]
+        fade_st = max(0.0, total_dur - 2.0)
+        filter_complex += (
+            f";[{music_idx}:a]aloop=loop=-1:size=2000000000,"
+            f"atrim=duration={total_dur:.3f},"
+            f"afade=t=out:st={fade_st:.3f}:d=2[aout]"
+        )
+
+    music_tag = f" + 🎵 {Path(music_path).name}" if has_music else ""
     cmd = [
         "ffmpeg", "-y",
         *inputs,
         "-filter_complex", filter_complex,
         "-map", map_out,
-        "-an",
+        *(["-map", "[aout]"] if has_music else ["-an"]),
         "-c:v", "libx264",
         "-profile:v", "high",       # H.264 High Profile — תקן ל-1080p
         "-crf", "18",
@@ -254,11 +286,12 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
         "-colorspace", "bt709",     # BT.709 — תקן Microsoft ל-HD מעל 720p
         "-color_primaries", "bt709",
         "-color_trc", "bt709",
+        *(["-c:a", "aac", "-b:a", "192k", "-ar", "44100"] if has_music else []),
         "-movflags", "+faststart",
         output_path,
     ]
 
-    print(f"🎬 Compiling: {n} clip(s), {total_dur:.0f}s → {Path(output_path).name}")
+    print(f"🎬 Compiling: {n} clip(s), {total_dur:.0f}s → {Path(output_path).name}{music_tag}")
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
         if r.returncode != 0:

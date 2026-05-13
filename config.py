@@ -25,6 +25,7 @@ NOTIFY_EMAIL: str = os.getenv("NOTIFY_EMAIL", "")          # fallback client ema
 
 # ── Local paths ────────────────────────────────────────────────────────────
 LOGO_PATH: str = os.getenv("LOGO_PATH", "assets/logo.png")
+MUSIC_DIR: str = os.getenv("MUSIC_DIR", "music")
 TMP_DIR: str = os.getenv("TMP_DIR", "/tmp/dtor")
 PROCESSED_IDS_FILE: str = "processed.json"                 # local state file
 LOG_FILE: str = "logs/pipeline.log"
