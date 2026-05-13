@@ -39,7 +39,7 @@ import config  # noqa: E402
 from pipeline.editor   import (  # noqa: E402
     create_reel, cut_clip, compile_reel,
     _narrative_order, _get_source_fps, _get_duration, _pick_music,
-    _analyze_music, analyze_music_library,
+    _analyze_music, analyze_music_library, _compute_cut_times,
 )
 
 # Mock all Google SDK modules before importing pipeline modules that depend on
@@ -509,10 +509,11 @@ def test_music_analysis() -> None:
         fail("_analyze_music", "could not generate test mp3")
         return
 
-    # ── _analyze_music: basic output shape ────────────
+    # ── _analyze_music: basic output shape (no cuts) ──
     result = _analyze_music(test_mp3, SAMPLE_DUR)
 
-    required_keys = {"bpm", "start_sec", "atempo", "trim_dur", "needs_loop", "energy_score"}
+    required_keys = {"bpm", "start_sec", "atempo", "trim_dur", "needs_loop",
+                     "energy_score", "alignment_error"}
     if required_keys.issubset(result.keys()):
         ok("_analyze_music — returns all required keys")
     else:
@@ -542,6 +543,33 @@ def test_music_analysis() -> None:
         ok("_analyze_music — energy_score [0–1]", f"{result['energy_score']:.3f}")
     else:
         fail("_analyze_music — energy_score", f"unexpected: {result['energy_score']}")
+
+    # ── alignment_error None when no cuts provided ────
+    if result["alignment_error"] is None:
+        ok("_analyze_music — alignment_error None without cut_times")
+    else:
+        fail("_analyze_music — alignment_error", f"expected None, got {result['alignment_error']}")
+
+    # ── with cut_times: alignment_error is float ≥ 0 ─
+    sample_cuts = [7.0, 14.5]  # two cut points in a 30s reel
+    result_cuts = _analyze_music(test_mp3, SAMPLE_DUR, cut_times=sample_cuts)
+    ae = result_cuts["alignment_error"]
+    # sine wave has no beats → alignment may fall back (ae=None) or succeed (ae≥0)
+    if ae is None or ae >= 0.0:
+        ok("_analyze_music — alignment_error with cuts (float≥0 or None for beatless audio)",
+           f"{ae}")
+    else:
+        fail("_analyze_music — alignment_error with cuts", f"unexpected: {ae}")
+
+    # ── _compute_cut_times ───────────────────────────
+    durs = [8.0, 6.5, 7.0]
+    cuts = _compute_cut_times(durs)
+    # cut 0 = durs[0] - XFADE_DUR = 8.0 - 0.5 = 7.5
+    # cut 1 = cumulative(durs[0]+durs[1]-XFADE_DUR) - XFADE_DUR = (8+6.5-0.5) - 0.5 = 13.5
+    if len(cuts) == 2 and abs(cuts[0] - 7.5) < 0.01 and abs(cuts[1] - 13.5) < 0.01:
+        ok("_compute_cut_times — correct xfade offsets", str(cuts))
+    else:
+        fail("_compute_cut_times", f"expected [7.5, 13.5], got {cuts}")
 
     # ── analyze_music_library report ─────────────────
     old_music_dir   = getattr(config, "MUSIC_DIR", "music")
