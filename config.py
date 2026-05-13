@@ -10,6 +10,7 @@ load_dotenv()
 
 # ── Gemini AI (Google) ────────────────────────────────────────────────────
 GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
+GEMINI_MODEL: str   = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 
 # ── Google Service Account ─────────────────────────────────────────────────
 GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]

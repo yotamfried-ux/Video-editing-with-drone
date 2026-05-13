@@ -54,8 +54,8 @@ for _mod in [
 ]:
     sys.modules.setdefault(_mod, MagicMock())
 
-from pipeline.analyzer import _parse_analysis  # noqa: E402
-from pipeline.notifier import _build_html      # noqa: E402
+from pipeline.analyzer import _parse_analysis, _with_retry  # noqa: E402
+from pipeline.notifier import _build_html, send_summary_email  # noqa: E402
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 DEBUG_DIR     = config.TMP_DIR
@@ -694,6 +694,144 @@ def test_client_matching() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 11. _with_retry logic
+# ══════════════════════════════════════════════════════
+
+def test_retry_logic() -> None:
+    section("11 / Gemini retry logic (_with_retry)")
+
+    import unittest.mock as mock
+
+    # ── success on first attempt ──────────────────────
+    calls = [0]
+
+    def always_ok():
+        calls[0] += 1
+        return "ok"
+
+    try:
+        result = _with_retry(always_ok)
+        if result == "ok" and calls[0] == 1:
+            ok("_with_retry — success on first attempt")
+        else:
+            fail("_with_retry — success on first attempt", f"calls={calls[0]}, result={result}")
+    except Exception as e:
+        fail("_with_retry — success on first attempt", str(e))
+
+    # ── transient failure ×2 → success on 3rd attempt ─
+    counter = [0]
+
+    def fail_twice():
+        counter[0] += 1
+        if counter[0] < 3:
+            raise Exception("quota exceeded (429)")
+        return "recovered"
+
+    with mock.patch("time.sleep"):
+        try:
+            result = _with_retry(fail_twice)
+            if result == "recovered" and counter[0] == 3:
+                ok("_with_retry — transient ×2 → success on 3rd attempt")
+            else:
+                fail("_with_retry — transient retry", f"calls={counter[0]}, result={result}")
+        except Exception as e:
+            fail("_with_retry — transient retry", str(e))
+
+    # ── non-transient error → raises immediately (1 call) ─
+    counter2 = [0]
+
+    def non_transient():
+        counter2[0] += 1
+        raise ValueError("invalid input — not retryable")
+
+    try:
+        _with_retry(non_transient)
+        fail("_with_retry — non-transient", "expected exception, got none")
+    except ValueError:
+        if counter2[0] == 1:
+            ok("_with_retry — non-transient raises immediately (1 attempt)")
+        else:
+            fail("_with_retry — non-transient", f"called {counter2[0]} times, expected 1")
+    except Exception as e:
+        fail("_with_retry — non-transient", f"wrong exception type: {type(e).__name__}: {e}")
+
+    # ── exhausted: 3/3 transient → raises after 3 attempts ─
+    counter3 = [0]
+
+    def always_transient():
+        counter3[0] += 1
+        raise RuntimeError("503 service unavailable")
+
+    with mock.patch("time.sleep"):
+        try:
+            _with_retry(always_transient)
+            fail("_with_retry — exhausted", "expected exception, got none")
+        except RuntimeError:
+            if counter3[0] == 3:
+                ok("_with_retry — exhausted after 3 transient failures")
+            else:
+                fail("_with_retry — exhausted", f"called {counter3[0]} times, expected 3")
+        except Exception as e:
+            fail("_with_retry — exhausted", f"wrong exception: {e}")
+
+
+# ══════════════════════════════════════════════════════
+# 12. Batch email
+# ══════════════════════════════════════════════════════
+
+def test_batch_email() -> None:
+    section("12 / Batch email (_build_html multi-link + send_summary_email smoke)")
+
+    from unittest.mock import patch, MagicMock
+
+    links = [
+        "https://drive.google.com/file/reel1",
+        "https://drive.google.com/file/reel2",
+        "https://drive.google.com/file/reel3",
+    ]
+
+    # ── 3 links → 3 ▶ Reel buttons ───────────────────
+    html = _build_html(
+        clips_links=links,
+        sport_type="surfing",
+        video_name="3_video_batch.mp4",
+        is_owner=True,
+    )
+    btn_count = html.count("▶ Reel")
+    if btn_count == 3:
+        ok("_build_html 3 links → 3 buttons in HTML", f"found {btn_count}× '▶ Reel'")
+    else:
+        fail("_build_html 3 links → 3 buttons", f"found {btn_count} buttons, expected 3")
+
+    # ── all 3 URLs in HTML ────────────────────────────
+    if all(link in html for link in links):
+        ok("_build_html 3 links → all URLs present in HTML")
+    else:
+        fail("_build_html 3 links → URLs", "one or more link URLs missing from HTML")
+
+    # ── send_summary_email smoke test (mocked Gmail) ──
+    mock_svc = MagicMock()
+    with patch("pipeline.notifier._get_gmail_service", return_value=mock_svc):
+        try:
+            send_summary_email(
+                recipients  = [config.OWNER_EMAIL],
+                clips_links = links,
+                sport_type  = "surfing",
+                video_name  = "3_video_batch.mp4",
+            )
+            ok("send_summary_email 3 links — no exception raised")
+        except Exception as e:
+            fail("send_summary_email 3 links", str(e))
+
+    # ── exactly 1 Gmail send call for 1 recipient ─────
+    send_calls = mock_svc.users.return_value.messages.return_value.send.call_args_list
+    if len(send_calls) == 1:
+        ok("send_summary_email 3 links — exactly 1 send() call for 1 recipient")
+    else:
+        fail("send_summary_email send count", f"expected 1 call, got {len(send_calls)}")
+
+
+# ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
 
@@ -737,6 +875,8 @@ if __name__ == "__main__":
     test_create_reel()
     test_email_html()
     test_client_matching()
+    test_retry_logic()
+    test_batch_email()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

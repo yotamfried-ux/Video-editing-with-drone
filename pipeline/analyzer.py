@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 genai.configure(api_key=config.GEMINI_API_KEY)
 
-_MODEL        = "gemini-2.5-pro"   # native video understanding
+_MODEL        = config.GEMINI_MODEL   # native video understanding
 _MIN_CLIP_SEC = 6.0
 
 _ANALYSIS_PROMPT = """
@@ -90,6 +90,22 @@ def _delete_video(video_file) -> None:
         logger.warning("Could not delete Gemini file %s: %s", video_file.name, e)
 
 
+def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
+    """Retry fn() on transient Gemini errors (429 / quota / 503) with exponential back-off."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as e:
+            transient = any(x in str(e).lower()
+                            for x in ["429", "quota", "503", "unavailable", "resource exhausted"])
+            if not transient or attempt == attempts:
+                raise
+            delay = base_delay * (2 ** (attempt - 1))   # 4s, 8s, 16s
+            print(f"  ⏳ Gemini error ({attempt}/{attempts}), retry in {delay}s...")
+            logger.warning("Gemini transient error, retry %d/%d in %ds: %s", attempt, attempts, delay, e)
+            time.sleep(delay)
+
+
 def _parse_analysis(raw_text: str) -> dict:
     """מנתח את תשובת ה-JSON של Gemini; מסיר markdown fences אם יש."""
     text = raw_text.strip()
@@ -134,15 +150,15 @@ def analyze_video(video_path: str) -> dict:
     video_file = None
     try:
         # 1. העלאה ל-Gemini Files API
-        video_file = _upload_video(video_path)
+        video_file = _with_retry(lambda: _upload_video(video_path))
 
         # 2. שליחה למודל
         model    = genai.GenerativeModel(model_name=_MODEL)
         print("🎬 Sending to Gemini for highlight detection...")
-        response = model.generate_content(
+        response = _with_retry(lambda: model.generate_content(
             [video_file, _ANALYSIS_PROMPT],
             request_options={"timeout": 300},
-        )
+        ))
 
         raw_text = response.text
         logger.debug("Gemini raw response: %s", raw_text)

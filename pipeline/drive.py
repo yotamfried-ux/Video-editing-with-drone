@@ -47,12 +47,31 @@ def _save_processed_ids(ids: set[str]) -> None:
         json.dump(list(ids), f, indent=2)
 
 
+def _sync_processed_from_drive(service) -> set[str]:
+    """
+    Query PROCESSED_FOLDER_ID and return the set of file IDs found there.
+    Drive is source of truth; processed.json is a local cache.
+    Returns an empty set silently on failure.
+    """
+    try:
+        query = f"'{config.PROCESSED_FOLDER_ID}' in parents and trashed = false"
+        result = (
+            service.files()
+            .list(q=query, fields="files(id)", pageSize=1000)
+            .execute()
+        )
+        return {f["id"] for f in result.get("files", [])}
+    except Exception as e:
+        logger.warning("⚠️ Could not sync processed IDs from Drive: %s", e)
+        return set()
+
+
 # ── Public API ─────────────────────────────────────────────────────────────
 
 def get_new_videos() -> list[dict]:
     """
     Scan RAW_FOLDER_ID for video files.
-    Skip any file IDs already recorded in processed.json.
+    Skip any file IDs already recorded in processed.json or found in PROCESSED_FOLDER_ID.
     Returns list of Drive file metadata dicts.
     """
     print("📁 Scanning RAW folder for new videos...")
@@ -60,6 +79,15 @@ def get_new_videos() -> list[dict]:
 
     try:
         service = _get_drive_service()
+
+        # Recover IDs that are in Drive PROCESSED folder but missing from the local cache
+        drive_ids = _sync_processed_from_drive(service)
+        recovered = drive_ids - already_done
+        if recovered:
+            logger.info("Recovered %d processed IDs from Drive PROCESSED folder", len(recovered))
+            _save_processed_ids(already_done | recovered)
+            already_done |= recovered
+
         query = (
             f"'{config.RAW_FOLDER_ID}' in parents "
             "and mimeType contains 'video/' "

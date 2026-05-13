@@ -131,31 +131,37 @@ def main() -> None:
         return
 
     total_reels = 0
+    owner_reels: list[dict] = []
 
     for video_meta in new_videos:
-        result    = process_video(video_meta)
-        reel_link = result["reel_link"]
-        sport     = result["sport"]
-        filename  = result["filename"]
-
-        if not reel_link:
+        result = process_video(video_meta)
+        if not result["reel_link"]:
             continue
 
         total_reels += 1
+        owner_reels.append(result)
 
-        # נמענים: תמיד הבעלים, + הלקוח אם נמצא ב-clients.json
-        client     = _find_client(filename)
-        recipients = [config.OWNER_EMAIL]
+        # לקוח — מייל פרטני, הריל שלו בלבד
+        client = _find_client(result["filename"])
         if client and client.get("email") and client["email"] != config.OWNER_EMAIL:
-            recipients.append(client["email"])
+            send_summary_email(
+                recipients  = [client["email"]],
+                clips_links = [result["reel_link"]],
+                sport_type  = result["sport"],
+                video_name  = result["filename"],
+            )
         else:
-            print("📧 No client match — sending to owner only")
+            print("📧 No client match — reel included in owner summary")
 
+    # בעלים — מייל אחד עם כל הרילים מהריצה
+    if owner_reels:
+        sport_tag = owner_reels[0]["sport"] if len(owner_reels) == 1 else "mixed"
+        name_tag  = owner_reels[0]["filename"] if len(owner_reels) == 1 else f"{len(owner_reels)} videos"
         send_summary_email(
-            recipients  = recipients,
-            clips_links = [reel_link],   # ריל אחד
-            sport_type  = sport,
-            video_name  = filename,
+            recipients  = [config.OWNER_EMAIL],
+            clips_links = [r["reel_link"] for r in owner_reels],
+            sport_type  = sport_tag,
+            video_name  = name_tag,
         )
 
     if total_reels:
