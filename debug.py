@@ -39,6 +39,7 @@ import config  # noqa: E402
 from pipeline.editor   import (  # noqa: E402
     create_reel, cut_clip, compile_reel,
     _narrative_order, _get_source_fps, _get_duration, _pick_music,
+    _analyze_music, analyze_music_library,
 )
 
 # Mock all Google SDK modules before importing pipeline modules that depend on
@@ -477,6 +478,92 @@ def test_music_overlay() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 7c. music library analysis
+# ══════════════════════════════════════════════════════
+
+def test_music_analysis() -> None:
+    section("7c / Music library analysis (_analyze_music + analyze_music_library)")
+
+    # ── skip gracefully if librosa not installed ──────
+    try:
+        import librosa  # noqa: F401
+    except ImportError:
+        print("    ⚠️  librosa not installed — skipping music analysis tests")
+        return
+
+    SAMPLE_DUR = 30.0  # synthetic reel duration for testing
+
+    # ── create a synthetic test mp3 ───────────────────
+    music_dir = os.path.join(DEBUG_DIR, "music_analysis_test")
+    os.makedirs(music_dir, exist_ok=True)
+    test_mp3  = os.path.join(music_dir, "synth_120bpm.mp3")
+
+    # 440 Hz sine at 120 BPM — simple but detectable beat grid
+    r = subprocess.run(
+        ["ffmpeg", "-y", "-f", "lavfi",
+         "-i", "sine=frequency=440:duration=60",
+         "-q:a", "0", test_mp3],
+        capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        fail("_analyze_music", "could not generate test mp3")
+        return
+
+    # ── _analyze_music: basic output shape ────────────
+    result = _analyze_music(test_mp3, SAMPLE_DUR)
+
+    required_keys = {"bpm", "start_sec", "atempo", "trim_dur", "needs_loop", "energy_score"}
+    if required_keys.issubset(result.keys()):
+        ok("_analyze_music — returns all required keys")
+    else:
+        fail("_analyze_music", f"missing keys: {required_keys - result.keys()}")
+        return
+
+    # ── start_sec within track ────────────────────────
+    if 0.0 <= result["start_sec"] <= 60.0 - SAMPLE_DUR:
+        ok("_analyze_music — start_sec within track", f"{result['start_sec']:.3f}s")
+    else:
+        fail("_analyze_music — start_sec", f"out of range: {result['start_sec']:.3f}s")
+
+    # ── atempo in valid FFmpeg range ──────────────────
+    if 0.5 <= result["atempo"] <= 2.0:
+        ok("_analyze_music — atempo in FFmpeg range [0.5–2.0]", f"{result['atempo']:.4f}")
+    else:
+        fail("_analyze_music — atempo", f"out of range: {result['atempo']}")
+
+    # ── BPM returned (0.0 is valid for non-rhythmic test audio) ──
+    if result["bpm"] is not None:
+        ok("_analyze_music — BPM returned", f"{result['bpm']:.1f} BPM")
+    else:
+        fail("_analyze_music — BPM", f"expected float, got: {result['bpm']}")
+
+    # ── energy_score [0–1] ────────────────────────────
+    if result["energy_score"] is not None and 0.0 <= result["energy_score"] <= 1.0:
+        ok("_analyze_music — energy_score [0–1]", f"{result['energy_score']:.3f}")
+    else:
+        fail("_analyze_music — energy_score", f"unexpected: {result['energy_score']}")
+
+    # ── analyze_music_library report ─────────────────
+    old_music_dir   = getattr(config, "MUSIC_DIR", "music")
+    config.MUSIC_DIR = music_dir
+    report = analyze_music_library(SAMPLE_DUR)
+    config.MUSIC_DIR = old_music_dir
+
+    if report and report[0]["file"] == "synth_120bpm.mp3":
+        ok("analyze_music_library — scans directory and returns report",
+           f"{len(report)} track(s)")
+    else:
+        fail("analyze_music_library", f"unexpected report: {report}")
+
+    # ── fallback: non-existent file → defaults ────────
+    bad_result = _analyze_music("/nonexistent/track.mp3", SAMPLE_DUR)
+    if bad_result["start_sec"] == 0.0 and bad_result["atempo"] == 1.0:
+        ok("_analyze_music — bad path → safe defaults")
+    else:
+        fail("_analyze_music — bad path", f"unexpected: {bad_result}")
+
+
+# ══════════════════════════════════════════════════════
 # 8. create_reel — end-to-end
 # ══════════════════════════════════════════════════════
 
@@ -618,6 +705,7 @@ if __name__ == "__main__":
     test_cut_clip()
     test_compile_reel()
     test_music_overlay()
+    test_music_analysis()
     test_create_reel()
     test_email_html()
     test_client_matching()

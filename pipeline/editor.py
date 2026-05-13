@@ -79,7 +79,139 @@ def _pick_music() -> str | None:
     return chosen
 
 
-# ── סדר נרטיבי ────────────────────────────────────────────────────────────
+def _analyze_music(mp3_path: str, video_duration: float) -> dict:
+    """
+    Analyzes a music file and returns optimal overlay parameters for a given video duration.
+
+    Algorithm:
+      1. Detect BPM and beat grid via librosa.
+      2. Find the highest-energy window of video_duration length (the "drop").
+      3. Snap start to the nearest beat on-grid.
+      4. Compute atempo factor if available audio is slightly off (±10% max).
+
+    Returns dict with keys:
+      bpm         — detected BPM (float) or None if librosa unavailable
+      start_sec   — where to start playing the track (beat-snapped)
+      atempo      — FFmpeg atempo factor (0.90–1.10, or 1.0 if no stretch needed)
+      trim_dur    — seconds to read from source before atempo (None if needs_loop)
+      needs_loop  — True when track is too short even after max stretch
+      energy_score — normalized energy of the selected window [0–1]
+    """
+    _default = {
+        "bpm": None, "start_sec": 0.0, "atempo": 1.0,
+        "trim_dur": video_duration, "needs_loop": False, "energy_score": None,
+    }
+    try:
+        import librosa
+        import numpy as np
+        from numpy.lib.stride_tricks import sliding_window_view
+    except ImportError:
+        print("  ⚠️  librosa not installed — naive music start (pip install librosa soundfile)")
+        return _default
+
+    try:
+        y, sr = librosa.load(mp3_path, sr=None)
+        hop_length = 512
+        total_dur = float(len(y) / sr)
+
+        # ── BPM + beats ───────────────────────────────────────────────────
+        tempo, beat_times = librosa.beat.beat_track(
+            y=y, sr=sr, units="time", hop_length=hop_length,
+        )
+        bpm = float(np.squeeze(tempo))
+
+        # ── highest-energy window (the "drop") ────────────────────────────
+        onset_env    = librosa.onset.onset_strength(y=y, sr=sr, hop_length=hop_length)
+        window_frames = int(video_duration * sr / hop_length)
+
+        if len(onset_env) > window_frames:
+            windows      = sliding_window_view(onset_env, window_frames)
+            window_means = windows.mean(axis=1)
+            best_frame   = int(np.argmax(window_means))
+            energy_score = float(window_means[best_frame] / (np.max(window_means) + 1e-9))
+        else:
+            best_frame   = 0
+            energy_score = 1.0
+
+        start_sec = float(librosa.frames_to_time(best_frame, sr=sr, hop_length=hop_length))
+
+        # ── snap start to nearest beat ────────────────────────────────────
+        beats_after = beat_times[beat_times >= start_sec]
+        if len(beats_after):
+            start_sec = float(beats_after[0])
+
+        available = total_dur - start_sec
+
+        if available >= video_duration:
+            # Track long enough — trim exactly, no stretch
+            return {
+                "bpm": round(bpm, 1), "start_sec": round(start_sec, 3),
+                "atempo": 1.0,        "trim_dur": video_duration,
+                "needs_loop": False,  "energy_score": round(energy_score, 3),
+            }
+        elif available >= video_duration * 0.9:
+            # Slightly short — slow down ≤10% to fill the reel
+            atempo = round(available / video_duration, 4)  # < 1.0
+            return {
+                "bpm": round(bpm, 1), "start_sec": round(start_sec, 3),
+                "atempo": atempo,     "trim_dur": round(available, 3),
+                "needs_loop": False,  "energy_score": round(energy_score, 3),
+            }
+        else:
+            # Too short even after stretch — fall back to looping from start_sec
+            return {
+                "bpm": round(bpm, 1), "start_sec": round(start_sec, 3),
+                "atempo": 1.0,        "trim_dur": None,
+                "needs_loop": True,   "energy_score": round(energy_score, 3),
+            }
+
+    except Exception as e:
+        logger.warning("Music analysis failed for %s: %s", Path(mp3_path).name, e)
+        return _default
+
+
+def analyze_music_library(video_duration: float) -> list[dict]:
+    """
+    סורק את MUSIC_DIR, מנתח כל שיר ומחזיר דוח כושר-הלבשה לריל באורך video_duration.
+    מועיל כדי להחליט איזה שיר להכניס לספרייה ואיך הוא יתנהג.
+    """
+    music_dir = getattr(config, "MUSIC_DIR", "music")
+    files = (
+        glob.glob(os.path.join(music_dir, "*.mp3")) +
+        glob.glob(os.path.join(music_dir, "*.aac")) +
+        glob.glob(os.path.join(music_dir, "*.m4a"))
+    )
+    if not files:
+        print(f"⚠️  No music files found in '{music_dir}'")
+        return []
+
+    print(f"\n🎵 Music Library Analysis — target reel: {video_duration:.0f}s")
+    print(f"   Found {len(files)} track(s) in '{music_dir}'\n")
+
+    results = []
+    for path in sorted(files):
+        name = Path(path).name
+        info = _analyze_music(path, video_duration)
+
+        bpm_str   = f"{info['bpm']:.0f} BPM" if info["bpm"] else "? BPM"
+        start_str = f"start @ {info['start_sec']:.1f}s"
+        if info["needs_loop"]:
+            fit_str = "🔁 loop needed (track too short)"
+        elif abs(info["atempo"] - 1.0) < 0.005:
+            fit_str = "✅ perfect fit"
+        elif info["atempo"] < 1.0:
+            pct = round((1 - info["atempo"]) * 100, 1)
+            fit_str = f"🐌 slow down {pct}% to fill reel"
+        else:
+            pct = round((info["atempo"] - 1) * 100, 1)
+            fit_str = f"⚡ speed up {pct}% to trim to reel"
+
+        energy_str = f"energy={info['energy_score']:.2f}" if info["energy_score"] is not None else ""
+        print(f"  🎵 {name}")
+        print(f"     {bpm_str} · {start_str} · {fit_str} · {energy_str}")
+        results.append({"file": name, **info})
+
+    return results
 
 def _narrative_order(events: list[dict]) -> list[dict]:
     """
@@ -261,13 +393,39 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
     has_music  = bool(music_path)
     music_idx  = n + (1 if has_logo else 0)
     if has_music:
-        inputs += ["-i", music_path]
+        mx      = _analyze_music(music_path, total_dur)
         fade_st = max(0.0, total_dur - 2.0)
-        filter_complex += (
-            f";[{music_idx}:a]aloop=loop=-1:size=2000000000,"
-            f"atrim=duration={total_dur:.3f},"
-            f"afade=t=out:st={fade_st:.3f}:d=2[aout]"
-        )
+
+        if mx["needs_loop"]:
+            # שיר קצר מדי — loop מנקודת ה-drop
+            audio_f = (
+                f"atrim=start={mx['start_sec']:.3f},"
+                f"aloop=loop=-1:size=2000000000,"
+                f"atrim=duration={total_dur:.3f},"
+                f"afade=t=out:st={fade_st:.3f}:d=2"
+            )
+        elif abs(mx["atempo"] - 1.0) > 0.005:
+            # stretch קל (±10%) כדי להתאים בדיוק לריל
+            audio_f = (
+                f"atrim=start={mx['start_sec']:.3f}:duration={mx['trim_dur']:.3f},"
+                f"atempo={mx['atempo']:.4f},"
+                f"afade=t=out:st={fade_st:.3f}:d=2"
+            )
+        else:
+            # trim מדויק ממקום ה-drop — ללא stretch
+            audio_f = (
+                f"atrim=start={mx['start_sec']:.3f}:duration={total_dur:.3f},"
+                f"afade=t=out:st={fade_st:.3f}:d=2"
+            )
+
+        inputs += ["-i", music_path]
+        filter_complex += f";[{music_idx}:a]{audio_f}[aout]"
+
+        bpm_str   = f"{mx['bpm']:.0f}bpm" if mx["bpm"] else "?"
+        fit_label = ("loop" if mx["needs_loop"]
+                     else f"×{mx['atempo']:.3f}" if abs(mx["atempo"] - 1.0) > 0.005
+                     else "exact")
+        print(f"🎵 {Path(music_path).name} — {bpm_str}, drop@{mx['start_sec']:.1f}s, {fit_label}")
 
     music_tag = f" + 🎵 {Path(music_path).name}" if has_music else ""
     cmd = [
