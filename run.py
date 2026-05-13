@@ -82,7 +82,7 @@ def process_video(file_meta: dict) -> dict:
 
     # 2. ניתוח עם Claude
     analysis = analyze_video(local_path)
-    sport    = analysis.get("sport", "unknown")
+    sport    = analysis.get("activity", "unknown")   # ספורט-אגנוסטי
     events   = analysis.get("events", [])
 
     if not events:

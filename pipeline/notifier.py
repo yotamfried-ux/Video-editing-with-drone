@@ -17,13 +17,24 @@ logger = logging.getLogger(__name__)
 
 _SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
-_SPORT_EMOJI = {
-    "surfing":  "🏄",
-    "football": "🏈",
-    "mixed":    "🎬",
-    "other":    "🎬",
-    "unknown":  "🎬",
+_ACTIVITY_EMOJI = {
+    "surfing":       "🏄",
+    "football":      "⚽",
+    "soccer":        "⚽",
+    "basketball":    "🏀",
+    "skateboarding": "🛹",
+    "skiing":        "⛷️",
+    "snowboarding":  "🏂",
+    "parkour":       "🏃",
+    "cycling":       "🚴",
+    "motocross":     "🏍️",
+    "mixed":         "🎬",
+    "other":         "🎬",
+    "unknown":       "🎬",
 }
+
+# backward compat alias
+_SPORT_EMOJI = _ACTIVITY_EMOJI
 
 
 def _get_gmail_service(sender_email: str):
@@ -45,7 +56,7 @@ def _build_html(
     video_name: str,
     is_owner: bool,
 ) -> str:
-    emoji = _SPORT_EMOJI.get(sport_type, "🎬")
+    emoji = _ACTIVITY_EMOJI.get(sport_type, "🎬")
     clip_rows = ""
     for i, link in enumerate(clips_links, start=1):
         label = "▶ Watch / Download Reel" if len(clips_links) == 1 else f"▶ Reel {i}"

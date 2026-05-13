@@ -1,6 +1,7 @@
 """
 pipeline/analyzer.py — Claude vision-based video analysis.
-מחלץ פריימים מהסרטון ושולח ל-Claude לניתוח רגעי שיא במקום Gemini.
+גישה: scene detection → clustering → Claude על פריימים ממוקדים.
+ספורט-אגנוסטי: עובד לכל סוג פעילות.
 """
 
 import base64
@@ -10,50 +11,57 @@ import os
 import re
 import shutil
 import subprocess
+from pathlib import Path
 
 import anthropic
 
 import config
 
 logger = logging.getLogger(__name__)
-
 _client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
+# ── הגדרות ─────────────────────────────────────────────────────────────────
+_SCENE_THRESHOLD = 0.22  # רגישות לשינוי ויזואלי (0-1, נמוך = יותר פריימים)
+_MAX_FRAMES      = 24    # מקסימום פריימים שנשלחים ל-Claude
+_MIN_GAP_SEC     = 4.0   # מרווח מינימלי בין פריימים נבחרים (שניות)
+_MIN_CLIP_SEC    = 6.0   # משך מינימלי לקליפ (Claude מתבקש לשמור על זה)
+
 _ANALYSIS_PROMPT = """
-You are a sports video editor assistant. I'm sending you frames extracted from drone footage.
-Each frame is labeled with its timestamp in seconds — use these to estimate highlight start/end times.
+You are a video editor assistant analyzing drone footage. I'm sending you frames extracted at moments of significant visual change. Each frame is labeled with its timestamp in seconds.
 
-Detect the sport type: either "surfing" or "football" (soccer). If neither, use "other".
+Your job — sport/activity agnostic:
+1. Identify what activity is being filmed (describe naturally: "surfing", "football", "skateboarding", "parkour", "basketball", "skiing", etc.)
+2. Select up to 6 of the most visually exciting or action-packed moments
+3. For each moment, use the frame timestamps to estimate start and end time
 
-Find up to 6 highlight moments. Each highlight must be at least 4 seconds long.
-For each moment return:
-- type: brief label (e.g. "wave_catch", "aerial", "tube_ride", "goal", "key_play")
-- start: start time in seconds (float) — based on nearest frame timestamp
-- end: end time in seconds (float, at least 4s after start)
-- score: excitement score 1-10 (integer)
-- description: one sentence in English describing the highlight
+For each highlight:
+- type: short snake_case label for the specific action (e.g. "wave_catch", "goal", "kickflip", "sprint")
+- start: estimated start in seconds — go 1-2s BEFORE the key frame so we capture the buildup
+- end: estimated end in seconds — at least 6s after start to capture the followthrough
+- score: visual excitement 1-10
+- description: one sentence describing exactly what is happening
 
-Respond ONLY with valid JSON (no markdown fences, no extra text):
+Return ONLY valid JSON, no markdown:
 {
-  "sport": "surfing",
+  "activity": "surfing",
   "events": [
     {
-      "type": "wave_catch",
-      "start": 12.0,
-      "end": 22.0,
-      "score": 8,
-      "description": "Surfer drops into a large set wave and executes a powerful bottom turn."
+      "type": "aerial",
+      "start": 23.0,
+      "end": 31.0,
+      "score": 9,
+      "description": "Surfer launches off the lip and performs a full aerial rotation."
     }
   ]
 }
+
+If you see no clear action highlights, return: {"activity": "unknown", "events": []}
 """
 
-_MAX_FRAMES = 16   # Claude's vision handles up to ~20 images well
-_FRAME_FPS  = 0.5  # default: one frame every 2 seconds
 
+# ── utils ──────────────────────────────────────────────────────────────────
 
 def _get_video_duration(video_path: str) -> float:
-    """Use ffprobe to get video duration in seconds."""
     cmd = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
@@ -61,68 +69,153 @@ def _get_video_duration(video_path: str) -> float:
         video_path,
     ]
     try:
-        out = subprocess.check_output(cmd, text=True, timeout=30).strip()
-        return float(out)
+        return float(subprocess.check_output(cmd, text=True, timeout=30).strip())
     except Exception:
-        return 60.0  # fallback assumption
+        return 60.0
 
 
-def _extract_frames(video_path: str) -> list[tuple[float, str]]:
-    """
-    Extract up to _MAX_FRAMES evenly-spaced JPEG frames from the video.
-    Returns list of (timestamp_seconds, base64_jpeg_string).
-    """
-    frames_dir = os.path.join(config.TMP_DIR, "_frames")
-    os.makedirs(frames_dir, exist_ok=True)
-
-    # Clean up any leftover frames from a previous run
-    for f in os.listdir(frames_dir):
+def _clear_dir(path: str) -> None:
+    for f in Path(path).glob("*"):
         try:
-            os.remove(os.path.join(frames_dir, f))
+            f.unlink()
         except OSError:
             pass
 
-    duration = _get_video_duration(video_path)
-    # Spread _MAX_FRAMES evenly; never exceed _FRAME_FPS
-    actual_fps = min(_FRAME_FPS, _MAX_FRAMES / max(duration, 1))
-    interval = 1.0 / actual_fps
+
+# ── Pass 1: scene detection ────────────────────────────────────────────────
+
+def _extract_scene_frames(video_path: str) -> list[tuple[float, str]]:
+    """
+    מחלץ פריימים ב-timestamps של שינוי ויזואלי משמעותי.
+    משתמש ב-FFmpeg select='gt(scene,threshold)' + showinfo לקבלת timestamps מדויקים.
+    מחזיר רשימה של (timestamp_seconds, base64_jpeg).
+    """
+    frames_dir = os.path.join(config.TMP_DIR, "_frames")
+    os.makedirs(frames_dir, exist_ok=True)
+    _clear_dir(frames_dir)
 
     cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-vf", f"fps={actual_fps},scale=640:-1",
-        "-frames:v", str(_MAX_FRAMES),
-        "-q:v", "5",                          # JPEG quality (2=best, 31=worst)
-        os.path.join(frames_dir, "frame_%04d.jpg"),
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", (
+            f"select='gt(scene,{_SCENE_THRESHOLD})',"
+            f"showinfo,"          # מדפיס pts_time ל-stderr בסדר הפריימים
+            f"scale=640:-1"
+        ),
+        "-vsync", "vfr",
+        "-q:v", "4",
+        "-frames:v", "64",       # תקרה גבוהה — נסנן אחר-כך
+        os.path.join(frames_dir, "scene_%04d.jpg"),
     ]
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-        if result.returncode != 0:
-            logger.error("FFmpeg frame extraction stderr: %s", result.stderr[-500:])
-    except subprocess.TimeoutExpired:
-        logger.error("FFmpeg frame extraction timed out")
-        return []
-    except FileNotFoundError:
-        logger.error("FFmpeg not found — install it first")
-        print("❌ FFmpeg not found. Please install FFmpeg.")
-        return []
 
-    frames: list[tuple[float, str]] = []
-    for i, fname in enumerate(sorted(f for f in os.listdir(frames_dir) if f.endswith(".jpg"))):
-        ts = round(i * interval, 2)
-        fpath = os.path.join(frames_dir, fname)
+    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+
+    # parse timestamps מ-showinfo בסדר הפריימים
+    raw_ts: list[float] = []
+    for line in result.stderr.split("\n"):
+        m = re.search(r"pts_time:([\d.]+)", line)
+        if m:
+            raw_ts.append(float(m.group(1)))
+
+    frame_files = sorted(Path(frames_dir).glob("scene_*.jpg"))
+    n = min(len(frame_files), len(raw_ts))
+
+    pairs: list[tuple[float, str]] = []
+    for i in range(n):
         try:
-            with open(fpath, "rb") as img:
-                b64 = base64.standard_b64encode(img.read()).decode()
-            frames.append((ts, b64))
+            b64 = base64.standard_b64encode(frame_files[i].read_bytes()).decode()
+            pairs.append((round(raw_ts[i], 2), b64))
         except OSError:
             continue
 
-    shutil.rmtree(frames_dir, ignore_errors=True)
+    return pairs
 
-    print(f"🎬 Extracted {len(frames)} frames (1 every {interval:.1f}s) from {os.path.basename(video_path)}")
+
+# ── Pass 2: clustering ─────────────────────────────────────────────────────
+
+def _cluster(frames: list[tuple[float, str]], min_gap: float = _MIN_GAP_SEC) -> list[tuple[float, str]]:
+    """
+    מסנן פריימים קרובים מדי.
+    שומר רק פריים אחד לכל חלון של min_gap שניות.
+    כך אנחנו מקבלים כיסוי שווה לאורך הסרטון ולא ריכוז של פריימים ברגע שינוי אחד.
+    """
+    if not frames:
+        return []
+    kept = [frames[0]]
+    for ts, b64 in frames[1:]:
+        if ts - kept[-1][0] >= min_gap:
+            kept.append((ts, b64))
+    return kept
+
+
+# ── Fallback: even sampling ────────────────────────────────────────────────
+
+def _even_frames(video_path: str, n: int = 16) -> list[tuple[float, str]]:
+    """
+    גיבוי כשscene detection מחזיר פחות מדי פריימים (סרטון סטטי / ערפל).
+    דגימה שווה לאורך הסרטון.
+    """
+    frames_dir = os.path.join(config.TMP_DIR, "_frames")
+    os.makedirs(frames_dir, exist_ok=True)
+    _clear_dir(frames_dir)
+
+    duration   = _get_video_duration(video_path)
+    actual_fps = min(0.5, n / max(duration, 1))
+    interval   = 1.0 / actual_fps
+
+    cmd = [
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", f"fps={actual_fps},scale=640:-1",
+        "-frames:v", str(n),
+        "-q:v", "5",
+        os.path.join(frames_dir, "frame_%04d.jpg"),
+    ]
+    subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+
+    frames: list[tuple[float, str]] = []
+    for i, f in enumerate(sorted(Path(frames_dir).glob("frame_*.jpg"))):
+        try:
+            b64 = base64.standard_b64encode(f.read_bytes()).decode()
+            frames.append((round(i * interval, 2), b64))
+        except OSError:
+            continue
     return frames
 
+
+# ── Main extraction ────────────────────────────────────────────────────────
+
+def _extract_frames(video_path: str) -> list[tuple[float, str]]:
+    """
+    לוגיקת הבחירה המלאה:
+    1. Scene detection
+    2. Clustering — מסנן פריימים קרובים
+    3. גיבוי לדגימה שווה אם נמצאו פחות מ-5 פריימים
+    4. תת-דגימה ל-_MAX_FRAMES אם יש יותר מדי
+    """
+    duration = _get_video_duration(video_path)
+    print(f"🎬 Scene detection on '{Path(video_path).name}' ({duration:.0f}s)...")
+
+    frames = _extract_scene_frames(video_path)
+    frames = _cluster(frames, min_gap=_MIN_GAP_SEC)
+
+    if len(frames) < 5:
+        # scene detection לא מצא מספיק — מוסיפים דגימה שווה
+        print(f"⚠️ Only {len(frames)} scene-change frames — supplementing with even sampling")
+        even   = _even_frames(video_path, n=16)
+        merged = sorted(frames + even, key=lambda x: x[0])
+        frames = _cluster(merged, min_gap=_MIN_GAP_SEC)
+
+    # תת-דגימה שווה אם יותר מ-_MAX_FRAMES
+    if len(frames) > _MAX_FRAMES:
+        step   = len(frames) / _MAX_FRAMES
+        frames = [frames[int(i * step)] for i in range(_MAX_FRAMES)]
+
+    shutil.rmtree(os.path.join(config.TMP_DIR, "_frames"), ignore_errors=True)
+
+    print(f"✅ {len(frames)} action frames selected across {duration:.0f}s")
+    return frames
+
+
+# ── Parse ──────────────────────────────────────────────────────────────────
 
 def _parse_analysis(raw_text: str) -> dict:
     """Parse Claude's JSON response; strips markdown fences if present."""
@@ -132,15 +225,18 @@ def _parse_analysis(raw_text: str) -> dict:
 
     data = json.loads(text)
 
-    if "sport" not in data or "events" not in data:
-        raise ValueError("Response missing 'sport' or 'events'")
+    # תמיכה ב-"activity" (חדש) וב-"sport" (לגאסי)
+    activity = str(data.get("activity") or data.get("sport") or "other").lower()
+
+    if "events" not in data:
+        raise ValueError("Response missing 'events'")
 
     cleaned: list[dict] = []
     for ev in data["events"][:6]:
         start = float(ev.get("start", 0))
         end   = float(ev.get("end", start + 10))
-        if end - start < 4:
-            end = start + 4
+        if end - start < _MIN_CLIP_SEC:
+            end = start + _MIN_CLIP_SEC
         cleaned.append({
             "type":        str(ev.get("type", "highlight")),
             "start":       round(start, 2),
@@ -150,70 +246,64 @@ def _parse_analysis(raw_text: str) -> dict:
         })
 
     cleaned.sort(key=lambda x: x["score"], reverse=True)
-    return {
-        "sport":  str(data.get("sport", "other")).lower(),
-        "events": cleaned,
-    }
+    return {"activity": activity, "events": cleaned}
 
+
+# ── Public API ─────────────────────────────────────────────────────────────
 
 def analyze_video(video_path: str) -> dict:
     """
-    Extract frames from the video and send to Claude for highlight detection.
+    מנתח סרטון ומחזיר רגעי שיא + סוג פעילות.
+    ספורט-אגנוסטי: עובד לכל פעילות.
 
     Returns:
         {
-            "sport": "surfing" | "football" | "other",
-            "events": [{"type", "start", "end", "score", "description"}, ...]
+            "activity": str,   # "surfing", "football", "skateboarding", ...
+            "events": [
+                {"type": str, "start": float, "end": float,
+                 "score": int, "description": str}
+            ]
         }
-    Returns {"sport": "unknown", "events": []} on any failure.
     """
-    print(f"🎬 Analyzing video with Claude: {video_path}")
+    print(f"🎬 Analyzing: {Path(video_path).name}")
 
     try:
         frames = _extract_frames(video_path)
         if not frames:
-            logger.error("No frames extracted from %s", video_path)
-            return {"sport": "unknown", "events": []}
+            return {"activity": "unknown", "events": []}
 
-        # Build message: [timestamp label] [image] ... [prompt]
+        # בניית הודעה: [timestamp] [תמונה] ... [prompt]
         content: list[dict] = []
         for ts, b64 in frames:
-            content.append({"type": "text", "text": f"[Frame at {ts}s]"})
+            content.append({"type": "text", "text": f"[{ts}s]"})
             content.append({
                 "type": "image",
-                "source": {
-                    "type":       "base64",
-                    "media_type": "image/jpeg",
-                    "data":       b64,
-                },
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
             })
         content.append({"type": "text", "text": _ANALYSIS_PROMPT})
 
-        print(f"🎬 Sending {len(frames)} frames to Claude for highlight detection...")
+        print(f"🎬 Sending {len(frames)} action frames to Claude...")
         response = _client.messages.create(
             model="claude-sonnet-4-6",
             max_tokens=1024,
             messages=[{"role": "user", "content": content}],
         )
 
-        raw_text = response.content[0].text
-        logger.debug("Claude raw response: %s", raw_text)
-
-        result = _parse_analysis(raw_text)
-        print(f"✅ Claude detected sport='{result['sport']}', {len(result['events'])} highlight(s)")
+        result = _parse_analysis(response.content[0].text)
+        print(f"✅ Activity: '{result['activity']}' | {len(result['events'])} highlight(s) found")
         return result
 
     except json.JSONDecodeError as e:
-        logger.error("❌ Claude returned non-parseable JSON: %s", e)
-        print(f"⚠️ Claude returned non-parseable JSON, skipping video. Error: {e}")
-        return {"sport": "unknown", "events": []}
+        logger.error("Claude returned non-parseable JSON: %s", e)
+        print(f"⚠️ JSON parse error: {e}")
+        return {"activity": "unknown", "events": []}
 
     except anthropic.APIError as e:
-        logger.error("❌ Claude API error: %s", e)
+        logger.error("Claude API error: %s", e)
         print(f"❌ Claude API error: {e}")
-        return {"sport": "unknown", "events": []}
+        return {"activity": "unknown", "events": []}
 
     except Exception as e:
-        logger.error("❌ Unexpected analysis error: %s", e)
+        logger.error("Analysis error: %s", e)
         print(f"❌ Analysis failed: {e}")
-        return {"sport": "unknown", "events": []}
+        return {"activity": "unknown", "events": []}
