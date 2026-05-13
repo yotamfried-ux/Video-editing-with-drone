@@ -114,7 +114,7 @@ def cut_clip(video_path: str, event: dict, index: int, slowmo: bool = False) -> 
 
         # רקע מטושטש
         f"[bg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=increase,"
-        f"crop={REEL_W}:{REEL_H},boxblur=28:5[bg];"
+        f"crop={REEL_W}:{REEL_H},gblur=sigma=25:steps=2[bg];"
 
         # תמונה חדה
         f"[fg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=decrease[fg];"
