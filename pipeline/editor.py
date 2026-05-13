@@ -136,10 +136,11 @@ def cut_clip(video_path: str, event: dict, index: int, slowmo: bool = False) -> 
     cmd = [
         "ffmpeg", "-y",
         "-ss", str(start),
+        "-t", str(input_dur),       # input option: read exactly input_dur from source
         "-i", video_path,
-        "-t", str(input_dur),       # קורא input_dur מהמקור
         "-filter_complex", vf,
         "-map", "[out]",
+        "-t", str(output_dur),      # output option: cap at output_dur (2× for slow-mo)
         "-an",
         "-c:v", "libx264",
         "-crf", "20",

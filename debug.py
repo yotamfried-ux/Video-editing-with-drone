@@ -40,6 +40,19 @@ from pipeline.editor   import (  # noqa: E402
     create_reel, cut_clip, compile_reel,
     _narrative_order, _get_source_fps, _get_duration,
 )
+
+# Mock all Google SDK modules before importing pipeline modules that depend on
+# them — avoids cffi/grpc/rust native-extension failures in debug environment.
+from unittest.mock import MagicMock
+for _mod in [
+    "google.generativeai",
+    "google.auth", "google.auth.transport", "google.auth.transport.requests",
+    "google.auth.credentials", "google.oauth2", "google.oauth2.service_account",
+    "googleapiclient", "googleapiclient.discovery", "googleapiclient.http",
+    "google_auth_httplib2",
+]:
+    sys.modules.setdefault(_mod, MagicMock())
+
 from pipeline.analyzer import _parse_analysis  # noqa: E402
 from pipeline.notifier import _build_html      # noqa: E402
 
