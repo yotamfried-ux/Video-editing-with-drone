@@ -1,0 +1,532 @@
+#!/usr/bin/env python3
+"""
+debug.py — Pipeline simulation without real API keys.
+
+מה הסקריפט הזה בודק:
+  1. Prerequisites   — FFmpeg / ffprobe / לוגו
+  2. Test videos     — יצירת סרטוני בדיקה 60fps + 30fps עם FFmpeg
+  3. FPS detection   — האם _get_source_fps קורא נכון
+  4. Narrative order — סדר הקליפים הנרטיבי
+  5. JSON parsing    — _parse_analysis עם תשובות שונות
+  6. cut_clip        — חיתוך + slow-mo אמיתי עם FFmpeg
+  7. compile_reel    — חיבור 3 קליפים לריל
+  8. create_reel     — כל הפייפליין end-to-end
+  9. Email HTML      — בניית אימייל
+  10. Client match   — התאמת clients.json
+
+כל מה שדורש API אמיתי (Drive / Gemini / Gmail) לא נקרא —
+הפונקציות האלה מקבלות נתוני dummy.
+"""
+
+import json
+import os
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+# ── Dummy env vars — חייב לפני כל import של config ────────────────────────
+os.environ.setdefault("GEMINI_API_KEY",              "debug_dummy_not_used")
+os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "debug_dummy.json")
+os.environ.setdefault("RAW_FOLDER_ID",               "debug_raw")
+os.environ.setdefault("CLIPS_FOLDER_ID",             "debug_clips")
+os.environ.setdefault("PROCESSED_FOLDER_ID",         "debug_processed")
+os.environ.setdefault("OWNER_EMAIL",                 "debug@example.com")
+os.environ.setdefault("LOGO_PATH",                   "assets/logo.png")
+os.environ.setdefault("TMP_DIR",                     "/tmp/dtor_debug")
+
+import config  # noqa: E402
+from pipeline.editor   import (  # noqa: E402
+    create_reel, cut_clip, compile_reel,
+    _narrative_order, _get_source_fps, _get_duration,
+)
+from pipeline.analyzer import _parse_analysis  # noqa: E402
+from pipeline.notifier import _build_html      # noqa: E402
+
+# ── Paths ──────────────────────────────────────────────────────────────────
+DEBUG_DIR     = config.TMP_DIR
+VIDEO_60FPS   = os.path.join(DEBUG_DIR, "test_60fps.mp4")
+VIDEO_30FPS   = os.path.join(DEBUG_DIR, "test_30fps.mp4")
+CLIENTS_TMP   = config.CLIENTS_FILE
+
+os.makedirs(DEBUG_DIR, exist_ok=True)
+
+# ── Test tracking ──────────────────────────────────────────────────────────
+PASSED: list[str] = []
+FAILED: list[str] = []
+
+
+def ok(name: str, detail: str = "") -> None:
+    tag = f"  ({detail})" if detail else ""
+    print(f"    ✅  {name}{tag}")
+    PASSED.append(name)
+
+
+def fail(name: str, reason: str) -> None:
+    print(f"    ❌  {name}: {reason}")
+    FAILED.append(name)
+
+
+def section(title: str) -> None:
+    print(f"\n  {'─' * 52}")
+    print(f"  {title}")
+    print(f"  {'─' * 52}")
+
+
+# ══════════════════════════════════════════════════════
+# 1. Prerequisites
+# ══════════════════════════════════════════════════════
+
+def test_prerequisites() -> None:
+    section("1 / Prerequisites")
+
+    for tool in ("ffmpeg", "ffprobe"):
+        try:
+            r = subprocess.run([tool, "-version"], capture_output=True, timeout=10)
+            ver = r.stdout.decode().split("\n")[0][:60]
+            ok(f"{tool} installed", ver)
+        except FileNotFoundError:
+            fail(f"{tool} installed", "not found — run: sudo apt install ffmpeg")
+
+    logo = Path(config.LOGO_PATH)
+    if logo.exists() and logo.stat().st_size > 0:
+        ok("Logo file exists", str(logo))
+    else:
+        fail("Logo file exists", f"missing at {logo} — replace assets/logo.png")
+
+
+# ══════════════════════════════════════════════════════
+# 2. Generate test videos
+# ══════════════════════════════════════════════════════
+
+def _make_test_video(path: str, fps: int, duration: int = 22) -> bool:
+    """יוצר סרטון בדיקה דינמי (testsrc2) עם FFmpeg — ללא קבצים חיצוניים."""
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi",
+        "-i", f"testsrc2=size=1920x1080:rate={fps}:duration={duration}",
+        "-c:v", "libx264", "-crf", "30", "-preset", "ultrafast",
+        "-an",
+        path,
+    ]
+    r = subprocess.run(cmd, capture_output=True, timeout=90)
+    return r.returncode == 0 and Path(path).exists()
+
+
+def test_create_test_videos() -> None:
+    section("2 / Generate test videos (FFmpeg lavfi)")
+
+    if _make_test_video(VIDEO_60FPS, fps=60):
+        kb = Path(VIDEO_60FPS).stat().st_size // 1024
+        ok("60fps test video created", f"{kb} KB")
+    else:
+        fail("60fps test video", "ffmpeg returned non-zero")
+
+    if _make_test_video(VIDEO_30FPS, fps=30):
+        ok("30fps test video created")
+    else:
+        fail("30fps test video", "ffmpeg returned non-zero")
+
+
+# ══════════════════════════════════════════════════════
+# 3. FPS detection
+# ══════════════════════════════════════════════════════
+
+def test_fps_detection() -> None:
+    section("3 / FPS detection (_get_source_fps)")
+
+    for path, expected in [(VIDEO_60FPS, 60), (VIDEO_30FPS, 30)]:
+        if not Path(path).exists():
+            fail(f"{expected}fps detection", "test video missing")
+            continue
+        fps = _get_source_fps(path)
+        if abs(fps - expected) < 1.0:
+            ok(f"{expected}fps detected", f"got {fps:.1f}fps")
+        else:
+            fail(f"{expected}fps detection", f"got {fps:.1f}fps")
+
+
+# ══════════════════════════════════════════════════════
+# 4. Narrative ordering
+# ══════════════════════════════════════════════════════
+
+def test_narrative_order() -> None:
+    section("4 / Narrative clip ordering (_narrative_order)")
+
+    def ev(t: str, score: int) -> dict:
+        return {"type": t, "start": 0.0, "end": 8.0, "score": score, "description": ""}
+
+    # 5 events: best opener=8, climax=9, ascending middle
+    events  = [ev("wave_catch", 9), ev("snap", 7), ev("foam", 5), ev("aerial", 8), ev("tube", 6)]
+    ordered = _narrative_order(events)
+    scores  = [e["score"] for e in ordered]
+
+    if scores[0] == 8 and scores[-1] == 9:
+        ok("5-event narrative: opener=8, climax=9", f"order: {scores}")
+    else:
+        fail("5-event narrative", f"got {scores}, expected [8,...,9]")
+
+    # Middle must be ascending
+    if scores[1:-1] == sorted(scores[1:-1]):
+        ok("Middle clips ascending")
+    else:
+        fail("Middle ascending", f"middle: {scores[1:-1]}")
+
+    # 2-event: ascending (low → high)
+    two     = [ev("a", 9), ev("b", 5)]
+    two_ord = _narrative_order(two)
+    if two_ord[0]["score"] < two_ord[1]["score"]:
+        ok("2-event ascending")
+    else:
+        fail("2-event ascending", f"{[e['score'] for e in two_ord]}")
+
+    # 1-event: unchanged
+    one = [ev("a", 7)]
+    if _narrative_order(one) == one:
+        ok("1-event passthrough")
+    else:
+        fail("1-event passthrough", "list was modified")
+
+
+# ══════════════════════════════════════════════════════
+# 5. Analyzer JSON parsing
+# ══════════════════════════════════════════════════════
+
+def test_analyzer_parsing() -> None:
+    section("5 / Analyzer JSON parsing (_parse_analysis)")
+
+    # תשובה תקינה
+    valid = json.dumps({
+        "activity": "surfing",
+        "events": [
+            {"type": "aerial", "start": 5.0, "end": 14.0, "score": 9,
+             "description": "Full rotation aerial."}
+        ]
+    })
+    try:
+        r = _parse_analysis(valid)
+        assert r["activity"] == "surfing" and len(r["events"]) == 1
+        ok("Valid JSON parsed")
+    except Exception as e:
+        fail("Valid JSON", str(e))
+
+    # עם markdown fences (Gemini מוסיף לפעמים)
+    try:
+        _parse_analysis(f"```json\n{valid}\n```")
+        ok("Markdown fences stripped")
+    except Exception as e:
+        fail("Markdown fences", str(e))
+
+    # קליפ קצר מ-6 שניות ← צריך להיות padded ל-6
+    short = json.dumps({
+        "activity": "football",
+        "events": [{"type": "goal", "start": 10.0, "end": 11.0, "score": 8, "description": ""}]
+    })
+    try:
+        r  = _parse_analysis(short)
+        dur = r["events"][0]["end"] - r["events"][0]["start"]
+        if dur >= 6.0:
+            ok("Short clip padded to ≥6s", f"{dur:.1f}s")
+        else:
+            fail("Short clip padding", f"only {dur:.1f}s")
+    except Exception as e:
+        fail("Short clip padding", str(e))
+
+    # legacy key "sport" במקום "activity"
+    try:
+        r = _parse_analysis(json.dumps({"sport": "skateboarding", "events": []}))
+        if r["activity"] == "skateboarding":
+            ok("Legacy 'sport' key supported")
+        else:
+            fail("Legacy key", f"got '{r['activity']}'")
+    except Exception as e:
+        fail("Legacy key", str(e))
+
+    # JSON שבור
+    try:
+        _parse_analysis("this is not json {{{")
+        fail("Broken JSON", "should have raised JSONDecodeError")
+    except json.JSONDecodeError:
+        ok("Broken JSON raises JSONDecodeError")
+    except Exception as e:
+        fail("Broken JSON", f"wrong exception: {e}")
+
+
+# ══════════════════════════════════════════════════════
+# 6. cut_clip
+# ══════════════════════════════════════════════════════
+
+def test_cut_clip() -> None:
+    section("6 / cut_clip — FFmpeg cutting + 9:16 + grade")
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("cut_clip", "60fps test video missing (test 2 failed)")
+        return
+
+    event = {"type": "wave_catch", "start": 2.0, "end": 10.0, "score": 9, "description": ""}
+
+    # ── 6a: חיתוך רגיל (ללא slow-mo) ──
+    t0   = time.time()
+    clip = cut_clip(VIDEO_60FPS, event, index=1, slowmo=False)
+    dt   = time.time() - t0
+
+    if clip and Path(clip).exists():
+        kb  = Path(clip).stat().st_size // 1024
+        dur = _get_duration(clip)
+        ok("cut_clip normal speed", f"{dur:.1f}s, {kb}KB in {dt:.1f}s")
+    else:
+        fail("cut_clip normal speed", "output file not created")
+        return
+
+    # ── 6b: slow-mo (מקור 60fps → פלט ~16s) ──
+    t0      = time.time()
+    clip_sm = cut_clip(VIDEO_60FPS, event, index=2, slowmo=True)
+    dt      = time.time() - t0
+
+    if clip_sm and Path(clip_sm).exists():
+        dur_normal = _get_duration(clip)
+        dur_slowmo = _get_duration(clip_sm)
+        ratio      = dur_slowmo / dur_normal if dur_normal > 0 else 0
+
+        if 1.7 < ratio < 2.3:
+            ok("cut_clip slow-mo ≈2x duration", f"{dur_normal:.1f}s → {dur_slowmo:.1f}s (×{ratio:.2f})")
+        else:
+            fail("cut_clip slow-mo duration", f"ratio {ratio:.2f} (expected ~2.0)")
+    else:
+        fail("cut_clip slow-mo", "output not created")
+
+    # ── 6c: פלט הוא 9:16 (1080×1920) ──
+    try:
+        probe = subprocess.check_output([
+            "ffprobe", "-v", "error", "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "csv=p=0", clip,
+        ], text=True, timeout=10).strip()
+        w, h = probe.split(",")
+        if int(w) == 1080 and int(h) == 1920:
+            ok("Output resolution 1080×1920 (9:16)")
+        else:
+            fail("Output resolution", f"got {w}×{h}, expected 1080×1920")
+    except Exception as e:
+        fail("Resolution check", str(e))
+
+    # ── 6d: ללא אודיו ──
+    try:
+        audio_check = subprocess.check_output([
+            "ffprobe", "-v", "error", "-select_streams", "a",
+            "-show_entries", "stream=codec_type",
+            "-of", "csv=p=0", clip,
+        ], text=True, timeout=10).strip()
+        if audio_check == "":
+            ok("No audio stream in output")
+        else:
+            fail("No audio stream", f"found audio: {audio_check}")
+    except Exception as e:
+        fail("Audio check", str(e))
+
+    # ── 6e: timestamp clamping — timestamp שחורג מאורך הסרטון ──
+    bad_event = {"type": "x", "start": 5.0, "end": 999.0, "score": 5, "description": ""}
+    clipped   = cut_clip(VIDEO_60FPS, bad_event, index=3, slowmo=False)
+    if clipped and Path(clipped).exists():
+        ok("Timestamp clamping (end > video length)")
+    else:
+        fail("Timestamp clamping", "clip not created")
+
+    # ── 6f: 30fps → slow-mo=False (אמורה לא להכפיל) ──
+    if Path(VIDEO_30FPS).exists():
+        c30 = cut_clip(VIDEO_30FPS, event, index=4, slowmo=False)
+        if c30 and Path(c30).exists():
+            ok("cut_clip 30fps no slow-mo")
+        else:
+            fail("cut_clip 30fps", "clip not created")
+
+
+# ══════════════════════════════════════════════════════
+# 7. compile_reel
+# ══════════════════════════════════════════════════════
+
+def test_compile_reel() -> None:
+    section("7 / compile_reel — xfade + logo watermark")
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("compile_reel", "test video missing")
+        return
+
+    events = [
+        {"type": "a", "start": 0.0,  "end": 7.0,  "score": 8, "description": ""},
+        {"type": "b", "start": 7.5,  "end": 14.0, "score": 6, "description": ""},
+        {"type": "c", "start": 14.5, "end": 20.0, "score": 9, "description": ""},
+    ]
+    clips = [cut_clip(VIDEO_60FPS, ev, index=i+20, slowmo=False)
+             for i, ev in enumerate(events)]
+    clips = [c for c in clips if c and Path(c).exists()]
+
+    if len(clips) < 2:
+        fail("compile_reel", f"only {len(clips)} clips available to compile")
+        return
+
+    reel_out = os.path.join(DEBUG_DIR, "debug_compiled_reel.mp4")
+    t0       = time.time()
+    result   = compile_reel(clips, config.LOGO_PATH, reel_out)
+    dt       = time.time() - t0
+
+    if result and Path(result).exists():
+        kb  = Path(result).stat().st_size // 1024
+        dur = _get_duration(result)
+        ok(f"compile_reel {len(clips)} clips", f"{dur:.1f}s, {kb}KB in {dt:.1f}s")
+        print(f"       → {result}")
+    else:
+        fail("compile_reel", "output not created")
+
+    for c in clips:
+        try: os.remove(c)
+        except OSError: pass
+
+
+# ══════════════════════════════════════════════════════
+# 8. create_reel — end-to-end
+# ══════════════════════════════════════════════════════
+
+def test_create_reel() -> None:
+    section("8 / create_reel — full pipeline (narrative + slow-mo + compile)")
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("create_reel", "test video missing")
+        return
+
+    events = [
+        {"type": "wave_catch", "start": 0.0,  "end": 7.0,  "score": 9, "description": "Big wave"},
+        {"type": "snap",       "start": 8.0,  "end": 14.0, "score": 7, "description": "Snap"},
+        {"type": "tube",       "start": 15.0, "end": 20.0, "score": 8, "description": "Tube"},
+    ]
+
+    t0   = time.time()
+    reel = create_reel(VIDEO_60FPS, events, sport="surfing")
+    dt   = time.time() - t0
+
+    if reel and Path(reel).exists():
+        kb  = Path(reel).stat().st_size // 1024
+        dur = _get_duration(reel)
+        ok("create_reel end-to-end", f"{dur:.1f}s reel, {kb}KB in {dt:.1f}s")
+        print(f"       → {reel}")
+    else:
+        fail("create_reel", "reel not produced")
+
+
+# ══════════════════════════════════════════════════════
+# 9. Email HTML
+# ══════════════════════════════════════════════════════
+
+def test_email_html() -> None:
+    section("9 / Email HTML (_build_html)")
+
+    link = "https://drive.google.com/file/debug_test"
+
+    for is_owner, label in [(False, "client"), (True, "owner")]:
+        html = _build_html(
+            clips_links=[link],
+            sport_type="surfing",
+            video_name="session_yoni.mp4",
+            is_owner=is_owner,
+        )
+        checks = [
+            ("Has <html> tag",           "<html>" in html),
+            ("Has Drive link",           link in html),
+            ("Has sport capitalised",    "Surfing" in html),
+            ("Has video filename",       "session_yoni.mp4" in html),
+            ("Has Watch/Reel CTA",       any(w in html for w in ("Watch", "Reel", "▶"))),
+        ]
+        if is_owner:
+            checks.append(("Owner note present", "owner" in html.lower() or "Owner" in html))
+
+        for name, passed in checks:
+            if passed:
+                ok(f"[{label}] {name}")
+            else:
+                fail(f"[{label}] {name}", "not found in HTML")
+
+
+# ══════════════════════════════════════════════════════
+# 10. Client matching
+# ══════════════════════════════════════════════════════
+
+def test_client_matching() -> None:
+    section("10 / Client matching (_find_client via clients.json)")
+
+    # כותב clients.json זמני לבדיקה
+    test_clients = [
+        {"name": "Yoni Surfer",  "email": "yoni@test.com",  "video_pattern": "yoni"},
+        {"name": "David Player", "email": "david@test.com", "video_pattern": "david"},
+    ]
+    wrote_temp = not Path(CLIENTS_TMP).exists()
+    if wrote_temp:
+        with open(CLIENTS_TMP, "w") as f:
+            json.dump(test_clients, f)
+
+    from run import _find_client  # noqa: PLC0415
+
+    cases = [
+        ("session_yoni_2024.mp4",    "yoni@test.com"),
+        ("david_football_clip.mp4",  "david@test.com"),
+        ("YONI_SURF.mp4",            "yoni@test.com"),   # case-insensitive
+        ("unknown_drone.mp4",        None),
+        ("",                         None),
+    ]
+    for filename, expected_email in cases:
+        match = _find_client(filename)
+        got   = match.get("email") if match else None
+        if got == expected_email:
+            ok(f"Match '{filename}'", str(got))
+        else:
+            fail(f"Match '{filename}'", f"expected {expected_email!r}, got {got!r}")
+
+    if wrote_temp:
+        try: os.remove(CLIENTS_TMP)
+        except OSError: pass
+
+
+# ══════════════════════════════════════════════════════
+# Summary
+# ══════════════════════════════════════════════════════
+
+def print_summary() -> None:
+    total = len(PASSED) + len(FAILED)
+    print(f"\n  {'═' * 52}")
+    print(f"  RESULTS  {len(PASSED)}/{total} passed", end="")
+    if FAILED:
+        print(f"  |  {len(FAILED)} failed")
+    else:
+        print()
+    print(f"  {'═' * 52}")
+
+    if FAILED:
+        print("\n  ❌ Failed tests:")
+        for name in FAILED:
+            print(f"     • {name}")
+    else:
+        print("\n  🎉 All tests passed — pipeline is ready to run!")
+
+    print(f"\n  Debug output: {DEBUG_DIR}\n")
+
+
+# ══════════════════════════════════════════════════════
+# Entry point
+# ══════════════════════════════════════════════════════
+
+if __name__ == "__main__":
+    print("\n🎬 D to R — Pipeline Debug / Simulation")
+    print(f"   tmp dir: {DEBUG_DIR}\n")
+
+    test_prerequisites()
+    test_create_test_videos()
+    test_fps_detection()
+    test_narrative_order()
+    test_analyzer_parsing()
+    test_cut_clip()
+    test_compile_reel()
+    test_create_reel()
+    test_email_html()
+    test_client_matching()
+
+    print_summary()
+    sys.exit(0 if not FAILED else 1)
