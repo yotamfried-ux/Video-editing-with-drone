@@ -55,12 +55,22 @@ def _sync_processed_from_drive(service) -> set[str]:
     """
     try:
         query = f"'{config.PROCESSED_FOLDER_ID}' in parents and trashed = false"
-        result = (
-            service.files()
-            .list(q=query, fields="files(id)", pageSize=1000)
-            .execute()
-        )
-        return {f["id"] for f in result.get("files", [])}
+        ids: set[str] = set()
+        page_token: str | None = None
+        while True:
+            kwargs: dict = dict(
+                q=query,
+                fields="nextPageToken, files(id)",
+                pageSize=1000,
+            )
+            if page_token:
+                kwargs["pageToken"] = page_token
+            page = service.files().list(**kwargs).execute()
+            ids.update(f["id"] for f in page.get("files", []))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
+        return ids
     except Exception as e:
         logger.warning("⚠️ Could not sync processed IDs from Drive: %s", e)
         return set()
@@ -93,12 +103,21 @@ def get_new_videos() -> list[dict]:
             "and mimeType contains 'video/' "
             "and trashed = false"
         )
-        results = (
-            service.files()
-            .list(q=query, fields="files(id, name, size, createdTime)")
-            .execute()
-        )
-        all_files = results.get("files", [])
+        all_files: list[dict] = []
+        page_token: str | None = None
+        while True:
+            kwargs: dict = dict(
+                q=query,
+                fields="nextPageToken, files(id, name, size, createdTime)",
+                pageSize=1000,
+            )
+            if page_token:
+                kwargs["pageToken"] = page_token
+            page = service.files().list(**kwargs).execute()
+            all_files.extend(page.get("files", []))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
     except Exception as e:
         logger.error("❌ Failed to list Drive folder: %s", e)
         print(f"❌ Failed to list Drive folder: {e}")

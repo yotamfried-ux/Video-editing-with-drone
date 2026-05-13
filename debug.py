@@ -694,6 +694,59 @@ def test_client_matching() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 10b. Drive pagination
+# ══════════════════════════════════════════════════════
+
+def test_drive_pagination() -> None:
+    section("10b / Drive pagination (get_new_videos + _sync_processed_from_drive)")
+
+    from unittest.mock import MagicMock, patch
+    from pipeline.drive import get_new_videos, _sync_processed_from_drive
+
+    # ── _sync_processed_from_drive: 2 pages → all IDs returned ──
+    page1 = {"files": [{"id": "aaa"}, {"id": "bbb"}], "nextPageToken": "tok1"}
+    page2 = {"files": [{"id": "ccc"}]}
+
+    mock_svc = MagicMock()
+    mock_svc.files.return_value.list.return_value.execute.side_effect = [page1, page2]
+
+    result = _sync_processed_from_drive(mock_svc)
+    if result == {"aaa", "bbb", "ccc"}:
+        ok("_sync_processed_from_drive — 2 pages → all IDs collected")
+    else:
+        fail("_sync_processed_from_drive pagination", f"got {result}")
+
+    list_calls = mock_svc.files.return_value.list.call_args_list
+    if len(list_calls) == 2:
+        ok("_sync_processed_from_drive — called list() twice (once per page)")
+    else:
+        fail("_sync_processed_from_drive call count", f"expected 2, got {len(list_calls)}")
+
+    # ── get_new_videos: 2 pages → all files considered ──
+    raw_page1 = {"files": [{"id": "v1", "name": "clip1.mp4", "size": "1000", "createdTime": "t"}],
+                 "nextPageToken": "tok2"}
+    raw_page2 = {"files": [{"id": "v2", "name": "clip2.mp4", "size": "2000", "createdTime": "t"}]}
+    proc_page  = {"files": []}   # PROCESSED folder empty
+
+    svc2 = MagicMock()
+    svc2.files.return_value.list.return_value.execute.side_effect = [
+        proc_page,   # _sync_processed_from_drive
+        raw_page1,   # RAW folder page 1
+        raw_page2,   # RAW folder page 2
+    ]
+
+    with patch("pipeline.drive._get_drive_service", return_value=svc2), \
+         patch("pipeline.drive._load_processed_ids", return_value=set()), \
+         patch("pipeline.drive._save_processed_ids"):
+        videos = get_new_videos()
+
+    if len(videos) == 2 and {v["id"] for v in videos} == {"v1", "v2"}:
+        ok("get_new_videos — 2 RAW pages → 2 videos returned")
+    else:
+        fail("get_new_videos pagination", f"got {[v['id'] for v in videos]}")
+
+
+# ══════════════════════════════════════════════════════
 # 11. _with_retry logic
 # ══════════════════════════════════════════════════════
 
@@ -875,6 +928,7 @@ if __name__ == "__main__":
     test_create_reel()
     test_email_html()
     test_client_matching()
+    test_drive_pagination()
     test_retry_logic()
     test_batch_email()
 
