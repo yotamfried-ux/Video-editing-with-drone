@@ -1,45 +1,41 @@
 """
-pipeline/analyzer.py — Claude vision-based video analysis.
-גישה: scene detection → clustering → Claude על פריימים ממוקדים.
-ספורט-אגנוסטי: עובד לכל סוג פעילות.
+pipeline/analyzer.py — Gemini 2.5 Pro native video analysis.
+שולח את הסרטון המלא ל-Gemini — לא פריימים, וידאו נייטיב.
+Gemini רואה תנועה, רצף, ותזמון — לא תמונות סטטיות.
 """
 
-import base64
 import json
 import logging
-import os
 import re
-import shutil
-import subprocess
+import time
 from pathlib import Path
 
-import anthropic
+import google.generativeai as genai
 
 import config
 
 logger = logging.getLogger(__name__)
-_client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
 
-# ── הגדרות ─────────────────────────────────────────────────────────────────
-_SCENE_THRESHOLD = 0.22  # רגישות לשינוי ויזואלי (0-1, נמוך = יותר פריימים)
-_MAX_FRAMES      = 24    # מקסימום פריימים שנשלחים ל-Claude
-_MIN_GAP_SEC     = 4.0   # מרווח מינימלי בין פריימים נבחרים (שניות)
-_MIN_CLIP_SEC    = 6.0   # משך מינימלי לקליפ (Claude מתבקש לשמור על זה)
+genai.configure(api_key=config.GEMINI_API_KEY)
+
+_MODEL        = "gemini-2.5-pro"   # native video understanding
+_MIN_CLIP_SEC = 6.0
 
 _ANALYSIS_PROMPT = """
-You are a video editor assistant analyzing drone footage. I'm sending you frames extracted at moments of significant visual change. Each frame is labeled with its timestamp in seconds.
+You are a video editor assistant analyzing raw drone footage.
+You are watching the FULL video — not frames. Use your understanding of motion, timing, and action sequences.
 
-Your job — sport/activity agnostic:
-1. Identify what activity is being filmed (describe naturally: "surfing", "football", "skateboarding", "parkour", "basketball", "skiing", etc.)
-2. Select up to 6 of the most visually exciting or action-packed moments
-3. For each moment, use the frame timestamps to estimate start and end time
+Your task — completely sport/activity agnostic:
+1. Identify what activity is being filmed (describe naturally: "surfing", "football", "skateboarding", "parkour", "skiing", etc.)
+2. Find up to 6 of the most exciting, visually impactful action moments
+3. Return precise start/end timestamps in seconds
 
 For each highlight:
-- type: short snake_case label for the specific action (e.g. "wave_catch", "goal", "kickflip", "sprint")
-- start: estimated start in seconds — go 1-2s BEFORE the key frame so we capture the buildup
-- end: estimated end in seconds — at least 6s after start to capture the followthrough
-- score: visual excitement 1-10
-- description: one sentence describing exactly what is happening
+- type: short snake_case action label (e.g. "wave_catch", "aerial", "goal", "kickflip", "sprint")
+- start: exact start in seconds — include 1-2s of buildup before the peak action
+- end: exact end in seconds — include followthrough; minimum 6s after start
+- score: excitement score 1-10 based on visual intensity and action quality
+- description: one sentence describing exactly what happens
 
 Return ONLY valid JSON, no markdown:
 {
@@ -47,185 +43,61 @@ Return ONLY valid JSON, no markdown:
   "events": [
     {
       "type": "aerial",
-      "start": 23.0,
+      "start": 23.5,
       "end": 31.0,
       "score": 9,
-      "description": "Surfer launches off the lip and performs a full aerial rotation."
+      "description": "Surfer launches a full rotation aerial off the lip of a large wave."
     }
   ]
 }
 
-If you see no clear action highlights, return: {"activity": "unknown", "events": []}
+If no clear action highlights exist: {"activity": "unknown", "events": []}
 """
 
 
-# ── utils ──────────────────────────────────────────────────────────────────
-
-def _get_video_duration(video_path: str) -> float:
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        video_path,
-    ]
+def _upload_video(video_path: str):
+    """
+    מעלה את הסרטון ל-Gemini Files API וממתין עד שהעיבוד הושלם.
+    מחזיר את אובייקט הקובץ המוכן לשימוש.
+    """
+    print(f"📤 Uploading '{Path(video_path).name}' to Gemini Files API...")
     try:
-        return float(subprocess.check_output(cmd, text=True, timeout=30).strip())
-    except Exception:
-        return 60.0
+        video_file = genai.upload_file(path=video_path)
+
+        # ממתין עד שהקובץ עבר processing
+        while video_file.state.name == "PROCESSING":
+            print("  ⏳ Gemini processing video...", end="\r")
+            time.sleep(4)
+            video_file = genai.get_file(video_file.name)
+
+        if video_file.state.name != "ACTIVE":
+            raise RuntimeError(f"Gemini file ended in unexpected state: {video_file.state.name}")
+
+        print(f"\n✅ Video ready in Gemini: {video_file.name}")
+        return video_file
+
+    except Exception as e:
+        logger.error("Gemini upload failed: %s", e)
+        raise
 
 
-def _clear_dir(path: str) -> None:
-    for f in Path(path).glob("*"):
-        try:
-            f.unlink()
-        except OSError:
-            pass
+def _delete_video(video_file) -> None:
+    """מוחק את הקובץ מ-Gemini Files API אחרי הניתוח לחסוך storage."""
+    try:
+        genai.delete_file(video_file.name)
+        logger.debug("Deleted Gemini file: %s", video_file.name)
+    except Exception as e:
+        logger.warning("Could not delete Gemini file %s: %s", video_file.name, e)
 
-
-# ── Pass 1: scene detection ────────────────────────────────────────────────
-
-def _extract_scene_frames(video_path: str) -> list[tuple[float, str]]:
-    """
-    מחלץ פריימים ב-timestamps של שינוי ויזואלי משמעותי.
-    משתמש ב-FFmpeg select='gt(scene,threshold)' + showinfo לקבלת timestamps מדויקים.
-    מחזיר רשימה של (timestamp_seconds, base64_jpeg).
-    """
-    frames_dir = os.path.join(config.TMP_DIR, "_frames")
-    os.makedirs(frames_dir, exist_ok=True)
-    _clear_dir(frames_dir)
-
-    cmd = [
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", (
-            f"select='gt(scene,{_SCENE_THRESHOLD})',"
-            f"showinfo,"          # מדפיס pts_time ל-stderr בסדר הפריימים
-            f"scale=640:-1"
-        ),
-        "-vsync", "vfr",
-        "-q:v", "4",
-        "-frames:v", "64",       # תקרה גבוהה — נסנן אחר-כך
-        os.path.join(frames_dir, "scene_%04d.jpg"),
-    ]
-
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
-
-    # parse timestamps מ-showinfo בסדר הפריימים
-    raw_ts: list[float] = []
-    for line in result.stderr.split("\n"):
-        m = re.search(r"pts_time:([\d.]+)", line)
-        if m:
-            raw_ts.append(float(m.group(1)))
-
-    frame_files = sorted(Path(frames_dir).glob("scene_*.jpg"))
-    n = min(len(frame_files), len(raw_ts))
-
-    pairs: list[tuple[float, str]] = []
-    for i in range(n):
-        try:
-            b64 = base64.standard_b64encode(frame_files[i].read_bytes()).decode()
-            pairs.append((round(raw_ts[i], 2), b64))
-        except OSError:
-            continue
-
-    return pairs
-
-
-# ── Pass 2: clustering ─────────────────────────────────────────────────────
-
-def _cluster(frames: list[tuple[float, str]], min_gap: float = _MIN_GAP_SEC) -> list[tuple[float, str]]:
-    """
-    מסנן פריימים קרובים מדי.
-    שומר רק פריים אחד לכל חלון של min_gap שניות.
-    כך אנחנו מקבלים כיסוי שווה לאורך הסרטון ולא ריכוז של פריימים ברגע שינוי אחד.
-    """
-    if not frames:
-        return []
-    kept = [frames[0]]
-    for ts, b64 in frames[1:]:
-        if ts - kept[-1][0] >= min_gap:
-            kept.append((ts, b64))
-    return kept
-
-
-# ── Fallback: even sampling ────────────────────────────────────────────────
-
-def _even_frames(video_path: str, n: int = 16) -> list[tuple[float, str]]:
-    """
-    גיבוי כשscene detection מחזיר פחות מדי פריימים (סרטון סטטי / ערפל).
-    דגימה שווה לאורך הסרטון.
-    """
-    frames_dir = os.path.join(config.TMP_DIR, "_frames")
-    os.makedirs(frames_dir, exist_ok=True)
-    _clear_dir(frames_dir)
-
-    duration   = _get_video_duration(video_path)
-    actual_fps = min(0.5, n / max(duration, 1))
-    interval   = 1.0 / actual_fps
-
-    cmd = [
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"fps={actual_fps},scale=640:-1",
-        "-frames:v", str(n),
-        "-q:v", "5",
-        os.path.join(frames_dir, "frame_%04d.jpg"),
-    ]
-    subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-
-    frames: list[tuple[float, str]] = []
-    for i, f in enumerate(sorted(Path(frames_dir).glob("frame_*.jpg"))):
-        try:
-            b64 = base64.standard_b64encode(f.read_bytes()).decode()
-            frames.append((round(i * interval, 2), b64))
-        except OSError:
-            continue
-    return frames
-
-
-# ── Main extraction ────────────────────────────────────────────────────────
-
-def _extract_frames(video_path: str) -> list[tuple[float, str]]:
-    """
-    לוגיקת הבחירה המלאה:
-    1. Scene detection
-    2. Clustering — מסנן פריימים קרובים
-    3. גיבוי לדגימה שווה אם נמצאו פחות מ-5 פריימים
-    4. תת-דגימה ל-_MAX_FRAMES אם יש יותר מדי
-    """
-    duration = _get_video_duration(video_path)
-    print(f"🎬 Scene detection on '{Path(video_path).name}' ({duration:.0f}s)...")
-
-    frames = _extract_scene_frames(video_path)
-    frames = _cluster(frames, min_gap=_MIN_GAP_SEC)
-
-    if len(frames) < 5:
-        # scene detection לא מצא מספיק — מוסיפים דגימה שווה
-        print(f"⚠️ Only {len(frames)} scene-change frames — supplementing with even sampling")
-        even   = _even_frames(video_path, n=16)
-        merged = sorted(frames + even, key=lambda x: x[0])
-        frames = _cluster(merged, min_gap=_MIN_GAP_SEC)
-
-    # תת-דגימה שווה אם יותר מ-_MAX_FRAMES
-    if len(frames) > _MAX_FRAMES:
-        step   = len(frames) / _MAX_FRAMES
-        frames = [frames[int(i * step)] for i in range(_MAX_FRAMES)]
-
-    shutil.rmtree(os.path.join(config.TMP_DIR, "_frames"), ignore_errors=True)
-
-    print(f"✅ {len(frames)} action frames selected across {duration:.0f}s")
-    return frames
-
-
-# ── Parse ──────────────────────────────────────────────────────────────────
 
 def _parse_analysis(raw_text: str) -> dict:
-    """Parse Claude's JSON response; strips markdown fences if present."""
+    """מנתח את תשובת ה-JSON של Gemini; מסיר markdown fences אם יש."""
     text = raw_text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
 
     data = json.loads(text)
 
-    # תמיכה ב-"activity" (חדש) וב-"sport" (לגאסי)
     activity = str(data.get("activity") or data.get("sport") or "other").lower()
 
     if "events" not in data:
@@ -249,61 +121,47 @@ def _parse_analysis(raw_text: str) -> dict:
     return {"activity": activity, "events": cleaned}
 
 
-# ── Public API ─────────────────────────────────────────────────────────────
-
 def analyze_video(video_path: str) -> dict:
     """
-    מנתח סרטון ומחזיר רגעי שיא + סוג פעילות.
-    ספורט-אגנוסטי: עובד לכל פעילות.
+    שולח את הסרטון המלא ל-Gemini 2.5 Pro לניתוח נייטיב.
+    Gemini רואה תנועה ורצף — לא פריימים.
 
     Returns:
-        {
-            "activity": str,   # "surfing", "football", "skateboarding", ...
-            "events": [
-                {"type": str, "start": float, "end": float,
-                 "score": int, "description": str}
-            ]
-        }
+        {"activity": str, "events": [{"type", "start", "end", "score", "description"}]}
     """
-    print(f"🎬 Analyzing: {Path(video_path).name}")
+    print(f"🎬 Analyzing '{Path(video_path).name}' with Gemini 2.5 Pro (native video)...")
 
+    video_file = None
     try:
-        frames = _extract_frames(video_path)
-        if not frames:
-            return {"activity": "unknown", "events": []}
+        # 1. העלאה ל-Gemini Files API
+        video_file = _upload_video(video_path)
 
-        # בניית הודעה: [timestamp] [תמונה] ... [prompt]
-        content: list[dict] = []
-        for ts, b64 in frames:
-            content.append({"type": "text", "text": f"[{ts}s]"})
-            content.append({
-                "type": "image",
-                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
-            })
-        content.append({"type": "text", "text": _ANALYSIS_PROMPT})
-
-        print(f"🎬 Sending {len(frames)} action frames to Claude...")
-        response = _client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=1024,
-            messages=[{"role": "user", "content": content}],
+        # 2. שליחה למודל
+        model    = genai.GenerativeModel(model_name=_MODEL)
+        print("🎬 Sending to Gemini for highlight detection...")
+        response = model.generate_content(
+            [video_file, _ANALYSIS_PROMPT],
+            request_options={"timeout": 300},
         )
 
-        result = _parse_analysis(response.content[0].text)
+        raw_text = response.text
+        logger.debug("Gemini raw response: %s", raw_text)
+
+        result = _parse_analysis(raw_text)
         print(f"✅ Activity: '{result['activity']}' | {len(result['events'])} highlight(s) found")
         return result
 
     except json.JSONDecodeError as e:
-        logger.error("Claude returned non-parseable JSON: %s", e)
+        logger.error("Gemini returned non-parseable JSON: %s", e)
         print(f"⚠️ JSON parse error: {e}")
         return {"activity": "unknown", "events": []}
 
-    except anthropic.APIError as e:
-        logger.error("Claude API error: %s", e)
-        print(f"❌ Claude API error: {e}")
-        return {"activity": "unknown", "events": []}
-
     except Exception as e:
-        logger.error("Analysis error: %s", e)
+        logger.error("Gemini analysis failed: %s", e)
         print(f"❌ Analysis failed: {e}")
         return {"activity": "unknown", "events": []}
+
+    finally:
+        # 3. מחיקת הקובץ מ-Gemini לחסכון ב-storage
+        if video_file:
+            _delete_video(video_file)

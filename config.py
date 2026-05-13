@@ -8,8 +8,8 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# ── Claude AI (Anthropic) ──────────────────────────────────────────────────
-ANTHROPIC_API_KEY: str = os.environ["ANTHROPIC_API_KEY"]
+# ── Gemini AI (Google) ────────────────────────────────────────────────────
+GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
 
 # ── Google Service Account ─────────────────────────────────────────────────
 GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
