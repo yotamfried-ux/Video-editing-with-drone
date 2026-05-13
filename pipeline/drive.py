@@ -126,8 +126,20 @@ def upload_clip(clip_path: str, clip_name: str) -> str:
             .create(body=file_metadata, media_body=media, fields="id, webViewLink")
             .execute()
         )
-        link = uploaded.get("webViewLink", "")
-        print(f"✅ Clip uploaded: {link}")
+        file_id = uploaded.get("id", "")
+        link    = uploaded.get("webViewLink", "")
+
+        # Grant "anyone with the link" viewer access so the client can open it
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader"},
+                fields="id",
+            ).execute()
+        except Exception as perm_err:
+            logger.warning("⚠️ Could not set public permission on %s: %s", clip_name, perm_err)
+
+        print(f"✅ Clip uploaded (public link): {link}")
         logger.info("Uploaded clip %s → %s", clip_name, link)
         return link
     except Exception as e:
