@@ -13,7 +13,7 @@ import config
 logger = logging.getLogger(__name__)
 
 REEL_W, REEL_H = 1080, 1920
-XFADE_DUR      = 0.4    # חפיפה בין קליפים (שניות)
+XFADE_DUR      = 0.5    # חפיפה בין קליפים (שניות) — מינימום מומלץ לרילס
 CLIP_FADE_DUR  = 0.25   # fade in/out בתוך קליפ
 MAX_REEL_SEC   = 88     # מתחת ל-90s של Instagram Reels
 SLOWMO_FPS_MIN = 50     # fps מינימלי לslow-mo חלק (50 / 60fps)
@@ -122,8 +122,8 @@ def cut_clip(video_path: str, event: dict, index: int, slowmo: bool = False) -> 
         # overlay → slow-mo (אם פעיל) → grade → fade
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
         f"{slowmo_filter}"
-        f"eq=contrast=1.08:saturation=1.18:brightness=0.01,"
-        f"unsharp=5:5:0.35,"
+        f"eq=contrast=1.12:saturation=1.22:brightness=0.02,"
+        f"unsharp=5:5:0.65,"
         f"fade=t=in:st=0:d={clip_fade:.2f},"
         f"fade=t=out:st={output_dur - clip_fade:.2f}:d={clip_fade:.2f}"
         f"[out]"
@@ -146,6 +146,7 @@ def cut_clip(video_path: str, event: dict, index: int, slowmo: bool = False) -> 
         "-crf", "20",
         "-preset", "fast",
         "-r", "30",
+        "-pix_fmt", "yuv420p",      # Instagram חובה: 4:2:0 chroma subsampling
         "-movflags", "+faststart",
         out,
     ]
@@ -242,6 +243,7 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
         "-crf", "18",
         "-preset", "fast",
         "-r", "30",
+        "-pix_fmt", "yuv420p",      # Instagram חובה: 4:2:0 chroma subsampling
         "-movflags", "+faststart",
         output_path,
     ]
