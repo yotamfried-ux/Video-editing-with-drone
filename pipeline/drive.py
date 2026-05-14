@@ -195,6 +195,83 @@ def upload_clip(clip_path: str, clip_name: str) -> str:
         raise
 
 
+def upload_draft(draft_path: str, draft_name: str) -> str:
+    """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
+    print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
+    try:
+        service       = _get_drive_service()
+        file_metadata = {"name": draft_name, "parents": [config.REVIEW_FOLDER_ID]}
+        media         = MediaFileUpload(draft_path, mimetype="video/mp4", resumable=True)
+        uploaded      = (
+            service.files()
+            .create(body=file_metadata, media_body=media, fields="id, webViewLink")
+            .execute()
+        )
+        file_id = uploaded.get("id", "")
+        link    = uploaded.get("webViewLink", "")
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader"},
+                fields="id",
+            ).execute()
+        except Exception as perm_err:
+            logger.warning("⚠️ Could not set public permission on draft %s: %s", draft_name, perm_err)
+        print(f"✅ Draft ready for review: {link}")
+        logger.info("Draft uploaded %s → %s", draft_name, link)
+        return link
+    except Exception as e:
+        logger.error("❌ Failed to upload draft %s: %s", draft_name, e)
+        print(f"❌ Draft upload failed for '{draft_name}': {e}")
+        raise
+
+
+def get_approved_drafts() -> list[dict]:
+    """Scan APPROVED_FOLDER_ID with pagination. Returns [{id, name, webViewLink}]."""
+    print("📋 Scanning APPROVED folder for ready-to-deliver reels...")
+    try:
+        service    = _get_drive_service()
+        query      = f"'{config.APPROVED_FOLDER_ID}' in parents and trashed = false"
+        files: list[dict] = []
+        page_token: str | None = None
+        while True:
+            kwargs: dict = dict(
+                q=query,
+                fields="nextPageToken, files(id, name, webViewLink)",
+                pageSize=1000,
+            )
+            if page_token:
+                kwargs["pageToken"] = page_token
+            page       = service.files().list(**kwargs).execute()
+            files.extend(page.get("files", []))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
+        print(f"✅ Found {len(files)} approved reel(s)")
+        return files
+    except Exception as e:
+        logger.error("❌ Failed to scan APPROVED folder: %s", e)
+        print(f"❌ Failed to scan APPROVED folder: {e}")
+        return []
+
+
+def mark_draft_delivered(file_id: str) -> None:
+    """Move a delivered reel from APPROVED to PROCESSED folder."""
+    try:
+        service         = _get_drive_service()
+        file_meta       = service.files().get(fileId=file_id, fields="parents").execute()
+        current_parents = ",".join(file_meta.get("parents", []))
+        service.files().update(
+            fileId=file_id,
+            addParents=config.PROCESSED_FOLDER_ID,
+            removeParents=current_parents,
+            fields="id, parents",
+        ).execute()
+        logger.info("Moved delivered draft %s to PROCESSED", file_id)
+    except Exception as e:
+        logger.warning("⚠️ Could not move delivered draft %s: %s", file_id, e)
+
+
 def mark_as_processed(file_id: str) -> None:
     """
     Record file_id in processed.json so it won't be picked up again.

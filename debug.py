@@ -31,6 +31,8 @@ os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "debug_dummy.json")
 os.environ.setdefault("RAW_FOLDER_ID",               "debug_raw")
 os.environ.setdefault("CLIPS_FOLDER_ID",             "debug_clips")
 os.environ.setdefault("PROCESSED_FOLDER_ID",         "debug_processed")
+os.environ.setdefault("REVIEW_FOLDER_ID",            "debug_review")
+os.environ.setdefault("APPROVED_FOLDER_ID",          "debug_approved")
 os.environ.setdefault("OWNER_EMAIL",                 "debug@example.com")
 os.environ.setdefault("LOGO_PATH",                   "assets/logo.png")
 os.environ.setdefault("TMP_DIR",                     "/tmp/dtor_debug")
@@ -54,7 +56,7 @@ for _mod in [
 ]:
     sys.modules.setdefault(_mod, MagicMock())
 
-from pipeline.analyzer import _parse_analysis, _with_retry  # noqa: E402
+from pipeline.analyzer import _parse_analysis, _parse_session, _with_retry  # noqa: E402
 from pipeline.notifier import _build_html, send_summary_email  # noqa: E402
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -655,42 +657,54 @@ def test_email_html() -> None:
 
 
 # ══════════════════════════════════════════════════════
-# 10. Client matching
+# 10. Pipeline helpers (run.py)
 # ══════════════════════════════════════════════════════
 
-def test_client_matching() -> None:
-    section("10 / Client matching (_find_client via clients.json)")
+def test_pipeline_helpers() -> None:
+    section("10 / Pipeline helpers (_classify_input + _safe_draft_name)")
 
-    # כותב clients.json זמני לבדיקה
-    test_clients = [
-        {"name": "Yoni Surfer",  "email": "yoni@test.com",  "video_pattern": "yoni"},
-        {"name": "David Player", "email": "david@test.com", "video_pattern": "david"},
+    from run import _classify_input, _safe_draft_name  # noqa: PLC0415
+
+    # ── _classify_input ───────────────────────────────
+    # single large file (>100 MB) → long_video
+    big = [{"id": "x", "name": "session.mp4", "size": "150000000"}]
+    if _classify_input(big) == "long_video":
+        ok("_classify_input — single >100MB → long_video")
+    else:
+        fail("_classify_input — single >100MB", f"got {_classify_input(big)!r}")
+
+    # single small file → clips_session
+    small = [{"id": "x", "name": "clip.mp4", "size": "5000000"}]
+    if _classify_input(small) == "clips_session":
+        ok("_classify_input — single <100MB → clips_session")
+    else:
+        fail("_classify_input — single <100MB", f"got {_classify_input(small)!r}")
+
+    # multiple files → clips_session regardless of size
+    multi = [
+        {"id": "a", "name": "clip1.mp4", "size": "200000000"},
+        {"id": "b", "name": "clip2.mp4", "size": "200000000"},
     ]
-    wrote_temp = not Path(CLIENTS_TMP).exists()
-    if wrote_temp:
-        with open(CLIENTS_TMP, "w") as f:
-            json.dump(test_clients, f)
+    if _classify_input(multi) == "clips_session":
+        ok("_classify_input — multiple files → clips_session")
+    else:
+        fail("_classify_input — multiple files", f"got {_classify_input(multi)!r}")
 
-    from run import _find_client  # noqa: PLC0415
+    # ── _safe_draft_name ──────────────────────────────
+    name = _safe_draft_name("red board surfer #1 @ beach!")
+    if name.startswith("DRAFT_") and name.endswith(".mp4"):
+        ok("_safe_draft_name — starts with DRAFT_, ends with .mp4", name)
+    else:
+        fail("_safe_draft_name — format", f"got {name!r}")
 
-    cases = [
-        ("session_yoni_2024.mp4",    "yoni@test.com"),
-        ("david_football_clip.mp4",  "david@test.com"),
-        ("YONI_SURF.mp4",            "yoni@test.com"),   # case-insensitive
-        ("unknown_drone.mp4",        None),
-        ("",                         None),
-    ]
-    for filename, expected_email in cases:
-        match = _find_client(filename)
-        got   = match.get("email") if match else None
-        if got == expected_email:
-            ok(f"Match '{filename}'", str(got))
-        else:
-            fail(f"Match '{filename}'", f"expected {expected_email!r}, got {got!r}")
-
-    if wrote_temp:
-        try: os.remove(CLIENTS_TMP)
-        except OSError: pass
+    # special chars replaced, length bounded to ≤50 chars in middle part
+    long_desc = "a" * 100
+    long_name = _safe_draft_name(long_desc)
+    middle = long_name[len("DRAFT_"):-len("_YYYYMMDD.mp4") - 1]  # approximate
+    if len(long_name) < 80:
+        ok("_safe_draft_name — long description truncated", long_name)
+    else:
+        fail("_safe_draft_name — truncation", f"name too long: {len(long_name)} chars")
 
 
 # ══════════════════════════════════════════════════════
@@ -885,6 +899,174 @@ def test_batch_email() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 13. Identity clustering (pipeline/identity.py)
+# ══════════════════════════════════════════════════════
+
+def test_identity_clustering() -> None:
+    section("13 / Identity clustering (cluster_clips + _parse_session)")
+
+    from pipeline.identity import cluster_clips  # noqa: PLC0415
+
+    # ── _parse_session: valid multi-person JSON ───────
+    multi_person_json = json.dumps({
+        "activity": "surfing",
+        "persons": [
+            {
+                "id": "person_A",
+                "description": "red board",
+                "events": [
+                    {"type": "wave_catch", "start": 5.0, "end": 14.0, "score": 9,
+                     "description": "Catches a large wave."},
+                ],
+            },
+            {
+                "id": "person_B",
+                "description": "blue board",
+                "events": [],
+            },
+        ],
+    })
+    try:
+        result = _parse_session(multi_person_json)
+        if (result["activity"] == "surfing"
+                and len(result["persons"]) == 2
+                and result["persons"][0]["id"] == "person_A"):
+            ok("_parse_session — valid multi-person JSON", f"activity={result['activity']}, persons={len(result['persons'])}")
+        else:
+            fail("_parse_session — valid JSON", f"unexpected result: {result}")
+    except Exception as e:
+        fail("_parse_session — valid JSON", str(e))
+
+    # ── cluster_clips: empty input → [] ───────────────
+    try:
+        result = cluster_clips([])
+        if result == []:
+            ok("cluster_clips — empty input → []")
+        else:
+            fail("cluster_clips — empty input", f"got {result}")
+    except Exception as e:
+        fail("cluster_clips — empty input", str(e))
+
+    # ── cluster_clips: single clip, 1 person → direct return (no Gemini) ──
+    single_clip = [{
+        "path": "/tmp/debug_clip.mp4",
+        "analysis": {
+            "activity": "surfing",
+            "persons": [{
+                "id": "person_A",
+                "description": "red board",
+                "events": [{"type": "wave_catch", "start": 5.0, "end": 14.0, "score": 9, "description": ""}],
+            }],
+        },
+    }]
+    try:
+        result = cluster_clips(single_clip)
+        if (len(result) == 1
+                and result[0]["description"] == "red board"
+                and result[0]["appearances"][0]["path"] == "/tmp/debug_clip.mp4"):
+            ok("cluster_clips — single clip → direct return, correct description + path")
+        else:
+            fail("cluster_clips — single clip", f"unexpected: {result}")
+    except Exception as e:
+        fail("cluster_clips — single clip", str(e))
+
+    # ── cluster_clips: multiple clips, Gemini mocked → fallback (each person = own cluster) ──
+    two_clips = [
+        {
+            "path": "/tmp/debug_clip1.mp4",
+            "analysis": {
+                "activity": "surfing",
+                "persons": [{
+                    "id": "person_A",
+                    "description": "red board",
+                    "events": [{"type": "wave_catch", "start": 5.0, "end": 14.0, "score": 9, "description": ""}],
+                }],
+            },
+        },
+        {
+            "path": "/tmp/debug_clip2.mp4",
+            "analysis": {
+                "activity": "surfing",
+                "persons": [{
+                    "id": "person_B",
+                    "description": "blue board",
+                    "events": [{"type": "aerial", "start": 20.0, "end": 29.0, "score": 8, "description": ""}],
+                }],
+            },
+        },
+    ]
+    try:
+        result = cluster_clips(two_clips)
+        descriptions = {r["description"] for r in result}
+        if len(result) == 2 and "red board" in descriptions and "blue board" in descriptions:
+            ok("cluster_clips — multi-clip Gemini fallback → 2 clusters", str(descriptions))
+        else:
+            fail("cluster_clips — multi-clip fallback", f"got {result}")
+    except Exception as e:
+        fail("cluster_clips — multi-clip fallback", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 14. Deliver flow (deliver.py)
+# ══════════════════════════════════════════════════════
+
+def test_deliver_flow() -> None:
+    section("14 / Deliver flow (deliver.main mock)")
+
+    from unittest.mock import patch, MagicMock, call
+    import deliver  # noqa: PLC0415
+
+    # ── no approved drafts → send_summary_email NOT called ──
+    with patch("deliver.get_approved_drafts", return_value=[]), \
+         patch("deliver.send_summary_email") as mock_send, \
+         patch("deliver.mark_draft_delivered"):
+        deliver.main()
+        if mock_send.call_count == 0:
+            ok("deliver.main — no drafts → send_summary_email not called")
+        else:
+            fail("deliver.main — no drafts", f"send called {mock_send.call_count} times")
+
+    # ── 2 approved drafts → send_summary_email called with 2 links ──
+    drafts = [
+        {"id": "d1", "name": "DRAFT_red_board_20260514.mp4",  "webViewLink": "https://drive.google.com/d1"},
+        {"id": "d2", "name": "DRAFT_blue_board_20260514.mp4", "webViewLink": "https://drive.google.com/d2"},
+    ]
+    with patch("deliver.get_approved_drafts", return_value=drafts), \
+         patch("deliver.send_summary_email") as mock_send, \
+         patch("deliver.mark_draft_delivered"):
+        deliver.main()
+        if mock_send.call_count == 1:
+            kwargs = mock_send.call_args.kwargs if mock_send.call_args.kwargs else {}
+            links_arg = kwargs.get("clips_links", mock_send.call_args.args[1] if mock_send.call_args.args else [])
+            if set(links_arg) == {"https://drive.google.com/d1", "https://drive.google.com/d2"}:
+                ok("deliver.main — 2 drafts → send_summary_email called with 2 links")
+            else:
+                fail("deliver.main — send links", f"got links: {links_arg}")
+        else:
+            fail("deliver.main — send count", f"expected 1 call, got {mock_send.call_count}")
+
+    # ── 2 approved drafts → mark_draft_delivered called twice ──
+    with patch("deliver.get_approved_drafts", return_value=drafts), \
+         patch("deliver.send_summary_email"), \
+         patch("deliver.mark_draft_delivered") as mock_mark:
+        deliver.main()
+        if mock_mark.call_count == 2:
+            ok("deliver.main — mark_draft_delivered called for each draft")
+        else:
+            fail("deliver.main — mark count", f"expected 2, got {mock_mark.call_count}")
+
+    # ── smoke: main() runs without exception with mocked API ──
+    try:
+        with patch("deliver.get_approved_drafts", return_value=drafts), \
+             patch("deliver.send_summary_email"), \
+             patch("deliver.mark_draft_delivered"):
+            deliver.main()
+        ok("deliver.main — smoke test, no exception")
+    except Exception as e:
+        fail("deliver.main — smoke test", str(e))
+
+
+# ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
 
@@ -927,10 +1109,12 @@ if __name__ == "__main__":
     test_music_analysis()
     test_create_reel()
     test_email_html()
-    test_client_matching()
+    test_pipeline_helpers()
     test_drive_pagination()
     test_retry_logic()
     test_batch_email()
+    test_identity_clustering()
+    test_deliver_flow()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

@@ -16,9 +16,11 @@ GEMINI_MODEL: str   = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
 
 # ── Google Drive folder IDs ────────────────────────────────────────────────
-RAW_FOLDER_ID: str = os.environ["RAW_FOLDER_ID"]           # incoming raw footage
-CLIPS_FOLDER_ID: str = os.environ["CLIPS_FOLDER_ID"]       # finished highlight clips
-PROCESSED_FOLDER_ID: str = os.environ["PROCESSED_FOLDER_ID"]  # archived originals
+RAW_FOLDER_ID: str       = os.environ["RAW_FOLDER_ID"]           # incoming raw footage
+CLIPS_FOLDER_ID: str     = os.environ["CLIPS_FOLDER_ID"]         # finished highlight clips
+PROCESSED_FOLDER_ID: str = os.environ["PROCESSED_FOLDER_ID"]     # archived originals
+REVIEW_FOLDER_ID: str    = os.environ["REVIEW_FOLDER_ID"]        # draft reels awaiting approval
+APPROVED_FOLDER_ID: str  = os.environ["APPROVED_FOLDER_ID"]      # approved → ready to deliver
 
 # ── Delivery ───────────────────────────────────────────────────────────────
 OWNER_EMAIL: str = os.environ["OWNER_EMAIL"]               # pipeline operator — always receives summary

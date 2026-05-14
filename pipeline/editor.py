@@ -537,6 +537,53 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
         return None
 
 
+def compile_multi_source_reel(appearances: list[dict]) -> str | None:
+    """
+    Creates a reel for one athlete using clips that may come from different source videos.
+
+    Args:
+        appearances: list of {"path": source_video_path, "events": [...]}
+
+    Returns compiled reel path or None.
+    """
+    if not appearances:
+        return None
+
+    # Attach source path to each event so we can look it up after narrative ordering
+    all_events: list[dict] = []
+    for app in appearances:
+        for ev in app["events"]:
+            all_events.append({**ev, "_src": app["path"]})
+
+    if not all_events:
+        return None
+
+    ordered = _narrative_order(all_events)
+
+    clip_paths: list[str] = []
+    for i, event in enumerate(ordered, start=91):   # offset avoids collision with create_reel indices
+        src    = event.pop("_src")
+        slowmo = _get_source_fps(src) >= SLOWMO_FPS_MIN
+        clip   = cut_clip(src, event, index=i, slowmo=slowmo)
+        if clip:
+            clip_paths.append(clip)
+
+    if not clip_paths:
+        return None
+
+    first_stem = Path(appearances[0]["path"]).stem
+    reel_path  = os.path.join(config.TMP_DIR, f"MULTI_{first_stem}.mp4")
+    reel       = compile_reel(clip_paths, config.LOGO_PATH, reel_path)
+
+    for p in clip_paths:
+        try:
+            os.remove(p)
+        except OSError:
+            pass
+
+    return reel
+
+
 # ── ממשק ראשי ─────────────────────────────────────────────────────────────
 
 def create_reel(video_path: str, events: list[dict], sport: str = "") -> str | None:

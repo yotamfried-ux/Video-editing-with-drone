@@ -1,12 +1,16 @@
 """
-run.py — D to R pipeline entry point.
-סריקה → הורדה → ניתוח → ריל אחד → העלאה → מייל.
+run.py — D to R pipeline Phase 1: Ingest & Draft.
+Scans Drive RAW folder → identifies persons → creates per-person reels → uploads to REVIEW.
+
+After reviewing drafts in Drive:
+  1. Move approved reels from REVIEW → APPROVED folder.
+  2. Run:  python deliver.py
 """
 
-import json
 import logging
 import os
 import sys
+from datetime import date
 from pathlib import Path
 
 # ── Logging ────────────────────────────────────────────────────────────────
@@ -23,106 +27,171 @@ logger = logging.getLogger(__name__)
 
 # ── Pipeline imports ────────────────────────────────────────────────────────
 import config
-from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_clip
-from pipeline.analyzer import analyze_video
-from pipeline.editor   import create_reel
-from pipeline.notifier import send_summary_email
+from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_draft
+from pipeline.analyzer import analyze_session
+from pipeline.editor   import create_reel, compile_multi_source_reel
+from pipeline.identity import cluster_clips
 
 
-# ── Client lookup ──────────────────────────────────────────────────────────
+# ── Helpers ────────────────────────────────────────────────────────────────
 
-def _load_clients() -> list[dict]:
-    if not Path(config.CLIENTS_FILE).exists():
-        return []
-    try:
-        with open(config.CLIENTS_FILE) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError) as e:
-        logger.warning("⚠️ Could not read %s: %s", config.CLIENTS_FILE, e)
-        return []
-
-
-def _find_client(video_name: str) -> dict | None:
+def _classify_input(videos: list[dict]) -> str:
     """
-    מחפש לקוח ב-clients.json לפי video_pattern (substring, case-insensitive).
-    מחזיר את כל ה-dict של הלקוח (שם + מייל), או None אם לא נמצא.
-    אם לא נמצא התאמה — המייל ישלח לבעלים בלבד.
+    Heuristic: single large file (>100 MB) → full game/session → long_video mode.
+    Multiple files or a single small file → short clips → clips_session mode.
     """
-    name_lower = video_name.lower()
-    for client in _load_clients():
-        pattern = str(client.get("video_pattern", "")).lower()
-        if pattern and pattern in name_lower:
-            email = client.get("email", "").strip()
-            if email:
-                print(f"✅ Client match: {client.get('name', email)} → {email}")
-                return client
-    return None
+    if len(videos) == 1:
+        try:
+            size = int(videos[0].get("size", "0"))
+        except (ValueError, TypeError):
+            size = 0
+        if size > 100_000_000:
+            return "long_video"
+    return "clips_session"
 
 
-# ── Single-video processor ─────────────────────────────────────────────────
+def _safe_draft_name(description: str) -> str:
+    """Create a filesystem-safe draft filename from a person description."""
+    safe  = "".join(c if c.isalnum() or c in " _-" else "_" for c in description)
+    safe  = safe.strip()[:50].strip()
+    today = date.today().strftime("%Y%m%d")
+    return f"DRAFT_{safe}_{today}.mp4"
 
-def process_video(file_meta: dict) -> dict:
-    """
-    מעבד סרטון אחד מתחילה לסוף.
-    מחזיר {"reel_path": str|None, "reel_link": str|None, "sport": str, "filename": str}
-    """
-    file_id  = file_meta["id"]
-    filename = file_meta["name"]
+
+# ── Phase 1a: long video ───────────────────────────────────────────────────
+
+def _process_long_video(video_meta: dict) -> int:
+    """Download a single long video → analyze persons → create and upload per-person drafts."""
+    file_id  = video_meta["id"]
+    filename = video_meta["name"]
 
     print(f"\n{'='*60}")
-    print(f"🎬 Processing: {filename}")
+    print(f"🎬 Long video: {filename}")
     print(f"{'='*60}")
 
-    # 1. הורדה
     try:
         local_path = download_video(file_id, filename)
     except Exception:
         logger.error("Skipping %s — download failed", filename)
-        return {"reel_path": None, "reel_link": None, "sport": "unknown", "filename": filename}
+        return 0
 
-    # 2. ניתוח עם Claude
-    analysis = analyze_video(local_path)
-    sport    = analysis.get("activity", "unknown")   # ספורט-אגנוסטי
-    events   = analysis.get("events", [])
+    session  = analyze_session(local_path)
+    activity = session.get("activity", "sport")
+    persons  = session.get("persons", [])
 
-    if not events:
-        print(f"⚠️ No highlights in '{filename}' — skipping")
+    if not persons:
+        print(f"⚠️ No persons detected in '{filename}' — skipping")
         mark_as_processed(file_id)
-        try: os.remove(local_path)
-        except OSError: pass
-        return {"reel_path": None, "reel_link": None, "sport": sport, "filename": filename}
-
-    print(f"🎬 Sport: {sport} | Highlights: {len(events)}")
-
-    # 3. עריכה: קליפים בודדים → ריל אחד
-    reel_path = create_reel(local_path, events, sport)
-
-    # 4. העלאה
-    reel_link = None
-    if reel_path:
-        reel_name = Path(reel_path).name
         try:
-            reel_link = upload_clip(reel_path, reel_name)
+            os.remove(local_path)
+        except OSError:
+            pass
+        return 0
+
+    print(f"👥 Detected {len(persons)} person(s): "
+          f"{', '.join(p['description'][:30] for p in persons)}")
+
+    drafts = 0
+    for person in persons:
+        if not person.get("events"):
+            continue
+        reel = create_reel(local_path, person["events"], sport=activity)
+        if not reel:
+            continue
+        name = _safe_draft_name(person["description"])
+        try:
+            upload_draft(reel, name)
+            drafts += 1
         except Exception:
-            logger.error("Upload failed for reel %s", reel_name)
+            logger.error("Draft upload failed for %s", name)
         finally:
-            try: os.remove(reel_path)
-            except OSError: pass
+            try:
+                os.remove(reel)
+            except OSError:
+                pass
 
-    # 5. סימון כמעובד + ניקוי
     mark_as_processed(file_id)
-    try: os.remove(local_path)
-    except OSError: pass
+    try:
+        os.remove(local_path)
+    except OSError:
+        pass
 
-    status = "✅" if reel_link else "⚠️ no reel uploaded"
-    print(f"{status} Done: '{filename}'")
-    return {"reel_path": reel_path, "reel_link": reel_link, "sport": sport, "filename": filename}
+    return drafts
+
+
+# ── Phase 1b: clips session ────────────────────────────────────────────────
+
+def _process_clips_session(videos: list[dict]) -> int:
+    """Download all clips → analyze each → cluster by person → compile and upload drafts."""
+    print(f"\n{'='*60}")
+    print(f"🎬 Clips session: {len(videos)} clip(s)")
+    print(f"{'='*60}")
+
+    clip_analyses: list[dict] = []
+    for video_meta in videos:
+        try:
+            path = download_video(video_meta["id"], video_meta["name"])
+        except Exception:
+            logger.error("Skipping %s — download failed", video_meta["name"])
+            continue
+        analysis = analyze_session(path)
+        clip_analyses.append({"path": path, "analysis": analysis})
+
+    if not clip_analyses:
+        print("⚠️ No clips downloaded — nothing to process")
+        for v in videos:
+            mark_as_processed(v["id"])
+        return 0
+
+    print(f"\n🔍 Clustering {len(clip_analyses)} clip(s) by person identity...")
+    clusters = cluster_clips(clip_analyses)
+
+    if not clusters:
+        print("⚠️ No persons identified across clips")
+        for ca in clip_analyses:
+            try:
+                os.remove(ca["path"])
+            except OSError:
+                pass
+        for v in videos:
+            mark_as_processed(v["id"])
+        return 0
+
+    print(f"👥 Found {len(clusters)} unique person(s)")
+
+    drafts = 0
+    for cluster in clusters:
+        reel = compile_multi_source_reel(cluster["appearances"])
+        if not reel:
+            continue
+        name = _safe_draft_name(cluster["description"])
+        try:
+            upload_draft(reel, name)
+            drafts += 1
+        except Exception:
+            logger.error("Draft upload failed for %s", name)
+        finally:
+            try:
+                os.remove(reel)
+            except OSError:
+                pass
+
+    for ca in clip_analyses:
+        try:
+            os.remove(ca["path"])
+        except OSError:
+            pass
+
+    for v in videos:
+        mark_as_processed(v["id"])
+
+    return drafts
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    print("\n🎬 D to R Pipeline — Starting")
+    print("\n🎬 D to R Pipeline — Phase 1: Ingest & Draft")
     print(f"📁 Tmp dir: {config.TMP_DIR}")
 
     new_videos = get_new_videos()
@@ -130,46 +199,21 @@ def main() -> None:
         print("✅ No new videos — exiting")
         return
 
-    total_reels = 0
-    owner_reels: list[dict] = []
+    mode = _classify_input(new_videos)
+    print(f"📋 Mode: {mode} ({len(new_videos)} video(s))")
 
-    for video_meta in new_videos:
-        result = process_video(video_meta)
-        if not result["reel_link"]:
-            continue
-
-        total_reels += 1
-        owner_reels.append(result)
-
-        # לקוח — מייל פרטני, הריל שלו בלבד
-        client = _find_client(result["filename"])
-        if client and client.get("email") and client["email"] != config.OWNER_EMAIL:
-            send_summary_email(
-                recipients  = [client["email"]],
-                clips_links = [result["reel_link"]],
-                sport_type  = result["sport"],
-                video_name  = result["filename"],
-            )
-        else:
-            print("📧 No client match — reel included in owner summary")
-
-    # בעלים — מייל אחד עם כל הרילים מהריצה
-    if owner_reels:
-        sport_tag = owner_reels[0]["sport"] if len(owner_reels) == 1 else "mixed"
-        name_tag  = owner_reels[0]["filename"] if len(owner_reels) == 1 else f"{len(owner_reels)} videos"
-        send_summary_email(
-            recipients  = [config.OWNER_EMAIL],
-            clips_links = [r["reel_link"] for r in owner_reels],
-            sport_type  = sport_tag,
-            video_name  = name_tag,
-        )
-
-    if total_reels:
-        print(f"\n🎬 Pipeline complete — {total_reels} reel(s) delivered")
+    if mode == "long_video":
+        drafts = _process_long_video(new_videos[0])
     else:
-        print("\n⚠️ Pipeline complete — no reels were produced")
+        drafts = _process_clips_session(new_videos)
 
-    logger.info("Run finished. Videos: %d, Reels: %d", len(new_videos), total_reels)
+    if drafts:
+        print(f"\n✅ {drafts} draft(s) uploaded to REVIEW folder")
+        print("   Review in Drive, then run:  python deliver.py")
+    else:
+        print("\n⚠️ No drafts produced")
+
+    logger.info("Phase 1 complete. Videos: %d, Drafts: %d", len(new_videos), drafts)
 
 
 if __name__ == "__main__":

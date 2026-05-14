@@ -106,6 +106,122 @@ def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
             time.sleep(delay)
 
 
+_IDENTITY_PROMPT = """
+You are a video editor assistant analyzing raw drone sports footage.
+You are watching the FULL video — not frames.
+
+Your task:
+1. Identify the sport/activity being filmed.
+2. Identify each DISTINCT person visible in the video (each surfer, player, athlete).
+3. For each person, find their top 1-6 most exciting action moments.
+
+For each person:
+- id: "person_A", "person_B", etc. (most prominent first)
+- description: distinctive visual features (jersey number, board color, clothing color, etc.)
+- events: list of their peak action moments, each with type/start/end/score/description
+
+For each event:
+- type: snake_case label (e.g. "wave_catch", "goal", "trick")
+- start: exact start in seconds — include 1-2s buildup before peak
+- end: exact end in seconds — minimum 6s after start
+- score: excitement score 1-10
+- description: one sentence describing the action
+
+Return ONLY valid JSON, no markdown:
+{
+  "activity": "surfing",
+  "persons": [
+    {
+      "id": "person_A",
+      "description": "surfer with red board and black wetsuit",
+      "events": [
+        {"type": "wave_catch", "start": 12.0, "end": 21.5, "score": 9,
+         "description": "Catches a large wave and executes a sharp cutback."}
+      ]
+    }
+  ]
+}
+
+If only one person is visible, still use the persons array with one entry.
+If no clear action moments exist: {"activity": "unknown", "persons": []}
+"""
+
+
+def _parse_session(raw_text: str) -> dict:
+    """Parse Gemini's multi-person JSON response into structured session data."""
+    text = raw_text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+
+    data     = json.loads(text)
+    activity = str(data.get("activity") or "other").lower()
+
+    persons: list[dict] = []
+    for p in data.get("persons", []):
+        events: list[dict] = []
+        for ev in p.get("events", [])[:6]:
+            start = float(ev.get("start", 0))
+            end   = float(ev.get("end", start + 10))
+            if end - start < _MIN_CLIP_SEC:
+                end = start + _MIN_CLIP_SEC
+            events.append({
+                "type":        str(ev.get("type", "highlight")),
+                "start":       round(start, 2),
+                "end":         round(end, 2),
+                "score":       int(ev.get("score", 5)),
+                "description": str(ev.get("description", "")),
+            })
+        events.sort(key=lambda x: x["score"], reverse=True)
+        persons.append({
+            "id":          str(p.get("id", "person_?")),
+            "description": str(p.get("description", "unknown")),
+            "events":      events,
+        })
+
+    return {"activity": activity, "persons": persons}
+
+
+def analyze_session(video_path: str) -> dict:
+    """
+    Identifies distinct persons and their highlight moments via Gemini.
+    Used for multi-person sessions (full games, surf sessions, etc.).
+
+    Returns:
+        {"activity": str, "persons": [{"id", "description", "events": [...]}]}
+    """
+    print(f"🔍 Analyzing '{Path(video_path).name}' — multi-person session mode...")
+
+    video_file = None
+    try:
+        video_file = _with_retry(lambda: _upload_video(video_path))
+
+        model    = genai.GenerativeModel(model_name=_MODEL)
+        print("🔍 Sending to Gemini for identity + highlight detection...")
+        response = _with_retry(lambda: model.generate_content(
+            [video_file, _IDENTITY_PROMPT],
+            request_options={"timeout": 300},
+        ))
+
+        result = _parse_session(response.text)
+        n      = len(result["persons"])
+        print(f"✅ Activity: '{result['activity']}' | {n} person(s) identified")
+        return result
+
+    except json.JSONDecodeError as e:
+        logger.error("Gemini session JSON parse error: %s", e)
+        print(f"⚠️ JSON parse error: {e}")
+        return {"activity": "unknown", "persons": []}
+
+    except Exception as e:
+        logger.error("Gemini session analysis failed: %s", e)
+        print(f"❌ Session analysis failed: {e}")
+        return {"activity": "unknown", "persons": []}
+
+    finally:
+        if video_file:
+            _delete_video(video_file)
+
+
 def _parse_analysis(raw_text: str) -> dict:
     """מנתח את תשובת ה-JSON של Gemini; מסיר markdown fences אם יש."""
     text = raw_text.strip()
