@@ -32,21 +32,30 @@ from pipeline.analyzer import analyze_session
 from pipeline.editor   import create_reel, compile_multi_source_reel
 from pipeline.identity import cluster_clips
 
+_LARGE_FILE_BYTES = 100_000_000   # 100 MB threshold
+
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
 def _classify_input(videos: list[dict]) -> str:
     """
-    Heuristic: single large file (>100 MB) → full game/session → long_video mode.
-    Multiple files or a single small file → short clips → clips_session mode.
+    Classify the input batch:
+      long_video   — single file > 100 MB (full game / session)
+      mixed_session — multiple files where at least one is > 100 MB
+      clips_session — multiple small files or single small file
     """
-    if len(videos) == 1:
+    def _size(v: dict) -> int:
         try:
-            size = int(videos[0].get("size", "0"))
+            return int(v.get("size", "0"))
         except (ValueError, TypeError):
-            size = 0
-        if size > 100_000_000:
-            return "long_video"
+            return 0
+
+    if len(videos) == 1:
+        return "long_video" if _size(videos[0]) > _LARGE_FILE_BYTES else "clips_session"
+
+    if any(_size(v) > _LARGE_FILE_BYTES for v in videos):
+        return "mixed_session"
+
     return "clips_session"
 
 
@@ -56,6 +65,27 @@ def _safe_draft_name(description: str) -> str:
     safe  = safe.strip()[:50].strip()
     today = date.today().strftime("%Y%m%d")
     return f"DRAFT_{safe}_{today}.mp4"
+
+
+def _compile_clusters(clusters: list[dict], activity: str) -> int:
+    """Compile + upload one draft per cluster. Returns number of drafts uploaded."""
+    drafts = 0
+    for cluster in clusters:
+        reel = compile_multi_source_reel(cluster["appearances"], sport=activity)
+        if not reel:
+            continue
+        name = _safe_draft_name(cluster["description"])
+        try:
+            upload_draft(reel, name)
+            drafts += 1
+        except Exception:
+            logger.error("Draft upload failed for %s", name)
+        finally:
+            try:
+                os.remove(reel)
+            except OSError:
+                pass
+    return drafts
 
 
 # ── Phase 1a: long video ───────────────────────────────────────────────────
@@ -143,6 +173,8 @@ def _process_clips_session(videos: list[dict]) -> int:
             mark_as_processed(v["id"])
         return 0
 
+    activity = clip_analyses[0]["analysis"].get("activity", "sport")
+
     print(f"\n🔍 Clustering {len(clip_analyses)} clip(s) by person identity...")
     clusters = cluster_clips(clip_analyses)
 
@@ -158,34 +190,87 @@ def _process_clips_session(videos: list[dict]) -> int:
         return 0
 
     print(f"👥 Found {len(clusters)} unique person(s)")
-
-    drafts = 0
-    for cluster in clusters:
-        reel = compile_multi_source_reel(cluster["appearances"])
-        if not reel:
-            continue
-        name = _safe_draft_name(cluster["description"])
-        try:
-            upload_draft(reel, name)
-            drafts += 1
-        except Exception:
-            logger.error("Draft upload failed for %s", name)
-        finally:
-            try:
-                os.remove(reel)
-            except OSError:
-                pass
+    drafts = _compile_clusters(clusters, activity)
 
     for ca in clip_analyses:
         try:
             os.remove(ca["path"])
         except OSError:
             pass
-
     for v in videos:
         mark_as_processed(v["id"])
 
     return drafts
+
+
+# ── Phase 1c: mixed session (long + short clips together) ──────────────────
+
+def _process_mixed_session(videos: list[dict]) -> int:
+    """
+    Handles a batch that contains both long videos (>100 MB) and short clips.
+    All files are analyzed with analyze_session; persons are clustered together
+    across all sources so the long video and the short clips feed into the same reels.
+    """
+    long_videos  = [v for v in videos if _safe_size(v) > _LARGE_FILE_BYTES]
+    short_clips  = [v for v in videos if _safe_size(v) <= _LARGE_FILE_BYTES]
+
+    print(f"\n{'='*60}")
+    print(f"🎬 Mixed session: {len(long_videos)} long + {len(short_clips)} short clip(s)")
+    print(f"{'='*60}")
+
+    clip_analyses: list[dict] = []
+    for video_meta in videos:
+        label = "long" if _safe_size(video_meta) > _LARGE_FILE_BYTES else "clip"
+        print(f"  📥 [{label}] {video_meta['name']}")
+        try:
+            path = download_video(video_meta["id"], video_meta["name"])
+        except Exception:
+            logger.error("Skipping %s — download failed", video_meta["name"])
+            continue
+        analysis = analyze_session(path)
+        clip_analyses.append({"path": path, "analysis": analysis})
+
+    if not clip_analyses:
+        print("⚠️ No files downloaded — nothing to process")
+        for v in videos:
+            mark_as_processed(v["id"])
+        return 0
+
+    activity = clip_analyses[0]["analysis"].get("activity", "sport")
+
+    print(f"\n🔍 Clustering {len(clip_analyses)} source(s) by person identity...")
+    clusters = cluster_clips(clip_analyses)
+
+    if not clusters:
+        print("⚠️ No persons identified across sources")
+        for ca in clip_analyses:
+            try:
+                os.remove(ca["path"])
+            except OSError:
+                pass
+        for v in videos:
+            mark_as_processed(v["id"])
+        return 0
+
+    print(f"👥 Found {len(clusters)} unique person(s)")
+    drafts = _compile_clusters(clusters, activity)
+
+    for ca in clip_analyses:
+        try:
+            os.remove(ca["path"])
+        except OSError:
+            pass
+    for v in videos:
+        mark_as_processed(v["id"])
+
+    return drafts
+
+
+def _safe_size(video: dict) -> int:
+    try:
+        return int(video.get("size", "0"))
+    except (ValueError, TypeError):
+        return 0
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -204,6 +289,8 @@ def main() -> None:
 
     if mode == "long_video":
         drafts = _process_long_video(new_videos[0])
+    elif mode == "mixed_session":
+        drafts = _process_mixed_session(new_videos)
     else:
         drafts = _process_clips_session(new_videos)
 

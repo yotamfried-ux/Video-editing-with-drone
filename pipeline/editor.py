@@ -278,6 +278,23 @@ def analyze_music_library(video_duration: float) -> list[dict]:
 
     return results
 
+# ── Sport-specific color grade presets ────────────────────────────────────
+_COLOR_PROFILES: dict[str, str] = {
+    "surfing":       "eq=contrast=1.18:saturation=1.40:brightness=0.03",
+    "swimming":      "eq=contrast=1.15:saturation=1.30:brightness=0.04",
+    "football":      "eq=contrast=1.12:saturation=1.18:brightness=0.01",
+    "soccer":        "eq=contrast=1.12:saturation=1.18:brightness=0.01",
+    "basketball":    "eq=contrast=1.08:saturation=1.12:brightness=0.03",
+    "skateboarding": "eq=contrast=1.22:saturation=1.20:brightness=-0.02",
+    "skiing":        "eq=contrast=1.20:saturation=1.15:brightness=0.05",
+    "snowboarding":  "eq=contrast=1.20:saturation=1.18:brightness=0.05",
+    "parkour":       "eq=contrast=1.15:saturation=1.20:brightness=-0.01",
+    "cycling":       "eq=contrast=1.10:saturation=1.22:brightness=0.02",
+    "motocross":     "eq=contrast=1.18:saturation=1.25:brightness=-0.01",
+    "_default":      "eq=contrast=1.12:saturation=1.22:brightness=0.02",
+}
+
+
 def _narrative_order(events: list[dict]) -> list[dict]:
     """
     מסדר קליפים לפי עקרון narrative arc:
@@ -300,12 +317,18 @@ def _narrative_order(events: list[dict]) -> list[dict]:
 
 # ── שלב 1: חיתוך קליפ בודד ────────────────────────────────────────────────
 
-def cut_clip(video_path: str, event: dict, index: int, slowmo: bool = False) -> str | None:
+def cut_clip(
+    video_path: str,
+    event: dict,
+    index: int,
+    slowmo: bool = False,
+    sport: str = "",
+) -> str | None:
     """
     חותך רגע שיא:
-    - 9:16 עם רקע מטושטש
+    - 9:16 zoom-crop ממורכז על האתלט לפי crop_x
     - slow-mo 50% אם slowmo=True (מקור ≥ 50fps)
-    - color grade + fade
+    - sport-specific color grade + fade
     - ללא אודיו
     """
     start, end = _clamp(event["start"], event["end"], video_path)
@@ -324,21 +347,33 @@ def cut_clip(video_path: str, event: dict, index: int, slowmo: bool = False) -> 
     out = os.path.join(config.TMP_DIR, f"{Path(video_path).stem}_clip{index:02d}.mp4")
 
     slowmo_filter = "setpts=2.0*PTS," if slowmo else ""
+    grade         = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
+    crop_x        = max(0.0, min(1.0, float(event.get("crop_x", 0.5))))
+
+    # fg: scale to fill full 1920px height, then crop 1080px wide centred on athlete.
+    # If source is already portrait / narrower than 1080px after scaling, the crop
+    # x-expression clamps to 0 and the blurred bg fills the sides.
+    half_w = REEL_W // 2
+    fg_crop = (
+        f"scale=iw*{REEL_H}/ih:{REEL_H},"
+        f"crop={REEL_W}:{REEL_H}:"
+        f"'max(0,min(iw-{REEL_W},trunc(iw*{crop_x:.4f}-{half_w})))':0"
+    )
 
     vf = (
         f"[0:v]split[bg_in][fg_in];"
 
-        # רקע מטושטש
+        # blurred background (visible only when source is portrait/narrow)
         f"[bg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=increase,"
         f"crop={REEL_W}:{REEL_H},gblur=sigma=25:steps=2[bg];"
 
-        # תמונה חדה
-        f"[fg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=decrease[fg];"
+        # foreground: zoom-crop centred on athlete
+        f"[fg_in]{fg_crop}[fg];"
 
-        # overlay → slow-mo (אם פעיל) → grade → fade
+        # overlay → slow-mo → grade → fade
         f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
         f"{slowmo_filter}"
-        f"eq=contrast=1.12:saturation=1.22:brightness=0.02,"
+        f"{grade},"
         f"unsharp=5:5:0.65,"
         f"fade=t=in:st=0:d={clip_fade:.2f},"
         f"fade=t=out:st={output_dur - clip_fade:.2f}:d={clip_fade:.2f}"
@@ -537,12 +572,13 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
         return None
 
 
-def compile_multi_source_reel(appearances: list[dict]) -> str | None:
+def compile_multi_source_reel(appearances: list[dict], sport: str = "") -> str | None:
     """
     Creates a reel for one athlete using clips that may come from different source videos.
 
     Args:
         appearances: list of {"path": source_video_path, "events": [...]}
+        sport: activity label for color grading (e.g. "surfing", "football")
 
     Returns compiled reel path or None.
     """
@@ -564,7 +600,7 @@ def compile_multi_source_reel(appearances: list[dict]) -> str | None:
     for i, event in enumerate(ordered, start=91):   # offset avoids collision with create_reel indices
         src    = event.pop("_src")
         slowmo = _get_source_fps(src) >= SLOWMO_FPS_MIN
-        clip   = cut_clip(src, event, index=i, slowmo=slowmo)
+        clip   = cut_clip(src, event, index=i, slowmo=slowmo, sport=sport)
         if clip:
             clip_paths.append(clip)
 
@@ -609,7 +645,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "") -> str | N
     # 3. חיתוך קליפים לפי הסדר הנרטיבי
     clip_paths: list[str] = []
     for i, event in enumerate(ordered, start=1):
-        clip = cut_clip(video_path, event, i, slowmo=slowmo)
+        clip = cut_clip(video_path, event, i, slowmo=slowmo, sport=sport)
         if clip:
             clip_paths.append(clip)
         else:

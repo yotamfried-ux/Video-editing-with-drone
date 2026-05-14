@@ -22,20 +22,29 @@ _MODEL        = config.GEMINI_MODEL   # native video understanding
 _MIN_CLIP_SEC = 6.0
 
 _ANALYSIS_PROMPT = """
-You are a video editor assistant analyzing raw drone footage.
-You are watching the FULL video — not frames. Use your understanding of motion, timing, and action sequences.
+You are a video editor building a highlight reel from drone sports footage.
+You are watching the FULL video — not frames. Use motion, timing, and action sequences.
 
-Your task — completely sport/activity agnostic:
-1. Identify what activity is being filmed (describe naturally: "surfing", "football", "skateboarding", "parkour", "skiing", etc.)
-2. Find up to 6 of the most exciting, visually impactful action moments
-3. Return precise start/end timestamps in seconds
+TASK: Identify the activity and select highlight moments using the scoring guide below.
 
-For each highlight:
-- type: short snake_case action label (e.g. "wave_catch", "aerial", "goal", "kickflip", "sprint")
-- start: exact start in seconds — include 1-2s of buildup before the peak action
+SCORING — relative to THIS video, not world-class standards:
+  9-10 : Best moment(s) in this video — exceptional for this athlete
+  7-8  : Above average today — clean skill, good execution
+  6-7  : Solid positive performance — worth showing
+  1-5  : Routine, mistake, blurry, athlete not in focus — EXCLUDE
+
+SELECTION RULES:
+- Include ALL moments with score >= 6
+- Always include at least the top 2 moments (safety net)
+- Do NOT include score < 6 unless no better moments exist
+
+For each event:
+- type: snake_case label (e.g. "wave_catch", "aerial", "goal", "kickflip", "sprint")
+- start: exact start in seconds — include 1-2s buildup before peak
 - end: exact end in seconds — include followthrough; minimum 6s after start
-- score: excitement score 1-10 based on visual intensity and action quality
+- score: 1-10 relative to this video
 - description: one sentence describing exactly what happens
+- crop_x: horizontal position of subject (0.0=left, 0.5=center, 1.0=right)
 
 Return ONLY valid JSON, no markdown:
 {
@@ -45,13 +54,14 @@ Return ONLY valid JSON, no markdown:
       "type": "aerial",
       "start": 23.5,
       "end": 31.0,
-      "score": 9,
-      "description": "Surfer launches a full rotation aerial off the lip of a large wave."
+      "score": 8,
+      "description": "Surfer launches off the lip and lands a full rotation aerial.",
+      "crop_x": 0.55
     }
   ]
 }
 
-If no clear action highlights exist: {"activity": "unknown", "events": []}
+If no action moments exist: {"activity": "unknown", "events": []}
 """
 
 
@@ -107,25 +117,39 @@ def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
 
 
 _IDENTITY_PROMPT = """
-You are a video editor assistant analyzing raw drone sports footage.
-You are watching the FULL video — not frames.
+You are a video editor building personal highlight reels for athletes from drone footage.
+You are watching the FULL video — not frames. Use motion, timing, and action sequences.
 
-Your task:
-1. Identify the sport/activity being filmed.
-2. Identify each DISTINCT person visible in the video (each surfer, player, athlete).
-3. For each person, find their top 1-6 most exciting action moments.
+TASK:
+1. Identify the sport/activity.
+2. Identify each DISTINCT person (surfer, player, athlete) visible in the video.
+3. For each person, select their highlight moments using the scoring guide below.
 
-For each person:
-- id: "person_A", "person_B", etc. (most prominent first)
-- description: distinctive visual features (jersey number, board color, clothing color, etc.)
-- events: list of their peak action moments, each with type/start/end/score/description
+SCORING — relative to THIS video, not world-class standards:
+Compare moments against each other within this specific footage.
+  9-10 : Best moment(s) in this video — exceptional execution for this athlete
+  7-8  : Above average for this athlete today — clean skill, good execution
+  6-7  : Solid positive performance — worth showing, athlete looks good
+  1-5  : Routine action, mistake, wipeout, blurry shot, athlete not in focus — EXCLUDE
 
-For each event:
-- type: snake_case label (e.g. "wave_catch", "goal", "trick")
-- start: exact start in seconds — include 1-2s buildup before peak
-- end: exact end in seconds — minimum 6s after start
-- score: excitement score 1-10
-- description: one sentence describing the action
+SELECTION RULES:
+- Include ALL moments with score >= 6 (they improve the athlete's image)
+- Always include at least the top 2 moments per person, even if scores are low
+  (every athlete deserves some highlights from their session)
+- Do NOT include score < 6 unless no other moments exist
+- Prefer variety: avoid 3+ nearly identical consecutive moves
+
+For each PERSON:
+- id: "person_A", "person_B", etc. (most screen time first)
+- description: distinctive visual features (jersey number, board color, clothing)
+
+For each EVENT:
+- type: snake_case label (e.g. "wave_catch", "goal", "cutback", "trick", "tackle")
+- start: exact start in seconds — include 1-2s buildup before the action peak
+- end: exact end in seconds — include followthrough; minimum 6s after start
+- score: 1-10 relative to this video
+- description: one sentence — what specifically happens
+- crop_x: horizontal position of subject in frame (0.0=left edge, 0.5=center, 1.0=right edge)
 
 Return ONLY valid JSON, no markdown:
 {
@@ -135,15 +159,16 @@ Return ONLY valid JSON, no markdown:
       "id": "person_A",
       "description": "surfer with red board and black wetsuit",
       "events": [
-        {"type": "wave_catch", "start": 12.0, "end": 21.5, "score": 9,
-         "description": "Catches a large wave and executes a sharp cutback."}
+        {"type": "wave_catch", "start": 12.0, "end": 21.5, "score": 8,
+         "description": "Catches a shoulder-high wave and drives a clean bottom turn.",
+         "crop_x": 0.4}
       ]
     }
   ]
 }
 
-If only one person is visible, still use the persons array with one entry.
-If no clear action moments exist: {"activity": "unknown", "persons": []}
+If only one person is visible, use the persons array with one entry.
+If no action moments exist at all: {"activity": "unknown", "persons": []}
 """
 
 
@@ -158,24 +183,34 @@ def _parse_session(raw_text: str) -> dict:
 
     persons: list[dict] = []
     for p in data.get("persons", []):
-        events: list[dict] = []
-        for ev in p.get("events", [])[:6]:
-            start = float(ev.get("start", 0))
-            end   = float(ev.get("end", start + 10))
+        all_events: list[dict] = []
+        for ev in p.get("events", []):
+            start  = float(ev.get("start", 0))
+            end    = float(ev.get("end", start + 10))
             if end - start < _MIN_CLIP_SEC:
                 end = start + _MIN_CLIP_SEC
-            events.append({
+            crop_x = float(ev.get("crop_x", 0.5))
+            crop_x = max(0.0, min(1.0, crop_x))
+            all_events.append({
                 "type":        str(ev.get("type", "highlight")),
                 "start":       round(start, 2),
                 "end":         round(end, 2),
                 "score":       int(ev.get("score", 5)),
                 "description": str(ev.get("description", "")),
+                "crop_x":      round(crop_x, 3),
             })
-        events.sort(key=lambda x: x["score"], reverse=True)
+
+        # Keep only score >= 6 (positive for the athlete's brand).
+        # Safety net: always include at least the top 2 so no athlete is left empty.
+        good = [ev for ev in all_events if ev["score"] >= 6]
+        if not good and all_events:
+            good = sorted(all_events, key=lambda x: x["score"], reverse=True)[:2]
+
+        good.sort(key=lambda x: x["score"], reverse=True)
         persons.append({
             "id":          str(p.get("id", "person_?")),
             "description": str(p.get("description", "unknown")),
-            "events":      events,
+            "events":      good,
         })
 
     return {"activity": activity, "persons": persons}
@@ -235,22 +270,28 @@ def _parse_analysis(raw_text: str) -> dict:
     if "events" not in data:
         raise ValueError("Response missing 'events'")
 
-    cleaned: list[dict] = []
-    for ev in data["events"][:6]:
-        start = float(ev.get("start", 0))
-        end   = float(ev.get("end", start + 10))
+    all_events: list[dict] = []
+    for ev in data["events"]:
+        start  = float(ev.get("start", 0))
+        end    = float(ev.get("end", start + 10))
         if end - start < _MIN_CLIP_SEC:
             end = start + _MIN_CLIP_SEC
-        cleaned.append({
+        crop_x = max(0.0, min(1.0, float(ev.get("crop_x", 0.5))))
+        all_events.append({
             "type":        str(ev.get("type", "highlight")),
             "start":       round(start, 2),
             "end":         round(end, 2),
             "score":       int(ev.get("score", 5)),
             "description": str(ev.get("description", "")),
+            "crop_x":      round(crop_x, 3),
         })
 
-    cleaned.sort(key=lambda x: x["score"], reverse=True)
-    return {"activity": activity, "events": cleaned}
+    # Keep only score >= 6; safety net: top 2 if none qualify.
+    good = [ev for ev in all_events if ev["score"] >= 6]
+    if not good and all_events:
+        good = sorted(all_events, key=lambda x: x["score"], reverse=True)[:2]
+    good.sort(key=lambda x: x["score"], reverse=True)
+    return {"activity": activity, "events": good}
 
 
 def analyze_video(video_path: str) -> dict:

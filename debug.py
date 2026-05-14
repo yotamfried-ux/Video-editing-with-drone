@@ -42,6 +42,7 @@ from pipeline.editor   import (  # noqa: E402
     create_reel, cut_clip, compile_reel,
     _narrative_order, _get_source_fps, _get_duration, _pick_music,
     _analyze_music, analyze_music_library, _compute_cut_times,
+    _COLOR_PROFILES,
 )
 
 # Mock all Google SDK modules before importing pipeline modules that depend on
@@ -680,15 +681,35 @@ def test_pipeline_helpers() -> None:
     else:
         fail("_classify_input — single <100MB", f"got {_classify_input(small)!r}")
 
-    # multiple files → clips_session regardless of size
-    multi = [
-        {"id": "a", "name": "clip1.mp4", "size": "200000000"},
-        {"id": "b", "name": "clip2.mp4", "size": "200000000"},
+    # multiple small files → clips_session
+    multi_small = [
+        {"id": "a", "name": "clip1.mp4", "size": "5000000"},
+        {"id": "b", "name": "clip2.mp4", "size": "8000000"},
     ]
-    if _classify_input(multi) == "clips_session":
-        ok("_classify_input — multiple files → clips_session")
+    if _classify_input(multi_small) == "clips_session":
+        ok("_classify_input — multiple small files → clips_session")
     else:
-        fail("_classify_input — multiple files", f"got {_classify_input(multi)!r}")
+        fail("_classify_input — multiple small files", f"got {_classify_input(multi_small)!r}")
+
+    # large + small → mixed_session
+    mixed = [
+        {"id": "a", "name": "game.mp4",  "size": "500000000"},
+        {"id": "b", "name": "clip.mp4",  "size": "5000000"},
+    ]
+    if _classify_input(mixed) == "mixed_session":
+        ok("_classify_input — large+small → mixed_session")
+    else:
+        fail("_classify_input — large+small", f"got {_classify_input(mixed)!r}")
+
+    # 2 large → mixed_session
+    two_large = [
+        {"id": "a", "name": "a.mp4", "size": "200000000"},
+        {"id": "b", "name": "b.mp4", "size": "300000000"},
+    ]
+    if _classify_input(two_large) == "mixed_session":
+        ok("_classify_input — 2 large → mixed_session")
+    else:
+        fail("_classify_input — 2 large", f"got {_classify_input(two_large)!r}")
 
     # ── _safe_draft_name ──────────────────────────────
     name = _safe_draft_name("red board surfer #1 @ beach!")
@@ -899,6 +920,110 @@ def test_batch_email() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 15. Color profiles + crop_x (pipeline/editor.py)
+# ══════════════════════════════════════════════════════
+
+def test_color_and_crop() -> None:
+    section("15 / Color profiles + crop_x (cut_clip)")
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("color/crop tests", "60fps test video missing")
+        return
+
+    # ── _COLOR_PROFILES: surfing exists and differs from default ──
+    default_grade  = _COLOR_PROFILES.get("_default", "")
+    surfing_grade  = _COLOR_PROFILES.get("surfing", "")
+    football_grade = _COLOR_PROFILES.get("football", "")
+
+    if surfing_grade and surfing_grade != default_grade:
+        ok("_COLOR_PROFILES — surfing profile exists and differs from default",
+           f"surfing={surfing_grade[:30]}")
+    else:
+        fail("_COLOR_PROFILES — surfing profile", f"got {surfing_grade!r}")
+
+    if football_grade and football_grade != surfing_grade:
+        ok("_COLOR_PROFILES — football profile differs from surfing",
+           f"football={football_grade[:30]}")
+    else:
+        fail("_COLOR_PROFILES — football vs surfing", f"got {football_grade!r}")
+
+    # ── cut_clip with crop_x=0.3 (athlete on left third) ──
+    event_left = {
+        "type": "cutback", "start": 2.0, "end": 10.0,
+        "score": 8, "description": "", "crop_x": 0.3,
+    }
+    clip_left = cut_clip(VIDEO_60FPS, event_left, index=51, slowmo=False, sport="surfing")
+    if clip_left and Path(clip_left).exists():
+        ok("cut_clip — crop_x=0.3 (left-biased athlete) produces output")
+    else:
+        fail("cut_clip — crop_x=0.3", "clip not created")
+
+    # ── cut_clip with crop_x=0.8 (athlete on right) + sport color ──
+    event_right = {
+        "type": "snap", "start": 3.0, "end": 11.0,
+        "score": 7, "description": "", "crop_x": 0.8,
+    }
+    clip_right = cut_clip(VIDEO_60FPS, event_right, index=52, slowmo=False, sport="football")
+    if clip_right and Path(clip_right).exists():
+        ok("cut_clip — crop_x=0.8 + sport=football produces output")
+    else:
+        fail("cut_clip — crop_x=0.8 football", "clip not created")
+
+    for c in (clip_left, clip_right):
+        if c:
+            try:
+                os.remove(c)
+            except OSError:
+                pass
+
+
+# ══════════════════════════════════════════════════════
+# 16. find_client (pipeline/clients.py)
+# ══════════════════════════════════════════════════════
+
+def test_find_client() -> None:
+    section("16 / find_client (pipeline/clients.py)")
+
+    from pipeline.clients import find_client  # noqa: PLC0415
+
+    test_clients = [
+        {"name": "Yoni Surfer",  "email": "yoni@test.com",  "video_pattern": "yoni"},
+        {"name": "David Player", "email": "david@test.com", "video_pattern": "david"},
+    ]
+    wrote_temp = not Path(CLIENTS_TMP).exists()
+    if wrote_temp:
+        with open(CLIENTS_TMP, "w") as f:
+            json.dump(test_clients, f)
+
+    # ── match by pattern in description ───────────────
+    match = find_client("DRAFT_yoni_red_board_20260514.mp4")
+    if match and match.get("email") == "yoni@test.com":
+        ok("find_client — matches 'yoni' pattern in draft name")
+    else:
+        fail("find_client — yoni match", f"got {match!r}")
+
+    # ── case-insensitive match ─────────────────────────
+    match2 = find_client("DRAFT_DAVID_footballer_20260514.mp4")
+    if match2 and match2.get("email") == "david@test.com":
+        ok("find_client — case-insensitive match")
+    else:
+        fail("find_client — case-insensitive", f"got {match2!r}")
+
+    # ── no match → None ────────────────────────────────
+    no_match = find_client("DRAFT_unknown_athlete_20260514.mp4")
+    if no_match is None:
+        ok("find_client — no match → None")
+    else:
+        fail("find_client — no match", f"expected None, got {no_match!r}")
+
+    if wrote_temp:
+        try:
+            os.remove(CLIENTS_TMP)
+        except OSError:
+            pass
+
+
+# ══════════════════════════════════════════════════════
 # 13. Identity clustering (pipeline/identity.py)
 # ══════════════════════════════════════════════════════
 
@@ -1016,39 +1141,43 @@ def test_deliver_flow() -> None:
     from unittest.mock import patch, MagicMock, call
     import deliver  # noqa: PLC0415
 
+    _no_client = patch("deliver.find_client", return_value=None)
+
     # ── no approved drafts → send_summary_email NOT called ──
     with patch("deliver.get_approved_drafts", return_value=[]), \
          patch("deliver.send_summary_email") as mock_send, \
-         patch("deliver.mark_draft_delivered"):
+         patch("deliver.mark_draft_delivered"), _no_client:
         deliver.main()
         if mock_send.call_count == 0:
             ok("deliver.main — no drafts → send_summary_email not called")
         else:
             fail("deliver.main — no drafts", f"send called {mock_send.call_count} times")
 
-    # ── 2 approved drafts → send_summary_email called with 2 links ──
+    # ── 2 approved drafts → owner email includes both links ──
     drafts = [
         {"id": "d1", "name": "DRAFT_red_board_20260514.mp4",  "webViewLink": "https://drive.google.com/d1"},
         {"id": "d2", "name": "DRAFT_blue_board_20260514.mp4", "webViewLink": "https://drive.google.com/d2"},
     ]
     with patch("deliver.get_approved_drafts", return_value=drafts), \
          patch("deliver.send_summary_email") as mock_send, \
-         patch("deliver.mark_draft_delivered"):
+         patch("deliver.mark_draft_delivered"), _no_client:
         deliver.main()
+        # find_client returns None → only the owner batch call is made (1 call)
         if mock_send.call_count == 1:
-            kwargs = mock_send.call_args.kwargs if mock_send.call_args.kwargs else {}
-            links_arg = kwargs.get("clips_links", mock_send.call_args.args[1] if mock_send.call_args.args else [])
+            kwargs    = mock_send.call_args.kwargs if mock_send.call_args.kwargs else {}
+            links_arg = kwargs.get("clips_links",
+                        mock_send.call_args.args[1] if mock_send.call_args.args else [])
             if set(links_arg) == {"https://drive.google.com/d1", "https://drive.google.com/d2"}:
-                ok("deliver.main — 2 drafts → send_summary_email called with 2 links")
+                ok("deliver.main — 2 drafts → owner email with 2 links")
             else:
-                fail("deliver.main — send links", f"got links: {links_arg}")
+                fail("deliver.main — owner links", f"got links: {links_arg}")
         else:
             fail("deliver.main — send count", f"expected 1 call, got {mock_send.call_count}")
 
     # ── 2 approved drafts → mark_draft_delivered called twice ──
     with patch("deliver.get_approved_drafts", return_value=drafts), \
          patch("deliver.send_summary_email"), \
-         patch("deliver.mark_draft_delivered") as mock_mark:
+         patch("deliver.mark_draft_delivered") as mock_mark, _no_client:
         deliver.main()
         if mock_mark.call_count == 2:
             ok("deliver.main — mark_draft_delivered called for each draft")
@@ -1059,7 +1188,7 @@ def test_deliver_flow() -> None:
     try:
         with patch("deliver.get_approved_drafts", return_value=drafts), \
              patch("deliver.send_summary_email"), \
-             patch("deliver.mark_draft_delivered"):
+             patch("deliver.mark_draft_delivered"), _no_client:
             deliver.main()
         ok("deliver.main — smoke test, no exception")
     except Exception as e:
@@ -1113,6 +1242,8 @@ if __name__ == "__main__":
     test_drive_pagination()
     test_retry_logic()
     test_batch_email()
+    test_color_and_crop()
+    test_find_client()
     test_identity_clustering()
     test_deliver_flow()
 
