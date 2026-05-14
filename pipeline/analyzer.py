@@ -139,6 +139,18 @@ SELECTION RULES:
 - Do NOT include score < 6 unless no other moments exist
 - Prefer variety: avoid 3+ nearly identical consecutive moves
 
+TEAM SPORTS — ATTRIBUTION:
+In competitive plays (tackle, duel, block, goal, save, interception):
+- Assign the event to the person who SUCCEEDED in the interaction.
+  Example: a tackle → assign to the TACKLER (won the ball), score 7-9.
+           The player who lost the ball may still have this timestamp listed,
+           but score it 1-3 (they were beaten) so it will be excluded.
+  Example: a goal → assign to the SCORER (score 8-10).
+           The goalkeeper who conceded scores 1-3 for that moment → excluded.
+- Separate simultaneous events: if player A scores while player B concedes,
+  player A's events list gets the goal (high score), player B's does NOT,
+  or it appears with a very low score so it is filtered out.
+
 For each PERSON:
 - id: "person_A", "person_B", etc. (most screen time first)
 - description: distinctive visual features (jersey number, board color, clothing)

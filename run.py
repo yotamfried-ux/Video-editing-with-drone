@@ -37,6 +37,19 @@ _LARGE_FILE_BYTES = 100_000_000   # 100 MB threshold
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+def _dominant_activity(clip_analyses: list[dict]) -> str:
+    """Returns the most common non-'unknown'/'other' activity across analyzed clips."""
+    from collections import Counter
+    counts: Counter = Counter()
+    for ca in clip_analyses:
+        act = ca.get("analysis", {}).get("activity", "")
+        if act and act not in ("unknown", "other", "sport", ""):
+            counts[act] += 1
+    if counts:
+        return counts.most_common(1)[0][0]
+    return clip_analyses[0].get("analysis", {}).get("activity", "sport") if clip_analyses else "sport"
+
+
 def _classify_input(videos: list[dict]) -> str:
     """
     Classify the input batch:
@@ -173,7 +186,7 @@ def _process_clips_session(videos: list[dict]) -> int:
             mark_as_processed(v["id"])
         return 0
 
-    activity = clip_analyses[0]["analysis"].get("activity", "sport")
+    activity = _dominant_activity(clip_analyses)
 
     print(f"\n🔍 Clustering {len(clip_analyses)} clip(s) by person identity...")
     clusters = cluster_clips(clip_analyses)
@@ -236,7 +249,7 @@ def _process_mixed_session(videos: list[dict]) -> int:
             mark_as_processed(v["id"])
         return 0
 
-    activity = clip_analyses[0]["analysis"].get("activity", "sport")
+    activity = _dominant_activity(clip_analyses)
 
     print(f"\n🔍 Clustering {len(clip_analyses)} source(s) by person identity...")
     clusters = cluster_clips(clip_analyses)

@@ -18,6 +18,7 @@ debug.py — Pipeline simulation without real API keys.
 הפונקציות האלה מקבלות נתוני dummy.
 """
 
+import glob
 import json
 import os
 import subprocess
@@ -1226,6 +1227,19 @@ def print_summary() -> None:
 if __name__ == "__main__":
     print("\n🎬 D to R — Pipeline Debug / Simulation")
     print(f"   tmp dir: {DEBUG_DIR}\n")
+
+    # Remove stale clips from previous runs so test videos are not shadowed
+    for _stale in (
+        glob.glob(os.path.join(DEBUG_DIR, "test_*_clip*.mp4")) +
+        glob.glob(os.path.join(DEBUG_DIR, "REEL_*.mp4")) +
+        glob.glob(os.path.join(DEBUG_DIR, "MULTI_*.mp4")) +
+        [os.path.join(DEBUG_DIR, "debug_compiled_reel.mp4"),
+         os.path.join(DEBUG_DIR, "debug_music_reel.mp4")]
+    ):
+        try:
+            os.remove(_stale)
+        except OSError:
+            pass
 
     test_prerequisites()
     test_create_test_videos()

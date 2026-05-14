@@ -6,6 +6,7 @@ Groups persons from multiple short clips into unified athlete clusters using Gem
 import json
 import logging
 import re
+import time
 
 import google.generativeai as genai
 
@@ -83,9 +84,29 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
             n=len(clip_analyses),
             descriptions_json=json.dumps(descriptions, indent=2),
         )
-        model    = genai.GenerativeModel(model_name=config.GEMINI_MODEL)
-        response = model.generate_content(prompt, request_options={"timeout": 120})
-        raw      = response.text.strip()
+        model = genai.GenerativeModel(model_name=config.GEMINI_MODEL)
+
+        def _call() -> str:
+            return model.generate_content(
+                prompt, request_options={"timeout": 120}
+            ).text.strip()
+
+        attempts, base_delay = 3, 4
+        for attempt in range(1, attempts + 1):
+            try:
+                raw = _call()
+                break
+            except Exception as e:
+                transient = any(x in str(e).lower()
+                                for x in ["429", "quota", "503", "unavailable",
+                                          "resource exhausted"])
+                if not transient or attempt == attempts:
+                    raise
+                delay = base_delay * (2 ** (attempt - 1))
+                print(f"  ⏳ Gemini cluster error ({attempt}/{attempts}), retry in {delay}s…")
+                logger.warning("Gemini cluster transient error, retry %d/%d in %ds: %s",
+                               attempt, attempts, delay, e)
+                time.sleep(delay)
         raw      = re.sub(r"^```(?:json)?\s*", "", raw)
         raw      = re.sub(r"\s*```$", "", raw)
         data     = json.loads(raw)
