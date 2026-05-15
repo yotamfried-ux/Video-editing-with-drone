@@ -26,13 +26,17 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # ── Pipeline imports ────────────────────────────────────────────────────────
+from concurrent.futures import ThreadPoolExecutor
+
 import config
 from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_draft, record_failure
 from pipeline.analyzer import analyze_session
 from pipeline.editor   import create_reel, compile_multi_source_reel
 from pipeline.identity import cluster_clips
 
-_LARGE_FILE_BYTES = 100_000_000   # 100 MB threshold
+_LARGE_FILE_BYTES  = 100_000_000   # 100 MB threshold
+_MAX_DL_WORKERS    = min(4, config.MAX_CUT_WORKERS)
+_MAX_UL_WORKERS    = 3             # cap to avoid Drive API quota exhaustion
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -101,25 +105,34 @@ def _safe_draft_name(description: str) -> str:
 
 
 def _compile_clusters(clusters: list[dict], activity: str) -> int:
-    """Compile + upload drafts per cluster. Returns number of drafts uploaded."""
-    drafts = 0
+    """Compile reels sequentially (CPU-bound), then upload in parallel (network-bound)."""
+    pending: list[tuple[str, str]] = []
     for cluster in clusters:
         reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
                                           athlete_label=cluster["description"])
         for reel_idx, reel in enumerate(reels):
             suffix = f" (part {reel_idx + 1})" if len(reels) > 1 else ""
             name   = _safe_draft_name(cluster["description"] + suffix)
-            try:
-                upload_draft(reel, name)
-                drafts += 1
-            except Exception:
-                logger.error("Draft upload failed for %s", name)
-            finally:
-                try:
-                    os.remove(reel)
-                except OSError:
-                    pass
-    return drafts
+            pending.append((reel, name))
+
+    def _upload_one(args: tuple[str, str]) -> bool:
+        reel_path, name = args
+        try:
+            upload_draft(reel_path, name)
+            return True
+        except Exception:
+            logger.error("Draft upload failed for %s", name)
+            return False
+        finally:
+            try: os.remove(reel_path)
+            except OSError: pass
+
+    if not pending:
+        return 0
+    workers = min(len(pending), _MAX_UL_WORKERS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        results = list(pool.map(_upload_one, pending))
+    return sum(results)
 
 
 # ── Phase 1a: long video ───────────────────────────────────────────────────
@@ -199,33 +212,43 @@ def _process_long_video(video_meta: dict) -> int:
 
 # ── Phase 1b: clips session ────────────────────────────────────────────────
 
+def _download_one(video_meta: dict) -> dict | None:
+    """Download one video; returns {path, meta} or None on failure."""
+    try:
+        path = download_video(video_meta["id"], video_meta["name"])
+        return {"path": path, "meta": video_meta}
+    except Exception:
+        logger.error("Download failed for %s", video_meta["name"])
+        if record_failure(video_meta["id"]):
+            mark_as_processed(video_meta["id"])
+        return None
+
+
 def _process_clips_session(videos: list[dict]) -> int:
-    """Download all clips → analyze each → cluster by person → compile and upload drafts."""
+    """Download clips in parallel → analyze each → cluster by person → compile and upload."""
     print(f"\n{'='*60}")
     print(f"🎬 Clips session: {len(videos)} clip(s)")
     print(f"{'='*60}")
 
+    # Parallel downloads (network-bound)
+    workers = min(len(videos), _MAX_DL_WORKERS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        dl_results = list(pool.map(_download_one, videos))
+    downloaded = [r for r in dl_results if r is not None]
+
+    # Sequential analysis (Gemini rate-limited)
     clip_analyses: list[dict] = []
-    for video_meta in videos:
+    for item in downloaded:
         try:
-            path = download_video(video_meta["id"], video_meta["name"])
+            analysis = analyze_session(item["path"])
         except Exception:
-            logger.error("Skipping %s — download failed", video_meta["name"])
-            if record_failure(video_meta["id"]):
-                mark_as_processed(video_meta["id"])
+            logger.error("Analysis failed for %s — will retry (up to 3 times)", item["meta"]["name"])
+            if record_failure(item["meta"]["id"]):
+                mark_as_processed(item["meta"]["id"])
+            try: os.remove(item["path"])
+            except OSError: pass
             continue
-        try:
-            analysis = analyze_session(path)
-        except Exception:
-            logger.error("Analysis failed for %s — will retry (up to 3 times)", video_meta["name"])
-            if record_failure(video_meta["id"]):
-                mark_as_processed(video_meta["id"])
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            continue
-        clip_analyses.append({"path": path, "analysis": analysis, "meta": video_meta})
+        clip_analyses.append({"path": item["path"], "analysis": analysis, "meta": item["meta"]})
 
     if not clip_analyses:
         print("⚠️ No clips downloaded or analyzed — nothing to process")
@@ -274,29 +297,29 @@ def _process_mixed_session(videos: list[dict]) -> int:
     print(f"🎬 Mixed session: {len(long_videos)} long + {len(short_clips)} short clip(s)")
     print(f"{'='*60}")
 
+    for v in videos:
+        label = "long" if _safe_size(v) > _LARGE_FILE_BYTES else "clip"
+        print(f"  📥 [{label}] {v['name']}")
+
+    # Parallel downloads (network-bound)
+    workers = min(len(videos), _MAX_DL_WORKERS)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        dl_results = list(pool.map(_download_one, videos))
+    downloaded = [r for r in dl_results if r is not None]
+
+    # Sequential analysis (Gemini rate-limited)
     clip_analyses: list[dict] = []
-    for video_meta in videos:
-        label = "long" if _safe_size(video_meta) > _LARGE_FILE_BYTES else "clip"
-        print(f"  📥 [{label}] {video_meta['name']}")
+    for item in downloaded:
         try:
-            path = download_video(video_meta["id"], video_meta["name"])
+            analysis = analyze_session(item["path"])
         except Exception:
-            logger.error("Skipping %s — download failed", video_meta["name"])
-            if record_failure(video_meta["id"]):
-                mark_as_processed(video_meta["id"])
+            logger.error("Analysis failed for %s — will retry (up to 3 times)", item["meta"]["name"])
+            if record_failure(item["meta"]["id"]):
+                mark_as_processed(item["meta"]["id"])
+            try: os.remove(item["path"])
+            except OSError: pass
             continue
-        try:
-            analysis = analyze_session(path)
-        except Exception:
-            logger.error("Analysis failed for %s — will retry (up to 3 times)", video_meta["name"])
-            if record_failure(video_meta["id"]):
-                mark_as_processed(video_meta["id"])
-            try:
-                os.remove(path)
-            except OSError:
-                pass
-            continue
-        clip_analyses.append({"path": path, "analysis": analysis, "meta": video_meta})
+        clip_analyses.append({"path": item["path"], "analysis": analysis, "meta": item["meta"]})
 
     if not clip_analyses:
         print("⚠️ No files downloaded — nothing to process")

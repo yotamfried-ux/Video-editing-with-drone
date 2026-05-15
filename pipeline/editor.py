@@ -9,6 +9,7 @@ import os
 import random
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
+from functools import lru_cache
 from pathlib import Path
 
 import config
@@ -26,6 +27,7 @@ TARGET_REEL_MAX = 30     # split into multiple reels when a single one would exc
 
 # ── ffprobe helpers ────────────────────────────────────────────────────────
 
+@lru_cache(maxsize=256)
 def _get_duration(path: str) -> float:
     cmd = [
         "ffprobe", "-v", "error",
@@ -39,6 +41,7 @@ def _get_duration(path: str) -> float:
         return float("inf")
 
 
+@lru_cache(maxsize=256)
 def _get_source_fps(video_path: str) -> float:
     """מחזיר את ה-fps של הסרטון המקורי."""
     cmd = [
@@ -666,7 +669,8 @@ def compile_reel(
     if n == 0:
         return None
 
-    durations = [_get_duration(p) for p in clip_paths]
+    with ThreadPoolExecutor(max_workers=min(n, config.MAX_CUT_WORKERS)) as _pool:
+        durations = list(_pool.map(_get_duration, clip_paths))
     total_dur = sum(durations) - XFADE_DUR * (n - 1)
 
     if total_dur > MAX_REEL_SEC:

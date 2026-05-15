@@ -1779,6 +1779,46 @@ def test_resource_optimizations() -> None:
         fail("_get_clip_model", str(e))
 
 
+def test_io_parallelism() -> None:
+    section("21 / I/O optimizations (lru_cache on ffprobe helpers)")
+
+    # ── _get_duration lru_cache ──
+    try:
+        if hasattr(_get_duration, "cache_info"):
+            _get_duration.cache_clear()
+            if Path(VIDEO_60FPS).exists():
+                _get_duration(VIDEO_60FPS)
+                _get_duration(VIDEO_60FPS)
+                info = _get_duration.cache_info()
+                if info.hits >= 1:
+                    ok("_get_duration — lru_cache hit on second call",
+                       f"hits={info.hits} misses={info.misses}")
+                else:
+                    fail("_get_duration lru_cache", f"cache_info={info}")
+        else:
+            fail("_get_duration", "no cache_info — lru_cache not applied")
+    except Exception as e:
+        fail("_get_duration lru_cache", str(e))
+
+    # ── _get_source_fps lru_cache ──
+    try:
+        if hasattr(_get_source_fps, "cache_info"):
+            _get_source_fps.cache_clear()
+            if Path(VIDEO_60FPS).exists():
+                _get_source_fps(VIDEO_60FPS)
+                _get_source_fps(VIDEO_60FPS)
+                info = _get_source_fps.cache_info()
+                if info.hits >= 1:
+                    ok("_get_source_fps — lru_cache hit on second call",
+                       f"hits={info.hits} misses={info.misses}")
+                else:
+                    fail("_get_source_fps lru_cache", f"cache_info={info}")
+        else:
+            fail("_get_source_fps", "no cache_info — lru_cache not applied")
+    except Exception as e:
+        fail("_get_source_fps lru_cache", str(e))
+
+
 # ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
@@ -1850,6 +1890,7 @@ if __name__ == "__main__":
     test_music_smart_selection()
     test_run_robustness()
     test_resource_optimizations()
+    test_io_parallelism()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
