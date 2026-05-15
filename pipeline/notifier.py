@@ -162,7 +162,7 @@ def send_summary_email(
         return
 
     for i, recipient in enumerate(recipients):
-        is_owner = (i == 0)
+        is_owner = (recipient == config.OWNER_EMAIL)
         try:
             msg = MIMEMultipart("alternative")
             msg["Subject"] = subject

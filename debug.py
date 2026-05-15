@@ -1195,6 +1195,19 @@ def test_deliver_flow() -> None:
     except Exception as e:
         fail("deliver.main — smoke test", str(e))
 
+    # ── owner email failure → still archives (no duplicate client emails) ──
+    def _fail_on_owner(*args, **kwargs):
+        if kwargs.get("recipients") == [config.OWNER_EMAIL]:
+            raise RuntimeError("smtp failure")
+    with patch("deliver.get_approved_drafts", return_value=drafts), \
+         patch("deliver.send_summary_email", side_effect=_fail_on_owner), \
+         patch("deliver.mark_draft_delivered") as mock_mark2, _no_client:
+        deliver.main()
+        if mock_mark2.call_count == 2:
+            ok("deliver.main — owner email fails → still archives (no duplicate client emails)")
+        else:
+            fail("deliver.main — archive on owner failure", f"expected 2 calls, got {mock_mark2.call_count}")
+
 
 # ══════════════════════════════════════════════════════
 # Summary

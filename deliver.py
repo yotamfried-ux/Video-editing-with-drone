@@ -80,8 +80,7 @@ def main() -> None:
         print(f"✉️  Batch summary sent to owner ({config.OWNER_EMAIL})")
     except Exception:
         logger.error("Failed to send owner summary email")
-        print("❌ Failed to send owner summary email")
-        return
+        print("❌ Failed to send owner summary email — continuing to archive")
 
     # ── Archive delivered reels ────────────────────────────────────────────
     delivered = 0
