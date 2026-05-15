@@ -310,6 +310,89 @@ def mark_draft_delivered(file_id: str) -> None:
         logger.warning("⚠️ Could not move delivered draft %s: %s", file_id, e)
 
 
+def upload_preview(preview_path: str, preview_name: str) -> str:
+    """Upload a 480p watermarked preview to PREVIEW_FOLDER_ID. Returns webViewLink."""
+    if not config.PREVIEW_FOLDER_ID:
+        raise ValueError("PREVIEW_FOLDER_ID not configured — set it in .env")
+    print(f"🔍 Uploading preview '{preview_name}'...")
+    try:
+        service       = _get_drive_service()
+        file_metadata = {"name": preview_name, "parents": [config.PREVIEW_FOLDER_ID]}
+        media         = MediaFileUpload(preview_path, mimetype="video/mp4", resumable=True)
+        uploaded      = (
+            service.files()
+            .create(body=file_metadata, media_body=media, fields="id, webViewLink")
+            .execute()
+        )
+        file_id = uploaded.get("id", "")
+        link    = uploaded.get("webViewLink", "")
+        try:
+            service.permissions().create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader"},
+                fields="id",
+            ).execute()
+        except Exception as perm_err:
+            logger.warning("⚠️ Could not set public permission on preview %s: %s", preview_name, perm_err)
+        print(f"✅ Preview link: {link}")
+        logger.info("Preview uploaded %s → %s", preview_name, link)
+        return link
+    except Exception as e:
+        logger.error("❌ Failed to upload preview %s: %s", preview_name, e)
+        raise
+
+
+def move_to_pending_payment(file_id: str) -> None:
+    """Move a reel from APPROVED_FOLDER_ID → PENDING_PAYMENT_FOLDER_ID."""
+    if not config.PENDING_PAYMENT_FOLDER_ID:
+        logger.warning("⚠️ PENDING_PAYMENT_FOLDER_ID not configured — skipping move for %s", file_id)
+        return
+    try:
+        service         = _get_drive_service()
+        file_meta       = service.files().get(fileId=file_id, fields="parents").execute()
+        current_parents = ",".join(file_meta.get("parents", []))
+        service.files().update(
+            fileId=file_id,
+            addParents=config.PENDING_PAYMENT_FOLDER_ID,
+            removeParents=current_parents,
+            fields="id, parents",
+        ).execute()
+        logger.info("Moved reel %s → PENDING_PAYMENT", file_id)
+    except Exception as e:
+        logger.warning("⚠️ Could not move %s to PENDING_PAYMENT: %s", file_id, e)
+
+
+def get_pending_payment_drafts() -> list[dict]:
+    """Scan PENDING_PAYMENT_FOLDER_ID for reels awaiting payment. Returns [{id, name, webViewLink}]."""
+    if not config.PENDING_PAYMENT_FOLDER_ID:
+        logger.warning("⚠️ PENDING_PAYMENT_FOLDER_ID not configured")
+        return []
+    print("💳 Scanning PENDING_PAYMENT folder for reels awaiting payment...")
+    try:
+        service    = _get_drive_service()
+        query      = f"'{config.PENDING_PAYMENT_FOLDER_ID}' in parents and trashed = false"
+        files: list[dict] = []
+        page_token: str | None = None
+        while True:
+            kwargs: dict = dict(
+                q=query,
+                fields="nextPageToken, files(id, name, webViewLink)",
+                pageSize=1000,
+            )
+            if page_token:
+                kwargs["pageToken"] = page_token
+            page       = service.files().list(**kwargs).execute()
+            files.extend(page.get("files", []))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
+        print(f"✅ Found {len(files)} reel(s) awaiting payment")
+        return files
+    except Exception as e:
+        logger.error("❌ Failed to scan PENDING_PAYMENT folder: %s", e)
+        return []
+
+
 def mark_as_processed(file_id: str) -> None:
     """
     Record file_id in processed.json so it won't be picked up again.

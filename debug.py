@@ -34,13 +34,15 @@ os.environ.setdefault("CLIPS_FOLDER_ID",             "debug_clips")
 os.environ.setdefault("PROCESSED_FOLDER_ID",         "debug_processed")
 os.environ.setdefault("REVIEW_FOLDER_ID",            "debug_review")
 os.environ.setdefault("APPROVED_FOLDER_ID",          "debug_approved")
+os.environ.setdefault("PREVIEW_FOLDER_ID",           "debug_preview")
+os.environ.setdefault("PENDING_PAYMENT_FOLDER_ID",   "debug_pending_payment")
 os.environ.setdefault("OWNER_EMAIL",                 "debug@example.com")
 os.environ.setdefault("LOGO_PATH",                   "assets/logo.png")
 os.environ.setdefault("TMP_DIR",                     "/tmp/dtor_debug")
 
 import config  # noqa: E402
 from pipeline.editor   import (  # noqa: E402
-    create_reel, cut_clip, compile_reel,
+    create_reel, cut_clip, compile_reel, create_preview,
     _narrative_order, _get_source_fps, _get_duration, _pick_music,
     _analyze_music, analyze_music_library, _compute_cut_times,
     _COLOR_PROFILES, _partition_events, _find_font, _xfade_filter,
@@ -1362,114 +1364,150 @@ def test_identity_clustering() -> None:
 # ══════════════════════════════════════════════════════
 
 def test_deliver_flow() -> None:
-    section("14 / Deliver flow (deliver.main mock)")
+    section("14 / Deliver flow (deliver.py + deliver_final.py mock)")
 
-    from unittest.mock import patch, MagicMock, call
-    import deliver  # noqa: PLC0415
+    from unittest.mock import patch
+    import deliver         # noqa: PLC0415
+    import deliver_final   # noqa: PLC0415
 
-    _no_client   = patch("deliver.find_client",    return_value=None)
-    _no_delivered = patch("deliver._load_delivered", return_value=set())
-    _no_mark     = patch("deliver._mark_emailed")
+    _no_client    = patch("deliver.find_client",         return_value=None)
+    _no_previewed = patch("deliver._load_previewed",     return_value=set())
+    _no_mark_prev = patch("deliver._mark_previewed")
+    _mock_dl      = patch("deliver.download_video",      return_value="/tmp/fake_reel.mp4")
+    _mock_prev    = patch("deliver.create_preview",      return_value="/tmp/fake_preview.mp4")
+    _mock_upload  = patch("deliver.upload_preview",      return_value="https://preview.link/p1")
+    _mock_move    = patch("deliver.move_to_pending_payment")
 
     # ── no approved drafts → send_summary_email NOT called ──
     with patch("deliver.get_approved_drafts", return_value=[]), \
          patch("deliver.send_summary_email") as mock_send, \
-         patch("deliver.mark_draft_delivered"), \
-         _no_client, _no_delivered, _no_mark:
+         _no_client, _no_previewed, _no_mark_prev, \
+         _mock_dl, _mock_prev, _mock_upload, _mock_move:
         deliver.main()
         if mock_send.call_count == 0:
             ok("deliver.main — no drafts → send_summary_email not called")
         else:
             fail("deliver.main — no drafts", f"send called {mock_send.call_count} times")
 
-    # ── 2 approved drafts → owner email includes both links ──
-    drafts = [
-        {"id": "d1", "name": "DRAFT_red_board_20260514.mp4",  "webViewLink": "https://drive.google.com/d1"},
-        {"id": "d2", "name": "DRAFT_blue_board_20260514.mp4", "webViewLink": "https://drive.google.com/d2"},
-    ]
-    with patch("deliver.get_approved_drafts", return_value=drafts), \
-         patch("deliver.send_summary_email") as mock_send, \
-         patch("deliver.mark_draft_delivered"), \
-         _no_client, _no_delivered, _no_mark:
-        deliver.main()
-        # find_client returns None → only the owner batch call is made (1 call)
-        if mock_send.call_count == 1:
-            kwargs    = mock_send.call_args.kwargs if mock_send.call_args.kwargs else {}
-            links_arg = kwargs.get("clips_links",
-                        mock_send.call_args.args[1] if mock_send.call_args.args else [])
-            if set(links_arg) == {"https://drive.google.com/d1", "https://drive.google.com/d2"}:
-                ok("deliver.main — 2 drafts → owner email with 2 links")
-            else:
-                fail("deliver.main — owner links", f"got links: {links_arg}")
-        else:
-            fail("deliver.main — send count", f"expected 1 call, got {mock_send.call_count}")
-
-    # ── 2 approved drafts → mark_draft_delivered called twice ──
-    with patch("deliver.get_approved_drafts", return_value=drafts), \
+    # ── 1 draft → download, create_preview, upload_preview each called once ──
+    one_draft = [{"id": "d1", "name": "DRAFT_red_board_20260514.mp4",
+                  "webViewLink": "https://drive.google.com/d1"}]
+    with patch("deliver.get_approved_drafts", return_value=one_draft), \
          patch("deliver.send_summary_email"), \
-         patch("deliver.mark_draft_delivered") as mock_mark, \
-         _no_client, _no_delivered, _no_mark:
+         _no_client, _no_previewed, _no_mark_prev, \
+         _mock_dl as m_dl, _mock_prev as m_prev, _mock_upload as m_up, _mock_move:
         deliver.main()
-        if mock_mark.call_count == 2:
-            ok("deliver.main — mark_draft_delivered called for each draft")
+        if m_dl.call_count == 1 and m_prev.call_count == 1 and m_up.call_count == 1:
+            ok("deliver.main — 1 draft → download, create_preview, upload_preview each called once")
         else:
-            fail("deliver.main — mark count", f"expected 2, got {mock_mark.call_count}")
+            fail("deliver.main — pipeline calls",
+                 f"dl={m_dl.call_count} prev={m_prev.call_count} up={m_up.call_count}")
 
-    # ── smoke: main() runs without exception with mocked API ──
+    # ── 1 draft → move_to_pending_payment called once ──
+    with patch("deliver.get_approved_drafts", return_value=one_draft), \
+         patch("deliver.send_summary_email"), \
+         _no_client, _no_previewed, _no_mark_prev, \
+         _mock_dl, _mock_prev, _mock_upload, _mock_move as m_move:
+        deliver.main()
+        if m_move.call_count == 1:
+            ok("deliver.main — move_to_pending_payment called after preview upload")
+        else:
+            fail("deliver.main — move_to_pending_payment",
+                 f"expected 1 call, got {m_move.call_count}")
+
+    # ── smoke: main() runs without exception ──
     try:
-        with patch("deliver.get_approved_drafts", return_value=drafts), \
+        with patch("deliver.get_approved_drafts", return_value=one_draft), \
              patch("deliver.send_summary_email"), \
-             patch("deliver.mark_draft_delivered"), \
-             _no_client, _no_delivered, _no_mark:
+             _no_client, _no_previewed, _no_mark_prev, \
+             _mock_dl, _mock_prev, _mock_upload, _mock_move:
             deliver.main()
         ok("deliver.main — smoke test, no exception")
     except Exception as e:
         fail("deliver.main — smoke test", str(e))
 
-    # ── owner email failure → still archives (no duplicate client emails) ──
-    def _fail_on_owner(*args, **kwargs):
-        if kwargs.get("recipients") == [config.OWNER_EMAIL]:
-            raise RuntimeError("smtp failure")
-    with patch("deliver.get_approved_drafts", return_value=drafts), \
-         patch("deliver.send_summary_email", side_effect=_fail_on_owner), \
-         patch("deliver.mark_draft_delivered") as mock_mark2, \
-         _no_client, _no_delivered, _no_mark:
-        deliver.main()
-        if mock_mark2.call_count == 2:
-            ok("deliver.main — owner email fails → still archives (no duplicate client emails)")
-        else:
-            fail("deliver.main — archive on owner failure", f"expected 2 calls, got {mock_mark2.call_count}")
-
-    # ── already-delivered ID → email skipped on second run ──
-    with patch("deliver.get_approved_drafts", return_value=drafts), \
+    # ── download failure → email not sent, move not called ──
+    with patch("deliver.get_approved_drafts", return_value=one_draft), \
          patch("deliver.send_summary_email") as mock_send2, \
-         patch("deliver.mark_draft_delivered"), \
-         _no_client, \
-         patch("deliver._load_delivered", return_value={"d1", "d2"}), \
-         _no_mark:
+         patch("deliver.download_video", side_effect=RuntimeError("network error")), \
+         patch("deliver.create_preview", return_value="/tmp/fake_preview.mp4"), \
+         patch("deliver.upload_preview", return_value="https://preview.link/p1"), \
+         _mock_move as m_move2, \
+         _no_client, _no_previewed, _no_mark_prev:
         deliver.main()
-        # Both IDs already in delivered.json → no emails at all
-        if mock_send2.call_count == 0:
-            ok("deliver.main — already-delivered IDs → emails skipped (idempotency)")
+        if mock_send2.call_count == 0 and m_move2.call_count == 0:
+            ok("deliver.main — download failure → email not sent, move not called")
         else:
-            fail("deliver.main — idempotency", f"expected 0 calls, got {mock_send2.call_count}")
+            fail("deliver.main — download failure",
+                 f"send={mock_send2.call_count} move={m_move2.call_count}")
 
-    # ── missing webViewLink → email skipped, archiving continues ──
-    drafts_no_link = [
-        {"id": "d3", "name": "DRAFT_no_link.mp4", "webViewLink": ""},
-        {"id": "d4", "name": "DRAFT_ok_link.mp4",  "webViewLink": "https://drive.google.com/d4"},
-    ]
-    with patch("deliver.get_approved_drafts", return_value=drafts_no_link), \
+    # ── already-previewed IDs → skipped (idempotency) ──
+    with patch("deliver.get_approved_drafts", return_value=one_draft), \
          patch("deliver.send_summary_email") as mock_send3, \
-         patch("deliver.mark_draft_delivered") as mock_mark3, \
-         _no_client, _no_delivered, _no_mark:
+         patch("deliver._load_previewed", return_value={"d1"}), \
+         _no_mark_prev, _no_client, \
+         _mock_dl, _mock_prev, _mock_upload, _mock_move:
         deliver.main()
-        # d3 has no link → skipped; d4 has link → 1 owner email sent
-        if mock_send3.call_count == 1 and mock_mark3.call_count == 2:
-            ok("deliver.main — missing webViewLink skips email, archives both")
+        if mock_send3.call_count == 0:
+            ok("deliver.main — already-previewed IDs → skipped (idempotency)")
+        else:
+            fail("deliver.main — idempotency", f"expected 0 sends, got {mock_send3.call_count}")
+
+    # ── missing webViewLink → skipped ──
+    no_link_draft = [{"id": "d2", "name": "DRAFT_no_link.mp4", "webViewLink": ""}]
+    with patch("deliver.get_approved_drafts", return_value=no_link_draft), \
+         patch("deliver.send_summary_email") as mock_send4, \
+         _no_client, _no_previewed, _no_mark_prev, \
+         _mock_dl, _mock_prev, _mock_upload, _mock_move as m_move3:
+        deliver.main()
+        if mock_send4.call_count == 0 and m_move3.call_count == 0:
+            ok("deliver.main — missing webViewLink → download and move skipped")
         else:
             fail("deliver.main — missing webViewLink",
-                 f"send={mock_send3.call_count} (exp 1), mark={mock_mark3.call_count} (exp 2)")
+                 f"send={mock_send4.call_count} move={m_move3.call_count}")
+
+    # ── deliver_final: no pending → email not called ──
+    _no_del_client  = patch("deliver_final.find_client",          return_value=None)
+    _no_delivered   = patch("deliver_final._load_delivered",      return_value=set())
+    _no_save_deliv  = patch("deliver_final._save_delivered")
+    _no_mark_deliv  = patch("deliver_final.mark_draft_delivered")
+
+    with patch("deliver_final.get_pending_payment_drafts", return_value=[]), \
+         patch("deliver_final.send_summary_email") as mock_fin, \
+         _no_del_client, _no_delivered, _no_save_deliv, _no_mark_deliv:
+        deliver_final.main()
+        if mock_fin.call_count == 0:
+            ok("deliver_final.main — no pending → email not called")
+        else:
+            fail("deliver_final.main — no pending", f"send called {mock_fin.call_count} times")
+
+    # ── deliver_final: 1 pending → owner email sent with full link ──
+    pending_draft = [{"id": "p1", "name": "DRAFT_red_board_20260514.mp4",
+                      "webViewLink": "https://drive.google.com/full_p1"}]
+    with patch("deliver_final.get_pending_payment_drafts", return_value=pending_draft), \
+         patch("deliver_final.send_summary_email") as mock_fin2, \
+         _no_del_client, _no_delivered, _no_save_deliv, _no_mark_deliv:
+        deliver_final.main()
+        if mock_fin2.call_count == 1:
+            links_arg = (mock_fin2.call_args.kwargs.get("clips_links")
+                         or (mock_fin2.call_args.args[1] if mock_fin2.call_args.args else []))
+            if "https://drive.google.com/full_p1" in links_arg:
+                ok("deliver_final.main — 1 pending → owner email with full-quality link")
+            else:
+                fail("deliver_final.main — owner link", f"got {links_arg}")
+        else:
+            fail("deliver_final.main — send count", f"expected 1, got {mock_fin2.call_count}")
+
+    # ── deliver_final: mark_draft_delivered called for each pending ──
+    with patch("deliver_final.get_pending_payment_drafts", return_value=pending_draft), \
+         patch("deliver_final.send_summary_email"), \
+         _no_del_client, _no_delivered, _no_save_deliv, \
+         patch("deliver_final.mark_draft_delivered") as mock_arch:
+        deliver_final.main()
+        if mock_arch.call_count == 1:
+            ok("deliver_final.main — mark_draft_delivered called for each pending reel")
+        else:
+            fail("deliver_final.main — archive count", f"expected 1, got {mock_arch.call_count}")
 
 
 # ══════════════════════════════════════════════════════
@@ -1779,6 +1817,64 @@ def test_resource_optimizations() -> None:
         fail("_get_clip_model", str(e))
 
 
+def test_preview_generation() -> None:
+    section("22 / Preview generation (create_preview — 480p + watermark)")
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("create_preview", "60fps test video missing — run section 2 first")
+        return
+
+    preview_out = VIDEO_60FPS.replace(".mp4", "_preview.mp4")
+    try:
+        os.remove(preview_out)
+    except OSError:
+        pass
+
+    # ── output file exists ──
+    try:
+        result = create_preview(VIDEO_60FPS, athlete_label="Test Athlete #7")
+        if result and Path(result).exists() and Path(result).stat().st_size > 0:
+            ok("create_preview — output file created", Path(result).name)
+        else:
+            fail("create_preview — output file", f"path={result!r}")
+            return
+    except Exception as e:
+        fail("create_preview", str(e))
+        return
+
+    # ── output height is 480 ──
+    try:
+        h_out = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=height",
+             "-of", "default=noprint_wrappers=1:nokey=1", preview_out],
+            text=True, timeout=15,
+        ).strip()
+        if int(h_out) == 480:
+            ok("create_preview — output height is 480p", f"height={h_out}")
+        else:
+            fail("create_preview — 480p height", f"got height={h_out}")
+    except Exception as e:
+        fail("create_preview — height check", str(e))
+
+    # ── preview is smaller than input ──
+    try:
+        in_size  = Path(VIDEO_60FPS).stat().st_size
+        out_size = Path(preview_out).stat().st_size
+        if out_size < in_size:
+            ok("create_preview — preview smaller than source",
+               f"{out_size // 1024}KB vs {in_size // 1024}KB")
+        else:
+            fail("create_preview — size reduction", f"{out_size} >= {in_size}")
+    except Exception as e:
+        fail("create_preview — size check", str(e))
+
+    try:
+        os.remove(preview_out)
+    except OSError:
+        pass
+
+
 def test_io_parallelism() -> None:
     section("21 / I/O optimizations (lru_cache on ffprobe helpers)")
 
@@ -1860,6 +1956,7 @@ if __name__ == "__main__":
          os.path.join(DEBUG_DIR, "debug_music_reel.mp4"),
          os.path.join(DEBUG_DIR, "debug_text_reel.mp4"),
          os.path.join(DEBUG_DIR, "debug_smart_music_reel.mp4"),
+         os.path.join(DEBUG_DIR, "test_60fps_preview.mp4"),
          os.path.join(DEBUG_DIR, "music_smart_test", ".music_cache.json")]
     ):
         try:
@@ -1891,6 +1988,7 @@ if __name__ == "__main__":
     test_run_robustness()
     test_resource_optimizations()
     test_io_parallelism()
+    test_preview_generation()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

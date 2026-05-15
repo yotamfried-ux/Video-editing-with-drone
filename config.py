@@ -19,8 +19,10 @@ GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
 RAW_FOLDER_ID: str       = os.environ["RAW_FOLDER_ID"]           # incoming raw footage
 PROCESSED_FOLDER_ID: str = os.environ["PROCESSED_FOLDER_ID"]     # archived originals
 REVIEW_FOLDER_ID: str    = os.environ["REVIEW_FOLDER_ID"]        # draft reels awaiting approval
-APPROVED_FOLDER_ID: str  = os.environ["APPROVED_FOLDER_ID"]      # approved → ready to deliver
-CLIPS_FOLDER_ID: str     = os.getenv("CLIPS_FOLDER_ID", "")      # unused by current pipeline (reserved)
+APPROVED_FOLDER_ID: str        = os.environ["APPROVED_FOLDER_ID"]        # approved → ready to deliver
+PREVIEW_FOLDER_ID: str         = os.getenv("PREVIEW_FOLDER_ID", "")         # 480p watermarked previews sent to athletes
+PENDING_PAYMENT_FOLDER_ID: str = os.getenv("PENDING_PAYMENT_FOLDER_ID", "") # full reels awaiting payment
+CLIPS_FOLDER_ID: str           = os.getenv("CLIPS_FOLDER_ID", "")           # unused by current pipeline (reserved)
 
 # ── Delivery ───────────────────────────────────────────────────────────────
 OWNER_EMAIL: str = os.environ["OWNER_EMAIL"]               # pipeline operator — always receives summary

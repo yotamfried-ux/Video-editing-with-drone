@@ -7,6 +7,7 @@ import glob
 import logging
 import os
 import random
+import re
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
@@ -877,6 +878,57 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             reels.append(reel)
 
     return reels
+
+
+def create_preview(reel_path: str, athlete_label: str = "") -> str:
+    """
+    Generate a 480p watermarked preview from a full-quality reel.
+
+    The preview is intended for athlete review before payment.  It is
+    re-encoded at lower resolution (480p) and higher CRF so the file is
+    clearly inferior to the paid deliverable.
+
+    Returns the path of the generated preview file (same dir, _preview suffix).
+    """
+    out = reel_path.replace(".mp4", "_preview.mp4")
+
+    # Strip FFmpeg drawtext metacharacters from the label
+    safe = re.sub(r"[^A-Za-z0-9 #.,_-]", "", athlete_label)[:40].strip()
+
+    dt_top = (
+        "drawtext=text='PREVIEW ONLY':"
+        "fontsize=h/8:"
+        "fontcolor=white@0.85:"
+        "x=(w-text_w)/2:y=(h/2 - text_h - 8):"
+        "box=1:boxcolor=black@0.5:boxborderw=14:"
+        "shadowx=2:shadowy=2"
+    )
+    if safe:
+        dt_name = (
+            f"drawtext=text='{safe}':"
+            "fontsize=h/16:"
+            "fontcolor=white@0.75:"
+            "x=(w-text_w)/2:y=(h/2 + 8):"
+            "box=1:boxcolor=black@0.4:boxborderw=8"
+        )
+        vf = f"scale=-2:480,{dt_top},{dt_name}"
+    else:
+        vf = f"scale=-2:480,{dt_top}"
+
+    cmd = [
+        "ffmpeg", "-y", "-i", reel_path,
+        "-vf", vf,
+        "-c:v", "libx264", "-crf", "28", "-preset", "fast",
+        "-r", "30",
+        "-c:a", "aac", "-b:a", "96k",
+        out,
+    ]
+    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"Preview generation failed: {result.stderr.decode(errors='replace')[:400]}"
+        )
+    return out
 
 
 # ── ממשק ראשי ─────────────────────────────────────────────────────────────
