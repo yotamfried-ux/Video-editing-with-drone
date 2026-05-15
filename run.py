@@ -178,12 +178,10 @@ def _process_clips_session(videos: list[dict]) -> int:
             logger.error("Skipping %s — download failed", video_meta["name"])
             continue
         analysis = analyze_session(path)
-        clip_analyses.append({"path": path, "analysis": analysis})
+        clip_analyses.append({"path": path, "analysis": analysis, "meta": video_meta})
 
     if not clip_analyses:
         print("⚠️ No clips downloaded — nothing to process")
-        for v in videos:
-            mark_as_processed(v["id"])
         return 0
 
     activity = _dominant_activity(clip_analyses)
@@ -198,8 +196,7 @@ def _process_clips_session(videos: list[dict]) -> int:
                 os.remove(ca["path"])
             except OSError:
                 pass
-        for v in videos:
-            mark_as_processed(v["id"])
+            mark_as_processed(ca["meta"]["id"])
         return 0
 
     print(f"👥 Found {len(clusters)} unique person(s)")
@@ -210,8 +207,7 @@ def _process_clips_session(videos: list[dict]) -> int:
             os.remove(ca["path"])
         except OSError:
             pass
-    for v in videos:
-        mark_as_processed(v["id"])
+        mark_as_processed(ca["meta"]["id"])
 
     return drafts
 
@@ -241,12 +237,10 @@ def _process_mixed_session(videos: list[dict]) -> int:
             logger.error("Skipping %s — download failed", video_meta["name"])
             continue
         analysis = analyze_session(path)
-        clip_analyses.append({"path": path, "analysis": analysis})
+        clip_analyses.append({"path": path, "analysis": analysis, "meta": video_meta})
 
     if not clip_analyses:
         print("⚠️ No files downloaded — nothing to process")
-        for v in videos:
-            mark_as_processed(v["id"])
         return 0
 
     activity = _dominant_activity(clip_analyses)
@@ -261,8 +255,7 @@ def _process_mixed_session(videos: list[dict]) -> int:
                 os.remove(ca["path"])
             except OSError:
                 pass
-        for v in videos:
-            mark_as_processed(v["id"])
+            mark_as_processed(ca["meta"]["id"])
         return 0
 
     print(f"👥 Found {len(clusters)} unique person(s)")
@@ -273,8 +266,7 @@ def _process_mixed_session(videos: list[dict]) -> int:
             os.remove(ca["path"])
         except OSError:
             pass
-    for v in videos:
-        mark_as_processed(v["id"])
+        mark_as_processed(ca["meta"]["id"])
 
     return drafts
 
