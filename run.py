@@ -118,7 +118,16 @@ def _process_long_video(video_meta: dict) -> int:
         logger.error("Skipping %s — download failed", filename)
         return 0
 
-    session  = analyze_session(local_path)
+    try:
+        session = analyze_session(local_path)
+    except Exception:
+        logger.error("Analysis failed for %s — not marking as processed (will retry)", filename)
+        try:
+            os.remove(local_path)
+        except OSError:
+            pass
+        return 0
+
     activity = session.get("activity", "sport")
     persons  = session.get("persons", [])
 
@@ -177,11 +186,19 @@ def _process_clips_session(videos: list[dict]) -> int:
         except Exception:
             logger.error("Skipping %s — download failed", video_meta["name"])
             continue
-        analysis = analyze_session(path)
+        try:
+            analysis = analyze_session(path)
+        except Exception:
+            logger.error("Analysis failed for %s — will retry next run", video_meta["name"])
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
         clip_analyses.append({"path": path, "analysis": analysis, "meta": video_meta})
 
     if not clip_analyses:
-        print("⚠️ No clips downloaded — nothing to process")
+        print("⚠️ No clips downloaded or analyzed — nothing to process")
         return 0
 
     activity = _dominant_activity(clip_analyses)
@@ -236,7 +253,15 @@ def _process_mixed_session(videos: list[dict]) -> int:
         except Exception:
             logger.error("Skipping %s — download failed", video_meta["name"])
             continue
-        analysis = analyze_session(path)
+        try:
+            analysis = analyze_session(path)
+        except Exception:
+            logger.error("Analysis failed for %s — will retry next run", video_meta["name"])
+            try:
+                os.remove(path)
+            except OSError:
+                pass
+            continue
         clip_analyses.append({"path": path, "analysis": analysis, "meta": video_meta})
 
     if not clip_analyses:

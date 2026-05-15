@@ -74,11 +74,18 @@ def _upload_video(video_path: str):
     try:
         video_file = genai.upload_file(path=video_path)
 
-        # ממתין עד שהקובץ עבר processing
-        while video_file.state.name == "PROCESSING":
-            print("  ⏳ Gemini processing video...", end="\r")
+        # Wait for Gemini to finish processing — max ~13 minutes (200 × 4s).
+        _MAX_WAIT = 200
+        for _attempt in range(_MAX_WAIT):
+            if video_file.state.name != "PROCESSING":
+                break
+            print(f"  ⏳ Gemini processing video... ({_attempt * 4}s)", end="\r")
             time.sleep(4)
             video_file = genai.get_file(video_file.name)
+        else:
+            raise RuntimeError(
+                f"Gemini video processing timed out after {_MAX_WAIT * 4}s"
+            )
 
         if video_file.state.name != "ACTIVE":
             raise RuntimeError(f"Gemini file ended in unexpected state: {video_file.state.name}")
@@ -255,14 +262,18 @@ def analyze_session(video_path: str) -> dict:
         return result
 
     except json.JSONDecodeError as e:
+        # Gemini returned something but we couldn't parse it — treat as no persons found.
+        # (A retry would likely give the same bad JSON, so don't re-raise.)
         logger.error("Gemini session JSON parse error: %s", e)
-        print(f"⚠️ JSON parse error: {e}")
+        print(f"⚠️ JSON parse error from Gemini: {e}")
         return {"activity": "unknown", "persons": []}
 
     except Exception as e:
+        # API / network / timeout failure — re-raise so the caller can skip this
+        # video without marking it as processed, allowing a retry next run.
         logger.error("Gemini session analysis failed: %s", e)
         print(f"❌ Session analysis failed: {e}")
-        return {"activity": "unknown", "persons": []}
+        raise
 
     finally:
         if video_file:

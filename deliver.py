@@ -9,6 +9,7 @@ Usage:
   3. Run:  python deliver.py
 """
 
+import json
 import logging
 import os
 import sys
@@ -32,6 +33,26 @@ from pipeline.notifier import send_summary_email
 from pipeline.clients  import find_client
 
 
+# ── Delivered-IDs local state (prevents duplicate emails on Drive-move failure) ─
+
+_DELIVERED_FILE = "delivered.json"
+
+
+def _load_delivered() -> set[str]:
+    try:
+        with open(_DELIVERED_FILE) as f:
+            return set(json.load(f))
+    except (FileNotFoundError, json.JSONDecodeError):
+        return set()
+
+
+def _mark_emailed(file_id: str) -> None:
+    ids = _load_delivered()
+    ids.add(file_id)
+    with open(_DELIVERED_FILE, "w") as f:
+        json.dump(list(ids), f, indent=2)
+
+
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
@@ -42,11 +63,17 @@ def main() -> None:
         print("✅ No approved drafts — nothing to deliver")
         return
 
-    print(f"\n📋 {len(approved)} approved reel(s) ready to deliver")
+    already_emailed = _load_delivered()
+    to_email = [d for d in approved if d["id"] not in already_emailed]
+    skipped  = len(approved) - len(to_email)
+    if skipped:
+        print(f"⏭️  Skipping {skipped} already-delivered reel(s)")
+
+    print(f"\n📋 {len(to_email)} reel(s) to deliver")
 
     # ── Per-athlete personal email ─────────────────────────────────────────
     sent_to_clients = 0
-    for draft in approved:
+    for draft in to_email:
         client = find_client(draft["name"])
         if not client:
             continue
@@ -66,21 +93,27 @@ def main() -> None:
             logger.error("Failed to send personal email to %s for %s", email, draft["name"])
 
     # ── Batch summary email to owner ───────────────────────────────────────
-    links     = [d["webViewLink"] for d in approved]
-    sport_tag = "mixed"
-    name_tag  = approved[0]["name"] if len(approved) == 1 else f"{len(approved)} approved reels"
+    if to_email:
+        links     = [d["webViewLink"] for d in to_email]
+        sport_tag = "mixed"
+        name_tag  = to_email[0]["name"] if len(to_email) == 1 else f"{len(to_email)} approved reels"
 
-    try:
-        send_summary_email(
-            recipients  = [config.OWNER_EMAIL],
-            clips_links = links,
-            sport_type  = sport_tag,
-            video_name  = name_tag,
-        )
-        print(f"✉️  Batch summary sent to owner ({config.OWNER_EMAIL})")
-    except Exception:
-        logger.error("Failed to send owner summary email")
-        print("❌ Failed to send owner summary email — continuing to archive")
+        try:
+            send_summary_email(
+                recipients  = [config.OWNER_EMAIL],
+                clips_links = links,
+                sport_type  = sport_tag,
+                video_name  = name_tag,
+            )
+            print(f"✉️  Batch summary sent to owner ({config.OWNER_EMAIL})")
+        except Exception:
+            logger.error("Failed to send owner summary email")
+            print("❌ Failed to send owner summary email — continuing to archive")
+
+        # Record all emailed IDs immediately so a Drive-move failure won't cause
+        # duplicate emails on the next deliver.py run.
+        for draft in to_email:
+            _mark_emailed(draft["id"])
 
     # ── Archive delivered reels ────────────────────────────────────────────
     delivered = 0

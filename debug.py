@@ -1142,12 +1142,15 @@ def test_deliver_flow() -> None:
     from unittest.mock import patch, MagicMock, call
     import deliver  # noqa: PLC0415
 
-    _no_client = patch("deliver.find_client", return_value=None)
+    _no_client   = patch("deliver.find_client",    return_value=None)
+    _no_delivered = patch("deliver._load_delivered", return_value=set())
+    _no_mark     = patch("deliver._mark_emailed")
 
     # ── no approved drafts → send_summary_email NOT called ──
     with patch("deliver.get_approved_drafts", return_value=[]), \
          patch("deliver.send_summary_email") as mock_send, \
-         patch("deliver.mark_draft_delivered"), _no_client:
+         patch("deliver.mark_draft_delivered"), \
+         _no_client, _no_delivered, _no_mark:
         deliver.main()
         if mock_send.call_count == 0:
             ok("deliver.main — no drafts → send_summary_email not called")
@@ -1161,7 +1164,8 @@ def test_deliver_flow() -> None:
     ]
     with patch("deliver.get_approved_drafts", return_value=drafts), \
          patch("deliver.send_summary_email") as mock_send, \
-         patch("deliver.mark_draft_delivered"), _no_client:
+         patch("deliver.mark_draft_delivered"), \
+         _no_client, _no_delivered, _no_mark:
         deliver.main()
         # find_client returns None → only the owner batch call is made (1 call)
         if mock_send.call_count == 1:
@@ -1178,7 +1182,8 @@ def test_deliver_flow() -> None:
     # ── 2 approved drafts → mark_draft_delivered called twice ──
     with patch("deliver.get_approved_drafts", return_value=drafts), \
          patch("deliver.send_summary_email"), \
-         patch("deliver.mark_draft_delivered") as mock_mark, _no_client:
+         patch("deliver.mark_draft_delivered") as mock_mark, \
+         _no_client, _no_delivered, _no_mark:
         deliver.main()
         if mock_mark.call_count == 2:
             ok("deliver.main — mark_draft_delivered called for each draft")
@@ -1189,7 +1194,8 @@ def test_deliver_flow() -> None:
     try:
         with patch("deliver.get_approved_drafts", return_value=drafts), \
              patch("deliver.send_summary_email"), \
-             patch("deliver.mark_draft_delivered"), _no_client:
+             patch("deliver.mark_draft_delivered"), \
+             _no_client, _no_delivered, _no_mark:
             deliver.main()
         ok("deliver.main — smoke test, no exception")
     except Exception as e:
@@ -1201,12 +1207,27 @@ def test_deliver_flow() -> None:
             raise RuntimeError("smtp failure")
     with patch("deliver.get_approved_drafts", return_value=drafts), \
          patch("deliver.send_summary_email", side_effect=_fail_on_owner), \
-         patch("deliver.mark_draft_delivered") as mock_mark2, _no_client:
+         patch("deliver.mark_draft_delivered") as mock_mark2, \
+         _no_client, _no_delivered, _no_mark:
         deliver.main()
         if mock_mark2.call_count == 2:
             ok("deliver.main — owner email fails → still archives (no duplicate client emails)")
         else:
             fail("deliver.main — archive on owner failure", f"expected 2 calls, got {mock_mark2.call_count}")
+
+    # ── already-delivered ID → email skipped on second run ──
+    with patch("deliver.get_approved_drafts", return_value=drafts), \
+         patch("deliver.send_summary_email") as mock_send2, \
+         patch("deliver.mark_draft_delivered"), \
+         _no_client, \
+         patch("deliver._load_delivered", return_value={"d1", "d2"}), \
+         _no_mark:
+        deliver.main()
+        # Both IDs already in delivered.json → no emails at all
+        if mock_send2.call_count == 0:
+            ok("deliver.main — already-delivered IDs → emails skipped (idempotency)")
+        else:
+            fail("deliver.main — idempotency", f"expected 0 calls, got {mock_send2.call_count}")
 
 
 # ══════════════════════════════════════════════════════
