@@ -15,6 +15,20 @@ import config
 
 logger = logging.getLogger(__name__)
 
+_CLIP_CACHE: dict = {}
+
+
+def _get_clip_model():
+    """Load CLIP model once per process and cache at module level."""
+    if not _CLIP_CACHE:
+        from transformers import CLIPModel, CLIPProcessor
+        processor  = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+        model      = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        model.eval()
+        _CLIP_CACHE["processor"] = processor
+        _CLIP_CACHE["model"]     = model
+    return _CLIP_CACHE["processor"], _CLIP_CACHE["model"]
+
 
 # ── Tier 3: text-only clustering prompt ───────────────────────────────────────
 
@@ -173,7 +187,6 @@ def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
     """
     try:
         import torch
-        from transformers import CLIPModel, CLIPProcessor
         from PIL import Image as PILImage
     except ImportError:
         logger.debug("CLIP Re-ID unavailable (install torch + transformers + Pillow to enable)")
@@ -190,9 +203,7 @@ def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
         return None  # nothing useful to cluster
 
     try:
-        processor  = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
-        clip_model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
-        clip_model.eval()
+        processor, clip_model = _get_clip_model()
     except Exception as e:
         logger.warning("CLIP model load failed: %s", e)
         return None

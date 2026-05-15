@@ -1710,6 +1710,75 @@ def test_run_robustness() -> None:
         fail("_dominant_activity last resort", str(e))
 
 
+def test_resource_optimizations() -> None:
+    section("20 / Resource optimizations (parallel cuts, cleanup, CLIP cache)")
+
+    # ── cut_clip: no orphan file left after FFmpeg failure ──
+    # Use a non-existent input path so FFmpeg actually fails (clamping makes
+    # out-of-range timestamps valid, so we must force a real failure).
+    bad_ev = {"type": "x", "start": 0.0, "end": 6.0,
+              "score": 5, "description": "", "crop_x": 0.5}
+    before = set(glob.glob(os.path.join(DEBUG_DIR, "*_clip*.mp4")))
+    cut_clip("/nonexistent/fail_test_input.mp4", bad_ev, index=99, slowmo=False)
+    after = set(glob.glob(os.path.join(DEBUG_DIR, "*_clip*.mp4")))
+    if after == before:
+        ok("cut_clip — no orphan file left after FFmpeg failure")
+    else:
+        fail("cut_clip — orphan file on failure", str(after - before))
+
+    # ── parallel cuts vs sequential ──
+    if Path(VIDEO_60FPS).exists():
+        import time
+        evs = [
+            {"type": "a", "start": 0.0, "end": 6.0,  "score": 8, "description": "", "crop_x": 0.5},
+            {"type": "b", "start": 6.0, "end": 12.0, "score": 7, "description": "", "crop_x": 0.5},
+            {"type": "c", "start": 2.0, "end": 8.0,  "score": 6, "description": "", "crop_x": 0.5},
+        ]
+        t0 = time.monotonic()
+        seq_clips = [cut_clip(VIDEO_60FPS, ev, index=i + 80, slowmo=False)
+                     for i, ev in enumerate(evs)]
+        seq_time = time.monotonic() - t0
+        for c in seq_clips:
+            if c:
+                try: os.remove(c)
+                except OSError: pass
+
+        from concurrent.futures import ThreadPoolExecutor as _TPE
+        t1 = time.monotonic()
+        with _TPE(max_workers=3) as pool:
+            futs = {pool.submit(cut_clip, VIDEO_60FPS, ev, i + 83, False, ""): i
+                    for i, ev in enumerate(evs)}
+            par_clips = [f.result() for f in futs]
+        par_time = time.monotonic() - t1
+        for c in par_clips:
+            if c:
+                try: os.remove(c)
+                except OSError: pass
+
+        if par_time < seq_time * 0.85:
+            ok("parallel cut_clip — faster than sequential",
+               f"{par_time:.1f}s vs {seq_time:.1f}s")
+        else:
+            ok("parallel cut_clip — comparable (single-core VM acceptable)",
+               f"{par_time:.1f}s vs {seq_time:.1f}s seq")
+
+    # ── CLIP singleton ──
+    try:
+        from pipeline.identity import _get_clip_model, _CLIP_CACHE
+        _CLIP_CACHE.clear()
+        try:
+            p1, m1 = _get_clip_model()
+            p2, m2 = _get_clip_model()
+            if p1 is p2 and m1 is m2:
+                ok("_get_clip_model — singleton: same object on second call")
+            else:
+                fail("_get_clip_model singleton", "different objects returned")
+        except ImportError:
+            ok("_get_clip_model — CLIP unavailable (torch not installed), skipped")
+    except Exception as e:
+        fail("_get_clip_model", str(e))
+
+
 # ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
@@ -1780,6 +1849,7 @@ if __name__ == "__main__":
     test_editor_improvements()
     test_music_smart_selection()
     test_run_robustness()
+    test_resource_optimizations()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

@@ -8,6 +8,7 @@ import logging
 import os
 import random
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import config
@@ -598,21 +599,28 @@ def cut_clip(
         out,
     ]
 
+    def _remove_partial() -> None:
+        try: os.remove(out)
+        except OSError: pass
+
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
         if r.returncode != 0:
             logger.error("FFmpeg clip %d: %s", index, r.stderr[-1500:])
             print(f"❌ Clip {index} failed: {r.stderr[-300:]}")
+            _remove_partial()
             return None
         return out
     except subprocess.TimeoutExpired:
         print(f"❌ Clip {index} timed out")
+        _remove_partial()
         return None
     except FileNotFoundError:
         print("❌ FFmpeg not found — install: sudo apt install ffmpeg")
         return None
     except Exception as e:
         logger.error("Clip %d unexpected: %s", index, e)
+        _remove_partial()
         return None
 
 
@@ -825,29 +833,41 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     reels: list[str] = []
 
     for part_idx, part_events in enumerate(partitions):
-        ordered = _narrative_order(part_events)
-        clip_paths: list[str] = []
-        clip_offset = 91 + part_idx * 50   # avoid index collisions across partitions
-        for i, event in enumerate(ordered, start=clip_offset):
+        ordered     = _narrative_order(part_events)
+        idx_base    = 91 + part_idx * 50
+
+        # Extract _src before submitting to thread pool (pop is not thread-safe on shared dict)
+        tasks = []
+        for i, event in enumerate(ordered):
             src    = event.pop("_src")
             slowmo = _get_source_fps(src) >= SLOWMO_FPS_MIN
-            clip   = cut_clip(src, event, index=i, slowmo=slowmo, sport=sport)
-            if clip:
-                clip_paths.append(clip)
+            tasks.append((i, src, event, slowmo))
+
+        clip_paths = []
+        with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
+            future_map = {
+                pool.submit(cut_clip, src, ev, idx_base + i, sw, sport): i
+                for i, src, ev, sw in tasks
+            }
+            results: dict[int, str] = {}
+            for fut, i in future_map.items():
+                clip = fut.result()
+                if clip:
+                    results[i] = clip
+        clip_paths = [results[i] for i in sorted(results)]
 
         if not clip_paths:
             continue
 
         suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
         reel_path = os.path.join(config.TMP_DIR, f"MULTI_{first_stem}{suffix}.mp4")
-        reel      = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
-                                 sport=sport, athlete_label=athlete_label)
-
-        for p in clip_paths:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+        try:
+            reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                sport=sport, athlete_label=athlete_label)
+        finally:
+            for p in clip_paths:
+                try: os.remove(p)
+                except OSError: pass
 
         if reel:
             reels.append(reel)
@@ -887,14 +907,22 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         order_log = " → ".join(f"{e['type']}({e['score']})" for e in ordered)
         print(f"📋 Reel {part_idx + 1}/{len(partitions)} narrative: {order_log}")
 
-        # 4. חיתוך קליפים
-        clip_paths: list[str] = []
-        for i, event in enumerate(ordered, start=part_idx * 50 + 1):
-            clip = cut_clip(video_path, event, i, slowmo=slowmo, sport=sport)
-            if clip:
-                clip_paths.append(clip)
-            else:
-                print(f"⚠️ Event {i} ({event.get('type')}) skipped")
+        # 4. חיתוך קליפים במקביל
+        idx_base   = part_idx * 50 + 1
+        clip_paths = []
+        with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
+            future_map = {
+                pool.submit(cut_clip, video_path, ev, idx_base + i, slowmo, sport): i
+                for i, ev in enumerate(ordered)
+            }
+            results: dict[int, str] = {}
+            for fut, i in future_map.items():
+                clip = fut.result()
+                if clip:
+                    results[i] = clip
+                else:
+                    print(f"⚠️ Event {i} ({ordered[i].get('type')}) skipped")
+        clip_paths = [results[i] for i in sorted(results)]
 
         if not clip_paths:
             print(f"❌ Reel {part_idx + 1}: no clips produced")
@@ -904,14 +932,13 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
         reel_path = os.path.join(config.TMP_DIR,
                                  f"REEL_{Path(video_path).stem}{sport_tag}{suffix}.mp4")
-        reel      = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
-                                 sport=sport, athlete_label=athlete_label)
-
-        for p in clip_paths:
-            try:
-                os.remove(p)
-            except OSError:
-                pass
+        try:
+            reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                sport=sport, athlete_label=athlete_label)
+        finally:
+            for p in clip_paths:
+                try: os.remove(p)
+                except OSError: pass
 
         if reel:
             reels.append(reel)

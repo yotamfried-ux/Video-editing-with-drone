@@ -33,3 +33,4 @@ TMP_DIR: str = os.getenv("TMP_DIR", "/tmp/dtor")
 PROCESSED_IDS_FILE: str = "processed.json"                 # local state file
 LOG_FILE: str = "logs/pipeline.log"
 CLIENTS_FILE: str = "clients.json"                         # maps video patterns → client emails
+MAX_CUT_WORKERS: int = int(os.getenv("MAX_CUT_WORKERS", str(min(4, os.cpu_count() or 1))))
