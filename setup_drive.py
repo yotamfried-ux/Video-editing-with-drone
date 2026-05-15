@@ -15,9 +15,11 @@ _SERVICE_ACCOUNT_JSON = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
 _SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 FOLDERS = [
-    ("D-to-R RAW Drone Footage",  "RAW_FOLDER_ID"),
-    ("D-to-R Highlight Clips",    "CLIPS_FOLDER_ID"),
-    ("D-to-R Processed Originals","PROCESSED_FOLDER_ID"),
+    ("D-to-R RAW Drone Footage",    "RAW_FOLDER_ID"),
+    ("D-to-R Review Drafts",        "REVIEW_FOLDER_ID"),
+    ("D-to-R Approved Reels",       "APPROVED_FOLDER_ID"),
+    ("D-to-R Processed Originals",  "PROCESSED_FOLDER_ID"),
+    ("D-to-R Highlight Clips",      "CLIPS_FOLDER_ID"),
 ]
 
 

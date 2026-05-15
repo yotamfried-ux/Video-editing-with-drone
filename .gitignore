@@ -17,6 +17,7 @@ build/
 # Temp processing files
 /tmp/
 processed.json
+delivered.json
 
 # Client list with real emails — use clients.json.example as template
 clients.json
