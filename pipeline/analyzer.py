@@ -6,7 +6,9 @@ Gemini רואה תנועה, רצף, ותזמון — לא תמונות סטטי�
 
 import json
 import logging
+import os
 import re
+import subprocess
 import time
 from pathlib import Path
 
@@ -107,6 +109,26 @@ def _delete_video(video_file) -> None:
         logger.warning("Could not delete Gemini file %s: %s", video_file.name, e)
 
 
+def _extract_thumbnail(video_path: str, timestamp: float) -> str | None:
+    """Extract a JPEG frame from video at timestamp using FFmpeg. Returns path or None."""
+    stem = Path(video_path).stem
+    out_path = os.path.join(config.TMP_DIR, f"thumb_{stem}_{timestamp:.1f}.jpg")
+    try:
+        cmd = [
+            "ffmpeg", "-y",
+            "-ss", str(max(0.0, timestamp)),
+            "-i", video_path,
+            "-frames:v", "1",
+            "-q:v", "3",
+            out_path,
+        ]
+        subprocess.run(cmd, capture_output=True, timeout=30, check=True)
+        return out_path if os.path.exists(out_path) else None
+    except Exception as e:
+        logger.debug("Thumbnail extraction failed at %.1fs: %s", timestamp, e)
+        return None
+
+
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
     """Retry fn() on transient Gemini errors (429 / quota / 503) with exponential back-off."""
     for attempt in range(1, attempts + 1):
@@ -160,7 +182,14 @@ In competitive plays (tackle, duel, block, goal, save, interception):
 
 For each PERSON:
 - id: "person_A", "person_B", etc. (most screen time first)
-- description: distinctive visual features (jersey number, board color, clothing)
+- description: list identifying features in this priority order (be specific — used to match
+  the same person across multiple clips):
+  1. Jersey/bib number ("player #7", "bib #23") — most reliable, always mention if visible
+  2. Clothing colors ("red shirt, black shorts", "blue wetsuit, white gloves")
+  3. Equipment ("orange surfboard", "yellow helmet", "red mountain bike")
+  4. Hair ("long blonde ponytail", "short dark hair")
+  5. Body build only when nothing else distinguishes ("tall, broad shoulders")
+  Never use vague labels like "athlete" or "person". Be specific enough to match across clips.
 
 For each EVENT:
 - type: snake_case label (e.g. "wave_catch", "goal", "cutback", "trick", "tackle")
@@ -259,6 +288,17 @@ def analyze_session(video_path: str) -> dict:
         result = _parse_session(response.text)
         n      = len(result["persons"])
         print(f"✅ Activity: '{result['activity']}' | {n} person(s) identified")
+
+        # Extract reference thumbnail for each person's best event (for visual Re-ID).
+        for person in result.get("persons", []):
+            events = person.get("events", [])
+            if events:
+                best = events[0]  # sorted by score desc in _parse_session
+                mid = (best["start"] + best["end"]) / 2
+                thumb = _extract_thumbnail(video_path, mid)
+                if thumb:
+                    person["thumbnail"] = thumb
+
         return result
 
     except json.JSONDecodeError as e:

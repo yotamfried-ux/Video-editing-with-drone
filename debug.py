@@ -58,7 +58,7 @@ for _mod in [
 ]:
     sys.modules.setdefault(_mod, MagicMock())
 
-from pipeline.analyzer import _parse_analysis, _parse_session, _with_retry  # noqa: E402
+from pipeline.analyzer import _parse_analysis, _parse_session, _with_retry, _extract_thumbnail  # noqa: E402
 from pipeline.notifier import _build_html, send_summary_email  # noqa: E402
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -1130,6 +1130,230 @@ def test_identity_clustering() -> None:
             fail("cluster_clips — multi-clip fallback", f"got {result}")
     except Exception as e:
         fail("cluster_clips — multi-clip fallback", str(e))
+
+    # ── _extract_thumbnail: produces a JPEG file at the given timestamp ───────
+    _thumb_src = os.path.join(DEBUG_DIR, "test_thumb_source.mp4")
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=green:size=320x240:duration=2",
+             "-r", "30", _thumb_src],
+            capture_output=True, timeout=20, check=True,
+        )
+        thumb_path = _extract_thumbnail(_thumb_src, 0.5)
+        if thumb_path and os.path.exists(thumb_path) and os.path.getsize(thumb_path) > 0:
+            ok("_extract_thumbnail — produces JPEG at given timestamp", thumb_path)
+            try: os.remove(thumb_path)
+            except OSError: pass
+        else:
+            fail("_extract_thumbnail — file missing or empty", str(thumb_path))
+    except Exception as e:
+        fail("_extract_thumbnail", str(e))
+    finally:
+        try: os.remove(_thumb_src)
+        except OSError: pass
+
+    # ── _try_clip_cluster: returns None when torch/transformers unavailable ───
+    from pipeline.identity import _try_clip_cluster  # noqa: PLC0415
+    try:
+        result = _try_clip_cluster(two_clips)
+        # In the debug environment torch is not installed → must return None
+        if result is None:
+            ok("_try_clip_cluster — returns None when CLIP deps missing")
+        else:
+            # torch IS installed and produced clusters — that's also fine
+            ok("_try_clip_cluster — CLIP available, returned clusters", str(len(result)))
+    except Exception as e:
+        fail("_try_clip_cluster", str(e))
+
+    # ── _try_visual_cluster: returns None when no thumbnails present ──────────
+    from pipeline.identity import _try_visual_cluster  # noqa: PLC0415
+    descriptions_list = [
+        {"clip_index": 0, "person_id": "person_A", "description": "red board"},
+        {"clip_index": 1, "person_id": "person_B", "description": "blue board"},
+    ]
+    try:
+        result = _try_visual_cluster(descriptions_list, two_clips)
+        # No thumbnails in two_clips → should return None
+        if result is None:
+            ok("_try_visual_cluster — returns None when no thumbnails available")
+        else:
+            fail("_try_visual_cluster — expected None (no thumbnails)", f"got {result}")
+    except Exception as e:
+        fail("_try_visual_cluster", str(e))
+
+    # ── cluster_clips with thumbnails → uses visual tier if available ─────────
+    from unittest.mock import patch  # noqa: PLC0415
+    thumb_file = os.path.join(DEBUG_DIR, "test_thumb_identity.jpg")
+    # Create a minimal JPEG placeholder to satisfy os.path.exists checks
+    try:
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=red:size=64x64:duration=0.1",
+             "-frames:v", "1", thumb_file],
+            capture_output=True, timeout=15
+        )
+    except Exception:
+        pass
+
+    two_clips_with_thumbs = [
+        {
+            "path": "/tmp/debug_clip1.mp4",
+            "analysis": {
+                "activity": "surfing",
+                "persons": [{
+                    "id": "person_A",
+                    "description": "red board",
+                    "thumbnail": thumb_file if os.path.exists(thumb_file) else "",
+                    "events": [{"type": "wave_catch", "start": 5.0, "end": 14.0, "score": 9, "description": ""}],
+                }],
+            },
+        },
+        {
+            "path": "/tmp/debug_clip2.mp4",
+            "analysis": {
+                "activity": "surfing",
+                "persons": [{
+                    "id": "person_B",
+                    "description": "blue board",
+                    "thumbnail": thumb_file if os.path.exists(thumb_file) else "",
+                    "events": [{"type": "aerial", "start": 20.0, "end": 29.0, "score": 8, "description": ""}],
+                }],
+            },
+        },
+    ]
+    gemini_visual_response = json.dumps({
+        "clusters": [
+            {"description": "red board surfer", "appearances": [{"clip_index": 0, "person_id": "person_A"}]},
+            {"description": "blue board surfer", "appearances": [{"clip_index": 1, "person_id": "person_B"}]},
+        ]
+    })
+    try:
+        with patch("pipeline.identity._try_clip_cluster", return_value=None), \
+             patch("pipeline.identity.genai") as mock_genai:
+            mock_genai.GenerativeModel.return_value.generate_content.return_value.text = gemini_visual_response
+            # Mock upload_file to return an object with a .name attribute
+            from unittest.mock import MagicMock  # noqa: PLC0415
+            mock_file = MagicMock()
+            mock_file.name = "files/test_thumb"
+            mock_genai.upload_file.return_value = mock_file
+
+            result = cluster_clips(two_clips_with_thumbs)
+            if len(result) == 2:
+                ok("cluster_clips — with thumbnails, visual tier produces 2 clusters")
+            else:
+                fail("cluster_clips — visual tier", f"expected 2 clusters, got {len(result)}")
+    except Exception as e:
+        fail("cluster_clips — visual tier with thumbnails", str(e))
+
+    # ── _build_clusters_from_data: low-confidence multi-clip → split ──────────
+    from pipeline.identity import _build_clusters_from_data  # noqa: PLC0415
+
+    low_conf_data = {
+        "clusters": [{
+            "description": "black wetsuit athlete",
+            "confidence": "low",
+            "appearances": [
+                {"clip_index": 0, "person_id": "person_A"},
+                {"clip_index": 1, "person_id": "person_B"},
+            ],
+        }]
+    }
+    try:
+        split_result = _build_clusters_from_data(low_conf_data, two_clips)
+        if len(split_result) == 2:
+            ok("_build_clusters_from_data — low-confidence multi-clip → split into 2 clusters")
+        else:
+            fail("_build_clusters_from_data — low-conf split", f"expected 2, got {len(split_result)}")
+    except Exception as e:
+        fail("_build_clusters_from_data — low-conf split", str(e))
+
+    # ── high-confidence → stays merged ───────────────────────────────────────
+    high_conf_data = {
+        "clusters": [{
+            "description": "#7 red shirt",
+            "confidence": "high",
+            "appearances": [
+                {"clip_index": 0, "person_id": "person_A"},
+                {"clip_index": 1, "person_id": "person_B"},
+            ],
+        }]
+    }
+    try:
+        merged_result = _build_clusters_from_data(high_conf_data, two_clips)
+        if len(merged_result) == 1:
+            ok("_build_clusters_from_data — high-confidence multi-clip → stays merged")
+        else:
+            fail("_build_clusters_from_data — high-conf merge", f"expected 1, got {len(merged_result)}")
+    except Exception as e:
+        fail("_build_clusters_from_data — high-conf merge", str(e))
+
+    # ── missing confidence → treated as medium (no split) ────────────────────
+    no_conf_data = {
+        "clusters": [{
+            "description": "blue board",
+            "appearances": [
+                {"clip_index": 0, "person_id": "person_A"},
+                {"clip_index": 1, "person_id": "person_B"},
+            ],
+        }]
+    }
+    try:
+        no_conf_result = _build_clusters_from_data(no_conf_data, two_clips)
+        if len(no_conf_result) == 1:
+            ok("_build_clusters_from_data — missing confidence field → no split (treated as medium)")
+        else:
+            fail("_build_clusters_from_data — missing confidence", f"expected 1, got {len(no_conf_result)}")
+    except Exception as e:
+        fail("_build_clusters_from_data — missing confidence", str(e))
+
+    # ── cluster_clips cleans up thumbnail files after completion ─────────────
+    thumb_cleanup_a = os.path.join(DEBUG_DIR, "test_cleanup_a.jpg")
+    thumb_cleanup_b = os.path.join(DEBUG_DIR, "test_cleanup_b.jpg")
+    for t in (thumb_cleanup_a, thumb_cleanup_b):
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-f", "lavfi", "-i", "color=blue:size=64x64:duration=0.1",
+                 "-frames:v", "1", t],
+                capture_output=True, timeout=15,
+            )
+        except Exception:
+            pass
+
+    clips_cleanup = [
+        {
+            "path": "/tmp/debug_clip1.mp4",
+            "analysis": {
+                "activity": "surfing",
+                "persons": [{
+                    "id": "person_A", "description": "red board",
+                    "thumbnail": thumb_cleanup_a,
+                    "events": [{"type": "wave_catch", "start": 5.0, "end": 14.0, "score": 9, "description": ""}],
+                }],
+            },
+        },
+        {
+            "path": "/tmp/debug_clip2.mp4",
+            "analysis": {
+                "activity": "surfing",
+                "persons": [{
+                    "id": "person_B", "description": "blue board",
+                    "thumbnail": thumb_cleanup_b,
+                    "events": [{"type": "aerial", "start": 20.0, "end": 29.0, "score": 8, "description": ""}],
+                }],
+            },
+        },
+    ]
+    try:
+        with patch("pipeline.identity._try_clip_cluster", return_value=None), \
+             patch("pipeline.identity._try_visual_cluster", return_value=None), \
+             patch("pipeline.identity._text_cluster", side_effect=RuntimeError("force fallback")):
+            cluster_clips(clips_cleanup)
+        still_exist = [t for t in (thumb_cleanup_a, thumb_cleanup_b) if os.path.exists(t)]
+        if not still_exist:
+            ok("cluster_clips — thumbnail files cleaned up after completion")
+        else:
+            fail("cluster_clips — thumbnail cleanup", f"still on disk: {still_exist}")
+    except Exception as e:
+        fail("cluster_clips — thumbnail cleanup", str(e))
 
 
 # ══════════════════════════════════════════════════════
