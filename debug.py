@@ -1654,6 +1654,62 @@ def test_music_smart_selection() -> None:
                 except OSError: pass
 
 
+def test_run_robustness() -> None:
+    section("19 / run.py robustness (record_failure + _dominant_activity)")
+
+    from pipeline.drive import record_failure, _load_failed_ids
+    import tempfile
+    import shutil
+
+    orig_processed = config.PROCESSED_IDS_FILE
+    tmp_dir = tempfile.mkdtemp()
+    config.PROCESSED_IDS_FILE = os.path.join(tmp_dir, "processed.json")
+    try:
+        r1 = record_failure("vid_abc", max_failures=3)
+        r2 = record_failure("vid_abc", max_failures=3)
+        r3 = record_failure("vid_abc", max_failures=3)
+        if not r1 and not r2 and r3:
+            ok("record_failure — reaches limit on 3rd call")
+        else:
+            fail("record_failure", f"r1={r1} r2={r2} r3={r3}")
+        counts = _load_failed_ids()
+        if counts.get("vid_abc") == 3:
+            ok("record_failure — persists count to disk")
+        else:
+            fail("record_failure — disk", f"counts={counts}")
+    except Exception as e:
+        fail("record_failure", str(e))
+    finally:
+        config.PROCESSED_IDS_FILE = orig_processed
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    from run import _dominant_activity
+    surf_clips = [
+        {"analysis": {"activity": "unknown"}, "meta": {"name": "surf_session_day2.mp4"}},
+        {"analysis": {"activity": "unknown"}, "meta": {"name": "surf_beach_morning.mp4"}},
+    ]
+    try:
+        act = _dominant_activity(surf_clips)
+        if act == "surfing":
+            ok("_dominant_activity — filename fallback → surfing")
+        else:
+            fail("_dominant_activity filename fallback", f"got {act!r}")
+    except Exception as e:
+        fail("_dominant_activity filename fallback", str(e))
+
+    no_hint_clips = [
+        {"analysis": {"activity": "unknown"}, "meta": {"name": "session_001.mp4"}},
+    ]
+    try:
+        act2 = _dominant_activity(no_hint_clips)
+        if act2 != "unknown":
+            ok("_dominant_activity — last resort is not 'unknown'", act2)
+        else:
+            fail("_dominant_activity last resort", "returned 'unknown'")
+    except Exception as e:
+        fail("_dominant_activity last resort", str(e))
+
+
 # ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
@@ -1723,6 +1779,7 @@ if __name__ == "__main__":
     test_deliver_flow()
     test_editor_improvements()
     test_music_smart_selection()
+    test_run_robustness()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

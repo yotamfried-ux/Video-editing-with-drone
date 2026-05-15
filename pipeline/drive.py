@@ -32,6 +32,42 @@ def _get_drive_service():
 
 # ── Processed-IDs local state ──────────────────────────────────────────────
 
+def _failed_ids_path() -> str:
+    base = os.path.dirname(os.path.abspath(config.PROCESSED_IDS_FILE))
+    return os.path.join(base, "failed_ids.json")
+
+
+def _load_failed_ids() -> dict[str, int]:
+    """Returns {file_id: fail_count}."""
+    try:
+        with open(_failed_ids_path()) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_failed_ids(failed: dict[str, int]) -> None:
+    path = _failed_ids_path()
+    tmp  = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(failed, f, indent=2)
+    os.replace(tmp, path)
+
+
+def record_failure(file_id: str, max_failures: int = 3) -> bool:
+    """Increment fail count for file_id. Returns True when limit is reached."""
+    failed = _load_failed_ids()
+    failed[file_id] = failed.get(file_id, 0) + 1
+    _save_failed_ids(failed)
+    if failed[file_id] >= max_failures:
+        logger.warning(
+            "Video %s failed %d time(s) — will be permanently skipped",
+            file_id, failed[file_id],
+        )
+        return True
+    return False
+
+
 def _load_processed_ids() -> set[str]:
     if not Path(config.PROCESSED_IDS_FILE).exists():
         return set()

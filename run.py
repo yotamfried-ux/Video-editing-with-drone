@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 # ── Pipeline imports ────────────────────────────────────────────────────────
 import config
-from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_draft
+from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_draft, record_failure
 from pipeline.analyzer import analyze_session
 from pipeline.editor   import create_reel, compile_multi_source_reel
 from pipeline.identity import cluster_clips
@@ -37,8 +37,23 @@ _LARGE_FILE_BYTES = 100_000_000   # 100 MB threshold
 
 # ── Helpers ────────────────────────────────────────────────────────────────
 
+_FILENAME_SPORT_HINTS: dict[str, str] = {
+    "surf":     "surfing",
+    "swim":     "swimming",
+    "skate":    "skateboarding",
+    "ski":      "skiing",
+    "snow":     "snowboarding",
+    "football": "football",
+    "soccer":   "soccer",
+    "basket":   "basketball",
+    "cycl":     "cycling",
+    "moto":     "motocross",
+    "parkour":  "parkour",
+}
+
+
 def _dominant_activity(clip_analyses: list[dict]) -> str:
-    """Returns the most common non-'unknown'/'other' activity across analyzed clips."""
+    """Returns the most common activity; falls back to filename hint; never returns 'unknown'."""
     from collections import Counter
     counts: Counter = Counter()
     for ca in clip_analyses:
@@ -47,7 +62,12 @@ def _dominant_activity(clip_analyses: list[dict]) -> str:
             counts[act] += 1
     if counts:
         return counts.most_common(1)[0][0]
-    return clip_analyses[0].get("analysis", {}).get("activity", "sport") if clip_analyses else "sport"
+    for ca in clip_analyses:
+        name = ca.get("meta", {}).get("name", "").lower()
+        for kw, sport in _FILENAME_SPORT_HINTS.items():
+            if kw in name:
+                return sport
+    return "sport"
 
 
 def _classify_input(videos: list[dict]) -> str:
@@ -117,12 +137,16 @@ def _process_long_video(video_meta: dict) -> int:
         local_path = download_video(file_id, filename)
     except Exception:
         logger.error("Skipping %s — download failed", filename)
+        if record_failure(file_id):
+            mark_as_processed(file_id)
         return 0
 
     try:
         session = analyze_session(local_path)
     except Exception:
-        logger.error("Analysis failed for %s — not marking as processed (will retry)", filename)
+        logger.error("Analysis failed for %s — will retry (up to 3 times)", filename)
+        if record_failure(file_id):
+            mark_as_processed(file_id)
         try:
             os.remove(local_path)
         except OSError:
@@ -187,11 +211,15 @@ def _process_clips_session(videos: list[dict]) -> int:
             path = download_video(video_meta["id"], video_meta["name"])
         except Exception:
             logger.error("Skipping %s — download failed", video_meta["name"])
+            if record_failure(video_meta["id"]):
+                mark_as_processed(video_meta["id"])
             continue
         try:
             analysis = analyze_session(path)
         except Exception:
-            logger.error("Analysis failed for %s — will retry next run", video_meta["name"])
+            logger.error("Analysis failed for %s — will retry (up to 3 times)", video_meta["name"])
+            if record_failure(video_meta["id"]):
+                mark_as_processed(video_meta["id"])
             try:
                 os.remove(path)
             except OSError:
@@ -254,11 +282,15 @@ def _process_mixed_session(videos: list[dict]) -> int:
             path = download_video(video_meta["id"], video_meta["name"])
         except Exception:
             logger.error("Skipping %s — download failed", video_meta["name"])
+            if record_failure(video_meta["id"]):
+                mark_as_processed(video_meta["id"])
             continue
         try:
             analysis = analyze_session(path)
         except Exception:
-            logger.error("Analysis failed for %s — will retry next run", video_meta["name"])
+            logger.error("Analysis failed for %s — will retry (up to 3 times)", video_meta["name"])
+            if record_failure(video_meta["id"]):
+                mark_as_processed(video_meta["id"])
             try:
                 os.remove(path)
             except OSError:
