@@ -14,11 +14,13 @@ import config
 
 logger = logging.getLogger(__name__)
 
-REEL_W, REEL_H = 1080, 1920
-XFADE_DUR      = 0.5    # חפיפה בין קליפים (שניות) — מינימום מומלץ לרילס
-CLIP_FADE_DUR  = 0.25   # fade in/out בתוך קליפ
-MAX_REEL_SEC   = 88     # מתחת ל-90s של Instagram Reels
-SLOWMO_FPS_MIN = 50     # fps מינימלי לslow-mo חלק (50 / 60fps)
+REEL_W, REEL_H  = 1080, 1920
+XFADE_DUR       = 0.5    # חפיפה בין קליפים (שניות) — מינימום מומלץ לרילס
+CLIP_FADE_DUR   = 0.25   # fade in/out בתוך קליפ
+MAX_REEL_SEC    = 88     # מתחת ל-90s של Instagram Reels
+SLOWMO_FPS_MIN  = 50     # fps מינימלי לslow-mo חלק (50 / 60fps)
+TARGET_REEL_MIN = 12     # shorter reels → warn only
+TARGET_REEL_MAX = 30     # split into multiple reels when a single one would exceed this
 
 
 # ── ffprobe helpers ────────────────────────────────────────────────────────
@@ -295,6 +297,86 @@ _COLOR_PROFILES: dict[str, str] = {
 }
 
 
+# ── Sport-specific xfade transition presets ────────────────────────────────
+_SPORT_XFADES: dict[str, list[str]] = {
+    "surfing":       ["slideleft", "slideright", "zoomin"],
+    "skateboarding": ["zoomin",    "pixelize",   "slideleft"],
+    "snowboarding":  ["fadewhite", "slidedown",  "slideleft"],
+    "skiing":        ["fadewhite", "slideleft",  "slideright"],
+    "football":      ["slideleft", "wipeleft",   "slideright"],
+    "soccer":        ["slideleft", "wipeleft",   "slideright"],
+    "basketball":    ["wipeleft",  "slideleft",  "slideright"],
+    "cycling":       ["slideleft", "wiperight",  "slideright"],
+    "motocross":     ["slideleft", "zoomin",     "wipeleft"],
+    "parkour":       ["zoomin",    "slideleft",  "pixelize"],
+    "_default":      ["slideleft", "slideright", "fade"],
+}
+
+
+def _find_font() -> str | None:
+    """Find a bold system font for drawtext overlays. Returns None if unavailable."""
+    candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+        "/usr/share/fonts/truetype/ubuntu/Ubuntu-Bold.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
+        "/System/Library/Fonts/Arial Bold.ttf",
+    ]
+    return next((p for p in candidates if os.path.exists(p)), None)
+
+
+def _partition_events(
+    events: list[dict],
+    slowmo: bool,
+    target_max: float = TARGET_REEL_MAX,
+) -> list[list[dict]]:
+    """
+    Split events into reel-sized partitions (each ≤ target_max seconds).
+    Events are sorted by score descending so each reel gets the best remaining events.
+    Returns a list of event groups; each group is then narrative-ordered independently.
+
+    Duration estimate per event:
+      slowmo source → event_dur × 1.4  (speed-ramp: 0.3+0.8+0.3)
+      normal source → event_dur × 1.0
+    Xfade subtracts XFADE_DUR per transition.
+    """
+    if not events:
+        return []
+
+    factor = 1.4 if slowmo else 1.0
+
+    def _clip_dur(ev: dict) -> float:
+        return (ev["end"] - ev["start"]) * factor
+
+    def _group_dur(grp: list[dict]) -> float:
+        return sum(_clip_dur(e) for e in grp) - XFADE_DUR * (len(grp) - 1)
+
+    # Best events first → each reel gets the highest-quality moments available
+    remaining = sorted(events, key=lambda e: e["score"], reverse=True)
+
+    partitions: list[list[dict]] = []
+    current: list[dict] = []
+
+    for ev in remaining:
+        test = current + [ev]
+        if current and _group_dur(test) > target_max:
+            partitions.append(current)
+            current = [ev]
+        else:
+            current = test
+
+    if current:
+        partitions.append(current)
+
+    if len(partitions) > 1:
+        logger.info(
+            "Events split into %d reels (total %d events, est. %.0fs total)",
+            len(partitions), len(events),
+            sum(_group_dur(p) for p in partitions),
+        )
+    return partitions
+
+
 def _narrative_order(events: list[dict]) -> list[dict]:
     """
     מסדר קליפים לפי עקרון narrative arc:
@@ -339,26 +421,42 @@ def cut_clip(
         logger.warning("⚠️ Timestamps clamped [%.1f,%.1f]→[%.1f,%.1f]",
                        event["start"], event["end"], start, end)
 
-    # משך הפלט: כפול אם slow-mo (FFmpeg קורא input_dur מהמקור, setpts מכפיל)
-    output_dur = input_dur * 2 if slowmo else input_dur
+    # Output duration: speed-ramp (30%+40%×2+30% = 1.4×) or passthrough (1×)
+    output_dur = round(input_dur * 1.4, 3) if slowmo else input_dur
     clip_fade  = min(CLIP_FADE_DUR, output_dur / 6)
 
     os.makedirs(config.TMP_DIR, exist_ok=True)
     out = os.path.join(config.TMP_DIR, f"{Path(video_path).stem}_clip{index:02d}.mp4")
 
-    slowmo_filter = "setpts=2.0*PTS," if slowmo else ""
-    grade         = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
-    crop_x        = max(0.0, min(1.0, float(event.get("crop_x", 0.5))))
+    grade  = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
+    crop_x = max(0.0, min(1.0, float(event.get("crop_x", 0.5))))
 
     # fg: scale to fill full 1920px height, then crop 1080px wide centred on athlete.
     # If source is already portrait / narrower than 1080px after scaling, the crop
     # x-expression clamps to 0 and the blurred bg fills the sides.
-    half_w = REEL_W // 2
+    half_w  = REEL_W // 2
     fg_crop = (
         f"scale=iw*{REEL_H}/ih:{REEL_H},"
         f"crop={REEL_W}:{REEL_H}:"
         f"'max(0,min(iw-{REEL_W},trunc(iw*{crop_x:.4f}-{half_w})))':0"
     )
+
+    # Speed ramp: 30% normal → 40% slow (0.5×) → 30% normal
+    if slowmo:
+        t1 = round(input_dur * 0.30, 3)
+        t2 = round(input_dur * 0.70, 3)
+        overlay_sink = "[merged];"
+        ramp = (
+            f"[merged]split=3[s1_in][s2_in][s3_in];"
+            f"[s1_in]trim=0:{t1},setpts=PTS-STARTPTS[s1];"
+            f"[s2_in]trim={t1}:{t2},setpts=2*(PTS-STARTPTS)[s2];"
+            f"[s3_in]trim={t2}:{input_dur:.3f},setpts=PTS-STARTPTS[s3];"
+            f"[s1][s2][s3]concat=n=3:v=1:a=0[ramped];"
+            f"[ramped]"
+        )
+    else:
+        overlay_sink = ","
+        ramp = ""
 
     vf = (
         f"[0:v]split[bg_in][fg_in];"
@@ -370,9 +468,9 @@ def cut_clip(
         # foreground: zoom-crop centred on athlete
         f"[fg_in]{fg_crop}[fg];"
 
-        # overlay → slow-mo → grade → fade
-        f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
-        f"{slowmo_filter}"
+        # overlay → speed ramp (or passthrough) → grade → fade
+        f"[bg][fg]overlay=(W-w)/2:(H-h)/2{overlay_sink}"
+        f"{ramp}"
         f"{grade},"
         f"unsharp=5:5:0.65,"
         f"fade=t=in:st=0:d={clip_fade:.2f},"
@@ -380,7 +478,7 @@ def cut_clip(
         f"[out]"
     )
 
-    slowmo_tag = " [🐢 slow-mo]" if slowmo else ""
+    slowmo_tag = " [🐢 speed-ramp]" if slowmo else ""
     print(f"🎬 Clip {index}: {start:.1f}s→{end:.1f}s [{event_type}] "
           f"({input_dur:.1f}s in / {output_dur:.1f}s out){slowmo_tag}")
 
@@ -427,16 +525,19 @@ def cut_clip(
 
 # ── שלב 2: compilation לריל אחד ──────────────────────────────────────────
 
-def _xfade_filter(n: int, durations: list[float]) -> str:
-    """בונה filter_complex ל-xfade crossfade בין n קליפים."""
+def _xfade_filter(n: int, durations: list[float], sport: str = "") -> str:
+    """בונה filter_complex ל-xfade crossfade בין n קליפים עם מעברים ספציפיים לענף."""
     if n == 1:
         return "[0:v]null[xfout]"
+
+    _options    = _SPORT_XFADES.get(sport.lower(), _SPORT_XFADES["_default"])
+    _transition = random.choice(_options)
 
     parts      = []
     offset     = round(durations[0] - XFADE_DUR, 3)
     out_lbl    = "[xfout]" if n == 2 else "[xf1]"
     parts.append(
-        f"[0:v][1:v]xfade=transition=fade:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+        f"[0:v][1:v]xfade=transition={_transition}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
     )
 
     cumulative = durations[0] + durations[1] - XFADE_DUR
@@ -445,15 +546,21 @@ def _xfade_filter(n: int, durations: list[float]) -> str:
         prev    = "[xf1]" if i == 2 else f"[xf{i-1}]"
         out_lbl = "[xfout]" if i == n - 1 else f"[xf{i}]"
         parts.append(
-            f"{prev}[{i}:v]xfade=transition=fade:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+            f"{prev}[{i}:v]xfade=transition={_transition}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
         )
         cumulative += durations[i] - XFADE_DUR
 
     return ";".join(parts)
 
 
-def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str | None:
-    """מחבר קליפים לריל אחד עם xfade + לוגו watermark."""
+def compile_reel(
+    clip_paths: list[str],
+    logo_path: str,
+    output_path: str,
+    sport: str = "",
+    athlete_label: str = "",
+) -> str | None:
+    """מחבר קליפים לריל אחד עם xfade + לוגו watermark + כותרת תחתית."""
     n = len(clip_paths)
     if n == 0:
         return None
@@ -474,7 +581,7 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
     if has_logo:
         inputs += ["-i", logo_path]
 
-    xfade_f = _xfade_filter(n, durations)
+    xfade_f = _xfade_filter(n, durations, sport=sport)
 
     if has_logo:
         logo_w = REEL_W // 13
@@ -488,6 +595,26 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
     else:
         filter_complex = xfade_f
         map_out = "[xfout]"
+
+    # Athlete lower-third text overlay (first 2.8s, fade in+out)
+    display_text = athlete_label[:25].strip()
+    font_path    = _find_font()
+    if display_text and font_path:
+        safe_text  = display_text.replace("'", "\\'").replace(":", "\\:")
+        prev_label = map_out.strip("[]")
+        drawtext_f = (
+            f"[{prev_label}]drawtext="
+            f"fontfile={font_path}:"
+            f"text='{safe_text}':"
+            f"fontsize=52:fontcolor=white:"
+            f"box=1:boxcolor=black@0.55:boxborderw=10:"
+            f"x=(w-text_w)/2:y=h-260:"
+            f"enable='between(t,0.3,2.8)':"
+            f"alpha='if(lt(t,0.6),(t-0.3)/0.3,"
+            f"if(gt(t,2.5),(2.8-t)/0.3,1))'[captioned]"
+        )
+        filter_complex += ";" + drawtext_f
+        map_out = "[captioned]"
 
     cut_times  = _compute_cut_times(durations)
     music_path = _pick_music()
@@ -572,18 +699,21 @@ def compile_reel(clip_paths: list[str], logo_path: str, output_path: str) -> str
         return None
 
 
-def compile_multi_source_reel(appearances: list[dict], sport: str = "") -> str | None:
+def compile_multi_source_reel(appearances: list[dict], sport: str = "",
+                               athlete_label: str = "") -> list[str]:
     """
-    Creates a reel for one athlete using clips that may come from different source videos.
+    Creates reels for one athlete using clips that may come from different source videos.
 
     Args:
-        appearances: list of {"path": source_video_path, "events": [...]}
-        sport: activity label for color grading (e.g. "surfing", "football")
+        appearances:    list of {"path": source_video_path, "events": [...]}
+        sport:          activity label for color grading (e.g. "surfing", "football")
+        athlete_label:  short athlete description for lower-third text overlay
 
-    Returns compiled reel path or None.
+    Returns list of compiled reel paths (one per partition; may be multiple if athlete
+    has many high-scoring events that would exceed TARGET_REEL_MAX in a single reel).
     """
     if not appearances:
-        return None
+        return []
 
     # Attach source path to each event so we can look it up after narrative ordering
     all_events: list[dict] = []
@@ -592,49 +722,56 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "") -> str |
             all_events.append({**ev, "_src": app["path"]})
 
     if not all_events:
-        return None
+        return []
 
-    ordered = _narrative_order(all_events)
+    first_src      = appearances[0]["path"]
+    slowmo_capable = _get_source_fps(first_src) >= SLOWMO_FPS_MIN
+    partitions     = _partition_events(all_events, slowmo_capable)
+    first_stem     = Path(appearances[0]["path"]).stem
+    reels: list[str] = []
 
-    clip_paths: list[str] = []
-    for i, event in enumerate(ordered, start=91):   # offset avoids collision with create_reel indices
-        src    = event.pop("_src")
-        slowmo = _get_source_fps(src) >= SLOWMO_FPS_MIN
-        clip   = cut_clip(src, event, index=i, slowmo=slowmo, sport=sport)
-        if clip:
-            clip_paths.append(clip)
+    for part_idx, part_events in enumerate(partitions):
+        ordered = _narrative_order(part_events)
+        clip_paths: list[str] = []
+        clip_offset = 91 + part_idx * 50   # avoid index collisions across partitions
+        for i, event in enumerate(ordered, start=clip_offset):
+            src    = event.pop("_src")
+            slowmo = _get_source_fps(src) >= SLOWMO_FPS_MIN
+            clip   = cut_clip(src, event, index=i, slowmo=slowmo, sport=sport)
+            if clip:
+                clip_paths.append(clip)
 
-    if not clip_paths:
-        return None
+        if not clip_paths:
+            continue
 
-    first_stem = Path(appearances[0]["path"]).stem
-    reel_path  = os.path.join(config.TMP_DIR, f"MULTI_{first_stem}.mp4")
-    reel       = compile_reel(clip_paths, config.LOGO_PATH, reel_path)
+        suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
+        reel_path = os.path.join(config.TMP_DIR, f"MULTI_{first_stem}{suffix}.mp4")
+        reel      = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                 sport=sport, athlete_label=athlete_label)
 
-    for p in clip_paths:
-        try:
-            os.remove(p)
-        except OSError:
-            pass
+        for p in clip_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
 
-    return reel
+        if reel:
+            reels.append(reel)
+
+    return reels
 
 
 # ── ממשק ראשי ─────────────────────────────────────────────────────────────
 
-def create_reel(video_path: str, events: list[dict], sport: str = "") -> str | None:
+def create_reel(video_path: str, events: list[dict], sport: str = "",
+                athlete_label: str = "") -> list[str]:
     """
     מקבל סרטון גולמי + events מ-Gemini.
-    מחזיר ריל 9:16 מוכן להעלאה.
+    מחזיר רשימת ריל 9:16 מוכנים להעלאה (אחד או יותר אם ה-events עוברים את TARGET_REEL_MAX).
     """
     print(f"\n🎬 Creating reel from '{Path(video_path).name}' ({len(events)} event(s))")
 
-    # 1. סדר נרטיבי
-    ordered = _narrative_order(events)
-    order_log = " → ".join(f"{e['type']}({e['score']})" for e in ordered)
-    print(f"📋 Narrative order: {order_log}")
-
-    # 2. בדיקת fps לslow-mo
+    # 1. בדיקת fps לslow-mo (לפני partition כדי שנדע את הfactor הנכון)
     source_fps = _get_source_fps(video_path)
     slowmo     = source_fps >= SLOWMO_FPS_MIN
     if slowmo:
@@ -642,28 +779,47 @@ def create_reel(video_path: str, events: list[dict], sport: str = "") -> str | N
     else:
         print(f"⚡ Source {source_fps:.0f}fps — slow-mo skipped (need {SLOWMO_FPS_MIN}+fps)")
 
-    # 3. חיתוך קליפים לפי הסדר הנרטיבי
-    clip_paths: list[str] = []
-    for i, event in enumerate(ordered, start=1):
-        clip = cut_clip(video_path, event, i, slowmo=slowmo, sport=sport)
-        if clip:
-            clip_paths.append(clip)
-        else:
-            print(f"⚠️ Event {i} ({event.get('type')}) skipped")
+    # 2. פיצול events לפרטישנים (כל פרטישן ≤ TARGET_REEL_MAX שניות)
+    partitions = _partition_events(events, slowmo)
+    if len(partitions) > 1:
+        print(f"📦 {len(events)} events → {len(partitions)} reels (≤{TARGET_REEL_MAX}s each)")
 
-    if not clip_paths:
-        print("❌ No clips produced — cannot create reel")
-        return None
-
-    # 4. compilation לריל אחד
     sport_tag = f"_{sport}" if sport else ""
-    reel_path = os.path.join(config.TMP_DIR, f"REEL_{Path(video_path).stem}{sport_tag}.mp4")
-    reel      = compile_reel(clip_paths, config.LOGO_PATH, reel_path)
+    reels: list[str] = []
 
-    for p in clip_paths:
-        try:
-            os.remove(p)
-        except OSError:
-            pass
+    for part_idx, part_events in enumerate(partitions):
+        # 3. סדר נרטיבי לכל פרטישן
+        ordered = _narrative_order(part_events)
+        order_log = " → ".join(f"{e['type']}({e['score']})" for e in ordered)
+        print(f"📋 Reel {part_idx + 1}/{len(partitions)} narrative: {order_log}")
 
-    return reel
+        # 4. חיתוך קליפים
+        clip_paths: list[str] = []
+        for i, event in enumerate(ordered, start=part_idx * 50 + 1):
+            clip = cut_clip(video_path, event, i, slowmo=slowmo, sport=sport)
+            if clip:
+                clip_paths.append(clip)
+            else:
+                print(f"⚠️ Event {i} ({event.get('type')}) skipped")
+
+        if not clip_paths:
+            print(f"❌ Reel {part_idx + 1}: no clips produced")
+            continue
+
+        # 5. compilation
+        suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
+        reel_path = os.path.join(config.TMP_DIR,
+                                 f"REEL_{Path(video_path).stem}{sport_tag}{suffix}.mp4")
+        reel      = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                 sport=sport, athlete_label=athlete_label)
+
+        for p in clip_paths:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+
+        if reel:
+            reels.append(reel)
+
+    return reels

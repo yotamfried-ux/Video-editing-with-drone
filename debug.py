@@ -43,7 +43,7 @@ from pipeline.editor   import (  # noqa: E402
     create_reel, cut_clip, compile_reel,
     _narrative_order, _get_source_fps, _get_duration, _pick_music,
     _analyze_music, analyze_music_library, _compute_cut_times,
-    _COLOR_PROFILES,
+    _COLOR_PROFILES, _partition_events, _find_font, _xfade_filter,
 )
 
 # Mock all Google SDK modules before importing pipeline modules that depend on
@@ -306,10 +306,10 @@ def test_cut_clip() -> None:
         dur_slowmo = _get_duration(clip_sm)
         ratio      = dur_slowmo / dur_normal if dur_normal > 0 else 0
 
-        if 1.7 < ratio < 2.3:
-            ok("cut_clip slow-mo ≈2x duration", f"{dur_normal:.1f}s → {dur_slowmo:.1f}s (×{ratio:.2f})")
+        if 1.2 < ratio < 1.6:
+            ok("cut_clip speed-ramp ≈1.4x duration", f"{dur_normal:.1f}s → {dur_slowmo:.1f}s (×{ratio:.2f})")
         else:
-            fail("cut_clip slow-mo duration", f"ratio {ratio:.2f} (expected ~2.0)")
+            fail("cut_clip speed-ramp duration", f"ratio {ratio:.2f} (expected ~1.4)")
     else:
         fail("cut_clip slow-mo", "output not created")
 
@@ -612,15 +612,15 @@ def test_create_reel() -> None:
         {"type": "tube",       "start": 15.0, "end": 20.0, "score": 8, "description": "Tube"},
     ]
 
-    t0   = time.time()
-    reel = create_reel(VIDEO_60FPS, events, sport="surfing")
-    dt   = time.time() - t0
+    t0    = time.time()
+    reels = create_reel(VIDEO_60FPS, events, sport="surfing")
+    dt    = time.time() - t0
 
-    if reel and Path(reel).exists():
-        kb  = Path(reel).stat().st_size // 1024
-        dur = _get_duration(reel)
+    if reels and Path(reels[0]).exists():
+        kb  = Path(reels[0]).stat().st_size // 1024
+        dur = _get_duration(reels[0])
         ok("create_reel end-to-end", f"{dur:.1f}s reel, {kb}KB in {dt:.1f}s")
-        print(f"       → {reel}")
+        print(f"       → {reels[0]}")
     else:
         fail("create_reel", "reel not produced")
 
@@ -1472,6 +1472,97 @@ def test_deliver_flow() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 17. Editing improvements (speed-ramp, font, xfade, label)
+# ══════════════════════════════════════════════════════
+
+def test_editor_improvements() -> None:
+    section("17 / Editing improvements (_partition_events, _find_font, xfade, label)")
+
+    # ── _partition_events: splits into multiple reels when total > target_max ──
+    _long = [
+        {"type": "a", "start": 0.0,  "end": 12.0, "score": 9, "description": "", "crop_x": 0.5},
+        {"type": "b", "start": 13.0, "end": 25.0, "score": 7, "description": "", "crop_x": 0.5},
+        {"type": "c", "start": 26.0, "end": 38.0, "score": 6, "description": "", "crop_x": 0.5},
+    ]
+    # no-slowmo: 12+12+12 - 2×0.5 = 35s > 30 → should produce 2 partitions
+    try:
+        parts = _partition_events(_long, slowmo=False, target_max=30)
+        if len(parts) == 2 and all(len(p) >= 1 for p in parts):
+            ok("_partition_events — 3 events >30s → split into 2 partitions",
+               f"{len(parts)} partitions, sizes {[len(p) for p in parts]}")
+        else:
+            fail("_partition_events — split into 2",
+                 f"got {len(parts)} partitions: {[[e['score'] for e in p] for p in parts]}")
+    except Exception as e:
+        fail("_partition_events — split into 2", str(e))
+
+    # ── single partition when events fit ──
+    try:
+        one = _partition_events(_long[:2], slowmo=False, target_max=30)
+        if len(one) == 1 and len(one[0]) == 2:
+            ok("_partition_events — 2 events that fit → single partition")
+        else:
+            fail("_partition_events — single partition", f"got {len(one)} partitions")
+    except Exception as e:
+        fail("_partition_events — single partition", str(e))
+
+    # ── _find_font: returns path or None gracefully ──
+    try:
+        font = _find_font()
+        if font is None:
+            ok("_find_font — returns None gracefully (no system bold font found)")
+        else:
+            ok("_find_font — found system font", font)
+    except Exception as e:
+        fail("_find_font", str(e))
+
+    # ── _xfade_filter sport-specific transition ──
+    try:
+        flt = _xfade_filter(2, [7.0, 7.0], sport="surfing")
+        known = ["slideleft", "slideright", "zoomin", "fade", "wipeleft",
+                 "pixelize", "fadewhite", "wiperight", "slidedown"]
+        if any(t in flt for t in known):
+            ok("_xfade_filter — sport-specific transition selected",
+               next(t for t in known if t in flt))
+        else:
+            fail("_xfade_filter — sport transition", f"no known transition in: {flt[:100]}")
+    except Exception as e:
+        fail("_xfade_filter — sport transition", str(e))
+
+    # ── compile_reel with athlete_label smoke test ──
+    if not Path(VIDEO_60FPS).exists():
+        fail("compile_reel athlete_label", "60fps test video missing")
+        return
+
+    events_lbl = [
+        {"type": "a", "start": 0.0,  "end": 7.0,  "score": 8, "description": ""},
+        {"type": "b", "start": 7.5,  "end": 14.0, "score": 6, "description": ""},
+        {"type": "c", "start": 14.5, "end": 20.0, "score": 9, "description": ""},
+    ]
+    clips_lbl = [cut_clip(VIDEO_60FPS, ev, index=i+60, slowmo=False)
+                 for i, ev in enumerate(events_lbl)]
+    clips_lbl = [c for c in clips_lbl if c and Path(c).exists()]
+
+    if len(clips_lbl) >= 2:
+        reel_text = compile_reel(
+            clips_lbl, config.LOGO_PATH,
+            os.path.join(DEBUG_DIR, "debug_text_reel.mp4"),
+            sport="surfing", athlete_label="surfer #7 red board",
+        )
+        if reel_text and Path(reel_text).exists():
+            ok("compile_reel — athlete_label smoke test (text overlay path)")
+        else:
+            fail("compile_reel — athlete_label smoke test", "reel not produced")
+        for c in clips_lbl:
+            try:
+                os.remove(c)
+            except OSError:
+                pass
+    else:
+        fail("compile_reel — athlete_label smoke test", f"only {len(clips_lbl)} clips available")
+
+
+# ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
 
@@ -1509,7 +1600,8 @@ if __name__ == "__main__":
         glob.glob(os.path.join(DEBUG_DIR, "REEL_*.mp4")) +
         glob.glob(os.path.join(DEBUG_DIR, "MULTI_*.mp4")) +
         [os.path.join(DEBUG_DIR, "debug_compiled_reel.mp4"),
-         os.path.join(DEBUG_DIR, "debug_music_reel.mp4")]
+         os.path.join(DEBUG_DIR, "debug_music_reel.mp4"),
+         os.path.join(DEBUG_DIR, "debug_text_reel.mp4")]
     ):
         try:
             os.remove(_stale)
@@ -1535,6 +1627,7 @@ if __name__ == "__main__":
     test_find_client()
     test_identity_clustering()
     test_deliver_flow()
+    test_editor_improvements()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

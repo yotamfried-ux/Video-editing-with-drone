@@ -81,23 +81,24 @@ def _safe_draft_name(description: str) -> str:
 
 
 def _compile_clusters(clusters: list[dict], activity: str) -> int:
-    """Compile + upload one draft per cluster. Returns number of drafts uploaded."""
+    """Compile + upload drafts per cluster. Returns number of drafts uploaded."""
     drafts = 0
     for cluster in clusters:
-        reel = compile_multi_source_reel(cluster["appearances"], sport=activity)
-        if not reel:
-            continue
-        name = _safe_draft_name(cluster["description"])
-        try:
-            upload_draft(reel, name)
-            drafts += 1
-        except Exception:
-            logger.error("Draft upload failed for %s", name)
-        finally:
+        reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
+                                          athlete_label=cluster["description"])
+        for reel_idx, reel in enumerate(reels):
+            suffix = f" (part {reel_idx + 1})" if len(reels) > 1 else ""
+            name   = _safe_draft_name(cluster["description"] + suffix)
             try:
-                os.remove(reel)
-            except OSError:
-                pass
+                upload_draft(reel, name)
+                drafts += 1
+            except Exception:
+                logger.error("Draft upload failed for %s", name)
+            finally:
+                try:
+                    os.remove(reel)
+                except OSError:
+                    pass
     return drafts
 
 
@@ -147,20 +148,21 @@ def _process_long_video(video_meta: dict) -> int:
     for person in persons:
         if not person.get("events"):
             continue
-        reel = create_reel(local_path, person["events"], sport=activity)
-        if not reel:
-            continue
-        name = _safe_draft_name(person["description"])
-        try:
-            upload_draft(reel, name)
-            drafts += 1
-        except Exception:
-            logger.error("Draft upload failed for %s", name)
-        finally:
+        reels = create_reel(local_path, person["events"], sport=activity,
+                            athlete_label=person["description"])
+        for reel_idx, reel in enumerate(reels):
+            suffix = f" (part {reel_idx + 1})" if len(reels) > 1 else ""
+            name   = _safe_draft_name(person["description"] + suffix)
             try:
-                os.remove(reel)
-            except OSError:
-                pass
+                upload_draft(reel, name)
+                drafts += 1
+            except Exception:
+                logger.error("Draft upload failed for %s", name)
+            finally:
+                try:
+                    os.remove(reel)
+                except OSError:
+                    pass
 
     mark_as_processed(file_id)
     try:
