@@ -1229,6 +1229,23 @@ def test_deliver_flow() -> None:
         else:
             fail("deliver.main — idempotency", f"expected 0 calls, got {mock_send2.call_count}")
 
+    # ── missing webViewLink → email skipped, archiving continues ──
+    drafts_no_link = [
+        {"id": "d3", "name": "DRAFT_no_link.mp4", "webViewLink": ""},
+        {"id": "d4", "name": "DRAFT_ok_link.mp4",  "webViewLink": "https://drive.google.com/d4"},
+    ]
+    with patch("deliver.get_approved_drafts", return_value=drafts_no_link), \
+         patch("deliver.send_summary_email") as mock_send3, \
+         patch("deliver.mark_draft_delivered") as mock_mark3, \
+         _no_client, _no_delivered, _no_mark:
+        deliver.main()
+        # d3 has no link → skipped; d4 has link → 1 owner email sent
+        if mock_send3.call_count == 1 and mock_mark3.call_count == 2:
+            ok("deliver.main — missing webViewLink skips email, archives both")
+        else:
+            fail("deliver.main — missing webViewLink",
+                 f"send={mock_send3.call_count} (exp 1), mark={mock_mark3.call_count} (exp 2)")
+
 
 # ══════════════════════════════════════════════════════
 # Summary

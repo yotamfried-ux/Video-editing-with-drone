@@ -46,11 +46,16 @@ def _load_delivered() -> set[str]:
         return set()
 
 
-def _mark_emailed(file_id: str) -> None:
-    ids = _load_delivered()
-    ids.add(file_id)
-    with open(_DELIVERED_FILE, "w") as f:
+def _save_delivered(ids: set[str]) -> None:
+    tmp = _DELIVERED_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(list(ids), f, indent=2)
+    os.replace(tmp, _DELIVERED_FILE)  # atomic on POSIX — safe against mid-write crashes
+
+
+def _mark_emailed(ids_to_add: set[str]) -> None:
+    ids = _load_delivered() | ids_to_add
+    _save_delivered(ids)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────
@@ -68,6 +73,13 @@ def main() -> None:
     skipped  = len(approved) - len(to_email)
     if skipped:
         print(f"⏭️  Skipping {skipped} already-delivered reel(s)")
+
+    # Guard: skip drafts whose Drive link is missing (permission not set on upload)
+    no_link  = [d for d in to_email if not d.get("webViewLink")]
+    to_email = [d for d in to_email if d.get("webViewLink")]
+    for d in no_link:
+        logger.warning("⚠️ No webViewLink for '%s' — skipping email, still archiving", d["name"])
+        print(f"⚠️ No link for '{d['name']}' — email skipped (check Drive permissions)")
 
     print(f"\n📋 {len(to_email)} reel(s) to deliver")
 
@@ -110,10 +122,9 @@ def main() -> None:
             logger.error("Failed to send owner summary email")
             print("❌ Failed to send owner summary email — continuing to archive")
 
-        # Record all emailed IDs immediately so a Drive-move failure won't cause
-        # duplicate emails on the next deliver.py run.
-        for draft in to_email:
-            _mark_emailed(draft["id"])
+        # Single atomic write — all IDs at once so a crash between two writes
+        # can't leave the set partially updated.
+        _mark_emailed({d["id"] for d in to_email})
 
     # ── Archive delivered reels ────────────────────────────────────────────
     delivered = 0

@@ -43,8 +43,10 @@ def _load_processed_ids() -> set[str]:
 
 
 def _save_processed_ids(ids: set[str]) -> None:
-    with open(config.PROCESSED_IDS_FILE, "w") as f:
+    tmp = config.PROCESSED_IDS_FILE + ".tmp"
+    with open(tmp, "w") as f:
         json.dump(list(ids), f, indent=2)
+    os.replace(tmp, config.PROCESSED_IDS_FILE)  # atomic on POSIX
 
 
 def _sync_processed_from_drive(service) -> set[str]:
