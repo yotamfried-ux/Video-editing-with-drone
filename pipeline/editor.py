@@ -66,8 +66,59 @@ def _clamp(start: float, end: float, video_path: str) -> tuple[float, float]:
 
 # ── music picker ──────────────────────────────────────────────────────────
 
-def _pick_music() -> str | None:
-    """בוחר אקראית קובץ מוזיקה מ-MUSIC_DIR. מחזיר None אם התיקייה ריקה/לא קיימת."""
+def _ensure_music_cache(music_dir: str) -> dict:
+    """
+    Load (or build) a BPM/energy metadata cache for all tracks in music_dir.
+    Cache file: {music_dir}/.music_cache.json
+    Entry invalidated when file mtime changes.
+    Returns: {filename: {"bpm": float|None, "energy_score": float|None, "mtime": float}}
+    """
+    import json as _json
+
+    cache_path = os.path.join(music_dir, ".music_cache.json")
+    try:
+        with open(cache_path) as f:
+            cache = _json.load(f)
+    except Exception:
+        cache = {}
+
+    files = (
+        glob.glob(os.path.join(music_dir, "*.mp3")) +
+        glob.glob(os.path.join(music_dir, "*.aac")) +
+        glob.glob(os.path.join(music_dir, "*.m4a"))
+    )
+
+    changed = False
+    for path in files:
+        name  = Path(path).name
+        mtime = os.path.getmtime(path)
+        if name in cache and abs(cache[name].get("mtime", 0) - mtime) < 1:
+            continue
+        info = _analyze_music(path, 30.0)
+        cache[name] = {
+            "bpm":          info["bpm"],
+            "energy_score": info["energy_score"],
+            "mtime":        mtime,
+        }
+        changed = True
+
+    if changed:
+        try:
+            tmp = cache_path + ".tmp"
+            with open(tmp, "w") as f:
+                _json.dump(cache, f)
+            os.replace(tmp, cache_path)
+        except Exception as e:
+            logger.debug("Music cache save failed: %s", e)
+
+    return cache
+
+
+def _pick_music(sport: str = "") -> str | None:
+    """Pick the best-matching music track for the given sport.
+    Selection is BPM-weighted (70%) + energy-weighted (30%).
+    Falls back to random.choice() if cache is empty or librosa unavailable.
+    """
     music_dir = getattr(config, "MUSIC_DIR", "music")
     files = (
         glob.glob(os.path.join(music_dir, "*.mp3")) +
@@ -76,7 +127,34 @@ def _pick_music() -> str | None:
     )
     if not files:
         return None
-    chosen = random.choice(files)
+
+    cache = _ensure_music_cache(music_dir)
+
+    lo, hi  = _SPORT_BPM.get(sport.lower(), _SPORT_BPM["_default"])
+    mid     = (lo + hi) / 2.0
+    bpm_rng = (hi - lo) / 2.0 or 1.0
+
+    scored: list[tuple[float, str]] = []
+    for path in files:
+        name  = Path(path).name
+        entry = cache.get(name, {})
+        bpm   = entry.get("bpm")
+        eng   = entry.get("energy_score") or 0.5
+
+        if bpm and bpm > 0:
+            bpm_score = max(0.0, 1.0 - abs(bpm - mid) / (bpm_rng * 2))
+        else:
+            bpm_score = 0.5
+
+        scored.append((bpm_score * 0.7 + eng * 0.3, path))
+
+    if not scored:
+        chosen = random.choice(files)
+    else:
+        scored.sort(reverse=True)
+        top3   = [p for _, p in scored[:3]]
+        chosen = random.choice(top3)
+
     print(f"🎵 Music: {Path(chosen).name}")
     return chosen
 
@@ -310,6 +388,21 @@ _SPORT_XFADES: dict[str, list[str]] = {
     "motocross":     ["slideleft", "zoomin",     "wipeleft"],
     "parkour":       ["zoomin",    "slideleft",  "pixelize"],
     "_default":      ["slideleft", "slideright", "fade"],
+}
+
+_SPORT_BPM: dict[str, tuple[int, int]] = {
+    "surfing":       (85,  120),
+    "swimming":      (80,  115),
+    "skateboarding": (120, 160),
+    "skiing":        (100, 130),
+    "snowboarding":  (100, 130),
+    "football":      (120, 145),
+    "soccer":        (120, 145),
+    "basketball":    (115, 140),
+    "cycling":       (110, 135),
+    "motocross":     (130, 165),
+    "parkour":       (120, 150),
+    "_default":      (100, 140),
 }
 
 
@@ -617,32 +710,33 @@ def compile_reel(
         map_out = "[captioned]"
 
     cut_times  = _compute_cut_times(durations)
-    music_path = _pick_music()
+    music_path = _pick_music(sport=sport)
     has_music  = bool(music_path)
     music_idx  = n + (1 if has_logo else 0)
     if has_music:
-        mx      = _analyze_music(music_path, total_dur, cut_times=cut_times)
-        fade_st = max(0.0, total_dur - 2.0)
+        mx        = _analyze_music(music_path, total_dur, cut_times=cut_times)
+        fade_st   = max(0.0, total_dur - 2.0)
+        audio_pre = "dynaudnorm=p=0.95:m=30,afade=t=in:st=0:d=1.5,"
 
         if mx["needs_loop"]:
-            # שיר קצר מדי — loop מנקודת ה-sync
             audio_f = (
                 f"atrim=start={mx['start_sec']:.3f},"
                 f"aloop=loop=-1:size=2000000000,"
                 f"atrim=duration={total_dur:.3f},"
+                f"{audio_pre}"
                 f"afade=t=out:st={fade_st:.3f}:d=2"
             )
         elif abs(mx["atempo"] - 1.0) > 0.005:
-            # stretch קל (±10%) כדי ליישר beat לcut ולהתאים לאורך הריל
             audio_f = (
                 f"atrim=start={mx['start_sec']:.3f}:duration={mx['trim_dur']:.3f},"
                 f"atempo={mx['atempo']:.4f},"
+                f"{audio_pre}"
                 f"afade=t=out:st={fade_st:.3f}:d=2"
             )
         else:
-            # trim מדויק ממקום ה-sync — ללא stretch
             audio_f = (
                 f"atrim=start={mx['start_sec']:.3f}:duration={total_dur:.3f},"
+                f"{audio_pre}"
                 f"afade=t=out:st={fade_st:.3f}:d=2"
             )
 

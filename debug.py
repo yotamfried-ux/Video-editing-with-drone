@@ -44,6 +44,7 @@ from pipeline.editor   import (  # noqa: E402
     _narrative_order, _get_source_fps, _get_duration, _pick_music,
     _analyze_music, analyze_music_library, _compute_cut_times,
     _COLOR_PROFILES, _partition_events, _find_font, _xfade_filter,
+    _ensure_music_cache,
 )
 
 # Mock all Google SDK modules before importing pipeline modules that depend on
@@ -1562,6 +1563,97 @@ def test_editor_improvements() -> None:
         fail("compile_reel — athlete_label smoke test", f"only {len(clips_lbl)} clips available")
 
 
+def test_music_smart_selection() -> None:
+    section("18 / Smart music selection (_ensure_music_cache + _pick_music BPM match)")
+
+    music_dir = os.path.join(DEBUG_DIR, "music_smart_test")
+    os.makedirs(music_dir, exist_ok=True)
+
+    slow_mp3 = os.path.join(music_dir, "slow_surf.mp3")
+    fast_mp3 = os.path.join(music_dir, "fast_skate.mp3")
+    for path, freq in [(slow_mp3, 220), (fast_mp3, 880)]:
+        subprocess.run(
+            ["ffmpeg", "-y", "-f", "lavfi",
+             "-i", f"sine=frequency={freq}:duration=40",
+             "-q:a", "0", path],
+            capture_output=True, timeout=15,
+        )
+
+    # ── _ensure_music_cache: creates cache file ──
+    try:
+        cache = _ensure_music_cache(music_dir)
+        cache_file = os.path.join(music_dir, ".music_cache.json")
+        if os.path.exists(cache_file) and "slow_surf.mp3" in cache and "fast_skate.mp3" in cache:
+            ok("_ensure_music_cache — creates cache with both tracks")
+        else:
+            fail("_ensure_music_cache — cache file", f"keys: {list(cache.keys())}")
+    except Exception as e:
+        fail("_ensure_music_cache", str(e))
+
+    # ── cache entries have required keys ──
+    try:
+        entry = cache.get("slow_surf.mp3", {})
+        if {"bpm", "energy_score", "mtime"}.issubset(entry.keys()):
+            ok("_ensure_music_cache — entry has bpm, energy_score, mtime")
+        else:
+            fail("_ensure_music_cache — entry keys", str(entry.keys()))
+    except Exception as e:
+        fail("_ensure_music_cache — entry keys", str(e))
+
+    # ── second call is a cache hit (no file re-analysis) ──
+    try:
+        cache2 = _ensure_music_cache(music_dir)
+        if cache2.get("slow_surf.mp3", {}).get("mtime") == cache.get("slow_surf.mp3", {}).get("mtime"):
+            ok("_ensure_music_cache — second call returns same mtime (cache hit)")
+        else:
+            fail("_ensure_music_cache — cache hit", "mtime changed on second call")
+    except Exception as e:
+        fail("_ensure_music_cache — cache hit", str(e))
+
+    # ── _pick_music with sport returns a path from the dir ──
+    old_music_dir = getattr(config, "MUSIC_DIR", "music")
+    config.MUSIC_DIR = music_dir
+    try:
+        picked = _pick_music(sport="surfing")
+        if picked and Path(picked).exists() and Path(picked).parent == Path(music_dir):
+            ok("_pick_music(sport='surfing') — returns a path from music dir", Path(picked).name)
+        else:
+            fail("_pick_music sport", f"got {picked!r}")
+    except Exception as e:
+        fail("_pick_music sport", str(e))
+    finally:
+        config.MUSIC_DIR = old_music_dir
+
+    # ── compile_reel smoke test with smart music ──
+    if Path(VIDEO_60FPS).exists():
+        evs = [
+            {"type": "a", "start": 0.0, "end": 7.0, "score": 8, "description": ""},
+            {"type": "b", "start": 7.5, "end": 14.0, "score": 6, "description": ""},
+        ]
+        clips = [cut_clip(VIDEO_60FPS, ev, index=i + 70, slowmo=False)
+                 for i, ev in enumerate(evs)]
+        clips = [c for c in clips if c and Path(c).exists()]
+        config.MUSIC_DIR = music_dir
+        try:
+            if len(clips) >= 2:
+                reel = compile_reel(clips, config.LOGO_PATH,
+                                    os.path.join(DEBUG_DIR, "debug_smart_music_reel.mp4"),
+                                    sport="surfing")
+                if reel and Path(reel).exists():
+                    ok("compile_reel with smart music — reel produced")
+                else:
+                    fail("compile_reel smart music", "reel not produced")
+            else:
+                fail("compile_reel smart music", "clips not created")
+        except Exception as e:
+            fail("compile_reel smart music", str(e))
+        finally:
+            config.MUSIC_DIR = old_music_dir
+            for c in clips:
+                try: os.remove(c)
+                except OSError: pass
+
+
 # ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
@@ -1601,7 +1693,9 @@ if __name__ == "__main__":
         glob.glob(os.path.join(DEBUG_DIR, "MULTI_*.mp4")) +
         [os.path.join(DEBUG_DIR, "debug_compiled_reel.mp4"),
          os.path.join(DEBUG_DIR, "debug_music_reel.mp4"),
-         os.path.join(DEBUG_DIR, "debug_text_reel.mp4")]
+         os.path.join(DEBUG_DIR, "debug_text_reel.mp4"),
+         os.path.join(DEBUG_DIR, "debug_smart_music_reel.mp4"),
+         os.path.join(DEBUG_DIR, "music_smart_test", ".music_cache.json")]
     ):
         try:
             os.remove(_stale)
@@ -1628,6 +1722,7 @@ if __name__ == "__main__":
     test_identity_clustering()
     test_deliver_flow()
     test_editor_improvements()
+    test_music_smart_selection()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
