@@ -460,7 +460,7 @@ def test_music_overlay() -> None:
         return
 
     reel_out = os.path.join(DEBUG_DIR, "debug_music_reel.mp4")
-    result   = compile_reel(clips, config.LOGO_PATH, reel_out)
+    result   = compile_reel(clips, config.LOGO_PATH, reel_out, music_path=test_mp3)
 
     if result and Path(result).exists():
         probe = subprocess.run(
