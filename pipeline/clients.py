@@ -33,6 +33,14 @@ def find_client(description: str) -> dict | None:
 
     lower = description.lower()
     for client in clients:
+        jersey = str(client.get("jersey_number", "")).strip()
+        if jersey and (
+            f"#{jersey}" in lower
+            or f"number {jersey}" in lower
+            or f"no. {jersey}" in lower
+            or f" {jersey} " in lower
+        ):
+            return client
         pattern = client.get("video_pattern", "").lower()
         if pattern and pattern in lower:
             return client

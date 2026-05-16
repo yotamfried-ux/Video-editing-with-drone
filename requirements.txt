@@ -6,10 +6,8 @@ python-dotenv>=1.0.0
 librosa>=0.11.0
 soundfile>=0.12
 Pillow>=10.0.0
-
-# Optional — enables CLIP Re-ID (Tier 1 identity clustering, most accurate):
-#   pip install torch transformers
-# Without these, the pipeline falls back to Gemini visual/text clustering.
+torch>=2.0.0
+transformers>=4.35.0
 
 # ffmpeg must be installed separately via system package manager:
 #   Ubuntu/Debian: sudo apt install ffmpeg

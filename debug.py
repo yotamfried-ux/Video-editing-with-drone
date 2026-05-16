@@ -1947,6 +1947,56 @@ def print_summary() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 23. Jersey-number client matching
+# ══════════════════════════════════════════════════════
+
+def test_jersey_matching() -> None:
+    section("23 / Client matching — jersey_number + video_pattern")
+
+    from pipeline.clients import find_client
+
+    jersey_clients = [
+        {"name": "איתי לוי",   "email": "itay@test.com",  "video_pattern": "itay",  "jersey_number": "7"},
+        {"name": "יוני שמעון", "email": "yoni@test.com",  "video_pattern": "yoni",  "jersey_number": "10"},
+    ]
+
+    old_clients_file = config.CLIENTS_FILE
+    tmp_clients = os.path.join(DEBUG_DIR, "jersey_clients_tmp.json")
+    with open(tmp_clients, "w") as f:
+        json.dump(jersey_clients, f)
+    config.CLIENTS_FILE = tmp_clients
+
+    try:
+        # ── jersey number match (#7) ──
+        m = find_client("player #7 in red jersey scored a goal")
+        if m and m.get("email") == "itay@test.com":
+            ok("find_client — jersey #7 match by jersey_number")
+        else:
+            fail("find_client jersey #7", f"got {m!r}")
+
+        # ── jersey number match (#10) ──
+        m2 = find_client("player number 10 dribbles past two defenders")
+        if m2 and m2.get("email") == "yoni@test.com":
+            ok("find_client — jersey number 10 match")
+        else:
+            fail("find_client jersey 10", f"got {m2!r}")
+
+        # ── video_pattern fallback when no jersey in description ──
+        m3 = find_client("itay_session_20260516.mp4")
+        if m3 and m3.get("email") == "itay@test.com":
+            ok("find_client — video_pattern fallback when no jersey in text")
+        else:
+            fail("find_client pattern fallback", f"got {m3!r}")
+
+    finally:
+        config.CLIENTS_FILE = old_clients_file
+        try:
+            os.remove(tmp_clients)
+        except OSError:
+            pass
+
+
+# ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
 
@@ -1996,6 +2046,7 @@ if __name__ == "__main__":
     test_resource_optimizations()
     test_io_parallelism()
     test_preview_generation()
+    test_jersey_matching()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

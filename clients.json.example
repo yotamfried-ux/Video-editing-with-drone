@@ -1,12 +1,14 @@
 [
   {
-    "name": "Yoni Surfer",
-    "email": "yoni@example.com",
-    "video_pattern": "yoni"
+    "name": "איתי לוי",
+    "email": "itay@example.com",
+    "video_pattern": "itay",
+    "jersey_number": "7"
   },
   {
-    "name": "David Football",
-    "email": "david@example.com",
-    "video_pattern": "david"
+    "name": "יוני שמעון",
+    "email": "yoni@example.com",
+    "video_pattern": "yoni",
+    "jersey_number": "10"
   }
 ]
