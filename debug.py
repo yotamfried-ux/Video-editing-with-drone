@@ -1842,32 +1842,40 @@ def test_preview_generation() -> None:
         fail("create_preview", str(e))
         return
 
-    # ── output height is 480 ──
+    # ── output dimensions match source (no downscaling) ──
     try:
-        h_out = subprocess.check_output(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=height",
-             "-of", "default=noprint_wrappers=1:nokey=1", preview_out],
-            text=True, timeout=15,
-        ).strip()
-        if int(h_out) == 480:
-            ok("create_preview — output height is 480p", f"height={h_out}")
-        else:
-            fail("create_preview — 480p height", f"got height={h_out}")
-    except Exception as e:
-        fail("create_preview — height check", str(e))
+        def _wh(path: str) -> tuple[int, int]:
+            out = subprocess.check_output(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height",
+                 "-of", "default=noprint_wrappers=1:nokey=1", path],
+                text=True, timeout=15,
+            ).strip().splitlines()
+            return int(out[0]), int(out[1])
 
-    # ── preview is smaller than input ──
-    try:
-        in_size  = Path(VIDEO_60FPS).stat().st_size
-        out_size = Path(preview_out).stat().st_size
-        if out_size < in_size:
-            ok("create_preview — preview smaller than source",
-               f"{out_size // 1024}KB vs {in_size // 1024}KB")
+        w_in, h_in   = _wh(VIDEO_60FPS)
+        w_out, h_out = _wh(preview_out)
+        if w_in == w_out and h_in == h_out:
+            ok("create_preview — dimensions preserved (no downscaling)",
+               f"{w_out}×{h_out}")
         else:
-            fail("create_preview — size reduction", f"{out_size} >= {in_size}")
+            fail("create_preview — dimensions",
+                 f"source={w_in}×{h_in} preview={w_out}×{h_out}")
     except Exception as e:
-        fail("create_preview — size check", str(e))
+        fail("create_preview — dimension check", str(e))
+
+    # ── output is a valid video file (ffprobe exits 0) ──
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", preview_out],
+            capture_output=True, timeout=15,
+        )
+        if r.returncode == 0:
+            ok("create_preview — output is a valid video file (ffprobe clean)")
+        else:
+            fail("create_preview — valid video", r.stderr.decode(errors="replace")[:200])
+    except Exception as e:
+        fail("create_preview — valid video check", str(e))
 
     try:
         os.remove(preview_out)

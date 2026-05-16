@@ -882,11 +882,11 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
 
 def create_preview(reel_path: str, athlete_label: str = "") -> str:
     """
-    Generate a 480p watermarked preview from a full-quality reel.
+    Generate a full-quality watermarked preview from an approved reel.
 
-    The preview is intended for athlete review before payment.  It is
-    re-encoded at lower resolution (480p) and higher CRF so the file is
-    clearly inferior to the paid deliverable.
+    Resolution, frame-rate and audio are preserved exactly.  Only a
+    PREVIEW ONLY watermark (+ optional athlete name) is burned in via
+    drawtext so the video is clearly not the paid deliverable.
 
     Returns the path of the generated preview file (same dir, _preview suffix).
     """
@@ -911,16 +911,15 @@ def create_preview(reel_path: str, athlete_label: str = "") -> str:
             "x=(w-text_w)/2:y=(h/2 + 8):"
             "box=1:boxcolor=black@0.4:boxborderw=8"
         )
-        vf = f"scale=-2:480,{dt_top},{dt_name}"
+        vf = f"{dt_top},{dt_name}"
     else:
-        vf = f"scale=-2:480,{dt_top}"
+        vf = dt_top
 
     cmd = [
         "ffmpeg", "-y", "-i", reel_path,
         "-vf", vf,
-        "-c:v", "libx264", "-crf", "28", "-preset", "fast",
-        "-r", "30",
-        "-c:a", "aac", "-b:a", "96k",
+        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+        "-c:a", "copy",
         out,
     ]
     result = subprocess.run(cmd, capture_output=True, timeout=300)
