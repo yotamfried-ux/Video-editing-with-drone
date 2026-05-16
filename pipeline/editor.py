@@ -4,10 +4,12 @@ pipeline/editor.py — FFmpeg reel compilation pipeline.
 """
 
 import glob
+import json
 import logging
 import os
 import random
 import re
+import shutil
 import subprocess
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
@@ -664,6 +666,7 @@ def compile_reel(
     output_path: str,
     sport: str = "",
     athlete_label: str = "",
+    music_path: str | None = None,
 ) -> str | None:
     """מחבר קליפים לריל אחד עם xfade + לוגו watermark + כותרת תחתית."""
     n = len(clip_paths)
@@ -722,9 +725,8 @@ def compile_reel(
         filter_complex += ";" + drawtext_f
         map_out = "[captioned]"
 
-    cut_times  = _compute_cut_times(durations)
-    music_path = _pick_music(sport=sport)
-    has_music  = bool(music_path)
+    cut_times = _compute_cut_times(durations)
+    has_music = bool(music_path)
     music_idx  = n + (1 if has_logo else 0)
     if has_music:
         mx        = _analyze_music(music_path, total_dur, cut_times=cut_times)
@@ -865,7 +867,29 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             continue
 
         suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
-        reel_path = os.path.join(config.TMP_DIR, f"MULTI_{first_stem}{suffix}.mp4")
+        reel_stem = f"MULTI_{first_stem}{suffix}"
+        reel_path = os.path.join(config.TMP_DIR, f"{reel_stem}.mp4")
+
+        # Cache clips for add_music.py beat-sync step
+        cached_clips_m: list[str] = []
+        try:
+            cache_dir_m = os.path.join(config.CLIPS_CACHE_DIR, reel_stem)
+            os.makedirs(cache_dir_m, exist_ok=True)
+            for cp in clip_paths:
+                dst = os.path.join(cache_dir_m, Path(cp).name)
+                shutil.copy2(cp, dst)
+                cached_clips_m.append(dst)
+            meta_m = {
+                "events": ordered,
+                "sport": sport,
+                "athlete_label": athlete_label,
+                "clip_paths": cached_clips_m,
+            }
+            with open(os.path.join(cache_dir_m, f"{reel_stem}.meta.json"), "w") as _mf:
+                json.dump(meta_m, _mf, ensure_ascii=False, indent=2)
+        except Exception as _ce:
+            logger.warning("Clips cache failed (multi): %s", _ce)
+
         try:
             reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                 sport=sport, athlete_label=athlete_label)
@@ -985,8 +1009,29 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
 
         # 5. compilation
         suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
-        reel_path = os.path.join(config.TMP_DIR,
-                                 f"REEL_{Path(video_path).stem}{sport_tag}{suffix}.mp4")
+        reel_stem = f"REEL_{Path(video_path).stem}{sport_tag}{suffix}"
+        reel_path = os.path.join(config.TMP_DIR, f"{reel_stem}.mp4")
+
+        # Cache clips for add_music.py beat-sync step
+        cached_clips: list[str] = []
+        try:
+            cache_dir = os.path.join(config.CLIPS_CACHE_DIR, reel_stem)
+            os.makedirs(cache_dir, exist_ok=True)
+            for cp in clip_paths:
+                dst = os.path.join(cache_dir, Path(cp).name)
+                shutil.copy2(cp, dst)
+                cached_clips.append(dst)
+            meta = {
+                "events": ordered,
+                "sport": sport,
+                "athlete_label": athlete_label,
+                "clip_paths": cached_clips,
+            }
+            with open(os.path.join(cache_dir, f"{reel_stem}.meta.json"), "w") as _mf:
+                json.dump(meta, _mf, ensure_ascii=False, indent=2)
+        except Exception as _ce:
+            logger.warning("Clips cache failed: %s", _ce)
+
         try:
             reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                 sport=sport, athlete_label=athlete_label)

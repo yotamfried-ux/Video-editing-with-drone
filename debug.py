@@ -1662,7 +1662,7 @@ def test_music_smart_selection() -> None:
     finally:
         config.MUSIC_DIR = old_music_dir
 
-    # ── compile_reel smoke test with smart music ──
+    # ── compile_reel smoke test with explicit music_path ──
     if Path(VIDEO_60FPS).exists():
         evs = [
             {"type": "a", "start": 0.0, "end": 7.0, "score": 8, "description": ""},
@@ -1671,22 +1671,21 @@ def test_music_smart_selection() -> None:
         clips = [cut_clip(VIDEO_60FPS, ev, index=i + 70, slowmo=False)
                  for i, ev in enumerate(evs)]
         clips = [c for c in clips if c and Path(c).exists()]
-        config.MUSIC_DIR = music_dir
         try:
             if len(clips) >= 2:
                 reel = compile_reel(clips, config.LOGO_PATH,
                                     os.path.join(DEBUG_DIR, "debug_smart_music_reel.mp4"),
-                                    sport="surfing")
+                                    sport="surfing",
+                                    music_path=slow_mp3)
                 if reel and Path(reel).exists():
-                    ok("compile_reel with smart music — reel produced")
+                    ok("compile_reel — explicit music_path produces reel")
                 else:
-                    fail("compile_reel smart music", "reel not produced")
+                    fail("compile_reel explicit music_path", "reel not produced")
             else:
-                fail("compile_reel smart music", "clips not created")
+                fail("compile_reel explicit music_path", "clips not created")
         except Exception as e:
-            fail("compile_reel smart music", str(e))
+            fail("compile_reel explicit music_path", str(e))
         finally:
-            config.MUSIC_DIR = old_music_dir
             for c in clips:
                 try: os.remove(c)
                 except OSError: pass
