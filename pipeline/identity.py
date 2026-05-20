@@ -36,6 +36,13 @@ _CLUSTER_PROMPT_TEMPLATE = """\
 Here are visual descriptions of people detected across {n} video clip(s).
 Group descriptions that likely refer to the same person.
 
+IMPORTANT — DRONE/AERIAL FOOTAGE: These clips were shot from above.
+Faces are typically NOT visible (top-down angle). Focus on:
+  ✓ Jersey/bib numbers on the back or top — highly visible from above
+  ✓ Clothing colors seen from above (shoulders, torso)
+  ✓ Equipment color (board, bike, helmet top)
+  ✗ Do NOT rely on face description — it is unreliable in aerial shots
+
 Input:
 {descriptions_json}
 
@@ -43,7 +50,7 @@ Matching priority (strongest to weakest):
   1. Jersey/bib number — matching numbers = definitely the same person
   2. Clothing color combination (shirt + shorts/pants + accessories)
   3. Equipment (board color/brand, helmet color, bike color)
-  4. Hair (color and length)
+  4. Hair (color and length — visible from above if not covered)
   5. Build (only when nothing else distinguishes)
 
 When uncertain, create SEPARATE clusters (avoid false merges).
@@ -78,14 +85,22 @@ You are matching athletes across multiple sports video clips.
 Thumbnail images from each clip are shown above, labeled [Clip N, person_X].
 Group the images that show the SAME person.
 
+IMPORTANT — DRONE/AERIAL FOOTAGE: These thumbnails were captured from a drone looking down.
+Faces are typically NOT visible or reliable for matching.
+What IS visible and reliable from above:
+  ✓ Jersey/bib number on the back or top of the athlete
+  ✓ Clothing colors on shoulders, torso (what's seen from directly above)
+  ✓ Equipment: surfboard color/shape, bike color, helmet top
+  ✗ Avoid matching on faces — they may not be visible at all
+
 Text descriptions for reference:
 {descriptions_json}
 
 Matching priority (strongest to weakest):
-  1. Jersey/bib number visible in image
-  2. Clothing color combination
-  3. Equipment (board, helmet, bike color)
-  4. Hair color and style
+  1. Jersey/bib number visible from above
+  2. Clothing color combination (top-down view of torso/shoulders)
+  3. Equipment (board, helmet top, bike frame color)
+  4. Hair color and style (if visible from above, not covered by helmet)
   5. Body build
 
 When uncertain, create SEPARATE clusters. A person in only one clip gets their own cluster.

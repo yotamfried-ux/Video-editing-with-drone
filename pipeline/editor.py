@@ -590,6 +590,7 @@ def cut_clip(
 
     grade  = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
     crop_x = max(0.0, min(1.0, float(event.get("crop_x", 0.5))))
+    crop_y = max(0.0, min(1.0, float(event.get("crop_y", 0.65))))
 
     # fg: scale to fill full 1920px height, then crop 1080px wide centred on athlete.
     # With zoom: crop a smaller region then scale up to output size.
@@ -597,7 +598,9 @@ def cut_clip(
         crop_w      = int(REEL_W / applied_zoom)
         crop_h      = int(REEL_H / applied_zoom)
         half_crop_w = crop_w // 2
-        y_offset    = (REEL_H - crop_h) // 2
+        # Use crop_y to position vertical crop around athlete's center of mass.
+        y_center    = int(crop_y * REEL_H)
+        y_offset    = max(0, min(REEL_H - crop_h, y_center - crop_h // 2))
         fg_crop = (
             f"scale=iw*{REEL_H}/ih:{REEL_H},"
             f"crop={crop_w}:{crop_h}:"
@@ -605,8 +608,8 @@ def cut_clip(
             f"scale={REEL_W}:{REEL_H}"
         )
     else:
-        # If source is already portrait / narrower than 1080px after scaling, the crop
-        # x-expression clamps to 0 and the blurred bg fills the sides.
+        # After scale=iw*REEL_H/ih:REEL_H the output height is exactly REEL_H,
+        # so vertical cropping has no effect — y=0 is correct.
         half_w  = REEL_W // 2
         fg_crop = (
             f"scale=iw*{REEL_H}/ih:{REEL_H},"

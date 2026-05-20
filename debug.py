@@ -2079,6 +2079,24 @@ def test_feedback_loop() -> None:
         else:
             fail("zoom headroom logic", f"4K zoom={zoom_4k:.2f}, 1080p zoom={zoom_1080:.2f}")
 
+        # ── crop_y vertical positioning ──
+        from pipeline.editor import REEL_H, REEL_W
+        applied_zoom = 1.4
+        crop_h  = int(REEL_H / applied_zoom)
+        # athlete at bottom third (surfing): crop_y=0.75
+        crop_y_surf = 0.75
+        y_center_surf = int(crop_y_surf * REEL_H)
+        y_off_surf    = max(0, min(REEL_H - crop_h, y_center_surf - crop_h // 2))
+        # athlete at jump apex (aerial): crop_y=0.35
+        crop_y_air  = 0.35
+        y_center_air = int(crop_y_air * REEL_H)
+        y_off_air    = max(0, min(REEL_H - crop_h, y_center_air - crop_h // 2))
+        fixed_center = (REEL_H - crop_h) // 2
+        if y_off_surf != fixed_center and y_off_air != fixed_center and y_off_surf > y_off_air:
+            ok(f"crop_y: surfing y_off={y_off_surf} > aerial y_off={y_off_air} (not fixed center {fixed_center})")
+        else:
+            fail("crop_y offsets", f"surf={y_off_surf} air={y_off_air} fixed={fixed_center}")
+
     finally:
         config.FEEDBACK_FILE = old_fb
         try:

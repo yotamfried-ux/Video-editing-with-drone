@@ -23,49 +23,6 @@ genai.configure(api_key=config.GEMINI_API_KEY)
 _MODEL        = config.GEMINI_MODEL   # native video understanding
 _MIN_CLIP_SEC = 6.0
 
-_ANALYSIS_PROMPT = """
-You are a video editor building a highlight reel from drone sports footage.
-You are watching the FULL video — not frames. Use motion, timing, and action sequences.
-
-TASK: Identify the activity and select highlight moments using the scoring guide below.
-
-SCORING — relative to THIS video, not world-class standards:
-  9-10 : Best moment(s) in this video — exceptional for this athlete
-  7-8  : Above average today — clean skill, good execution
-  6-7  : Solid positive performance — worth showing
-  1-5  : Routine, mistake, blurry, athlete not in focus — EXCLUDE
-
-SELECTION RULES:
-- Include ALL moments with score >= 6
-- Always include at least the top 2 moments (safety net)
-- Do NOT include score < 6 unless no better moments exist
-
-For each event:
-- type: snake_case label (e.g. "wave_catch", "aerial", "goal", "kickflip", "sprint")
-- start: exact start in seconds — include 1-2s buildup before peak
-- end: exact end in seconds — include followthrough; minimum 6s after start
-- score: 1-10 relative to this video
-- description: one sentence describing exactly what happens
-- crop_x: horizontal position of subject (0.0=left, 0.5=center, 1.0=right)
-
-Return ONLY valid JSON, no markdown:
-{
-  "activity": "surfing",
-  "events": [
-    {
-      "type": "aerial",
-      "start": 23.5,
-      "end": 31.0,
-      "score": 8,
-      "description": "Surfer launches off the lip and lands a full rotation aerial.",
-      "crop_x": 0.55
-    }
-  ]
-}
-
-If no action moments exist: {"activity": "unknown", "events": []}
-"""
-
 
 def _upload_video(video_path: str):
     """
@@ -197,16 +154,33 @@ For each EVENT:
 - end: exact end in seconds — include followthrough; minimum 6s after start
 - score: 1-10 relative to this video
 - description: one sentence — what specifically happens
-- crop_x: horizontal position of subject in frame (0.0=left edge, 0.5=center, 1.0=right edge)
-- edit: per-event editing instructions:
-    zoom: 1.0–2.0 — how tightly to frame the athlete (1.0=standard wide crop)
-      Use zoom > 1.2 for: close skill moments (aerials, tricks, tackles, goals)
-      Use zoom = 1.0 for: wide context shots, group plays, establishing moments
-    slowmo: true/false — whether this moment benefits from speed-ramp
-      Use true for: peak skill apex (jump top, trick peak, key contact moment)
-      Use false for: fluid continuous movement, group plays, context moments
-    focus: "peak" | "entry" | "full" (when during the clip to apply zoom)
-      "peak" = zoom at the action peak (default), "entry" = from the start, "full" = throughout
+- crop_x: horizontal position of athlete's center in frame (0.0=far left, 0.5=center, 1.0=far right)
+    Observe where the athlete actually is — do not default to 0.5 unless they are truly centered.
+- crop_y: vertical position of athlete's center of mass (0.0=top of frame, 0.5=center, 1.0=bottom)
+    Drone/aerial footage: the athlete is rarely vertically centered. Observe carefully.
+    Ground-level sports (surfing, skating, football): athlete typically 0.60–0.85 (lower third)
+    Jump or aerial apex (athlete is rising/falling through air): typically 0.30–0.55
+    Default when genuinely uncertain: 0.65
+- edit: per-event editing instructions based on what you OBSERVE in the frame:
+    zoom: 1.0–2.0 — observe the athlete's actual size in the frame:
+      Athlete fills < 30% of frame height (drone is high, athlete looks tiny) → zoom 1.5–2.0
+      Athlete fills 30–60% of frame height (typical drone distance) → zoom 1.2–1.5
+      Athlete fills > 60% of frame height (drone is close) → zoom 1.0–1.2
+      Judge from what you actually see — NOT from event type alone.
+    slowmo: true/false — observe the action rhythm:
+      Does this moment have a clear PEAK with distinct before and after?
+        Yes (jump apex, trick peak, ball contact, wave launch off lip) → true
+        No (fluid paddling, continuous running, wide group play) → false
+      Ask: does slowing this down 2× make it more dramatic, or just make it drag?
+    focus: "peak" | "entry" | "full" — when to apply zoom during the clip:
+      "peak"  — zoom ramps in at the action peak (default). Use when the clip opens with
+                wide context and only the apex needs tight framing (most tricks, aerials).
+      "entry" — zoom from the very first frame. Use when the action is already in progress
+                at clip start (no wide buildup needed — e.g. drone already tight on surfer,
+                skater already mid-trick when clip begins).
+      "full"  — zoom throughout. Use for continuous movement where the athlete is always
+                the clear subject with no context needed (lone cyclist on trail, solo
+                surfing carve with no other athletes nearby).
 
 Return ONLY valid JSON, no markdown:
 {
@@ -218,10 +192,10 @@ Return ONLY valid JSON, no markdown:
       "events": [
         {"type": "aerial", "start": 12.0, "end": 21.5, "score": 9,
          "description": "Launches off the lip into a full rotation above the wave.",
-         "crop_x": 0.4, "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak"}},
+         "crop_x": 0.4, "crop_y": 0.35, "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak"}},
         {"type": "wave_catch", "start": 35.0, "end": 44.0, "score": 7,
          "description": "Catches a shoulder-high wave and paddles into position.",
-         "crop_x": 0.5, "edit": {"zoom": 1.0, "slowmo": false, "focus": "full"}}
+         "crop_x": 0.55, "crop_y": 0.72, "edit": {"zoom": 1.1, "slowmo": false, "focus": "full"}}
       ]
     }
   ]
@@ -251,6 +225,8 @@ def _parse_session(raw_text: str) -> dict:
                 end = start + _MIN_CLIP_SEC
             crop_x = float(ev.get("crop_x", 0.5))
             crop_x = max(0.0, min(1.0, crop_x))
+            crop_y = float(ev.get("crop_y", 0.65))
+            crop_y = max(0.0, min(1.0, crop_y))
             raw_edit = ev.get("edit") or {}
             edit = {
                 "zoom":   max(1.0, min(2.0, float(raw_edit.get("zoom", 1.0)))),
@@ -264,6 +240,7 @@ def _parse_session(raw_text: str) -> dict:
                 "score":       int(ev.get("score", 5)),
                 "description": str(ev.get("description", "")),
                 "crop_x":      round(crop_x, 3),
+                "crop_y":      round(crop_y, 3),
                 "edit":        edit,
             })
 
@@ -297,10 +274,10 @@ def analyze_session(video_path: str) -> dict:
     try:
         video_file = _with_retry(lambda: _upload_video(video_path))
 
-        # Build dynamic prompt — inject feedback from approved reels if available
+        # Build dynamic prompt — prepend feedback so JSON example stays as format anchor at end
         from pipeline.feedback import get_all_label_injections
         feedback_block = get_all_label_injections()
-        prompt = _IDENTITY_PROMPT + feedback_block if feedback_block else _IDENTITY_PROMPT
+        prompt = feedback_block + _IDENTITY_PROMPT if feedback_block else _IDENTITY_PROMPT
         if feedback_block:
             sport_count = feedback_block.count("\n  ")
             logger.info("Injecting editing feedback for %d sport(s) into prompt", sport_count)
