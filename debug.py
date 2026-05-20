@@ -2005,6 +2005,88 @@ def test_jersey_matching() -> None:
             pass
 
 
+def test_feedback_loop() -> None:
+    section("24 / Feedback loop (pipeline/feedback.py)")
+
+    import tempfile
+    from pipeline.feedback import record_approval, get_all_label_injections, get_stats
+
+    # Redirect feedback file to a temp location so we don't pollute real data
+    old_fb = config.FEEDBACK_FILE
+    tmp_fb = os.path.join(DEBUG_DIR, "test_feedback.json")
+    config.FEEDBACK_FILE = tmp_fb
+
+    try:
+        # ── start empty: no injection yet ──
+        result = get_all_label_injections()
+        if result == "":
+            ok("get_all_label_injections — empty before any approvals")
+        else:
+            fail("feedback empty check", f"expected '', got: {result[:60]!r}")
+
+        # ── record 2 approvals (below MIN_APPROVALS=3) ──
+        surf_events = [
+            {"type": "aerial",      "edit": {"zoom": 1.4, "slowmo": True,  "focus": "peak"}},
+            {"type": "bottom_turn", "edit": {"zoom": 1.2, "slowmo": False, "focus": "full"}},
+        ]
+        record_approval("surfing", surf_events, source_quality={"width": 3840, "fps": 60.0})
+        record_approval("surfing", surf_events, source_quality={"width": 3840, "fps": 60.0})
+
+        result2 = get_all_label_injections()
+        if result2 == "":
+            ok("get_all_label_injections — no injection below MIN_APPROVALS (2/3)")
+        else:
+            fail("feedback below threshold", f"injected too early: {result2[:60]!r}")
+
+        # ── record 3rd approval → injection activates ──
+        record_approval("surfing", surf_events)
+
+        result3 = get_all_label_injections()
+        if result3 and "surfing" in result3 and "aerial" in result3:
+            ok("get_all_label_injections — injects after 3 approvals",
+               result3[:80].replace("\n", " "))
+        else:
+            fail("feedback injection at threshold", f"got: {result3[:80]!r}")
+
+        # ── zoom+slowmo signature appears ──
+        if "zoom×1.4+slowmo" in result3:
+            ok("feedback — edit signature 'zoom×1.4+slowmo' in injection")
+        else:
+            fail("feedback edit sig", f"expected 'zoom×1.4+slowmo' in: {result3[:120]!r}")
+
+        # ── get_stats ──
+        stats = get_stats()
+        if stats["total_approvals"] == 3 and stats["by_sport"].get("surfing") == 3:
+            ok("feedback get_stats — correct counts")
+        else:
+            fail("feedback get_stats", f"got: {stats!r}")
+
+        # ── source_info: _get_source_info returns sensible dict ──
+        from pipeline.editor import _get_source_info, ZOOM_MIN_HEADROOM
+        si = _get_source_info("/nonexistent_video.mp4")
+        if isinstance(si.get("zoom_headroom"), float) and isinstance(si.get("can_slowmo"), bool):
+            ok("_get_source_info — returns fallback dict on missing file")
+        else:
+            fail("_get_source_info fallback", f"got: {si!r}")
+
+        # ── zoom_headroom logic ──
+        si_4k   = {"zoom_headroom": 2.0, "can_slowmo": True}
+        si_1080 = {"zoom_headroom": 1.0, "can_slowmo": False}
+        zoom_4k   = min(1.4, si_4k["zoom_headroom"] * 0.9) if si_4k["zoom_headroom"] >= ZOOM_MIN_HEADROOM else 1.0
+        zoom_1080 = min(1.4, si_1080["zoom_headroom"] * 0.9) if si_1080["zoom_headroom"] >= ZOOM_MIN_HEADROOM else 1.0
+        if zoom_4k > 1.0 and zoom_1080 == 1.0:
+            ok(f"zoom headroom: 4K allows zoom ×{zoom_4k:.2f}, 1080p blocked at ×1.0")
+        else:
+            fail("zoom headroom logic", f"4K zoom={zoom_4k:.2f}, 1080p zoom={zoom_1080:.2f}")
+
+    finally:
+        config.FEEDBACK_FILE = old_fb
+        try:
+            os.remove(tmp_fb)
+        except OSError:
+            pass
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -2056,6 +2138,7 @@ if __name__ == "__main__":
     test_io_parallelism()
     test_preview_generation()
     test_jersey_matching()
+    test_feedback_loop()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

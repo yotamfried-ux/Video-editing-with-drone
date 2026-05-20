@@ -198,6 +198,15 @@ For each EVENT:
 - score: 1-10 relative to this video
 - description: one sentence — what specifically happens
 - crop_x: horizontal position of subject in frame (0.0=left edge, 0.5=center, 1.0=right edge)
+- edit: per-event editing instructions:
+    zoom: 1.0–2.0 — how tightly to frame the athlete (1.0=standard wide crop)
+      Use zoom > 1.2 for: close skill moments (aerials, tricks, tackles, goals)
+      Use zoom = 1.0 for: wide context shots, group plays, establishing moments
+    slowmo: true/false — whether this moment benefits from speed-ramp
+      Use true for: peak skill apex (jump top, trick peak, key contact moment)
+      Use false for: fluid continuous movement, group plays, context moments
+    focus: "peak" | "entry" | "full" (when during the clip to apply zoom)
+      "peak" = zoom at the action peak (default), "entry" = from the start, "full" = throughout
 
 Return ONLY valid JSON, no markdown:
 {
@@ -207,9 +216,12 @@ Return ONLY valid JSON, no markdown:
       "id": "person_A",
       "description": "surfer with red board and black wetsuit",
       "events": [
-        {"type": "wave_catch", "start": 12.0, "end": 21.5, "score": 8,
-         "description": "Catches a shoulder-high wave and drives a clean bottom turn.",
-         "crop_x": 0.4}
+        {"type": "aerial", "start": 12.0, "end": 21.5, "score": 9,
+         "description": "Launches off the lip into a full rotation above the wave.",
+         "crop_x": 0.4, "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak"}},
+        {"type": "wave_catch", "start": 35.0, "end": 44.0, "score": 7,
+         "description": "Catches a shoulder-high wave and paddles into position.",
+         "crop_x": 0.5, "edit": {"zoom": 1.0, "slowmo": false, "focus": "full"}}
       ]
     }
   ]
@@ -239,6 +251,12 @@ def _parse_session(raw_text: str) -> dict:
                 end = start + _MIN_CLIP_SEC
             crop_x = float(ev.get("crop_x", 0.5))
             crop_x = max(0.0, min(1.0, crop_x))
+            raw_edit = ev.get("edit") or {}
+            edit = {
+                "zoom":   max(1.0, min(2.0, float(raw_edit.get("zoom", 1.0)))),
+                "slowmo": bool(raw_edit.get("slowmo", False)),
+                "focus":  str(raw_edit.get("focus", "peak")),
+            }
             all_events.append({
                 "type":        str(ev.get("type", "highlight")),
                 "start":       round(start, 2),
@@ -246,6 +264,7 @@ def _parse_session(raw_text: str) -> dict:
                 "score":       int(ev.get("score", 5)),
                 "description": str(ev.get("description", "")),
                 "crop_x":      round(crop_x, 3),
+                "edit":        edit,
             })
 
         # Keep only score >= 6 (positive for the athlete's brand).
@@ -278,10 +297,19 @@ def analyze_session(video_path: str) -> dict:
     try:
         video_file = _with_retry(lambda: _upload_video(video_path))
 
+        # Build dynamic prompt — inject feedback from approved reels if available
+        from pipeline.feedback import get_all_label_injections
+        feedback_block = get_all_label_injections()
+        prompt = _IDENTITY_PROMPT + feedback_block if feedback_block else _IDENTITY_PROMPT
+        if feedback_block:
+            sport_count = feedback_block.count("\n  ")
+            logger.info("Injecting editing feedback for %d sport(s) into prompt", sport_count)
+            print(f"🏷️  Injecting editing history ({sport_count} sport(s)) into analysis prompt")
+
         model    = genai.GenerativeModel(model_name=_MODEL)
         print("🔍 Sending to Gemini for identity + highlight detection...")
         response = _with_retry(lambda: model.generate_content(
-            [video_file, _IDENTITY_PROMPT],
+            [video_file, prompt],
             request_options={"timeout": 300},
         ))
 

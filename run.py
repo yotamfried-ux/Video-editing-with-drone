@@ -7,6 +7,7 @@ After reviewing drafts in Drive:
   2. Run:  python deliver.py
 """
 
+import json
 import logging
 import os
 import sys
@@ -31,12 +32,37 @@ from concurrent.futures import ThreadPoolExecutor
 import config
 from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_draft, record_failure
 from pipeline.analyzer import analyze_session
-from pipeline.editor   import create_reel, compile_multi_source_reel
+from pipeline.editor   import create_reel, compile_multi_source_reel, _get_source_info
 from pipeline.identity import cluster_clips
+from pipeline.feedback import get_stats as _feedback_stats
 
 _LARGE_FILE_BYTES  = 100_000_000   # 100 MB threshold
 _MAX_DL_WORKERS    = min(4, config.MAX_CUT_WORKERS)
 _MAX_UL_WORKERS    = 3             # cap to avoid Drive API quota exhaustion
+
+
+def _save_reel_metadata(draft_name: str, sport: str,
+                        events: list[dict], source_quality: dict) -> None:
+    """Save reel metadata so deliver.py can feed it into the feedback loop on approval."""
+    try:
+        meta_file = config.REEL_METADATA_FILE
+        try:
+            with open(meta_file) as f:
+                metadata: dict = json.load(f)
+        except (FileNotFoundError, json.JSONDecodeError):
+            metadata = {}
+        metadata[draft_name] = {
+            "sport":          sport,
+            "events":         [{"type": e.get("type", ""), "edit": e.get("edit", {})}
+                                for e in events],
+            "source_quality": source_quality,
+        }
+        tmp = meta_file + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(metadata, f, indent=2, ensure_ascii=False)
+        os.replace(tmp, meta_file)
+    except Exception as e:
+        logger.warning("Failed to save reel metadata for %s: %s", draft_name, e)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -107,13 +133,18 @@ def _safe_draft_name(description: str) -> str:
 def _compile_clusters(clusters: list[dict], activity: str) -> int:
     """Compile reels sequentially (CPU-bound), then upload in parallel (network-bound)."""
     pending: list[tuple[str, str]] = []
+    pending_meta: list[tuple[str, str, list[dict], dict]] = []  # (reel, name, events, src_q)
     for cluster in clusters:
+        first_path     = cluster["appearances"][0]["path"] if cluster["appearances"] else None
+        source_quality = _get_source_info(first_path) if first_path else {}
+        all_events     = [ev for app in cluster["appearances"] for ev in app.get("events", [])]
         reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
                                           athlete_label=cluster["description"])
         for reel_idx, reel in enumerate(reels):
             suffix = f" (part {reel_idx + 1})" if len(reels) > 1 else ""
             name   = _safe_draft_name(cluster["description"] + suffix)
             pending.append((reel, name))
+            pending_meta.append((reel, name, all_events, source_quality))
 
     def _upload_one(args: tuple[str, str]) -> bool:
         reel_path, name = args
@@ -132,6 +163,12 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
     workers = min(len(pending), _MAX_UL_WORKERS)
     with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(_upload_one, pending))
+
+    # Save metadata for successfully uploaded reels
+    for (reel_path, name), ok, (_, _, events, src_q) in zip(pending, results, pending_meta):
+        if ok:
+            _save_reel_metadata(name, activity, events, src_q)
+
     return sum(results)
 
 
@@ -181,6 +218,7 @@ def _process_long_video(video_meta: dict) -> int:
     print(f"👥 Detected {len(persons)} person(s): "
           f"{', '.join(p['description'][:30] for p in persons)}")
 
+    source_quality = _get_source_info(local_path)
     drafts = 0
     for person in persons:
         if not person.get("events"):
@@ -192,6 +230,7 @@ def _process_long_video(video_meta: dict) -> int:
             name   = _safe_draft_name(person["description"] + suffix)
             try:
                 upload_draft(reel, name)
+                _save_reel_metadata(name, activity, person["events"], source_quality)
                 drafts += 1
             except Exception:
                 logger.error("Draft upload failed for %s", name)
@@ -363,6 +402,15 @@ def _safe_size(video: dict) -> int:
 # ── Main ───────────────────────────────────────────────────────────────────
 
 def main() -> None:
+    if "--feedback-stats" in sys.argv:
+        stats = _feedback_stats()
+        print("\n🏷️  Feedback database stats:")
+        print(f"   Total approvals: {stats['total_approvals']}")
+        for sport, count in sorted(stats["by_sport"].items()):
+            print(f"   {sport}: {count} approval(s)")
+        print(f"   Last approval: {stats['last_approval']}")
+        return
+
     print("\n🎬 D to R Pipeline — Phase 1: Ingest & Draft")
     print(f"📁 Tmp dir: {config.TMP_DIR}")
 

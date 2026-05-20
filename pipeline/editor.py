@@ -24,6 +24,7 @@ XFADE_DUR       = 0.5    # חפיפה בין קליפים (שניות) — מי�
 CLIP_FADE_DUR   = 0.25   # fade in/out בתוך קליפ
 MAX_REEL_SEC    = 88     # מתחת ל-90s של Instagram Reels
 SLOWMO_FPS_MIN  = 50     # fps מינימלי לslow-mo חלק (50 / 60fps)
+ZOOM_MIN_HEADROOM = 1.15  # min zoom_headroom before applying any zoom
 TARGET_REEL_MIN = 12     # shorter reels → warn only
 TARGET_REEL_MAX = 30     # split into multiple reels when a single one would exceed this
 
@@ -497,6 +498,30 @@ def _narrative_order(events: list[dict]) -> list[dict]:
     return [opener] + middle + [climax]
 
 
+def _get_source_info(video_path: str) -> dict:
+    """Detect source resolution and FPS; compute zoom headroom and slowmo capability."""
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height,r_frame_rate",
+             "-of", "json", video_path],
+            capture_output=True, text=True, timeout=15,
+        )
+        data = json.loads(r.stdout)
+        s    = data["streams"][0]
+        w, h = int(s["width"]), int(s["height"])
+        num, den = s["r_frame_rate"].split("/")
+        fps = float(num) / float(den)
+        zoom_headroom = w / 1920  # 4K=2.0, 1080p=1.0, 720p=0.67
+        return {"width": w, "height": h, "fps": round(fps, 1),
+                "zoom_headroom": round(zoom_headroom, 2),
+                "can_slowmo": fps >= SLOWMO_FPS_MIN}
+    except Exception as e:
+        logger.debug("_get_source_info failed for %s: %s", video_path, e)
+        return {"width": 1920, "height": 1080, "fps": 30.0,
+                "zoom_headroom": 1.0, "can_slowmo": False}
+
+
 # ── שלב 1: חיתוך קליפ בודד ────────────────────────────────────────────────
 
 def cut_clip(
@@ -505,11 +530,14 @@ def cut_clip(
     index: int,
     slowmo: bool = False,
     sport: str = "",
+    source_info: dict | None = None,
 ) -> str | None:
     """
     חותך רגע שיא:
     - 9:16 zoom-crop ממורכז על האתלט לפי crop_x
-    - slow-mo 50% אם slowmo=True (מקור ≥ 50fps)
+    - zoom adapts to source resolution (4K→up to 1.8×, 1080p→1.0×)
+    - Gemini edit_hints (event["edit"]) set artistic intent; source_info caps technically
+    - slow-mo speed-ramp if source fps >= SLOWMO_FPS_MIN
     - sport-specific color grade + fade
     - ללא אודיו
     """
@@ -521,8 +549,40 @@ def cut_clip(
         logger.warning("⚠️ Timestamps clamped [%.1f,%.1f]→[%.1f,%.1f]",
                        event["start"], event["end"], start, end)
 
+    # ── Two-layer edit decisions ───────────────────────────────────────────
+    # Layer 1: Gemini's artistic direction (from event["edit"] block)
+    edit_hints     = event.get("edit") or {}
+    requested_zoom = float(edit_hints.get("zoom", 1.0))
+    requested_sm   = bool(edit_hints.get("slowmo", slowmo))
+
+    # Layer 2: source quality constraints (technical ceiling)
+    if source_info is None:
+        source_info = _get_source_info(video_path)
+    zoom_headroom = source_info.get("zoom_headroom", 1.0)
+    can_slowmo    = source_info.get("can_slowmo", True)
+
+    # Merge: artistic intent capped by technical reality
+    if zoom_headroom >= ZOOM_MIN_HEADROOM:
+        applied_zoom = min(requested_zoom, zoom_headroom * 0.9)
+        applied_zoom = max(1.0, applied_zoom)
+    else:
+        applied_zoom = 1.0
+        if requested_zoom > 1.1:
+            logger.debug("Zoom ×%.1f requested but headroom only ×%.2f — no zoom applied",
+                         requested_zoom, zoom_headroom)
+    use_slowmo = requested_sm and can_slowmo
+    if requested_sm and not can_slowmo:
+        logger.warning("slowmo requested but source %.0ffps < %dfps — skipping speed-ramp",
+                       source_info.get("fps", 0), SLOWMO_FPS_MIN)
+
+    # Log non-trivial edit decisions
+    if applied_zoom > 1.05 or use_slowmo != slowmo:
+        zoom_str = f"zoom×{applied_zoom:.1f}" if applied_zoom > 1.05 else "zoom×1.0"
+        sm_str   = "slowmo" if use_slowmo else "no-slowmo"
+        print(f"  📐 {zoom_str} (headroom×{zoom_headroom:.1f}) | {sm_str}")
+
     # Output duration: speed-ramp (30%+40%×2+30% = 1.4×) or passthrough (1×)
-    output_dur = round(input_dur * 1.4, 3) if slowmo else input_dur
+    output_dur = round(input_dur * 1.4, 3) if use_slowmo else input_dur
     clip_fade  = min(CLIP_FADE_DUR, output_dur / 6)
 
     os.makedirs(config.TMP_DIR, exist_ok=True)
@@ -532,17 +592,30 @@ def cut_clip(
     crop_x = max(0.0, min(1.0, float(event.get("crop_x", 0.5))))
 
     # fg: scale to fill full 1920px height, then crop 1080px wide centred on athlete.
-    # If source is already portrait / narrower than 1080px after scaling, the crop
-    # x-expression clamps to 0 and the blurred bg fills the sides.
-    half_w  = REEL_W // 2
-    fg_crop = (
-        f"scale=iw*{REEL_H}/ih:{REEL_H},"
-        f"crop={REEL_W}:{REEL_H}:"
-        f"'max(0,min(iw-{REEL_W},trunc(iw*{crop_x:.4f}-{half_w})))':0"
-    )
+    # With zoom: crop a smaller region then scale up to output size.
+    if applied_zoom > 1.05:
+        crop_w      = int(REEL_W / applied_zoom)
+        crop_h      = int(REEL_H / applied_zoom)
+        half_crop_w = crop_w // 2
+        y_offset    = (REEL_H - crop_h) // 2
+        fg_crop = (
+            f"scale=iw*{REEL_H}/ih:{REEL_H},"
+            f"crop={crop_w}:{crop_h}:"
+            f"'max(0,min(iw-{crop_w},trunc(iw*{crop_x:.4f}-{half_crop_w})))':{y_offset},"
+            f"scale={REEL_W}:{REEL_H}"
+        )
+    else:
+        # If source is already portrait / narrower than 1080px after scaling, the crop
+        # x-expression clamps to 0 and the blurred bg fills the sides.
+        half_w  = REEL_W // 2
+        fg_crop = (
+            f"scale=iw*{REEL_H}/ih:{REEL_H},"
+            f"crop={REEL_W}:{REEL_H}:"
+            f"'max(0,min(iw-{REEL_W},trunc(iw*{crop_x:.4f}-{half_w})))':0"
+        )
 
     # Speed ramp: 30% normal → 40% slow (0.5×) → 30% normal
-    if slowmo:
+    if use_slowmo:
         t1 = round(input_dur * 0.30, 3)
         t2 = round(input_dur * 0.70, 3)
         overlay_sink = "[merged];"
@@ -578,7 +651,7 @@ def cut_clip(
         f"[out]"
     )
 
-    slowmo_tag = " [🐢 speed-ramp]" if slowmo else ""
+    slowmo_tag = " [🐢 speed-ramp]" if use_slowmo else ""
     print(f"🎬 Clip {index}: {start:.1f}s→{end:.1f}s [{event_type}] "
           f"({input_dur:.1f}s in / {output_dur:.1f}s out){slowmo_tag}")
 
@@ -845,16 +918,20 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
 
         # Extract _src before submitting to thread pool (pop is not thread-safe on shared dict)
         tasks = []
+        src_info_cache: dict[str, dict] = {}
         for i, event in enumerate(ordered):
             src    = event.pop("_src")
-            slowmo = _get_source_fps(src) >= SLOWMO_FPS_MIN
-            tasks.append((i, src, event, slowmo))
+            if src not in src_info_cache:
+                src_info_cache[src] = _get_source_info(src)
+            si     = src_info_cache[src]
+            slowmo = si["can_slowmo"]
+            tasks.append((i, src, event, slowmo, si))
 
         clip_paths = []
         with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
             future_map = {
-                pool.submit(cut_clip, src, ev, idx_base + i, sw, sport): i
-                for i, src, ev, sw in tasks
+                pool.submit(cut_clip, src, ev, idx_base + i, sw, sport, si): i
+                for i, src, ev, sw, si in tasks
             }
             results: dict[int, str] = {}
             for fut, i in future_map.items():
@@ -879,11 +956,13 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                 dst = os.path.join(cache_dir_m, Path(cp).name)
                 shutil.copy2(cp, dst)
                 cached_clips_m.append(dst)
+            first_si = next(iter(src_info_cache.values())) if src_info_cache else {}
             meta_m = {
-                "events": ordered,
-                "sport": sport,
-                "athlete_label": athlete_label,
-                "clip_paths": cached_clips_m,
+                "events":         ordered,
+                "sport":          sport,
+                "athlete_label":  athlete_label,
+                "clip_paths":     cached_clips_m,
+                "source_quality": first_si,
             }
             with open(os.path.join(cache_dir_m, f"{reel_stem}.meta.json"), "w") as _mf:
                 json.dump(meta_m, _mf, ensure_ascii=False, indent=2)
@@ -964,13 +1043,16 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
     """
     print(f"\n🎬 Creating reel from '{Path(video_path).name}' ({len(events)} event(s))")
 
-    # 1. בדיקת fps לslow-mo (לפני partition כדי שנדע את הfactor הנכון)
-    source_fps = _get_source_fps(video_path)
-    slowmo     = source_fps >= SLOWMO_FPS_MIN
+    # 1. בדיקת fps + רזולוציה (לפני partition כדי שנדע את הfactor הנכון)
+    src_info   = _get_source_info(video_path)
+    source_fps = src_info["fps"]
+    slowmo     = src_info["can_slowmo"]
     if slowmo:
         print(f"🐢 Source {source_fps:.0f}fps — slow-mo 50% enabled")
     else:
         print(f"⚡ Source {source_fps:.0f}fps — slow-mo skipped (need {SLOWMO_FPS_MIN}+fps)")
+    if src_info["zoom_headroom"] >= ZOOM_MIN_HEADROOM:
+        print(f"🔍 Source {src_info['width']}×{src_info['height']} — zoom headroom ×{src_info['zoom_headroom']:.1f}")
 
     # 2. פיצול events לפרטישנים (כל פרטישן ≤ TARGET_REEL_MAX שניות)
     partitions = _partition_events(events, slowmo)
@@ -991,7 +1073,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         clip_paths = []
         with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
             future_map = {
-                pool.submit(cut_clip, video_path, ev, idx_base + i, slowmo, sport): i
+                pool.submit(cut_clip, video_path, ev, idx_base + i, slowmo, sport, src_info): i
                 for i, ev in enumerate(ordered)
             }
             results: dict[int, str] = {}
@@ -1022,10 +1104,11 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                 shutil.copy2(cp, dst)
                 cached_clips.append(dst)
             meta = {
-                "events": ordered,
-                "sport": sport,
-                "athlete_label": athlete_label,
-                "clip_paths": cached_clips,
+                "events":         ordered,
+                "sport":          sport,
+                "athlete_label":  athlete_label,
+                "clip_paths":     cached_clips,
+                "source_quality": src_info,
             }
             with open(os.path.join(cache_dir, f"{reel_stem}.meta.json"), "w") as _mf:
                 json.dump(meta, _mf, ensure_ascii=False, indent=2)

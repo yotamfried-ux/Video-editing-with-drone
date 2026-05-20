@@ -31,6 +31,16 @@ from pipeline.drive    import (get_approved_drafts, download_video,
 from pipeline.editor   import create_preview
 from pipeline.notifier import send_summary_email
 from pipeline.clients  import find_client
+from pipeline.feedback import record_approval as _record_approval
+
+
+def _load_reel_metadata(draft_name: str) -> dict | None:
+    """Look up saved metadata for an approved reel (populated by run.py)."""
+    try:
+        with open(config.REEL_METADATA_FILE) as f:
+            return json.load(f).get(draft_name)
+    except (FileNotFoundError, json.JSONDecodeError, AttributeError):
+        return None
 
 
 # ── Previewed-IDs local state ──────────────────────────────────────────────
@@ -115,6 +125,18 @@ def main() -> None:
 
         move_to_pending_payment(draft["id"])
         preview_results.append((draft, preview_link, client))
+
+        # Record operator approval in feedback loop
+        reel_meta = _load_reel_metadata(draft["name"])
+        if reel_meta:
+            try:
+                _record_approval(
+                    sport          = reel_meta.get("sport", "unknown"),
+                    events         = reel_meta.get("events", []),
+                    source_quality = reel_meta.get("source_quality"),
+                )
+            except Exception as _fe:
+                logger.warning("Feedback record failed for %s: %s", draft["name"], _fe)
 
     if not preview_results:
         print("\n⚠️ No previews produced")
