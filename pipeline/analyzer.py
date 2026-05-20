@@ -112,7 +112,7 @@ def _delete_video(video_file) -> None:
 def _extract_thumbnail(video_path: str, timestamp: float) -> str | None:
     """Extract a JPEG frame from video at timestamp using FFmpeg. Returns path or None."""
     stem = Path(video_path).stem
-    out_path = os.path.join(config.TMP_DIR, f"thumb_{stem}_{timestamp:.1f}.jpg")
+    out_path = os.path.join(config.TMP_DIR, f"thumb_{stem}_{timestamp:.3f}.jpg")
     try:
         cmd = [
             "ffmpeg", "-y",

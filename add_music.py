@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 
 import config
-from pipeline.editor import _analyze_music, compile_reel
+from pipeline.editor import _analyze_music, compile_reel, _compute_cut_times
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -85,8 +85,9 @@ def add_music(reel_path: str, song_path: str, output_path: str | None = None) ->
 
     durations = [_get_duration(p) for p in clip_paths]
     total_dur = sum(durations)
+    cut_times = _compute_cut_times(durations) or None
 
-    mx = _analyze_music(song_path, total_dur, cut_times=None)
+    mx = _analyze_music(song_path, total_dur, cut_times=cut_times)
     bpm: float = mx["bpm"] or 0.0
 
     if not bpm:
