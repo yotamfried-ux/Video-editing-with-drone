@@ -44,7 +44,7 @@ def _find_meta(reel_path: str) -> dict:
 
 def _adjust_clip(clip_path: str, speed_factor: float, out_path: str) -> bool:
     """Re-time a clip by speed_factor using FFmpeg setpts (video) + atempo (audio-less)."""
-    pts = f"{speed_factor:.6f}"
+    pts = f"{1.0 / speed_factor:.6f}"
     cmd = [
         "ffmpeg", "-y", "-i", clip_path,
         "-vf", f"setpts={pts}*PTS",

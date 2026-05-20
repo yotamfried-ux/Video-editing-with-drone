@@ -1983,12 +1983,19 @@ def test_jersey_matching() -> None:
         else:
             fail("find_client jersey 10", f"got {m2!r}")
 
-        # ── video_pattern fallback when no jersey in description ──
-        m3 = find_client("itay_session_20260516.mp4")
+        # ── jersey at end of string (no trailing space) ──
+        m3 = find_client("player in red jersey 7")
         if m3 and m3.get("email") == "itay@test.com":
+            ok("find_client — jersey number at end of string")
+        else:
+            fail("find_client jersey end-of-string", f"got {m3!r}")
+
+        # ── video_pattern fallback when no jersey in description ──
+        m4 = find_client("itay_session_20260516.mp4")
+        if m4 and m4.get("email") == "itay@test.com":
             ok("find_client — video_pattern fallback when no jersey in text")
         else:
-            fail("find_client pattern fallback", f"got {m3!r}")
+            fail("find_client pattern fallback", f"got {m4!r}")
 
     finally:
         config.CLIENTS_FILE = old_clients_file

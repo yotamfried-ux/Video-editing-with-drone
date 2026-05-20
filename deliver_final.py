@@ -113,7 +113,13 @@ def main() -> None:
         _save_delivered(_load_delivered() | {d["id"] for d in to_deliver})
 
     # ── Archive all pending reels (including already-delivered) ─────────────
+    delivered_ids = {d["id"] for d in to_deliver}
     for draft in pending:
+        if draft["id"] not in delivered_ids and draft["id"] not in already_delivered:
+            logger.warning(
+                "Archiving '%s' with no client match — no email was sent", draft["name"]
+            )
+            print(f"⚠️  No client match for '{draft['name']}' — archived without email delivery")
         mark_draft_delivered(draft["id"])
         print(f"✅ Archived: {draft['name']}")
 

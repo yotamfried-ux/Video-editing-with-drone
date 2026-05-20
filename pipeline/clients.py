@@ -39,6 +39,7 @@ def find_client(description: str) -> dict | None:
             or f"number {jersey}" in lower
             or f"no. {jersey}" in lower
             or f" {jersey} " in lower
+            or lower.endswith(f" {jersey}")
         ):
             return client
         pattern = client.get("video_pattern", "").lower()
