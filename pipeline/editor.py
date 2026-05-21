@@ -386,6 +386,12 @@ _COLOR_PROFILES: dict[str, tuple[float, float, float]] = {
 _TYPE_GRADE_DELTA: dict[str, tuple[float, float, float]] = {
     "aerial":     (+0.03, +0.08, +0.04),  # sky/sun: brighter, more vivid
     "gap_jump":   (+0.02, +0.06, +0.03),
+    "jump":       (+0.02, +0.05, +0.03),
+    "flip":       (+0.02, +0.06, +0.03),
+    "kicker":     (+0.02, +0.05, +0.02),
+    "goal":       (+0.02, +0.07, +0.02),  # high-emotion moment: boost saturation
+    "save":       (+0.02, +0.05, +0.01),
+    "tackle":     (+0.01, +0.04, +0.00),
     "tube_ride":  (+0.05, -0.10,  0.00),  # underwater: contrasty, desaturated
     "barrel":     (+0.05, -0.10,  0.00),
     "underwater": (+0.04, -0.12, +0.03),
@@ -396,16 +402,28 @@ _TYPE_GRADE_DELTA: dict[str, tuple[float, float, float]] = {
 
 # ── Per-event-type zoom and slowmo constraints ─────────────────────────────────
 _TYPE_HINTS: dict[str, dict] = {
-    # High-action moments: enforce minimum zoom and slowmo when source allows
+    # Aerial/trick — enforce zoom-in and slowmo for all apex moments
     "aerial":       {"zoom_floor": 1.3, "slowmo_min": True},
     "gap_jump":     {"zoom_floor": 1.3, "slowmo_min": True},
     "trick":        {"zoom_floor": 1.2, "slowmo_min": True},
     "flip":         {"zoom_floor": 1.3, "slowmo_min": True},
     "kicker":       {"zoom_floor": 1.2, "slowmo_min": True},
+    "jump":         {"zoom_floor": 1.2, "slowmo_min": True},
+    "landing":      {"zoom_floor": 1.2, "slowmo_min": True},
+    "grind":        {"zoom_floor": 1.2, "slowmo_min": True},
+    "manual":       {"zoom_floor": 1.2, "slowmo_min": True},
+    # Ball-sport contact moments — zoom + slowmo
+    "goal":         {"zoom_floor": 1.2, "slowmo_min": True},
+    "save":         {"zoom_floor": 1.2, "slowmo_min": True},
+    "tackle":       {"zoom_floor": 1.1, "slowmo_min": True},
+    "shot":         {"zoom_floor": 1.1, "slowmo_min": True},
+    "header":       {"zoom_floor": 1.1, "slowmo_min": True},
+    # Tense moments: zoom but no forced slowmo
+    "near_miss":    {"zoom_floor": 1.2},
     # Enclosed action: tighter crop on athlete
     "tube_ride":    {"zoom_floor": 1.2},
     "barrel":       {"zoom_floor": 1.2},
-    # Wipeouts/crashes: keep wide, no slowmo (don't glorify the fall)
+    # Wipeouts/crashes: keep wide, no slowmo
     "wipeout":      {"zoom_ceil": 1.05, "slowmo_max": False},
     "crash":        {"zoom_ceil": 1.05, "slowmo_max": False},
     # Setup/approach moments: keep wide
@@ -469,9 +487,28 @@ def _find_font() -> str | None:
     return next((p for p in candidates if os.path.exists(p)), None)
 
 
+def _est_clip_dur(ev: dict, slowmo_capable: bool) -> float:
+    """Estimate cut_clip() output duration for partition budgeting.
+    Mirrors the score/focus/slowmo logic in cut_clip() so partition size is accurate.
+    """
+    raw  = ev["end"] - ev["start"]
+    edit = ev.get("edit", {})
+    if not (edit.get("slowmo", False) and slowmo_capable):
+        return raw
+    score = int(ev.get("score", 7))
+    focus = str(edit.get("focus", "full")).lower()
+    if score >= 9:   sm_frac, slow_factor = 0.50, 2.5
+    elif score >= 7: sm_frac, slow_factor = 0.40, 2.0
+    else:            sm_frac, slow_factor = 0.30, 1.5
+    if focus == "peak":
+        return raw * (0.30 + 0.40 * slow_factor + 0.30)
+    else:
+        return raw * ((1 - sm_frac) + sm_frac * slow_factor)
+
+
 def _partition_events(
     events: list[dict],
-    slowmo: bool,
+    slowmo_capable: bool,
     target_max: float = TARGET_REEL_MAX,
 ) -> list[list[dict]]:
     """
@@ -479,21 +516,15 @@ def _partition_events(
     Events are sorted by score descending so each reel gets the best remaining events.
     Returns a list of event groups; each group is then narrative-ordered independently.
 
-    Duration estimate per event:
-      slowmo source → event_dur × 1.4  (speed-ramp: 0.3+0.8+0.3)
-      normal source → event_dur × 1.0
+    Duration estimate uses _est_clip_dur() which accounts for score/focus/slowmo depth.
     Xfade subtracts XFADE_DUR per transition.
     """
     if not events:
         return []
 
-    factor = 1.4 if slowmo else 1.0
-
-    def _clip_dur(ev: dict) -> float:
-        return (ev["end"] - ev["start"]) * factor
-
     def _group_dur(grp: list[dict]) -> float:
-        return sum(_clip_dur(e) for e in grp) - XFADE_DUR * (len(grp) - 1)
+        return (sum(_est_clip_dur(e, slowmo_capable) for e in grp)
+                - XFADE_DUR * (len(grp) - 1))
 
     # Best events first → each reel gets the highest-quality moments available
     remaining = sorted(events, key=lambda e: e["score"], reverse=True)
@@ -521,24 +552,58 @@ def _partition_events(
     return partitions
 
 
+def _ev_slowmo(ev: dict) -> bool:
+    return bool(ev.get("edit", {}).get("slowmo", False))
+
+
+def _break_slowmo_runs(events: list[dict]) -> list[dict]:
+    """Reorder events to avoid consecutive slowmo=true clips (sluggish pacing).
+
+    Positions 0 (opener) and n-1 (climax) are fixed — only inner positions are
+    swapped. Swaps the second clip in each slowmo pair with the nearest inner
+    non-slowmo clip. Preserves rough score order, only breaks adjacency.
+    """
+    if len(events) <= 2:
+        return events
+    result = list(events)
+    n = len(result)
+    for _ in range(n):
+        changed = False
+        for i in range(n - 1):
+            if _ev_slowmo(result[i]) and _ev_slowmo(result[i + 1]):
+                # Swap result[i+1] with nearest non-slowmo in inner range
+                # Inner range: positions 1..n-2 (never touch pos 0 or n-1)
+                j = next((k for k in range(i + 2, n - 1)
+                          if not _ev_slowmo(result[k])), None)
+                if j is not None:
+                    result[i + 1], result[j] = result[j], result[i + 1]
+                    changed = True
+        if not changed:
+            break
+    return result
+
+
 def _narrative_order(events: list[dict]) -> list[dict]:
     """
     מסדר קליפים לפי עקרון narrative arc:
       פתיחה חזקה (2nd best) → בנייה עולה → שיא (best) בסוף.
+    גם מבטיח שלא יהיו שני קליפי slowmo רצופים (פייסינג גרוע).
+    מחיל את _break_slowmo_runs על כל הרשימה, מסמן opener ו-climax כקבועים.
 
     מחקרים על רשתות חברתיות: הצופה זוכר את הקליפ הראשון והאחרון.
     לכן: opener חזק ← build ← CLIMAX.
     """
     if len(events) <= 2:
-        # 1-2 קליפים: מהנמוך לגבוה (עולה לסיום)
         return sorted(events, key=lambda e: e["score"])
 
     by_score = sorted(events, key=lambda e: e["score"], reverse=True)
-    opener   = by_score[1]                                           # 2nd best → hook ראשון
-    climax   = by_score[0]                                           # best → שיא אחרון
-    middle   = sorted(by_score[2:], key=lambda e: e["score"])       # שאר בסדר עולה
+    opener   = by_score[1]                                      # 2nd best → hook
+    climax   = by_score[0]                                      # best → climax
+    middle   = sorted(by_score[2:], key=lambda e: e["score"])  # rest ascending
 
-    return [opener] + middle + [climax]
+    # Apply slowmo-break on the full assembled list; opener (pos 0) and climax
+    # (pos n-1) are never moved (enforced inside _break_slowmo_runs).
+    return _break_slowmo_runs([opener] + middle + [climax])
 
 
 def _get_source_info(video_path: str) -> dict:
@@ -1057,6 +1122,15 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     for part_idx, part_events in enumerate(partitions):
         ordered           = _narrative_order(part_events)
         event_transitions = [ev.get("edit", {}).get("transition_out", "slide") for ev in ordered]
+        # "zoom" transition only makes sense on the penultimate clip (builds to climax)
+        _n = len(ordered)
+        _has_zoom = "zoom" in event_transitions
+        event_transitions = [
+            t if (t != "zoom" or i == _n - 2) else "slide"
+            for i, t in enumerate(event_transitions)
+        ]
+        if _has_zoom and _n >= 3:
+            event_transitions[_n - 2] = "zoom"
         idx_base          = 91 + part_idx * 50
 
         # Extract _src before submitting to thread pool (pop is not thread-safe on shared dict)
@@ -1212,6 +1286,15 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         order_log = " → ".join(f"{e['type']}({e['score']})" for e in ordered)
         print(f"📋 Reel {part_idx + 1}/{len(partitions)} narrative: {order_log}")
         event_transitions = [ev.get("edit", {}).get("transition_out", "slide") for ev in ordered]
+        # "zoom" transition only makes sense on the penultimate clip (builds to climax)
+        _n = len(ordered)
+        _has_zoom = "zoom" in event_transitions
+        event_transitions = [
+            t if (t != "zoom" or i == _n - 2) else "slide"
+            for i, t in enumerate(event_transitions)
+        ]
+        if _has_zoom and _n >= 3:
+            event_transitions[_n - 2] = "zoom"
 
         # 4. חיתוך קליפים במקביל
         idx_base   = part_idx * 50 + 1

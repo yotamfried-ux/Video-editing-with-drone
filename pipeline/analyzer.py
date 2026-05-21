@@ -125,6 +125,10 @@ SELECTION RULES:
 - Do NOT include score < 6 unless no other moments exist
 - Prefer variety: avoid 3+ nearly identical consecutive moves
 
+EVENT COUNT: Aim for 3-8 events per person. Prefer quality over quantity — a 4-event reel
+with scores 8,9,8,7 is better than a 10-event reel with four score-6 moments padded in.
+Fewer than 2 events per person is only acceptable when the session is very short.
+
 TEAM SPORTS — ATTRIBUTION:
 In competitive plays (tackle, duel, block, goal, save, interception):
 - Assign the event to the person who SUCCEEDED in the interaction.
@@ -149,7 +153,13 @@ For each PERSON:
   Never use vague labels like "athlete" or "person". Be specific enough to match across clips.
 
 For each EVENT:
-- type: snake_case label (e.g. "wave_catch", "goal", "cutback", "trick", "tackle")
+- type: choose the closest value from this list (do NOT invent new labels):
+    Aerial/trick:  aerial, trick, flip, gap_jump, kicker
+    Wave/water:    tube_ride, barrel, wave_catch, cutback, bottom_turn, carve, snap, paddle
+    Ball sports:   goal, tackle, assist, interception, save, dribble, header, shot, clearance
+    Bike/skate:    jump, landing, grind, manual, crash
+    General:       sprint, approach, wipeout, near_miss, highlight
+    (use "highlight" only when nothing else fits)
 - start: exact start in seconds — include 1-2s buildup before the action peak
 - end: exact end in seconds — include followthrough; minimum 6s after start
 - score: 1-10 relative to this video

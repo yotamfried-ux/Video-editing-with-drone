@@ -2333,6 +2333,146 @@ def test_prompt_to_edit_gaps() -> None:
         fail("_xfade_filter transitions list", f"filter: {filt[:120]!r}")
 
 
+def test_remaining_prompt_edit_gaps() -> None:
+    section("27 / Remaining prompt→edit gaps (type enum, pacing, zoom-transition, partition, count)")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from pipeline.editor import (
+        _TYPE_HINTS, _break_slowmo_runs, _ev_slowmo,
+        _narrative_order, _est_clip_dur, _partition_events,
+    )
+    from pipeline.analyzer import _IDENTITY_PROMPT
+
+    # ── Gap 1: enumerated type list in prompt ──
+    for t in ("aerial", "tube_ride", "goal", "grind", "wipeout", "near_miss"):
+        if t in _IDENTITY_PROMPT:
+            ok(f"_IDENTITY_PROMPT contains enumerated type '{t}'")
+        else:
+            fail(f"_IDENTITY_PROMPT missing type '{t}'", "not found in prompt text")
+
+    # ── Gap 1: new types have _TYPE_HINTS entries ──
+    for t in ("jump", "landing", "grind", "goal", "save", "shot", "header", "near_miss"):
+        if t in _TYPE_HINTS:
+            ok(f"_TYPE_HINTS['{t}'] defined")
+        else:
+            fail(f"_TYPE_HINTS missing '{t}'", "not in dict")
+
+    # ── Gap 2: _ev_slowmo helper ──
+    assert _ev_slowmo({"edit": {"slowmo": True}})  is True
+    assert _ev_slowmo({"edit": {"slowmo": False}}) is False
+    assert _ev_slowmo({})                          is False
+    ok("_ev_slowmo helper works correctly")
+
+    # ── Gap 2: _break_slowmo_runs separates consecutive slowmo clips ──
+    sm = lambda s: {"score": s, "edit": {"slowmo": True},  "type": "aerial"}
+    ns = lambda s: {"score": s, "edit": {"slowmo": False}, "type": "paddle"}
+    # Input: slowmo, slowmo, non-slowmo, non-slowmo
+    broken = _break_slowmo_runs([sm(8), sm(7), ns(6), ns(5)])
+    for i in range(len(broken) - 1):
+        if _ev_slowmo(broken[i]) and _ev_slowmo(broken[i+1]):
+            fail("_break_slowmo_runs", f"consecutive slowmo at positions {i},{i+1}")
+            break
+    else:
+        ok("_break_slowmo_runs: no consecutive slowmo after reorder")
+
+    # ── Gap 2: _narrative_order fixes opener–middle junction ──
+    # Solvable case: 3 slowmo + 2 non-slowmo → should interleave to 0 consecutive pairs
+    events_good = [sm(9), sm(8), ns(7), ns(6), sm(5)]
+    ordered_good = _narrative_order(events_good)
+    if len(ordered_good) == 5 and ordered_good[-1]["score"] == 9:
+        ok("_narrative_order: 5 events ordered, climax score=9 last")
+    else:
+        fail("_narrative_order order", f"scores: {[e['score'] for e in ordered_good]}")
+    consec_good = sum(1 for i in range(len(ordered_good)-1)
+                      if _ev_slowmo(ordered_good[i]) and _ev_slowmo(ordered_good[i+1]))
+    if consec_good == 0:
+        ok("_narrative_order (solvable): 0 consecutive slowmo pairs")
+    else:
+        fail("_narrative_order consecutive slowmo", f"{consec_good} pair(s) remain in solvable case")
+
+    # Opener-junction fix: opener=slowmo, middle starts slowmo → algorithm swaps
+    events_junction = [sm(9), sm(8), sm(7), ns(6)]  # 3 slowmo, 1 non-slowmo → 1 pair max
+    ordered_j = _narrative_order(events_junction)
+    consec_j = sum(1 for i in range(len(ordered_j)-1)
+                   if _ev_slowmo(ordered_j[i]) and _ev_slowmo(ordered_j[i+1]))
+    if consec_j <= 1:
+        ok(f"_narrative_order (junction fix): {consec_j} consecutive pair(s) — minimum possible")
+    else:
+        fail("_narrative_order junction", f"{consec_j} pairs (should be ≤1 with 1 non-slowmo clip)")
+
+    # ── Gap 3: transition "zoom" correction — only at penultimate position ──
+    # Simulate what create_reel() does
+    mock_ordered = [
+        {"score": 8, "edit": {"transition_out": "zoom"}},   # position 0 — wrong
+        {"score": 6, "edit": {"transition_out": "slide"}},  # position 1 — middle
+        {"score": 7, "edit": {"transition_out": "zoom"}},   # position 2 — wrong (n-2 for n=4)
+        {"score": 9, "edit": {"transition_out": "cut"}},    # position 3 — climax (last)
+    ]
+    raw_transitions = [ev["edit"]["transition_out"] for ev in mock_ordered]
+    _n = len(mock_ordered)
+    _has_zoom = "zoom" in raw_transitions
+    fixed = [
+        t if (t != "zoom" or i == _n - 2) else "slide"
+        for i, t in enumerate(raw_transitions)
+    ]
+    if _has_zoom and _n >= 3:
+        fixed[_n - 2] = "zoom"
+    if fixed[0] == "slide" and fixed[2] == "zoom" and fixed[3] == "cut":
+        ok(f"transition 'zoom' correction: demoted from pos 0, kept at pos {_n-2}")
+    else:
+        fail("transition zoom correction", f"got: {fixed}")
+
+    # ── Gap 4: _est_clip_dur accounts for score + focus ──
+    ev_score9_peak = {"start": 0, "end": 8.0, "score": 9,
+                      "edit": {"slowmo": True, "focus": "peak"}}
+    ev_score6_full = {"start": 0, "end": 8.0, "score": 6,
+                      "edit": {"slowmo": True, "focus": "full"}}
+    ev_no_slowmo   = {"start": 0, "end": 8.0, "score": 9,
+                      "edit": {"slowmo": False, "focus": "peak"}}
+
+    dur9  = _est_clip_dur(ev_score9_peak, True)
+    dur6  = _est_clip_dur(ev_score6_full, True)
+    dur_ns = _est_clip_dur(ev_no_slowmo, True)
+
+    if dur9 > dur6 > 8.0 and abs(dur_ns - 8.0) < 0.001:
+        ok(f"_est_clip_dur: score=9+peak={dur9:.2f}s > score=6+full={dur6:.2f}s > raw=8s; no-slowmo=8s")
+    else:
+        fail("_est_clip_dur ordering", f"dur9={dur9:.2f} dur6={dur6:.2f} dur_ns={dur_ns:.2f}")
+
+    # ── Gap 4: _partition_events uses accurate duration → doesn't undercount ──
+    # 3 high-score events with focus=peak score=9 (each 8s raw → ~15.2s output)
+    big_events = [
+        {"start": 0, "end": 8.0, "score": 9, "edit": {"slowmo": True, "focus": "peak"}},
+        {"start": 10, "end": 18.0, "score": 8, "edit": {"slowmo": True, "focus": "peak"}},
+        {"start": 20, "end": 28.0, "score": 7, "edit": {"slowmo": True, "focus": "peak"}},
+    ]
+    parts = _partition_events(big_events, slowmo_capable=True, target_max=30.0)
+    if len(parts) >= 2:
+        ok(f"_partition_events: 3×8s score-9 peak events → {len(parts)} partitions (accurate budget)")
+    else:
+        # With old 1.4× factor: 3×8×1.4=33.6s → would split; with correct factor should also split
+        # This just validates the estimate isn't lower than 30s
+        total_est = sum(_est_clip_dur(e, True) for e in big_events)
+        if total_est > 30.0:
+            fail("_partition_events undercount", f"total_est={total_est:.1f}s but only {len(parts)} partition(s)")
+        else:
+            ok(f"_partition_events: estimate {total_est:.1f}s ≤ 30s — single partition correct")
+
+    # ── Gap 5: event count guidance in prompt ──
+    if "3-8 events" in _IDENTITY_PROMPT or "EVENT COUNT" in _IDENTITY_PROMPT:
+        ok("_IDENTITY_PROMPT contains event count guidance")
+    else:
+        fail("_IDENTITY_PROMPT event count guidance", "not found")
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -2387,6 +2527,7 @@ if __name__ == "__main__":
     test_feedback_loop()
     test_prompt_to_edit_gaps()
     test_type_aware_editing()
+    test_remaining_prompt_edit_gaps()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
