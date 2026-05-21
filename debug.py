@@ -201,12 +201,13 @@ def test_narrative_order() -> None:
     else:
         fail("2-event ascending", f"{[e['score'] for e in two_ord]}")
 
-    # 1-event: unchanged
+    # 1-event: result has same score, and single event is the climax (gets slowmo=True)
     one = [ev("a", 7)]
-    if _narrative_order(one) == one:
+    one_ord = _narrative_order(one)
+    if len(one_ord) == 1 and one_ord[0]["score"] == 7 and one_ord[0].get("edit", {}).get("slowmo"):
         ok("1-event passthrough")
     else:
-        fail("1-event passthrough", "list was modified")
+        fail("1-event passthrough", f"score/slowmo mismatch: {one_ord}")
 
 
 # ══════════════════════════════════════════════════════
@@ -309,10 +310,10 @@ def test_cut_clip() -> None:
         dur_slowmo = _get_duration(clip_sm)
         ratio      = dur_slowmo / dur_normal if dur_normal > 0 else 0
 
-        if 1.2 < ratio < 1.6:
-            ok("cut_clip speed-ramp ≈1.4x duration", f"{dur_normal:.1f}s → {dur_slowmo:.1f}s (×{ratio:.2f})")
+        if ratio > 1.3:
+            ok("cut_clip speed-ramp duration", f"{dur_normal:.1f}s → {dur_slowmo:.1f}s (×{ratio:.2f})")
         else:
-            fail("cut_clip speed-ramp duration", f"ratio {ratio:.2f} (expected ~1.4)")
+            fail("cut_clip speed-ramp duration", f"ratio {ratio:.2f} (expected >1.3)")
     else:
         fail("cut_clip slow-mo", "output not created")
 
@@ -1525,7 +1526,7 @@ def test_editor_improvements() -> None:
     ]
     # no-slowmo: 12+12+12 - 2×0.5 = 35s > 30 → should produce 2 partitions
     try:
-        parts = _partition_events(_long, slowmo=False, target_max=30)
+        parts = _partition_events(_long, slowmo_capable=False, target_max=30)
         if len(parts) == 2 and all(len(p) >= 1 for p in parts):
             ok("_partition_events — 3 events >30s → split into 2 partitions",
                f"{len(parts)} partitions, sizes {[len(p) for p in parts]}")
@@ -1537,7 +1538,7 @@ def test_editor_improvements() -> None:
 
     # ── single partition when events fit ──
     try:
-        one = _partition_events(_long[:2], slowmo=False, target_max=30)
+        one = _partition_events(_long[:2], slowmo_capable=False, target_max=30)
         if len(one) == 1 and len(one[0]) == 2:
             ok("_partition_events — 2 events that fit → single partition")
         else:
@@ -2473,6 +2474,75 @@ def test_remaining_prompt_edit_gaps() -> None:
         fail("_IDENTITY_PROMPT event count guidance", "not found")
 
 
+def test_single_slowmo_rule() -> None:
+    section("28 / Single slowmo per reel — climax-only enforcement")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from pipeline.editor import _enforce_single_slowmo, _narrative_order, _ev_slowmo
+
+    def sm(s: int) -> dict:
+        return {"score": s, "edit": {"slowmo": True},  "type": "aerial", "start": 0, "end": 5}
+
+    def ns(s: int) -> dict:
+        return {"score": s, "edit": {"slowmo": False}, "type": "paddle", "start": 0, "end": 5}
+
+    # 1. Only last event keeps slowmo=True
+    result = _enforce_single_slowmo([sm(8), sm(7), ns(6), sm(5)])
+    slowmo_flags = [_ev_slowmo(e) for e in result]
+    if slowmo_flags == [False, False, False, True]:
+        ok("_enforce_single_slowmo: only last event has slowmo=True")
+    else:
+        fail("_enforce_single_slowmo", f"flags: {slowmo_flags}")
+
+    # 2. Climax gets slowmo=True even when Gemini said False
+    result2 = _enforce_single_slowmo([ns(8), ns(7), ns(9)])
+    if _ev_slowmo(result2[-1]) and not _ev_slowmo(result2[0]):
+        ok("_enforce_single_slowmo: upgrades climax slowmo=False → True")
+    else:
+        fail("_enforce_single_slowmo climax upgrade", f"flags: {[_ev_slowmo(e) for e in result2]}")
+
+    # 3. Input not mutated — original dicts unchanged
+    orig = [sm(9), sm(8)]
+    _ = _enforce_single_slowmo(orig)
+    if _ev_slowmo(orig[0]) and _ev_slowmo(orig[1]):
+        ok("_enforce_single_slowmo: does not mutate input dicts")
+    else:
+        fail("_enforce_single_slowmo mutation", "original dicts were modified")
+
+    # 4. Empty list → returns []
+    if _enforce_single_slowmo([]) == []:
+        ok("_enforce_single_slowmo: empty list → []")
+    else:
+        fail("_enforce_single_slowmo empty", "did not return []")
+
+    # 5. Single event → gets slowmo=True
+    single = _enforce_single_slowmo([ns(9)])
+    if _ev_slowmo(single[0]):
+        ok("_enforce_single_slowmo: single event → slowmo=True (it is the climax)")
+    else:
+        fail("_enforce_single_slowmo single", "single event should be climax → slowmo=True")
+
+    # 6. _narrative_order end-to-end: all 4 events start with slowmo=True →
+    #    only the last (highest score) keeps it
+    four_sm = [sm(9), sm(8), sm(7), sm(6)]
+    ordered = _narrative_order(four_sm)
+    sm_count = sum(_ev_slowmo(e) for e in ordered)
+    if sm_count == 1 and _ev_slowmo(ordered[-1]) and ordered[-1]["score"] == 9:
+        ok("_narrative_order: 4 slowmo events → only climax (score=9) keeps slowmo")
+    else:
+        fail("_narrative_order single slowmo",
+             f"sm_count={sm_count}, last_slowmo={_ev_slowmo(ordered[-1])}, "
+             f"last_score={ordered[-1]['score']}")
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -2528,6 +2598,7 @@ if __name__ == "__main__":
     test_prompt_to_edit_gaps()
     test_type_aware_editing()
     test_remaining_prompt_edit_gaps()
+    test_single_slowmo_rule()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

@@ -583,27 +583,44 @@ def _break_slowmo_runs(events: list[dict]) -> list[dict]:
     return result
 
 
+def _enforce_single_slowmo(events: list[dict]) -> list[dict]:
+    """Enforce editorial rule: exactly one slowmo per reel — the climax (last event).
+
+    Forces edit.slowmo=True on the climax and edit.slowmo=False on all others.
+    Layer 2 (can_slowmo) in cut_clip() will still block slowmo if source fps is too low.
+    Shallow-copies event + edit dicts — does not mutate input.
+    """
+    if not events:
+        return events
+    last = len(events) - 1
+    result = []
+    for i, ev in enumerate(events):
+        edit = dict(ev.get("edit") or {})
+        edit["slowmo"] = (i == last)
+        result.append({**ev, "edit": edit})
+    return result
+
+
 def _narrative_order(events: list[dict]) -> list[dict]:
     """
     מסדר קליפים לפי עקרון narrative arc:
       פתיחה חזקה (2nd best) → בנייה עולה → שיא (best) בסוף.
-    גם מבטיח שלא יהיו שני קליפי slowmo רצופים (פייסינג גרוע).
-    מחיל את _break_slowmo_runs על כל הרשימה, מסמן opener ו-climax כקבועים.
+    מחיל _break_slowmo_runs ואז _enforce_single_slowmo:
+    רק הקליפ האחרון (climax) יקבל slowmo.
 
     מחקרים על רשתות חברתיות: הצופה זוכר את הקליפ הראשון והאחרון.
     לכן: opener חזק ← build ← CLIMAX.
     """
     if len(events) <= 2:
-        return sorted(events, key=lambda e: e["score"])
+        return _enforce_single_slowmo(sorted(events, key=lambda e: e["score"]))
 
     by_score = sorted(events, key=lambda e: e["score"], reverse=True)
     opener   = by_score[1]                                      # 2nd best → hook
     climax   = by_score[0]                                      # best → climax
     middle   = sorted(by_score[2:], key=lambda e: e["score"])  # rest ascending
 
-    # Apply slowmo-break on the full assembled list; opener (pos 0) and climax
-    # (pos n-1) are never moved (enforced inside _break_slowmo_runs).
-    return _break_slowmo_runs([opener] + middle + [climax])
+    # Break consecutive slowmo pairs, then strip slowmo from all except climax.
+    return _enforce_single_slowmo(_break_slowmo_runs([opener] + middle + [climax]))
 
 
 def _get_source_info(video_path: str) -> dict:
@@ -691,8 +708,9 @@ def cut_clip(
         applied_zoom = max(applied_zoom, min(type_hint["zoom_floor"], zoom_headroom * 0.9))
     if "zoom_ceil" in type_hint:
         applied_zoom = min(applied_zoom, type_hint["zoom_ceil"])
-    if type_hint.get("slowmo_min") and not use_slowmo and can_slowmo:
-        use_slowmo = True   # type mandates slowmo when source is capable
+    if (type_hint.get("slowmo_min") and not use_slowmo and can_slowmo
+            and edit_hints.get("slowmo") is not False):
+        use_slowmo = True   # type mandates slowmo — but not when explicitly blocked
     if not type_hint.get("slowmo_max", True):
         use_slowmo = False  # type forbids slowmo (wipeout, crash)
 
