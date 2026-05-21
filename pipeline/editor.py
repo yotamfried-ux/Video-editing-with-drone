@@ -1191,7 +1191,8 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
 
         try:
             reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
-                                sport=sport, athlete_label=athlete_label)
+                                sport=sport, athlete_label=athlete_label,
+                                transitions=event_transitions)
         finally:
             for p in clip_paths:
                 try: os.remove(p)
