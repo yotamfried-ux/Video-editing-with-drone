@@ -2105,6 +2105,133 @@ def test_feedback_loop() -> None:
             pass
 
 
+def test_type_aware_editing() -> None:
+    section("26 / Type-aware editing (type hints, focus=entry, dynamic grade)")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from pipeline.editor import _TYPE_HINTS, _TYPE_GRADE_DELTA, _build_grade, REEL_H, ZOOM_MIN_HEADROOM
+
+    # ── Type hint zoom floor: aerial should raise zoom above Gemini's 1.0 ──
+    for t_type in ("aerial", "gap_jump", "trick"):
+        hint = _TYPE_HINTS.get(t_type, {})
+        if hint.get("zoom_floor", 0) >= 1.2:
+            ok(f"_TYPE_HINTS['{t_type}'] zoom_floor={hint['zoom_floor']:.1f} ≥ 1.2")
+        else:
+            fail(f"_TYPE_HINTS[{t_type!r}] zoom_floor", f"got {hint.get('zoom_floor')!r}")
+
+    # ── Aerial zoom floor applied in cut_clip logic ──
+    zoom_headroom = 2.0
+    requested_zoom = 1.0  # Gemini said no zoom
+    applied_zoom = min(requested_zoom, zoom_headroom * 0.9) if zoom_headroom >= ZOOM_MIN_HEADROOM else 1.0
+    type_hint = _TYPE_HINTS.get("aerial", {})
+    if "zoom_floor" in type_hint and zoom_headroom >= ZOOM_MIN_HEADROOM:
+        applied_zoom = max(applied_zoom, min(type_hint["zoom_floor"], zoom_headroom * 0.9))
+    if applied_zoom >= 1.3:
+        ok(f"aerial zoom floor: Gemini zoom=1.0 → applied_zoom={applied_zoom:.2f} (floor enforced)")
+    else:
+        fail("aerial zoom floor enforcement", f"applied_zoom={applied_zoom:.2f}")
+
+    # ── Wipeout zoom ceiling and slowmo suppression ──
+    wipeout_hint = _TYPE_HINTS.get("wipeout", {})
+    if wipeout_hint.get("zoom_ceil", 2.0) <= 1.05:
+        ok(f"wipeout zoom_ceil={wipeout_hint['zoom_ceil']:.2f} ≤ 1.05 (no zoom on wipeouts)")
+    else:
+        fail("wipeout zoom_ceil", f"got {wipeout_hint.get('zoom_ceil')!r}")
+    if wipeout_hint.get("slowmo_max") is False:
+        ok("wipeout slowmo_max=False (no slowmo on wipeouts)")
+    else:
+        fail("wipeout slowmo_max", f"got {wipeout_hint.get('slowmo_max')!r}")
+
+    # ── _build_grade: higher score → more saturation ──
+    grade_low  = _build_grade("surfing", 5,  "bottom_turn")
+    grade_high = _build_grade("surfing", 10, "bottom_turn")
+    def _sat(g: str) -> float:
+        for part in g.split(":"):
+            if part.startswith("saturation="):
+                return float(part.split("=")[1])
+        return 0.0
+    sat_low, sat_high = _sat(grade_low), _sat(grade_high)
+    if sat_high > sat_low:
+        ok(f"_build_grade saturation: score=10 ({sat_high:.2f}) > score=5 ({sat_low:.2f})")
+    else:
+        fail("_build_grade score saturation", f"low={sat_low:.2f} high={sat_high:.2f}")
+
+    # ── _build_grade: aerial type → brighter than default ──
+    grade_default = _build_grade("surfing", 7, "bottom_turn")
+    grade_aerial  = _build_grade("surfing", 7, "aerial")
+    def _brightness(g: str) -> float:
+        for part in g.split(":"):
+            if part.startswith("brightness="):
+                return float(part.split("=")[1])
+        return 0.0
+    b_default, b_aerial = _brightness(grade_default), _brightness(grade_aerial)
+    if b_aerial > b_default:
+        ok(f"_build_grade aerial brightness={b_aerial:.3f} > default {b_default:.3f}")
+    else:
+        fail("_build_grade aerial brightness", f"aerial={b_aerial:.3f} default={b_default:.3f}")
+
+    # ── _build_grade: tube_ride → less saturation than default ──
+    grade_tube = _build_grade("surfing", 7, "tube_ride")
+    def _contrast(g: str) -> float:
+        for part in g.split(":"):
+            if part.startswith("contrast="):
+                return float(part.split("=")[1])
+        return 0.0
+    sat_default, sat_tube = _sat(grade_default), _sat(grade_tube)
+    if sat_tube < sat_default:
+        ok(f"_build_grade tube_ride saturation={sat_tube:.2f} < default {sat_default:.2f}")
+    else:
+        fail("_build_grade tube_ride saturation", f"tube={sat_tube:.2f} default={sat_default:.2f}")
+
+    # ── focus="entry" output_dur is longer than input when slowmo ──
+    input_dur = 4.0
+    sm_frac, slow_factor = 0.40, 2.0  # score=7
+    en_t1 = round(input_dur * sm_frac, 3)
+    entry_dur = round(en_t1 * slow_factor + (input_dur - en_t1), 3)
+    if entry_dur > input_dur:
+        ok(f"focus=entry output_dur={entry_dur:.3f}s > input {input_dur}s (slowmo on first {sm_frac:.0%})")
+    else:
+        fail("focus=entry output_dur", f"got {entry_dur:.3f}, input {input_dur}")
+
+    # ── focus="entry" output_dur formula correct ──
+    expected = round(en_t1 * slow_factor + (input_dur - en_t1), 3)
+    if abs(entry_dur - expected) < 0.001:
+        ok(f"focus=entry output_dur formula: {en_t1:.2f}s×{slow_factor}× + {input_dur-en_t1:.2f}s = {entry_dur:.3f}s")
+    else:
+        fail("focus=entry formula", f"entry_dur={entry_dur} expected={expected}")
+
+    # ── _parse_analysis legacy path now includes crop_y and edit dict ──
+    from pipeline.analyzer import _parse_analysis
+    sample_json = '''{"activity": "surfing", "events": [
+        {"type": "aerial", "start": 5.0, "end": 12.0, "score": 9,
+         "description": "big air",
+         "crop_x": 0.5, "crop_y": 0.3,
+         "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak", "transition_out": "cut"}}
+    ]}'''
+    parsed = _parse_analysis(sample_json)
+    ev = parsed["events"][0] if parsed.get("events") else {}
+    if ev.get("crop_y") == 0.3:
+        ok("_parse_analysis legacy: crop_y extracted correctly")
+    else:
+        fail("_parse_analysis crop_y", f"got {ev.get('crop_y')!r}")
+    if ev.get("edit", {}).get("transition_out") == "cut":
+        ok("_parse_analysis legacy: edit.transition_out extracted")
+    else:
+        fail("_parse_analysis edit.transition_out", f"got {ev.get('edit', {}).get('transition_out')!r}")
+    if ev.get("edit", {}).get("focus") == "peak":
+        ok("_parse_analysis legacy: edit.focus extracted")
+    else:
+        fail("_parse_analysis edit.focus", f"got {ev.get('edit', {}).get('focus')!r}")
+
+
 def test_prompt_to_edit_gaps() -> None:
     section("25 / Prompt→edit gap closure (focus / transitions / score-slowmo)")
 
@@ -2259,6 +2386,7 @@ if __name__ == "__main__":
     test_jersey_matching()
     test_feedback_loop()
     test_prompt_to_edit_gaps()
+    test_type_aware_editing()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

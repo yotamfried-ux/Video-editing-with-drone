@@ -358,6 +358,11 @@ def _parse_analysis(raw_text: str) -> dict:
         if end - start < _MIN_CLIP_SEC:
             end = start + _MIN_CLIP_SEC
         crop_x = max(0.0, min(1.0, float(ev.get("crop_x", 0.5))))
+        crop_y = max(0.0, min(1.0, float(ev.get("crop_y", 0.65))))
+        raw_edit = ev.get("edit") or {}
+        transition_out = str(raw_edit.get("transition_out", "slide")).lower()
+        if transition_out not in ("cut", "fade", "slide", "zoom"):
+            transition_out = "slide"
         all_events.append({
             "type":        str(ev.get("type", "highlight")),
             "start":       round(start, 2),
@@ -365,6 +370,13 @@ def _parse_analysis(raw_text: str) -> dict:
             "score":       int(ev.get("score", 5)),
             "description": str(ev.get("description", "")),
             "crop_x":      round(crop_x, 3),
+            "crop_y":      round(crop_y, 3),
+            "edit": {
+                "zoom":           max(1.0, min(2.0, float(raw_edit.get("zoom", 1.0)))),
+                "slowmo":         bool(raw_edit.get("slowmo", False)),
+                "focus":          str(raw_edit.get("focus", "full")),
+                "transition_out": transition_out,
+            },
         })
 
     # Keep only score >= 6; safety net: top 2 if none qualify.

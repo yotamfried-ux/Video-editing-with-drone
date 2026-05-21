@@ -366,21 +366,64 @@ def analyze_music_library(video_duration: float) -> list[dict]:
 
     return results
 
-# ── Sport-specific color grade presets ────────────────────────────────────
-_COLOR_PROFILES: dict[str, str] = {
-    "surfing":       "eq=contrast=1.18:saturation=1.40:brightness=0.03",
-    "swimming":      "eq=contrast=1.15:saturation=1.30:brightness=0.04",
-    "football":      "eq=contrast=1.12:saturation=1.18:brightness=0.01",
-    "soccer":        "eq=contrast=1.12:saturation=1.18:brightness=0.01",
-    "basketball":    "eq=contrast=1.08:saturation=1.12:brightness=0.03",
-    "skateboarding": "eq=contrast=1.22:saturation=1.20:brightness=-0.02",
-    "skiing":        "eq=contrast=1.20:saturation=1.15:brightness=0.05",
-    "snowboarding":  "eq=contrast=1.20:saturation=1.18:brightness=0.05",
-    "parkour":       "eq=contrast=1.15:saturation=1.20:brightness=-0.01",
-    "cycling":       "eq=contrast=1.10:saturation=1.22:brightness=0.02",
-    "motocross":     "eq=contrast=1.18:saturation=1.25:brightness=-0.01",
-    "_default":      "eq=contrast=1.12:saturation=1.22:brightness=0.02",
+# ── Sport-specific color grade base values (contrast, saturation, brightness) ─
+_COLOR_PROFILES: dict[str, tuple[float, float, float]] = {
+    "surfing":       (1.18, 1.40, 0.03),
+    "swimming":      (1.15, 1.30, 0.04),
+    "football":      (1.12, 1.18, 0.01),
+    "soccer":        (1.12, 1.18, 0.01),
+    "basketball":    (1.08, 1.12, 0.03),
+    "skateboarding": (1.22, 1.20, -0.02),
+    "skiing":        (1.20, 1.15, 0.05),
+    "snowboarding":  (1.20, 1.18, 0.05),
+    "parkour":       (1.15, 1.20, -0.01),
+    "cycling":       (1.10, 1.22, 0.02),
+    "motocross":     (1.18, 1.25, -0.01),
+    "_default":      (1.12, 1.22, 0.02),
 }
+
+# ── Per-event-type color grade deltas (contrast, saturation, brightness) ──────
+_TYPE_GRADE_DELTA: dict[str, tuple[float, float, float]] = {
+    "aerial":     (+0.03, +0.08, +0.04),  # sky/sun: brighter, more vivid
+    "gap_jump":   (+0.02, +0.06, +0.03),
+    "tube_ride":  (+0.05, -0.10,  0.00),  # underwater: contrasty, desaturated
+    "barrel":     (+0.05, -0.10,  0.00),
+    "underwater": (+0.04, -0.12, +0.03),
+    "night":      (+0.08, +0.05, +0.06),  # low light: lift + sharpen
+    "wipeout":    ( 0.00, -0.05,  0.00),  # slightly desaturate wipeouts
+    "crash":      ( 0.00, -0.05,  0.00),
+}
+
+# ── Per-event-type zoom and slowmo constraints ─────────────────────────────────
+_TYPE_HINTS: dict[str, dict] = {
+    # High-action moments: enforce minimum zoom and slowmo when source allows
+    "aerial":       {"zoom_floor": 1.3, "slowmo_min": True},
+    "gap_jump":     {"zoom_floor": 1.3, "slowmo_min": True},
+    "trick":        {"zoom_floor": 1.2, "slowmo_min": True},
+    "flip":         {"zoom_floor": 1.3, "slowmo_min": True},
+    "kicker":       {"zoom_floor": 1.2, "slowmo_min": True},
+    # Enclosed action: tighter crop on athlete
+    "tube_ride":    {"zoom_floor": 1.2},
+    "barrel":       {"zoom_floor": 1.2},
+    # Wipeouts/crashes: keep wide, no slowmo (don't glorify the fall)
+    "wipeout":      {"zoom_ceil": 1.05, "slowmo_max": False},
+    "crash":        {"zoom_ceil": 1.05, "slowmo_max": False},
+    # Setup/approach moments: keep wide
+    "paddle":       {"zoom_ceil": 1.1},
+    "approach":     {"zoom_ceil": 1.1},
+    "walk":         {"zoom_ceil": 1.05},
+}
+
+
+def _build_grade(sport: str, score: int, event_type: str) -> str:
+    """Build dynamic FFmpeg eq filter string from sport base + score boost + type delta."""
+    base_c, base_s, base_b = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
+    score_s = (score - 7) * 0.02   # score 10 → +0.06 sat; score 5 → -0.04 sat
+    dc, ds, db = _TYPE_GRADE_DELTA.get(event_type.lower(), (0.0, 0.0, 0.0))
+    contrast   = round(base_c + dc, 3)
+    saturation = round(max(0.5, base_s + score_s + ds), 3)
+    brightness = round(base_b + db, 3)
+    return f"eq=contrast={contrast}:saturation={saturation}:brightness={brightness}"
 
 
 # ── Sport-specific xfade transition presets ────────────────────────────────
@@ -577,6 +620,17 @@ def cut_clip(
         logger.warning("slowmo requested but source %.0ffps < %dfps — skipping speed-ramp",
                        source_info.get("fps", 0), SLOWMO_FPS_MIN)
 
+    # Layer 3: event-type constraints — floor/ceiling on zoom, force/block slowmo
+    type_hint = _TYPE_HINTS.get(event_type.lower(), {})
+    if "zoom_floor" in type_hint and zoom_headroom >= ZOOM_MIN_HEADROOM:
+        applied_zoom = max(applied_zoom, min(type_hint["zoom_floor"], zoom_headroom * 0.9))
+    if "zoom_ceil" in type_hint:
+        applied_zoom = min(applied_zoom, type_hint["zoom_ceil"])
+    if type_hint.get("slowmo_min") and not use_slowmo and can_slowmo:
+        use_slowmo = True   # type mandates slowmo when source is capable
+    if not type_hint.get("slowmo_max", True):
+        use_slowmo = False  # type forbids slowmo (wipeout, crash)
+
     # Score-based slowmo depth: higher score → longer, deeper slow-motion
     if use_slowmo:
         if score >= 9:
@@ -624,13 +678,16 @@ def cut_clip(
         fg_zoom = fg_wide  # no zoom headroom — fall back to wide
 
     # ── Foreground pipeline + speed ramp ──────────────────────────────────
-    grade = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
+    # Dynamic grade: sport base + score saturation boost + event-type micro-adjust
+    grade = _build_grade(sport, score, event_type)
+    # Sharpening scales with score
+    unsharp_str = "unsharp=5:5:0.80" if score >= 9 else ("unsharp=5:5:0.65" if score >= 7 else "unsharp=5:5:0.50")
 
-    use_peak_focus = focus == "peak" and applied_zoom > 1.05
+    use_peak_focus  = focus == "peak"  and applied_zoom > 1.05
+    use_entry_focus = focus == "entry" and applied_zoom > 1.05
 
     if use_peak_focus:
-        # 3-section pipeline: wide | zoomed (+ optional slowmo) | wide
-        # Zoom sections always 30%/40%/30%; slowmo applies only to middle.
+        # 3-section: wide | zoomed+slowmo | wide  (30/40/30 split)
         pk_t1 = round(input_dur * 0.30, 3)
         pk_t2 = round(input_dur * 0.70, 3)
         mid_pts = sm_pts_expr if use_slowmo else "PTS-STARTPTS"
@@ -641,10 +698,24 @@ def cut_clip(
             f"[f3]trim={pk_t2}:{input_dur:.3f},setpts=PTS-STARTPTS,{fg_wide}[fs3];"
             f"[fs1][fs2][fs3]concat=n=3:v=1:a=0[fg]"
         )
-        # output_dur = pre + zoomed_middle * slow_factor + post
         output_dur = round(pk_t1 + (pk_t2 - pk_t1) * slow_factor + (input_dur - pk_t2), 3)
         overlay_sink = ","
         ramp         = ""
+
+    elif use_entry_focus:
+        # 2-section: zoomed+slowmo | wide  (first sm_frac, then rest)
+        en_t1   = round(input_dur * sm_frac, 3)
+        en_pts  = sm_pts_expr if use_slowmo else "PTS-STARTPTS"
+        fg_section = (
+            f"[fg_in]split=2[f1][f2];"
+            f"[f1]trim=0:{en_t1},setpts={en_pts},{fg_zoom}[fs1];"
+            f"[f2]trim={en_t1}:{input_dur:.3f},setpts=PTS-STARTPTS,{fg_wide}[fs2];"
+            f"[fs1][fs2]concat=n=2:v=1:a=0[fg]"
+        )
+        output_dur = round(en_t1 * slow_factor + (input_dur - en_t1), 3)
+        overlay_sink = ","
+        ramp         = ""
+
     else:
         fg_section   = None
         fg_crop      = fg_zoom if applied_zoom > 1.05 else fg_wide
@@ -677,13 +748,13 @@ def cut_clip(
     )
     post_grade = (
         f"{grade},"
-        f"unsharp=5:5:0.65,"
+        f"{unsharp_str},"
         f"fade=t=in:st=0:d={clip_fade:.2f},"
         f"fade=t=out:st={output_dur - clip_fade:.2f}:d={clip_fade:.2f}"
         f"[out]"
     )
 
-    if use_peak_focus:
+    if use_peak_focus or use_entry_focus:
         vf = (
             f"[0:v]split[bg_in][fg_in];"
             f"{bg_filter};"
