@@ -2543,6 +2543,156 @@ def test_single_slowmo_rule() -> None:
              f"last_score={ordered[-1]['score']}")
 
 
+def test_pipeline_trigger_chain() -> None:
+    section("29 / Pipeline trigger chain — multi-clip session → compile_multi_source_reel")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from unittest.mock import patch, call
+    import run
+
+    _ev = lambda s: {"start": 0, "end": 5, "score": s, "type": "aerial", "description": ""}
+    _cluster = lambda path, desc: {
+        "appearances": [{"path": path, "events": [_ev(8)]}],
+        "description": desc,
+    }
+    _meta = lambda fid: {"id": fid, "name": f"{fid}.mp4", "size": 5_000_000}
+
+    # ── 1: _compile_clusters calls compile_multi_source_reel once per cluster ──
+    two_clusters = [_cluster("/tmp/v1.mp4", "Red jersey"), _cluster("/tmp/v2.mp4", "Blue jersey")]
+    with patch("run.compile_multi_source_reel", return_value=["/tmp/reel.mp4"]) as mock_cmr, \
+         patch("run.upload_draft", return_value="draft_id"), \
+         patch("run._save_reel_metadata"), \
+         patch("run._get_source_info", return_value={}):
+        run._compile_clusters(two_clusters, "surfing")
+        if mock_cmr.call_count == 2:
+            ok("_compile_clusters: compile_multi_source_reel called once per cluster")
+        else:
+            fail("_compile_clusters call count", f"expected 2, got {mock_cmr.call_count}")
+        # Verify appearances structure passed correctly
+        first_appearances = mock_cmr.call_args_list[0].args[0]
+        if first_appearances == two_clusters[0]["appearances"]:
+            ok("_compile_clusters: appearances structure passed correctly to compile_multi_source_reel")
+        else:
+            fail("_compile_clusters appearances", f"got {first_appearances}")
+
+    # ── 2: 2 partitions per cluster → 2 upload_draft + 2 save_metadata calls ──
+    with patch("run.compile_multi_source_reel", return_value=["/tmp/r1.mp4", "/tmp/r2.mp4"]), \
+         patch("run.upload_draft", return_value="draft_id") as mock_ul, \
+         patch("run._save_reel_metadata") as mock_meta, \
+         patch("run._get_source_info", return_value={}):
+        run._compile_clusters([_cluster("/tmp/v1.mp4", "Red jersey")], "surfing")
+        if mock_ul.call_count == 2 and mock_meta.call_count == 2:
+            ok("_compile_clusters: 2-partition reel → 2 upload_draft + 2 _save_reel_metadata calls")
+        else:
+            fail("_compile_clusters partition uploads",
+                 f"upload={mock_ul.call_count} meta={mock_meta.call_count} (expected 2 each)")
+
+    # ── 3: _process_clips_session feeds cluster output into _compile_clusters ──
+    mock_analysis = {
+        "persons": [{"events": [_ev(8)], "description": "Red jersey", "crop_x": 0.5}],
+        "activity": "surfing",
+    }
+    mock_cluster_out = [_cluster("/tmp/v1.mp4", "Red jersey")]
+    with patch("run._download_one", return_value={"path": "/tmp/v1.mp4", "meta": _meta("f1")}), \
+         patch("run.analyze_session", return_value=mock_analysis), \
+         patch("run.cluster_clips", return_value=mock_cluster_out) as mock_cc, \
+         patch("run._compile_clusters", return_value=1) as mock_cmc, \
+         patch("run.mark_as_processed"):
+        run._process_clips_session([{"id": "f1", "name": "clip.mp4", "size": 5_000_000}])
+        if mock_cc.call_count == 1 and mock_cmc.call_count == 1:
+            ok("_process_clips_session: cluster_clips → _compile_clusters trigger chain fires")
+        else:
+            fail("_process_clips_session chain",
+                 f"cluster_clips={mock_cc.call_count} _compile_clusters={mock_cmc.call_count}")
+
+    # ── 4: empty cluster list → 0 reels, no upload ──
+    with patch("run._download_one", return_value={"path": "/tmp/v1.mp4", "meta": _meta("f2")}), \
+         patch("run.analyze_session", return_value=mock_analysis), \
+         patch("run.cluster_clips", return_value=[]), \
+         patch("run.compile_multi_source_reel") as mock_cmr2, \
+         patch("run.upload_draft") as mock_ul2, \
+         patch("run.mark_as_processed"):
+        result = run._process_clips_session([{"id": "f2", "name": "clip.mp4", "size": 5_000_000}])
+        if result == 0 and mock_cmr2.call_count == 0 and mock_ul2.call_count == 0:
+            ok("_process_clips_session: empty clusters → 0 drafts, compile_multi_source_reel not called")
+        else:
+            fail("_process_clips_session empty clusters",
+                 f"result={result} cmr={mock_cmr2.call_count} ul={mock_ul2.call_count}")
+
+
+def test_run_routing() -> None:
+    section("30 / run.main() routing — correct mode dispatched per input type")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from unittest.mock import patch
+    import run
+
+    big   = [{"id": "f1", "name": "game.mp4",  "size": 200_000_000}]
+    small = [{"id": "f2", "name": "clip.mp4",  "size": 10_000_000}]
+    mixed = [{"id": "f1", "name": "game.mp4",  "size": 200_000_000},
+             {"id": "f2", "name": "clip.mp4",  "size": 10_000_000}]
+
+    _no_long  = patch("run._process_long_video",   return_value=0)
+    _no_clips = patch("run._process_clips_session", return_value=0)
+    _no_mixed = patch("run._process_mixed_session", return_value=0)
+
+    # 1. Single large file → _process_long_video
+    with patch("run.get_new_videos", return_value=big), \
+         _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
+        run.main()
+        if mock_long.call_count == 1 and mock_clips.call_count == 0:
+            ok("run.main(): large video → _process_long_video called")
+        else:
+            fail("run.main() long_video routing",
+                 f"long={mock_long.call_count} clips={mock_clips.call_count}")
+
+    # 2. Small clips → _process_clips_session
+    with patch("run.get_new_videos", return_value=small), \
+         _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
+        run.main()
+        if mock_clips.call_count == 1 and mock_long.call_count == 0:
+            ok("run.main(): small clips → _process_clips_session called")
+        else:
+            fail("run.main() clips_session routing",
+                 f"clips={mock_clips.call_count} long={mock_long.call_count}")
+
+    # 3. Mixed → _process_mixed_session
+    with patch("run.get_new_videos", return_value=mixed), \
+         _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
+        run.main()
+        if mock_mixed.call_count == 1 and mock_long.call_count == 0 and mock_clips.call_count == 0:
+            ok("run.main(): large+small mix → _process_mixed_session called")
+        else:
+            fail("run.main() mixed_session routing",
+                 f"mixed={mock_mixed.call_count} long={mock_long.call_count} clips={mock_clips.call_count}")
+
+    # 4. No new videos → exits cleanly, nothing called
+    with patch("run.get_new_videos", return_value=[]), \
+         _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
+        run.main()
+        if mock_long.call_count == 0 and mock_clips.call_count == 0 and mock_mixed.call_count == 0:
+            ok("run.main(): no new videos → exits cleanly, no processing triggered")
+        else:
+            fail("run.main() empty exit",
+                 f"long={mock_long.call_count} clips={mock_clips.call_count} mixed={mock_mixed.call_count}")
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -2599,6 +2749,8 @@ if __name__ == "__main__":
     test_type_aware_editing()
     test_remaining_prompt_edit_gaps()
     test_single_slowmo_rule()
+    test_pipeline_trigger_chain()
+    test_run_routing()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
