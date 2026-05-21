@@ -549,11 +549,13 @@ def cut_clip(
         logger.warning("⚠️ Timestamps clamped [%.1f,%.1f]→[%.1f,%.1f]",
                        event["start"], event["end"], start, end)
 
-    # ── Two-layer edit decisions ───────────────────────────────────────────
-    # Layer 1: Gemini's artistic direction (from event["edit"] block)
+    # ── Three-layer edit decisions: zoom + focus + slowmo ────────────────────
+    # Layer 1: Gemini's artistic direction
     edit_hints     = event.get("edit") or {}
     requested_zoom = float(edit_hints.get("zoom", 1.0))
     requested_sm   = bool(edit_hints.get("slowmo", slowmo))
+    focus          = str(edit_hints.get("focus", "full")).lower()
+    score          = int(event.get("score", 7))
 
     # Layer 2: source quality constraints (technical ceiling)
     if source_info is None:
@@ -561,7 +563,7 @@ def cut_clip(
     zoom_headroom = source_info.get("zoom_headroom", 1.0)
     can_slowmo    = source_info.get("can_slowmo", True)
 
-    # Merge: artistic intent capped by technical reality
+    # Merge zoom: artistic intent capped by technical ceiling
     if zoom_headroom >= ZOOM_MIN_HEADROOM:
         applied_zoom = min(requested_zoom, zoom_headroom * 0.9)
         applied_zoom = max(1.0, applied_zoom)
@@ -575,84 +577,129 @@ def cut_clip(
         logger.warning("slowmo requested but source %.0ffps < %dfps — skipping speed-ramp",
                        source_info.get("fps", 0), SLOWMO_FPS_MIN)
 
+    # Score-based slowmo depth: higher score → longer, deeper slow-motion
+    if use_slowmo:
+        if score >= 9:
+            sm_frac, sm_pts_expr = 0.50, "2.5*(PTS-STARTPTS)"  # 50% center at 0.4×
+        elif score >= 7:
+            sm_frac, sm_pts_expr = 0.40, "2*(PTS-STARTPTS)"    # 40% center at 0.5×
+        else:
+            sm_frac, sm_pts_expr = 0.30, "1.5*(PTS-STARTPTS)"  # 30% center at 0.67×
+        slow_factor = float(sm_pts_expr.split("*")[0])
+    else:
+        sm_frac, sm_pts_expr, slow_factor = 0.40, "PTS-STARTPTS", 1.0
+
     # Log non-trivial edit decisions
     if applied_zoom > 1.05 or use_slowmo != slowmo:
-        zoom_str = f"zoom×{applied_zoom:.1f}" if applied_zoom > 1.05 else "zoom×1.0"
-        sm_str   = "slowmo" if use_slowmo else "no-slowmo"
+        zoom_str = f"zoom×{applied_zoom:.1f}[{focus}]" if applied_zoom > 1.05 else "zoom×1.0"
+        sm_str   = f"slowmo[score={score}]" if use_slowmo else "no-slowmo"
         print(f"  📐 {zoom_str} (headroom×{zoom_headroom:.1f}) | {sm_str}")
 
-    # Output duration: speed-ramp (30%+40%×2+30% = 1.4×) or passthrough (1×)
-    output_dur = round(input_dur * 1.4, 3) if use_slowmo else input_dur
-    clip_fade  = min(CLIP_FADE_DUR, output_dur / 6)
-
-    os.makedirs(config.TMP_DIR, exist_ok=True)
-    out = os.path.join(config.TMP_DIR, f"{Path(video_path).stem}_clip{index:02d}.mp4")
-
-    grade  = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
+    # ── Crop filter strings ────────────────────────────────────────────────
     crop_x = max(0.0, min(1.0, float(event.get("crop_x", 0.5))))
     crop_y = max(0.0, min(1.0, float(event.get("crop_y", 0.65))))
 
-    # fg: scale to fill full 1920px height, then crop 1080px wide centred on athlete.
-    # With zoom: crop a smaller region then scale up to output size.
+    # Wide (1.0×): scale to REEL_H height, crop REEL_W wide centred on crop_x
+    half_w  = REEL_W // 2
+    fg_wide = (
+        f"scale=iw*{REEL_H}/ih:{REEL_H},"
+        f"crop={REEL_W}:{REEL_H}:"
+        f"'max(0,min(iw-{REEL_W},trunc(iw*{crop_x:.4f}-{half_w})))':0"
+    )
+
+    # Zoomed: crop smaller region then scale up; crop_y positions athlete vertically
     if applied_zoom > 1.05:
         crop_w      = int(REEL_W / applied_zoom)
         crop_h      = int(REEL_H / applied_zoom)
         half_crop_w = crop_w // 2
-        # Use crop_y to position vertical crop around athlete's center of mass.
         y_center    = int(crop_y * REEL_H)
         y_offset    = max(0, min(REEL_H - crop_h, y_center - crop_h // 2))
-        fg_crop = (
+        fg_zoom = (
             f"scale=iw*{REEL_H}/ih:{REEL_H},"
             f"crop={crop_w}:{crop_h}:"
             f"'max(0,min(iw-{crop_w},trunc(iw*{crop_x:.4f}-{half_crop_w})))':{y_offset},"
             f"scale={REEL_W}:{REEL_H}"
         )
     else:
-        # After scale=iw*REEL_H/ih:REEL_H the output height is exactly REEL_H,
-        # so vertical cropping has no effect — y=0 is correct.
-        half_w  = REEL_W // 2
-        fg_crop = (
-            f"scale=iw*{REEL_H}/ih:{REEL_H},"
-            f"crop={REEL_W}:{REEL_H}:"
-            f"'max(0,min(iw-{REEL_W},trunc(iw*{crop_x:.4f}-{half_w})))':0"
-        )
+        fg_zoom = fg_wide  # no zoom headroom — fall back to wide
 
-    # Speed ramp: 30% normal → 40% slow (0.5×) → 30% normal
-    if use_slowmo:
-        t1 = round(input_dur * 0.30, 3)
-        t2 = round(input_dur * 0.70, 3)
-        overlay_sink = "[merged];"
-        ramp = (
-            f"[merged]split=3[s1_in][s2_in][s3_in];"
-            f"[s1_in]trim=0:{t1},setpts=PTS-STARTPTS[s1];"
-            f"[s2_in]trim={t1}:{t2},setpts=2*(PTS-STARTPTS)[s2];"
-            f"[s3_in]trim={t2}:{input_dur:.3f},setpts=PTS-STARTPTS[s3];"
-            f"[s1][s2][s3]concat=n=3:v=1:a=0[ramped];"
-            f"[ramped]"
+    # ── Foreground pipeline + speed ramp ──────────────────────────────────
+    grade = _COLOR_PROFILES.get(sport.lower(), _COLOR_PROFILES["_default"])
+
+    use_peak_focus = focus == "peak" and applied_zoom > 1.05
+
+    if use_peak_focus:
+        # 3-section pipeline: wide | zoomed (+ optional slowmo) | wide
+        # Zoom sections always 30%/40%/30%; slowmo applies only to middle.
+        pk_t1 = round(input_dur * 0.30, 3)
+        pk_t2 = round(input_dur * 0.70, 3)
+        mid_pts = sm_pts_expr if use_slowmo else "PTS-STARTPTS"
+        fg_section = (
+            f"[fg_in]split=3[f1][f2][f3];"
+            f"[f1]trim=0:{pk_t1},setpts=PTS-STARTPTS,{fg_wide}[fs1];"
+            f"[f2]trim={pk_t1}:{pk_t2},setpts={mid_pts},{fg_zoom}[fs2];"
+            f"[f3]trim={pk_t2}:{input_dur:.3f},setpts=PTS-STARTPTS,{fg_wide}[fs3];"
+            f"[fs1][fs2][fs3]concat=n=3:v=1:a=0[fg]"
         )
-    else:
+        # output_dur = pre + zoomed_middle * slow_factor + post
+        output_dur = round(pk_t1 + (pk_t2 - pk_t1) * slow_factor + (input_dur - pk_t2), 3)
         overlay_sink = ","
-        ramp = ""
+        ramp         = ""
+    else:
+        fg_section   = None
+        fg_crop      = fg_zoom if applied_zoom > 1.05 else fg_wide
+        if use_slowmo:
+            t1 = round(input_dur * (0.5 - sm_frac / 2), 3)
+            t2 = round(input_dur * (0.5 + sm_frac / 2), 3)
+            overlay_sink = "[merged];"
+            ramp = (
+                f"[merged]split=3[s1_in][s2_in][s3_in];"
+                f"[s1_in]trim=0:{t1},setpts=PTS-STARTPTS[s1];"
+                f"[s2_in]trim={t1}:{t2},setpts={sm_pts_expr}[s2];"
+                f"[s3_in]trim={t2}:{input_dur:.3f},setpts=PTS-STARTPTS[s3];"
+                f"[s1][s2][s3]concat=n=3:v=1:a=0[ramped];"
+                f"[ramped]"
+            )
+        else:
+            overlay_sink = ","
+            ramp         = ""
+        output_dur = round(input_dur * ((1 - sm_frac) + sm_frac * slow_factor), 3)
 
-    vf = (
-        f"[0:v]split[bg_in][fg_in];"
+    clip_fade = min(CLIP_FADE_DUR, output_dur / 6)
 
-        # blurred background (visible only when source is portrait/narrow)
+    os.makedirs(config.TMP_DIR, exist_ok=True)
+    out = os.path.join(config.TMP_DIR, f"{Path(video_path).stem}_clip{index:02d}.mp4")
+
+    # ── Assemble full FFmpeg filter_complex ───────────────────────────────
+    bg_filter = (
         f"[bg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=increase,"
-        f"crop={REEL_W}:{REEL_H},gblur=sigma=25:steps=2[bg];"
-
-        # foreground: zoom-crop centred on athlete
-        f"[fg_in]{fg_crop}[fg];"
-
-        # overlay → speed ramp (or passthrough) → grade → fade
-        f"[bg][fg]overlay=(W-w)/2:(H-h)/2{overlay_sink}"
-        f"{ramp}"
+        f"crop={REEL_W}:{REEL_H},gblur=sigma=25:steps=2[bg]"
+    )
+    post_grade = (
         f"{grade},"
         f"unsharp=5:5:0.65,"
         f"fade=t=in:st=0:d={clip_fade:.2f},"
         f"fade=t=out:st={output_dur - clip_fade:.2f}:d={clip_fade:.2f}"
         f"[out]"
     )
+
+    if use_peak_focus:
+        vf = (
+            f"[0:v]split[bg_in][fg_in];"
+            f"{bg_filter};"
+            f"{fg_section};"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2,"
+            f"{post_grade}"
+        )
+    else:
+        vf = (
+            f"[0:v]split[bg_in][fg_in];"
+            f"{bg_filter};"
+            f"[fg_in]{fg_crop}[fg];"
+            f"[bg][fg]overlay=(W-w)/2:(H-h)/2{overlay_sink}"
+            f"{ramp}"
+            f"{post_grade}"
+        )
 
     slowmo_tag = " [🐢 speed-ramp]" if use_slowmo else ""
     print(f"🎬 Clip {index}: {start:.1f}s→{end:.1f}s [{event_type}] "
@@ -708,19 +755,39 @@ def cut_clip(
 
 # ── שלב 2: compilation לריל אחד ──────────────────────────────────────────
 
-def _xfade_filter(n: int, durations: list[float], sport: str = "") -> str:
-    """בונה filter_complex ל-xfade crossfade בין n קליפים עם מעברים ספציפיים לענף."""
+_TRANSITION_MAP: dict[str, str] = {
+    "cut":   "fadeblack",   # near-instant (0.1s) — high-impact moments
+    "fade":  "fade",        # soft cross-fade — calm/flowing moments
+    "slide": "slideleft",   # slide — general purpose
+    "zoom":  "zoomin",      # zoom-in — building intensity before climax
+}
+
+
+def _xfade_filter(
+    n: int,
+    durations: list[float],
+    sport: str = "",
+    transitions: list[str] | None = None,
+) -> str:
+    """Build xfade filter_complex between n clips.
+    transitions: optional list[str] of Gemini transition_out values per clip.
+    Uses sport-specific random pool as fallback when not provided.
+    """
     if n == 1:
         return "[0:v]null[xfout]"
 
-    _options    = _SPORT_XFADES.get(sport.lower(), _SPORT_XFADES["_default"])
-    _transition = random.choice(_options)
+    _options = _SPORT_XFADES.get(sport.lower(), _SPORT_XFADES["_default"])
+
+    def _pick(i: int) -> str:
+        if transitions and i < len(transitions):
+            return _TRANSITION_MAP.get(transitions[i], "slideleft")
+        return random.choice(_options)
 
     parts      = []
     offset     = round(durations[0] - XFADE_DUR, 3)
     out_lbl    = "[xfout]" if n == 2 else "[xf1]"
     parts.append(
-        f"[0:v][1:v]xfade=transition={_transition}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+        f"[0:v][1:v]xfade=transition={_pick(0)}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
     )
 
     cumulative = durations[0] + durations[1] - XFADE_DUR
@@ -729,7 +796,7 @@ def _xfade_filter(n: int, durations: list[float], sport: str = "") -> str:
         prev    = "[xf1]" if i == 2 else f"[xf{i-1}]"
         out_lbl = "[xfout]" if i == n - 1 else f"[xf{i}]"
         parts.append(
-            f"{prev}[{i}:v]xfade=transition={_transition}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+            f"{prev}[{i}:v]xfade=transition={_pick(i-1)}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
         )
         cumulative += durations[i] - XFADE_DUR
 
@@ -743,6 +810,7 @@ def compile_reel(
     sport: str = "",
     athlete_label: str = "",
     music_path: str | None = None,
+    transitions: list[str] | None = None,
 ) -> str | None:
     """מחבר קליפים לריל אחד עם xfade + לוגו watermark + כותרת תחתית."""
     n = len(clip_paths)
@@ -766,7 +834,7 @@ def compile_reel(
     if has_logo:
         inputs += ["-i", logo_path]
 
-    xfade_f = _xfade_filter(n, durations, sport=sport)
+    xfade_f = _xfade_filter(n, durations, sport=sport, transitions=transitions)
 
     if has_logo:
         logo_w = REEL_W // 13
@@ -916,8 +984,9 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     reels: list[str] = []
 
     for part_idx, part_events in enumerate(partitions):
-        ordered     = _narrative_order(part_events)
-        idx_base    = 91 + part_idx * 50
+        ordered           = _narrative_order(part_events)
+        event_transitions = [ev.get("edit", {}).get("transition_out", "slide") for ev in ordered]
+        idx_base          = 91 + part_idx * 50
 
         # Extract _src before submitting to thread pool (pop is not thread-safe on shared dict)
         tasks = []
@@ -974,7 +1043,8 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
 
         try:
             reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
-                                sport=sport, athlete_label=athlete_label)
+                                sport=sport, athlete_label=athlete_label,
+                                transitions=event_transitions)
         finally:
             for p in clip_paths:
                 try: os.remove(p)
@@ -1070,6 +1140,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         ordered = _narrative_order(part_events)
         order_log = " → ".join(f"{e['type']}({e['score']})" for e in ordered)
         print(f"📋 Reel {part_idx + 1}/{len(partitions)} narrative: {order_log}")
+        event_transitions = [ev.get("edit", {}).get("transition_out", "slide") for ev in ordered]
 
         # 4. חיתוך קליפים במקביל
         idx_base   = part_idx * 50 + 1

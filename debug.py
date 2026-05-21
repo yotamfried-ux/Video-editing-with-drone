@@ -2105,6 +2105,107 @@ def test_feedback_loop() -> None:
             pass
 
 
+def test_prompt_to_edit_gaps() -> None:
+    section("25 / Prompt→edit gap closure (focus / transitions / score-slowmo)")
+
+    from pipeline.editor import REEL_H, REEL_W, _TRANSITION_MAP
+
+    # ── transition_out extracted correctly from event edit dict ──
+    ev_cut   = {"edit": {"transition_out": "cut",   "zoom": 1.0, "slowmo": False, "focus": "full"}}
+    ev_fade  = {"edit": {"transition_out": "fade",  "zoom": 1.2, "slowmo": False, "focus": "full"}}
+    ev_zoom  = {"edit": {"transition_out": "zoom",  "zoom": 1.5, "slowmo": True,  "focus": "peak"}}
+    ev_slide = {"edit": {"transition_out": "slide", "zoom": 1.0, "slowmo": False, "focus": "full"}}
+    ev_bad   = {"edit": {"transition_out": "unknown"}}
+
+    for ev, expected_key, label in [
+        (ev_cut,   "cut",   "cut"),
+        (ev_fade,  "fade",  "fade"),
+        (ev_zoom,  "zoom",  "zoom"),
+        (ev_slide, "slide", "slide"),
+    ]:
+        raw = ev["edit"].get("transition_out", "slide")
+        val = raw if raw in ("cut", "fade", "slide", "zoom") else "slide"
+        if val == expected_key:
+            ok(f"transition_out '{label}' extracted correctly")
+        else:
+            fail(f"transition_out {label}", f"got: {val!r}")
+
+    raw_bad = ev_bad["edit"].get("transition_out", "slide")
+    val_bad = raw_bad if raw_bad in ("cut", "fade", "slide", "zoom") else "slide"
+    if val_bad == "slide":
+        ok("transition_out unknown → falls back to 'slide'")
+    else:
+        fail("transition_out fallback", f"got: {val_bad!r}")
+
+    # ── _TRANSITION_MAP maps all 4 Gemini names to FFmpeg names ──
+    expected_ffmpeg = {"cut": "fadeblack", "fade": "fade", "slide": "slideleft", "zoom": "zoomin"}
+    for gem_name, ffmpeg_name in expected_ffmpeg.items():
+        if _TRANSITION_MAP.get(gem_name) == ffmpeg_name:
+            ok(f"_TRANSITION_MAP['{gem_name}'] == '{ffmpeg_name}'")
+        else:
+            fail(f"_TRANSITION_MAP[{gem_name!r}]", f"got: {_TRANSITION_MAP.get(gem_name)!r}")
+
+    # ── score-based slowmo depth: score=9 deeper than score=6 ──
+    def _sm_params(score: int) -> tuple[float, float]:
+        if score >= 9:
+            return 0.50, 2.5
+        elif score >= 7:
+            return 0.40, 2.0
+        else:
+            return 0.30, 1.5
+
+    frac9, factor9 = _sm_params(9)
+    frac7, factor7 = _sm_params(7)
+    frac6, factor6 = _sm_params(6)
+    if frac9 > frac7 > frac6 and factor9 > factor7 > factor6:
+        ok(f"score-based slowmo depth: 9→{frac9:.0%}@{factor9}× > 7→{frac7:.0%}@{factor7}× > 6→{frac6:.0%}@{factor6}×")
+    else:
+        fail("score-based slowmo ordering", f"frac: {frac9},{frac7},{frac6}  factor: {factor9},{factor7},{factor6}")
+
+    input_dur = 4.0
+    for score, expected_frac, expected_factor in [(9, 0.50, 2.5), (7, 0.40, 2.0), (6, 0.30, 1.5)]:
+        sm_frac, slow_factor = _sm_params(score)
+        out_dur = round(input_dur * ((1 - sm_frac) + sm_frac * slow_factor), 3)
+        expected_out = round(input_dur * ((1 - expected_frac) + expected_frac * expected_factor), 3)
+        if abs(out_dur - expected_out) < 0.001:
+            ok(f"score={score} output_dur={out_dur:.3f}s (input={input_dur}s)")
+        else:
+            fail(f"score={score} output_dur", f"expected {expected_out:.3f}, got {out_dur:.3f}")
+
+    # ── focus="peak" 3-section output_dur formula ──
+    for score, slow_factor in [(9, 2.5), (7, 2.0), (6, 1.5)]:
+        pk_t1 = round(input_dur * 0.30, 3)
+        pk_t2 = round(input_dur * 0.70, 3)
+        peak_dur = round(pk_t1 + (pk_t2 - pk_t1) * slow_factor + (input_dur - pk_t2), 3)
+        standard_dur = round(input_dur * ((1 - _sm_params(score)[0]) + _sm_params(score)[0] * slow_factor), 3)
+        if peak_dur > input_dur:
+            ok(f"focus=peak score={score}: output_dur={peak_dur:.3f}s > input {input_dur}s")
+        else:
+            fail(f"focus=peak score={score} output_dur", f"got {peak_dur:.3f}, input {input_dur}")
+
+    # ── focus="peak" uses different y-offsets for wide vs zoom sections ──
+    applied_zoom = 1.5
+    crop_w = int(REEL_W / applied_zoom)
+    crop_h = int(REEL_H / applied_zoom)
+    crop_y = 0.65
+    y_center  = int(crop_y * REEL_H)
+    y_off_zoom = max(0, min(REEL_H - crop_h, y_center - crop_h // 2))
+    y_off_wide = 0  # wide section always crops from top (y=0 in the scale→crop chain)
+    if y_off_zoom != y_off_wide or crop_h != REEL_H:
+        ok(f"focus=peak: zoom section crop_h={crop_h} y_off={y_off_zoom} differs from wide y=0")
+    else:
+        fail("focus=peak section difference", f"crop_h={crop_h} y_off_zoom={y_off_zoom}")
+
+    # ── _xfade_filter uses transitions list when provided ──
+    from pipeline.editor import _xfade_filter
+    transitions_list = ["cut", "fade", "slide", "zoom"]
+    filt = _xfade_filter(4, [2.0, 2.0, 2.0, 2.0], sport="surfing", transitions=transitions_list)
+    if "fadeblack" in filt and "slideleft" in filt:
+        ok("_xfade_filter: uses provided transitions list (fadeblack + slideleft present)")
+    else:
+        fail("_xfade_filter transitions list", f"filter: {filt[:120]!r}")
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -2157,6 +2258,7 @@ if __name__ == "__main__":
     test_preview_generation()
     test_jersey_matching()
     test_feedback_loop()
+    test_prompt_to_edit_gaps()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

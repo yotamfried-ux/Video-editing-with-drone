@@ -181,6 +181,13 @@ For each EVENT:
       "full"  — zoom throughout. Use for continuous movement where the athlete is always
                 the clear subject with no context needed (lone cyclist on trail, solo
                 surfing carve with no other athletes nearby).
+    transition_out: how to cut away from this clip to the next (default "slide"):
+      "cut"   — near-instant cut; use after high-impact peak moments (trick landing,
+                goal, tackle) where abruptness adds punch
+      "fade"  — soft cross-fade; use after calm or flowing moments (wide paddle,
+                gliding, establishing shots) where a hard cut would feel jarring
+      "slide" — slide transition; general purpose, works for most moments
+      "zoom"  — zoom-in transition; use before the reel's climax clip to build intensity
 
 Return ONLY valid JSON, no markdown:
 {
@@ -192,10 +199,12 @@ Return ONLY valid JSON, no markdown:
       "events": [
         {"type": "aerial", "start": 12.0, "end": 21.5, "score": 9,
          "description": "Launches off the lip into a full rotation above the wave.",
-         "crop_x": 0.4, "crop_y": 0.35, "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak"}},
+         "crop_x": 0.4, "crop_y": 0.35,
+         "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak", "transition_out": "fade"}},
         {"type": "wave_catch", "start": 35.0, "end": 44.0, "score": 7,
          "description": "Catches a shoulder-high wave and paddles into position.",
-         "crop_x": 0.55, "crop_y": 0.72, "edit": {"zoom": 1.1, "slowmo": false, "focus": "full"}}
+         "crop_x": 0.55, "crop_y": 0.72,
+         "edit": {"zoom": 1.1, "slowmo": false, "focus": "full", "transition_out": "slide"}}
       ]
     }
   ]
@@ -228,10 +237,14 @@ def _parse_session(raw_text: str) -> dict:
             crop_y = float(ev.get("crop_y", 0.65))
             crop_y = max(0.0, min(1.0, crop_y))
             raw_edit = ev.get("edit") or {}
+            transition_out = str(raw_edit.get("transition_out", "slide")).lower()
+            if transition_out not in ("cut", "fade", "slide", "zoom"):
+                transition_out = "slide"
             edit = {
-                "zoom":   max(1.0, min(2.0, float(raw_edit.get("zoom", 1.0)))),
-                "slowmo": bool(raw_edit.get("slowmo", False)),
-                "focus":  str(raw_edit.get("focus", "peak")),
+                "zoom":           max(1.0, min(2.0, float(raw_edit.get("zoom", 1.0)))),
+                "slowmo":         bool(raw_edit.get("slowmo", False)),
+                "focus":          str(raw_edit.get("focus", "peak")),
+                "transition_out": transition_out,
             }
             all_events.append({
                 "type":        str(ev.get("type", "highlight")),
