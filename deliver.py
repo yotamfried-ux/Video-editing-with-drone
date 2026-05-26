@@ -143,8 +143,20 @@ def main() -> None:
         return
 
     # ── Per-athlete personal preview email ─────────────────────────────────
-    sent_to_clients = 0
+    # Group clean + music variants so each athlete gets one email with both links.
+    athlete_groups: dict[str, dict] = {}
     for draft, preview_link, client in preview_results:
+        base = draft["name"].replace("_music", "").replace("__", "_")
+        if base not in athlete_groups:
+            athlete_groups[base] = {"links": [], "client": client, "draft": draft}
+        if "_music" in draft["name"]:
+            athlete_groups[base]["links"].append(preview_link)   # music version last
+        else:
+            athlete_groups[base]["links"].insert(0, preview_link)  # clean version first
+
+    sent_to_clients = 0
+    for base_name, group in athlete_groups.items():
+        client = group["client"]
         if not client:
             continue
         email = client.get("email", "")
@@ -153,14 +165,14 @@ def main() -> None:
         try:
             send_summary_email(
                 recipients  = [email],
-                clips_links = [preview_link],
+                clips_links = group["links"],
                 sport_type  = "mixed",
-                video_name  = draft["name"],
+                video_name  = group["draft"]["name"],
             )
             print(f"✉️  Preview sent to {email} ({client.get('name', '')})")
             sent_to_clients += 1
         except Exception:
-            logger.error("Failed to send preview email to %s for %s", email, draft["name"])
+            logger.error("Failed to send preview email to %s for %s", email, group["draft"]["name"])
 
     # ── Batch summary email to owner ───────────────────────────────────────
     try:

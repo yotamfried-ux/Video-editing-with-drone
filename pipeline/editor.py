@@ -1205,16 +1205,25 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             logger.warning("Clips cache failed (multi): %s", _ce)
 
         try:
-            reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
-                                sport=sport, athlete_label=athlete_label,
-                                transitions=event_transitions)
+            reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                      sport=sport, athlete_label=athlete_label,
+                                      transitions=event_transitions)
+            if reel_clean:
+                reels.append(reel_clean)
+
+            music_track = _pick_music(sport)
+            if music_track:
+                music_reel_path = reel_path.replace(".mp4", "_music.mp4")
+                reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
+                                          sport=sport, athlete_label=athlete_label,
+                                          music_path=music_track,
+                                          transitions=event_transitions)
+                if reel_music:
+                    reels.append(reel_music)
         finally:
             for p in clip_paths:
                 try: os.remove(p)
                 except OSError: pass
-
-        if reel:
-            reels.append(reel)
 
     return reels
 
@@ -1362,15 +1371,24 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
             logger.warning("Clips cache failed: %s", _ce)
 
         try:
-            reel = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
-                                sport=sport, athlete_label=athlete_label,
-                                transitions=event_transitions)
+            reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                      sport=sport, athlete_label=athlete_label,
+                                      transitions=event_transitions)
+            if reel_clean:
+                reels.append(reel_clean)
+
+            music_track = _pick_music(sport)
+            if music_track:
+                music_reel_path = reel_path.replace(".mp4", "_music.mp4")
+                reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
+                                          sport=sport, athlete_label=athlete_label,
+                                          music_path=music_track,
+                                          transitions=event_transitions)
+                if reel_music:
+                    reels.append(reel_music)
         finally:
             for p in clip_paths:
                 try: os.remove(p)
                 except OSError: pass
-
-        if reel:
-            reels.append(reel)
 
     return reels

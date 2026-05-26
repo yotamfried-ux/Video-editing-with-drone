@@ -2543,6 +2543,85 @@ def test_single_slowmo_rule() -> None:
              f"last_score={ordered[-1]['score']}")
 
 
+def test_dual_reel_output() -> None:
+    section("31 / Dual reel output — clean + music versions per reel")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from unittest.mock import patch, call, MagicMock
+    from pipeline.editor import create_reel
+
+    events = [
+        {"type": "aerial", "start": 1.0, "end": 6.0, "score": 9, "description": "",
+         "edit": {"zoom": 1.2, "slowmo": True, "focus": "peak", "transition_out": "cut"}},
+    ]
+
+    # ── 1: music track available → compile_reel called twice, second with music_path ──
+    with patch("pipeline.editor._pick_music", return_value="/music/track.mp3") as mock_pm, \
+         patch("pipeline.editor.compile_reel", return_value="/tmp/reel.mp4") as mock_cr, \
+         patch("pipeline.editor.cut_clip", return_value="/tmp/clip.mp4"), \
+         patch("pipeline.editor._get_source_info",
+               return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
+                             "width": 1080, "height": 1920}):
+        result = create_reel("/fake/video.mp4", events, sport="surfing")
+        if mock_cr.call_count == 2:
+            ok("create_reel: compile_reel called twice when music is available")
+        else:
+            fail("create_reel dual output", f"compile_reel called {mock_cr.call_count} times")
+        # Second call should have music_path set
+        second_call_kwargs = mock_cr.call_args_list[1].kwargs
+        if second_call_kwargs.get("music_path") == "/music/track.mp3":
+            ok("create_reel: second compile_reel call has music_path set")
+        else:
+            fail("create_reel music_path", f"kwargs: {second_call_kwargs}")
+        # Music reel path should contain '_music'
+        music_path_arg = mock_cr.call_args_list[1].args[2]  # output_path positional arg
+        if "_music" in music_path_arg:
+            ok("create_reel: music reel output path contains '_music'")
+        else:
+            fail("create_reel music path naming", f"path: {music_path_arg}")
+
+    # ── 2: no music available → compile_reel called once only ──
+    with patch("pipeline.editor._pick_music", return_value=None), \
+         patch("pipeline.editor.compile_reel", return_value="/tmp/reel.mp4") as mock_cr2, \
+         patch("pipeline.editor.cut_clip", return_value="/tmp/clip.mp4"), \
+         patch("pipeline.editor._get_source_info",
+               return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
+                             "width": 1080, "height": 1920}):
+        create_reel("/fake/video.mp4", events, sport="surfing")
+        if mock_cr2.call_count == 1:
+            ok("create_reel: compile_reel called once when no music available")
+        else:
+            fail("create_reel no-music", f"compile_reel called {mock_cr2.call_count} times")
+
+    # ── 3: _compile_clusters names drafts with (music) suffix for music reels ──
+    from run import _compile_clusters, _safe_draft_name
+    cluster = {
+        "appearances": [{"path": "/tmp/v.mp4", "events": []}],
+        "description": "Red jersey",
+    }
+    with patch("run.compile_multi_source_reel",
+               return_value=["/tmp/reel.mp4", "/tmp/reel_music.mp4"]), \
+         patch("run.upload_draft", return_value="id") as mock_ul, \
+         patch("run._save_reel_metadata"), \
+         patch("run._get_source_info", return_value={}):
+        _compile_clusters([cluster], "surfing")
+        names = [args[0][1] for args in mock_ul.call_args_list]
+        has_clean = any("music" not in n.lower() for n in names)
+        has_music = any("music" in n.lower() for n in names)
+        if has_clean and has_music:
+            ok(f"_compile_clusters: draft names distinguish clean and music ({names})")
+        else:
+            fail("_compile_clusters naming", f"names: {names}")
+
+
 def test_pipeline_trigger_chain() -> None:
     section("29 / Pipeline trigger chain — multi-clip session → compile_multi_source_reel")
 
@@ -2751,6 +2830,7 @@ if __name__ == "__main__":
     test_single_slowmo_rule()
     test_pipeline_trigger_chain()
     test_run_routing()
+    test_dual_reel_output()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

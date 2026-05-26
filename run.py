@@ -140,9 +140,15 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
         all_events     = [ev for app in cluster["appearances"] for ev in app.get("events", [])]
         reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
                                           athlete_label=cluster["description"])
-        for reel_idx, reel in enumerate(reels):
-            suffix = f" (part {reel_idx + 1})" if len(reels) > 1 else ""
-            name   = _safe_draft_name(cluster["description"] + suffix)
+        clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
+        clean_idx   = 0
+        for reel in reels:
+            is_music = "_music" in os.path.basename(reel)
+            if not is_music:
+                clean_idx += 1
+            part_label  = f" (part {clean_idx})" if clean_count > 1 else ""
+            music_label = " (music)" if is_music else ""
+            name        = _safe_draft_name(cluster["description"] + part_label + music_label)
             pending.append((reel, name))
             pending_meta.append((reel, name, all_events, source_quality))
 
@@ -225,9 +231,15 @@ def _process_long_video(video_meta: dict) -> int:
             continue
         reels = create_reel(local_path, person["events"], sport=activity,
                             athlete_label=person["description"])
-        for reel_idx, reel in enumerate(reels):
-            suffix = f" (part {reel_idx + 1})" if len(reels) > 1 else ""
-            name   = _safe_draft_name(person["description"] + suffix)
+        clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
+        clean_idx   = 0
+        for reel in reels:
+            is_music = "_music" in os.path.basename(reel)
+            if not is_music:
+                clean_idx += 1
+            part_label  = f" (part {clean_idx})" if clean_count > 1 else ""
+            music_label = " (music)" if is_music else ""
+            name        = _safe_draft_name(person["description"] + part_label + music_label)
             try:
                 upload_draft(reel, name)
                 _save_reel_metadata(name, activity, person["events"], source_quality)
