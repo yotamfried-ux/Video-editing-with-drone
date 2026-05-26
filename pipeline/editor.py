@@ -649,6 +649,40 @@ def _get_source_info(video_path: str) -> dict:
 
 # ── שלב 1: חיתוך קליפ בודד ────────────────────────────────────────────────
 
+def _cut_clip_with_qa(
+    video_path: str,
+    event: dict,
+    index: int,
+    slowmo: bool = False,
+    sport: str = "",
+    source_info: dict | None = None,
+    session_peak: int = 10,
+) -> str | None:
+    """cut_clip() wrapper that optionally validates crop and retries once on QA FAIL."""
+    clip = cut_clip(video_path, event, index, slowmo, sport, source_info, session_peak)
+    if clip and config.QA_CROP_CHECK:
+        from pipeline.analyzer import _qa_check_clip
+        if not _qa_check_clip(clip, event):
+            orig_cx = event.get("crop_x", 0.5)
+            corrected_cx = round(0.5 + (0.5 - orig_cx) * 0.5, 4)
+            logger.warning("QA: FAIL %s → retry crop_x %.3f→%.3f",
+                           Path(clip).name, orig_cx, corrected_cx)
+            print(f"  ⚠️ QA FAIL — retrying with crop_x={corrected_cx:.2f}")
+            try:
+                os.remove(clip)
+            except OSError:
+                pass
+            corrected_event = {**event, "crop_x": corrected_cx}
+            retry = cut_clip(video_path, corrected_event, index + 500,
+                             slowmo, sport, source_info, session_peak)
+            if retry:
+                print(f"  ✅ QA retry: crop corrected to {corrected_cx:.2f}")
+                return retry
+            # retry also failed — fall through to re-cut original
+            return cut_clip(video_path, event, index + 1000, slowmo, sport, source_info, session_peak)
+    return clip
+
+
 def cut_clip(
     video_path: str,
     event: dict,
@@ -656,6 +690,7 @@ def cut_clip(
     slowmo: bool = False,
     sport: str = "",
     source_info: dict | None = None,
+    session_peak: int = 10,
 ) -> str | None:
     """
     חותך רגע שיא:
@@ -681,6 +716,10 @@ def cut_clip(
     requested_sm   = bool(edit_hints.get("slowmo", slowmo))
     focus          = str(edit_hints.get("focus", "full")).lower()
     score          = int(event.get("score", 7))
+    # Normalize score relative to the session's actual peak so a score-8 in a
+    # peak-8 session gets the same treatment as a score-10 in a peak-10 session.
+    if session_peak and 0 < session_peak < 10:
+        score = round(min(10, score * 10 / session_peak))
 
     # Layer 2: source quality constraints (technical ceiling)
     if source_info is None:
@@ -965,6 +1004,7 @@ def compile_reel(
     athlete_label: str = "",
     music_path: str | None = None,
     transitions: list[str] | None = None,
+    style: dict | None = None,
 ) -> str | None:
     """מחבר קליפים לריל אחד עם xfade + לוגו watermark + כותרת תחתית."""
     n = len(clip_paths)
@@ -987,6 +1027,20 @@ def compile_reel(
     logo_idx = n
     if has_logo:
         inputs += ["-i", logo_path]
+
+    # Infer pace from style (if provided) or from clip durations as fallback.
+    # Fast pace → prefer "cut" transitions when Gemini didn't specify per-clip.
+    if style:
+        pace = style.get("pace", "moderate")
+    else:
+        avg_dur = sum(durations) / n if n else 10.0
+        pace = "fast" if avg_dur < 8 else ("slow" if avg_dur > 15 else "moderate")
+
+    # Apply pace to any unspecified (None/fallback) transitions
+    if pace == "fast" and not transitions:
+        transitions = ["cut"] * n
+    elif pace == "slow" and not transitions:
+        transitions = ["fade"] * n
 
     xfade_f = _xfade_filter(n, durations, sport=sport, transitions=transitions)
 
@@ -1131,6 +1185,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     if not all_events:
         return []
 
+    session_peak   = max((ev.get("score", 7) for ev in all_events), default=7)
     first_src      = appearances[0]["path"]
     slowmo_capable = _get_source_fps(first_src) >= SLOWMO_FPS_MIN
     partitions     = _partition_events(all_events, slowmo_capable)
@@ -1165,7 +1220,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         clip_paths = []
         with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
             future_map = {
-                pool.submit(cut_clip, src, ev, idx_base + i, sw, sport, si): i
+                pool.submit(_cut_clip_with_qa, src, ev, idx_base + i, sw, sport, si, session_peak): i
                 for i, src, ev, sw, si in tasks
             }
             results: dict[int, str] = {}
@@ -1289,6 +1344,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
     print(f"\n🎬 Creating reel from '{Path(video_path).name}' ({len(events)} event(s))")
 
     # 1. בדיקת fps + רזולוציה (לפני partition כדי שנדע את הfactor הנכון)
+    session_peak = max((ev.get("score", 7) for ev in events), default=7)
     src_info   = _get_source_info(video_path)
     source_fps = src_info["fps"]
     slowmo     = src_info["can_slowmo"]
@@ -1328,7 +1384,8 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         clip_paths = []
         with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
             future_map = {
-                pool.submit(cut_clip, video_path, ev, idx_base + i, slowmo, sport, src_info): i
+                pool.submit(_cut_clip_with_qa, video_path, ev, idx_base + i,
+                            slowmo, sport, src_info, session_peak): i
                 for i, ev in enumerate(ordered)
             }
             results: dict[int, str] = {}

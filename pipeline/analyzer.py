@@ -20,8 +20,9 @@ logger = logging.getLogger(__name__)
 
 genai.configure(api_key=config.GEMINI_API_KEY)
 
-_MODEL        = config.GEMINI_MODEL   # native video understanding
-_MIN_CLIP_SEC = 6.0
+_MODEL             = config.GEMINI_MODEL   # native video understanding
+_MIN_CLIP_SEC      = 6.0
+_CHUNK_MAX_MINUTES = 8   # Gemini ~1M token limit ≈ 8 min of drone footage @1fps
 
 
 def _upload_video(video_path: str):
@@ -86,6 +87,126 @@ def _extract_thumbnail(video_path: str, timestamp: float) -> str | None:
         return None
 
 
+def _chunk_video(video_path: str, max_minutes: int = _CHUNK_MAX_MINUTES) -> list[str]:
+    """Split video into ≤max_minutes segments using FFmpeg stream copy.
+    Returns [video_path] unchanged when duration fits in one chunk.
+    """
+    import math
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
+        capture_output=True, timeout=30, check=True,
+    )
+    duration = float(json.loads(probe.stdout)["format"]["duration"])
+    seg_secs = max_minutes * 60
+    n_chunks = math.ceil(duration / seg_secs)
+    if n_chunks <= 1:
+        return [video_path]
+
+    stem = Path(video_path).stem
+    os.makedirs(config.TMP_DIR, exist_ok=True)
+    chunks: list[str] = []
+    print(f"✂️  Splitting '{stem}' into {n_chunks} chunks ({max_minutes}min each)...")
+    for i in range(n_chunks):
+        out = os.path.join(config.TMP_DIR, f"{stem}_chunk{i:02d}.mp4")
+        subprocess.run([
+            "ffmpeg", "-y",
+            "-ss", str(i * seg_secs),
+            "-i", video_path,
+            "-t", str(seg_secs),
+            "-c", "copy",
+            out,
+        ], capture_output=True, timeout=120, check=True)
+        chunks.append(out)
+    logger.info("Chunked '%s' → %d segments", stem, n_chunks)
+    return chunks
+
+
+def _merge_session_results(chunk_results: list[dict], seg_secs: float) -> dict:
+    """Merge per-chunk analysis dicts: shift timestamps, pick dominant activity,
+    merge persons by description, de-duplicate events within ±5 s."""
+    from collections import Counter
+
+    acts = [r.get("activity", "unknown") for r in chunk_results
+            if r.get("activity") not in ("unknown", "other", "")]
+    activity = Counter(acts).most_common(1)[0][0] if acts else "sport"
+
+    raw_persons: list[dict] = []
+    for chunk_i, result in enumerate(chunk_results):
+        offset = chunk_i * seg_secs
+        for person in result.get("persons", []):
+            shifted_events = [
+                {**ev, "start": round(ev["start"] + offset, 2),
+                        "end":   round(ev["end"]   + offset, 2)}
+                for ev in person.get("events", [])
+            ]
+            raw_persons.append({**person, "events": shifted_events})
+
+    # Merge by description key (first 40 chars, lowercase)
+    merged: dict[str, dict] = {}
+    for p in raw_persons:
+        key = p["description"].lower()[:40]
+        if key not in merged:
+            merged[key] = {**p}
+        else:
+            existing_starts = {ev["start"] for ev in merged[key]["events"]}
+            for ev in p["events"]:
+                if not any(abs(ev["start"] - es) < 5.0 for es in existing_starts):
+                    merged[key]["events"].append(ev)
+                    existing_starts.add(ev["start"])
+            if not merged[key].get("thumbnail") and p.get("thumbnail"):
+                merged[key]["thumbnail"] = p["thumbnail"]
+
+    # Collect style/session_peak from chunks
+    styles = [r.get("style") for r in chunk_results if r.get("style")]
+    session_peak = max((r.get("session_peak", 0) for r in chunk_results), default=0)
+    merged_style = styles[0] if styles else {}
+
+    return {
+        "activity":     activity,
+        "persons":      list(merged.values()),
+        "style":        merged_style,
+        "session_peak": session_peak,
+    }
+
+
+_QA_PROMPT = (
+    "Is the main athlete clearly visible and in-frame in this thumbnail? "
+    "Answer only: PASS or FAIL. "
+    "FAIL only if the athlete is mostly cut off at the frame edge, completely out of frame, "
+    "or too blurry to recognize."
+)
+
+
+def _qa_check_clip(clip_path: str, event: dict) -> bool:
+    """Return True if QA passes (athlete in frame), False on FAIL.
+    Always returns True on error so a network blip never drops a clip.
+    """
+    duration = event.get("end", 0) - event.get("start", 0)
+    thumb = _extract_thumbnail(clip_path, max(0.5, duration / 2))
+    if not thumb:
+        return True
+    try:
+        img_file = genai.upload_file(path=thumb, mime_type="image/jpeg")
+        model    = genai.GenerativeModel(model_name=_MODEL)
+        resp     = _with_retry(lambda: model.generate_content(
+            [img_file, _QA_PROMPT],
+            request_options={"timeout": 30},
+        ))
+        try:
+            genai.delete_file(img_file.name)
+        except Exception:
+            pass
+        return "FAIL" not in resp.text.upper()
+    except Exception as _e:
+        logger.debug("QA check error (assuming pass): %s", _e)
+        return True
+    finally:
+        try:
+            os.remove(thumb)
+        except OSError:
+            pass
+
+
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
     """Retry fn() on transient Gemini errors (429 / quota / 503) with exponential back-off."""
     for attempt in range(1, attempts + 1):
@@ -117,6 +238,18 @@ Compare moments against each other within this specific footage.
   7-8  : Above average for this athlete today — clean skill, good execution
   6-7  : Solid positive performance — worth showing, athlete looks good
   1-5  : Routine action, mistake, wipeout, blurry shot, athlete not in focus — EXCLUDE
+
+GLOBAL RANKING CONTEXT:
+- Use the FULL 1-10 scale. Do not cluster all scores near 7.
+- At least one event in the video MUST receive 9 or 10 if any standout action occurred.
+- session_peak: report the highest score you assigned to any single event in this session.
+  This helps the editor treat a score-8 in a peak-8 session as top-tier (not middle-tier).
+
+SESSION STYLE — observe the overall footage character and report at the top level:
+  visual:  "bright" (high exposure, vibrant colors) | "dark" (low light, muted) | "mixed"
+  pace:    "fast" (new action every 2-5s) | "moderate" (moves every 5-12s) | "slow" (long sustained action)
+  density: "high" (mostly action, few quiet moments) | "low" (long gaps between highlights)
+These guide the editor's music tempo, cut rhythm, and color treatment.
 
 SELECTION RULES:
 - Include ALL moments with score >= 6 (they improve the athlete's image)
@@ -202,6 +335,8 @@ For each EVENT:
 Return ONLY valid JSON, no markdown:
 {
   "activity": "surfing",
+  "session_peak": 9,
+  "style": {"visual": "bright", "pace": "moderate", "density": "high"},
   "persons": [
     {
       "id": "person_A",
@@ -233,6 +368,23 @@ def _parse_session(raw_text: str) -> dict:
 
     data     = json.loads(text)
     activity = str(data.get("activity") or "other").lower()
+
+    # Extract session-level style and peak score
+    raw_style = data.get("style") or {}
+    if not isinstance(raw_style, dict):
+        raw_style = {}
+    visual  = raw_style.get("visual", "mixed")
+    pace    = raw_style.get("pace", "moderate")
+    density = raw_style.get("density", "high")
+    style = {
+        "visual":  visual  if visual  in ("bright", "dark", "mixed")       else "mixed",
+        "pace":    pace    if pace    in ("fast", "moderate", "slow")       else "moderate",
+        "density": density if density in ("high", "low")                   else "high",
+    }
+    try:
+        session_peak = max(0, int(data.get("session_peak", 0)))
+    except (TypeError, ValueError):
+        session_peak = 0
 
     persons: list[dict] = []
     for p in data.get("persons", []):
@@ -280,72 +432,95 @@ def _parse_session(raw_text: str) -> dict:
             "events":      good,
         })
 
-    return {"activity": activity, "persons": persons}
+    return {"activity": activity, "persons": persons, "style": style, "session_peak": session_peak}
 
 
 def analyze_session(video_path: str) -> dict:
     """
     Identifies distinct persons and their highlight moments via Gemini.
-    Used for multi-person sessions (full games, surf sessions, etc.).
+    Long videos (> _CHUNK_MAX_MINUTES) are split into chunks first to stay
+    within Gemini's 1M-token context window. Results are merged automatically.
 
     Returns:
-        {"activity": str, "persons": [{"id", "description", "events": [...]}]}
+        {"activity": str, "persons": [...], "style": {...}, "session_peak": int}
     """
     print(f"🔍 Analyzing '{Path(video_path).name}' — multi-person session mode...")
 
-    video_file = None
+    # Build prompt once — prepend feedback so JSON example stays as format anchor at end
+    from pipeline.feedback import get_all_label_injections
+    feedback_block = get_all_label_injections()
+    prompt = feedback_block + _IDENTITY_PROMPT if feedback_block else _IDENTITY_PROMPT
+    if feedback_block:
+        sport_count = feedback_block.count("\n  ")
+        logger.info("Injecting editing feedback for %d sport(s) into prompt", sport_count)
+        print(f"🏷️  Injecting editing history ({sport_count} sport(s)) into analysis prompt")
+
+    # Split long videos into chunks
     try:
-        video_file = _with_retry(lambda: _upload_video(video_path))
+        chunks = _chunk_video(video_path)
+    except Exception as _ce:
+        logger.warning("Chunking failed (%s) — analyzing full video", _ce)
+        chunks = [video_path]
+    is_chunked = len(chunks) > 1
 
-        # Build dynamic prompt — prepend feedback so JSON example stays as format anchor at end
-        from pipeline.feedback import get_all_label_injections
-        feedback_block = get_all_label_injections()
-        prompt = feedback_block + _IDENTITY_PROMPT if feedback_block else _IDENTITY_PROMPT
-        if feedback_block:
-            sport_count = feedback_block.count("\n  ")
-            logger.info("Injecting editing feedback for %d sport(s) into prompt", sport_count)
-            print(f"🏷️  Injecting editing history ({sport_count} sport(s)) into analysis prompt")
+    def _analyze_one(chunk_path: str) -> dict:
+        """Upload one file, analyze with Gemini, delete. JSON errors → empty result."""
+        vf = None
+        try:
+            vf = _with_retry(lambda: _upload_video(chunk_path))
+            model = genai.GenerativeModel(model_name=_MODEL)
+            resp  = _with_retry(lambda: model.generate_content(
+                [vf, prompt],
+                request_options={"timeout": 300},
+            ))
+            return _parse_session(resp.text)
+        except json.JSONDecodeError as e:
+            logger.error("Gemini JSON parse error: %s", e)
+            print(f"⚠️ JSON parse error from Gemini: {e}")
+            return {"activity": "unknown", "persons": [], "style": {}, "session_peak": 0}
+        finally:
+            if vf:
+                _delete_video(vf)
 
-        model    = genai.GenerativeModel(model_name=_MODEL)
-        print("🔍 Sending to Gemini for identity + highlight detection...")
-        response = _with_retry(lambda: model.generate_content(
-            [video_file, prompt],
-            request_options={"timeout": 300},
-        ))
+    try:
+        if not is_chunked:
+            result = _analyze_one(video_path)
+            n = len(result["persons"])
+            print(f"✅ Activity: '{result['activity']}' | {n} person(s) identified")
+        else:
+            chunk_results = []
+            for i, chunk_path in enumerate(chunks):
+                print(f"🔍 Analyzing chunk {i + 1}/{len(chunks)}...")
+                chunk_results.append(_analyze_one(chunk_path))
+            result = _merge_session_results(chunk_results, _CHUNK_MAX_MINUTES * 60)
+            n = len(result["persons"])
+            print(f"✅ Activity: '{result['activity']}' | {n} person(s) from {len(chunks)} chunks")
 
-        result = _parse_session(response.text)
-        n      = len(result["persons"])
-        print(f"✅ Activity: '{result['activity']}' | {n} person(s) identified")
-
-        # Extract reference thumbnail for each person's best event (for visual Re-ID).
+        # Reference thumbnail per person's best event (always from original video)
         for person in result.get("persons", []):
             events = person.get("events", [])
             if events:
                 best = events[0]  # sorted by score desc in _parse_session
-                mid = (best["start"] + best["end"]) / 2
+                mid  = (best["start"] + best["end"]) / 2
                 thumb = _extract_thumbnail(video_path, mid)
                 if thumb:
                     person["thumbnail"] = thumb
 
         return result
 
-    except json.JSONDecodeError as e:
-        # Gemini returned something but we couldn't parse it — treat as no persons found.
-        # (A retry would likely give the same bad JSON, so don't re-raise.)
-        logger.error("Gemini session JSON parse error: %s", e)
-        print(f"⚠️ JSON parse error from Gemini: {e}")
-        return {"activity": "unknown", "persons": []}
-
     except Exception as e:
-        # API / network / timeout failure — re-raise so the caller can skip this
-        # video without marking it as processed, allowing a retry next run.
         logger.error("Gemini session analysis failed: %s", e)
         print(f"❌ Session analysis failed: {e}")
         raise
 
     finally:
-        if video_file:
-            _delete_video(video_file)
+        if is_chunked:
+            for chunk_path in chunks:
+                if chunk_path != video_path:
+                    try:
+                        os.remove(chunk_path)
+                    except OSError:
+                        pass
 
 
 def _parse_analysis(raw_text: str) -> dict:

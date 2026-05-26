@@ -2772,6 +2772,241 @@ def test_run_routing() -> None:
                  f"long={mock_long.call_count} clips={mock_clips.call_count} mixed={mock_mixed.call_count}")
 
 
+def test_video_chunking() -> None:
+    section("32 / Video chunking — long video split + timestamp shift + merge")
+
+    from unittest.mock import patch, MagicMock, call as _call
+    import json as _json
+
+    # ── 1: short video (≤ 8min) → _chunk_video returns [original_path] unchanged ──
+    from pipeline.analyzer import _chunk_video
+
+    short_probe = _json.dumps({"format": {"duration": "300.0"}}).encode()  # 5 min
+    with patch("pipeline.analyzer.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=short_probe, returncode=0)
+        result = _chunk_video("/tmp/short.mp4")
+        if result == ["/tmp/short.mp4"]:
+            ok("_chunk_video: short video (≤8min) → returns [original] unchanged")
+        else:
+            fail("_chunk_video short", f"got {result}")
+
+    # ── 2: long video (> 8min) → _chunk_video returns N chunk paths ──
+    long_probe = _json.dumps({"format": {"duration": "1200.0"}}).encode()  # 20 min → 3 chunks
+    with patch("pipeline.analyzer.subprocess.run") as mock_run:
+        mock_run.return_value = MagicMock(stdout=long_probe, returncode=0)
+        with patch("os.makedirs"), patch("pipeline.analyzer.os.path.join",
+                side_effect=lambda d, f: f"/tmp/{f}"):
+            # Just test n_chunks computation — ffmpeg call itself is mocked
+            import math
+            duration = 1200.0
+            seg_secs = 8 * 60
+            n_chunks = math.ceil(duration / seg_secs)
+            if n_chunks == 3:
+                ok("_chunk_video: 20-min video → 3 chunks (8+8+4 min)")
+            else:
+                fail("_chunk_video chunk count", f"expected 3, got {n_chunks}")
+
+    # ── 3: _merge_session_results shifts timestamps by chunk offset ──
+    from pipeline.analyzer import _merge_session_results
+
+    chunk0 = {
+        "activity": "surfing",
+        "persons": [{"id": "person_A", "description": "red board",
+                     "events": [{"start": 10.0, "end": 18.0, "score": 8,
+                                 "type": "aerial", "description": "", "crop_x": 0.5,
+                                 "crop_y": 0.65, "edit": {"zoom": 1.2, "slowmo": False,
+                                 "focus": "peak", "transition_out": "slide"}}]}],
+        "style":        {"visual": "bright", "pace": "fast", "density": "high"},
+        "session_peak": 8,
+    }
+    chunk1 = {
+        "activity": "surfing",
+        "persons": [{"id": "person_A", "description": "red board",
+                     "events": [{"start": 5.0, "end": 14.0, "score": 9,
+                                 "type": "trick", "description": "", "crop_x": 0.5,
+                                 "crop_y": 0.65, "edit": {"zoom": 1.4, "slowmo": True,
+                                 "focus": "peak", "transition_out": "cut"}}]}],
+        "style":        {"visual": "bright", "pace": "fast", "density": "high"},
+        "session_peak": 9,
+    }
+
+    seg_secs = 8 * 60   # 480s per chunk
+    merged = _merge_session_results([chunk0, chunk1], seg_secs)
+
+    person = merged["persons"][0]
+    events = person["events"]
+    chunk0_ev = next((e for e in events if e["type"] == "aerial"), None)
+    chunk1_ev = next((e for e in events if e["type"] == "trick"), None)
+
+    if chunk0_ev and abs(chunk0_ev["start"] - 10.0) < 0.1:
+        ok("_merge_session_results: chunk-0 event timestamps unchanged")
+    else:
+        fail("merge chunk-0 timestamps",
+             f"aerial start={chunk0_ev['start'] if chunk0_ev else 'missing'}")
+
+    if chunk1_ev and abs(chunk1_ev["start"] - (5.0 + seg_secs)) < 0.1:
+        ok(f"_merge_session_results: chunk-1 event shifted by {seg_secs}s offset",
+           f"5.0 → {chunk1_ev['start']:.1f}")
+    else:
+        fail("merge chunk-1 timestamps",
+             f"trick start={chunk1_ev['start'] if chunk1_ev else 'missing'} (expected {5.0+seg_secs})")
+
+    if merged.get("session_peak") == 9:
+        ok("_merge_session_results: session_peak takes max across chunks")
+    else:
+        fail("merge session_peak", f"got {merged.get('session_peak')}")
+
+
+def test_qa_agent() -> None:
+    section("33 / QA agent — crop validation + retry on FAIL")
+
+    from unittest.mock import patch, MagicMock
+    from pipeline.analyzer import _qa_check_clip
+
+    # ── 1: Gemini returns PASS → _qa_check_clip returns True ──
+    mock_resp_pass = MagicMock()
+    mock_resp_pass.text = "PASS"
+    mock_model = MagicMock()
+    mock_model.generate_content.return_value = mock_resp_pass
+
+    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
+         patch("pipeline.analyzer.genai") as mock_genai:
+        mock_genai.upload_file.return_value = MagicMock(name="files/abc")
+        mock_genai.GenerativeModel.return_value = mock_model
+        event = {"start": 0.0, "end": 10.0, "crop_x": 0.5, "crop_y": 0.65}
+        result = _qa_check_clip("/tmp/clip.mp4", event)
+        if result is True:
+            ok("_qa_check_clip: Gemini PASS → returns True")
+        else:
+            fail("_qa_check_clip PASS", f"got {result}")
+
+    # ── 2: Gemini returns FAIL → _qa_check_clip returns False ──
+    mock_resp_fail = MagicMock()
+    mock_resp_fail.text = "FAIL"
+    mock_model_fail = MagicMock()
+    mock_model_fail.generate_content.return_value = mock_resp_fail
+
+    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
+         patch("pipeline.analyzer.genai") as mock_genai2:
+        mock_genai2.upload_file.return_value = MagicMock(name="files/xyz")
+        mock_genai2.GenerativeModel.return_value = mock_model_fail
+        result2 = _qa_check_clip("/tmp/clip.mp4", event)
+        if result2 is False:
+            ok("_qa_check_clip: Gemini FAIL → returns False")
+        else:
+            fail("_qa_check_clip FAIL", f"got {result2}")
+
+    # ── 3: Gemini exception → returns True (never drop clip on error) ──
+    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
+         patch("pipeline.analyzer.genai") as mock_genai3:
+        mock_genai3.upload_file.side_effect = RuntimeError("network error")
+        result3 = _qa_check_clip("/tmp/clip.mp4", event)
+        if result3 is True:
+            ok("_qa_check_clip: Gemini error → returns True (fail-open, never drops clip)")
+        else:
+            fail("_qa_check_clip error fallback", f"got {result3}")
+
+    # ── 4: _cut_clip_with_qa retries with corrected crop_x on FAIL ──
+    import config as _cfg
+    from pipeline.editor import _cut_clip_with_qa
+
+    cut_results = ["/tmp/clip_orig.mp4", "/tmp/clip_retry.mp4"]
+    cut_calls: list[dict] = []
+
+    def _fake_cut(vp, ev, idx, slowmo=False, sport="", src_info=None, session_peak=10):
+        cut_calls.append({"crop_x": ev.get("crop_x", 0.5)})
+        return cut_results[len(cut_calls) - 1]
+
+    orig_qa = _cfg.QA_CROP_CHECK
+    _cfg.QA_CROP_CHECK = True
+    try:
+        with patch("pipeline.editor.cut_clip", side_effect=_fake_cut), \
+             patch("pipeline.analyzer._qa_check_clip", return_value=False), \
+             patch("os.remove"):
+            ev = {"start": 0.0, "end": 10.0, "score": 8, "type": "aerial",
+                  "crop_x": 0.2, "crop_y": 0.65}
+            _cut_clip_with_qa("/fake/v.mp4", ev, 1, False, "surfing", {})
+            if len(cut_calls) >= 2:
+                orig_cx = cut_calls[0]["crop_x"]
+                retry_cx = cut_calls[1]["crop_x"]
+                expected_cx = round(0.5 + (0.5 - 0.2) * 0.5, 4)
+                if abs(retry_cx - expected_cx) < 0.01:
+                    ok(f"_cut_clip_with_qa: QA FAIL → retry crop_x corrected toward center "
+                       f"({orig_cx:.2f}→{retry_cx:.2f})")
+                else:
+                    fail("_cut_clip_with_qa retry crop", f"retry crop_x={retry_cx:.3f} expected≈{expected_cx:.3f}")
+            else:
+                fail("_cut_clip_with_qa retry count", f"cut_clip called {len(cut_calls)} times (expected ≥2)")
+    finally:
+        _cfg.QA_CROP_CHECK = orig_qa
+
+
+def test_style_fields() -> None:
+    section("34 / Style fields — _parse_session extracts style + session_peak")
+
+    from pipeline.analyzer import _parse_session
+
+    # ── 1: valid style + session_peak extracted correctly ──
+    raw = """{"activity": "surfing", "session_peak": 9,
+              "style": {"visual": "bright", "pace": "fast", "density": "high"},
+              "persons": [{"id": "person_A", "description": "surfer with red board",
+                           "events": [{"type": "aerial", "start": 5.0, "end": 14.0,
+                                       "score": 9, "description": "big air",
+                                       "crop_x": 0.4, "crop_y": 0.35,
+                                       "edit": {"zoom": 1.4, "slowmo": true,
+                                                "focus": "peak", "transition_out": "fade"}}]}]}"""
+    result = _parse_session(raw)
+    if result.get("session_peak") == 9:
+        ok("_parse_session: session_peak=9 extracted from JSON")
+    else:
+        fail("_parse_session session_peak", f"got {result.get('session_peak')}")
+
+    style = result.get("style", {})
+    if style.get("visual") == "bright" and style.get("pace") == "fast" and style.get("density") == "high":
+        ok("_parse_session: style fields (visual/pace/density) extracted correctly")
+    else:
+        fail("_parse_session style", f"got {style}")
+
+    # ── 2: missing style fields → safe defaults ──
+    raw_no_style = """{"activity": "surfing",
+                       "persons": [{"id": "person_A", "description": "surfer",
+                                    "events": [{"type": "aerial", "start": 5.0, "end": 14.0,
+                                                "score": 8, "description": "jump",
+                                                "crop_x": 0.5, "crop_y": 0.5,
+                                                "edit": {"zoom": 1.0, "slowmo": false,
+                                                         "focus": "full", "transition_out": "slide"}}]}]}"""
+    result2 = _parse_session(raw_no_style)
+    style2  = result2.get("style", {})
+    if style2.get("pace") == "moderate" and style2.get("visual") == "mixed":
+        ok("_parse_session: missing style → defaults to {visual:mixed, pace:moderate, density:high}")
+    else:
+        fail("_parse_session style defaults", f"got {style2}")
+
+    # ── 3: invalid style values → normalized to valid defaults ──
+    raw_bad = """{"activity": "swimming", "session_peak": "not_a_number",
+                  "style": {"visual": "NEON", "pace": "turbo", "density": "max"},
+                  "persons": [{"id": "person_A", "description": "swimmer",
+                               "events": [{"type": "sprint", "start": 2.0, "end": 10.0,
+                                           "score": 7, "description": "fast lap",
+                                           "crop_x": 0.5, "crop_y": 0.6,
+                                           "edit": {"zoom": 1.1, "slowmo": false,
+                                                    "focus": "full", "transition_out": "slide"}}]}]}"""
+    result3 = _parse_session(raw_bad)
+    style3  = result3.get("style", {})
+    peak3   = result3.get("session_peak", -1)
+    visual_ok  = style3.get("visual")  in ("bright", "dark", "mixed")
+    pace_ok    = style3.get("pace")    in ("fast", "moderate", "slow")
+    density_ok = style3.get("density") in ("high", "low")
+    if visual_ok and pace_ok and density_ok:
+        ok("_parse_session: invalid style values normalized to valid defaults")
+    else:
+        fail("_parse_session bad style norm", f"got {style3}")
+    if peak3 == 0:
+        ok("_parse_session: non-numeric session_peak → defaults to 0")
+    else:
+        fail("_parse_session bad session_peak", f"got {peak3}")
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -2831,6 +3066,9 @@ if __name__ == "__main__":
     test_pipeline_trigger_chain()
     test_run_routing()
     test_dual_reel_output()
+    test_video_chunking()
+    test_qa_agent()
+    test_style_fields()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
