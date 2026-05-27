@@ -10,6 +10,7 @@ After reviewing drafts in Drive:
 import json
 import logging
 import os
+import shutil
 import sys
 from datetime import date
 from pathlib import Path
@@ -36,9 +37,68 @@ from pipeline.editor   import create_reel, compile_multi_source_reel, _get_sourc
 from pipeline.identity import cluster_clips
 from pipeline.feedback import get_stats as _feedback_stats
 
-_LARGE_FILE_BYTES  = 100_000_000   # 100 MB threshold
-_MAX_DL_WORKERS    = min(4, config.MAX_CUT_WORKERS)
-_MAX_UL_WORKERS    = 3             # cap to avoid Drive API quota exhaustion
+_LARGE_FILE_BYTES    = 100_000_000   # 100 MB threshold
+_MAX_DL_WORKERS      = min(4, config.MAX_CUT_WORKERS)
+_MAX_UL_WORKERS      = 3             # cap to avoid Drive API quota exhaustion
+_MAX_STAGED_ATTEMPTS = 5             # abandon staged reel after this many failed runs
+_MIN_FREE_GB         = 5.0           # minimum free disk space before refusing to compile
+
+
+def _check_disk_space() -> None:
+    """Raise RuntimeError if TMP_DIR has less than _MIN_FREE_GB free space."""
+    free = shutil.disk_usage(config.TMP_DIR).free / (1024 ** 3)
+    if free < _MIN_FREE_GB:
+        raise RuntimeError(
+            f"Insufficient disk space: {free:.1f} GB free in {config.TMP_DIR} "
+            f"(need ≥{_MIN_FREE_GB} GB)"
+        )
+
+
+def _retry_pending_uploads() -> None:
+    """On startup, retry any reels that failed to upload in a previous run."""
+    pending_dir = config.PENDING_UPLOADS_DIR
+    if not os.path.isdir(pending_dir):
+        return
+    staged = [f for f in os.listdir(pending_dir) if f.endswith(".mp4")]
+    if not staged:
+        return
+    print(f"\n📂 Retrying {len(staged)} staged reel(s) from previous run...")
+    for filename in staged:
+        reel_path  = os.path.join(pending_dir, filename)
+        name_path  = reel_path + ".name"
+        count_path = reel_path + ".attempts"
+
+        try:
+            attempts = int(open(count_path).read())
+        except Exception:
+            attempts = 0
+
+        if attempts >= _MAX_STAGED_ATTEMPTS:
+            logger.error("Staged reel '%s' failed %d time(s) — removing to free disk",
+                         filename, attempts)
+            print(f"  ❌ Abandoned '{filename}' after {attempts} retries — deleted")
+            for p in (reel_path, name_path, count_path):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+            continue
+
+        draft_name = open(name_path).read().strip() if os.path.exists(name_path) else filename
+        try:
+            upload_draft(reel_path, draft_name)
+            for p in (reel_path, name_path, count_path):
+                try:
+                    os.remove(p)
+                except OSError:
+                    pass
+            print(f"  ✅ Staged reel uploaded: {draft_name}")
+        except Exception as exc:
+            with open(count_path, "w") as f:
+                f.write(str(attempts + 1))
+            logger.warning("Staged reel still failing (%d/%d): %s — %s",
+                           attempts + 1, _MAX_STAGED_ATTEMPTS, draft_name, exc)
+            print(f"  ❌ Still failing ({attempts + 1}/{_MAX_STAGED_ATTEMPTS}): {draft_name}")
 
 
 def _save_reel_metadata(draft_name: str, sport: str,
@@ -157,12 +217,26 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
         try:
             upload_draft(reel_path, name)
             return True
-        except Exception:
-            logger.error("Draft upload failed for %s", name)
+        except Exception as exc:
+            # Drive retries already exhausted inside upload_draft — stage for next run
+            os.makedirs(config.PENDING_UPLOADS_DIR, exist_ok=True)
+            staged = os.path.join(config.PENDING_UPLOADS_DIR, os.path.basename(reel_path))
+            try:
+                shutil.move(reel_path, staged)
+                with open(staged + ".name", "w") as f:
+                    f.write(name)
+                logger.error("Upload failed for '%s' — staged at %s for next run", name, staged)
+                print(f"⚠️  Upload failed — reel saved to pending_uploads/ for next run")
+            except Exception:
+                logger.error("Could not stage reel %s — reel lost: %s", reel_path, exc)
             return False
         finally:
-            try: os.remove(reel_path)
-            except OSError: pass
+            # Only delete if still exists — staging may have already moved it
+            try:
+                if os.path.exists(reel_path):
+                    os.remove(reel_path)
+            except OSError:
+                pass
 
     if not pending:
         return 0
@@ -425,6 +499,9 @@ def main() -> None:
 
     print("\n🎬 D to R Pipeline — Phase 1: Ingest & Draft")
     print(f"📁 Tmp dir: {config.TMP_DIR}")
+
+    _retry_pending_uploads()
+    _check_disk_space()
 
     new_videos = get_new_videos()
     if not new_videos:

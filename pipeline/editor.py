@@ -1231,6 +1231,9 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         clip_paths = [results[i] for i in sorted(results)]
 
         if not clip_paths:
+            label = athlete_label or "unknown athlete"
+            logger.warning("⚠️ '%s': all clips failed to cut — no reel produced", label)
+            print(f"❌ No clips produced for '{label}' — reel skipped (check event timestamps)")
             continue
 
         suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
@@ -1398,7 +1401,9 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         clip_paths = [results[i] for i in sorted(results)]
 
         if not clip_paths:
-            print(f"❌ Reel {part_idx + 1}: no clips produced")
+            label = athlete_label or "unknown athlete"
+            logger.warning("⚠️ '%s': all clips failed to cut — no reel produced", label)
+            print(f"❌ No clips produced for '{label}' — reel skipped (check event timestamps)")
             continue
 
         # 5. compilation

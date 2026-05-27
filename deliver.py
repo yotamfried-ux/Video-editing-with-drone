@@ -124,6 +124,7 @@ def main() -> None:
                 except OSError: pass
 
         move_to_pending_payment(draft["id"])
+        _mark_previewed({draft["id"]})          # per-reel, before email — prevents double-send on crash
         preview_results.append((draft, preview_link, client))
 
         # Record operator approval in feedback loop
@@ -187,8 +188,6 @@ def main() -> None:
     except Exception:
         logger.error("Failed to send owner preview summary")
         print("❌ Failed to send owner summary — previews are still in Drive")
-
-    _mark_previewed({d["id"] for d, _, _ in preview_results})
 
     logger.info("Phase 2a complete. Previews sent: %d, Client emails: %d",
                 len(preview_results), sent_to_clients)

@@ -6,6 +6,7 @@ pipeline/drive.py — Google Drive integration.
 import json
 import logging
 import os
+import time as _time
 from pathlib import Path
 
 from google.oauth2 import service_account
@@ -19,6 +20,23 @@ logger = logging.getLogger(__name__)
 _SCOPES = [
     "https://www.googleapis.com/auth/drive",
 ]
+
+# ── Retry wrapper ─────────────────────────────────────────────────────────
+
+def _drive_retry(fn, attempts: int = 3, base_delay: int = 5):
+    """Retry on transient Drive API errors (429 / 503 / quota) with exponential backoff."""
+    for attempt in range(1, attempts + 1):
+        try:
+            return fn()
+        except Exception as exc:
+            transient = any(x in str(exc).lower()
+                            for x in ["429", "503", "quota", "timeout", "unavailable"])
+            if not transient or attempt == attempts:
+                raise
+            delay = base_delay * (2 ** (attempt - 1))
+            logger.warning("Drive API retry %d/%d in %ds: %s", attempt, attempts, delay, exc)
+            _time.sleep(delay)
+
 
 # ── Auth ───────────────────────────────────────────────────────────────────
 
@@ -169,25 +187,38 @@ def get_new_videos() -> list[dict]:
 def download_video(file_id: str, filename: str) -> str:
     """
     Download a Drive file to TMP_DIR.
-    Returns the local file path.
+    Writes to filename.part first, then renames atomically — a partial file is
+    never visible under the final name. Returns the local file path.
     """
     os.makedirs(config.TMP_DIR, exist_ok=True)
     local_path = os.path.join(config.TMP_DIR, filename)
+    tmp_path   = local_path + ".part"
     print(f"📁 Downloading '{filename}' → {local_path}")
+
+    try:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+    except OSError:
+        pass
 
     try:
         service = _get_drive_service()
         request = service.files().get_media(fileId=file_id)
-        with open(local_path, "wb") as fh:
+        with open(tmp_path, "wb") as fh:
             downloader = MediaIoBaseDownload(fh, request)
             done = False
             while not done:
                 status, done = downloader.next_chunk()
                 pct = int(status.progress() * 100)
                 print(f"  ⬇️  {pct}%", end="\r")
+        os.replace(tmp_path, local_path)
         print(f"\n✅ Download complete: {local_path}")
         return local_path
     except Exception as e:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
         logger.error("❌ Failed to download %s: %s", filename, e)
         print(f"❌ Download failed for '{filename}': {e}")
         raise
@@ -206,21 +237,19 @@ def upload_clip(clip_path: str, clip_name: str) -> str:
             "parents": [config.CLIPS_FOLDER_ID],
         }
         media = MediaFileUpload(clip_path, mimetype="video/mp4", resumable=True)
-        uploaded = (
-            service.files()
-            .create(body=file_metadata, media_body=media, fields="id, webViewLink")
-            .execute()
-        )
+        uploaded = _drive_retry(lambda: service.files().create(
+            body=file_metadata, media_body=media, fields="id, webViewLink"
+        ).execute())
         file_id = uploaded.get("id", "")
         link    = uploaded.get("webViewLink", "")
 
         # Grant "anyone with the link" viewer access so the client can open it
         try:
-            service.permissions().create(
+            _drive_retry(lambda: service.permissions().create(
                 fileId=file_id,
                 body={"type": "anyone", "role": "reader"},
                 fields="id",
-            ).execute()
+            ).execute())
         except Exception as perm_err:
             logger.warning("⚠️ Could not set public permission on %s: %s", clip_name, perm_err)
 
@@ -240,19 +269,17 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
         service       = _get_drive_service()
         file_metadata = {"name": draft_name, "parents": [config.REVIEW_FOLDER_ID]}
         media         = MediaFileUpload(draft_path, mimetype="video/mp4", resumable=True)
-        uploaded      = (
-            service.files()
-            .create(body=file_metadata, media_body=media, fields="id, webViewLink")
-            .execute()
-        )
+        uploaded      = _drive_retry(lambda: service.files().create(
+            body=file_metadata, media_body=media, fields="id, webViewLink"
+        ).execute())
         file_id = uploaded.get("id", "")
         link    = uploaded.get("webViewLink", "")
         try:
-            service.permissions().create(
+            _drive_retry(lambda: service.permissions().create(
                 fileId=file_id,
                 body={"type": "anyone", "role": "reader"},
                 fields="id",
-            ).execute()
+            ).execute())
         except Exception as perm_err:
             logger.warning("⚠️ Could not set public permission on draft %s: %s", draft_name, perm_err)
         print(f"✅ Draft ready for review: {link}")
@@ -319,19 +346,17 @@ def upload_preview(preview_path: str, preview_name: str) -> str:
         service       = _get_drive_service()
         file_metadata = {"name": preview_name, "parents": [config.PREVIEW_FOLDER_ID]}
         media         = MediaFileUpload(preview_path, mimetype="video/mp4", resumable=True)
-        uploaded      = (
-            service.files()
-            .create(body=file_metadata, media_body=media, fields="id, webViewLink")
-            .execute()
-        )
+        uploaded      = _drive_retry(lambda: service.files().create(
+            body=file_metadata, media_body=media, fields="id, webViewLink"
+        ).execute())
         file_id = uploaded.get("id", "")
         link    = uploaded.get("webViewLink", "")
         try:
-            service.permissions().create(
+            _drive_retry(lambda: service.permissions().create(
                 fileId=file_id,
                 body={"type": "anyone", "role": "reader"},
                 fields="id",
-            ).execute()
+            ).execute())
         except Exception as perm_err:
             logger.warning("⚠️ Could not set public permission on preview %s: %s", preview_name, perm_err)
         print(f"✅ Preview link: {link}")
@@ -349,14 +374,14 @@ def move_to_pending_payment(file_id: str) -> None:
         return
     try:
         service         = _get_drive_service()
-        file_meta       = service.files().get(fileId=file_id, fields="parents").execute()
+        file_meta       = _drive_retry(lambda: service.files().get(fileId=file_id, fields="parents").execute())
         current_parents = ",".join(file_meta.get("parents", []))
-        service.files().update(
+        _drive_retry(lambda: service.files().update(
             fileId=file_id,
             addParents=config.PENDING_PAYMENT_FOLDER_ID,
             removeParents=current_parents,
             fields="id, parents",
-        ).execute()
+        ).execute())
         logger.info("Moved reel %s → PENDING_PAYMENT", file_id)
     except Exception as e:
         logger.warning("⚠️ Could not move %s to PENDING_PAYMENT: %s", file_id, e)
@@ -406,14 +431,14 @@ def mark_as_processed(file_id: str) -> None:
     # Move original to the PROCESSED archive folder
     try:
         service = _get_drive_service()
-        file_meta = service.files().get(fileId=file_id, fields="parents").execute()
+        file_meta = _drive_retry(lambda: service.files().get(fileId=file_id, fields="parents").execute())
         current_parents = ",".join(file_meta.get("parents", []))
-        service.files().update(
+        _drive_retry(lambda: service.files().update(
             fileId=file_id,
             addParents=config.PROCESSED_FOLDER_ID,
             removeParents=current_parents,
             fields="id, parents",
-        ).execute()
+        ).execute())
         print(f"📁 Moved original {file_id} to PROCESSED folder")
     except Exception as e:
         logger.warning("⚠️ Could not move file %s to PROCESSED folder: %s", file_id, e)

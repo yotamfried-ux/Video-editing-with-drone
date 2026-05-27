@@ -1926,6 +1926,270 @@ def test_io_parallelism() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 35. Staging area
+# ══════════════════════════════════════════════════════
+
+def test_staging_area() -> None:
+    section("35 / Staging area — upload fail → staged, retry, abandon")
+
+    import shutil as _shutil
+    from unittest.mock import patch
+    import run
+
+    # ── _MAX_STAGED_ATTEMPTS constant defined ──
+    try:
+        if run._MAX_STAGED_ATTEMPTS == 5:
+            ok("_MAX_STAGED_ATTEMPTS = 5 defined in run.py")
+        else:
+            fail("_MAX_STAGED_ATTEMPTS", f"expected 5, got {run._MAX_STAGED_ATTEMPTS}")
+    except AttributeError as e:
+        fail("_MAX_STAGED_ATTEMPTS missing", str(e))
+
+    tmp_stage = os.path.join(DEBUG_DIR, "test_pending_uploads_35")
+    _shutil.rmtree(tmp_stage, ignore_errors=True)
+    old_pending = config.PENDING_UPLOADS_DIR
+    config.PENDING_UPLOADS_DIR = tmp_stage
+
+    try:
+        # ── upload fail → reel staged ──
+        fake_reel = os.path.join(DEBUG_DIR, "fake_reel_35.mp4")
+        with open(fake_reel, "wb") as _f:
+            _f.write(b"fake reel content")
+
+        cluster = {"appearances": [{"path": "/tmp/v.mp4", "events": []}], "description": "Blue helmet"}
+        with patch("run.compile_multi_source_reel", return_value=[fake_reel]), \
+             patch("run.upload_draft", side_effect=RuntimeError("503 service unavailable")), \
+             patch("run._get_source_info", return_value={}), \
+             patch("run._save_reel_metadata"):
+            run._compile_clusters([cluster], "surfing")
+
+        staged = ([f for f in os.listdir(tmp_stage) if f.endswith(".mp4")]
+                  if os.path.exists(tmp_stage) else [])
+        staged_reel = os.path.join(tmp_stage, staged[0]) if staged else None
+        if staged_reel:
+            ok("_upload_one: upload fail → reel staged in pending_uploads/")
+        else:
+            fail("_upload_one staging", "no .mp4 found in pending_uploads/")
+
+        # ── .name sidecar file written ──
+        if staged_reel and os.path.exists(staged_reel + ".name"):
+            ok("_upload_one: .name sidecar file written alongside staged reel")
+        else:
+            fail("_upload_one .name file", "missing .name sidecar")
+
+        # ── _retry_pending_uploads: success → cleans up all sidecar files ──
+        if staged_reel:
+            with patch("run.upload_draft", return_value="https://link") as mock_ul:
+                run._retry_pending_uploads()
+            if mock_ul.called:
+                ok("_retry_pending_uploads: upload_draft called for staged reel")
+            else:
+                fail("_retry_pending_uploads call", "upload_draft not called")
+            if not os.path.exists(staged_reel):
+                ok("_retry_pending_uploads: staged reel removed after successful upload")
+            else:
+                fail("_retry_pending_uploads cleanup", "staged reel still present after upload")
+
+        # ── abandon after _MAX_STAGED_ATTEMPTS ──
+        abandon_reel = os.path.join(tmp_stage, "old_reel.mp4")
+        os.makedirs(tmp_stage, exist_ok=True)
+        with open(abandon_reel, "wb") as _f:
+            _f.write(b"old reel")
+        with open(abandon_reel + ".name", "w") as _f:
+            _f.write("Old Reel")
+        with open(abandon_reel + ".attempts", "w") as _f:
+            _f.write(str(run._MAX_STAGED_ATTEMPTS))
+
+        with patch("run.upload_draft") as mock_ul2:
+            run._retry_pending_uploads()
+        if not mock_ul2.called:
+            ok(f"_retry_pending_uploads: skips reel at attempt limit ({run._MAX_STAGED_ATTEMPTS})")
+        else:
+            fail("_retry_pending_uploads abandon", "upload_draft called for exhausted reel")
+        if not os.path.exists(abandon_reel):
+            ok("_retry_pending_uploads: exhausted reel deleted to free disk")
+        else:
+            fail("_retry_pending_uploads exhausted reel", "file still on disk")
+
+    finally:
+        config.PENDING_UPLOADS_DIR = old_pending
+        _shutil.rmtree(tmp_stage, ignore_errors=True)
+        for _p in (os.path.join(DEBUG_DIR, "fake_reel_35.mp4"),):
+            try:
+                os.remove(_p)
+            except OSError:
+                pass
+
+
+# ══════════════════════════════════════════════════════
+# 36. Atomic download
+# ══════════════════════════════════════════════════════
+
+def test_atomic_download() -> None:
+    section("36 / Atomic download — no .part file left after failure")
+
+    import shutil as _shutil
+    from unittest.mock import patch
+
+    tmp_dl = os.path.join(DEBUG_DIR, "test_dl_36")
+    os.makedirs(tmp_dl, exist_ok=True)
+    old_tmp = config.TMP_DIR
+    config.TMP_DIR = tmp_dl
+
+    try:
+        from pipeline.drive import download_video
+
+        # ── download failure: no .part file left ──
+        with patch("pipeline.drive._get_drive_service") as mock_svc:
+            mock_svc.return_value.files.return_value.get_media.side_effect = RuntimeError("network error")
+            try:
+                download_video("fake_id", "fail_video.mp4")
+            except Exception:
+                pass
+
+        part_files = glob.glob(os.path.join(tmp_dl, "*.part"))
+        if not part_files:
+            ok("download_video: no .part file left after download failure")
+        else:
+            fail("download_video atomic", f"leftover .part files: {part_files}")
+
+        # ── partial file not visible under the final filename ──
+        partial_complete = os.path.join(tmp_dl, "fail_video.mp4")
+        if not os.path.exists(partial_complete):
+            ok("download_video: partial file not visible under final filename on failure")
+        else:
+            fail("download_video partial visible", f"file exists: {partial_complete}")
+
+    finally:
+        config.TMP_DIR = old_tmp
+        _shutil.rmtree(tmp_dl, ignore_errors=True)
+
+
+# ══════════════════════════════════════════════════════
+# 37. Disk space guard
+# ══════════════════════════════════════════════════════
+
+def test_disk_space_guard() -> None:
+    section("37 / Disk space guard — _check_disk_space() raises when low")
+
+    import run
+
+    # ── constant defined ──
+    try:
+        if run._MIN_FREE_GB == 5.0:
+            ok(f"_MIN_FREE_GB = {run._MIN_FREE_GB} GB defined in run.py")
+        else:
+            fail("_MIN_FREE_GB value", f"expected 5.0, got {run._MIN_FREE_GB}")
+    except AttributeError as e:
+        fail("_MIN_FREE_GB missing", str(e))
+        return
+
+    # ── raises when threshold is impossibly high (guaranteed failure on any machine) ──
+    old_min = run._MIN_FREE_GB
+    run._MIN_FREE_GB = 999_999.0
+    try:
+        run._check_disk_space()
+        fail("_check_disk_space impossibly high threshold", "expected RuntimeError, got none")
+    except RuntimeError as e:
+        if "Insufficient disk space" in str(e):
+            ok("_check_disk_space: raises RuntimeError when free < threshold")
+        else:
+            fail("_check_disk_space error message", f"unexpected error: {e}")
+    except Exception as e:
+        fail("_check_disk_space", str(e))
+    finally:
+        run._MIN_FREE_GB = old_min
+
+    # ── passes at normal threshold (5GB) on the test machine ──
+    try:
+        run._check_disk_space()
+        ok("_check_disk_space: passes with 5 GB threshold on test machine")
+    except RuntimeError:
+        ok("_check_disk_space: machine has <5 GB free — error correctly raised (acceptable in CI)")
+    except Exception as e:
+        fail("_check_disk_space normal threshold", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 38. Zero-clip named warning
+# ══════════════════════════════════════════════════════
+
+def test_zero_clip_warning() -> None:
+    section("38 / Zero-clip named warning — athlete label in log when no clips produced")
+
+    import logging
+    from unittest.mock import patch
+    from pipeline.editor import compile_multi_source_reel
+
+    appearances = [{"path": "/tmp/v.mp4", "events": [
+        {"type": "aerial", "start": 1.0, "end": 5.0, "score": 8,
+         "description": "", "crop_x": 0.5, "crop_y": 0.65,
+         "edit": {"zoom": 1.0, "slowmo": False, "focus": "full", "transition_out": "slide"}},
+    ]}]
+
+    # ── compile_multi_source_reel: warning with athlete_label when all clips fail ──
+    log_records: list = []
+
+    class _Capture(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            log_records.append(record)
+
+    editor_logger = logging.getLogger("pipeline.editor")
+    handler = _Capture()
+    editor_logger.addHandler(handler)
+    try:
+        with patch("pipeline.editor._cut_clip_with_qa", return_value=None), \
+             patch("pipeline.editor._get_source_fps", return_value=60.0), \
+             patch("pipeline.editor._get_source_info",
+                   return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
+                                 "width": 1080, "height": 1920}):
+            compile_multi_source_reel(appearances, sport="surfing", athlete_label="Jersey #7")
+
+        named = any("Jersey #7" in r.getMessage()
+                    for r in log_records if r.levelno == logging.WARNING)
+        if named:
+            ok("compile_multi_source_reel: warning logged with athlete_label when no clips")
+        else:
+            msgs = [r.getMessage() for r in log_records if r.levelno == logging.WARNING]
+            fail("compile_multi_source_reel zero-clip warning",
+                 f"no warning mentioning 'Jersey #7'; warnings={msgs}")
+    finally:
+        editor_logger.removeHandler(handler)
+
+    # ── create_reel: warning with athlete_label when all clips fail ──
+    log_records2: list = []
+
+    class _Capture2(logging.Handler):
+        def emit(self, record: logging.LogRecord) -> None:
+            log_records2.append(record)
+
+    handler2 = _Capture2()
+    editor_logger.addHandler(handler2)
+    try:
+        with patch("pipeline.editor._cut_clip_with_qa", return_value=None), \
+             patch("pipeline.editor._get_source_fps", return_value=60.0), \
+             patch("pipeline.editor._get_source_info",
+                   return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
+                                 "width": 1080, "height": 1920}):
+            events = [{"type": "aerial", "start": 1.0, "end": 5.0, "score": 8,
+                       "description": "", "crop_x": 0.5, "crop_y": 0.65,
+                       "edit": {"zoom": 1.0, "slowmo": False, "focus": "full",
+                                "transition_out": "slide"}}]
+            create_reel("/fake/v.mp4", events, sport="surfing", athlete_label="Rider #42")
+
+        named2 = any("Rider #42" in r.getMessage()
+                     for r in log_records2 if r.levelno == logging.WARNING)
+        if named2:
+            ok("create_reel: warning logged with athlete_label when no clips produced")
+        else:
+            msgs2 = [r.getMessage() for r in log_records2 if r.levelno == logging.WARNING]
+            fail("create_reel zero-clip warning",
+                 f"no warning mentioning 'Rider #42'; warnings={msgs2}")
+    finally:
+        editor_logger.removeHandler(handler2)
+
+
+# ══════════════════════════════════════════════════════
 # Summary
 # ══════════════════════════════════════════════════════
 
@@ -3069,6 +3333,10 @@ if __name__ == "__main__":
     test_video_chunking()
     test_qa_agent()
     test_style_fields()
+    test_staging_area()
+    test_atomic_download()
+    test_disk_space_guard()
+    test_zero_clip_warning()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

@@ -161,6 +161,13 @@ def _build_clusters_from_data(data: dict, clip_analyses: list[dict]) -> list[dic
         if not resolved:
             continue
 
+        # Warn when multi-clip cluster has uncertain confidence — operator should verify reel
+        if confidence in ("medium", "low") and len(resolved) > 1:
+            logger.warning(
+                "⚠️ Cluster '%s' spans %d clips with confidence=%s — check reel for mixed athletes",
+                cluster.get("description", "?"), len(resolved), confidence,
+            )
+
         # Low-confidence clusters spanning multiple clips are split to avoid false merges
         if confidence == "low" and len(resolved) > 1:
             for app in resolved:
