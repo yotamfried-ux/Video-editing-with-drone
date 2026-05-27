@@ -24,6 +24,10 @@ clients.json
 
 # Logs
 logs/*.log
+quality_issues.jsonl
+
+# Upload staging area
+pending_uploads/
 
 # macOS
 .DS_Store
