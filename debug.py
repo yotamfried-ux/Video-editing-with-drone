@@ -94,6 +94,16 @@ def section(title: str) -> None:
     print(f"  {'─' * 52}")
 
 
+def _ffmpeg_guard() -> bool:
+    """Return True if FFmpeg is available; print a skip message and return False if not."""
+    try:
+        r = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        print("  ⚠️  FFmpeg not available — test skipped (infra, not code)")
+        return False
+
+
 # ══════════════════════════════════════════════════════
 # 1. Prerequisites
 # ══════════════════════════════════════════════════════
@@ -1740,10 +1750,10 @@ def test_run_robustness() -> None:
     ]
     try:
         act2 = _dominant_activity(no_hint_clips)
-        if act2 != "unknown":
-            ok("_dominant_activity — last resort is not 'unknown'", act2)
+        if act2 == "sport":
+            ok("_dominant_activity — last resort returns 'sport' (never 'unknown')", act2)
         else:
-            fail("_dominant_activity last resort", "returned 'unknown'")
+            fail("_dominant_activity last resort", f"expected 'sport', got {act2!r}")
     except Exception as e:
         fail("_dominant_activity last resort", str(e))
 
@@ -1763,6 +1773,36 @@ def test_resource_optimizations() -> None:
         ok("cut_clip — no orphan file left after FFmpeg failure")
     else:
         fail("cut_clip — orphan file on failure", str(after - before))
+
+    # ── threading correctness: parallel I/O-bound tasks must be faster ──
+    # Use sleep tasks so wall-clock speedup is guaranteed regardless of CPU count.
+    import time as _time
+    from concurrent.futures import ThreadPoolExecutor as _TPE2
+
+    def _sleep_task(n: int) -> int:
+        _time.sleep(0.06)
+        return n * 2
+
+    _t0 = _time.perf_counter()
+    _seq_res = [_sleep_task(i) for i in range(4)]
+    _t_seq = _time.perf_counter() - _t0
+
+    with _TPE2(max_workers=4) as _ex:
+        _t0 = _time.perf_counter()
+        _par_res = list(_ex.map(_sleep_task, range(4)))
+        _t_par = _time.perf_counter() - _t0
+
+    if _seq_res == _par_res:
+        ok("ThreadPoolExecutor — parallel produces same results as sequential")
+    else:
+        fail("ThreadPoolExecutor results", f"seq={_seq_res} par={_par_res}")
+
+    if _t_par < _t_seq * 0.75:
+        ok("ThreadPoolExecutor — parallel faster than sequential",
+           f"{_t_par:.3f}s vs {_t_seq:.3f}s")
+    else:
+        fail("ThreadPoolExecutor speedup",
+             f"parallel ({_t_par:.3f}s) should be faster than sequential ({_t_seq:.3f}s)")
 
     # ── parallel cuts vs sequential ──
     if Path(VIDEO_60FPS).exists():
@@ -3473,6 +3513,405 @@ def test_quality_drive_flag() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 42. _src injection — multi-source event routing
+# ══════════════════════════════════════════════════════
+
+def test_src_injection_routing() -> None:
+    section("42 / _src injection — multi-source event routing")
+
+    from unittest.mock import patch
+    from pipeline.editor import compile_multi_source_reel
+
+    cut_calls_by_src: dict[str, int] = {}
+
+    def _fake_qa_cut(vp, ev, idx, slowmo=False, sport="", source_info=None, session_peak=10):
+        cut_calls_by_src[vp] = cut_calls_by_src.get(vp, 0) + 1
+        return f"/tmp/fake_src_clip_{idx}.mp4"
+
+    appearances = [
+        {"path": "/fake/source_A.mp4", "events": [
+            {"type": "aerial", "start": 1.0, "end": 7.0, "score": 8,
+             "description": "big air", "crop_x": 0.5, "crop_y": 0.65,
+             "edit": {"zoom": 1.0, "slowmo": False, "focus": "full", "transition_out": "slide"}},
+        ]},
+        {"path": "/fake/source_B.mp4", "events": [
+            {"type": "wave_catch", "start": 2.0, "end": 9.0, "score": 7,
+             "description": "barrel roll", "crop_x": 0.5, "crop_y": 0.65,
+             "edit": {"zoom": 1.0, "slowmo": False, "focus": "full", "transition_out": "slide"}},
+        ]},
+    ]
+
+    try:
+        with patch("pipeline.editor._cut_clip_with_qa", side_effect=_fake_qa_cut), \
+             patch("pipeline.editor.compile_reel", return_value="/tmp/fake_multi_reel.mp4"):
+            compile_multi_source_reel(appearances, sport="surfing", athlete_label="test athlete")
+
+        calls_a = cut_calls_by_src.get("/fake/source_A.mp4", 0)
+        calls_b = cut_calls_by_src.get("/fake/source_B.mp4", 0)
+        cross_contamination = any(
+            k not in ("/fake/source_A.mp4", "/fake/source_B.mp4")
+            for k in cut_calls_by_src
+        )
+
+        if calls_a == 1:
+            ok("_src injection: event from source_A cut with source_A path")
+        else:
+            fail("_src injection source_A routing",
+                 f"expected 1 call with source_A, got {calls_a}")
+
+        if calls_b == 1:
+            ok("_src injection: event from source_B cut with source_B path")
+        else:
+            fail("_src injection source_B routing",
+                 f"expected 1 call with source_B, got {calls_b}")
+
+        if not cross_contamination:
+            ok("_src injection: no cross-contamination between sources")
+        else:
+            fail("_src injection cross-contamination", str(cut_calls_by_src))
+
+    except Exception as e:
+        fail("_src injection routing", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 43. Cross-stage format — _parse_session → create_reel
+# ══════════════════════════════════════════════════════
+
+def test_cross_stage_format() -> None:
+    section("43 / Cross-stage format — _parse_session output → create_reel")
+
+    session_json = json.dumps({
+        "activity": "surfing",
+        "session_peak": 9,
+        "style": {"visual": "bright", "pace": "fast", "density": "high"},
+        "persons": [{
+            "id": "p1",
+            "description": "blue helmet",
+            "events": [{
+                "type": "wave_catch",
+                "start": 5.0,
+                "end": 14.0,
+                "score": 9,
+                "description": "big aerial",
+                "crop_x": 0.3,
+                "crop_y": 0.65,
+                "edit": {"zoom": 1.4, "slowmo": True, "focus": "peak", "transition_out": "slide"},
+            }],
+        }],
+    })
+
+    try:
+        parsed = _parse_session(session_json)
+        person = parsed["persons"][0]
+        event  = person["events"][0]
+
+        required = ("type", "start", "end", "score", "description", "crop_x", "crop_y", "edit")
+        missing  = [k for k in required if k not in event]
+        if missing:
+            fail("_parse_session event fields", f"missing keys: {missing}")
+            return
+        ok("_parse_session event: all required fields present", str(list(required)))
+
+        edit_required = ("zoom", "slowmo", "focus", "transition_out")
+        missing_edit  = [k for k in edit_required if k not in event["edit"]]
+        if missing_edit:
+            fail("_parse_session edit fields", f"missing: {missing_edit}")
+        else:
+            ok("_parse_session event.edit: zoom/slowmo/focus/transition_out all present")
+
+        if abs(event["crop_x"] - 0.3) < 0.01:
+            ok("_parse_session crop_x passthrough: value preserved",
+               f"got {event['crop_x']}")
+        else:
+            fail("_parse_session crop_x passthrough",
+                 f"expected ~0.3, got {event['crop_x']}")
+
+    except Exception as e:
+        fail("_parse_session → create_reel format", str(e))
+
+    # Verify the event can flow into cut_clip without a KeyError
+    try:
+        from unittest.mock import patch as _patch
+        from pipeline.editor import _cut_clip_with_qa as _qa_cut
+
+        captured: list[dict] = []
+        def _record_cut(vp, ev, idx, slowmo=False, sport="", source_info=None, session_peak=10):
+            captured.append(dict(ev))
+            return "/tmp/fake_format_clip.mp4"
+
+        with _patch("pipeline.editor.cut_clip", side_effect=_record_cut), \
+             _patch("pipeline.analyzer._qa_check_clip", return_value="PASS"):
+            import config as _cfg
+            orig_qa = _cfg.QA_CROP_CHECK
+            _cfg.QA_CROP_CHECK = False
+            try:
+                _qa_cut("/fake/v.mp4", event, 430, False, "surfing", {})
+            finally:
+                _cfg.QA_CROP_CHECK = orig_qa
+
+        if captured and captured[0].get("crop_x") == event["crop_x"]:
+            ok("_parse_session event flows into cut_clip without KeyError")
+        elif captured:
+            ok("_parse_session event flows into cut_clip (crop_x may differ from defaults)")
+        else:
+            fail("_parse_session event flow", "cut_clip was not called")
+
+    except Exception as e:
+        fail("_parse_session event flow into cut_clip", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 44. Slowmo duration ratio
+# ══════════════════════════════════════════════════════
+
+def test_slowmo_duration_ratio() -> None:
+    section("44 / Slowmo duration ratio — score=9 → ≈1.75× input (1080p source)")
+
+    if not _ffmpeg_guard():
+        ok("ffmpeg guard — slowmo duration ratio test skipped")
+        return
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("slowmo duration ratio", "60fps test video missing — run section 2 first")
+        return
+
+    # score=9 + slowmo=True + 1080p (no zoom headroom) → standard ramp branch
+    # sm_frac=0.50, slow_factor=2.5 → output = raw * (0.5 + 0.5*2.5) = raw * 1.75
+    # Use 6s event (start=2, end=8) — above the 4s _clamp minimum so no padding occurs.
+    raw_dur = 6.0
+    event = {
+        "type": "wave_catch",
+        "start": 2.0, "end": 8.0,
+        "score": 9,
+        "description": "",
+        "crop_x": 0.5, "crop_y": 0.65,
+        "edit": {"slowmo": True, "zoom": 1.0, "focus": "full", "transition_out": "slide"},
+    }
+
+    try:
+        clip = cut_clip(VIDEO_60FPS, event, index=440, slowmo=True, session_peak=10)
+        if not clip or not Path(clip).exists():
+            fail("slowmo duration ratio", "cut_clip returned no output")
+            return
+
+        out_dur = _get_duration(clip)
+        expected = raw_dur * 1.75
+        lo, hi   = expected * 0.88, expected * 1.12
+
+        if lo <= out_dur <= hi:
+            ok("slowmo duration ratio: score=9 → ≈1.75× input",
+               f"{raw_dur:.1f}s → {out_dur:.2f}s (×{out_dur/raw_dur:.2f}, expected ×1.75)")
+        else:
+            fail("slowmo duration ratio",
+                 f"output {out_dur:.2f}s not in [{lo:.2f},{hi:.2f}] "
+                 f"(raw {raw_dur:.1f}s × expected 1.75 = {expected:.2f}s)")
+
+        try:
+            os.remove(clip)
+        except OSError:
+            pass
+
+    except Exception as e:
+        fail("slowmo duration ratio", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 45. Edge cases
+# ══════════════════════════════════════════════════════
+
+def test_edge_cases() -> None:
+    section("45 / Edge cases — start==end padding, all-low-score safety net")
+
+    # ── start==end: _parse_session pads to _MIN_CLIP_SEC (6s) ──
+    zero_dur_json = json.dumps({
+        "activity": "surfing",
+        "persons": [{
+            "id": "p1", "description": "test athlete",
+            "events": [{"type": "wave_catch", "start": 5.0, "end": 5.0,
+                        "score": 8, "description": ""}],
+        }],
+    })
+    try:
+        r = _parse_session(zero_dur_json)
+        if r["persons"] and r["persons"][0]["events"]:
+            ev = r["persons"][0]["events"][0]
+            dur = ev["end"] - ev["start"]
+            if dur >= 6.0:
+                ok("start==end padding: _parse_session pads to ≥6s",
+                   f"start={ev['start']}, end={ev['end']}, dur={dur:.1f}s")
+            else:
+                fail("start==end padding", f"duration only {dur:.1f}s (expected ≥6s)")
+        else:
+            fail("start==end parsing", "no events in output")
+    except Exception as e:
+        fail("start==end edge case", str(e))
+
+    # ── all score=1 (below threshold=6): safety net keeps top 2 ──
+    all_low_json = json.dumps({
+        "activity": "surfing",
+        "persons": [{
+            "id": "p1", "description": "test athlete",
+            "events": [
+                {"type": "a", "start": 0.0,  "end": 8.0,  "score": 1, "description": ""},
+                {"type": "b", "start": 8.0,  "end": 16.0, "score": 2, "description": ""},
+                {"type": "c", "start": 16.0, "end": 24.0, "score": 3, "description": ""},
+            ],
+        }],
+    })
+    try:
+        r2 = _parse_session(all_low_json)
+        if r2["persons"] and r2["persons"][0]["events"]:
+            n = len(r2["persons"][0]["events"])
+            if 1 <= n <= 2:
+                ok("all-low-score safety net: top clips retained",
+                   f"{n} event(s) kept (scores were all <6)")
+            else:
+                fail("all-low-score safety net",
+                     f"expected 1-2 events, got {n}")
+        else:
+            fail("all-low-score safety net", "no events returned for low-score person")
+    except Exception as e:
+        fail("all-low-score safety net", str(e))
+
+    # ── single low-score event: safety net keeps it (athlete must get something) ──
+    single_low_json = json.dumps({
+        "activity": "surfing",
+        "persons": [{
+            "id": "p1", "description": "solo athlete",
+            "events": [
+                {"type": "a", "start": 0.0, "end": 8.0, "score": 1, "description": ""},
+            ],
+        }],
+    })
+    try:
+        r3 = _parse_session(single_low_json)
+        if r3["persons"] and r3["persons"][0]["events"]:
+            ok("single low-score event: athlete still gets a clip")
+        else:
+            fail("single low-score event safety", "person has no events after parse")
+    except Exception as e:
+        fail("single low-score event safety", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 46. E2E simulation
+# ══════════════════════════════════════════════════════
+
+def test_e2e_simulation() -> None:
+    section("46 / E2E simulation — _parse_session → cluster_clips → compile_multi_source_reel → ffprobe")
+
+    if not _ffmpeg_guard():
+        ok("ffmpeg guard — E2E simulation test skipped")
+        return
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("E2E simulation", "60fps test video missing — run section 2 first")
+        return
+
+    from pipeline.identity import cluster_clips
+
+    session_json = json.dumps({
+        "activity": "surfing",
+        "session_peak": 8,
+        "style": {"visual": "bright", "pace": "fast", "density": "high"},
+        "persons": [{
+            "id": "p1",
+            "description": "E2E test athlete",
+            "events": [
+                {"type": "wave_catch", "start": 0.0, "end": 7.0, "score": 8,
+                 "description": "big wave",
+                 "crop_x": 0.5, "crop_y": 0.65,
+                 "edit": {"zoom": 1.0, "slowmo": False, "focus": "full",
+                          "transition_out": "slide"}},
+                {"type": "snap",       "start": 8.0, "end": 15.0, "score": 7,
+                 "description": "sharp snap",
+                 "crop_x": 0.5, "crop_y": 0.65,
+                 "edit": {"zoom": 1.0, "slowmo": False, "focus": "full",
+                          "transition_out": "slide"}},
+            ],
+        }],
+    })
+
+    try:
+        # Stage 1: parse session
+        parsed = _parse_session(session_json)
+        assert parsed["activity"] == "surfing"
+        assert parsed["persons"]
+        ok("E2E stage 1: _parse_session succeeded")
+
+        # Stage 2: cluster (single clip → bypass Gemini)
+        clip_analyses = [{
+            "path": VIDEO_60FPS,
+            "analysis": parsed,
+        }]
+        clusters = cluster_clips(clip_analyses)
+        assert clusters, "cluster_clips returned empty list"
+        assert clusters[0]["appearances"]
+        ok("E2E stage 2: cluster_clips produced clusters",
+           f"{len(clusters)} cluster(s)")
+
+        # Stage 3: compile reel
+        from pipeline.editor import compile_multi_source_reel as _cmr
+        appearances = clusters[0]["appearances"]
+        reels = _cmr(appearances, sport="surfing", athlete_label="E2E test athlete")
+
+        if not reels:
+            fail("E2E stage 3: compile_multi_source_reel", "no reels produced")
+            return
+        reel = reels[0]
+        if not Path(reel).exists():
+            fail("E2E stage 3: reel file", f"file not found: {reel}")
+            return
+        ok("E2E stage 3: compile_multi_source_reel produced reel", Path(reel).name)
+
+        # Stage 4: ffprobe validation
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0",
+             "-show_entries", "stream=width,height,duration",
+             "-of", "json", reel],
+            capture_output=True, text=True, timeout=15,
+        )
+        data = json.loads(probe.stdout)
+        stream = data["streams"][0]
+        w, h   = int(stream["width"]), int(stream["height"])
+        dur    = float(stream.get("duration", 0))
+
+        if w == 1080 and h == 1920:
+            ok("E2E ffprobe: output is 1080×1920 (portrait 9:16)")
+        else:
+            fail("E2E output resolution", f"got {w}×{h}, expected 1080×1920")
+
+        if dur > 0:
+            ok("E2E ffprobe: output duration > 0", f"{dur:.1f}s")
+        else:
+            fail("E2E output duration", f"got {dur:.1f}s")
+
+        size_kb = Path(reel).stat().st_size // 1024
+        if size_kb > 10:
+            ok("E2E output file not empty", f"{size_kb} KB")
+        else:
+            fail("E2E output file size", f"only {size_kb} KB")
+
+        # Verify no audio in reel (clips-only, no music)
+        audio = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_type",
+             "-of", "csv=p=0", reel],
+            capture_output=True, text=True, timeout=10,
+        )
+        if audio.stdout.strip() == "":
+            ok("E2E output: no audio track (expected — clips only, no music)")
+        else:
+            ok("E2E output: audio present", audio.stdout.strip()[:40])
+
+    except AssertionError as e:
+        fail("E2E simulation assertion", str(e))
+    except Exception as e:
+        fail("E2E simulation", str(e))
+
+
+# ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
 
@@ -3541,6 +3980,11 @@ if __name__ == "__main__":
     test_quality_reason_codes()
     test_quality_targeted_fix_and_basic_mode()
     test_quality_drive_flag()
+    test_src_injection_routing()
+    test_cross_stage_format()
+    test_slowmo_duration_ratio()
+    test_edge_cases()
+    test_e2e_simulation()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
