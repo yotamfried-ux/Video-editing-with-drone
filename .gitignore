@@ -18,6 +18,7 @@ build/
 /tmp/
 processed.json
 delivered.json
+reels_metadata.json
 
 # Client list with real emails — use clients.json.example as template
 clients.json
