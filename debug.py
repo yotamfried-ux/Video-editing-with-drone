@@ -3912,6 +3912,324 @@ def test_e2e_simulation() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 47. Gemini schema fixture test
+# ══════════════════════════════════════════════════════
+
+def test_gemini_schema_fixture() -> None:
+    section("47 / Gemini schema fixture — _parse_session + _parse_analysis realistic responses")
+
+    from pipeline.analyzer import _parse_analysis
+
+    # ── 47a: _parse_session with the exact example JSON from _IDENTITY_PROMPT ──
+    fixture = json.dumps({
+        "activity": "surfing",
+        "session_peak": 9,
+        "style": {"visual": "bright", "pace": "moderate", "density": "high"},
+        "persons": [{
+            "id": "person_A",
+            "description": "surfer with red board and black wetsuit",
+            "events": [
+                {"type": "aerial", "start": 12.0, "end": 21.5, "score": 9,
+                 "description": "Launches off the lip into a full rotation above the wave.",
+                 "crop_x": 0.4, "crop_y": 0.35,
+                 "edit": {"zoom": 1.4, "slowmo": True, "focus": "peak",
+                          "transition_out": "fade"}},
+                {"type": "wave_catch", "start": 35.0, "end": 44.0, "score": 7,
+                 "description": "Catches a shoulder-high wave and paddles into position.",
+                 "crop_x": 0.55, "crop_y": 0.72,
+                 "edit": {"zoom": 1.1, "slowmo": False, "focus": "full",
+                          "transition_out": "slide"}},
+            ],
+        }],
+    })
+    try:
+        r = _parse_session(fixture)
+        assert r["activity"] == "surfing", f"activity={r['activity']!r}"
+        assert r["session_peak"] == 9, f"session_peak={r['session_peak']}"
+        assert r["style"] == {"visual": "bright", "pace": "moderate", "density": "high"}
+        p = r["persons"][0]
+        assert p["description"] == "surfer with red board and black wetsuit"
+        ev = p["events"][0]
+        assert ev["type"] == "aerial"
+        assert abs(ev["edit"]["zoom"] - 1.4) < 0.01, f"zoom={ev['edit']['zoom']}"
+        assert ev["edit"]["slowmo"] is True, "slowmo should be True"
+        assert ev["edit"]["focus"] == "peak"
+        assert abs(ev["crop_x"] - 0.4) < 0.01, f"crop_x={ev['crop_x']}"
+        ok("_parse_session: prompt fixture parses correctly (activity, session_peak, style, edit)")
+    except (AssertionError, Exception) as e:
+        fail("_parse_session prompt fixture", str(e))
+
+    # ── 47b: _parse_analysis with realistic single-video Gemini response ──
+    analysis_fixture = json.dumps({
+        "activity": "Skateboarding",
+        "events": [{
+            "type": "aerial", "start": 5.0, "end": 15.0, "score": 9,
+            "description": "Backside 360 over the hip.",
+            "crop_x": 0.45, "crop_y": 0.4,
+            "edit": {"zoom": 1.3, "slowmo": True, "focus": "peak",
+                     "transition_out": "cut"},
+        }],
+    })
+    try:
+        r2 = _parse_analysis(analysis_fixture)
+        assert r2["activity"] == "skateboarding", f"expected 'skateboarding', got {r2['activity']!r}"
+        assert r2["events"][0]["score"] == 9
+        assert r2["events"][0]["edit"]["slowmo"] is True
+        assert r2["events"][0]["edit"]["transition_out"] == "cut"
+        ok("_parse_analysis: activity lowercased, edit fields preserved")
+    except (AssertionError, Exception) as e:
+        fail("_parse_analysis realistic fixture", str(e))
+
+    # ── 47c: Gemini quirks ──
+    # Markdown fences
+    try:
+        fenced = f"```json\n{fixture}\n```"
+        r3 = _parse_session(fenced)
+        assert r3["activity"] == "surfing"
+        ok("_parse_session: markdown fences stripped correctly")
+    except Exception as e:
+        fail("_parse_session markdown fences", str(e))
+
+    # Missing edit field → defaults filled
+    try:
+        no_edit = json.dumps({
+            "activity": "surfing",
+            "persons": [{"id": "p1", "description": "test",
+                         "events": [{"type": "wave_catch", "start": 0.0, "end": 8.0,
+                                     "score": 8, "description": ""}]}],
+        })
+        r4 = _parse_session(no_edit)
+        ev4 = r4["persons"][0]["events"][0]
+        assert ev4["edit"]["zoom"] == 1.0, f"zoom default failed: {ev4['edit']['zoom']}"
+        assert ev4["edit"]["slowmo"] is False
+        assert ev4["edit"]["focus"] == "peak"
+        assert ev4["edit"]["transition_out"] == "slide"
+        ok("_parse_session: missing edit field → safe defaults (zoom=1.0, slowmo=False)")
+    except (AssertionError, Exception) as e:
+        fail("_parse_session missing edit defaults", str(e))
+
+    # String score coercion
+    try:
+        str_score = json.dumps({
+            "activity": "surfing",
+            "persons": [{"id": "p1", "description": "test",
+                         "events": [{"type": "wave_catch", "start": 0.0, "end": 8.0,
+                                     "score": "8", "description": ""}]}],
+        })
+        r5 = _parse_session(str_score)
+        score = r5["persons"][0]["events"][0]["score"]
+        assert isinstance(score, int), f"score should be int, got {type(score)}"
+        assert score == 8
+        ok("_parse_session: string score '8' coerced to int")
+    except (AssertionError, Exception) as e:
+        fail("_parse_session string score coercion", str(e))
+
+    # Short event padded to _MIN_CLIP_SEC (6s) in _parse_analysis
+    try:
+        short_ev = json.dumps({
+            "activity": "surfing",
+            "events": [{"type": "snap", "start": 10.0, "end": 11.0,
+                        "score": 8, "description": ""}],
+        })
+        r6 = _parse_analysis(short_ev)
+        dur6 = r6["events"][0]["end"] - r6["events"][0]["start"]
+        assert dur6 >= 6.0, f"expected ≥6s, got {dur6:.1f}s"
+        ok("_parse_analysis: short event padded to ≥6s", f"{dur6:.1f}s")
+    except (AssertionError, Exception) as e:
+        fail("_parse_analysis short event padding", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 48. E2E 2 athletes
+# ══════════════════════════════════════════════════════
+
+def test_e2e_two_athletes() -> None:
+    section("48 / E2E 2 athletes — 2 persons → 2 separate reels, both ffprobe-valid")
+
+    if not _ffmpeg_guard():
+        ok("ffmpeg guard — E2E 2 athletes test skipped")
+        return
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("E2E 2 athletes", "60fps test video missing — run section 2 first")
+        return
+
+    from pipeline.identity import cluster_clips
+    from pipeline.editor   import compile_multi_source_reel as _cmr
+
+    # Each athlete comes from a different source video so clip filenames can't collide
+    # (filenames are {video_stem}_clip{idx:02d}.mp4 — different stems = different files).
+    def _ev(t, s, e, score):
+        return {"type": t, "start": s, "end": e, "score": score, "description": "",
+                "crop_x": 0.5, "crop_y": 0.65,
+                "edit": {"zoom": 1.0, "slowmo": False, "focus": "full",
+                         "transition_out": "slide"}}
+
+    if not Path(VIDEO_30FPS).exists():
+        fail("E2E 2 athletes", "30fps test video missing — run section 2 first")
+        return
+
+    session_a = json.dumps({
+        "activity": "surfing", "session_peak": 8,
+        "style": {"visual": "bright", "pace": "moderate", "density": "high"},
+        "persons": [{"id": "p1", "description": "red board athlete",
+                     "events": [_ev("wave_catch", 0.0, 7.0, 8), _ev("snap", 8.0, 15.0, 7)]}],
+    })
+    session_b = json.dumps({
+        "activity": "surfing", "session_peak": 8,
+        "style": {"visual": "bright", "pace": "moderate", "density": "high"},
+        "persons": [{"id": "p2", "description": "blue board athlete",
+                     "events": [_ev("wave_catch", 1.0, 8.0, 7), _ev("aerial", 9.0, 16.0, 8)]}],
+    })
+
+    try:
+        parsed_a = _parse_session(session_a)
+        parsed_b = _parse_session(session_b)
+        assert parsed_a["persons"] and parsed_b["persons"]
+        ok("E2E 2 athletes stage 1: _parse_session → 2 separate athlete sessions")
+
+        # Each athlete's clips come from a different source → no filename collision
+        clusters = (
+            cluster_clips([{"path": VIDEO_60FPS, "analysis": parsed_a}]) +
+            cluster_clips([{"path": VIDEO_30FPS, "analysis": parsed_b}])
+        )
+        assert len(clusters) == 2, f"expected 2 clusters, got {len(clusters)}"
+        ok("E2E 2 athletes stage 2: cluster_clips → 2 clusters, different source videos")
+
+        all_reels: list[str] = []
+        for cluster in clusters:
+            reels = _cmr(cluster["appearances"], sport="surfing",
+                         athlete_label=cluster["description"])
+            all_reels.extend(reels)
+
+        if len(all_reels) < 2:
+            fail("E2E 2 athletes stage 3", f"expected ≥2 reels, got {len(all_reels)}")
+            return
+        ok("E2E 2 athletes stage 3: compile_multi_source_reel → 2 reels produced",
+           f"{len(all_reels)} reel(s)")
+
+        reel_names = [Path(r).name for r in all_reels]
+        if len(set(reel_names)) == len(reel_names):
+            ok("E2E 2 athletes: reels have distinct filenames")
+        else:
+            fail("E2E 2 athletes distinct filenames", f"duplicates in {reel_names}")
+
+        for reel in all_reels[:2]:
+            if not Path(reel).exists():
+                fail("E2E 2 athletes reel file", f"not found: {reel}")
+                continue
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0",
+                 "-show_entries", "stream=width,height,duration",
+                 "-of", "json", reel],
+                capture_output=True, text=True, timeout=15,
+            )
+            data   = json.loads(probe.stdout)
+            stream = data["streams"][0]
+            w, h   = int(stream["width"]), int(stream["height"])
+            dur    = float(stream.get("duration", 0))
+            name   = Path(reel).name
+            if w == 1080 and h == 1920 and dur > 0:
+                ok(f"E2E 2 athletes ffprobe: {name} is 1080×1920, {dur:.1f}s")
+            else:
+                fail(f"E2E 2 athletes ffprobe {name}",
+                     f"got {w}×{h} dur={dur:.1f}s — expected 1080×1920 >0s")
+
+    except AssertionError as e:
+        fail("E2E 2 athletes assertion", str(e))
+    except Exception as e:
+        fail("E2E 2 athletes", str(e))
+
+
+# ══════════════════════════════════════════════════════
+# 49. _process_clips_session integration
+# ══════════════════════════════════════════════════════
+
+def test_process_clips_session_integration() -> None:
+    section("49 / _process_clips_session integration — download mock + real compile + upload capture")
+
+    if not _ffmpeg_guard():
+        ok("ffmpeg guard — _process_clips_session integration test skipped")
+        return
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("_process_clips_session integration", "60fps test video missing — run section 2 first")
+        return
+
+    import shutil
+    from unittest.mock import patch
+    import run
+
+    # Copy VIDEO_60FPS since _process_clips_session will delete the local file
+    test_copy = os.path.join(DEBUG_DIR, "clips_session_int_test.mp4")
+    shutil.copy2(VIDEO_60FPS, test_copy)
+
+    synthetic_session = {
+        "activity": "surfing",
+        "session_peak": 8,
+        "style": {"visual": "bright", "pace": "moderate", "density": "high"},
+        "persons": [{
+            "id": "p1",
+            "description": "integration test surfer",
+            "events": [
+                {"type": "wave_catch", "start": 0.0, "end": 7.0, "score": 8,
+                 "description": "", "crop_x": 0.5, "crop_y": 0.65,
+                 "edit": {"zoom": 1.0, "slowmo": False, "focus": "full",
+                          "transition_out": "slide"}},
+                {"type": "snap", "start": 8.0, "end": 15.0, "score": 7,
+                 "description": "", "crop_x": 0.5, "crop_y": 0.65,
+                 "edit": {"zoom": 1.0, "slowmo": False, "focus": "full",
+                          "transition_out": "slide"}},
+            ],
+        }],
+    }
+
+    uploaded: list[str] = []
+
+    try:
+        with patch("run.download_video",    return_value=test_copy), \
+             patch("run.analyze_session",   return_value=synthetic_session), \
+             patch("run.upload_draft",      side_effect=lambda p, n: uploaded.append(p)), \
+             patch("run.mark_as_processed"), \
+             patch("run.record_failure",    return_value=False), \
+             patch("run.flag_quality_issue"):
+            drafts = run._process_clips_session([{
+                "id": "f1", "name": "clips_session_int_test.mp4", "size": "1000000",
+            }])
+
+        if drafts > 0:
+            ok("_process_clips_session integration: returned drafts > 0", f"{drafts} draft(s)")
+        else:
+            fail("_process_clips_session integration drafts",
+                 "returned 0 drafts — compile or upload failed")
+            return
+
+        if uploaded:
+            ok("_process_clips_session integration: upload_draft called",
+               f"{len(uploaded)} upload(s)")
+        else:
+            fail("_process_clips_session integration upload", "upload_draft was never called")
+            return
+
+        # The upload_draft mock captured the reel path — verify it's an mp4
+        # (the actual file was deleted after upload, which is correct behaviour)
+        reel_path = uploaded[0]
+        if reel_path.endswith(".mp4"):
+            ok("_process_clips_session integration: uploaded file is .mp4",
+               Path(reel_path).name)
+        else:
+            fail("_process_clips_session integration reel format",
+                 f"expected .mp4, got {reel_path}")
+
+    except Exception as e:
+        fail("_process_clips_session integration", str(e))
+        try:
+            os.remove(test_copy)
+        except OSError:
+            pass
+
+
+# ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
 
@@ -3985,6 +4303,9 @@ if __name__ == "__main__":
     test_slowmo_duration_ratio()
     test_edge_cases()
     test_e2e_simulation()
+    test_gemini_schema_fixture()
+    test_e2e_two_athletes()
+    test_process_clips_session_integration()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
