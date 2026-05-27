@@ -11,13 +11,58 @@ import random
 import re
 import shutil
 import subprocess
+import threading
 from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 
 import config
 
 logger = logging.getLogger(__name__)
+
+# ── Quality issue accumulator (thread-safe — clips cut in parallel) ────────
+_quality_issues: list[dict] = []
+_quality_lock   = threading.Lock()
+
+
+def _log_quality_issue(video_path: str, event: dict, reason: str,
+                        source_info: dict, mode: str) -> None:
+    """Append a quality issue to the in-memory accumulator and quality_issues.jsonl."""
+    entry = {
+        "ts":            datetime.now().isoformat(timespec="seconds"),
+        "video":         Path(video_path).name,
+        "event_type":    event.get("type"),
+        "reason":        reason,
+        "mode":          mode,   # "targeted_fix" | "fixed" | "basic_mode"
+        "resolution":    f"{source_info.get('width', 0)}x{source_info.get('height', 0)}",
+        "fps":           source_info.get("fps"),
+        "zoom_headroom": source_info.get("zoom_headroom"),
+    }
+    with _quality_lock:
+        _quality_issues.append(entry)
+    try:
+        with open(config.QUALITY_LOG_FILE, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    except OSError as e:
+        logger.warning("Could not write quality log: %s", e)
+
+
+def drain_quality_issues() -> list[dict]:
+    """Return and clear accumulated quality issues since last call (called by run.py)."""
+    with _quality_lock:
+        issues = list(_quality_issues)
+        _quality_issues.clear()
+        return issues
+
+
+def _safe_remove(path: str | None) -> None:
+    if path:
+        try:
+            os.remove(path)
+        except OSError:
+            pass
+
 
 REEL_W, REEL_H  = 1080, 1920
 XFADE_DUR       = 0.5    # חפיפה בין קליפים (שניות) — מינימום מומלץ לרילס
@@ -658,29 +703,48 @@ def _cut_clip_with_qa(
     source_info: dict | None = None,
     session_peak: int = 10,
 ) -> str | None:
-    """cut_clip() wrapper that optionally validates crop and retries once on QA FAIL."""
+    """cut_clip() wrapper: QA → reason-specific fix → basic mode fallback."""
     clip = cut_clip(video_path, event, index, slowmo, sport, source_info, session_peak)
-    if clip and config.QA_CROP_CHECK:
-        from pipeline.analyzer import _qa_check_clip
-        if not _qa_check_clip(clip, event):
-            orig_cx = event.get("crop_x", 0.5)
-            corrected_cx = round(0.5 + (0.5 - orig_cx) * 0.5, 4)
-            logger.warning("QA: FAIL %s → retry crop_x %.3f→%.3f",
-                           Path(clip).name, orig_cx, corrected_cx)
-            print(f"  ⚠️ QA FAIL — retrying with crop_x={corrected_cx:.2f}")
-            try:
-                os.remove(clip)
-            except OSError:
-                pass
-            corrected_event = {**event, "crop_x": corrected_cx}
-            retry = cut_clip(video_path, corrected_event, index + 500,
-                             slowmo, sport, source_info, session_peak)
-            if retry:
-                print(f"  ✅ QA retry: crop corrected to {corrected_cx:.2f}")
-                return retry
-            # retry also failed — fall through to re-cut original
-            return cut_clip(video_path, event, index + 1000, slowmo, sport, source_info, session_peak)
-    return clip
+    if not clip or not config.QA_CROP_CHECK:
+        return clip
+
+    from pipeline.analyzer import _qa_check_clip
+    reason = _qa_check_clip(clip, event)
+    if reason == "PASS":
+        return clip
+
+    # Stage 1 failed — log and apply targeted fix
+    si = source_info or {}
+    logger.warning("QA %s clip %d (%s)", reason, index, Path(clip).name)
+    print(f"  ⚠️ QA {reason} — retrying with targeted fix...")
+    _log_quality_issue(video_path, event, reason, si, "targeted_fix")
+    _safe_remove(clip)
+
+    if reason == "FRAMING":
+        cx = event.get("crop_x", 0.5)
+        corrected = {**event, "crop_x": round(0.5 + (0.5 - cx) * 0.5, 4)}
+        retry = cut_clip(video_path, corrected, index + 500, slowmo, sport, source_info, session_peak)
+    elif reason == "POOR_CLOSEUP":
+        corrected = {**event, "edit": {**event.get("edit", {}), "zoom": 1.0, "focus": "full"}}
+        retry = cut_clip(video_path, corrected, index + 500, slowmo, sport, source_info, session_peak)
+    elif reason == "MOTION_BLUR":
+        retry = cut_clip(video_path, event, index + 500, False, sport, source_info, session_peak)
+    else:
+        # LIGHTING or unrecognised — targeted fix won't help; go straight to basic
+        retry = None
+
+    # Stage 2: check if targeted fix resolved it
+    if retry and _qa_check_clip(retry, event) == "PASS":
+        _log_quality_issue(video_path, event, reason, si, "fixed")
+        return retry
+
+    # Stage 3 final — basic mode: full width, no zoom, no slow-mo. No further QA.
+    _safe_remove(retry)
+    _log_quality_issue(video_path, event, reason, si, "basic_mode")
+    print(f"  📽️  Basic mode — full width, no zoom, no slow-mo")
+    basic = {**event, "edit": {**event.get("edit", {}), "zoom": 1.0,
+                               "slowmo": False, "focus": "full"}}
+    return cut_clip(video_path, basic, index + 1000, False, sport, source_info, session_peak)
 
 
 def cut_clip(

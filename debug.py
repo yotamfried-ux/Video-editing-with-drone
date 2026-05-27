@@ -3122,12 +3122,14 @@ def test_video_chunking() -> None:
 
 
 def test_qa_agent() -> None:
-    section("33 / QA agent — crop validation + retry on FAIL")
+    section("33 / QA agent — reason-code QA + FRAMING retry")
 
     from unittest.mock import patch, MagicMock
     from pipeline.analyzer import _qa_check_clip
 
-    # ── 1: Gemini returns PASS → _qa_check_clip returns True ──
+    event = {"start": 0.0, "end": 10.0, "crop_x": 0.5, "crop_y": 0.65}
+
+    # ── 1: Gemini returns PASS → _qa_check_clip returns "PASS" ──
     mock_resp_pass = MagicMock()
     mock_resp_pass.text = "PASS"
     mock_model = MagicMock()
@@ -3137,16 +3139,15 @@ def test_qa_agent() -> None:
          patch("pipeline.analyzer.genai") as mock_genai:
         mock_genai.upload_file.return_value = MagicMock(name="files/abc")
         mock_genai.GenerativeModel.return_value = mock_model
-        event = {"start": 0.0, "end": 10.0, "crop_x": 0.5, "crop_y": 0.65}
         result = _qa_check_clip("/tmp/clip.mp4", event)
-        if result is True:
-            ok("_qa_check_clip: Gemini PASS → returns True")
+        if result == "PASS":
+            ok("_qa_check_clip: Gemini PASS → returns 'PASS'")
         else:
-            fail("_qa_check_clip PASS", f"got {result}")
+            fail("_qa_check_clip PASS", f"got {result!r}")
 
-    # ── 2: Gemini returns FAIL → _qa_check_clip returns False ──
+    # ── 2: Gemini returns POOR_CLOSEUP → returns reason code ──
     mock_resp_fail = MagicMock()
-    mock_resp_fail.text = "FAIL"
+    mock_resp_fail.text = "POOR_CLOSEUP"
     mock_model_fail = MagicMock()
     mock_model_fail.generate_content.return_value = mock_resp_fail
 
@@ -3155,52 +3156,54 @@ def test_qa_agent() -> None:
         mock_genai2.upload_file.return_value = MagicMock(name="files/xyz")
         mock_genai2.GenerativeModel.return_value = mock_model_fail
         result2 = _qa_check_clip("/tmp/clip.mp4", event)
-        if result2 is False:
-            ok("_qa_check_clip: Gemini FAIL → returns False")
+        if result2 == "POOR_CLOSEUP":
+            ok("_qa_check_clip: Gemini POOR_CLOSEUP → returns reason code")
         else:
-            fail("_qa_check_clip FAIL", f"got {result2}")
+            fail("_qa_check_clip reason code", f"got {result2!r}")
 
-    # ── 3: Gemini exception → returns True (never drop clip on error) ──
+    # ── 3: Gemini exception → returns "PASS" (fail-open, never drops clip) ──
     with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
          patch("pipeline.analyzer.genai") as mock_genai3:
         mock_genai3.upload_file.side_effect = RuntimeError("network error")
         result3 = _qa_check_clip("/tmp/clip.mp4", event)
-        if result3 is True:
-            ok("_qa_check_clip: Gemini error → returns True (fail-open, never drops clip)")
+        if result3 == "PASS":
+            ok("_qa_check_clip: Gemini error → returns 'PASS' (fail-open, never drops clip)")
         else:
-            fail("_qa_check_clip error fallback", f"got {result3}")
+            fail("_qa_check_clip error fallback", f"got {result3!r}")
 
-    # ── 4: _cut_clip_with_qa retries with corrected crop_x on FAIL ──
+    # ── 4: _cut_clip_with_qa FRAMING → corrects crop_x toward center ──
     import config as _cfg
     from pipeline.editor import _cut_clip_with_qa
 
-    cut_results = ["/tmp/clip_orig.mp4", "/tmp/clip_retry.mp4"]
     cut_calls: list[dict] = []
+    qa_responses = ["FRAMING", "PASS"]   # first call fails, retry passes
 
     def _fake_cut(vp, ev, idx, slowmo=False, sport="", src_info=None, session_peak=10):
-        cut_calls.append({"crop_x": ev.get("crop_x", 0.5)})
-        return cut_results[len(cut_calls) - 1]
+        cut_calls.append({"crop_x": ev.get("crop_x", 0.5), "edit": ev.get("edit", {})})
+        return f"/tmp/clip_{idx}.mp4"
 
     orig_qa = _cfg.QA_CROP_CHECK
     _cfg.QA_CROP_CHECK = True
     try:
         with patch("pipeline.editor.cut_clip", side_effect=_fake_cut), \
-             patch("pipeline.analyzer._qa_check_clip", return_value=False), \
+             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_responses), \
              patch("os.remove"):
             ev = {"start": 0.0, "end": 10.0, "score": 8, "type": "aerial",
                   "crop_x": 0.2, "crop_y": 0.65}
             _cut_clip_with_qa("/fake/v.mp4", ev, 1, False, "surfing", {})
             if len(cut_calls) >= 2:
-                orig_cx = cut_calls[0]["crop_x"]
-                retry_cx = cut_calls[1]["crop_x"]
-                expected_cx = round(0.5 + (0.5 - 0.2) * 0.5, 4)
-                if abs(retry_cx - expected_cx) < 0.01:
-                    ok(f"_cut_clip_with_qa: QA FAIL → retry crop_x corrected toward center "
+                orig_cx   = cut_calls[0]["crop_x"]
+                retry_cx  = cut_calls[1]["crop_x"]
+                expected  = round(0.5 + (0.5 - 0.2) * 0.5, 4)
+                if abs(retry_cx - expected) < 0.01:
+                    ok(f"_cut_clip_with_qa: FRAMING → crop_x corrected toward center "
                        f"({orig_cx:.2f}→{retry_cx:.2f})")
                 else:
-                    fail("_cut_clip_with_qa retry crop", f"retry crop_x={retry_cx:.3f} expected≈{expected_cx:.3f}")
+                    fail("_cut_clip_with_qa FRAMING retry crop",
+                         f"retry crop_x={retry_cx:.3f} expected≈{expected:.3f}")
             else:
-                fail("_cut_clip_with_qa retry count", f"cut_clip called {len(cut_calls)} times (expected ≥2)")
+                fail("_cut_clip_with_qa retry count",
+                     f"cut_clip called {len(cut_calls)} times (expected ≥2)")
     finally:
         _cfg.QA_CROP_CHECK = orig_qa
 
@@ -3272,6 +3275,204 @@ def test_style_fields() -> None:
 
 
 # ══════════════════════════════════════════════════════
+# 39. QA reason codes — _qa_check_clip returns str
+# ══════════════════════════════════════════════════════
+
+def test_quality_reason_codes() -> None:
+    section("39 / QA reason codes — all codes parsed correctly")
+
+    from unittest.mock import patch, MagicMock
+    from pipeline.analyzer import _qa_check_clip, _QA_REASON_CODES
+
+    event = {"start": 0.0, "end": 8.0, "crop_x": 0.5}
+
+    # All defined codes should be returned as-is
+    for code in _QA_REASON_CODES:
+        mock_resp = MagicMock()
+        mock_resp.text = code
+        mock_model = MagicMock()
+        mock_model.generate_content.return_value = mock_resp
+        with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/t.jpg"), \
+             patch("pipeline.analyzer.genai") as mg:
+            mg.upload_file.return_value = MagicMock(name="files/x")
+            mg.GenerativeModel.return_value = mock_model
+            result = _qa_check_clip("/tmp/clip.mp4", event)
+        if result == code:
+            ok(f"_qa_check_clip: '{code}' returned correctly")
+        else:
+            fail(f"_qa_check_clip reason {code}", f"got {result!r}")
+
+    # Unknown code → fallback to "PASS"
+    mock_resp_unk = MagicMock()
+    mock_resp_unk.text = "UNKNOWN_CODE"
+    mock_model_unk = MagicMock()
+    mock_model_unk.generate_content.return_value = mock_resp_unk
+    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/t.jpg"), \
+         patch("pipeline.analyzer.genai") as mg2:
+        mg2.upload_file.return_value = MagicMock(name="files/y")
+        mg2.GenerativeModel.return_value = mock_model_unk
+        result_unk = _qa_check_clip("/tmp/clip.mp4", event)
+    if result_unk == "PASS":
+        ok("_qa_check_clip: unrecognised response → 'PASS' (safe fallback)")
+    else:
+        fail("_qa_check_clip unknown code fallback", f"got {result_unk!r}")
+
+
+# ══════════════════════════════════════════════════════
+# 40. Targeted fix + basic mode — _cut_clip_with_qa
+# ══════════════════════════════════════════════════════
+
+def test_quality_targeted_fix_and_basic_mode() -> None:
+    section("40 / Targeted fix + basic mode — _cut_clip_with_qa cascade")
+
+    import config as _cfg
+    from unittest.mock import patch
+    from pipeline.editor import _cut_clip_with_qa, drain_quality_issues
+
+    orig_qa = _cfg.QA_CROP_CHECK
+    _cfg.QA_CROP_CHECK = True
+
+    ev_base = {"start": 0.0, "end": 10.0, "score": 8, "type": "aerial",
+               "crop_x": 0.3, "crop_y": 0.65, "edit": {"zoom": 1.4, "slowmo": True, "focus": "peak"}}
+
+    # ── 1: MOTION_BLUR targeted fix succeeds (no slow-mo retry passes QA) ──
+    drain_quality_issues()   # clear accumulator
+    cut_calls_1: list[dict] = []
+    qa_seq_1 = ["MOTION_BLUR", "PASS"]
+
+    def _cut1(vp, ev, idx, slowmo=False, sport="", src_info=None, session_peak=10):
+        cut_calls_1.append({"slowmo": slowmo, "edit": dict(ev.get("edit", {}))})
+        return f"/tmp/c1_{idx}.mp4"
+
+    try:
+        with patch("pipeline.editor.cut_clip", side_effect=_cut1), \
+             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_seq_1), \
+             patch("os.remove"):
+            result1 = _cut_clip_with_qa("/fake/v.mp4", ev_base, 10, True, "surfing", {})
+        # retry clip should have slowmo=False
+        if len(cut_calls_1) >= 2 and not cut_calls_1[1]["slowmo"]:
+            ok("_cut_clip_with_qa: MOTION_BLUR → retry without slow-mo")
+        else:
+            fail("_cut_clip_with_qa MOTION_BLUR retry", f"calls={cut_calls_1}")
+        issues1 = drain_quality_issues()
+        has_fixed = any(i["reason"] == "MOTION_BLUR" and i["mode"] == "fixed" for i in issues1)
+        if has_fixed:
+            ok("_cut_clip_with_qa: MOTION_BLUR fixed → mode='fixed' logged")
+        else:
+            fail("_cut_clip_with_qa MOTION_BLUR fixed log", f"issues={issues1}")
+    finally:
+        pass
+
+    # ── 2: POOR_CLOSEUP targeted fix fails → falls to basic mode ──
+    drain_quality_issues()
+    cut_calls_2: list[dict] = []
+    # QA sequence: premium fails, targeted retry fails, basic is not QA-checked
+    qa_seq_2 = ["POOR_CLOSEUP", "POOR_CLOSEUP"]
+
+    def _cut2(vp, ev, idx, slowmo=False, sport="", src_info=None, session_peak=10):
+        cut_calls_2.append({"zoom": ev.get("edit", {}).get("zoom", "?"),
+                            "slowmo": slowmo, "idx": idx})
+        return f"/tmp/c2_{idx}.mp4"
+
+    try:
+        with patch("pipeline.editor.cut_clip", side_effect=_cut2), \
+             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_seq_2), \
+             patch("os.remove"):
+            _cut_clip_with_qa("/fake/v.mp4", ev_base, 20, True, "surfing",
+                              {"width": 1920, "height": 1080, "fps": 60.0, "zoom_headroom": 1.0})
+        # Should have 3 cut_clip calls: premium, targeted, basic
+        if len(cut_calls_2) == 3:
+            ok("_cut_clip_with_qa: POOR_CLOSEUP → 3 cut_clip calls (premium→targeted→basic)")
+        else:
+            fail("_cut_clip_with_qa POOR_CLOSEUP call count", f"got {len(cut_calls_2)} calls")
+        # Basic mode clip (index 1000+) must have zoom 1.0 and slowmo False
+        basic_call = cut_calls_2[2]
+        if basic_call["zoom"] == 1.0 and not basic_call["slowmo"]:
+            ok("_cut_clip_with_qa: basic mode — zoom=1.0, slowmo=False")
+        else:
+            fail("_cut_clip_with_qa basic mode params", f"got {basic_call}")
+        issues2 = drain_quality_issues()
+        has_basic = any(i["reason"] == "POOR_CLOSEUP" and i["mode"] == "basic_mode" for i in issues2)
+        if has_basic:
+            ok("_cut_clip_with_qa: basic_mode logged to quality accumulator")
+        else:
+            fail("_cut_clip_with_qa basic_mode log", f"issues={issues2}")
+    finally:
+        _cfg.QA_CROP_CHECK = orig_qa
+
+    # ── 3: LIGHTING → skips targeted fix, goes straight to basic (2 cut_clip calls) ──
+    drain_quality_issues()
+    orig_qa2 = _cfg.QA_CROP_CHECK
+    _cfg.QA_CROP_CHECK = True
+    cut_calls_3: list[dict] = []
+    qa_seq_3 = ["LIGHTING"]   # only called once (targeted fix skipped)
+
+    def _cut3(vp, ev, idx, slowmo=False, sport="", src_info=None, session_peak=10):
+        cut_calls_3.append({"idx": idx})
+        return f"/tmp/c3_{idx}.mp4"
+
+    try:
+        with patch("pipeline.editor.cut_clip", side_effect=_cut3), \
+             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_seq_3), \
+             patch("os.remove"):
+            _cut_clip_with_qa("/fake/v.mp4", ev_base, 30, True, "surfing", {})
+        if len(cut_calls_3) == 2:
+            ok("_cut_clip_with_qa: LIGHTING → skips targeted fix, 2 cut_clip calls (premium+basic)")
+        else:
+            fail("_cut_clip_with_qa LIGHTING call count", f"got {len(cut_calls_3)} calls")
+    finally:
+        _cfg.QA_CROP_CHECK = orig_qa2
+
+
+# ══════════════════════════════════════════════════════
+# 41. Drive quality flag — flag_quality_issue
+# ══════════════════════════════════════════════════════
+
+def test_quality_drive_flag() -> None:
+    section("41 / Drive quality flag — flag_quality_issue + drain_and_flag")
+
+    from unittest.mock import patch, MagicMock, call
+    from pipeline.editor import _log_quality_issue, drain_quality_issues
+
+    # ── 1: flag_quality_issue calls files().update() with description ──
+    from pipeline.drive import flag_quality_issue
+    mock_service = MagicMock()
+    mock_update  = MagicMock()
+    mock_service.files.return_value.update.return_value.execute.return_value = {"id": "f1"}
+
+    with patch("pipeline.drive._get_drive_service", return_value=mock_service), \
+         patch("pipeline.drive._drive_retry", side_effect=lambda fn, **kw: fn()):
+        flag_quality_issue("file123", "POOR_CLOSEUP, MOTION_BLUR")
+
+    update_kwargs = mock_service.files.return_value.update.call_args
+    if update_kwargs:
+        body = update_kwargs.kwargs.get("body") or (update_kwargs.args[0] if update_kwargs.args else {})
+        description = (body or {}).get("description", "")
+        if "POOR_CLOSEUP" in description and "MOTION_BLUR" in description:
+            ok("flag_quality_issue: files().update() called with reasons in description")
+        else:
+            fail("flag_quality_issue description", f"got description={description!r}")
+    else:
+        fail("flag_quality_issue", "files().update() not called")
+
+    # ── 2: _log_quality_issue appends to accumulator; drain_quality_issues clears it ──
+    drain_quality_issues()   # clear any residue
+    ev = {"type": "wave_catch", "start": 2.0, "end": 10.0}
+    _log_quality_issue("/vids/surf.mp4", ev, "FRAMING",
+                       {"width": 1920, "height": 1080, "fps": 30.0, "zoom_headroom": 1.0},
+                       "targeted_fix")
+    issues = drain_quality_issues()
+    if len(issues) == 1 and issues[0]["reason"] == "FRAMING" and issues[0]["video"] == "surf.mp4":
+        ok("_log_quality_issue: appends entry with correct fields")
+    else:
+        fail("_log_quality_issue accumulator", f"got {issues}")
+    if not drain_quality_issues():
+        ok("drain_quality_issues: clears accumulator on second call")
+    else:
+        fail("drain_quality_issues clear", "accumulator not empty after drain")
+
+
+# ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
 
@@ -3337,6 +3538,9 @@ if __name__ == "__main__":
     test_atomic_download()
     test_disk_space_guard()
     test_zero_clip_warning()
+    test_quality_reason_codes()
+    test_quality_targeted_fix_and_basic_mode()
+    test_quality_drive_flag()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

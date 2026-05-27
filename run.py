@@ -31,9 +31,9 @@ logger = logging.getLogger(__name__)
 from concurrent.futures import ThreadPoolExecutor
 
 import config
-from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_draft, record_failure
+from pipeline.drive    import download_video, get_new_videos, mark_as_processed, upload_draft, record_failure, flag_quality_issue
 from pipeline.analyzer import analyze_session
-from pipeline.editor   import create_reel, compile_multi_source_reel, _get_source_info
+from pipeline.editor   import create_reel, compile_multi_source_reel, _get_source_info, drain_quality_issues
 from pipeline.identity import cluster_clips
 from pipeline.feedback import get_stats as _feedback_stats
 
@@ -42,6 +42,23 @@ _MAX_DL_WORKERS      = min(4, config.MAX_CUT_WORKERS)
 _MAX_UL_WORKERS      = 3             # cap to avoid Drive API quota exhaustion
 _MAX_STAGED_ATTEMPTS = 5             # abandon staged reel after this many failed runs
 _MIN_FREE_GB         = 5.0           # minimum free disk space before refusing to compile
+
+
+def _drain_and_flag(filename_to_file_id: dict[str, str]) -> None:
+    """Drain accumulated quality issues and flag the corresponding Drive source videos."""
+    issues = drain_quality_issues()
+    if not issues:
+        return
+    # Group by video filename
+    by_video: dict[str, set[str]] = {}
+    for issue in issues:
+        by_video.setdefault(issue["video"], set()).add(issue["reason"])
+    for video_name, reasons in by_video.items():
+        file_id = filename_to_file_id.get(video_name)
+        reason_str = ", ".join(sorted(reasons))
+        if file_id:
+            flag_quality_issue(file_id, reason_str)
+        print(f"  ⚠️  Quality issues for '{video_name}': {reason_str}")
 
 
 def _check_disk_space() -> None:
@@ -299,12 +316,14 @@ def _process_long_video(video_meta: dict) -> int:
           f"{', '.join(p['description'][:30] for p in persons)}")
 
     source_quality = _get_source_info(local_path)
+    _fn_to_id = {filename: file_id}   # single source video
     drafts = 0
     for person in persons:
         if not person.get("events"):
             continue
         reels = create_reel(local_path, person["events"], sport=activity,
                             athlete_label=person["description"])
+        _drain_and_flag(_fn_to_id)
         clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
         clean_idx   = 0
         for reel in reels:
@@ -397,6 +416,9 @@ def _process_clips_session(videos: list[dict]) -> int:
     print(f"👥 Found {len(clusters)} unique person(s)")
     drafts = _compile_clusters(clusters, activity)
 
+    fn_to_id = {Path(ca["path"]).name: ca["meta"]["id"] for ca in clip_analyses}
+    _drain_and_flag(fn_to_id)
+
     for ca in clip_analyses:
         try:
             os.remove(ca["path"])
@@ -467,6 +489,9 @@ def _process_mixed_session(videos: list[dict]) -> int:
 
     print(f"👥 Found {len(clusters)} unique person(s)")
     drafts = _compile_clusters(clusters, activity)
+
+    fn_to_id = {Path(ca["path"]).name: ca["meta"]["id"] for ca in clip_analyses}
+    _drain_and_flag(fn_to_id)
 
     for ca in clip_analyses:
         try:

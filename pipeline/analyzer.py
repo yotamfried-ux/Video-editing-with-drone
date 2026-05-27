@@ -169,37 +169,43 @@ def _merge_session_results(chunk_results: list[dict], seg_secs: float) -> dict:
     }
 
 
-_QA_PROMPT = (
-    "Is the main athlete clearly visible and in-frame in this thumbnail? "
-    "Answer only: PASS or FAIL. "
-    "FAIL only if the athlete is mostly cut off at the frame edge, completely out of frame, "
-    "or too blurry to recognize."
+_QA_REASON_PROMPT = (
+    "Look at this sports clip thumbnail. Is the main athlete clearly visible?\n"
+    "Reply with EXACTLY one code — nothing else:\n"
+    "  PASS          — athlete clearly visible, good framing\n"
+    "  POOR_CLOSEUP  — athlete too small/distant; zoom makes them look farther away\n"
+    "  MOTION_BLUR   — image blurry (camera shake or slow-mo artifacts)\n"
+    "  FRAMING       — athlete cut off at the frame edge\n"
+    "  LIGHTING      — too dark, overexposed, or too hazy to see athlete clearly\n"
 )
 
+_QA_REASON_CODES = ("PASS", "POOR_CLOSEUP", "MOTION_BLUR", "FRAMING", "LIGHTING")
 
-def _qa_check_clip(clip_path: str, event: dict) -> bool:
-    """Return True if QA passes (athlete in frame), False on FAIL.
-    Always returns True on error so a network blip never drops a clip.
+
+def _qa_check_clip(clip_path: str, event: dict) -> str:
+    """Return reason code: 'PASS' | 'POOR_CLOSEUP' | 'MOTION_BLUR' | 'FRAMING' | 'LIGHTING'.
+    Returns 'PASS' on any error so a network blip never drops a clip.
     """
     duration = event.get("end", 0) - event.get("start", 0)
     thumb = _extract_thumbnail(clip_path, max(0.5, duration / 2))
     if not thumb:
-        return True
+        return "PASS"
     try:
         img_file = genai.upload_file(path=thumb, mime_type="image/jpeg")
         model    = genai.GenerativeModel(model_name=_MODEL)
         resp     = _with_retry(lambda: model.generate_content(
-            [img_file, _QA_PROMPT],
+            [img_file, _QA_REASON_PROMPT],
             request_options={"timeout": 30},
         ))
         try:
             genai.delete_file(img_file.name)
         except Exception:
             pass
-        return "FAIL" not in resp.text.upper()
+        code = resp.text.strip().upper().split()[0] if resp.text.strip() else "PASS"
+        return code if code in _QA_REASON_CODES else "PASS"
     except Exception as _e:
         logger.debug("QA check error (assuming pass): %s", _e)
-        return True
+        return "PASS"
     finally:
         try:
             os.remove(thumb)

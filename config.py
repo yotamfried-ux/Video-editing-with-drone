@@ -39,5 +39,6 @@ MAX_CUT_WORKERS: int = int(os.getenv("MAX_CUT_WORKERS", str(min(4, os.cpu_count(
 CLIPS_CACHE_DIR: str    = os.getenv("CLIPS_CACHE_DIR", "/tmp/dtor_clips")
 FEEDBACK_FILE: str      = os.getenv("FEEDBACK_FILE", "labels_feedback.json")
 REEL_METADATA_FILE: str = os.getenv("REEL_METADATA_FILE", "reels_metadata.json")
-QA_CROP_CHECK: bool     = os.getenv("QA_CROP_CHECK", "false").lower() == "true"
+QA_CROP_CHECK: bool      = os.getenv("QA_CROP_CHECK", "false").lower() == "true"
 PENDING_UPLOADS_DIR: str = os.getenv("PENDING_UPLOADS_DIR", "pending_uploads")
+QUALITY_LOG_FILE: str    = os.getenv("QUALITY_LOG_FILE", "quality_issues.jsonl")

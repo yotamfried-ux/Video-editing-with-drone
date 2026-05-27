@@ -443,3 +443,17 @@ def mark_as_processed(file_id: str) -> None:
     except Exception as e:
         logger.warning("⚠️ Could not move file %s to PROCESSED folder: %s", file_id, e)
         print(f"⚠️ Could not move original to PROCESSED folder: {e}")
+
+
+def flag_quality_issue(file_id: str, reasons: str) -> None:
+    """Update the raw video's Drive description with a quality flag for operator visibility."""
+    try:
+        service = _get_drive_service()
+        _drive_retry(lambda: service.files().update(
+            fileId=file_id,
+            body={"description": f"[QUALITY FLAG: {reasons}]"},
+            fields="id, description",
+        ).execute())
+        logger.info("Drive quality flag set on %s: %s", file_id, reasons)
+    except Exception as exc:
+        logger.warning("Could not set Drive quality flag on %s: %s", file_id, exc)
