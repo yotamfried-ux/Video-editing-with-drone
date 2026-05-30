@@ -4229,6 +4229,41 @@ def test_process_clips_session_integration() -> None:
             pass
 
 
+def test_proxy_downscale() -> None:
+    section("50 / Proxy downscale — _make_proxy creates ≤1280px proxy, original untouched")
+
+    if not _ffmpeg_guard():
+        ok("ffmpeg guard — proxy test skipped")
+        return
+
+    if not Path(VIDEO_60FPS).exists():
+        fail("proxy downscale", "test video missing — run section 2 first")
+        return
+
+    from pipeline.analyzer import _make_proxy  # noqa: PLC0415
+
+    # VIDEO_60FPS is 1920×1080 → wider than 1280 → should produce proxy
+    proxy = _make_proxy(VIDEO_60FPS)
+    try:
+        assert proxy is not None, "expected proxy for 1920-wide source"
+        assert Path(proxy).exists(), "proxy file not created"
+
+        info = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_streams", "-select_streams", "v:0", proxy],
+            capture_output=True, timeout=10, check=True,
+        )
+        w = int(json.loads(info.stdout)["streams"][0]["width"])
+        assert w <= 1280, f"proxy width {w} > 1280"
+        ok(f"proxy downscale — proxy is {w}px wide (≤ 1280)")
+
+        assert Path(VIDEO_60FPS).exists(), "original deleted — should be untouched"
+        ok("proxy downscale — original file untouched")
+    finally:
+        if proxy and Path(proxy).exists():
+            os.remove(proxy)
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -4306,6 +4341,7 @@ if __name__ == "__main__":
     test_gemini_schema_fixture()
     test_e2e_two_athletes()
     test_process_clips_session_integration()
+    test_proxy_downscale()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

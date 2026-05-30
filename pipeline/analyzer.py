@@ -121,6 +121,39 @@ def _chunk_video(video_path: str, max_minutes: int = _CHUNK_MAX_MINUTES) -> list
     return chunks
 
 
+_PROXY_MAX_WIDTH = 1280  # px — Gemini doesn't need full resolution for event detection
+
+
+def _make_proxy(video_path: str) -> str | None:
+    """Downscale to 720p for Gemini upload when source exceeds _PROXY_MAX_WIDTH.
+    Returns proxy path, or None if source is already small enough.
+    Proxy is placed in TMP_DIR and must be deleted by the caller.
+    """
+    probe = subprocess.run(
+        ["ffprobe", "-v", "quiet", "-print_format", "json",
+         "-show_streams", "-select_streams", "v:0", video_path],
+        capture_output=True, timeout=30, check=True,
+    )
+    info = json.loads(probe.stdout)
+    width = int(info["streams"][0]["width"])
+    if width <= _PROXY_MAX_WIDTH:
+        return None
+
+    stem = Path(video_path).stem
+    os.makedirs(config.TMP_DIR, exist_ok=True)
+    proxy_path = os.path.join(config.TMP_DIR, f"proxy_{stem}.mp4")
+    subprocess.run([
+        "ffmpeg", "-y", "-i", video_path,
+        "-vf", f"scale={_PROXY_MAX_WIDTH}:-2",
+        "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
+        "-an",
+        proxy_path,
+    ], capture_output=True, timeout=300, check=True)
+    mb = Path(proxy_path).stat().st_size / 1024 / 1024
+    print(f"📐 Proxy created: {Path(proxy_path).name} ({mb:.1f} MB) from {width}px source")
+    return proxy_path
+
+
 def _merge_session_results(chunk_results: list[dict], seg_secs: float) -> dict:
     """Merge per-chunk analysis dicts: shift timestamps, pick dominant activity,
     merge persons by description, de-duplicate events within ±5 s."""
@@ -471,9 +504,12 @@ def analyze_session(video_path: str) -> dict:
 
     def _analyze_one(chunk_path: str) -> dict:
         """Upload one file, analyze with Gemini, delete. JSON errors → empty result."""
+        proxy_path = None
         vf = None
         try:
-            vf = _with_retry(lambda: _upload_video(chunk_path))
+            proxy_path = _make_proxy(chunk_path)
+            upload_path = proxy_path if proxy_path else chunk_path
+            vf = _with_retry(lambda: _upload_video(upload_path))
             model = genai.GenerativeModel(model_name=_MODEL)
             resp  = _with_retry(lambda: model.generate_content(
                 [vf, prompt],
@@ -487,6 +523,8 @@ def analyze_session(video_path: str) -> dict:
         finally:
             if vf:
                 _delete_video(vf)
+            if proxy_path and os.path.exists(proxy_path):
+                os.remove(proxy_path)
 
     try:
         if not is_chunked:
