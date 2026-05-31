@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 
 import google.generativeai as genai
+from langsmith import traceable
 
 import config
 
@@ -262,6 +263,16 @@ def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
             time.sleep(delay)
 
 
+@traceable(run_type="llm", name="gemini-analyze-chunk")
+def _gemini_call_session(vf, prompt: str, model_name: str, video_name: str) -> str:
+    """Traced Gemini call for session analysis — inputs/output logged to LangSmith."""
+    model = genai.GenerativeModel(model_name=model_name)
+    resp = _with_retry(lambda: model.generate_content(
+        [vf, prompt], request_options={"timeout": 300}
+    ))
+    return resp.text
+
+
 _IDENTITY_PROMPT = """
 You are a video editor building personal highlight reels for athletes from drone footage.
 You are watching the FULL video — not frames. Use motion, timing, and action sequences.
@@ -474,6 +485,7 @@ def _parse_session(raw_text: str) -> dict:
     return {"activity": activity, "persons": persons, "style": style, "session_peak": session_peak}
 
 
+@traceable(name="analyze-session")
 def analyze_session(video_path: str) -> dict:
     """
     Identifies distinct persons and their highlight moments via Gemini.
@@ -510,12 +522,13 @@ def analyze_session(video_path: str) -> dict:
             proxy_path = _make_proxy(chunk_path)
             upload_path = proxy_path if proxy_path else chunk_path
             vf = _with_retry(lambda: _upload_video(upload_path))
-            model = genai.GenerativeModel(model_name=_MODEL)
-            resp  = _with_retry(lambda: model.generate_content(
-                [vf, prompt],
-                request_options={"timeout": 300},
-            ))
-            return _parse_session(resp.text)
+            response_text = _gemini_call_session(
+                vf=vf,
+                prompt=prompt,
+                model_name=_MODEL,
+                video_name=Path(upload_path).name,
+            )
+            return _parse_session(response_text)
         except json.JSONDecodeError as e:
             logger.error("Gemini JSON parse error: %s", e)
             print(f"⚠️ JSON parse error from Gemini: {e}")

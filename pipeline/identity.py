@@ -10,6 +10,7 @@ import re
 import time
 
 import google.generativeai as genai
+from langsmith import traceable
 
 import config
 
@@ -199,6 +200,24 @@ def _retry_gemini(fn, attempts: int = 3, base_delay: int = 4) -> str:
     raise RuntimeError("unreachable")
 
 
+@traceable(run_type="llm", name="gemini-cluster-visual")
+def _gemini_call_cluster_visual(content: list, model_name: str, n_clips: int) -> str:
+    """Traced Gemini visual-clustering call — inputs/output logged to LangSmith."""
+    model = genai.GenerativeModel(model_name=model_name)
+    return _retry_gemini(lambda: model.generate_content(
+        content, request_options={"timeout": 120}
+    ).text.strip())
+
+
+@traceable(run_type="llm", name="gemini-cluster-text")
+def _gemini_call_cluster_text(prompt: str, model_name: str, n_clips: int) -> str:
+    """Traced Gemini text-clustering call — inputs/output logged to LangSmith."""
+    model = genai.GenerativeModel(model_name=model_name)
+    return _retry_gemini(lambda: model.generate_content(
+        prompt, request_options={"timeout": 120}
+    ).text.strip())
+
+
 # ── Tier 1: CLIP Re-ID (optional — requires torch + transformers + Pillow) ────
 
 def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
@@ -336,9 +355,11 @@ def _try_visual_cluster(descriptions: list[dict], clip_analyses: list[dict]) -> 
         ))
 
         model = genai.GenerativeModel(model_name=config.GEMINI_MODEL)
-        raw   = _retry_gemini(lambda: model.generate_content(
-            content, request_options={"timeout": 120}
-        ).text.strip())
+        raw   = _gemini_call_cluster_visual(
+            content=content,
+            model_name=config.GEMINI_MODEL,
+            n_clips=len(clip_analyses),
+        )
 
         raw  = re.sub(r"^```(?:json)?\s*", "", raw)
         raw  = re.sub(r"\s*```$", "", raw)
@@ -361,10 +382,11 @@ def _text_cluster(descriptions: list[dict], clip_analyses: list[dict]) -> list[d
         n=len(clip_analyses),
         descriptions_json=json.dumps(descriptions, indent=2),
     )
-    model = genai.GenerativeModel(model_name=config.GEMINI_MODEL)
-    raw   = _retry_gemini(lambda: model.generate_content(
-        prompt, request_options={"timeout": 120}
-    ).text.strip())
+    raw   = _gemini_call_cluster_text(
+        prompt=prompt,
+        model_name=config.GEMINI_MODEL,
+        n_clips=len(clip_analyses),
+    )
 
     raw  = re.sub(r"^```(?:json)?\s*", "", raw)
     raw  = re.sub(r"\s*```$", "", raw)
@@ -388,6 +410,7 @@ def _cleanup_thumbnails(clip_analyses: list[dict]) -> None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
+@traceable(name="cluster-clips")
 def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
     """
     Groups persons from multiple short clips by identity.

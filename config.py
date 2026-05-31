@@ -42,3 +42,9 @@ REEL_METADATA_FILE: str = os.getenv("REEL_METADATA_FILE", "reels_metadata.json")
 QA_CROP_CHECK: bool      = os.getenv("QA_CROP_CHECK", "false").lower() == "true"
 PENDING_UPLOADS_DIR: str = os.getenv("PENDING_UPLOADS_DIR", "pending_uploads")
 QUALITY_LOG_FILE: str    = os.getenv("QUALITY_LOG_FILE", "quality_issues.jsonl")
+
+# ── LangSmith observability (optional) ────────────────────────────────────────
+# Set LANGSMITH_API_KEY + LANGSMITH_TRACING=true to enable tracing.
+# Without these vars @traceable decorators are no-ops — no crash in production.
+LANGSMITH_TRACING: bool = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
+LANGSMITH_PROJECT: str  = os.getenv("LANGSMITH_PROJECT", "drone-video-pipeline")

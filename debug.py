@@ -4229,6 +4229,33 @@ def test_process_clips_session_integration() -> None:
             pass
 
 
+def test_langsmith_tracing() -> None:
+    section("51 / LangSmith tracing — @traceable importable + no-op without API key")
+
+    try:
+        from langsmith import traceable  # noqa: PLC0415
+        ok("LangSmith import — langsmith package installed")
+    except ImportError:
+        fail("LangSmith import", "langsmith not installed — add to requirements.txt")
+        return
+
+    @traceable(name="test-noop")
+    def _noop(x: int) -> int:
+        return x * 2
+
+    result = _noop(21)
+    assert result == 42, f"expected 42, got {result}"
+    ok("LangSmith @traceable — no-op without LANGSMITH_TRACING=true, function executes normally")
+
+    # Verify traced functions in pipeline are importable
+    try:
+        from pipeline.analyzer import _gemini_call_session  # noqa: PLC0415
+        from pipeline.identity import _gemini_call_cluster_text, _gemini_call_cluster_visual  # noqa: PLC0415
+        ok("LangSmith traced helpers — all 3 traced Gemini helpers importable")
+    except ImportError as e:
+        fail("LangSmith traced helpers import", str(e))
+
+
 def test_proxy_downscale() -> None:
     section("50 / Proxy downscale — _make_proxy creates ≤1280px proxy, original untouched")
 
@@ -4341,6 +4368,7 @@ if __name__ == "__main__":
     test_gemini_schema_fixture()
     test_e2e_two_athletes()
     test_process_clips_session_integration()
+    test_langsmith_tracing()
     test_proxy_downscale()
 
     print_summary()
