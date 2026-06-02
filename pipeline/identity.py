@@ -68,11 +68,19 @@ Return ONLY valid JSON, no markdown:
 {{
   "clusters": [
     {{
-      "description": "brief description of this person",
+      "description": "surfer with red board and black wetsuit",
       "confidence": "high",
       "appearances": [
         {{"clip_index": 0, "person_id": "person_A"}},
-        {{"clip_index": 2, "person_id": "person_A"}}
+        {{"clip_index": 2, "person_id": "person_A"}},
+        {{"clip_index": 4, "person_id": "person_A"}}
+      ]
+    }},
+    {{
+      "description": "surfer with blue board and white rash guard",
+      "confidence": "medium",
+      "appearances": [
+        {{"clip_index": 1, "person_id": "person_B"}}
       ]
     }}
   ]

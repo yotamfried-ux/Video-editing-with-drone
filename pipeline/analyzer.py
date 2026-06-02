@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 genai.configure(api_key=config.GEMINI_API_KEY)
 
 _MODEL             = config.GEMINI_MODEL   # native video understanding
+_QA_MODEL          = "gemini-1.5-flash"   # lightweight model for 5-class QA classification
 _MIN_CLIP_SEC      = 6.0
 _CHUNK_MAX_MINUTES = 8   # Gemini ~1M token limit ≈ 8 min of drone footage @1fps
 
@@ -221,12 +222,37 @@ def _qa_check_clip(clip_path: str, event: dict) -> str:
     Returns 'PASS' on any error so a network blip never drops a clip.
     """
     duration = event.get("end", 0) - event.get("start", 0)
-    thumb = _extract_thumbnail(clip_path, max(0.5, duration / 2))
-    if not thumb:
+    # Sample at 25%, 50%, 75% of clip and pick the most representative (largest file = most detail)
+    candidates = [
+        _extract_thumbnail(clip_path, max(0.3, duration * frac))
+        for frac in (0.25, 0.50, 0.75)
+    ]
+    # Deduplicate (mocks may return the same path repeatedly) and remove None
+    seen: set[str] = set()
+    unique: list[str] = []
+    for c in candidates:
+        if c and c not in seen:
+            seen.add(c)
+            unique.append(c)
+    if not unique:
         return "PASS"
+
+    def _fsize(p: str) -> int:
+        try:
+            return os.path.getsize(p)
+        except OSError:
+            return 0
+
+    thumb = max(unique, key=_fsize)
+    for c in unique:
+        if c != thumb:
+            try:
+                os.remove(c)
+            except OSError:
+                pass
     try:
         img_file = genai.upload_file(path=thumb, mime_type="image/jpeg")
-        model    = genai.GenerativeModel(model_name=_MODEL)
+        model    = genai.GenerativeModel(model_name=_QA_MODEL)
         resp     = _with_retry(lambda: model.generate_content(
             [img_file, _QA_REASON_PROMPT],
             request_options={"timeout": 30},
@@ -282,16 +308,26 @@ TASK:
 2. Identify each DISTINCT person (surfer, player, athlete) visible in the video.
 3. For each person, select their highlight moments using the scoring guide below.
 
-SCORING — relative to THIS video, not world-class standards:
-Compare moments against each other within this specific footage.
-  9-10 : Best moment(s) in this video — exceptional execution for this athlete
-  7-8  : Above average for this athlete today — clean skill, good execution
-  6-7  : Solid positive performance — worth showing, athlete looks good
-  1-5  : Routine action, mistake, wipeout, blurry shot, athlete not in focus — EXCLUDE
+SCORING — rate relative to THIS session only (not world-class standards):
+Score each moment against the other moments in this specific footage.
+
+  10 : Once-in-a-session moment — peak trick/wave/play, athlete at absolute best, no hesitation
+  9  : Clear highlight — clean execution, impressive for this athlete today
+  8  : Strong moment — good skill with minor imperfection or brief camera wobble
+  7  : Solid positive — usable, athlete performs well, nothing remarkable
+  6  : Acceptable minimum — include only if it genuinely fills a gap in the reel
+  5  : Weak or routine — walking, flat paddling, repositioning → EXCLUDE
+  1-4: Mistake, wipeout, athlete out of frame, back to camera, or heavily obscured → EXCLUDE
+
+Visual quality modifiers (apply BEFORE assigning final score):
+  - Athlete occupies < 10% of frame height (drone very high, athlete tiny) → subtract 1
+  - Motion blur makes athlete unrecognizable → subtract 2
+  - Athlete partially cut off by frame edge → subtract 1
 
 GLOBAL RANKING CONTEXT:
 - Use the FULL 1-10 scale. Do not cluster all scores near 7.
-- At least one event in the video MUST receive 9 or 10 if any standout action occurred.
+- At least one event SHOULD receive 9 or 10 if a genuinely standout moment exists.
+  If all moments are mediocre (no clear peak), the top score may be 7 or 8 — do not inflate.
 - session_peak: report the highest score you assigned to any single event in this session.
   This helps the editor treat a score-8 in a peak-8 session as top-tier (not middle-tier).
 
@@ -337,7 +373,11 @@ For each PERSON:
 
 For each EVENT:
 - type: choose the closest value from this list (do NOT invent new labels):
-    Aerial/trick:  aerial, trick, flip, gap_jump, kicker
+    Aerial/trick:  aerial   = full rotation off wave lip or into the air (surfer, wakeboarder)
+                   trick    = skateboard or bike trick (kickflip, tailwhip, barspin)
+                   flip     = backflip or frontflip through the air (any sport)
+                   gap_jump = rider clears a gap between two surfaces
+                   kicker   = jump off a kicker/ramp feature
     Wave/water:    tube_ride, barrel, wave_catch, cutback, bottom_turn, carve, snap, paddle
     Ball sports:   goal, tackle, assist, interception, save, dribble, header, shot, clearance
     Bike/skate:    jump, landing, grind, manual, crash
@@ -400,6 +440,16 @@ Return ONLY valid JSON, no markdown:
          "description": "Catches a shoulder-high wave and paddles into position.",
          "crop_x": 0.55, "crop_y": 0.72,
          "edit": {"zoom": 1.1, "slowmo": false, "focus": "full", "transition_out": "slide"}}
+      ]
+    },
+    {
+      "id": "person_B",
+      "description": "surfer with blue board and white rash guard",
+      "events": [
+        {"type": "snap", "start": 58.0, "end": 66.0, "score": 8,
+         "description": "Sharp snap off the top, spray flies off the lip.",
+         "crop_x": 0.6, "crop_y": 0.55,
+         "edit": {"zoom": 1.3, "slowmo": true, "focus": "peak", "transition_out": "cut"}}
       ]
     }
   ]
@@ -497,14 +547,23 @@ def analyze_session(video_path: str) -> dict:
     """
     print(f"🔍 Analyzing '{Path(video_path).name}' — multi-person session mode...")
 
-    # Build prompt once — prepend feedback so JSON example stays as format anchor at end
+    # Build prompt — inject feedback AFTER SELECTION RULES so Gemini sees it
+    # just before the detailed field instructions, maximising attention.
     from pipeline.feedback import get_all_label_injections
     feedback_block = get_all_label_injections()
-    prompt = feedback_block + _IDENTITY_PROMPT if feedback_block else _IDENTITY_PROMPT
     if feedback_block:
         sport_count = feedback_block.count("\n  ")
         logger.info("Injecting editing feedback for %d sport(s) into prompt", sport_count)
         print(f"🏷️  Injecting editing history ({sport_count} sport(s)) into analysis prompt")
+        # Insert after the SELECTION RULES block, before EVENT COUNT
+        _split_marker = "\nEVENT COUNT:"
+        if _split_marker in _IDENTITY_PROMPT:
+            _pre, _post = _IDENTITY_PROMPT.split(_split_marker, 1)
+            prompt = _pre + feedback_block + _split_marker + _post
+        else:
+            prompt = _IDENTITY_PROMPT + feedback_block
+    else:
+        prompt = _IDENTITY_PROMPT
 
     # Split long videos into chunks
     try:
