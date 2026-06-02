@@ -5,7 +5,6 @@ Matches a person description or draft filename against registered client pattern
 
 import json
 import logging
-from pathlib import Path
 
 import config
 

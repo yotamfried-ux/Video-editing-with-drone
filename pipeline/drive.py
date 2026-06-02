@@ -224,44 +224,6 @@ def download_video(file_id: str, filename: str) -> str:
         raise
 
 
-def upload_clip(clip_path: str, clip_name: str) -> str:
-    """
-    Upload a finished clip to CLIPS_FOLDER_ID.
-    Returns the shareable Drive web link.
-    """
-    print(f"📁 Uploading clip '{clip_name}'...")
-    try:
-        service = _get_drive_service()
-        file_metadata = {
-            "name": clip_name,
-            "parents": [config.CLIPS_FOLDER_ID],
-        }
-        media = MediaFileUpload(clip_path, mimetype="video/mp4", resumable=True)
-        uploaded = _drive_retry(lambda: service.files().create(
-            body=file_metadata, media_body=media, fields="id, webViewLink"
-        ).execute())
-        file_id = uploaded.get("id", "")
-        link    = uploaded.get("webViewLink", "")
-
-        # Grant "anyone with the link" viewer access so the client can open it
-        try:
-            _drive_retry(lambda: service.permissions().create(
-                fileId=file_id,
-                body={"type": "anyone", "role": "reader"},
-                fields="id",
-            ).execute())
-        except Exception as perm_err:
-            logger.warning("⚠️ Could not set public permission on %s: %s", clip_name, perm_err)
-
-        print(f"✅ Clip uploaded (public link): {link}")
-        logger.info("Uploaded clip %s → %s", clip_name, link)
-        return link
-    except Exception as e:
-        logger.error("❌ Failed to upload %s: %s", clip_name, e)
-        print(f"❌ Upload failed for '{clip_name}': {e}")
-        raise
-
-
 def upload_draft(draft_path: str, draft_name: str) -> str:
     """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
     print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
