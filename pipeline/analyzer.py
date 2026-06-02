@@ -221,7 +221,16 @@ def _qa_check_clip(clip_path: str, event: dict) -> str:
     """Return reason code: 'PASS' | 'POOR_CLOSEUP' | 'MOTION_BLUR' | 'FRAMING' | 'LIGHTING'.
     Returns 'PASS' on any error so a network blip never drops a clip.
     """
-    duration = event.get("end", 0) - event.get("start", 0)
+    # Use actual processed clip duration (slowmo expands output beyond source event window)
+    try:
+        _out = subprocess.check_output(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+             "-of", "default=noprint_wrappers=1:nokey=1", clip_path],
+            text=True, timeout=10,
+        )
+        duration = float(_out.strip())
+    except Exception:
+        duration = event.get("end", 0) - event.get("start", 0)
     # Sample at 25%, 50%, 75% of clip and pick the most representative (largest file = most detail)
     candidates = [
         _extract_thumbnail(clip_path, max(0.3, duration * frac))

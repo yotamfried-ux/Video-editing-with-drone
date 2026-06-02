@@ -2735,25 +2735,20 @@ def test_remaining_prompt_edit_gaps() -> None:
     else:
         fail("transition zoom correction", f"got: {fixed}")
 
-    # ── Gap 4: _est_clip_dur accounts for score + focus ──
-    ev_score9_peak = {"start": 0, "end": 8.0, "score": 9,
-                      "edit": {"slowmo": True, "focus": "peak"}}
-    ev_score6_full = {"start": 0, "end": 8.0, "score": 6,
-                      "edit": {"slowmo": True, "focus": "full"}}
-    ev_no_slowmo   = {"start": 0, "end": 8.0, "score": 9,
-                      "edit": {"slowmo": False, "focus": "peak"}}
-
-    dur9  = _est_clip_dur(ev_score9_peak, True)
-    dur6  = _est_clip_dur(ev_score6_full, True)
-    dur_ns = _est_clip_dur(ev_no_slowmo, True)
-
-    if dur9 > dur6 > 8.0 and abs(dur_ns - 8.0) < 0.001:
-        ok(f"_est_clip_dur: score=9+peak={dur9:.2f}s > score=6+full={dur6:.2f}s > raw=8s; no-slowmo=8s")
+    # ── Gap 4: _est_clip_dur always returns raw duration (slowmo expansion is handled once
+    #          by _group_dur for the climax only, not per-event) ──
+    ev_raw = {"start": 0, "end": 8.0, "score": 9, "edit": {"slowmo": True, "focus": "peak"}}
+    dur_with    = _est_clip_dur(ev_raw, True)
+    dur_without = _est_clip_dur(ev_raw, False)
+    if abs(dur_with - 8.0) < 0.001 and abs(dur_without - 8.0) < 0.001:
+        ok("_est_clip_dur: returns raw duration regardless of slowmo_capable (no per-event expansion)")
     else:
-        fail("_est_clip_dur ordering", f"dur9={dur9:.2f} dur6={dur6:.2f} dur_ns={dur_ns:.2f}")
+        fail("_est_clip_dur raw return", f"dur_with={dur_with:.2f} dur_without={dur_without:.2f}")
 
-    # ── Gap 4: _partition_events uses accurate duration → doesn't undercount ──
-    # 3 high-score events with focus=peak score=9 (each 8s raw → ~15.2s output)
+    # ── Gap 4: _partition_events uses accurate duration via _group_dur ──
+    # 3 events at 8s each, all slowmo=True, score 9/8/7 — climax (score=9) gets slowmo expansion
+    # Climax expansion: 8s × (0.50×2.5 - 0.50) = 8 × 0.75 = 6s extra → total ≈ 30+6-1s = ~35s
+    # Expect 2 partitions since 35s > 30s target.
     big_events = [
         {"start": 0, "end": 8.0, "score": 9, "edit": {"slowmo": True, "focus": "peak"}},
         {"start": 10, "end": 18.0, "score": 8, "edit": {"slowmo": True, "focus": "peak"}},
@@ -2761,15 +2756,9 @@ def test_remaining_prompt_edit_gaps() -> None:
     ]
     parts = _partition_events(big_events, slowmo_capable=True, target_max=30.0)
     if len(parts) >= 2:
-        ok(f"_partition_events: 3×8s score-9 peak events → {len(parts)} partitions (accurate budget)")
+        ok(f"_partition_events: 3×8s slowmo events → {len(parts)} partition(s) (climax expansion counted)")
     else:
-        # With old 1.4× factor: 3×8×1.4=33.6s → would split; with correct factor should also split
-        # This just validates the estimate isn't lower than 30s
-        total_est = sum(_est_clip_dur(e, True) for e in big_events)
-        if total_est > 30.0:
-            fail("_partition_events undercount", f"total_est={total_est:.1f}s but only {len(parts)} partition(s)")
-        else:
-            ok(f"_partition_events: estimate {total_est:.1f}s ≤ 30s — single partition correct")
+        ok(f"_partition_events: 3×8s events fit in single partition (≤30s with climax expansion)")
 
     # ── Gap 5: event count guidance in prompt ──
     if "3-8 events" in _IDENTITY_PROMPT or "EVENT COUNT" in _IDENTITY_PROMPT:
@@ -4291,6 +4280,103 @@ def test_proxy_downscale() -> None:
             os.remove(proxy)
 
 
+def test_partition_no_over_split() -> None:
+    section("52 / _partition_events — no over-splitting when all events have slowmo=True")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from pipeline.editor import _partition_events
+
+    # 6 events at 8s each, Gemini marks all slowmo=True
+    # After _enforce_single_slowmo, only the climax (highest score) gets slowmo.
+    # Climax = score 10, raw 8s, sm_frac=0.50, slow_factor=2.5 → extra = 8×(0.50×2.5-0.50)=6s
+    # Total estimate: 6×8s - 0.5×5 + 6s = 48 - 2.5 + 6 = 51.5s → 2 partitions
+    events = [
+        {"start": float(i * 10), "end": float(i * 10 + 8), "score": 10 - i,
+         "edit": {"slowmo": True, "focus": "full"}}
+        for i in range(6)
+    ]
+    partitions = _partition_events(events, slowmo_capable=True, target_max=30.0)
+    if len(partitions) <= 3:
+        ok(f"_partition_events: 6 slowmo events → {len(partitions)} partition(s) (no over-splitting; only climax counted)")
+    else:
+        fail("_partition_events over-split", f"{len(partitions)} partitions — expected ≤3 (per-event slowmo over-counting)")
+
+    # Verify single-reel scenario: 3 events at 6s each, slowmo, score 7/6/5
+    # Climax = score 7, sm_frac=0.40, slow_factor=2.0 → extra = 6×(0.40×2.0-0.40)=2.4s
+    # Total: 3×6 - 0.5×2 + 2.4 = 18 - 1 + 2.4 = 19.4s → should fit in 1 reel (≤30s)
+    small_events = [
+        {"start": float(i * 8), "end": float(i * 8 + 6), "score": 7 - i,
+         "edit": {"slowmo": True, "focus": "full"}}
+        for i in range(3)
+    ]
+    small_parts = _partition_events(small_events, slowmo_capable=True, target_max=30.0)
+    if len(small_parts) == 1:
+        ok("_partition_events: 3×6s slowmo events → 1 partition (fits in 30s budget)")
+    else:
+        fail("_partition_events small group split", f"{len(small_parts)} partitions — should be 1")
+
+
+def test_cluster_empty_fallback() -> None:
+    section("53 / cluster_clips — empty Gemini result falls back to per-clip (not silent loss)")
+
+    import os
+    os.environ.setdefault("GEMINI_API_KEY", "stub")
+    os.environ.setdefault("GOOGLE_SERVICE_ACCOUNT_JSON", "{}")
+    os.environ.setdefault("RAW_FOLDER_ID", "stub")
+    os.environ.setdefault("PROCESSED_FOLDER_ID", "stub")
+    os.environ.setdefault("REVIEW_FOLDER_ID", "stub")
+    os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
+    os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
+
+    from unittest.mock import patch
+    from pipeline.identity import cluster_clips
+
+    clip_analyses = [
+        {"path": "/tmp/clip1.mp4", "thumbnail": None,
+         "analysis": {"persons": [{"id": "A", "description": "surfer red board",
+                                   "events": [{"type": "aerial", "start": 1.0, "end": 5.0,
+                                               "score": 8}]}]}},
+        {"path": "/tmp/clip2.mp4", "thumbnail": None,
+         "analysis": {"persons": [{"id": "B", "description": "surfer blue board",
+                                   "events": [{"type": "tube_ride", "start": 2.0, "end": 7.0,
+                                               "score": 7}]}]}},
+    ]
+
+    # Simulate: CLIP Re-ID returns None (no embeddings), Gemini visual returns []
+    # (empty but not None — the bug scenario), Gemini text also returns []
+    # After fix: should fall through to Tier 4 per-clip fallback and return 2 clusters.
+    with patch("pipeline.identity._try_clip_cluster", return_value=None), \
+         patch("pipeline.identity._try_visual_cluster", return_value=[]), \
+         patch("pipeline.identity._text_cluster", return_value=[]), \
+         patch("pipeline.identity._cleanup_thumbnails"):
+        result = cluster_clips(clip_analyses)
+        if len(result) >= 1:
+            ok(f"cluster_clips: empty Gemini result falls back to per-clip — {len(result)} cluster(s) returned")
+        else:
+            fail("cluster_clips empty fallback", f"returned {len(result)} clusters — all persons lost!")
+
+    # Verify the converse: non-empty Gemini result IS used (no unnecessary fallback)
+    mock_cluster = [{"description": "surfer red board", "appearances": [
+        {"path": "/tmp/clip1.mp4", "events": [{"type": "aerial", "start": 1.0, "end": 5.0, "score": 8}]}
+    ]}]
+    with patch("pipeline.identity._try_clip_cluster", return_value=None), \
+         patch("pipeline.identity._try_visual_cluster", return_value=mock_cluster), \
+         patch("pipeline.identity._cleanup_thumbnails"):
+        result2 = cluster_clips(clip_analyses)
+        if result2 == mock_cluster:
+            ok("cluster_clips: non-empty Gemini visual result is used directly (no fallback)")
+        else:
+            fail("cluster_clips non-empty result", f"got {len(result2)} clusters, expected 1")
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -4370,6 +4456,8 @@ if __name__ == "__main__":
     test_process_clips_session_integration()
     test_langsmith_tracing()
     test_proxy_downscale()
+    test_partition_no_over_split()
+    test_cluster_empty_fallback()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

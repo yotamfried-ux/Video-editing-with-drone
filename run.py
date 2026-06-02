@@ -215,8 +215,11 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
         first_path     = cluster["appearances"][0]["path"] if cluster["appearances"] else None
         source_quality = _get_source_info(first_path) if first_path else {}
         all_events     = [ev for app in cluster["appearances"] for ev in app.get("events", [])]
+        events_out: list[tuple[str, list[dict]]] = []
         reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
-                                          athlete_label=cluster["description"])
+                                          athlete_label=cluster["description"],
+                                          _events_out=events_out)
+        events_by_reel = {path: evs for path, evs in events_out}
         clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
         clean_idx   = 0
         for reel in reels:
@@ -226,8 +229,9 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
             part_label  = f" (part {clean_idx})" if clean_count > 1 else ""
             music_label = " (music)" if is_music else ""
             name        = _safe_draft_name(cluster["description"] + part_label + music_label)
+            reel_events = events_by_reel.get(reel, all_events)
             pending.append((reel, name))
-            pending_meta.append((reel, name, all_events, source_quality))
+            pending_meta.append((reel, name, reel_events, source_quality))
 
     def _upload_one(args: tuple[str, str]) -> bool:
         reel_path, name = args

@@ -291,6 +291,9 @@ def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
     for i in range(n):
         for j in range(i + 1, n):
             if sim_matrix[i][j] >= _THRESHOLD:
+                # persons in the same clip are by definition different people — never merge
+                if valid_entries[i]["clip_index"] == valid_entries[j]["clip_index"]:
+                    continue
                 pi, pj = _find(i), _find(j)
                 if pi != pj:
                     parent[pi] = pj
@@ -477,7 +480,7 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
         # ── Tier 2: Gemini visual (thumbnails) ────────────────────────────────
         try:
             result = _try_visual_cluster(descriptions, clip_analyses)
-            if result is not None:
+            if result:
                 logger.info("Identity clustering: Gemini visual succeeded (%d clusters)", len(result))
                 return result
         except Exception as e:
@@ -486,8 +489,9 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
         # ── Tier 3: Gemini text ───────────────────────────────────────────────
         try:
             result = _text_cluster(descriptions, clip_analyses)
-            logger.info("Identity clustering: Gemini text succeeded (%d clusters)", len(result))
-            return result
+            if result:
+                logger.info("Identity clustering: Gemini text succeeded (%d clusters)", len(result))
+                return result
         except Exception as e:
             logger.error("Identity clustering failed at all Gemini tiers, falling back: %s", e)
 

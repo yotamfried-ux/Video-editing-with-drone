@@ -532,23 +532,13 @@ def _find_font() -> str | None:
     return next((p for p in candidates if os.path.exists(p)), None)
 
 
-def _est_clip_dur(ev: dict, slowmo_capable: bool) -> float:
+def _est_clip_dur(ev: dict, slowmo_capable: bool) -> float:  # noqa: ARG001
     """Estimate cut_clip() output duration for partition budgeting.
-    Mirrors the score/focus/slowmo logic in cut_clip() so partition size is accurate.
+    Returns raw duration — _enforce_single_slowmo will reduce slowmo to one clip per
+    reel (the climax), so using per-event slowmo hints here over-counts and causes
+    unnecessary partition splits. _group_dur adds the climax slowmo expansion once.
     """
-    raw  = ev["end"] - ev["start"]
-    edit = ev.get("edit", {})
-    if not (edit.get("slowmo", False) and slowmo_capable):
-        return raw
-    score = int(ev.get("score", 7))
-    focus = str(edit.get("focus", "full")).lower()
-    if score >= 9:   sm_frac, slow_factor = 0.50, 2.5
-    elif score >= 7: sm_frac, slow_factor = 0.40, 2.0
-    else:            sm_frac, slow_factor = 0.30, 1.5
-    if focus == "peak":
-        return raw * (0.30 + 0.40 * slow_factor + 0.30)
-    else:
-        return raw * ((1 - sm_frac) + sm_frac * slow_factor)
+    return ev["end"] - ev["start"]
 
 
 def _partition_events(
@@ -568,8 +558,19 @@ def _partition_events(
         return []
 
     def _group_dur(grp: list[dict]) -> float:
-        return (sum(_est_clip_dur(e, slowmo_capable) for e in grp)
-                - XFADE_DUR * (len(grp) - 1))
+        if not grp:
+            return 0.0
+        base = sum(e["end"] - e["start"] for e in grp) - XFADE_DUR * (len(grp) - 1)
+        if slowmo_capable:
+            # Only the highest-scored clip (climax) will get slowmo after _enforce_single_slowmo
+            climax = max(grp, key=lambda e: e["score"])
+            raw_c  = climax["end"] - climax["start"]
+            sc     = int(climax.get("score", 7))
+            if sc >= 9:    sm_frac, slow_factor = 0.50, 2.5
+            elif sc >= 7:  sm_frac, slow_factor = 0.40, 2.0
+            else:          sm_frac, slow_factor = 0.30, 1.5
+            base += raw_c * (sm_frac * slow_factor - sm_frac)
+        return base
 
     # Best events first → each reel gets the highest-quality moments available
     remaining = sorted(events, key=lambda e: e["score"], reverse=True)
@@ -1225,7 +1226,8 @@ def compile_reel(
 
 
 def compile_multi_source_reel(appearances: list[dict], sport: str = "",
-                               athlete_label: str = "") -> list[str]:
+                               athlete_label: str = "",
+                               _events_out: list | None = None) -> list[str]:
     """
     Creates reels for one athlete using clips that may come from different source videos.
 
@@ -1233,6 +1235,8 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         appearances:    list of {"path": source_video_path, "events": [...]}
         sport:          activity label for color grading (e.g. "surfing", "football")
         athlete_label:  short athlete description for lower-third text overlay
+        _events_out:    optional list; if provided, (reel_path, ordered_events) tuples
+                        are appended for each produced reel (enables per-partition metadata)
 
     Returns list of compiled reel paths (one per partition; may be multiple if athlete
     has many high-scoring events that would exceed TARGET_REEL_MAX in a single reel).
@@ -1250,8 +1254,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         return []
 
     session_peak   = max((ev.get("score", 7) for ev in all_events), default=7)
-    first_src      = appearances[0]["path"]
-    slowmo_capable = _get_source_fps(first_src) >= SLOWMO_FPS_MIN
+    slowmo_capable = any(_get_source_fps(app["path"]) >= SLOWMO_FPS_MIN for app in appearances)
     partitions     = _partition_events(all_events, slowmo_capable)
     first_stem     = Path(appearances[0]["path"]).stem
     reels: list[str] = []
@@ -1332,6 +1335,8 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                                       transitions=event_transitions)
             if reel_clean:
                 reels.append(reel_clean)
+                if _events_out is not None:
+                    _events_out.append((reel_clean, ordered))
 
             music_track = _pick_music(sport)
             if music_track:
@@ -1342,6 +1347,8 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                                           transitions=event_transitions)
                 if reel_music:
                     reels.append(reel_music)
+                    if _events_out is not None:
+                        _events_out.append((reel_music, ordered))
         finally:
             for p in clip_paths:
                 try: os.remove(p)
