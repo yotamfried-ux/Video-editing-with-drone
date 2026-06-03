@@ -1,5 +1,5 @@
 """
-config.py — Load all pipeline configuration from environment variables.
+config/settings.py — Load all pipeline configuration from environment variables.
 All secrets must be set in .env (copy from .env.example).
 """
 

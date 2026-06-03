@@ -41,7 +41,7 @@ os.environ.setdefault("LOGO_PATH",                   "assets/logo.png")
 os.environ.setdefault("TMP_DIR",                     "/tmp/dtor_debug")
 
 import config  # noqa: E402
-from pipeline.editor   import (  # noqa: E402
+from pipeline.stages.editor   import (  # noqa: E402
     create_reel, cut_clip, compile_reel, create_preview,
     _narrative_order, _get_source_fps, _get_duration, _pick_music,
     _analyze_music, analyze_music_library, _compute_cut_times,
@@ -61,8 +61,8 @@ for _mod in [
 ]:
     sys.modules.setdefault(_mod, MagicMock())
 
-from pipeline.analyzer import _parse_analysis, _parse_session, _with_retry, _extract_thumbnail  # noqa: E402
-from pipeline.notifier import _build_html, send_summary_email  # noqa: E402
+from pipeline.stages.analyzer import _parse_analysis, _parse_session, _with_retry, _extract_thumbnail  # noqa: E402
+from integrations.notifier import _build_html, send_summary_email  # noqa: E402
 
 # ── Paths ──────────────────────────────────────────────────────────────────
 DEBUG_DIR     = config.TMP_DIR
@@ -679,7 +679,7 @@ def test_email_html() -> None:
 def test_pipeline_helpers() -> None:
     section("10 / Pipeline helpers (_classify_input + _safe_draft_name)")
 
-    from run import _classify_input, _safe_draft_name  # noqa: PLC0415
+    from pipeline.orchestrator import _classify_input, _safe_draft_name  # noqa: PLC0415
 
     # ── _classify_input ───────────────────────────────
     # single large file (>100 MB) → long_video
@@ -751,7 +751,7 @@ def test_drive_pagination() -> None:
     section("10b / Drive pagination (get_new_videos + _sync_processed_from_drive)")
 
     from unittest.mock import MagicMock, patch
-    from pipeline.drive import get_new_videos, _sync_processed_from_drive
+    from integrations.drive import get_new_videos, _sync_processed_from_drive
 
     # ── _sync_processed_from_drive: 2 pages → all IDs returned ──
     page1 = {"files": [{"id": "aaa"}, {"id": "bbb"}], "nextPageToken": "tok1"}
@@ -785,9 +785,9 @@ def test_drive_pagination() -> None:
         raw_page2,   # RAW folder page 2
     ]
 
-    with patch("pipeline.drive._get_drive_service", return_value=svc2), \
-         patch("pipeline.drive._load_processed_ids", return_value=set()), \
-         patch("pipeline.drive._save_processed_ids"):
+    with patch("integrations.drive._get_drive_service", return_value=svc2), \
+         patch("integrations.drive._load_processed_ids", return_value=set()), \
+         patch("integrations.drive._save_processed_ids"):
         videos = get_new_videos()
 
     if len(videos) == 2 and {v["id"] for v in videos} == {"v1", "v2"}:
@@ -914,7 +914,7 @@ def test_batch_email() -> None:
 
     # ── send_summary_email smoke test (mocked Gmail) ──
     mock_svc = MagicMock()
-    with patch("pipeline.notifier._get_gmail_service", return_value=mock_svc):
+    with patch("integrations.notifier._get_gmail_service", return_value=mock_svc):
         try:
             send_summary_email(
                 recipients  = [config.OWNER_EMAIL],
@@ -999,7 +999,7 @@ def test_color_and_crop() -> None:
 def test_find_client() -> None:
     section("16 / find_client (pipeline/clients.py)")
 
-    from pipeline.clients import find_client  # noqa: PLC0415
+    from services.client_manager import find_client  # noqa: PLC0415
 
     test_clients = [
         {"name": "Yoni Surfer",  "email": "yoni@test.com",  "video_pattern": "yoni"},
@@ -1045,7 +1045,7 @@ def test_find_client() -> None:
 def test_identity_clustering() -> None:
     section("13 / Identity clustering (cluster_clips + _parse_session)")
 
-    from pipeline.identity import cluster_clips  # noqa: PLC0415
+    from pipeline.stages.identity import cluster_clips  # noqa: PLC0415
 
     # ── _parse_session: valid multi-person JSON ───────
     multi_person_json = json.dumps({
@@ -1167,7 +1167,7 @@ def test_identity_clustering() -> None:
         except OSError: pass
 
     # ── _try_clip_cluster: returns None when torch/transformers unavailable ───
-    from pipeline.identity import _try_clip_cluster  # noqa: PLC0415
+    from pipeline.stages.identity import _try_clip_cluster  # noqa: PLC0415
     try:
         result = _try_clip_cluster(two_clips)
         # In the debug environment torch is not installed → must return None
@@ -1180,7 +1180,7 @@ def test_identity_clustering() -> None:
         fail("_try_clip_cluster", str(e))
 
     # ── _try_visual_cluster: returns None when no thumbnails present ──────────
-    from pipeline.identity import _try_visual_cluster  # noqa: PLC0415
+    from pipeline.stages.identity import _try_visual_cluster  # noqa: PLC0415
     descriptions_list = [
         {"clip_index": 0, "person_id": "person_A", "description": "red board"},
         {"clip_index": 1, "person_id": "person_B", "description": "blue board"},
@@ -1241,8 +1241,8 @@ def test_identity_clustering() -> None:
         ]
     })
     try:
-        with patch("pipeline.identity._try_clip_cluster", return_value=None), \
-             patch("pipeline.identity.genai") as mock_genai:
+        with patch("pipeline.stages.identity._try_clip_cluster", return_value=None), \
+             patch("pipeline.stages.identity.genai") as mock_genai:
             mock_genai.GenerativeModel.return_value.generate_content.return_value.text = gemini_visual_response
             # Mock upload_file to return an object with a .name attribute
             from unittest.mock import MagicMock  # noqa: PLC0415
@@ -1259,7 +1259,7 @@ def test_identity_clustering() -> None:
         fail("cluster_clips — visual tier with thumbnails", str(e))
 
     # ── _build_clusters_from_data: low-confidence multi-clip → split ──────────
-    from pipeline.identity import _build_clusters_from_data  # noqa: PLC0415
+    from pipeline.stages.identity import _build_clusters_from_data  # noqa: PLC0415
 
     low_conf_data = {
         "clusters": [{
@@ -1357,9 +1357,9 @@ def test_identity_clustering() -> None:
         },
     ]
     try:
-        with patch("pipeline.identity._try_clip_cluster", return_value=None), \
-             patch("pipeline.identity._try_visual_cluster", return_value=None), \
-             patch("pipeline.identity._text_cluster", side_effect=RuntimeError("force fallback")):
+        with patch("pipeline.stages.identity._try_clip_cluster", return_value=None), \
+             patch("pipeline.stages.identity._try_visual_cluster", return_value=None), \
+             patch("pipeline.stages.identity._text_cluster", side_effect=RuntimeError("force fallback")):
             cluster_clips(clips_cleanup)
         still_exist = [t for t in (thumb_cleanup_a, thumb_cleanup_b) if os.path.exists(t)]
         if not still_exist:
@@ -1381,17 +1381,17 @@ def test_deliver_flow() -> None:
     import deliver         # noqa: PLC0415
     import deliver_final   # noqa: PLC0415
 
-    _no_client    = patch("deliver.find_client",         return_value=None)
-    _no_previewed = patch("deliver._load_previewed",     return_value=set())
-    _no_mark_prev = patch("deliver._mark_previewed")
-    _mock_dl      = patch("deliver.download_video",      return_value="/tmp/fake_reel.mp4")
-    _mock_prev    = patch("deliver.create_preview",      return_value="/tmp/fake_preview.mp4")
-    _mock_upload  = patch("deliver.upload_preview",      return_value="https://preview.link/p1")
-    _mock_move    = patch("deliver.move_to_pending_payment")
+    _no_client    = patch("services.delivery.find_client",         return_value=None)
+    _no_previewed = patch("services.delivery._load_previewed",     return_value=set())
+    _no_mark_prev = patch("services.delivery._mark_previewed")
+    _mock_dl      = patch("services.delivery.download_video",      return_value="/tmp/fake_reel.mp4")
+    _mock_prev    = patch("services.delivery.create_preview",      return_value="/tmp/fake_preview.mp4")
+    _mock_upload  = patch("services.delivery.upload_preview",      return_value="https://preview.link/p1")
+    _mock_move    = patch("services.delivery.move_to_pending_payment")
 
     # ── no approved drafts → send_summary_email NOT called ──
-    with patch("deliver.get_approved_drafts", return_value=[]), \
-         patch("deliver.send_summary_email") as mock_send, \
+    with patch("services.delivery.get_approved_drafts", return_value=[]), \
+         patch("services.delivery.send_summary_email") as mock_send, \
          _no_client, _no_previewed, _no_mark_prev, \
          _mock_dl, _mock_prev, _mock_upload, _mock_move:
         deliver.main()
@@ -1403,8 +1403,8 @@ def test_deliver_flow() -> None:
     # ── 1 draft → download, create_preview, upload_preview each called once ──
     one_draft = [{"id": "d1", "name": "DRAFT_red_board_20260514.mp4",
                   "webViewLink": "https://drive.google.com/d1"}]
-    with patch("deliver.get_approved_drafts", return_value=one_draft), \
-         patch("deliver.send_summary_email"), \
+    with patch("services.delivery.get_approved_drafts", return_value=one_draft), \
+         patch("services.delivery.send_summary_email"), \
          _no_client, _no_previewed, _no_mark_prev, \
          _mock_dl as m_dl, _mock_prev as m_prev, _mock_upload as m_up, _mock_move:
         deliver.main()
@@ -1415,8 +1415,8 @@ def test_deliver_flow() -> None:
                  f"dl={m_dl.call_count} prev={m_prev.call_count} up={m_up.call_count}")
 
     # ── 1 draft → move_to_pending_payment called once ──
-    with patch("deliver.get_approved_drafts", return_value=one_draft), \
-         patch("deliver.send_summary_email"), \
+    with patch("services.delivery.get_approved_drafts", return_value=one_draft), \
+         patch("services.delivery.send_summary_email"), \
          _no_client, _no_previewed, _no_mark_prev, \
          _mock_dl, _mock_prev, _mock_upload, _mock_move as m_move:
         deliver.main()
@@ -1428,8 +1428,8 @@ def test_deliver_flow() -> None:
 
     # ── smoke: main() runs without exception ──
     try:
-        with patch("deliver.get_approved_drafts", return_value=one_draft), \
-             patch("deliver.send_summary_email"), \
+        with patch("services.delivery.get_approved_drafts", return_value=one_draft), \
+             patch("services.delivery.send_summary_email"), \
              _no_client, _no_previewed, _no_mark_prev, \
              _mock_dl, _mock_prev, _mock_upload, _mock_move:
             deliver.main()
@@ -1438,11 +1438,11 @@ def test_deliver_flow() -> None:
         fail("deliver.main — smoke test", str(e))
 
     # ── download failure → email not sent, move not called ──
-    with patch("deliver.get_approved_drafts", return_value=one_draft), \
-         patch("deliver.send_summary_email") as mock_send2, \
-         patch("deliver.download_video", side_effect=RuntimeError("network error")), \
-         patch("deliver.create_preview", return_value="/tmp/fake_preview.mp4"), \
-         patch("deliver.upload_preview", return_value="https://preview.link/p1"), \
+    with patch("services.delivery.get_approved_drafts", return_value=one_draft), \
+         patch("services.delivery.send_summary_email") as mock_send2, \
+         patch("services.delivery.download_video", side_effect=RuntimeError("network error")), \
+         patch("services.delivery.create_preview", return_value="/tmp/fake_preview.mp4"), \
+         patch("services.delivery.upload_preview", return_value="https://preview.link/p1"), \
          _mock_move as m_move2, \
          _no_client, _no_previewed, _no_mark_prev:
         deliver.main()
@@ -1453,9 +1453,9 @@ def test_deliver_flow() -> None:
                  f"send={mock_send2.call_count} move={m_move2.call_count}")
 
     # ── already-previewed IDs → skipped (idempotency) ──
-    with patch("deliver.get_approved_drafts", return_value=one_draft), \
-         patch("deliver.send_summary_email") as mock_send3, \
-         patch("deliver._load_previewed", return_value={"d1"}), \
+    with patch("services.delivery.get_approved_drafts", return_value=one_draft), \
+         patch("services.delivery.send_summary_email") as mock_send3, \
+         patch("services.delivery._load_previewed", return_value={"d1"}), \
          _no_mark_prev, _no_client, \
          _mock_dl, _mock_prev, _mock_upload, _mock_move:
         deliver.main()
@@ -1466,8 +1466,8 @@ def test_deliver_flow() -> None:
 
     # ── missing webViewLink → skipped ──
     no_link_draft = [{"id": "d2", "name": "DRAFT_no_link.mp4", "webViewLink": ""}]
-    with patch("deliver.get_approved_drafts", return_value=no_link_draft), \
-         patch("deliver.send_summary_email") as mock_send4, \
+    with patch("services.delivery.get_approved_drafts", return_value=no_link_draft), \
+         patch("services.delivery.send_summary_email") as mock_send4, \
          _no_client, _no_previewed, _no_mark_prev, \
          _mock_dl, _mock_prev, _mock_upload, _mock_move as m_move3:
         deliver.main()
@@ -1478,13 +1478,13 @@ def test_deliver_flow() -> None:
                  f"send={mock_send4.call_count} move={m_move3.call_count}")
 
     # ── deliver_final: no pending → email not called ──
-    _no_del_client  = patch("deliver_final.find_client",          return_value=None)
-    _no_delivered   = patch("deliver_final._load_delivered",      return_value=set())
-    _no_save_deliv  = patch("deliver_final._save_delivered")
-    _no_mark_deliv  = patch("deliver_final.mark_draft_delivered")
+    _no_del_client  = patch("services.delivery.find_client",          return_value=None)
+    _no_delivered   = patch("services.delivery._load_delivered",      return_value=set())
+    _no_save_deliv  = patch("services.delivery._save_delivered")
+    _no_mark_deliv  = patch("services.delivery.mark_draft_delivered")
 
-    with patch("deliver_final.get_pending_payment_drafts", return_value=[]), \
-         patch("deliver_final.send_summary_email") as mock_fin, \
+    with patch("services.delivery.get_pending_payment_drafts", return_value=[]), \
+         patch("services.delivery.send_summary_email") as mock_fin, \
          _no_del_client, _no_delivered, _no_save_deliv, _no_mark_deliv:
         deliver_final.main()
         if mock_fin.call_count == 0:
@@ -1495,8 +1495,8 @@ def test_deliver_flow() -> None:
     # ── deliver_final: 1 pending → owner email sent with full link ──
     pending_draft = [{"id": "p1", "name": "DRAFT_red_board_20260514.mp4",
                       "webViewLink": "https://drive.google.com/full_p1"}]
-    with patch("deliver_final.get_pending_payment_drafts", return_value=pending_draft), \
-         patch("deliver_final.send_summary_email") as mock_fin2, \
+    with patch("services.delivery.get_pending_payment_drafts", return_value=pending_draft), \
+         patch("services.delivery.send_summary_email") as mock_fin2, \
          _no_del_client, _no_delivered, _no_save_deliv, _no_mark_deliv:
         deliver_final.main()
         if mock_fin2.call_count == 1:
@@ -1510,10 +1510,10 @@ def test_deliver_flow() -> None:
             fail("deliver_final.main — send count", f"expected 1, got {mock_fin2.call_count}")
 
     # ── deliver_final: mark_draft_delivered called for each pending ──
-    with patch("deliver_final.get_pending_payment_drafts", return_value=pending_draft), \
-         patch("deliver_final.send_summary_email"), \
+    with patch("services.delivery.get_pending_payment_drafts", return_value=pending_draft), \
+         patch("services.delivery.send_summary_email"), \
          _no_del_client, _no_delivered, _no_save_deliv, \
-         patch("deliver_final.mark_draft_delivered") as mock_arch:
+         patch("services.delivery.mark_draft_delivered") as mock_arch:
         deliver_final.main()
         if mock_arch.call_count == 1:
             ok("deliver_final.main — mark_draft_delivered called for each pending reel")
@@ -1705,7 +1705,7 @@ def test_music_smart_selection() -> None:
 def test_run_robustness() -> None:
     section("19 / run.py robustness (record_failure + _dominant_activity)")
 
-    from pipeline.drive import record_failure, _load_failed_ids
+    from integrations.drive import record_failure, _load_failed_ids
     import tempfile
     import shutil
 
@@ -1731,7 +1731,7 @@ def test_run_robustness() -> None:
         config.PROCESSED_IDS_FILE = orig_processed
         shutil.rmtree(tmp_dir, ignore_errors=True)
 
-    from run import _dominant_activity
+    from pipeline.orchestrator import _dominant_activity
     surf_clips = [
         {"analysis": {"activity": "unknown"}, "meta": {"name": "surf_session_day2.mp4"}},
         {"analysis": {"activity": "unknown"}, "meta": {"name": "surf_beach_morning.mp4"}},
@@ -1842,7 +1842,7 @@ def test_resource_optimizations() -> None:
 
     # ── CLIP singleton ──
     try:
-        from pipeline.identity import _get_clip_model, _CLIP_CACHE
+        from pipeline.stages.identity import _get_clip_model, _CLIP_CACHE
         _CLIP_CACHE.clear()
         try:
             p1, m1 = _get_clip_model()
@@ -1974,7 +1974,7 @@ def test_staging_area() -> None:
 
     import shutil as _shutil
     from unittest.mock import patch
-    import run
+    import pipeline.orchestrator as run
 
     # ── _MAX_STAGED_ATTEMPTS constant defined ──
     try:
@@ -1997,10 +1997,10 @@ def test_staging_area() -> None:
             _f.write(b"fake reel content")
 
         cluster = {"appearances": [{"path": "/tmp/v.mp4", "events": []}], "description": "Blue helmet"}
-        with patch("run.compile_multi_source_reel", return_value=[fake_reel]), \
-             patch("run.upload_draft", side_effect=RuntimeError("503 service unavailable")), \
-             patch("run._get_source_info", return_value={}), \
-             patch("run._save_reel_metadata"):
+        with patch("pipeline.orchestrator.compile_multi_source_reel", return_value=[fake_reel]), \
+             patch("pipeline.orchestrator.upload_draft", side_effect=RuntimeError("503 service unavailable")), \
+             patch("pipeline.orchestrator._get_source_info", return_value={}), \
+             patch("pipeline.orchestrator._save_reel_metadata"):
             run._compile_clusters([cluster], "surfing")
 
         staged = ([f for f in os.listdir(tmp_stage) if f.endswith(".mp4")]
@@ -2019,7 +2019,7 @@ def test_staging_area() -> None:
 
         # ── _retry_pending_uploads: success → cleans up all sidecar files ──
         if staged_reel:
-            with patch("run.upload_draft", return_value="https://link") as mock_ul:
+            with patch("pipeline.orchestrator.upload_draft", return_value="https://link") as mock_ul:
                 run._retry_pending_uploads()
             if mock_ul.called:
                 ok("_retry_pending_uploads: upload_draft called for staged reel")
@@ -2040,7 +2040,7 @@ def test_staging_area() -> None:
         with open(abandon_reel + ".attempts", "w") as _f:
             _f.write(str(run._MAX_STAGED_ATTEMPTS))
 
-        with patch("run.upload_draft") as mock_ul2:
+        with patch("pipeline.orchestrator.upload_draft") as mock_ul2:
             run._retry_pending_uploads()
         if not mock_ul2.called:
             ok(f"_retry_pending_uploads: skips reel at attempt limit ({run._MAX_STAGED_ATTEMPTS})")
@@ -2077,10 +2077,10 @@ def test_atomic_download() -> None:
     config.TMP_DIR = tmp_dl
 
     try:
-        from pipeline.drive import download_video
+        from integrations.drive import download_video
 
         # ── download failure: no .part file left ──
-        with patch("pipeline.drive._get_drive_service") as mock_svc:
+        with patch("integrations.drive._get_drive_service") as mock_svc:
             mock_svc.return_value.files.return_value.get_media.side_effect = RuntimeError("network error")
             try:
                 download_video("fake_id", "fail_video.mp4")
@@ -2112,7 +2112,7 @@ def test_atomic_download() -> None:
 def test_disk_space_guard() -> None:
     section("37 / Disk space guard — _check_disk_space() raises when low")
 
-    import run
+    import pipeline.orchestrator as run
 
     # ── constant defined ──
     try:
@@ -2159,7 +2159,7 @@ def test_zero_clip_warning() -> None:
 
     import logging
     from unittest.mock import patch
-    from pipeline.editor import compile_multi_source_reel
+    from pipeline.stages.editor import compile_multi_source_reel
 
     appearances = [{"path": "/tmp/v.mp4", "events": [
         {"type": "aerial", "start": 1.0, "end": 5.0, "score": 8,
@@ -2174,13 +2174,13 @@ def test_zero_clip_warning() -> None:
         def emit(self, record: logging.LogRecord) -> None:
             log_records.append(record)
 
-    editor_logger = logging.getLogger("pipeline.editor")
+    editor_logger = logging.getLogger("pipeline.stages.editor")
     handler = _Capture()
     editor_logger.addHandler(handler)
     try:
-        with patch("pipeline.editor._cut_clip_with_qa", return_value=None), \
-             patch("pipeline.editor._get_source_fps", return_value=60.0), \
-             patch("pipeline.editor._get_source_info",
+        with patch("pipeline.stages.editor._cut_clip_with_qa", return_value=None), \
+             patch("pipeline.stages.editor._get_source_fps", return_value=60.0), \
+             patch("pipeline.stages.editor._get_source_info",
                    return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
                                  "width": 1080, "height": 1920}):
             compile_multi_source_reel(appearances, sport="surfing", athlete_label="Jersey #7")
@@ -2206,9 +2206,9 @@ def test_zero_clip_warning() -> None:
     handler2 = _Capture2()
     editor_logger.addHandler(handler2)
     try:
-        with patch("pipeline.editor._cut_clip_with_qa", return_value=None), \
-             patch("pipeline.editor._get_source_fps", return_value=60.0), \
-             patch("pipeline.editor._get_source_info",
+        with patch("pipeline.stages.editor._cut_clip_with_qa", return_value=None), \
+             patch("pipeline.stages.editor._get_source_fps", return_value=60.0), \
+             patch("pipeline.stages.editor._get_source_info",
                    return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
                                  "width": 1080, "height": 1920}):
             events = [{"type": "aerial", "start": 1.0, "end": 5.0, "score": 8,
@@ -2260,7 +2260,7 @@ def print_summary() -> None:
 def test_jersey_matching() -> None:
     section("23 / Client matching — jersey_number + video_pattern")
 
-    from pipeline.clients import find_client
+    from services.client_manager import find_client
 
     jersey_clients = [
         {"name": "איתי לוי",   "email": "itay@test.com",  "video_pattern": "itay",  "jersey_number": "7"},
@@ -2314,7 +2314,7 @@ def test_feedback_loop() -> None:
     section("24 / Feedback loop (pipeline/feedback.py)")
 
     import tempfile
-    from pipeline.feedback import record_approval, get_all_label_injections, get_stats
+    from pipeline.stages.feedback import record_approval, get_all_label_injections, get_stats
 
     # Redirect feedback file to a temp location so we don't pollute real data
     old_fb = config.FEEDBACK_FILE
@@ -2367,7 +2367,7 @@ def test_feedback_loop() -> None:
             fail("feedback get_stats", f"got: {stats!r}")
 
         # ── source_info: _get_source_info returns sensible dict ──
-        from pipeline.editor import _get_source_info, ZOOM_MIN_HEADROOM
+        from pipeline.stages.editor import _get_source_info, ZOOM_MIN_HEADROOM
         si = _get_source_info("/nonexistent_video.mp4")
         if isinstance(si.get("zoom_headroom"), float) and isinstance(si.get("can_slowmo"), bool):
             ok("_get_source_info — returns fallback dict on missing file")
@@ -2385,7 +2385,7 @@ def test_feedback_loop() -> None:
             fail("zoom headroom logic", f"4K zoom={zoom_4k:.2f}, 1080p zoom={zoom_1080:.2f}")
 
         # ── crop_y vertical positioning ──
-        from pipeline.editor import REEL_H, REEL_W
+        from pipeline.stages.editor import REEL_H, REEL_W
         applied_zoom = 1.4
         crop_h  = int(REEL_H / applied_zoom)
         # athlete at bottom third (surfing): crop_y=0.75
@@ -2422,7 +2422,7 @@ def test_type_aware_editing() -> None:
     os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
-    from pipeline.editor import _TYPE_HINTS, _TYPE_GRADE_DELTA, _build_grade, REEL_H, ZOOM_MIN_HEADROOM
+    from pipeline.stages.editor import _TYPE_HINTS, _TYPE_GRADE_DELTA, _build_grade, REEL_H, ZOOM_MIN_HEADROOM
 
     # ── Type hint zoom floor: aerial should raise zoom above Gemini's 1.0 ──
     for t_type in ("aerial", "gap_jump", "trick"):
@@ -2514,7 +2514,7 @@ def test_type_aware_editing() -> None:
         fail("focus=entry formula", f"entry_dur={entry_dur} expected={expected}")
 
     # ── _parse_analysis legacy path now includes crop_y and edit dict ──
-    from pipeline.analyzer import _parse_analysis
+    from pipeline.stages.analyzer import _parse_analysis
     sample_json = '''{"activity": "surfing", "events": [
         {"type": "aerial", "start": 5.0, "end": 12.0, "score": 9,
          "description": "big air",
@@ -2540,7 +2540,7 @@ def test_type_aware_editing() -> None:
 def test_prompt_to_edit_gaps() -> None:
     section("25 / Prompt→edit gap closure (focus / transitions / score-slowmo)")
 
-    from pipeline.editor import REEL_H, REEL_W, _TRANSITION_MAP
+    from pipeline.stages.editor import REEL_H, REEL_W, _TRANSITION_MAP
 
     # ── transition_out extracted correctly from event edit dict ──
     ev_cut   = {"edit": {"transition_out": "cut",   "zoom": 1.0, "slowmo": False, "focus": "full"}}
@@ -2629,7 +2629,7 @@ def test_prompt_to_edit_gaps() -> None:
         fail("focus=peak section difference", f"crop_h={crop_h} y_off_zoom={y_off_zoom}")
 
     # ── _xfade_filter uses transitions list when provided ──
-    from pipeline.editor import _xfade_filter
+    from pipeline.stages.editor import _xfade_filter
     transitions_list = ["cut", "fade", "slide", "zoom"]
     filt = _xfade_filter(4, [2.0, 2.0, 2.0, 2.0], sport="surfing", transitions=transitions_list)
     if "fadeblack" in filt and "slideleft" in filt:
@@ -2650,11 +2650,11 @@ def test_remaining_prompt_edit_gaps() -> None:
     os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
-    from pipeline.editor import (
+    from pipeline.stages.editor import (
         _TYPE_HINTS, _break_slowmo_runs, _ev_slowmo,
         _narrative_order, _est_clip_dur, _partition_events,
     )
-    from pipeline.analyzer import _IDENTITY_PROMPT
+    from pipeline.stages.analyzer import _IDENTITY_PROMPT
 
     # ── Gap 1: enumerated type list in prompt ──
     for t in ("aerial", "tube_ride", "goal", "grind", "wipeout", "near_miss"):
@@ -2779,7 +2779,7 @@ def test_single_slowmo_rule() -> None:
     os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
-    from pipeline.editor import _enforce_single_slowmo, _narrative_order, _ev_slowmo
+    from pipeline.stages.editor import _enforce_single_slowmo, _narrative_order, _ev_slowmo
 
     def sm(s: int) -> dict:
         return {"score": s, "edit": {"slowmo": True},  "type": "aerial", "start": 0, "end": 5}
@@ -2849,7 +2849,7 @@ def test_dual_reel_output() -> None:
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
     from unittest.mock import patch, call, MagicMock
-    from pipeline.editor import create_reel
+    from pipeline.stages.editor import create_reel
 
     events = [
         {"type": "aerial", "start": 1.0, "end": 6.0, "score": 9, "description": "",
@@ -2857,10 +2857,10 @@ def test_dual_reel_output() -> None:
     ]
 
     # ── 1: music track available → compile_reel called twice, second with music_path ──
-    with patch("pipeline.editor._pick_music", return_value="/music/track.mp3") as mock_pm, \
-         patch("pipeline.editor.compile_reel", return_value="/tmp/reel.mp4") as mock_cr, \
-         patch("pipeline.editor.cut_clip", return_value="/tmp/clip.mp4"), \
-         patch("pipeline.editor._get_source_info",
+    with patch("pipeline.stages.editor._pick_music", return_value="/music/track.mp3") as mock_pm, \
+         patch("pipeline.stages.editor.compile_reel", return_value="/tmp/reel.mp4") as mock_cr, \
+         patch("pipeline.stages.editor.cut_clip", return_value="/tmp/clip.mp4"), \
+         patch("pipeline.stages.editor._get_source_info",
                return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
                              "width": 1080, "height": 1920}):
         result = create_reel("/fake/video.mp4", events, sport="surfing")
@@ -2882,10 +2882,10 @@ def test_dual_reel_output() -> None:
             fail("create_reel music path naming", f"path: {music_path_arg}")
 
     # ── 2: no music available → compile_reel called once only ──
-    with patch("pipeline.editor._pick_music", return_value=None), \
-         patch("pipeline.editor.compile_reel", return_value="/tmp/reel.mp4") as mock_cr2, \
-         patch("pipeline.editor.cut_clip", return_value="/tmp/clip.mp4"), \
-         patch("pipeline.editor._get_source_info",
+    with patch("pipeline.stages.editor._pick_music", return_value=None), \
+         patch("pipeline.stages.editor.compile_reel", return_value="/tmp/reel.mp4") as mock_cr2, \
+         patch("pipeline.stages.editor.cut_clip", return_value="/tmp/clip.mp4"), \
+         patch("pipeline.stages.editor._get_source_info",
                return_value={"fps": 60.0, "zoom_headroom": 1.5, "can_slowmo": True,
                              "width": 1080, "height": 1920}):
         create_reel("/fake/video.mp4", events, sport="surfing")
@@ -2895,16 +2895,16 @@ def test_dual_reel_output() -> None:
             fail("create_reel no-music", f"compile_reel called {mock_cr2.call_count} times")
 
     # ── 3: _compile_clusters names drafts with (music) suffix for music reels ──
-    from run import _compile_clusters, _safe_draft_name
+    from pipeline.orchestrator import _compile_clusters, _safe_draft_name
     cluster = {
         "appearances": [{"path": "/tmp/v.mp4", "events": []}],
         "description": "Red jersey",
     }
-    with patch("run.compile_multi_source_reel",
+    with patch("pipeline.orchestrator.compile_multi_source_reel",
                return_value=["/tmp/reel.mp4", "/tmp/reel_music.mp4"]), \
-         patch("run.upload_draft", return_value="id") as mock_ul, \
-         patch("run._save_reel_metadata"), \
-         patch("run._get_source_info", return_value={}):
+         patch("pipeline.orchestrator.upload_draft", return_value="id") as mock_ul, \
+         patch("pipeline.orchestrator._save_reel_metadata"), \
+         patch("pipeline.orchestrator._get_source_info", return_value={}):
         _compile_clusters([cluster], "surfing")
         names = [args[0][1] for args in mock_ul.call_args_list]
         has_clean = any("music" not in n.lower() for n in names)
@@ -2928,7 +2928,7 @@ def test_pipeline_trigger_chain() -> None:
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
     from unittest.mock import patch, call
-    import run
+    import pipeline.orchestrator as run
 
     _ev = lambda s: {"start": 0, "end": 5, "score": s, "type": "aerial", "description": ""}
     _cluster = lambda path, desc: {
@@ -2939,10 +2939,10 @@ def test_pipeline_trigger_chain() -> None:
 
     # ── 1: _compile_clusters calls compile_multi_source_reel once per cluster ──
     two_clusters = [_cluster("/tmp/v1.mp4", "Red jersey"), _cluster("/tmp/v2.mp4", "Blue jersey")]
-    with patch("run.compile_multi_source_reel", return_value=["/tmp/reel.mp4"]) as mock_cmr, \
-         patch("run.upload_draft", return_value="draft_id"), \
-         patch("run._save_reel_metadata"), \
-         patch("run._get_source_info", return_value={}):
+    with patch("pipeline.orchestrator.compile_multi_source_reel", return_value=["/tmp/reel.mp4"]) as mock_cmr, \
+         patch("pipeline.orchestrator.upload_draft", return_value="draft_id"), \
+         patch("pipeline.orchestrator._save_reel_metadata"), \
+         patch("pipeline.orchestrator._get_source_info", return_value={}):
         run._compile_clusters(two_clusters, "surfing")
         if mock_cmr.call_count == 2:
             ok("_compile_clusters: compile_multi_source_reel called once per cluster")
@@ -2956,10 +2956,10 @@ def test_pipeline_trigger_chain() -> None:
             fail("_compile_clusters appearances", f"got {first_appearances}")
 
     # ── 2: 2 partitions per cluster → 2 upload_draft + 2 save_metadata calls ──
-    with patch("run.compile_multi_source_reel", return_value=["/tmp/r1.mp4", "/tmp/r2.mp4"]), \
-         patch("run.upload_draft", return_value="draft_id") as mock_ul, \
-         patch("run._save_reel_metadata") as mock_meta, \
-         patch("run._get_source_info", return_value={}):
+    with patch("pipeline.orchestrator.compile_multi_source_reel", return_value=["/tmp/r1.mp4", "/tmp/r2.mp4"]), \
+         patch("pipeline.orchestrator.upload_draft", return_value="draft_id") as mock_ul, \
+         patch("pipeline.orchestrator._save_reel_metadata") as mock_meta, \
+         patch("pipeline.orchestrator._get_source_info", return_value={}):
         run._compile_clusters([_cluster("/tmp/v1.mp4", "Red jersey")], "surfing")
         if mock_ul.call_count == 2 and mock_meta.call_count == 2:
             ok("_compile_clusters: 2-partition reel → 2 upload_draft + 2 _save_reel_metadata calls")
@@ -2973,11 +2973,11 @@ def test_pipeline_trigger_chain() -> None:
         "activity": "surfing",
     }
     mock_cluster_out = [_cluster("/tmp/v1.mp4", "Red jersey")]
-    with patch("run._download_one", return_value={"path": "/tmp/v1.mp4", "meta": _meta("f1")}), \
-         patch("run.analyze_session", return_value=mock_analysis), \
-         patch("run.cluster_clips", return_value=mock_cluster_out) as mock_cc, \
-         patch("run._compile_clusters", return_value=1) as mock_cmc, \
-         patch("run.mark_as_processed"):
+    with patch("pipeline.orchestrator._download_one", return_value={"path": "/tmp/v1.mp4", "meta": _meta("f1")}), \
+         patch("pipeline.orchestrator.analyze_session", return_value=mock_analysis), \
+         patch("pipeline.orchestrator.cluster_clips", return_value=mock_cluster_out) as mock_cc, \
+         patch("pipeline.orchestrator._compile_clusters", return_value=1) as mock_cmc, \
+         patch("pipeline.orchestrator.mark_as_processed"):
         run._process_clips_session([{"id": "f1", "name": "clip.mp4", "size": 5_000_000}])
         if mock_cc.call_count == 1 and mock_cmc.call_count == 1:
             ok("_process_clips_session: cluster_clips → _compile_clusters trigger chain fires")
@@ -2986,12 +2986,12 @@ def test_pipeline_trigger_chain() -> None:
                  f"cluster_clips={mock_cc.call_count} _compile_clusters={mock_cmc.call_count}")
 
     # ── 4: empty cluster list → 0 reels, no upload ──
-    with patch("run._download_one", return_value={"path": "/tmp/v1.mp4", "meta": _meta("f2")}), \
-         patch("run.analyze_session", return_value=mock_analysis), \
-         patch("run.cluster_clips", return_value=[]), \
-         patch("run.compile_multi_source_reel") as mock_cmr2, \
-         patch("run.upload_draft") as mock_ul2, \
-         patch("run.mark_as_processed"):
+    with patch("pipeline.orchestrator._download_one", return_value={"path": "/tmp/v1.mp4", "meta": _meta("f2")}), \
+         patch("pipeline.orchestrator.analyze_session", return_value=mock_analysis), \
+         patch("pipeline.orchestrator.cluster_clips", return_value=[]), \
+         patch("pipeline.orchestrator.compile_multi_source_reel") as mock_cmr2, \
+         patch("pipeline.orchestrator.upload_draft") as mock_ul2, \
+         patch("pipeline.orchestrator.mark_as_processed"):
         result = run._process_clips_session([{"id": "f2", "name": "clip.mp4", "size": 5_000_000}])
         if result == 0 and mock_cmr2.call_count == 0 and mock_ul2.call_count == 0:
             ok("_process_clips_session: empty clusters → 0 drafts, compile_multi_source_reel not called")
@@ -3013,19 +3013,19 @@ def test_run_routing() -> None:
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
     from unittest.mock import patch
-    import run
+    import pipeline.orchestrator as run
 
     big   = [{"id": "f1", "name": "game.mp4",  "size": 200_000_000}]
     small = [{"id": "f2", "name": "clip.mp4",  "size": 10_000_000}]
     mixed = [{"id": "f1", "name": "game.mp4",  "size": 200_000_000},
              {"id": "f2", "name": "clip.mp4",  "size": 10_000_000}]
 
-    _no_long  = patch("run._process_long_video",   return_value=0)
-    _no_clips = patch("run._process_clips_session", return_value=0)
-    _no_mixed = patch("run._process_mixed_session", return_value=0)
+    _no_long  = patch("pipeline.orchestrator._process_long_video",   return_value=0)
+    _no_clips = patch("pipeline.orchestrator._process_clips_session", return_value=0)
+    _no_mixed = patch("pipeline.orchestrator._process_mixed_session", return_value=0)
 
     # 1. Single large file → _process_long_video
-    with patch("run.get_new_videos", return_value=big), \
+    with patch("pipeline.orchestrator.get_new_videos", return_value=big), \
          _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
         run.main()
         if mock_long.call_count == 1 and mock_clips.call_count == 0:
@@ -3035,7 +3035,7 @@ def test_run_routing() -> None:
                  f"long={mock_long.call_count} clips={mock_clips.call_count}")
 
     # 2. Small clips → _process_clips_session
-    with patch("run.get_new_videos", return_value=small), \
+    with patch("pipeline.orchestrator.get_new_videos", return_value=small), \
          _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
         run.main()
         if mock_clips.call_count == 1 and mock_long.call_count == 0:
@@ -3045,7 +3045,7 @@ def test_run_routing() -> None:
                  f"clips={mock_clips.call_count} long={mock_long.call_count}")
 
     # 3. Mixed → _process_mixed_session
-    with patch("run.get_new_videos", return_value=mixed), \
+    with patch("pipeline.orchestrator.get_new_videos", return_value=mixed), \
          _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
         run.main()
         if mock_mixed.call_count == 1 and mock_long.call_count == 0 and mock_clips.call_count == 0:
@@ -3055,7 +3055,7 @@ def test_run_routing() -> None:
                  f"mixed={mock_mixed.call_count} long={mock_long.call_count} clips={mock_clips.call_count}")
 
     # 4. No new videos → exits cleanly, nothing called
-    with patch("run.get_new_videos", return_value=[]), \
+    with patch("pipeline.orchestrator.get_new_videos", return_value=[]), \
          _no_long as mock_long, _no_clips as mock_clips, _no_mixed as mock_mixed:
         run.main()
         if mock_long.call_count == 0 and mock_clips.call_count == 0 and mock_mixed.call_count == 0:
@@ -3072,10 +3072,10 @@ def test_video_chunking() -> None:
     import json as _json
 
     # ── 1: short video (≤ 8min) → _chunk_video returns [original_path] unchanged ──
-    from pipeline.analyzer import _chunk_video
+    from pipeline.stages.analyzer import _chunk_video
 
     short_probe = _json.dumps({"format": {"duration": "300.0"}}).encode()  # 5 min
-    with patch("pipeline.analyzer.subprocess.run") as mock_run:
+    with patch("pipeline.stages.analyzer.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=short_probe, returncode=0)
         result = _chunk_video("/tmp/short.mp4")
         if result == ["/tmp/short.mp4"]:
@@ -3085,9 +3085,9 @@ def test_video_chunking() -> None:
 
     # ── 2: long video (> 8min) → _chunk_video returns N chunk paths ──
     long_probe = _json.dumps({"format": {"duration": "1200.0"}}).encode()  # 20 min → 3 chunks
-    with patch("pipeline.analyzer.subprocess.run") as mock_run:
+    with patch("pipeline.stages.analyzer.subprocess.run") as mock_run:
         mock_run.return_value = MagicMock(stdout=long_probe, returncode=0)
-        with patch("os.makedirs"), patch("pipeline.analyzer.os.path.join",
+        with patch("os.makedirs"), patch("pipeline.stages.analyzer.os.path.join",
                 side_effect=lambda d, f: f"/tmp/{f}"):
             # Just test n_chunks computation — ffmpeg call itself is mocked
             import math
@@ -3100,7 +3100,7 @@ def test_video_chunking() -> None:
                 fail("_chunk_video chunk count", f"expected 3, got {n_chunks}")
 
     # ── 3: _merge_session_results shifts timestamps by chunk offset ──
-    from pipeline.analyzer import _merge_session_results
+    from pipeline.stages.analyzer import _merge_session_results
 
     chunk0 = {
         "activity": "surfing",
@@ -3154,7 +3154,7 @@ def test_qa_agent() -> None:
     section("33 / QA agent — reason-code QA + FRAMING retry")
 
     from unittest.mock import patch, MagicMock
-    from pipeline.analyzer import _qa_check_clip
+    from pipeline.stages.analyzer import _qa_check_clip
 
     event = {"start": 0.0, "end": 10.0, "crop_x": 0.5, "crop_y": 0.65}
 
@@ -3164,8 +3164,8 @@ def test_qa_agent() -> None:
     mock_model = MagicMock()
     mock_model.generate_content.return_value = mock_resp_pass
 
-    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
-         patch("pipeline.analyzer.genai") as mock_genai:
+    with patch("pipeline.stages.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
+         patch("pipeline.stages.analyzer.genai") as mock_genai:
         mock_genai.upload_file.return_value = MagicMock(name="files/abc")
         mock_genai.GenerativeModel.return_value = mock_model
         result = _qa_check_clip("/tmp/clip.mp4", event)
@@ -3180,8 +3180,8 @@ def test_qa_agent() -> None:
     mock_model_fail = MagicMock()
     mock_model_fail.generate_content.return_value = mock_resp_fail
 
-    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
-         patch("pipeline.analyzer.genai") as mock_genai2:
+    with patch("pipeline.stages.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
+         patch("pipeline.stages.analyzer.genai") as mock_genai2:
         mock_genai2.upload_file.return_value = MagicMock(name="files/xyz")
         mock_genai2.GenerativeModel.return_value = mock_model_fail
         result2 = _qa_check_clip("/tmp/clip.mp4", event)
@@ -3191,8 +3191,8 @@ def test_qa_agent() -> None:
             fail("_qa_check_clip reason code", f"got {result2!r}")
 
     # ── 3: Gemini exception → returns "PASS" (fail-open, never drops clip) ──
-    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
-         patch("pipeline.analyzer.genai") as mock_genai3:
+    with patch("pipeline.stages.analyzer._extract_thumbnail", return_value="/tmp/thumb.jpg"), \
+         patch("pipeline.stages.analyzer.genai") as mock_genai3:
         mock_genai3.upload_file.side_effect = RuntimeError("network error")
         result3 = _qa_check_clip("/tmp/clip.mp4", event)
         if result3 == "PASS":
@@ -3202,7 +3202,7 @@ def test_qa_agent() -> None:
 
     # ── 4: _cut_clip_with_qa FRAMING → corrects crop_x toward center ──
     import config as _cfg
-    from pipeline.editor import _cut_clip_with_qa
+    from pipeline.stages.editor import _cut_clip_with_qa
 
     cut_calls: list[dict] = []
     qa_responses = ["FRAMING", "PASS"]   # first call fails, retry passes
@@ -3214,8 +3214,8 @@ def test_qa_agent() -> None:
     orig_qa = _cfg.QA_CROP_CHECK
     _cfg.QA_CROP_CHECK = True
     try:
-        with patch("pipeline.editor.cut_clip", side_effect=_fake_cut), \
-             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_responses), \
+        with patch("pipeline.stages.editor.cut_clip", side_effect=_fake_cut), \
+             patch("pipeline.stages.analyzer._qa_check_clip", side_effect=qa_responses), \
              patch("os.remove"):
             ev = {"start": 0.0, "end": 10.0, "score": 8, "type": "aerial",
                   "crop_x": 0.2, "crop_y": 0.65}
@@ -3240,7 +3240,7 @@ def test_qa_agent() -> None:
 def test_style_fields() -> None:
     section("34 / Style fields — _parse_session extracts style + session_peak")
 
-    from pipeline.analyzer import _parse_session
+    from pipeline.stages.analyzer import _parse_session
 
     # ── 1: valid style + session_peak extracted correctly ──
     raw = """{"activity": "surfing", "session_peak": 9,
@@ -3311,7 +3311,7 @@ def test_quality_reason_codes() -> None:
     section("39 / QA reason codes — all codes parsed correctly")
 
     from unittest.mock import patch, MagicMock
-    from pipeline.analyzer import _qa_check_clip, _QA_REASON_CODES
+    from pipeline.stages.analyzer import _qa_check_clip, _QA_REASON_CODES
 
     event = {"start": 0.0, "end": 8.0, "crop_x": 0.5}
 
@@ -3321,8 +3321,8 @@ def test_quality_reason_codes() -> None:
         mock_resp.text = code
         mock_model = MagicMock()
         mock_model.generate_content.return_value = mock_resp
-        with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/t.jpg"), \
-             patch("pipeline.analyzer.genai") as mg:
+        with patch("pipeline.stages.analyzer._extract_thumbnail", return_value="/tmp/t.jpg"), \
+             patch("pipeline.stages.analyzer.genai") as mg:
             mg.upload_file.return_value = MagicMock(name="files/x")
             mg.GenerativeModel.return_value = mock_model
             result = _qa_check_clip("/tmp/clip.mp4", event)
@@ -3336,8 +3336,8 @@ def test_quality_reason_codes() -> None:
     mock_resp_unk.text = "UNKNOWN_CODE"
     mock_model_unk = MagicMock()
     mock_model_unk.generate_content.return_value = mock_resp_unk
-    with patch("pipeline.analyzer._extract_thumbnail", return_value="/tmp/t.jpg"), \
-         patch("pipeline.analyzer.genai") as mg2:
+    with patch("pipeline.stages.analyzer._extract_thumbnail", return_value="/tmp/t.jpg"), \
+         patch("pipeline.stages.analyzer.genai") as mg2:
         mg2.upload_file.return_value = MagicMock(name="files/y")
         mg2.GenerativeModel.return_value = mock_model_unk
         result_unk = _qa_check_clip("/tmp/clip.mp4", event)
@@ -3356,7 +3356,7 @@ def test_quality_targeted_fix_and_basic_mode() -> None:
 
     import config as _cfg
     from unittest.mock import patch
-    from pipeline.editor import _cut_clip_with_qa, drain_quality_issues
+    from pipeline.stages.editor import _cut_clip_with_qa, drain_quality_issues
 
     orig_qa = _cfg.QA_CROP_CHECK
     _cfg.QA_CROP_CHECK = True
@@ -3374,8 +3374,8 @@ def test_quality_targeted_fix_and_basic_mode() -> None:
         return f"/tmp/c1_{idx}.mp4"
 
     try:
-        with patch("pipeline.editor.cut_clip", side_effect=_cut1), \
-             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_seq_1), \
+        with patch("pipeline.stages.editor.cut_clip", side_effect=_cut1), \
+             patch("pipeline.stages.analyzer._qa_check_clip", side_effect=qa_seq_1), \
              patch("os.remove"):
             result1 = _cut_clip_with_qa("/fake/v.mp4", ev_base, 10, True, "surfing", {})
         # retry clip should have slowmo=False
@@ -3404,8 +3404,8 @@ def test_quality_targeted_fix_and_basic_mode() -> None:
         return f"/tmp/c2_{idx}.mp4"
 
     try:
-        with patch("pipeline.editor.cut_clip", side_effect=_cut2), \
-             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_seq_2), \
+        with patch("pipeline.stages.editor.cut_clip", side_effect=_cut2), \
+             patch("pipeline.stages.analyzer._qa_check_clip", side_effect=qa_seq_2), \
              patch("os.remove"):
             _cut_clip_with_qa("/fake/v.mp4", ev_base, 20, True, "surfing",
                               {"width": 1920, "height": 1080, "fps": 60.0, "zoom_headroom": 1.0})
@@ -3441,8 +3441,8 @@ def test_quality_targeted_fix_and_basic_mode() -> None:
         return f"/tmp/c3_{idx}.mp4"
 
     try:
-        with patch("pipeline.editor.cut_clip", side_effect=_cut3), \
-             patch("pipeline.analyzer._qa_check_clip", side_effect=qa_seq_3), \
+        with patch("pipeline.stages.editor.cut_clip", side_effect=_cut3), \
+             patch("pipeline.stages.analyzer._qa_check_clip", side_effect=qa_seq_3), \
              patch("os.remove"):
             _cut_clip_with_qa("/fake/v.mp4", ev_base, 30, True, "surfing", {})
         if len(cut_calls_3) == 2:
@@ -3461,16 +3461,16 @@ def test_quality_drive_flag() -> None:
     section("41 / Drive quality flag — flag_quality_issue + drain_and_flag")
 
     from unittest.mock import patch, MagicMock, call
-    from pipeline.editor import _log_quality_issue, drain_quality_issues
+    from pipeline.stages.editor import _log_quality_issue, drain_quality_issues
 
     # ── 1: flag_quality_issue calls files().update() with description ──
-    from pipeline.drive import flag_quality_issue
+    from integrations.drive import flag_quality_issue
     mock_service = MagicMock()
     mock_update  = MagicMock()
     mock_service.files.return_value.update.return_value.execute.return_value = {"id": "f1"}
 
-    with patch("pipeline.drive._get_drive_service", return_value=mock_service), \
-         patch("pipeline.drive._drive_retry", side_effect=lambda fn, **kw: fn()):
+    with patch("integrations.drive._get_drive_service", return_value=mock_service), \
+         patch("integrations.drive._drive_retry", side_effect=lambda fn, **kw: fn()):
         flag_quality_issue("file123", "POOR_CLOSEUP, MOTION_BLUR")
 
     update_kwargs = mock_service.files.return_value.update.call_args
@@ -3509,7 +3509,7 @@ def test_src_injection_routing() -> None:
     section("42 / _src injection — multi-source event routing")
 
     from unittest.mock import patch
-    from pipeline.editor import compile_multi_source_reel
+    from pipeline.stages.editor import compile_multi_source_reel
 
     cut_calls_by_src: dict[str, int] = {}
 
@@ -3531,8 +3531,8 @@ def test_src_injection_routing() -> None:
     ]
 
     try:
-        with patch("pipeline.editor._cut_clip_with_qa", side_effect=_fake_qa_cut), \
-             patch("pipeline.editor.compile_reel", return_value="/tmp/fake_multi_reel.mp4"):
+        with patch("pipeline.stages.editor._cut_clip_with_qa", side_effect=_fake_qa_cut), \
+             patch("pipeline.stages.editor.compile_reel", return_value="/tmp/fake_multi_reel.mp4"):
             compile_multi_source_reel(appearances, sport="surfing", athlete_label="test athlete")
 
         calls_a = cut_calls_by_src.get("/fake/source_A.mp4", 0)
@@ -3622,15 +3622,15 @@ def test_cross_stage_format() -> None:
     # Verify the event can flow into cut_clip without a KeyError
     try:
         from unittest.mock import patch as _patch
-        from pipeline.editor import _cut_clip_with_qa as _qa_cut
+        from pipeline.stages.editor import _cut_clip_with_qa as _qa_cut
 
         captured: list[dict] = []
         def _record_cut(vp, ev, idx, slowmo=False, sport="", source_info=None, session_peak=10):
             captured.append(dict(ev))
             return "/tmp/fake_format_clip.mp4"
 
-        with _patch("pipeline.editor.cut_clip", side_effect=_record_cut), \
-             _patch("pipeline.analyzer._qa_check_clip", return_value="PASS"):
+        with _patch("pipeline.stages.editor.cut_clip", side_effect=_record_cut), \
+             _patch("pipeline.stages.analyzer._qa_check_clip", return_value="PASS"):
             import config as _cfg
             orig_qa = _cfg.QA_CROP_CHECK
             _cfg.QA_CROP_CHECK = False
@@ -3798,7 +3798,7 @@ def test_e2e_simulation() -> None:
         fail("E2E simulation", "60fps test video missing — run section 2 first")
         return
 
-    from pipeline.identity import cluster_clips
+    from pipeline.stages.identity import cluster_clips
 
     session_json = json.dumps({
         "activity": "surfing",
@@ -3841,7 +3841,7 @@ def test_e2e_simulation() -> None:
            f"{len(clusters)} cluster(s)")
 
         # Stage 3: compile reel
-        from pipeline.editor import compile_multi_source_reel as _cmr
+        from pipeline.stages.editor import compile_multi_source_reel as _cmr
         appearances = clusters[0]["appearances"]
         reels = _cmr(appearances, sport="surfing", athlete_label="E2E test athlete")
 
@@ -3907,7 +3907,7 @@ def test_e2e_simulation() -> None:
 def test_gemini_schema_fixture() -> None:
     section("47 / Gemini schema fixture — _parse_session + _parse_analysis realistic responses")
 
-    from pipeline.analyzer import _parse_analysis
+    from pipeline.stages.analyzer import _parse_analysis
 
     # ── 47a: _parse_session with the exact example JSON from _IDENTITY_PROMPT ──
     fixture = json.dumps({
@@ -4043,7 +4043,7 @@ def test_e2e_two_athletes() -> None:
         fail("E2E 2 athletes", "60fps test video missing — run section 2 first")
         return
 
-    from pipeline.identity import cluster_clips
+    from pipeline.stages.identity import cluster_clips
     from pipeline.editor   import compile_multi_source_reel as _cmr
 
     # Each athlete comes from a different source video so clip filenames can't collide
@@ -4147,7 +4147,7 @@ def test_process_clips_session_integration() -> None:
 
     import shutil
     from unittest.mock import patch
-    import run
+    import pipeline.orchestrator as run
 
     # Copy VIDEO_60FPS since _process_clips_session will delete the local file
     test_copy = os.path.join(DEBUG_DIR, "clips_session_int_test.mp4")
@@ -4176,12 +4176,12 @@ def test_process_clips_session_integration() -> None:
     uploaded: list[str] = []
 
     try:
-        with patch("run.download_video",    return_value=test_copy), \
-             patch("run.analyze_session",   return_value=synthetic_session), \
-             patch("run.upload_draft",      side_effect=lambda p, n: uploaded.append(p)), \
-             patch("run.mark_as_processed"), \
-             patch("run.record_failure",    return_value=False), \
-             patch("run.flag_quality_issue"):
+        with patch("pipeline.orchestrator.download_video",    return_value=test_copy), \
+             patch("pipeline.orchestrator.analyze_session",   return_value=synthetic_session), \
+             patch("pipeline.orchestrator.upload_draft",      side_effect=lambda p, n: uploaded.append(p)), \
+             patch("pipeline.orchestrator.mark_as_processed"), \
+             patch("pipeline.orchestrator.record_failure",    return_value=False), \
+             patch("pipeline.orchestrator.flag_quality_issue"):
             drafts = run._process_clips_session([{
                 "id": "f1", "name": "clips_session_int_test.mp4", "size": "1000000",
             }])
@@ -4238,8 +4238,8 @@ def test_langsmith_tracing() -> None:
 
     # Verify traced functions in pipeline are importable
     try:
-        from pipeline.analyzer import _gemini_call_session  # noqa: PLC0415
-        from pipeline.identity import _gemini_call_cluster_text, _gemini_call_cluster_visual  # noqa: PLC0415
+        from pipeline.stages.analyzer import _gemini_call_session  # noqa: PLC0415
+        from pipeline.stages.identity import _gemini_call_cluster_text, _gemini_call_cluster_visual  # noqa: PLC0415
         ok("LangSmith traced helpers — all 3 traced Gemini helpers importable")
     except ImportError as e:
         fail("LangSmith traced helpers import", str(e))
@@ -4256,7 +4256,7 @@ def test_proxy_downscale() -> None:
         fail("proxy downscale", "test video missing — run section 2 first")
         return
 
-    from pipeline.analyzer import _make_proxy  # noqa: PLC0415
+    from pipeline.stages.analyzer import _make_proxy  # noqa: PLC0415
 
     # VIDEO_60FPS is 1920×1080 → wider than 1280 → should produce proxy
     proxy = _make_proxy(VIDEO_60FPS)
@@ -4292,7 +4292,7 @@ def test_partition_no_over_split() -> None:
     os.environ.setdefault("APPROVED_FOLDER_ID", "stub")
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
-    from pipeline.editor import _partition_events
+    from pipeline.stages.editor import _partition_events
 
     # 6 events at 8s each, Gemini marks all slowmo=True
     # After _enforce_single_slowmo, only the climax (highest score) gets slowmo.
@@ -4337,7 +4337,7 @@ def test_cluster_empty_fallback() -> None:
     os.environ.setdefault("OWNER_EMAIL", "stub@stub.com")
 
     from unittest.mock import patch
-    from pipeline.identity import cluster_clips
+    from pipeline.stages.identity import cluster_clips
 
     clip_analyses = [
         {"path": "/tmp/clip1.mp4", "thumbnail": None,
@@ -4353,10 +4353,10 @@ def test_cluster_empty_fallback() -> None:
     # Simulate: CLIP Re-ID returns None (no embeddings), Gemini visual returns []
     # (empty but not None — the bug scenario), Gemini text also returns []
     # After fix: should fall through to Tier 4 per-clip fallback and return 2 clusters.
-    with patch("pipeline.identity._try_clip_cluster", return_value=None), \
-         patch("pipeline.identity._try_visual_cluster", return_value=[]), \
-         patch("pipeline.identity._text_cluster", return_value=[]), \
-         patch("pipeline.identity._cleanup_thumbnails"):
+    with patch("pipeline.stages.identity._try_clip_cluster", return_value=None), \
+         patch("pipeline.stages.identity._try_visual_cluster", return_value=[]), \
+         patch("pipeline.stages.identity._text_cluster", return_value=[]), \
+         patch("pipeline.stages.identity._cleanup_thumbnails"):
         result = cluster_clips(clip_analyses)
         if len(result) >= 1:
             ok(f"cluster_clips: empty Gemini result falls back to per-clip — {len(result)} cluster(s) returned")
@@ -4367,9 +4367,9 @@ def test_cluster_empty_fallback() -> None:
     mock_cluster = [{"description": "surfer red board", "appearances": [
         {"path": "/tmp/clip1.mp4", "events": [{"type": "aerial", "start": 1.0, "end": 5.0, "score": 8}]}
     ]}]
-    with patch("pipeline.identity._try_clip_cluster", return_value=None), \
-         patch("pipeline.identity._try_visual_cluster", return_value=mock_cluster), \
-         patch("pipeline.identity._cleanup_thumbnails"):
+    with patch("pipeline.stages.identity._try_clip_cluster", return_value=None), \
+         patch("pipeline.stages.identity._try_visual_cluster", return_value=mock_cluster), \
+         patch("pipeline.stages.identity._cleanup_thumbnails"):
         result2 = cluster_clips(clip_analyses)
         if result2 == mock_cluster:
             ok("cluster_clips: non-empty Gemini visual result is used directly (no fallback)")
