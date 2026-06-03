@@ -1,5 +1,5 @@
 """
-pipeline/identity.py — Cross-clip identity clustering.
+pipeline/stages/identity.py — Cross-clip identity clustering.
 Three-tier Re-ID: CLIP embeddings → Gemini visual → Gemini text → per-clip fallback.
 """
 
@@ -9,10 +9,10 @@ import os
 import re
 import time
 
-import google.generativeai as genai
 from langsmith import traceable
 
 import config
+from integrations.gemini import genai
 
 logger = logging.getLogger(__name__)
 

@@ -1,5 +1,5 @@
 """
-pipeline/analyzer.py — Gemini 2.5 Pro native video analysis.
+pipeline/stages/analyzer.py — Gemini 2.5 Pro native video analysis.
 שולח את הסרטון המלא ל-Gemini — לא פריימים, וידאו נייטיב.
 Gemini רואה תנועה, רצף, ותזמון — לא תמונות סטטיות.
 """
@@ -12,61 +12,17 @@ import subprocess
 import time
 from pathlib import Path
 
-import google.generativeai as genai
 from langsmith import traceable
 
 import config
+from integrations.gemini import genai, upload_video as _upload_video, delete_video as _delete_video
 
 logger = logging.getLogger(__name__)
-
-genai.configure(api_key=config.GEMINI_API_KEY)
 
 _MODEL             = config.GEMINI_MODEL   # native video understanding
 _QA_MODEL          = "gemini-1.5-flash"   # lightweight model for 5-class QA classification
 _MIN_CLIP_SEC      = 6.0
 _CHUNK_MAX_MINUTES = 8   # Gemini ~1M token limit ≈ 8 min of drone footage @1fps
-
-
-def _upload_video(video_path: str):
-    """
-    מעלה את הסרטון ל-Gemini Files API וממתין עד שהעיבוד הושלם.
-    מחזיר את אובייקט הקובץ המוכן לשימוש.
-    """
-    print(f"📤 Uploading '{Path(video_path).name}' to Gemini Files API...")
-    try:
-        video_file = genai.upload_file(path=video_path)
-
-        # Wait for Gemini to finish processing — max ~13 minutes (200 × 4s).
-        _MAX_WAIT = 200
-        for _attempt in range(_MAX_WAIT):
-            if video_file.state.name != "PROCESSING":
-                break
-            print(f"  ⏳ Gemini processing video... ({_attempt * 4}s)", end="\r")
-            time.sleep(4)
-            video_file = genai.get_file(video_file.name)
-        else:
-            raise RuntimeError(
-                f"Gemini video processing timed out after {_MAX_WAIT * 4}s"
-            )
-
-        if video_file.state.name != "ACTIVE":
-            raise RuntimeError(f"Gemini file ended in unexpected state: {video_file.state.name}")
-
-        print(f"\n✅ Video ready in Gemini: {video_file.name}")
-        return video_file
-
-    except Exception as e:
-        logger.error("Gemini upload failed: %s", e)
-        raise
-
-
-def _delete_video(video_file) -> None:
-    """מוחק את הקובץ מ-Gemini Files API אחרי הניתוח לחסוך storage."""
-    try:
-        genai.delete_file(video_file.name)
-        logger.debug("Deleted Gemini file: %s", video_file.name)
-    except Exception as e:
-        logger.warning("Could not delete Gemini file %s: %s", video_file.name, e)
 
 
 def _extract_thumbnail(video_path: str, timestamp: float) -> str | None:
@@ -558,7 +514,7 @@ def analyze_session(video_path: str) -> dict:
 
     # Build prompt — inject feedback AFTER SELECTION RULES so Gemini sees it
     # just before the detailed field instructions, maximising attention.
-    from pipeline.feedback import get_all_label_injections
+    from pipeline.stages.feedback import get_all_label_injections
     feedback_block = get_all_label_injections()
     if feedback_block:
         sport_count = feedback_block.count("\n  ")

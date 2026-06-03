@@ -1,5 +1,5 @@
 """
-pipeline/editor.py — FFmpeg reel compilation pipeline.
+pipeline/stages/editor.py — FFmpeg reel compilation pipeline.
 חותך קליפים ל-9:16, slow-mo אוטומטי ל-60fps, סדר נרטיבי, crossfade.
 """
 
@@ -14,10 +14,14 @@ import subprocess
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 
 import config
+from integrations.ffmpeg import (
+    get_duration as _get_duration,
+    get_source_fps as _get_source_fps,
+    get_source_info as _get_source_info,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,40 +76,6 @@ SLOWMO_FPS_MIN  = 50     # fps מינימלי לslow-mo חלק (50 / 60fps)
 ZOOM_MIN_HEADROOM = 1.15  # min zoom_headroom before applying any zoom
 TARGET_REEL_MIN = 12     # shorter reels → warn only
 TARGET_REEL_MAX = 30     # split into multiple reels when a single one would exceed this
-
-
-# ── ffprobe helpers ────────────────────────────────────────────────────────
-
-@lru_cache(maxsize=256)
-def _get_duration(path: str) -> float:
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-show_entries", "format=duration",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        path,
-    ]
-    try:
-        return float(subprocess.check_output(cmd, text=True, timeout=30).strip())
-    except Exception:
-        return float("inf")
-
-
-@lru_cache(maxsize=256)
-def _get_source_fps(video_path: str) -> float:
-    """מחזיר את ה-fps של הסרטון המקורי."""
-    cmd = [
-        "ffprobe", "-v", "error",
-        "-select_streams", "v:0",
-        "-show_entries", "stream=r_frame_rate",
-        "-of", "default=noprint_wrappers=1:nokey=1",
-        video_path,
-    ]
-    try:
-        raw = subprocess.check_output(cmd, text=True, timeout=15).strip()
-        num, den = raw.split("/")
-        return round(float(num) / float(den), 2)
-    except Exception:
-        return 30.0
 
 
 def _clamp(start: float, end: float, video_path: str) -> tuple[float, float]:
@@ -669,30 +639,6 @@ def _narrative_order(events: list[dict]) -> list[dict]:
     return _enforce_single_slowmo(_break_slowmo_runs([opener] + middle + [climax]))
 
 
-def _get_source_info(video_path: str) -> dict:
-    """Detect source resolution and FPS; compute zoom headroom and slowmo capability."""
-    try:
-        r = subprocess.run(
-            ["ffprobe", "-v", "error", "-select_streams", "v:0",
-             "-show_entries", "stream=width,height,r_frame_rate",
-             "-of", "json", video_path],
-            capture_output=True, text=True, timeout=15,
-        )
-        data = json.loads(r.stdout)
-        s    = data["streams"][0]
-        w, h = int(s["width"]), int(s["height"])
-        num, den = s["r_frame_rate"].split("/")
-        fps = float(num) / float(den)
-        zoom_headroom = w / 1920  # 4K=2.0, 1080p=1.0, 720p=0.67
-        return {"width": w, "height": h, "fps": round(fps, 1),
-                "zoom_headroom": round(zoom_headroom, 2),
-                "can_slowmo": fps >= SLOWMO_FPS_MIN}
-    except Exception as e:
-        logger.debug("_get_source_info failed for %s: %s", video_path, e)
-        return {"width": 1920, "height": 1080, "fps": 30.0,
-                "zoom_headroom": 1.0, "can_slowmo": False}
-
-
 # ── שלב 1: חיתוך קליפ בודד ────────────────────────────────────────────────
 
 def _cut_clip_with_qa(
@@ -709,7 +655,7 @@ def _cut_clip_with_qa(
     if not clip or not config.QA_CROP_CHECK:
         return clip
 
-    from pipeline.analyzer import _qa_check_clip
+    from pipeline.stages.analyzer import _qa_check_clip
     reason = _qa_check_clip(clip, event)
     if reason == "PASS":
         return clip

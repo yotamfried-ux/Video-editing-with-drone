@@ -1,5 +1,5 @@
 """
-pipeline/clients.py — Client lookup from clients.json.
+services/client_manager.py — Client lookup from clients.json.
 Matches a person description or draft filename against registered client patterns.
 """
 

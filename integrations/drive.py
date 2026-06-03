@@ -1,5 +1,5 @@
 """
-pipeline/drive.py — Google Drive integration.
+integrations/drive.py — Google Drive integration.
 סורק תיקיית RAW, מוריד סרטונים חדשים, מעלה קליפים מוכנים.
 """
 

@@ -18,7 +18,7 @@ import tempfile
 from pathlib import Path
 
 import config
-from pipeline.editor import _analyze_music, compile_reel, _compute_cut_times
+from pipeline.stages.editor import _analyze_music, compile_reel, _compute_cut_times
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

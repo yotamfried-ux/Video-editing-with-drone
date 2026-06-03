@@ -1,5 +1,5 @@
 """
-pipeline/feedback.py — Approval-based editing feedback loop.
+pipeline/stages/feedback.py — Approval-based editing feedback loop.
 
 Records approved event types AND per-event editing parameters (zoom, slowmo)
 from delivered reels, then injects weighted historical patterns into future

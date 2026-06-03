@@ -1,5 +1,5 @@
 """
-pipeline/notifier.py — Gmail delivery via Google service account.
+integrations/notifier.py — Gmail delivery via Google service account.
 שולח אימייל HTML לבעל הפייפליין ולמצולם (אם נמצא ב-clients.json).
 """
 
