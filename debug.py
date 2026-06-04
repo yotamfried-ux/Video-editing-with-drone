@@ -61,7 +61,7 @@ for _mod in [
 ]:
     sys.modules.setdefault(_mod, MagicMock())
 
-from pipeline.stages.analyzer import _parse_analysis, _parse_session, _with_retry, _extract_thumbnail  # noqa: E402
+from pipeline.stages.analyzer import _parse_analysis, _parse_session, _with_retry, _extract_thumbnail, qa_check_reel  # noqa: E402
 from integrations.notifier import _build_html, send_summary_email  # noqa: E402
 
 # ── Paths ──────────────────────────────────────────────────────────────────
@@ -4377,6 +4377,68 @@ def test_cluster_empty_fallback() -> None:
             fail("cluster_clips non-empty result", f"got {len(result2)} clusters, expected 1")
 
 
+def test_reel_qa_independent() -> None:
+    section("54 / qa_check_reel — independent reel-level QA")
+
+    from unittest.mock import MagicMock, patch
+
+    # ── 1: fail-open: any upload error → returns PASS dict ──
+    with patch("pipeline.stages.analyzer._upload_video", side_effect=RuntimeError("timeout")):
+        result = qa_check_reel("/fake/reel.mp4")
+    if result.get("verdict") == "PASS":
+        ok("qa_check_reel: upload error → fail-open PASS")
+    else:
+        fail("qa_check_reel fail-open", f"got {result!r}")
+
+    # ── 2: parses JSON response with FAIL verdict ──
+    fake_json = (
+        '{"verdict":"FAIL","rhythm":"ok","zoom":"issue: too tight on subject",'
+        '"transitions":"ok","clip_selection":"ok","overall":"zoom is too aggressive"}'
+    )
+    mock_resp  = MagicMock()
+    mock_resp.text = fake_json
+    mock_model = MagicMock()
+    mock_model.generate_content.return_value = mock_resp
+    mock_vf = MagicMock()
+    with patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
+         patch("pipeline.stages.analyzer._delete_video"), \
+         patch("pipeline.stages.analyzer.genai") as mock_genai:
+        mock_genai.GenerativeModel.return_value = mock_model
+        result2 = qa_check_reel("/fake/reel.mp4", sport="surfing")
+    if result2.get("verdict") == "FAIL" and "issue" in result2.get("zoom", ""):
+        ok("qa_check_reel: FAIL verdict parsed correctly with issue details")
+    else:
+        fail("qa_check_reel FAIL parse", f"got {result2!r}")
+
+    # ── 3: strips markdown code fences from response ──
+    fenced = '```json\n{"verdict":"PASS","rhythm":"ok","zoom":"ok","transitions":"ok","clip_selection":"ok","overall":"all good"}\n```'
+    mock_resp2 = MagicMock()
+    mock_resp2.text = fenced
+    mock_model2 = MagicMock()
+    mock_model2.generate_content.return_value = mock_resp2
+    with patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
+         patch("pipeline.stages.analyzer._delete_video"), \
+         patch("pipeline.stages.analyzer.genai") as mock_genai2:
+        mock_genai2.GenerativeModel.return_value = mock_model2
+        result3 = qa_check_reel("/fake/reel.mp4")
+    if result3.get("verdict") == "PASS" and result3.get("overall") == "all good":
+        ok("qa_check_reel: markdown code fences stripped correctly")
+    else:
+        fail("qa_check_reel fence strip", f"got {result3!r}")
+
+    # ── 4: delete_video always called (cleanup in finally) ──
+    mock_delete = MagicMock()
+    with patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
+         patch("pipeline.stages.analyzer._delete_video", mock_delete), \
+         patch("pipeline.stages.analyzer.genai") as mock_genai3:
+        mock_genai3.GenerativeModel.return_value = mock_model
+        qa_check_reel("/fake/reel.mp4")
+    if mock_delete.called:
+        ok("qa_check_reel: delete_video always called in finally block")
+    else:
+        fail("qa_check_reel cleanup", "delete_video not called")
+
+
 # ══════════════════════════════════════════════════════
 # Entry point
 # ══════════════════════════════════════════════════════
@@ -4458,6 +4520,7 @@ if __name__ == "__main__":
     test_proxy_downscale()
     test_partition_no_over_split()
     test_cluster_empty_fallback()
+    test_reel_qa_independent()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

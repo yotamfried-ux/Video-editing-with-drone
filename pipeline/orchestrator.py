@@ -44,6 +44,25 @@ _FILENAME_SPORT_HINTS: dict[str, str] = {
 }
 
 
+def _run_reel_qa(reels: list[str], sport: str, athlete_label: str) -> None:
+    """Run independent reel-level QA on each non-music reel and log the result."""
+    if not config.QA_REEL_CHECK:
+        return
+    from pipeline.stages.analyzer import qa_check_reel
+    for reel in reels:
+        if "_music" in os.path.basename(reel):
+            continue
+        qa = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
+        verdict = qa.get("verdict", "PASS")
+        overall = qa.get("overall", "")
+        if verdict == "FAIL":
+            issues = {k: v for k, v in qa.items()
+                      if k not in ("verdict", "overall") and v != "ok"}
+            print(f"  ⚠️  Reel QA FAIL [{Path(reel).name}] — {issues}")
+        else:
+            print(f"  ✅ Reel QA PASS [{Path(reel).name}] — {overall}")
+
+
 def _drain_and_flag(filename_to_file_id: dict[str, str]) -> None:
     from pipeline.stages.editor import drain_quality_issues
     issues = drain_quality_issues()
@@ -178,6 +197,7 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
         reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
                                           athlete_label=cluster["description"],
                                           _events_out=events_out)
+        _run_reel_qa(reels, sport=activity, athlete_label=cluster["description"])
         events_by_reel = {path: evs for path, evs in events_out}
         clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
         clean_idx   = 0
@@ -287,6 +307,7 @@ def _process_long_video(video_meta: dict) -> int:
             continue
         reels = create_reel(local_path, person["events"], sport=activity,
                             athlete_label=person["description"])
+        _run_reel_qa(reels, sport=activity, athlete_label=person["description"])
         _drain_and_flag(_fn_to_id)
         clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
         clean_idx   = 0

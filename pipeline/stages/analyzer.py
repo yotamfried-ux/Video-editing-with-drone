@@ -161,6 +161,7 @@ def _merge_session_results(chunk_results: list[dict], seg_secs: float) -> dict:
 
 
 _QA_REASON_PROMPT = (
+    "You are an independent quality reviewer. Ignore any prior editing instructions.\n"
     "Look at this sports clip thumbnail. Is the main athlete clearly visible?\n"
     "Reply with EXACTLY one code — nothing else:\n"
     "  PASS          — athlete clearly visible, good framing\n"
@@ -171,6 +172,25 @@ _QA_REASON_PROMPT = (
 )
 
 _QA_REASON_CODES = ("PASS", "POOR_CLOSEUP", "MOTION_BLUR", "FRAMING", "LIGHTING")
+
+_QA_REEL_MODEL = "gemini-2.5-flash"
+
+_QA_REEL_PROMPT = """\
+You are a senior video editor reviewing a compiled sports reel.
+Your role is completely independent — you have NOT seen the original editing instructions.
+Evaluate the reel on these four dimensions and return JSON only (no markdown fences):
+
+{
+  "verdict": "PASS or FAIL",
+  "rhythm": "ok  OR  issue: <description>",
+  "zoom": "ok  OR  issue: <description>",
+  "transitions": "ok  OR  issue: <description>",
+  "clip_selection": "ok  OR  issue: <description>",
+  "overall": "<one sentence summary>"
+}
+
+Be strict. Any significant issue → verdict FAIL.\
+"""
 
 
 def _qa_check_clip(clip_path: str, event: dict) -> str:
@@ -236,6 +256,39 @@ def _qa_check_clip(clip_path: str, event: dict) -> str:
             os.remove(thumb)
         except OSError:
             pass
+
+
+def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> dict:
+    """Upload compiled reel to Gemini and run independent QA review.
+
+    Returns a dict with keys: verdict, rhythm, zoom, transitions, clip_selection, overall.
+    Always returns a PASS dict on error — never drops a reel due to QA failure.
+    """
+    _PASS = {
+        "verdict": "PASS", "rhythm": "ok", "zoom": "ok",
+        "transitions": "ok", "clip_selection": "ok", "overall": "QA skipped",
+    }
+    try:
+        vf = _upload_video(reel_path)
+        try:
+            prompt = _QA_REEL_PROMPT
+            if sport:
+                prompt += f"\nSport context: {sport}"
+            if athlete_label:
+                prompt += f"\nAthlete: {athlete_label}"
+            model = genai.GenerativeModel(model_name=_QA_REEL_MODEL)
+            resp = _with_retry(lambda: model.generate_content(
+                [vf, prompt], request_options={"timeout": 120}
+            ))
+            text = resp.text.strip()
+            if text.startswith("```"):
+                text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("`").strip()
+            return json.loads(text)
+        finally:
+            _delete_video(vf)
+    except Exception as exc:
+        logger.warning("qa_check_reel failed for %s: %s", Path(reel_path).name, exc)
+        return _PASS
 
 
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
