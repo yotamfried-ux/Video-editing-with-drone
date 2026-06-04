@@ -173,34 +173,54 @@ def _load_qa_results() -> list[dict]:
     return rows
 
 
+_QA_TOP_N = 5  # approved patterns to surface in QA calibration hint
+
+
 def get_qa_calibration_hint(sport: str) -> str:
     """Aggregate, sport-level calibration context for the reel-QA prompt.
 
     Returns a short hint string (or "" when there is not enough signal yet).
-    This is intentionally aggregate — it conveys how much the operator has
-    approved and the typical engagement range of past reels, NOT the editing
-    instructions for the reel under review (independence preserved).
+    Intentionally aggregate — conveys approved moment-types + engagement range,
+    NOT the editing instructions for the reel under review (independence preserved).
     """
     data = _load()
     approvals = sum(1 for a in data["approvals"] if a.get("sport", "").lower() == sport.lower())
     if approvals < _MIN_APPROVALS:
         return ""
-    scores = [
+
+    # Approved event+edit patterns (recency-weighted) — what the operator historically liked.
+    label_scores = _label_edit_scores(sport)
+    top_patterns: list[str] = []
+    if label_scores:
+        top = sorted(label_scores.items(), key=lambda x: x[1], reverse=True)[:_QA_TOP_N]
+        top_patterns = [k for k, _ in top]
+
+    # Engagement distribution from past QA runs (if available).
+    qa_scores = [
         r["engagement_score"] for r in _load_qa_results()
         if r.get("sport", "").lower() == sport.lower()
         and isinstance(r.get("engagement_score"), (int, float))
     ]
-    if scores:
-        med = round(statistics.median(scores))
-        return (
-            f"\nCALIBRATION CONTEXT: the operator has approved {approvals} {sport} reel(s); "
-            f"past {sport} reels scored a median engagement of {med}. "
-            "Stay consistent with this scale."
+
+    lines: list[str] = [
+        f"\nCALIBRATION CONTEXT (operator has approved {approvals} {sport} reel(s)):"
+    ]
+    if top_patterns:
+        lines.append(
+            f"  Approved moment-types (most valued first): {', '.join(top_patterns)}."
         )
-    return (
-        f"\nCALIBRATION CONTEXT: the operator has approved {approvals} {sport} reel(s). "
-        "Favor the qualities of content that gets approved."
-    )
+        lines.append(
+            "  When evaluating, check whether the reel contains these kinds of moments."
+        )
+    if qa_scores:
+        med = round(statistics.median(qa_scores))
+        lines.append(
+            f"  Past {sport} reels scored a median engagement of {med}/100 — calibrate to this scale."
+        )
+    else:
+        lines.append("  Favor qualities present in operator-approved reels.")
+
+    return "\n".join(lines) + "\n"
 
 
 def suggest_qa_threshold() -> dict:

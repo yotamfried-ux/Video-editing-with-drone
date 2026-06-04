@@ -4493,6 +4493,25 @@ def test_qa_calibration_and_specs() -> None:
     else:
         fail("calibration hint content", f"got {h2!r}")
 
+    # ── 2b: with approvals that have event data → approved patterns appear in hint ──
+    _approvals_with_events = [
+        {
+            "sport": "surfing",
+            "ts": "2025-01-01T00:00:00+00:00",
+            "events": [
+                {"type": "aerial", "edit": {"zoom": 1.4, "slowmo": True, "focus": "peak"}},
+                {"type": "snap",   "edit": {"zoom": 1.3, "slowmo": False, "focus": "peak"}},
+            ],
+        }
+    ] * 4
+    with patch.object(fb, "_load", return_value={"approvals": _approvals_with_events}), \
+         patch.object(fb, "_load_qa_results", return_value=[]):
+        h2b = fb.get_qa_calibration_hint("surfing")
+    if "aerial" in h2b and "Approved moment-types" in h2b:
+        ok("get_qa_calibration_hint: approved event patterns included from approval history")
+    else:
+        fail("calibration hint patterns", f"got {h2b!r}")
+
     # ── 3: suggest_qa_threshold with no data → no_data method ──
     with patch.object(fb, "_load_qa_results", return_value=[]):
         s0 = fb.suggest_qa_threshold()
