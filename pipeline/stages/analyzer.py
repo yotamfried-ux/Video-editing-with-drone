@@ -10,12 +10,14 @@ import os
 import re
 import subprocess
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 from langsmith import traceable
 
 import config
 from integrations.gemini import genai, upload_video as _upload_video, delete_video as _delete_video
+from integrations.ffmpeg import get_reel_specs
 
 logger = logging.getLogger(__name__)
 
@@ -176,20 +178,28 @@ _QA_REASON_CODES = ("PASS", "POOR_CLOSEUP", "MOTION_BLUR", "FRAMING", "LIGHTING"
 _QA_REEL_MODEL = "gemini-2.5-flash"
 
 _QA_REEL_PROMPT = """\
-You are a senior video editor reviewing a compiled sports reel.
-Your role is completely independent — you have NOT seen the original editing instructions.
-Evaluate the reel on these four dimensions and return JSON only (no markdown fences):
+You are an independent short-form social-media reviewer (TikTok / Instagram Reels).
+You have NOT seen the original editing instructions. Judge ONLY the final reel.
 
+Apply documented short-form best practices:
+- HOOK: the first 1-2 seconds must stop the scroll (motion, peak action, or intrigue).
+- PACING: fast cuts, no dead time; momentum sustained throughout.
+- PAYOFF: a clear standout peak moment the viewer waits for.
+- CLARITY: the subject is always readable; vertical 9:16 framing respected.
+- LOOPABILITY: the ending flows back into the start (seamless replay).
+
+Return JSON only (no markdown fences):
 {
-  "verdict": "PASS or FAIL",
-  "rhythm": "ok  OR  issue: <description>",
-  "zoom": "ok  OR  issue: <description>",
-  "transitions": "ok  OR  issue: <description>",
-  "clip_selection": "ok  OR  issue: <description>",
+  "content": {
+    "hook": 0-10, "pacing": 0-10, "payoff": 0-10,
+    "clarity": 0-10, "loopability": 0-10
+  },
+  "engagement_score": 0-100,
   "overall": "<one sentence summary>"
 }
 
-Be strict. Any significant issue → verdict FAIL.\
+engagement_score is your heuristic estimate of social-media performance.
+Be strict and calibrated — reserve 80+ for genuinely scroll-stopping reels.\
 """
 
 
@@ -258,15 +268,69 @@ def _qa_check_clip(clip_path: str, event: dict) -> str:
             pass
 
 
-def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> dict:
-    """Upload compiled reel to Gemini and run independent QA review.
+_QA_PASS_CONTENT = {"hook": 10, "pacing": 10, "payoff": 10, "clarity": 10, "loopability": 10}
 
-    Returns a dict with keys: verdict, rhythm, zoom, transitions, clip_selection, overall.
-    Always returns a PASS dict on error — never drops a reel due to QA failure.
+
+def _check_technical_compliance(reel_path: str) -> tuple[dict, bool, list[str]]:
+    """Deterministic social-media spec check via ffprobe. Returns (specs, pass, issues)."""
+    specs = get_reel_specs(reel_path)
+    issues: list[str] = []
+    if specs["aspect"] and abs(specs["aspect"] - 9 / 16) > 0.02:
+        issues.append(f"aspect {specs['width']}x{specs['height']} not 9:16")
+    if specs["duration"] is not None and not (
+        config.QA_DUR_OK_MIN <= specs["duration"] <= config.QA_DUR_OK_MAX
+    ):
+        issues.append(
+            f"duration {specs['duration']}s outside "
+            f"{config.QA_DUR_OK_MIN}-{config.QA_DUR_OK_MAX}s"
+        )
+    if specs["height"] and specs["height"] < 1920:
+        issues.append(f"resolution {specs['width']}x{specs['height']} below 1080x1920")
+    if not specs["has_audio"]:
+        issues.append("no audio track")
+    return specs, not issues, issues
+
+
+def _persist_qa_result(result: dict, reel_path: str, sport: str) -> None:
+    """Append QA result to qa_results.jsonl — forward-compatible with future
+    real engagement ingestion (actual_performance starts null, joinable by 'reel')."""
+    try:
+        record = {
+            "ts":             datetime.now(timezone.utc).isoformat(),
+            "reel":           Path(reel_path).name,
+            "sport":          sport,
+            "engagement_score": result.get("engagement_score"),
+            "verdict":        result.get("verdict"),
+            "content":        result.get("content"),
+            "technical_pass": result.get("technical", {}).get("pass"),
+            "actual_performance": None,
+        }
+        with open(config.QA_RESULTS_FILE, "a") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception as exc:
+        logger.debug("Failed to persist QA result: %s", exc)
+
+
+def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> dict:
+    """Independent social-media QA on a compiled reel — two layers:
+
+      A. Technical compliance (deterministic, ffprobe): 9:16, duration, resolution, audio.
+      B. Content + engagement (LLM rubric, grounded in TikTok/IG best practices).
+
+    verdict (advisory only — never blocks): PASS iff technical_pass AND
+    engagement_score >= config.QA_ENGAGEMENT_THRESHOLD.
+
+    Always returns a full PASS dict on any error — never drops a reel due to QA failure.
+    Result is persisted to qa_results.jsonl for future calibration.
     """
+    specs, technical_pass, tech_issues = _check_technical_compliance(reel_path)
+
     _PASS = {
-        "verdict": "PASS", "rhythm": "ok", "zoom": "ok",
-        "transitions": "ok", "clip_selection": "ok", "overall": "QA skipped",
+        "verdict": "PASS",
+        "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
+        "content": dict(_QA_PASS_CONTENT),
+        "engagement_score": 100,
+        "overall": "QA skipped",
     }
     try:
         vf = _upload_video(reel_path)
@@ -276,6 +340,16 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
                 prompt += f"\nSport context: {sport}"
             if athlete_label:
                 prompt += f"\nAthlete: {athlete_label}"
+            # Calibration context: aggregate operator-approval signal (not per-reel
+            # editing instructions — independence preserved).
+            try:
+                from pipeline.stages.feedback import get_qa_calibration_hint
+                hint = get_qa_calibration_hint(sport)
+                if hint:
+                    prompt += "\n" + hint
+            except Exception as exc:
+                logger.debug("QA calibration hint unavailable: %s", exc)
+
             model = genai.GenerativeModel(model_name=_QA_REEL_MODEL)
             resp = _with_retry(lambda: model.generate_content(
                 [vf, prompt], request_options={"timeout": 120}
@@ -283,7 +357,19 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
             text = resp.text.strip()
             if text.startswith("```"):
                 text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("`").strip()
-            return json.loads(text)
+            parsed = json.loads(text)
+
+            engagement = int(parsed.get("engagement_score", 0))
+            engagement_ok = engagement >= config.QA_ENGAGEMENT_THRESHOLD
+            result = {
+                "verdict": "PASS" if (technical_pass and engagement_ok) else "FAIL",
+                "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
+                "content": parsed.get("content", {}),
+                "engagement_score": engagement,
+                "overall": parsed.get("overall", ""),
+            }
+            _persist_qa_result(result, reel_path, sport)
+            return result
         finally:
             _delete_video(vf)
     except Exception as exc:

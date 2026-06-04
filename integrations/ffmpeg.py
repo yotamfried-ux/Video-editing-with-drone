@@ -71,3 +71,29 @@ def get_source_info(video_path: str) -> dict:
         logger.debug("get_source_info failed for %s: %s", video_path, e)
         return {"width": 1920, "height": 1080, "fps": 30.0,
                 "zoom_headroom": 1.0, "can_slowmo": False}
+
+
+def get_reel_specs(path: str) -> dict:
+    """Technical specs for social-media compliance checks. Best-effort; never raises.
+
+    Returns: width, height, aspect (w/h), duration (None on error), has_audio.
+    """
+    info = get_source_info(path)          # width, height, fps (with safe fallbacks)
+    dur  = get_duration(path)             # seconds (inf on error)
+    has_audio = False
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
+            capture_output=True, text=True, timeout=15,
+        )
+        has_audio = "audio" in r.stdout
+    except Exception:
+        pass
+    w, h = info["width"], info["height"]
+    return {
+        "width": w, "height": h,
+        "aspect": round(w / h, 3) if h else 0,
+        "duration": None if dur == float("inf") else round(dur, 1),
+        "has_audio": has_audio,
+    }

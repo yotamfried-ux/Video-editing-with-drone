@@ -4378,65 +4378,155 @@ def test_cluster_empty_fallback() -> None:
 
 
 def test_reel_qa_independent() -> None:
-    section("54 / qa_check_reel — independent reel-level QA")
+    section("54 / qa_check_reel — social-media QA (technical + content + engagement)")
 
     from unittest.mock import MagicMock, patch
 
-    # ── 1: fail-open: any upload error → returns PASS dict ──
-    with patch("pipeline.stages.analyzer._upload_video", side_effect=RuntimeError("timeout")):
-        result = qa_check_reel("/fake/reel.mp4")
-    if result.get("verdict") == "PASS":
-        ok("qa_check_reel: upload error → fail-open PASS")
-    else:
-        fail("qa_check_reel fail-open", f"got {result!r}")
+    COMPLIANT = {"width": 1080, "height": 1920, "aspect": round(1080 / 1920, 3),
+                 "duration": 20.0, "has_audio": True}
+    CONTENT   = {"hook": 8, "pacing": 8, "payoff": 8, "clarity": 8, "loopability": 7}
 
-    # ── 2: parses JSON response with FAIL verdict ──
-    fake_json = (
-        '{"verdict":"FAIL","rhythm":"ok","zoom":"issue: too tight on subject",'
-        '"transitions":"ok","clip_selection":"ok","overall":"zoom is too aggressive"}'
-    )
-    mock_resp  = MagicMock()
-    mock_resp.text = fake_json
-    mock_model = MagicMock()
-    mock_model.generate_content.return_value = mock_resp
+    def _model(engagement: int, overall: str = "x", fenced: bool = False) -> MagicMock:
+        body = '{"content": %s, "engagement_score": %d, "overall": "%s"}' % (
+            json.dumps(CONTENT), engagement, overall)
+        if fenced:
+            body = "```json\n" + body + "\n```"
+        resp  = MagicMock(); resp.text = body
+        model = MagicMock(); model.generate_content.return_value = resp
+        return model
+
     mock_vf = MagicMock()
-    with patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
-         patch("pipeline.stages.analyzer._delete_video"), \
-         patch("pipeline.stages.analyzer.genai") as mock_genai:
-        mock_genai.GenerativeModel.return_value = mock_model
-        result2 = qa_check_reel("/fake/reel.mp4", sport="surfing")
-    if result2.get("verdict") == "FAIL" and "issue" in result2.get("zoom", ""):
-        ok("qa_check_reel: FAIL verdict parsed correctly with issue details")
-    else:
-        fail("qa_check_reel FAIL parse", f"got {result2!r}")
 
-    # ── 3: strips markdown code fences from response ──
-    fenced = '```json\n{"verdict":"PASS","rhythm":"ok","zoom":"ok","transitions":"ok","clip_selection":"ok","overall":"all good"}\n```'
-    mock_resp2 = MagicMock()
-    mock_resp2.text = fenced
-    mock_model2 = MagicMock()
-    mock_model2.generate_content.return_value = mock_resp2
-    with patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
-         patch("pipeline.stages.analyzer._delete_video"), \
-         patch("pipeline.stages.analyzer.genai") as mock_genai2:
-        mock_genai2.GenerativeModel.return_value = mock_model2
-        result3 = qa_check_reel("/fake/reel.mp4")
-    if result3.get("verdict") == "PASS" and result3.get("overall") == "all good":
-        ok("qa_check_reel: markdown code fences stripped correctly")
+    # ── 1: fail-open on upload error → full-schema PASS dict ──
+    with patch("pipeline.stages.analyzer.get_reel_specs", return_value=COMPLIANT), \
+         patch("pipeline.stages.analyzer._upload_video", side_effect=RuntimeError("timeout")):
+        r1 = qa_check_reel("/fake/reel.mp4")
+    if r1.get("verdict") == "PASS" and "engagement_score" in r1 and "content" in r1 \
+            and "technical" in r1:
+        ok("qa_check_reel: upload error → fail-open PASS (full schema)")
     else:
-        fail("qa_check_reel fence strip", f"got {result3!r}")
+        fail("qa_check_reel fail-open", f"got {r1!r}")
 
-    # ── 4: delete_video always called (cleanup in finally) ──
+    # ── 2: low engagement below threshold but technically compliant → FAIL ──
+    with patch("pipeline.stages.analyzer.get_reel_specs", return_value=COMPLIANT), \
+         patch("pipeline.stages.analyzer._persist_qa_result"), \
+         patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
+         patch("pipeline.stages.analyzer._delete_video"), \
+         patch("pipeline.stages.analyzer.genai") as mg2:
+        mg2.GenerativeModel.return_value = _model(30, "weak hook")
+        r2 = qa_check_reel("/fake/reel.mp4", sport="surfing")
+    if r2.get("verdict") == "FAIL" and r2.get("engagement_score") == 30 \
+            and r2["technical"]["pass"]:
+        ok("qa_check_reel: low engagement → FAIL despite technical compliance")
+    else:
+        fail("qa_check_reel engagement gate", f"got {r2!r}")
+
+    # ── 3: high engagement + compliant + fenced JSON → PASS ──
+    with patch("pipeline.stages.analyzer.get_reel_specs", return_value=COMPLIANT), \
+         patch("pipeline.stages.analyzer._persist_qa_result"), \
+         patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
+         patch("pipeline.stages.analyzer._delete_video"), \
+         patch("pipeline.stages.analyzer.genai") as mg3:
+        mg3.GenerativeModel.return_value = _model(85, "scroll-stopping", fenced=True)
+        r3 = qa_check_reel("/fake/reel.mp4")
+    if r3.get("verdict") == "PASS" and r3.get("engagement_score") == 85 \
+            and r3.get("overall") == "scroll-stopping":
+        ok("qa_check_reel: high engagement + compliant + fenced JSON → PASS")
+    else:
+        fail("qa_check_reel pass path", f"got {r3!r}")
+
+    # ── 4: technical failure (bad aspect) → FAIL even with high engagement ──
+    BAD_ASPECT = {"width": 1920, "height": 1080, "aspect": round(1920 / 1080, 3),
+                  "duration": 20.0, "has_audio": True}
+    with patch("pipeline.stages.analyzer.get_reel_specs", return_value=BAD_ASPECT), \
+         patch("pipeline.stages.analyzer._persist_qa_result"), \
+         patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
+         patch("pipeline.stages.analyzer._delete_video"), \
+         patch("pipeline.stages.analyzer.genai") as mg4:
+        mg4.GenerativeModel.return_value = _model(90, "great")
+        r4 = qa_check_reel("/fake/reel.mp4")
+    if r4.get("verdict") == "FAIL" and not r4["technical"]["pass"] \
+            and any("9:16" in i for i in r4["technical"]["issues"]):
+        ok("qa_check_reel: non-9:16 aspect → technical FAIL (gate independent of engagement)")
+    else:
+        fail("qa_check_reel technical gate", f"got {r4!r}")
+
+    # ── 5: delete_video always called (cleanup in finally) ──
     mock_delete = MagicMock()
-    with patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
+    with patch("pipeline.stages.analyzer.get_reel_specs", return_value=COMPLIANT), \
+         patch("pipeline.stages.analyzer._persist_qa_result"), \
+         patch("pipeline.stages.analyzer._upload_video", return_value=mock_vf), \
          patch("pipeline.stages.analyzer._delete_video", mock_delete), \
-         patch("pipeline.stages.analyzer.genai") as mock_genai3:
-        mock_genai3.GenerativeModel.return_value = mock_model
+         patch("pipeline.stages.analyzer.genai") as mg5:
+        mg5.GenerativeModel.return_value = _model(70)
         qa_check_reel("/fake/reel.mp4")
     if mock_delete.called:
         ok("qa_check_reel: delete_video always called in finally block")
     else:
         fail("qa_check_reel cleanup", "delete_video not called")
+
+
+def test_qa_calibration_and_specs() -> None:
+    section("55 / QA calibration hints + technical spec extraction")
+
+    from unittest.mock import MagicMock, patch
+    from pipeline.stages import feedback as fb
+    import integrations.ffmpeg as ff
+
+    # ── 1: calibration hint suppressed below _MIN_APPROVALS ──
+    with patch.object(fb, "_load", return_value={"approvals": [{"sport": "surfing"}] * 2}), \
+         patch.object(fb, "_load_qa_results", return_value=[]):
+        h = fb.get_qa_calibration_hint("surfing")
+    if h == "":
+        ok("get_qa_calibration_hint: empty until enough approvals")
+    else:
+        fail("calibration hint gate", f"got {h!r}")
+
+    # ── 2: with enough approvals + QA history → median engagement in hint ──
+    with patch.object(fb, "_load", return_value={"approvals": [{"sport": "surfing"}] * 5}), \
+         patch.object(fb, "_load_qa_results", return_value=[
+             {"sport": "surfing", "engagement_score": 70},
+             {"sport": "surfing", "engagement_score": 80}]):
+        h2 = fb.get_qa_calibration_hint("surfing")
+    if "CALIBRATION CONTEXT" in h2 and "75" in h2 and "5" in h2:
+        ok("get_qa_calibration_hint: aggregate hint with median engagement (75)")
+    else:
+        fail("calibration hint content", f"got {h2!r}")
+
+    # ── 3: suggest_qa_threshold with no data → no_data method ──
+    with patch.object(fb, "_load_qa_results", return_value=[]):
+        s0 = fb.suggest_qa_threshold()
+    if s0.get("method") == "no_data":
+        ok("suggest_qa_threshold: reports no_data when QA log empty")
+    else:
+        fail("suggest_qa_threshold no data", f"got {s0!r}")
+
+    # ── 4: suggest_qa_threshold prefers labeled actual_performance data ──
+    rows = [
+        {"engagement_score": 50, "actual_performance": {"views": 1000}},
+        {"engagement_score": 70, "actual_performance": {"views": 5000}},
+        {"engagement_score": 90, "actual_performance": {"views": 9000}},
+        {"engagement_score": 20, "actual_performance": None},
+    ]
+    with patch.object(fb, "_load_qa_results", return_value=rows):
+        s1 = fb.suggest_qa_threshold()
+    if s1.get("method") == "actual_performance" and s1.get("sample") == 3:
+        ok("suggest_qa_threshold: uses real performance data when available")
+    else:
+        fail("suggest_qa_threshold labeled", f"got {s1!r}")
+
+    # ── 5: get_reel_specs builds aspect/duration/audio from ffprobe ──
+    with patch.object(ff, "get_source_info",
+                      return_value={"width": 1080, "height": 1920, "fps": 30.0}), \
+         patch.object(ff, "get_duration", return_value=20.0), \
+         patch("integrations.ffmpeg.subprocess.run",
+               return_value=MagicMock(stdout="audio")):
+        specs = ff.get_reel_specs("/fake/reel.mp4")
+    if specs["duration"] == 20.0 and specs["has_audio"] \
+            and abs(specs["aspect"] - 9 / 16) < 0.01:
+        ok("get_reel_specs: aspect 9:16, duration, audio extracted correctly")
+    else:
+        fail("get_reel_specs", f"got {specs!r}")
 
 
 # ══════════════════════════════════════════════════════
@@ -4521,6 +4611,7 @@ if __name__ == "__main__":
     test_partition_no_over_split()
     test_cluster_empty_fallback()
     test_reel_qa_independent()
+    test_qa_calibration_and_specs()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)

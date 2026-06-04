@@ -13,6 +13,7 @@ import json
 import logging
 import math
 import os
+import statistics
 from datetime import datetime, timezone
 from typing import Any
 
@@ -149,6 +150,91 @@ def get_all_label_injections() -> str:
         + "\nScores are recency-weighted (30-day half-life). "
         "Prefer edit styles with higher scores; they reflect what the operator approves.\n"
     )
+
+
+# ── QA calibration (ties reel-QA to the approval/performance signal) ─────────
+
+def _load_qa_results() -> list[dict]:
+    """Read qa_results.jsonl (one JSON object per line). Returns [] if missing."""
+    path = getattr(config, "QA_RESULTS_FILE", "qa_results.jsonl")
+    rows: list[dict] = []
+    try:
+        with open(path) as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rows.append(json.loads(line))
+                except json.JSONDecodeError:
+                    continue
+    except FileNotFoundError:
+        pass
+    return rows
+
+
+def get_qa_calibration_hint(sport: str) -> str:
+    """Aggregate, sport-level calibration context for the reel-QA prompt.
+
+    Returns a short hint string (or "" when there is not enough signal yet).
+    This is intentionally aggregate — it conveys how much the operator has
+    approved and the typical engagement range of past reels, NOT the editing
+    instructions for the reel under review (independence preserved).
+    """
+    data = _load()
+    approvals = sum(1 for a in data["approvals"] if a.get("sport", "").lower() == sport.lower())
+    if approvals < _MIN_APPROVALS:
+        return ""
+    scores = [
+        r["engagement_score"] for r in _load_qa_results()
+        if r.get("sport", "").lower() == sport.lower()
+        and isinstance(r.get("engagement_score"), (int, float))
+    ]
+    if scores:
+        med = round(statistics.median(scores))
+        return (
+            f"\nCALIBRATION CONTEXT: the operator has approved {approvals} {sport} reel(s); "
+            f"past {sport} reels scored a median engagement of {med}. "
+            "Stay consistent with this scale."
+        )
+    return (
+        f"\nCALIBRATION CONTEXT: the operator has approved {approvals} {sport} reel(s). "
+        "Favor the qualities of content that gets approved."
+    )
+
+
+def suggest_qa_threshold() -> dict:
+    """Suggest an engagement-score threshold for QA, advisory/CLI only.
+
+    Prefers REAL performance data (qa_results rows with actual_performance set);
+    falls back to the engagement-score distribution when no labeled data exists yet.
+    """
+    rows = _load_qa_results()
+    labeled = [r for r in rows if r.get("actual_performance") is not None]
+    current = getattr(config, "QA_ENGAGEMENT_THRESHOLD", 60)
+
+    if labeled:
+        # Data-driven: threshold = 25th percentile of engagement among reels that
+        # actually performed (real IG/TikTok metrics ingested later).
+        scores = sorted(
+            r["engagement_score"] for r in labeled
+            if isinstance(r.get("engagement_score"), (int, float))
+        )
+        if scores:
+            idx = max(0, int(len(scores) * 0.25) - 1)
+            return {"suggested": scores[idx], "method": "actual_performance",
+                    "sample": len(scores), "current": current}
+
+    scores = sorted(
+        r["engagement_score"] for r in rows
+        if isinstance(r.get("engagement_score"), (int, float))
+    )
+    if not scores:
+        return {"suggested": current, "method": "no_data", "sample": 0, "current": current}
+    # Provisional: 40th percentile so we flag clearly-weak reels without over-rejecting.
+    idx = max(0, int(len(scores) * 0.40) - 1)
+    return {"suggested": scores[idx], "method": "distribution_provisional",
+            "sample": len(scores), "current": current}
 
 
 def get_stats() -> dict:

@@ -45,22 +45,35 @@ _FILENAME_SPORT_HINTS: dict[str, str] = {
 
 
 def _run_reel_qa(reels: list[str], sport: str, athlete_label: str) -> None:
-    """Run independent reel-level QA on each non-music reel and log the result."""
+    """Run independent social-media QA on each non-music reel and log the result.
+
+    Advisory only — never blocks upload. Reports verdict, engagement score,
+    technical spec issues, and any weak content dimensions.
+    """
     if not config.QA_REEL_CHECK:
         return
     from pipeline.stages.analyzer import qa_check_reel
     for reel in reels:
         if "_music" in os.path.basename(reel):
             continue
-        qa = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
+        qa      = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
         verdict = qa.get("verdict", "PASS")
+        score   = qa.get("engagement_score", "?")
         overall = qa.get("overall", "")
+        name    = Path(reel).name
         if verdict == "FAIL":
-            issues = {k: v for k, v in qa.items()
-                      if k not in ("verdict", "overall") and v != "ok"}
-            print(f"  ⚠️  Reel QA FAIL [{Path(reel).name}] — {issues}")
+            tech_issues = qa.get("technical", {}).get("issues", [])
+            weak = {k: v for k, v in qa.get("content", {}).items()
+                    if isinstance(v, (int, float)) and v < 6}
+            detail = []
+            if tech_issues:
+                detail.append(f"technical: {tech_issues}")
+            if weak:
+                detail.append(f"weak: {weak}")
+            print(f"  ⚠️  Reel QA FAIL [{name}] engagement={score} — "
+                  f"{'; '.join(detail) or overall}")
         else:
-            print(f"  ✅ Reel QA PASS [{Path(reel).name}] — {overall}")
+            print(f"  ✅ Reel QA PASS [{name}] engagement={score} — {overall}")
 
 
 def _drain_and_flag(filename_to_file_id: dict[str, str]) -> None:
