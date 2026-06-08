@@ -1,23 +1,101 @@
 """
-integrations/gemini.py — Gemini Files API wrapper.
-Configures the genai client once and exposes reusable upload/delete helpers.
-Import `genai` from here instead of google.generativeai to avoid scattered configure() calls.
+integrations/gemini.py — Gemini Files API wrapper (google-genai SDK v2).
+Provides a thin compatibility shim so the rest of the codebase continues
+to use the old google.generativeai call style unchanged.
 """
 
 import logging
 import time
 
-import google.generativeai as genai
+from google import genai as _genai_lib
+from google.genai import types as _types
 
 import config
 
 logger = logging.getLogger(__name__)
 
-genai.configure(api_key=config.GEMINI_API_KEY)
+# ── Single shared client ───────────────────────────────────────────────────
+
+_client: _genai_lib.Client | None = None
 
 
-def upload_video(video_path: str):
-    """Upload a video to Gemini Files API and wait until ACTIVE. Returns the file object."""
+def _get_client() -> _genai_lib.Client:
+    global _client
+    if _client is None:
+        _client = _genai_lib.Client(api_key=config.GEMINI_API_KEY)
+    return _client
+
+
+# ── Compatibility wrappers ─────────────────────────────────────────────────
+
+class _Model:
+    """Wraps client.models.generate_content to look like GenerativeModel."""
+
+    def __init__(self, model_name: str):
+        self._model = model_name
+
+    def generate_content(self, contents, request_options=None):
+        client = _get_client()
+        # Convert any _CompatFile wrappers back to real SDK File objects
+        converted = []
+        for item in (contents if isinstance(contents, list) else [contents]):
+            converted.append(item._file if isinstance(item, _CompatFile) else item)
+        return client.models.generate_content(model=self._model, contents=converted)
+
+
+class _CompatFile:
+    """Wraps google.genai File to expose the same attributes as the old SDK."""
+
+    def __init__(self, file):
+        self._file = file
+
+    @property
+    def name(self):
+        return self._file.name
+
+    @property
+    def state(self):
+        return self._file.state
+
+    def __getattr__(self, attr):
+        return getattr(self._file, attr)
+
+
+class _GenaiCompat:
+    """Module-level shim: exposes the google.generativeai interface via google.genai."""
+
+    def configure(self, api_key=None):
+        pass  # client is initialised lazily from config
+
+    def upload_file(self, path: str = None, mime_type: str = None) -> _CompatFile:
+        client = _get_client()
+        cfg = _types.UploadFileConfig(mime_type=mime_type) if mime_type else None
+        kwargs: dict = {"file": path}
+        if cfg:
+            kwargs["config"] = cfg
+        return _CompatFile(client.files.upload(**kwargs))
+
+    def get_file(self, name: str) -> _CompatFile:
+        return _CompatFile(_get_client().files.get(name=name))
+
+    def delete_file(self, name: str) -> None:
+        try:
+            _get_client().files.delete(name=name)
+        except Exception as exc:
+            logger.debug("delete_file(%s) failed: %s", name, exc)
+
+    def GenerativeModel(self, model_name: str = None, **_kwargs) -> _Model:  # noqa: N802
+        return _Model(model_name)
+
+
+# Public export — import `genai` from here instead of google.generativeai
+genai = _GenaiCompat()
+
+
+# ── Helpers used directly by the pipeline ─────────────────────────────────
+
+def upload_video(video_path: str) -> _CompatFile:
+    """Upload a video to Gemini Files API and wait until ACTIVE."""
     from pathlib import Path
     print(f"📤 Uploading '{Path(video_path).name}' to Gemini Files API...")
     try:
