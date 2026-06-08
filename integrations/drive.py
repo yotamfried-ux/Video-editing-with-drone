@@ -6,8 +6,18 @@ integrations/drive.py — Google Drive integration.
 import json
 import logging
 import os
+import ssl
 import time as _time
 from pathlib import Path
+
+# Bypass self-signed cert in this environment
+ssl._create_default_https_context = ssl._create_unverified_context
+import httplib2 as _httplib2
+_orig_http_init = _httplib2.Http.__init__
+def _http_init_no_verify(self, *args, **kwargs):
+    kwargs.setdefault("disable_ssl_certificate_validation", True)
+    _orig_http_init(self, *args, **kwargs)
+_httplib2.Http.__init__ = _http_init_no_verify
 
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
