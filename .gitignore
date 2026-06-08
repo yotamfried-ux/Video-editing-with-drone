@@ -17,6 +17,7 @@ build/
 # Temp processing files
 /tmp/
 processed.json
+failed_ids.json
 delivered.json
 reels_metadata.json
 
