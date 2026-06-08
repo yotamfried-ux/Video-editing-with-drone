@@ -38,6 +38,9 @@ FOLDERS = [
 ]
 
 
+OWNER_EMAIL = os.environ.get("DRIVE_OWNER_EMAIL", "")
+
+
 def create_folder(service, name: str) -> str:
     metadata = {
         "name": name,
@@ -45,6 +48,15 @@ def create_folder(service, name: str) -> str:
     }
     result = service.files().create(body=metadata, fields="id, webViewLink").execute()
     return result["id"], result.get("webViewLink", "")
+
+
+def share_folder(service, folder_id: str, email: str) -> None:
+    permission = {"type": "user", "role": "writer", "emailAddress": email}
+    service.permissions().create(
+        fileId=folder_id,
+        body=permission,
+        sendNotificationEmail=False,
+    ).execute()
 
 
 def main():
@@ -55,12 +67,19 @@ def main():
     )
     service = build("drive", "v3", credentials=creds)
 
+    if not OWNER_EMAIL:
+        print("⚠️  DRIVE_OWNER_EMAIL not set in .env — folders will NOT be shared with you.")
+        print("    Set DRIVE_OWNER_EMAIL=your@gmail.com in .env and re-run.\n")
+
     env_lines = []
     for folder_name, env_key in FOLDERS:
         folder_id, link = create_folder(service, folder_name)
         print(f"✅ Created: {folder_name}")
         print(f"   ID:  {folder_id}")
         print(f"   URL: {link}")
+        if OWNER_EMAIL:
+            share_folder(service, folder_id, OWNER_EMAIL)
+            print(f"   Shared with: {OWNER_EMAIL}")
         print()
         env_lines.append(f"{env_key}={folder_id}")
 
@@ -69,12 +88,11 @@ def main():
     for line in env_lines:
         print(f"  {line}")
     print()
-    print("⚠️  Also share each folder with your service account email:")
     try:
         sa_info = __import__("json").load(open(_SERVICE_ACCOUNT_JSON))
-        print(f"   → {sa_info['client_email']}")
+        print(f"ℹ️  Service account: {sa_info['client_email']}")
     except Exception:
-        print("   (see client_email in your service_account.json)")
+        pass
 
 
 if __name__ == "__main__":
