@@ -50,12 +50,36 @@ def _drive_retry(fn, attempts: int = 3, base_delay: int = 5):
 
 # ── Auth ───────────────────────────────────────────────────────────────────
 
+_USER_TOKEN_FILE = os.getenv("DRIVE_USER_TOKEN", "drive_user_token.json")
+
+
 def _get_drive_service():
+    """Service-account credentials — used for read-only operations (list, download)."""
     creds = service_account.Credentials.from_service_account_file(
         config.GOOGLE_SERVICE_ACCOUNT_JSON,
         scopes=_SCOPES,
     )
     return build("drive", "v3", credentials=creds)
+
+
+def _get_upload_service():
+    """User OAuth2 credentials — used for uploads so files count against the user's quota.
+
+    Falls back to service-account if no token file exists (will fail for large uploads,
+    but allows the pipeline to run in read-only / test scenarios).
+    Run scripts/auth_drive_user.py once to generate the token.
+    """
+    if os.path.exists(_USER_TOKEN_FILE):
+        from google.oauth2.credentials import Credentials
+        from google.auth.transport.requests import Request
+        creds = Credentials.from_authorized_user_file(_USER_TOKEN_FILE, _SCOPES)
+        if creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+            with open(_USER_TOKEN_FILE, "w") as f:
+                f.write(creds.to_json())
+        return build("drive", "v3", credentials=creds)
+    logger.warning("No user OAuth token found (%s) — falling back to service account for uploads", _USER_TOKEN_FILE)
+    return _get_drive_service()
 
 
 # ── Processed-IDs local state ──────────────────────────────────────────────
@@ -238,7 +262,7 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
     """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
     print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
     try:
-        service       = _get_drive_service()
+        service       = _get_upload_service()
         file_metadata = {"name": draft_name, "parents": [config.REVIEW_FOLDER_ID]}
         media         = MediaFileUpload(draft_path, mimetype="video/mp4", resumable=True)
         uploaded      = _drive_retry(lambda: service.files().create(
@@ -315,7 +339,7 @@ def upload_preview(preview_path: str, preview_name: str) -> str:
         raise ValueError("PREVIEW_FOLDER_ID not configured — set it in .env")
     print(f"🔍 Uploading preview '{preview_name}'...")
     try:
-        service       = _get_drive_service()
+        service       = _get_upload_service()
         file_metadata = {"name": preview_name, "parents": [config.PREVIEW_FOLDER_ID]}
         media         = MediaFileUpload(preview_path, mimetype="video/mp4", resumable=True)
         uploaded      = _drive_retry(lambda: service.files().create(
