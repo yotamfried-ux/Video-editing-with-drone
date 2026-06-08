@@ -54,3 +54,9 @@ QUALITY_LOG_FILE: str    = os.getenv("QUALITY_LOG_FILE", "quality_issues.jsonl")
 # Without these vars @traceable decorators are no-ops — no crash in production.
 LANGSMITH_TRACING: bool = os.getenv("LANGSMITH_TRACING", "false").lower() == "true"
 LANGSMITH_PROJECT: str  = os.getenv("LANGSMITH_PROJECT", "drone-video-pipeline")
+
+# ── Sentry error monitoring (optional) ────────────────────────────────────────
+# Set SENTRY_DSN to enable. Empty DSN → init_sentry() is a no-op (no crash).
+SENTRY_DSN: str                  = os.getenv("SENTRY_DSN", "")
+SENTRY_ENVIRONMENT: str          = os.getenv("SENTRY_ENVIRONMENT", "production")
+SENTRY_TRACES_SAMPLE_RATE: float = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "0.0"))

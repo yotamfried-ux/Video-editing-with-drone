@@ -274,7 +274,7 @@ def _download_one(video_meta: dict) -> dict | None:
         path = download_video(video_meta["id"], video_meta["name"])
         return {"path": path, "meta": video_meta}
     except Exception:
-        logger.error("Download failed for %s", video_meta["name"])
+        logger.exception("Download failed for %s", video_meta["name"])
         if record_failure(video_meta["id"]):
             mark_as_processed(video_meta["id"])
         return None
@@ -289,14 +289,14 @@ def _process_long_video(video_meta: dict) -> int:
     try:
         local_path = download_video(file_id, filename)
     except Exception:
-        logger.error("Skipping %s — download failed", filename)
+        logger.exception("Skipping %s — download failed", filename)
         if record_failure(file_id):
             mark_as_processed(file_id)
         return 0
     try:
         session = analyze_session(local_path)
     except Exception:
-        logger.error("Analysis failed for %s — will retry (up to 3 times)", filename)
+        logger.exception("Analysis failed for %s — will retry (up to 3 times)", filename)
         if record_failure(file_id):
             mark_as_processed(file_id)
         try: os.remove(local_path)
@@ -336,7 +336,7 @@ def _process_long_video(video_meta: dict) -> int:
                 _save_reel_metadata(name, activity, person["events"], source_quality)
                 drafts += 1
             except Exception:
-                logger.error("Draft upload failed for %s", name)
+                logger.exception("Draft upload failed for %s", name)
             finally:
                 try: os.remove(reel)
                 except OSError: pass
@@ -359,7 +359,7 @@ def _process_clips_session(videos: list[dict]) -> int:
         try:
             analysis = analyze_session(item["path"])
         except Exception:
-            logger.error("Analysis failed for %s — will retry", item["meta"]["name"])
+            logger.exception("Analysis failed for %s — will retry", item["meta"]["name"])
             if record_failure(item["meta"]["id"]):
                 mark_as_processed(item["meta"]["id"])
             try: os.remove(item["path"])
@@ -408,7 +408,7 @@ def _process_mixed_session(videos: list[dict]) -> int:
         try:
             analysis = analyze_session(item["path"])
         except Exception:
-            logger.error("Analysis failed for %s — will retry", item["meta"]["name"])
+            logger.exception("Analysis failed for %s — will retry", item["meta"]["name"])
             if record_failure(item["meta"]["id"]):
                 mark_as_processed(item["meta"]["id"])
             try: os.remove(item["path"])

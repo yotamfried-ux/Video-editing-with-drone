@@ -175,7 +175,7 @@ def get_new_videos() -> list[dict]:
             if not page_token:
                 break
     except Exception as e:
-        logger.error("❌ Failed to list Drive folder: %s", e)
+        logger.exception("❌ Failed to list Drive folder: %s", e)
         print(f"❌ Failed to list Drive folder: {e}")
         return []
 

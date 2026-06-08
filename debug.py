@@ -4377,6 +4377,81 @@ def test_cluster_empty_fallback() -> None:
             fail("cluster_clips non-empty result", f"got {len(result2)} clusters, expected 1")
 
 
+def test_sentry_observability() -> None:
+    section("56 / Sentry observability (init_sentry no-op when disabled, init when enabled)")
+
+    import sys as _sys
+    from unittest.mock import MagicMock, patch
+    from integrations import observability as obs
+
+    # ── 1: disabled (empty DSN) → no-op, returns False, sentry_sdk.init not called ──
+    obs._initialized = False
+    mock_sentry = MagicMock()
+    with patch.object(config, "SENTRY_DSN", ""), \
+         patch.dict(_sys.modules, {"sentry_sdk": mock_sentry}):
+        result = obs.init_sentry()
+    if result is False and mock_sentry.init.call_count == 0:
+        ok("init_sentry: no-op when SENTRY_DSN empty (returns False, no init call)")
+    else:
+        fail("init_sentry disabled path",
+             f"result={result} init_calls={mock_sentry.init.call_count}")
+
+    # ── 2: enabled (DSN set) → sentry_sdk.init called once with dsn + integration ──
+    obs._initialized = False
+    mock_sentry = MagicMock()
+    mock_logging_integration = MagicMock()
+    mock_integrations_mod = MagicMock()
+    mock_integrations_mod.LoggingIntegration = mock_logging_integration
+    with patch.object(config, "SENTRY_DSN", "https://abc@o1.ingest.sentry.io/1"), \
+         patch.object(config, "SENTRY_ENVIRONMENT", "production"), \
+         patch.object(config, "SENTRY_TRACES_SAMPLE_RATE", 0.0), \
+         patch.dict(_sys.modules, {
+             "sentry_sdk": mock_sentry,
+             "sentry_sdk.integrations": MagicMock(),
+             "sentry_sdk.integrations.logging": mock_integrations_mod,
+         }):
+        result = obs.init_sentry()
+    init_kwargs = mock_sentry.init.call_args.kwargs if mock_sentry.init.call_args else {}
+    if (result is True
+            and mock_sentry.init.call_count == 1
+            and init_kwargs.get("dsn") == "https://abc@o1.ingest.sentry.io/1"
+            and mock_logging_integration.call_count == 1):
+        ok("init_sentry: enabled path calls sentry_sdk.init once with DSN + LoggingIntegration")
+    else:
+        fail("init_sentry enabled path",
+             f"result={result} init_calls={mock_sentry.init.call_count} kwargs={init_kwargs}")
+
+    # ── 3: idempotent — second call after init returns False (no double init) ──
+    with patch.object(config, "SENTRY_DSN", "https://abc@o1.ingest.sentry.io/1"), \
+         patch.dict(_sys.modules, {"sentry_sdk": mock_sentry}):
+        result2 = obs.init_sentry()
+    if result2 is False:
+        ok("init_sentry: idempotent — second call is a no-op (already initialized)")
+    else:
+        fail("init_sentry idempotency", f"expected False on 2nd call, got {result2}")
+
+    # ── 4: init failure is swallowed (returns False, never raises) ──
+    obs._initialized = False
+    failing_sentry = MagicMock()
+    failing_sentry.init.side_effect = RuntimeError("bad dsn")
+    with patch.object(config, "SENTRY_DSN", "https://x@y/1"), \
+         patch.dict(_sys.modules, {
+             "sentry_sdk": failing_sentry,
+             "sentry_sdk.integrations": MagicMock(),
+             "sentry_sdk.integrations.logging": MagicMock(),
+         }):
+        try:
+            result3 = obs.init_sentry()
+            if result3 is False:
+                ok("init_sentry: init failure swallowed → returns False (never crashes pipeline)")
+            else:
+                fail("init_sentry failure path", f"expected False, got {result3}")
+        except Exception as e:
+            fail("init_sentry failure path", f"raised instead of swallowing: {e}")
+
+    obs._initialized = False  # leave module clean for any later tests
+
+
 def test_reel_qa_independent() -> None:
     section("54 / qa_check_reel — social-media QA (technical + content + engagement)")
 
@@ -4631,6 +4706,7 @@ if __name__ == "__main__":
     test_cluster_empty_fallback()
     test_reel_qa_independent()
     test_qa_calibration_and_specs()
+    test_sentry_observability()
 
     print_summary()
     sys.exit(0 if not FAILED else 1)
