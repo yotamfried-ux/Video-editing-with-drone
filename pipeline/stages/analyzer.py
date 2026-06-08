@@ -303,6 +303,7 @@ def _persist_qa_result(result: dict, reel_path: str, sport: str) -> None:
             "verdict":        result.get("verdict"),
             "content":        result.get("content"),
             "technical_pass": result.get("technical", {}).get("pass"),
+            "overall":        result.get("overall", ""),
             "actual_performance": None,
         }
         with open(config.QA_RESULTS_FILE, "a") as f:

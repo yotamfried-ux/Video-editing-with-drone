@@ -715,6 +715,11 @@ def cut_clip(
     start, end = _clamp(event["start"], event["end"], video_path)
     input_dur  = end - start
     event_type = event.get("type", "highlight")
+    # Pacing: cap non-climax clips to 8s so the reel stays tight
+    _is_climax = bool((event.get("edit") or {}).get("slowmo", slowmo))
+    if not _is_climax:
+        end = min(end, start + 8.0)
+        input_dur = min(input_dur, 8.0)
 
     if (event["start"], event["end"]) != (start, end):
         logger.warning("⚠️ Timestamps clamped [%.1f,%.1f]→[%.1f,%.1f]",
@@ -853,8 +858,9 @@ def cut_clip(
         fg_section   = None
         fg_crop      = fg_zoom if applied_zoom > 1.05 else fg_wide
         if use_slowmo:
-            t1 = round(input_dur * (0.5 - sm_frac / 2), 3)
-            t2 = round(input_dur * (0.5 + sm_frac / 2), 3)
+            _peak_center = 0.65   # peak near end of clip → better payoff score
+            t1 = round(max(0.0,              input_dur * (_peak_center - sm_frac / 2)), 3)
+            t2 = round(min(input_dur * 0.95, input_dur * (_peak_center + sm_frac / 2)), 3)
             overlay_sink = "[merged];"
             ramp = (
                 f"[merged]split=3[s1_in][s2_in][s3_in];"
@@ -1005,6 +1011,51 @@ def _xfade_filter(
         cumulative += durations[i] - XFADE_DUR
 
     return ";".join(parts)
+
+
+def _add_loop_bookend(reel_path: str, total_dur: float, has_audio: bool = False) -> None:
+    """Append 0.6s reprise of the reel's opening to create a visual loop point.
+
+    Takes 0.6s of content starting at 0.35s (after opener fade-in), crossfades it
+    as a dissolve at the reel's end. Replaces file in-place; silently preserves
+    original if ffmpeg fails.
+    """
+    if total_dur < 8.0:
+        return
+    ECHO_START = 0.35
+    ECHO_DUR   = 0.60
+    XFADE_ECH  = 0.35
+    offset     = round(total_dur - XFADE_ECH, 3)
+    tmp        = reel_path + ".bookend.mp4"
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", reel_path, "-i", reel_path,
+        "-filter_complex", (
+            f"[1:v]trim={ECHO_START:.2f}:{ECHO_START + ECHO_DUR:.2f},"
+            f"setpts=PTS-STARTPTS,"
+            f"fade=t=out:st={ECHO_DUR - XFADE_ECH:.2f}:d={XFADE_ECH:.2f}[echo];"
+            f"[0:v][echo]xfade=transition=dissolve:"
+            f"duration={XFADE_ECH:.2f}:offset={offset:.3f}[out]"
+        ),
+        "-map", "[out]",
+        *(["-map", "0:a", "-c:a", "copy"] if has_audio else ["-an"]),
+        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        "-pix_fmt", "yuv420p", "-movflags", "+faststart",
+        tmp,
+    ]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        if r.returncode == 0:
+            os.replace(tmp, reel_path)
+        else:
+            logger.debug("Loop bookend failed: %s", r.stderr[-200:])
+    except Exception as exc:
+        logger.debug("Loop bookend error (keeping original): %s", exc)
+    finally:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
 
 
 def compile_reel(
@@ -1161,6 +1212,7 @@ def compile_reel(
 
         size_mb = os.path.getsize(output_path) / 1_000_000
         print(f"✅ Reel ready: {output_path} ({size_mb:.1f} MB, {total_dur:.0f}s)")
+        _add_loop_bookend(output_path, total_dur, has_audio=has_music)
         return output_path
 
     except subprocess.TimeoutExpired:
