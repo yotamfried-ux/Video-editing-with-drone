@@ -4,10 +4,23 @@ setup_drive.py — One-time setup script.
 הרץ פעם אחת: python setup_drive.py
 """
 
+import ssl
+import os
+
+# bypass self-signed cert in this environment (one-time setup script only)
+ssl._create_default_https_context = ssl._create_unverified_context
+os.environ.setdefault("PYTHONHTTPSVERIFY", "0")
+
+import httplib2  # noqa: E402 — must patch before google-auth uses it
+_orig_http_init = httplib2.Http.__init__
+def _http_init_no_verify(self, *args, **kwargs):
+    kwargs.setdefault("disable_ssl_certificate_validation", True)
+    _orig_http_init(self, *args, **kwargs)
+httplib2.Http.__init__ = _http_init_no_verify
+
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from dotenv import load_dotenv
-import os
 
 load_dotenv()
 
