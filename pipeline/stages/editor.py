@@ -1212,7 +1212,6 @@ def compile_reel(
 
         size_mb = os.path.getsize(output_path) / 1_000_000
         print(f"✅ Reel ready: {output_path} ({size_mb:.1f} MB, {total_dur:.0f}s)")
-        _add_loop_bookend(output_path, total_dur, has_audio=has_music)
         return output_path
 
     except subprocess.TimeoutExpired:
@@ -1258,7 +1257,29 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     reels: list[str] = []
 
     for part_idx, part_events in enumerate(partitions):
-        ordered           = _narrative_order(part_events)
+        ordered = _narrative_order(part_events)
+
+        # Teaser loop: prepend a 2.5s preview of the climax as the very first clip.
+        # Structure: [flash of climax] → [opener] → [build] → [full climax]
+        # When the reel loops, the viewer sees [full climax] → [flash of same climax]
+        # which feels like a natural callback rather than an abrupt restart.
+        _climax_ev  = ordered[-1]
+        _preview_dur = 2.5
+        if (len(ordered) >= 2
+                and (_climax_ev["end"] - _climax_ev["start"]) > _preview_dur + 2.0):
+            _preview_ev = {
+                **_climax_ev,
+                "end":  _climax_ev["start"] + _preview_dur,
+                "edit": {
+                    **(_climax_ev.get("edit") or {}),
+                    "slowmo":         False,
+                    "focus":          "full",
+                    "zoom":           1.0,
+                    "transition_out": "cut",
+                },
+            }
+            ordered = [_preview_ev] + ordered
+
         event_transitions = [ev.get("edit", {}).get("transition_out", "slide") for ev in ordered]
         # "zoom" transition only makes sense on the penultimate clip (builds to climax)
         _n = len(ordered)
