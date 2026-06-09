@@ -9,7 +9,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid signature' }, { status: 400 });
   }
 
-  const { transactionId, userId: reelId, status, amount } = body;
+  const { transactionId, custom1: reelId, status, amount } = body;
   if (status !== 'success') return NextResponse.json({ ok: true });
 
   await supabaseAdmin.from('payments')

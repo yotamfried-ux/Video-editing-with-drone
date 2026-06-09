@@ -14,12 +14,13 @@ export async function createMeshulamPayment(
   failUrl: string,
 ): Promise<MeshulamPaymentLink> {
   const params = {
+    userId: process.env.MESHULAM_USER_ID!,  // merchant account ID
     apiKey: process.env.MESHULAM_API_KEY!,
     amount: (amountIls / 100).toFixed(2), // agorot → ILS
     description: `SportReel clip purchase`,
     successUrl,
     failUrl,
-    userId: reelId,
+    custom1: reelId, // pass reel ID as custom field for webhook matching
   };
 
   const resp = await fetch(`${API_BASE}/pay/createPayLink`, {
