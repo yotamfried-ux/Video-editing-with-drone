@@ -9,13 +9,13 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "next": "15.3.2",
     "@supabase/supabase-js": "^2.47.2",
-    "stripe": "^17.5.0",
-    "crypto": "^1.0.1"
+    "next": "^15.5.19",
+    "stripe": "^17.5.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/react": "19.2.17",
     "typescript": "^5.7.2"
   }
 }

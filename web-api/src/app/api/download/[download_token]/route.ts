@@ -18,7 +18,12 @@ export async function GET(
     return NextResponse.json({ error: 'Payment not completed' }, { status: 403 });
   }
 
-  const storagePath = (payment.reels as { storage_path: string } | null)?.storage_path;
+  // Supabase infers a joined relation as an array; normalize to a single row.
+  const reel = (payment.reels as unknown) as
+    | { storage_path: string | null }
+    | { storage_path: string | null }[]
+    | null;
+  const storagePath = Array.isArray(reel) ? reel[0]?.storage_path : reel?.storage_path;
   if (!storagePath) return NextResponse.json({ error: 'File not available' }, { status: 404 });
 
   const { data: signed } = await supabaseAdmin.storage

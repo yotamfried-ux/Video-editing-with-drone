@@ -1,15 +1,4 @@
 {
   "framework": "nextjs",
-  "regions": ["fra1"],
-  "env": {
-    "SUPABASE_URL": "@supabase_url",
-    "SUPABASE_SERVICE_KEY": "@supabase_service_key",
-    "CLOUDFLARE_ACCOUNT_ID": "@cloudflare_account_id",
-    "CLOUDFLARE_STREAM_API_TOKEN": "@cloudflare_stream_api_token",
-    "CLOUDFLARE_CUSTOMER_CODE": "@cloudflare_customer_code",
-    "STRIPE_SECRET_KEY": "@stripe_secret_key",
-    "STRIPE_WEBHOOK_SECRET": "@stripe_webhook_secret",
-    "MESHULAM_API_KEY": "@meshulam_api_key",
-    "MESHULAM_WEBHOOK_SECRET": "@meshulam_webhook_secret"
-  }
+  "regions": ["fra1"]
 }
