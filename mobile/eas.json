@@ -1,0 +1,14 @@
+{
+  "cli": { "version": ">= 7.0.0" },
+  "build": {
+    "development": { "developmentClient": true, "distribution": "internal" },
+    "preview": { "distribution": "internal", "ios": { "simulator": false } },
+    "production": { "autoIncrement": true }
+  },
+  "submit": {
+    "production": {
+      "ios": { "appleId": "FILL_IN", "ascAppId": "FILL_IN" },
+      "android": { "serviceAccountKeyPath": "./google-service-account.json", "track": "internal" }
+    }
+  }
+}

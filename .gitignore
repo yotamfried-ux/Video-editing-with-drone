@@ -1,0 +1,58 @@
+# Secrets — never commit these
+.env
+service_account.json
+oauth_client_secret.json
+drive_user_token.json
+*.json.key
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+
+# Temp processing files
+/tmp/
+processed.json
+failed_ids.json
+delivered.json
+reels_metadata.json
+
+# Client list with real emails — use clients.json.example as template
+clients.json
+
+# Logs
+logs/*.log
+quality_issues.jsonl
+qa_results.jsonl
+
+# Upload staging area
+pending_uploads/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+
+# Mobile app
+mobile/.env
+mobile/.env.local
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/android/
+mobile/ios/
+mobile/google-service-account.json
+
+# Web API
+web-api/.env.local
+web-api/.env
+web-api/node_modules/
+web-api/.next/

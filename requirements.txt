@@ -1,0 +1,16 @@
+google-generativeai>=0.7.0
+langsmith>=0.1.147
+google-api-python-client>=2.100.0
+google-auth>=2.23.0
+google-auth-httplib2>=0.2.0
+python-dotenv>=1.0.0
+sentry-sdk>=2.0.0
+librosa>=0.11.0
+soundfile>=0.12
+Pillow>=10.0.0
+torch>=2.0.0
+transformers>=4.35.0
+
+# ffmpeg must be installed separately via system package manager:
+#   Ubuntu/Debian: sudo apt install ffmpeg
+#   macOS:         brew install ffmpeg

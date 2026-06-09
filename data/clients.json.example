@@ -1,0 +1,14 @@
+[
+  {
+    "name": "איתי לוי",
+    "email": "itay@example.com",
+    "video_pattern": "itay",
+    "jersey_number": "7"
+  },
+  {
+    "name": "יוני שמעון",
+    "email": "yoni@example.com",
+    "video_pattern": "yoni",
+    "jersey_number": "10"
+  }
+]
