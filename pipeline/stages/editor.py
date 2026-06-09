@@ -1125,14 +1125,16 @@ def compile_reel(
         filter_complex = xfade_f
         map_out = "[xfout]"
 
-    # Athlete lower-third text overlay — last 2.5s of reel (not first, to keep teaser clean)
+    # Athlete lower-third text overlay — middle of reel (after teaser, before fade-out)
     display_text = athlete_label[:25].strip()
     font_path    = _find_font()
     if display_text and font_path:
         safe_text  = display_text.replace("'", "\\'").replace(":", "\\:")
         prev_label = map_out.strip("[]")
-        _text_st   = round(max(0.3, total_dur - 2.8), 3)
-        _text_en   = round(max(0.6, total_dur - 0.3), 3)
+        _TEASER_END = 2.5 + XFADE_DUR          # teaser clip + xfade into main content
+        _text_dur   = 3.0
+        _text_st    = round(max(_TEASER_END + 0.5, total_dur * 0.4), 3)
+        _text_en    = round(min(total_dur - 1.5, _text_st + _text_dur), 3)
         drawtext_f = (
             f"[{prev_label}]drawtext="
             f"fontfile={font_path}:"
