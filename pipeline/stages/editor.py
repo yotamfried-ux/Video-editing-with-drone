@@ -720,6 +720,12 @@ def cut_clip(
     if not _is_climax:
         end = min(end, start + 8.0)
         input_dur = min(input_dur, 8.0)
+    else:
+        # Single-clip-reel climax cap (marked by create_reel for 1-event partitions)
+        _event_cap = float(event.get("_cap_dur", 0))
+        if _event_cap:
+            end       = min(end, start + _event_cap)
+            input_dur = min(input_dur, _event_cap)
 
     if (event["start"], event["end"]) != (start, end):
         logger.warning("⚠️ Timestamps clamped [%.1f,%.1f]→[%.1f,%.1f]",
@@ -1119,12 +1125,14 @@ def compile_reel(
         filter_complex = xfade_f
         map_out = "[xfout]"
 
-    # Athlete lower-third text overlay (first 2.8s, fade in+out)
+    # Athlete lower-third text overlay — last 2.5s of reel (not first, to keep teaser clean)
     display_text = athlete_label[:25].strip()
     font_path    = _find_font()
     if display_text and font_path:
         safe_text  = display_text.replace("'", "\\'").replace(":", "\\:")
         prev_label = map_out.strip("[]")
+        _text_st   = round(max(0.3, total_dur - 2.8), 3)
+        _text_en   = round(max(0.6, total_dur - 0.3), 3)
         drawtext_f = (
             f"[{prev_label}]drawtext="
             f"fontfile={font_path}:"
@@ -1132,9 +1140,9 @@ def compile_reel(
             f"fontsize=52:fontcolor=white:"
             f"box=1:boxcolor=black@0.55:boxborderw=10:"
             f"x=(w-text_w)/2:y=h-260:"
-            f"enable='between(t,0.3,2.8)':"
-            f"alpha='if(lt(t,0.6),(t-0.3)/0.3,"
-            f"if(gt(t,2.5),(2.8-t)/0.3,1))'[captioned]"
+            f"enable='between(t,{_text_st},{_text_en})':"
+            f"alpha='if(lt(t,{_text_st + 0.3:.3f}),(t-{_text_st:.3f})/0.3,"
+            f"if(gt(t,{_text_en - 0.3:.3f}),({_text_en:.3f}-t)/0.3,1))'[captioned]"
         )
         filter_complex += ";" + drawtext_f
         map_out = "[captioned]"
@@ -1462,17 +1470,29 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         order_log = " → ".join(f"{e['type']}({e['score']})" for e in ordered)
         print(f"📋 Reel {part_idx + 1}/{len(partitions)} narrative: {order_log}")
 
+        # Single-clip reel: cap the climax at 15s for tighter pacing.
+        # The cap value is passed through the event dict so cut_clip() can honour it.
+        if len(part_events) == 1:
+            ordered[-1] = {**ordered[-1], "_cap_dur": 15.0}
+
         # Teaser loop: prepend a 2.5s flash of the climax as the very first clip.
-        # Structure: [climax flash] → [opener] → [build] → [full climax]
-        # When the reel loops, the viewer sees [full climax] → [same climax beginning]
-        # — a natural callback rather than an abrupt cut to an unrelated opener.
-        _climax_ev   = ordered[-1]
-        _preview_dur = 2.5
-        if (len(ordered) >= 2
-                and (_climax_ev["end"] - _climax_ev["start"]) > _preview_dur + 2.0):
+        # Multi-clip: flash from the beginning of the climax (same visual at end→loop).
+        # Single-clip: flash from the near-end of the capped climax so the loop point
+        # is seamless — end of reel and teaser show identical content.
+        _climax_ev      = ordered[-1]
+        _preview_dur    = 2.5
+        _climax_src_dur = _climax_ev["end"] - _climax_ev["start"]
+        if _climax_src_dur > _preview_dur + 2.0:
+            if len(ordered) >= 2:
+                _preview_start = _climax_ev["start"]
+            else:
+                _cap           = float(_climax_ev.get("_cap_dur", _climax_src_dur))
+                _eff_end       = _climax_ev["start"] + min(_climax_src_dur, _cap)
+                _preview_start = _eff_end - _preview_dur
             _preview_ev = {
                 **_climax_ev,
-                "end":  _climax_ev["start"] + _preview_dur,
+                "start": _preview_start,
+                "end":   _preview_start + _preview_dur,
                 "edit": {
                     **(_climax_ev.get("edit") or {}),
                     "slowmo":         False,
