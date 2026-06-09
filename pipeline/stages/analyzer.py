@@ -413,8 +413,10 @@ TASK:
 2. Identify each DISTINCT person (surfer, player, athlete) visible in the video.
 3. For each person, select their highlight moments using the scoring guide below.
 
-SCORING — rate relative to THIS session only (not world-class standards):
-Score each moment against the other moments in this specific footage.
+SCORING — rate each person relative to THEIR OWN moments only (not world-class standards,
+and NOT compared to other people in the same footage):
+A beginner's best ride is a 9 for them, even if an advanced athlete in the same session
+would score a 10. Score each person against their own range of moments in this footage.
 
   10 : Once-in-a-session moment — peak trick/wave/play, athlete at absolute best, no hesitation
   9  : Clear highlight — clean execution, impressive for this athlete today
@@ -626,8 +628,16 @@ def _parse_session(raw_text: str) -> dict:
                 "edit":        edit,
             })
 
-        # Keep only score >= 6. No safety net — empty means skip; orchestrator handles it.
+        # Keep only score >= 6. Safety net for beginner/mixed-ability sessions:
+        # if no score-6 events but the person had genuine action (score >= 5),
+        # include their top 2 so every participant gets a personal clip.
+        # If best score < 5 (title card, bystander, not actively performing) → skip.
         good = [ev for ev in all_events if ev["score"] >= 6]
+        if not good and all_events:
+            best_score = max(ev["score"] for ev in all_events)
+            if best_score >= 5:
+                good = sorted(all_events, key=lambda x: x["score"], reverse=True)[:2]
+
         good.sort(key=lambda x: x["score"], reverse=True)
 
         # Deduplicate: if two events start within 2s of each other, keep only the better one.
@@ -791,8 +801,15 @@ def _parse_analysis(raw_text: str) -> dict:
             },
         })
 
-    # Keep only score >= 6. No safety net — empty means no reel for this person.
+    # Keep only score >= 6. Safety net for beginner/mixed-ability sessions:
+    # if no score-6 events but genuine action exists (score >= 5), include top 2.
+    # If best score < 5 (bystander, title card, not actively performing) → skip.
     good = [ev for ev in all_events if ev["score"] >= 6]
+    if not good and all_events:
+        best_score = max(ev["score"] for ev in all_events)
+        if best_score >= 5:
+            good = sorted(all_events, key=lambda x: x["score"], reverse=True)[:2]
+
     good.sort(key=lambda x: x["score"], reverse=True)
 
     # Deduplicate: if two events start within 2s of each other, keep only the better one.
