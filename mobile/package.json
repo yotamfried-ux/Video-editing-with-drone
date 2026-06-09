@@ -11,7 +11,7 @@
   "dependencies": {
     "expo": "~52.0.28",
     "expo-router": "~4.0.17",
-    "expo-screen-capture": "~0.9.1",
+    "expo-screen-capture": "~7.0.1",
     "expo-local-authentication": "~15.0.2",
     "expo-font": "~13.0.3",
     "expo-notifications": "~0.29.13",

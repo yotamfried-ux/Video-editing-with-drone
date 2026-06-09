@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, TextStyle } from 'react-native';
 
 interface Props {
   suffix: string;
@@ -26,7 +26,7 @@ export function WatermarkOverlay({ suffix, preview = true }: Props) {
 }
 
 // Positions spread across the screen for the tiled watermark
-const POSITIONS = [
+const POSITIONS: TextStyle[] = [
   { top: '15%',  left: '5%',  transform: [{ rotate: '-35deg' }] },
   { top: '15%',  left: '52%', transform: [{ rotate: '-35deg' }] },
   { top: '38%',  left: '18%', transform: [{ rotate: '-35deg' }] },
