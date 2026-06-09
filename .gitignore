@@ -40,3 +40,19 @@ pending_uploads/
 # IDE
 .vscode/
 .idea/
+
+# Mobile app
+mobile/.env
+mobile/.env.local
+mobile/node_modules/
+mobile/.expo/
+mobile/dist/
+mobile/android/
+mobile/ios/
+mobile/google-service-account.json
+
+# Web API
+web-api/.env.local
+web-api/.env
+web-api/node_modules/
+web-api/.next/

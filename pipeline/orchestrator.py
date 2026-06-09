@@ -255,9 +255,23 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         results = list(pool.map(_upload_one, pending))
 
-    for (reel_path, name), ok, (_, _, events, src_q) in zip(pending, results, pending_meta):
+    total = len(pending)
+    for idx, ((reel_path, name), ok, (_, _, events, src_q)) in enumerate(
+        zip(pending, results, pending_meta), start=1
+    ):
         if ok:
             _save_reel_metadata(name, activity, events, src_q)
+            try:
+                from integrations.supabase_uploader import write_pipeline_status
+                write_pipeline_status(
+                    "uploading",
+                    0.50 + 0.40 * (idx / total),
+                    uploaded=idx,
+                    total=total,
+                    reel_name=name,
+                )
+            except Exception:
+                pass
 
     return sum(results)
 
@@ -460,8 +474,13 @@ def main() -> None:
         print("✅ No new videos — exiting")
         return
 
+    from integrations.supabase_uploader import write_pipeline_status
+    write_pipeline_status("downloading", 0.05, video_count=len(new_videos))
+
     mode = _classify_input(new_videos)
     print(f"📋 Mode: {mode} ({len(new_videos)} video(s))")
+
+    write_pipeline_status("analyzing", 0.20, mode=mode)
 
     if mode == "long_video":
         drafts = _process_long_video(new_videos[0])
@@ -471,6 +490,7 @@ def main() -> None:
         drafts = _process_clips_session(new_videos)
 
     if drafts:
+        write_pipeline_status("done", 1.0, drafts_created=drafts)
         print(f"\n✅ {drafts} draft(s) uploaded to REVIEW folder")
         print("   Review in Drive, then run:  python deliver.py")
     else:

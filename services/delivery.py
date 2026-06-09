@@ -218,8 +218,16 @@ def deliver_final() -> None:
 
     print(f"\n📋 {len(to_deliver)} reel(s) to deliver")
 
+    _last_delivered_path: dict[str, str] = {}
+
     sent_to_clients = 0
     for draft in to_deliver:
+        try:
+            local_path = download_video(draft["id"], draft["name"])
+            _last_delivered_path[draft["id"]] = local_path
+        except Exception as exc:
+            logger.warning("Could not download '%s' for SportReel publish: %s", draft["name"], exc)
+
         client = find_client(draft["name"])
         if not client:
             continue
@@ -262,7 +270,25 @@ def deliver_final() -> None:
             )
             print(f"⚠️  No client match for '{draft['name']}' — archived without email delivery")
         mark_draft_delivered(draft["id"])
+        try:
+            from integrations.supabase_uploader import publish_reel as _publish_reel
+            reel_meta = _load_reel_metadata(draft["name"]) or {}
+            shareable_url = _publish_reel(
+                local_path=_last_delivered_path.get(draft["id"], ""),
+                athlete_desc=reel_meta.get("description", ""),
+                sport=reel_meta.get("sport", "unknown"),
+                drive_file_id=draft["id"],
+            )
+            print(f"🌐 Published to SportReel: {shareable_url}")
+        except Exception as _exc:
+            logger.warning("SportReel publish skipped: %s", _exc)
         print(f"✅ Archived: {draft['name']}")
+
+    for _local in _last_delivered_path.values():
+        try:
+            os.remove(_local)
+        except OSError:
+            pass
 
     logger.info("Phase 2b complete. Delivered: %d, Client emails: %d",
                 len(to_deliver), sent_to_clients)

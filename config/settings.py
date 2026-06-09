@@ -49,6 +49,14 @@ QA_RESULTS_FILE: str         = os.getenv("QA_RESULTS_FILE", "qa_results.jsonl")
 PENDING_UPLOADS_DIR: str = os.getenv("PENDING_UPLOADS_DIR", "pending_uploads")
 QUALITY_LOG_FILE: str    = os.getenv("QUALITY_LOG_FILE", "quality_issues.jsonl")
 
+# ── SportReel platform (Supabase + Cloudflare Stream) ────────────────────────
+SUPABASE_URL: str              = os.getenv("SUPABASE_URL", "")
+SUPABASE_SERVICE_KEY: str      = os.getenv("SUPABASE_SERVICE_KEY", "")
+CLOUDFLARE_ACCOUNT_ID: str     = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
+CLOUDFLARE_STREAM_API_TOKEN: str = os.getenv("CLOUDFLARE_STREAM_API_TOKEN", "")
+CLOUDFLARE_CUSTOMER_CODE: str  = os.getenv("CLOUDFLARE_CUSTOMER_CODE", "")
+APP_DOMAIN: str                = os.getenv("APP_DOMAIN", "sportreel.app")
+
 # ── LangSmith observability (optional) ────────────────────────────────────────
 # Set LANGSMITH_API_KEY + LANGSMITH_TRACING=true to enable tracing.
 # Without these vars @traceable decorators are no-ops — no crash in production.
