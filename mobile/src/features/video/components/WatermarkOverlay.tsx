@@ -1,26 +1,62 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 
-export function WatermarkOverlay({ suffix }: { suffix: string }) {
+interface Props {
+  suffix: string;
+  preview?: boolean;
+}
+
+export function WatermarkOverlay({ suffix, preview = true }: Props) {
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="none">
-      <View style={styles.container}>
-        <Text style={styles.text}>{suffix}</Text>
-      </View>
+      {preview && (
+        <>
+          {/* Diagonal tiled PREVIEW text */}
+          {POSITIONS.map((pos, i) => (
+            <Text key={i} style={[styles.tile, pos]}>PREVIEW</Text>
+          ))}
+          {/* Token identifier bottom-right */}
+          <View style={styles.tokenContainer}>
+            <Text style={styles.token}>#{suffix}</Text>
+          </View>
+        </>
+      )}
     </View>
   );
 }
 
+// Positions spread across the screen for the tiled watermark
+const POSITIONS = [
+  { top: '15%',  left: '5%',  transform: [{ rotate: '-35deg' }] },
+  { top: '15%',  left: '52%', transform: [{ rotate: '-35deg' }] },
+  { top: '38%',  left: '18%', transform: [{ rotate: '-35deg' }] },
+  { top: '38%',  left: '65%', transform: [{ rotate: '-35deg' }] },
+  { top: '60%',  left: '5%',  transform: [{ rotate: '-35deg' }] },
+  { top: '60%',  left: '52%', transform: [{ rotate: '-35deg' }] },
+  { top: '80%',  left: '25%', transform: [{ rotate: '-35deg' }] },
+];
+
 const styles = StyleSheet.create({
-  container: {
+  tile: {
     position: 'absolute',
-    bottom: 80,
-    right: 20,
+    color: 'rgba(255,255,255,0.22)',
+    fontSize: 18,
+    fontWeight: '800',
+    letterSpacing: 6,
   },
-  text: {
-    color: 'rgba(255,255,255,0.18)',
-    fontSize: 14,
+  tokenContainer: {
+    position: 'absolute',
+    bottom: 88,
+    right: 16,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 4,
+  },
+  token: {
+    color: 'rgba(255,255,255,0.55)',
+    fontSize: 11,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 1,
   },
 });
