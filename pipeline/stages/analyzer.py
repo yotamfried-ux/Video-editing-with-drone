@@ -444,14 +444,16 @@ These guide the editor's music tempo, cut rhythm, and color treatment.
 
 SELECTION RULES:
 - Include ALL moments with score >= 6 (they improve the athlete's image)
-- Always include at least the top 2 moments per person, even if scores are low
-  (every athlete deserves some highlights from their session)
-- Do NOT include score < 6 unless no other moments exist
+- If a person has NO moments reaching score 6, return an EMPTY events list for them.
+  Not every person in frame has usable highlights — omitting is better than forcing bad clips.
+- Do NOT include score < 6 under any circumstances.
+- Avoid overlapping timestamps: if two moments for the same person start within 3 seconds
+  of each other, include ONLY the higher-scored one.
 - Prefer variety: avoid 3+ nearly identical consecutive moves
 
 EVENT COUNT: Aim for 3-8 events per person. Prefer quality over quantity — a 4-event reel
 with scores 8,9,8,7 is better than a 10-event reel with four score-6 moments padded in.
-Fewer than 2 events per person is only acceptable when the session is very short.
+It is acceptable (and preferred) to return 0 events for a person with no genuine highlights.
 
 TEAM SPORTS — ATTRIBUTION:
 In competitive plays (tackle, duel, block, goal, save, interception):
@@ -624,13 +626,17 @@ def _parse_session(raw_text: str) -> dict:
                 "edit":        edit,
             })
 
-        # Keep only score >= 6 (positive for the athlete's brand).
-        # Safety net: always include at least the top 2 so no athlete is left empty.
+        # Keep only score >= 6. No safety net — empty means skip; orchestrator handles it.
         good = [ev for ev in all_events if ev["score"] >= 6]
-        if not good and all_events:
-            good = sorted(all_events, key=lambda x: x["score"], reverse=True)[:2]
-
         good.sort(key=lambda x: x["score"], reverse=True)
+
+        # Deduplicate: if two events start within 2s of each other, keep only the better one.
+        _kept: list[dict] = []
+        for ev in good:
+            if not any(abs(ev["start"] - k["start"]) < 2.0 for k in _kept):
+                _kept.append(ev)
+        good = _kept
+
         persons.append({
             "id":          str(p.get("id", "person_?")),
             "description": str(p.get("description", "unknown")),
@@ -785,9 +791,15 @@ def _parse_analysis(raw_text: str) -> dict:
             },
         })
 
-    # Keep only score >= 6; safety net: top 2 if none qualify.
+    # Keep only score >= 6. No safety net — empty means no reel for this person.
     good = [ev for ev in all_events if ev["score"] >= 6]
-    if not good and all_events:
-        good = sorted(all_events, key=lambda x: x["score"], reverse=True)[:2]
     good.sort(key=lambda x: x["score"], reverse=True)
+
+    # Deduplicate: if two events start within 2s of each other, keep only the better one.
+    _kept: list[dict] = []
+    for ev in good:
+        if not any(abs(ev["start"] - k["start"]) < 2.0 for k in _kept):
+            _kept.append(ev)
+    good = _kept
+
     return {"activity": activity, "events": good}
