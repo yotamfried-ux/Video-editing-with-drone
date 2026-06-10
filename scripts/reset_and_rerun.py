@@ -144,11 +144,32 @@ def step3_clear_local_state():
 
 
 def main():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Reset the pipeline so the same RAW footage can be re-processed "
+                    "without re-uploading, then (optionally) run it."
+    )
+    parser.add_argument("--reset-only", action="store_true",
+                        help="Reset Drive folders + local state but do NOT run the pipeline.")
+    parser.add_argument("--keep-drafts", action="store_true",
+                        help="Do not delete existing draft reels in the REVIEW folder.")
+    parser.add_argument("--no-restore", action="store_true",
+                        help="Do not move files from PROCESSED back to RAW "
+                             "(use when the raw video is already in RAW).")
+    args = parser.parse_args()
+
     service = _get_service()
     user_service = _get_user_service()
-    step1_delete_review_drafts(service, user_service)
-    step2_restore_processed_to_raw(service)
+    if not args.keep_drafts:
+        step1_delete_review_drafts(service, user_service)
+    if not args.no_restore:
+        step2_restore_processed_to_raw(user_service)
     step3_clear_local_state()
+
+    if args.reset_only:
+        print("\n✅ Reset complete (--reset-only) — pipeline NOT run.")
+        return
+
     print("\n✅ Reset complete — running pipeline...\n")
     print("=" * 60)
 
