@@ -36,7 +36,8 @@
       "expo-screen-capture",
       ["expo-local-authentication", { "faceIDPermission": "Used to secure operator access." }],
       "expo-font",
-      ["expo-notifications", { "icon": "./assets/icon.png", "color": "#00E5FF" }]
+      ["expo-notifications", { "icon": "./assets/icon.png", "color": "#00E5FF" }],
+      ["expo-build-properties", { "android": { "kotlinVersion": "1.9.25" } }]
     ],
     "experiments": { "typedRoutes": true },
     "owner": "yotam102",
