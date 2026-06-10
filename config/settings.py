@@ -37,7 +37,8 @@ LOG_FILE: str = "logs/pipeline.log"
 CLIENTS_FILE: str = "clients.json"                         # maps video patterns → client emails
 MAX_CUT_WORKERS: int = int(os.getenv("MAX_CUT_WORKERS", str(min(4, os.cpu_count() or 1))))
 CLIPS_CACHE_DIR: str    = os.getenv("CLIPS_CACHE_DIR", "/tmp/dtor_clips")
-FEEDBACK_FILE: str      = os.getenv("FEEDBACK_FILE", "labels_feedback.json")
+FEEDBACK_FILE: str          = os.getenv("FEEDBACK_FILE", "labels_feedback.json")
+OPERATOR_NOTES_FILE: str    = os.getenv("OPERATOR_NOTES_FILE", "operator_notes.json")
 REEL_METADATA_FILE: str = os.getenv("REEL_METADATA_FILE", "reels_metadata.json")
 QA_CROP_CHECK: bool      = os.getenv("QA_CROP_CHECK", "false").lower() == "true"
 QA_REEL_CHECK: bool      = os.getenv("QA_REEL_CHECK", "true").lower() == "true"
