@@ -26,6 +26,11 @@ var EVENT_TYPE    = "new-raw-video";   // must match the workflow's repository_d
 var OWNER_EMAIL   = "yotam.fried@gmail.com";
 var NOTIFY_OWNER  = false;             // set true to also send yourself an email
 
+// Session debounce: wait until RAW has had no new uploads for this many minutes
+// before firing, so every clip of a multi-clip session is processed together
+// (one reel per athlete) instead of getting split across two runs.
+var QUIET_MINUTES = 2;
+
 // ── Trigger registration ───────────────────────────────────────────────────
 
 /**
@@ -50,42 +55,67 @@ function setupTrigger() {
 // ── Main watcher ────────────────────────────────────────────────────────────
 
 /**
- * Detects new videos in RAW and fires a GitHub repository_dispatch for each batch.
- * Processed IDs are remembered in Script Properties so we never re-trigger the
- * same file. (The pipeline itself also tracks processed IDs in Drive, so a
- * double-trigger is harmless — it just finds nothing new.)
+ * Detects new videos in RAW and fires ONE GitHub repository_dispatch per
+ * session, once uploads have settled (QUIET_MINUTES with no new files).
+ *
+ * Runs every minute. Pending (not-yet-dispatched) clips are tracked in
+ * Script Properties together with the timestamp of the last change; we only
+ * dispatch once that set has been stable for QUIET_MINUTES. Already-dispatched
+ * IDs are remembered so the same session never triggers twice. (The pipeline
+ * also dedupes via the Drive PROCESSED folder, so a stray double-trigger is
+ * harmless — it just finds nothing new.)
  */
 function checkForNewVideos() {
   var props = PropertiesService.getScriptProperties();
   var knownIds = JSON.parse(props.getProperty("processedIds") || "[]");
+  var pending  = JSON.parse(props.getProperty("pending") || "null"); // {ids, lastChange}
 
   try {
     var folder = DriveApp.getFolderById(RAW_FOLDER_ID);
     var files  = folder.getFiles();
-    var newFiles = [];
+    var current = [];   // not-yet-dispatched videos currently sitting in RAW
 
     while (files.hasNext()) {
       var file = files.next();
       if (file.getMimeType().indexOf("video/") !== 0) continue;
       if (knownIds.indexOf(file.getId()) === -1) {
-        newFiles.push({ id: file.getId(), name: file.getName(), url: file.getUrl() });
+        current.push({ id: file.getId(), name: file.getName(), url: file.getUrl() });
       }
     }
 
-    if (newFiles.length === 0) {
-      return;  // nothing new — stay quiet
+    var now = Date.now();
+
+    if (current.length === 0) {
+      if (pending) props.deleteProperty("pending");  // queue drained
+      return;
     }
 
-    Logger.log("🎬 " + newFiles.length + " new video(s) — dispatching to GitHub Actions...");
-    _dispatchPipeline(newFiles);
+    var currentIds = current.map(function (f) { return f.id; }).sort();
 
-    for (var j = 0; j < newFiles.length; j++) {
-      knownIds.push(newFiles[j].id);
+    // First time we see this set, or the set changed since last check → (re)start
+    // the quiet timer and wait. This is the debounce that keeps a session whole.
+    if (!pending || JSON.stringify(pending.ids) !== JSON.stringify(currentIds)) {
+      props.setProperty("pending", JSON.stringify({ ids: currentIds, lastChange: now }));
+      Logger.log("⏳ " + current.length + " clip(s) in RAW — waiting for uploads to settle...");
+      return;
+    }
+
+    // Set unchanged since last check — has it been quiet long enough?
+    if (now - pending.lastChange < QUIET_MINUTES * 60 * 1000) {
+      return;  // still within the quiet window
+    }
+
+    Logger.log("🎬 Session settled (" + current.length + " clip(s)) — dispatching...");
+    _dispatchPipeline(current);
+
+    for (var j = 0; j < current.length; j++) {
+      knownIds.push(current[j].id);
     }
     props.setProperty("processedIds", JSON.stringify(knownIds));
+    props.deleteProperty("pending");
 
     if (NOTIFY_OWNER) {
-      _notifyOwner(newFiles);
+      _notifyOwner(current);
     }
   } catch (e) {
     Logger.log("❌ checkForNewVideos error: " + e.message);
@@ -140,6 +170,8 @@ function _notifyOwner(newFiles) {
 
 /** Utility: clear remembered IDs so already-seen files trigger again. */
 function clearProcessedIds() {
-  PropertiesService.getScriptProperties().deleteProperty("processedIds");
-  Logger.log("✅ processedIds cleared.");
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty("processedIds");
+  props.deleteProperty("pending");
+  Logger.log("✅ processedIds + pending cleared.");
 }

@@ -131,11 +131,20 @@ The editing pipeline runs automatically when new footage lands in the Drive RAW
 folder. No machine of yours needs to stay on.
 
 ```
-Upload to RAW  →  Apps Script watcher (≤1 min)  →  repository_dispatch
+Upload session to RAW  →  Apps Script watcher (waits for uploads to settle)
+                                                        ↓
+                                            repository_dispatch (one per session)
                                                         ↓
                               GitHub Actions: .github/workflows/pipeline-run.yml
                                   (ffmpeg + Gemini + slow-mo → drafts to REVIEW)
 ```
+
+RAW acts as the waiting queue: only not-yet-processed clips are turned into
+reels, and each processed session is moved to PROCESSED so it is never redone.
+Clips uploaded together are grouped into one reel per athlete — the watcher
+waits `QUIET_MINUTES` (default 2) of no new uploads before firing, so a
+multi-clip session is processed whole rather than split across runs. Runs are
+serialized (`concurrency: pipeline-run`), so two uploads never collide.
 
 ### A. GitHub repository secrets
 
@@ -155,8 +164,8 @@ Add under **Settings → Secrets and variables → Actions**:
 1. In `apps_script/trigger.gs`, set `RAW_FOLDER_ID` (owner/repo are pre-filled).
 2. Create a GitHub PAT that can trigger dispatches (fine-grained: *Contents: read & write*; classic: `repo`).
 3. Apps Script → **Project Settings → Script Properties** → add `GITHUB_TOKEN = <PAT>`.
-4. Run `setupTrigger()` once and authorize. It now polls every minute and fires
-   the pipeline within ~1 min of an upload.
+4. Run `setupTrigger()` once and authorize. It polls every minute and fires one
+   dispatch per session after uploads settle (`QUIET_MINUTES`, default 2).
 
 ### C. Manual run / reprocess the same footage
 
