@@ -7,6 +7,7 @@ import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { usePricing } from '@/features/operator/hooks/usePricing';
+import { getOperatorSecret, setOperatorSecret } from '@/features/operator/lib/operatorSecret';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 function PriceRow({
@@ -58,9 +59,22 @@ function PriceRow({
 }
 
 export default function PricingScreen() {
-  const { rows, saving, updatePrice, addSport } = usePricing();
+  const { rows, saving, error, updatePrice, addSport } = usePricing();
   const [newSport, setNewSport] = useState('');
   const [newPrice, setNewPrice] = useState('');
+  const [secretSet, setSecretSet] = useState<boolean | null>(null);
+  const [secretInput, setSecretInput] = useState('');
+
+  React.useEffect(() => {
+    getOperatorSecret().then((s) => setSecretSet(!!s));
+  }, []);
+
+  const saveSecret = async () => {
+    if (!secretInput.trim()) return;
+    await setOperatorSecret(secretInput);
+    setSecretInput('');
+    setSecretSet(true);
+  };
 
   return (
     <SafeArea>
@@ -71,6 +85,29 @@ export default function PricingScreen() {
           <Text variant="caption" color={Colors.textSecondary}>
             Set a one-time price per sport. Prices are in shekels (₪).
           </Text>
+
+          {secretSet === false && (
+            <Card bordered style={{ gap: Spacing.sm, borderColor: Colors.danger }}>
+              <Text variant="title">Operator Secret Required</Text>
+              <Text variant="caption" color={Colors.textSecondary}>
+                Enter the operator secret once to authorize price changes on this device.
+              </Text>
+              <TextInput
+                value={secretInput}
+                onChangeText={setSecretInput}
+                placeholder="Operator secret"
+                placeholderTextColor={Colors.textSecondary}
+                secureTextEntry
+                autoCapitalize="none"
+                style={styles.addInput}
+              />
+              <Button label="Save Secret" onPress={saveSecret} />
+            </Card>
+          )}
+
+          {error && (
+            <Text variant="caption" color={Colors.danger}>{error}</Text>
+          )}
 
           {rows
             .slice()
