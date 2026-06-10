@@ -46,10 +46,6 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Debug expo config
-        working-directory: mobile
-        run: node node_modules/expo/bin/cli config 2>&1 || true
-
       - name: Build
         working-directory: mobile
         run: eas build --platform ${{ inputs.platform }} --profile ${{ inputs.profile }} --non-interactive
