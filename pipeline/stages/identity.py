@@ -176,6 +176,8 @@ def _build_clusters_from_data(data: dict, clip_analyses: list[dict]) -> list[dic
                 "⚠️ Cluster '%s' spans %d clips with confidence=%s — check reel for mixed athletes",
                 cluster.get("description", "?"), len(resolved), confidence,
             )
+            print(f"  ⚠️ Identity confidence={confidence} for '{cluster.get('description','?')[:40]}' "
+                  f"across {len(resolved)} clip(s) — verify reel has no mixed athletes")
 
         # Low-confidence clusters spanning multiple clips are split to avoid false merges
         if confidence == "low" and len(resolved) > 1:

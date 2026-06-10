@@ -483,6 +483,10 @@ For each PERSON:
   4. Hair ("long blonde ponytail", "short dark hair")
   5. Body build only when nothing else distinguishes ("tall, broad shoulders")
   Never use vague labels like "athlete" or "person". Be specific enough to match across clips.
+  IMPORTANT: Do NOT infer or state gender (man/woman/boy/girl) — drone footage typically
+  shows people from above where gender is not reliably readable. Describe only visible
+  clothing, equipment, and distinctive physical features. Example: "surfer in black one-piece
+  swimsuit on turquoise longboard" NOT "young woman surfer on turquoise longboard".
 
 For each EVENT:
 - type: choose the closest value from this list (do NOT invent new labels):
@@ -678,21 +682,26 @@ def analyze_session(video_path: str) -> dict:
     """
     print(f"🔍 Analyzing '{Path(video_path).name}' — multi-person session mode...")
 
-    # Build prompt — inject feedback AFTER SELECTION RULES so Gemini sees it
-    # just before the detailed field instructions, maximising attention.
-    from pipeline.stages.feedback import get_all_label_injections
+    # Build prompt — inject feedback + operator notes AFTER SELECTION RULES so
+    # Gemini sees them just before the detailed field instructions.
+    from pipeline.stages.feedback import get_all_label_injections, get_operator_notes
     feedback_block = get_all_label_injections()
+    notes_block    = get_operator_notes()   # all pending notes (global context)
+    injection      = (feedback_block or "") + (notes_block or "")
     if feedback_block:
         sport_count = feedback_block.count("\n  ")
         logger.info("Injecting editing feedback for %d sport(s) into prompt", sport_count)
         print(f"🏷️  Injecting editing history ({sport_count} sport(s)) into analysis prompt")
-        # Insert after the SELECTION RULES block, before EVENT COUNT
+    if notes_block:
+        logger.info("Injecting operator notes into prompt")
+        print(f"📝 Injecting operator editing notes into analysis prompt")
+    if injection:
         _split_marker = "\nEVENT COUNT:"
         if _split_marker in _IDENTITY_PROMPT:
             _pre, _post = _IDENTITY_PROMPT.split(_split_marker, 1)
-            prompt = _pre + feedback_block + _split_marker + _post
+            prompt = _pre + injection + _split_marker + _post
         else:
-            prompt = _IDENTITY_PROMPT + feedback_block
+            prompt = _IDENTITY_PROMPT + injection
     else:
         prompt = _IDENTITY_PROMPT
 

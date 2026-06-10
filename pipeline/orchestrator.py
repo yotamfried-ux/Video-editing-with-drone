@@ -150,8 +150,17 @@ def _save_reel_metadata(draft_name: str, sport: str,
             metadata = {}
         metadata[draft_name] = {
             "sport":          sport,
-            "events":         [{"type": e.get("type", ""), "edit": e.get("edit", {})}
-                                for e in events],
+            "events":         [
+                {
+                    "type":        e.get("type", ""),
+                    "score":       e.get("score", "?"),
+                    "start":       e.get("start"),
+                    "end":         e.get("end"),
+                    "description": e.get("description", ""),
+                    "edit":        e.get("edit", {}),
+                }
+                for e in events
+            ],
             "source_quality": source_quality,
         }
         tmp = meta_file + ".tmp"

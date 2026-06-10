@@ -15,6 +15,7 @@ import math
 import os
 import statistics
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 import config
@@ -255,6 +256,96 @@ def suggest_qa_threshold() -> dict:
     idx = max(0, int(len(scores) * 0.40) - 1)
     return {"suggested": scores[idx], "method": "distribution_provisional",
             "sample": len(scores), "current": current}
+
+
+def record_operator_note(draft_name: str, note: str) -> None:
+    """
+    Attach a free-text operator note to a specific draft reel.
+
+    Notes are injected into the Gemini analysis prompt the next time the pipeline
+    re-processes the same footage, giving Gemini explicit editorial direction.
+
+    draft_name: the DRAFT_ filename (e.g. "DRAFT_surfer_Coral_Sallas_20260610.mp4")
+    note: plain text instruction (e.g. "Bad opening hook — pick a more dramatic first clip")
+    """
+    path = getattr(config, "OPERATOR_NOTES_FILE", "operator_notes.json")
+    try:
+        with open(path) as f:
+            notes: dict = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        notes = {}
+    key = Path(draft_name).stem  # strip extension for robustness
+    notes[key] = {
+        "note": note,
+        "ts":   datetime.now(timezone.utc).isoformat(),
+    }
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(notes, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+    print(f"📝 Note saved for '{key}': {note[:80]}")
+    logger.info("Operator note saved: %s", key)
+
+
+def get_operator_notes(draft_name: str | None = None) -> str:
+    """
+    Return operator notes as a formatted prompt block.
+
+    If draft_name is given, returns notes specific to that draft; otherwise
+    returns all pending notes (for fresh footage with no prior draft name).
+    Returns "" when no notes exist.
+    """
+    path = getattr(config, "OPERATOR_NOTES_FILE", "operator_notes.json")
+    try:
+        with open(path) as f:
+            notes: dict = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return ""
+    if not notes:
+        return ""
+
+    if draft_name:
+        key = Path(draft_name).stem
+        entry = notes.get(key)
+        if not entry:
+            return ""
+        items = [(key, entry)]
+    else:
+        items = list(notes.items())
+
+    lines = ["\nOPERATOR EDITING NOTES — apply these instructions for the footage:"]
+    for key, entry in items:
+        ts  = entry.get("ts", "")[:10]
+        txt = entry.get("note", "").strip()
+        if txt:
+            lines.append(f"  [{ts}] {txt}")
+    if len(lines) == 1:
+        return ""
+    lines.append(
+        "These are direct instructions from the operator who reviewed the previous output."
+        " Adjust event selection, ordering, and edit parameters accordingly.\n"
+    )
+    return "\n".join(lines)
+
+
+def clear_operator_note(draft_name: str) -> bool:
+    """Remove the note for a draft after it has been acted on. Returns True if found."""
+    path = getattr(config, "OPERATOR_NOTES_FILE", "operator_notes.json")
+    try:
+        with open(path) as f:
+            notes: dict = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return False
+    key = Path(draft_name).stem
+    if key not in notes:
+        return False
+    del notes[key]
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(notes, f, indent=2, ensure_ascii=False)
+    os.replace(tmp, path)
+    logger.info("Operator note cleared: %s", key)
+    return True
 
 
 def get_stats() -> dict:
