@@ -2,8 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getPriceForReel } from '@/lib/pricing';
+import { enforceRateLimit } from '@/lib/ratelimit';
 
 export async function POST(req: NextRequest) {
+  const limited = await enforceRateLimit(req, 'checkout', 10, 60);
+  if (limited) return limited;
+
   const { reel_id } = await req.json();
   if (!reel_id) return NextResponse.json({ error: 'reel_id required' }, { status: 400 });
 

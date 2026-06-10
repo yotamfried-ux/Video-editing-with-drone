@@ -6,8 +6,7 @@ import { Card } from '@/shared/components/Card';
 import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
-import { supabase } from '@/shared/lib/supabase';
-import { apiFetch } from '@/shared/lib/api';
+import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 interface Ticket {
@@ -32,7 +31,7 @@ function TicketCard({ ticket, onReplied }: { ticket: Ticket; onReplied: () => vo
     if (!reply.trim()) return;
     setSending(true);
     try {
-      await apiFetch(`/api/support/${ticket.id}`, {
+      await operatorFetch(`/api/support/${ticket.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ reply: reply.trim() }),
       });
@@ -79,18 +78,18 @@ export default function OperatorSupportScreen() {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
 
   const load = useCallback(async () => {
-    const [t, s] = await Promise.all([
-      supabase
-        .from('support_tickets')
-        .select('id, message, status, operator_reply, created_at')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('suggestions')
-        .select('id, message, created_at')
-        .order('created_at', { ascending: false }),
-    ]);
-    if (t.data) setTickets(t.data as Ticket[]);
-    if (s.data) setSuggestions(s.data as Suggestion[]);
+    // support_tickets/suggestions are restricted to each user's own rows by
+    // RLS; the operator reads the full list via the operator API.
+    try {
+      const data = await operatorFetch<{ tickets: Ticket[]; suggestions: Suggestion[] }>(
+        '/api/operator/support'
+      );
+      setTickets(data.tickets ?? []);
+      setSuggestions(data.suggestions ?? []);
+    } catch {
+      setTickets([]);
+      setSuggestions([]);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);

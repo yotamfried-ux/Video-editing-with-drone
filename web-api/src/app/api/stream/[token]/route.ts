@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { enforceRateLimit } from '@/lib/ratelimit';
+import { isUuid } from '@/lib/validate';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ token: string }> }
 ) {
+  const limited = await enforceRateLimit(req, 'stream', 30, 60);
+  if (limited) return limited;
+
   const { token } = await params;
+  if (!isUuid(token)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { data: reel } = await supabaseAdmin
     .from('reels')
@@ -30,10 +36,11 @@ export async function GET(
     });
   }
 
-  // 1-hour signed URL for watermarked preview (before payment)
+  // 15-minute signed URL for watermarked preview (before payment).
+  // Short TTL limits the window if the URL leaks via logs/sharing.
   const { data: signed } = await supabaseAdmin.storage
     .from('reels')
-    .createSignedUrl(reel.storage_path, 3600);
+    .createSignedUrl(reel.storage_path, 900);
 
   if (!signed?.signedUrl) {
     return NextResponse.json({ error: 'Could not generate preview URL' }, { status: 500 });

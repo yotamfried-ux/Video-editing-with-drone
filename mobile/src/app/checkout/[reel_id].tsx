@@ -9,6 +9,7 @@ import { Card } from '@/shared/components/Card';
 import { Spacer } from '@/shared/components/Spacer';
 import { BitWebView } from '@/features/payment/components/BitWebView';
 import { useCheckout } from '@/features/payment/hooks/useCheckout';
+import { useDownloadTokenStore } from '@/features/payment/downloadTokenStore';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function CheckoutScreen() {
@@ -16,22 +17,24 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const { createStripeCheckout, createMeshulamCheckout, loading, error } = useCheckout(reel_id);
+  const setDownloadToken = useDownloadTokenStore((s) => s.set);
   const [bitUrl, setBitUrl] = useState<string | null>(null);
-  const [downloadToken, setDownloadToken] = useState<string | null>(null);
   const [priceDisplay, setPriceDisplay] = useState<string>('');
 
+  // The download token is stashed in an in-memory store (not the URL) so it
+  // never lands in navigation history, logs, or screenshots.
   const handleStripe = async () => {
     const checkout = await createStripeCheckout();
     if (!checkout) return;
     setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
-    setDownloadToken(checkout.download_token);
+    setDownloadToken(reel_id, checkout.download_token);
     await initPaymentSheet({
       paymentIntentClientSecret: checkout.clientSecret,
       merchantDisplayName: 'SportReel',
     });
     const { error: presentError } = await presentPaymentSheet();
     if (!presentError) {
-      router.replace(`/success/${reel_id}?dt=${checkout.download_token}`);
+      router.replace(`/success/${reel_id}`);
     }
   };
 
@@ -39,7 +42,7 @@ export default function CheckoutScreen() {
     const checkout = await createMeshulamCheckout();
     if (!checkout) return;
     setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
-    setDownloadToken(checkout.download_token);
+    setDownloadToken(reel_id, checkout.download_token);
     setBitUrl(checkout.paymentUrl);
   };
 
@@ -47,10 +50,11 @@ export default function CheckoutScreen() {
     return (
       <Modal animationType="slide" presentationStyle="fullScreen">
         <BitWebView
+          reelId={reel_id}
           paymentUrl={bitUrl}
           onSuccess={() => {
             setBitUrl(null);
-            router.replace(`/success/${reel_id}?dt=${downloadToken}`);
+            router.replace(`/success/${reel_id}`);
           }}
           onCancel={() => setBitUrl(null)}
         />
