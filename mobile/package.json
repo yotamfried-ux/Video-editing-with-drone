@@ -16,6 +16,8 @@
     "@supabase/supabase-js": "^2.47.2",
     "base64-arraybuffer": "^1.0.2",
     "expo": "~52.0.28",
+    "expo-asset": "~11.0.5",
+    "expo-constants": "~17.0.3",
     "expo-file-system": "~18.0.10",
     "expo-font": "~13.0.3",
     "expo-haptics": "~14.0.1",
