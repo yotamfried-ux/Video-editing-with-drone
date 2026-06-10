@@ -13,6 +13,7 @@
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "ios": { "simulator": false },
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://bcndgmymnismbxvdeetc.supabase.co",
@@ -23,6 +24,7 @@
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_SUPABASE_URL": "https://bcndgmymnismbxvdeetc.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ",

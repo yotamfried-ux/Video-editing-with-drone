@@ -15,6 +15,7 @@
     "@stripe/stripe-react-native": "0.39.0",
     "@supabase/supabase-js": "^2.47.2",
     "base64-arraybuffer": "^1.0.2",
+    "esutils": "^2.0.3",
     "expo": "~52.0.28",
     "expo-asset": "~11.0.5",
     "expo-build-properties": "^0.13.3",
@@ -31,7 +32,9 @@
     "expo-secure-store": "~14.0.1",
     "expo-splash-screen": "~0.29.22",
     "expo-status-bar": "~2.0.1",
+    "expo-updates": "^0.26.19",
     "react": "18.3.1",
+    "react-dom": "^19.2.7",
     "react-native": "0.76.6",
     "react-native-gesture-handler": "~2.20.2",
     "react-native-reanimated": "~3.16.6",
@@ -40,6 +43,7 @@
     "react-native-svg": "15.8.0",
     "react-native-video": "6.8.1",
     "react-native-webview": "13.12.5",
+    "scheduler": "^0.27.0",
     "zustand": "^5.0.2"
   },
   "devDependencies": {

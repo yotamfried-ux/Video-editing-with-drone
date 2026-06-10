@@ -37,8 +37,18 @@
       ["expo-local-authentication", { "faceIDPermission": "Used to secure operator access." }],
       "expo-font",
       ["expo-notifications", { "icon": "./assets/icon.png", "color": "#00E5FF" }],
-      ["expo-build-properties", { "android": { "kotlinVersion": "1.9.25" } }]
+      ["expo-build-properties", { "android": { "kotlinVersion": "1.9.25" } }],
+      "expo-updates"
     ],
+    "updates": {
+      "url": "https://u.expo.dev/5c03988f-3dae-4763-953a-672717dedda2",
+      "enabled": true,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "experiments": { "typedRoutes": true },
     "owner": "yotam102",
     "extra": {
