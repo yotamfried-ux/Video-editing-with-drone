@@ -1,127 +1,177 @@
 /**
- * trigger.gs — D to R Pipeline: Google Apps Script hourly watcher.
- * Scans RAW_FOLDER_ID for new video files and notifies the owner.
+ * trigger.gs — D to R Pipeline: Google Apps Script RAW-folder watcher.
  *
- * Setup:
- *  1. Replace RAW_FOLDER_ID and OWNER_EMAIL below.
- *  2. Run setupHourlyTrigger() once manually to register the time trigger.
- *  3. Authorize the script when prompted.
+ * Watches RAW_FOLDER_ID and, when new video(s) appear, fires a GitHub
+ * `repository_dispatch` event that kicks off the "Run Pipeline" GitHub Actions
+ * workflow (.github/workflows/pipeline-run.yml) within ~1 minute of upload.
+ *
+ * One-time setup:
+ *  1. Fill in RAW_FOLDER_ID, GITHUB_OWNER, GITHUB_REPO below.
+ *  2. Create a GitHub Personal Access Token with permission to trigger workflows:
+ *       - Fine-grained token: repo access + "Contents: read & write" (dispatch
+ *         needs the `repo` / contents scope). Classic token: `repo` scope.
+ *  3. In the Apps Script editor: Project Settings → Script Properties →
+ *     add a property  GITHUB_TOKEN = <your token>.  (Never hard-code it here.)
+ *  4. Run setupTrigger() once to register the recurring time trigger and
+ *     authorize the script when prompted.
+ *
+ * Optional: set NOTIFY_OWNER = true to also receive an email on each trigger.
  */
 
 // ── Configuration ──────────────────────────────────────────────────────────
 var RAW_FOLDER_ID = "YOUR_RAW_FOLDER_ID_HERE";
-var OWNER_EMAIL   = "YOUR_EMAIL_HERE";
+var GITHUB_OWNER  = "yotamfried-ux";
+var GITHUB_REPO   = "video-editing-with-drone";
+var EVENT_TYPE    = "new-raw-video";   // must match the workflow's repository_dispatch type
+var OWNER_EMAIL   = "yotam.fried@gmail.com";
+var NOTIFY_OWNER  = false;             // set true to also send yourself an email
+
+// Session debounce: wait until RAW has had no new uploads for this many minutes
+// before firing, so every clip of a multi-clip session is processed together
+// (one reel per athlete) instead of getting split across two runs.
+var QUIET_MINUTES = 2;
 
 // ── Trigger registration ───────────────────────────────────────────────────
 
 /**
- * Run this function ONCE manually to set up the recurring hourly trigger.
+ * Run ONCE manually to register the recurring watcher.
+ * Polls every minute — Drive has no native push to Apps Script, so 1 min is
+ * the lowest latency available here (≈ "near-instant").
  */
-function setupHourlyTrigger() {
-  // Remove any existing triggers to avoid duplicates
+function setupTrigger() {
   var triggers = ScriptApp.getProjectTriggers();
   for (var i = 0; i < triggers.length; i++) {
     if (triggers[i].getHandlerFunction() === "checkForNewVideos") {
       ScriptApp.deleteTrigger(triggers[i]);
     }
   }
-
   ScriptApp.newTrigger("checkForNewVideos")
     .timeBased()
-    .everyHours(1)
+    .everyMinutes(1)
     .create();
-
-  Logger.log("✅ Hourly trigger registered for checkForNewVideos()");
+  Logger.log("✅ Watcher registered — checkForNewVideos() runs every minute.");
 }
 
-// ── Main watcher function ──────────────────────────────────────────────────
+// ── Main watcher ────────────────────────────────────────────────────────────
 
 /**
- * Runs every hour. Checks for new video files in the RAW folder.
- * Sends an email notification to OWNER_EMAIL if new videos are found.
- * Stores processed file IDs in PropertiesService to avoid re-notifying.
+ * Detects new videos in RAW and fires ONE GitHub repository_dispatch per
+ * session, once uploads have settled (QUIET_MINUTES with no new files).
+ *
+ * Runs every minute. Pending (not-yet-dispatched) clips are tracked in
+ * Script Properties together with the timestamp of the last change; we only
+ * dispatch once that set has been stable for QUIET_MINUTES. Already-dispatched
+ * IDs are remembered so the same session never triggers twice. (The pipeline
+ * also dedupes via the Drive PROCESSED folder, so a stray double-trigger is
+ * harmless — it just finds nothing new.)
  */
 function checkForNewVideos() {
   var props = PropertiesService.getScriptProperties();
-  var knownIdsRaw = props.getProperty("processedIds");
-  var knownIds = knownIdsRaw ? JSON.parse(knownIdsRaw) : [];
+  var knownIds = JSON.parse(props.getProperty("processedIds") || "[]");
+  var pending  = JSON.parse(props.getProperty("pending") || "null"); // {ids, lastChange}
 
   try {
     var folder = DriveApp.getFolderById(RAW_FOLDER_ID);
     var files  = folder.getFiles();
-    var newFiles = [];
+    var current = [];   // not-yet-dispatched videos currently sitting in RAW
 
     while (files.hasNext()) {
       var file = files.next();
-      var mime = file.getMimeType();
-
-      // Only consider video files
-      if (mime.indexOf("video/") !== 0) continue;
-
+      if (file.getMimeType().indexOf("video/") !== 0) continue;
       if (knownIds.indexOf(file.getId()) === -1) {
-        newFiles.push({
-          id:      file.getId(),
-          name:    file.getName(),
-          created: file.getDateCreated().toISOString(),
-          url:     file.getUrl()
-        });
+        current.push({ id: file.getId(), name: file.getName(), url: file.getUrl() });
       }
     }
 
-    if (newFiles.length === 0) {
-      Logger.log("📁 No new videos found.");
+    var now = Date.now();
+
+    if (current.length === 0) {
+      if (pending) props.deleteProperty("pending");  // queue drained
       return;
     }
 
-    Logger.log("🎬 Found " + newFiles.length + " new video(s). Sending notification...");
-    _sendNotification(newFiles);
+    var currentIds = current.map(function (f) { return f.id; }).sort();
 
-    // Record new IDs so we don't re-notify
-    for (var j = 0; j < newFiles.length; j++) {
-      knownIds.push(newFiles[j].id);
+    // First time we see this set, or the set changed since last check → (re)start
+    // the quiet timer and wait. This is the debounce that keeps a session whole.
+    if (!pending || JSON.stringify(pending.ids) !== JSON.stringify(currentIds)) {
+      props.setProperty("pending", JSON.stringify({ ids: currentIds, lastChange: now }));
+      Logger.log("⏳ " + current.length + " clip(s) in RAW — waiting for uploads to settle...");
+      return;
+    }
+
+    // Set unchanged since last check — has it been quiet long enough?
+    if (now - pending.lastChange < QUIET_MINUTES * 60 * 1000) {
+      return;  // still within the quiet window
+    }
+
+    Logger.log("🎬 Session settled (" + current.length + " clip(s)) — dispatching...");
+    _dispatchPipeline(current);
+
+    for (var j = 0; j < current.length; j++) {
+      knownIds.push(current[j].id);
     }
     props.setProperty("processedIds", JSON.stringify(knownIds));
+    props.deleteProperty("pending");
 
+    if (NOTIFY_OWNER) {
+      _notifyOwner(current);
+    }
   } catch (e) {
-    Logger.log("❌ Error in checkForNewVideos: " + e.message);
-    MailApp.sendEmail(
-      OWNER_EMAIL,
-      "⚠️ D to R Script Error",
-      "An error occurred in the Apps Script trigger:\n\n" + e.message
-    );
+    Logger.log("❌ checkForNewVideos error: " + e.message);
+    MailApp.sendEmail(OWNER_EMAIL, "⚠️ D to R watcher error", String(e.message));
   }
 }
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// ── Helpers ──────────────────────────────────────────────────────────────────
 
-function _sendNotification(newFiles) {
-  var subject = "🎬 D to R — " + newFiles.length + " new video(s) ready to process";
+/** Fire the GitHub repository_dispatch that starts the pipeline workflow. */
+function _dispatchPipeline(newFiles) {
+  var token = PropertiesService.getScriptProperties().getProperty("GITHUB_TOKEN");
+  if (!token) {
+    throw new Error("GITHUB_TOKEN script property is not set — see setup step 3.");
+  }
+  var url = "https://api.github.com/repos/" + GITHUB_OWNER + "/" + GITHUB_REPO + "/dispatches";
+  var payload = {
+    event_type: EVENT_TYPE,
+    client_payload: {
+      count: newFiles.length,
+      files: newFiles.map(function (f) { return { id: f.id, name: f.name }; })
+    }
+  };
+  var resp = UrlFetchApp.fetch(url, {
+    method: "post",
+    contentType: "application/json",
+    headers: {
+      "Authorization": "Bearer " + token,
+      "Accept": "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28"
+    },
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  });
+  var code = resp.getResponseCode();
+  if (code === 204) {
+    Logger.log("✅ Dispatched — GitHub Actions pipeline starting.");
+  } else {
+    throw new Error("GitHub dispatch failed (" + code + "): " + resp.getContentText());
+  }
+}
 
-  var bodyLines = [
-    "New drone footage has been detected in your RAW folder.",
-    "",
-    "Files:"
-  ];
-
+function _notifyOwner(newFiles) {
+  var lines = ["New footage detected — pipeline triggered:", ""];
   for (var i = 0; i < newFiles.length; i++) {
-    var f = newFiles[i];
-    bodyLines.push("  • " + f.name + " — " + f.url);
+    lines.push("  • " + newFiles[i].name + " — " + newFiles[i].url);
   }
-
-  bodyLines.push("");
-  bodyLines.push("Run your pipeline to process them:");
-  bodyLines.push("  python run.py");
-  bodyLines.push("");
-  bodyLines.push("— D to R Automation");
-
-  MailApp.sendEmail(OWNER_EMAIL, subject, bodyLines.join("\n"));
-  Logger.log("✅ Notification sent to " + OWNER_EMAIL);
+  MailApp.sendEmail(OWNER_EMAIL,
+    "🎬 D to R — pipeline triggered (" + newFiles.length + " video(s))",
+    lines.join("\n"));
 }
 
-/**
- * Utility: clear stored processed IDs (run manually to reset state).
- */
+/** Utility: clear remembered IDs so already-seen files trigger again. */
 function clearProcessedIds() {
-  PropertiesService.getScriptProperties().deleteProperty("processedIds");
-  Logger.log("✅ processedIds cleared.");
+  var props = PropertiesService.getScriptProperties();
+  props.deleteProperty("processedIds");
+  props.deleteProperty("pending");
+  Logger.log("✅ processedIds + pending cleared.");
 }

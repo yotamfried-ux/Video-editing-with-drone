@@ -122,3 +122,64 @@ eas submit --platform android              # Play Console
 6. Screenshot blocked (Android FLAG_SECURE / iOS black frame)
 7. Operator gate: 5× tap → Face ID
 8. Push notification on face match → deep links to My Highlights
+
+---
+
+## 6. Pipeline automation (Drive → GitHub Actions)
+
+The editing pipeline runs automatically when new footage lands in the Drive RAW
+folder. No machine of yours needs to stay on.
+
+```
+Upload session to RAW  →  Apps Script watcher (waits for uploads to settle)
+                                                        ↓
+                                            repository_dispatch (one per session)
+                                                        ↓
+                              GitHub Actions: .github/workflows/pipeline-run.yml
+                                  (ffmpeg + Gemini + slow-mo → drafts to REVIEW)
+```
+
+RAW acts as the waiting queue: only not-yet-processed clips are turned into
+reels, and each processed session is moved to PROCESSED so it is never redone.
+Clips uploaded together are grouped into one reel per athlete — the watcher
+waits `QUIET_MINUTES` (default 2) of no new uploads before firing, so a
+multi-clip session is processed whole rather than split across runs. Runs are
+serialized (`concurrency: pipeline-run`), so two uploads never collide.
+
+### A. GitHub repository secrets
+
+Add under **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|---|---|
+| `GEMINI_API_KEY` | Gemini API key |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full contents of the service-account JSON file |
+| `DRIVE_USER_TOKEN_JSON` | Full contents of `drive_user_token.json` (operator OAuth — required for uploads/moves) |
+| `RAW_FOLDER_ID` / `PROCESSED_FOLDER_ID` / `REVIEW_FOLDER_ID` / `APPROVED_FOLDER_ID` | Drive folder IDs |
+| `OWNER_EMAIL` | Operator email |
+| *(optional)* `NOTIFY_EMAIL`, `PREVIEW_FOLDER_ID`, `PENDING_PAYMENT_FOLDER_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SENTRY_DSN` | as applicable |
+
+### B. Google Apps Script watcher
+
+1. In `apps_script/trigger.gs`, set `RAW_FOLDER_ID` (owner/repo are pre-filled).
+2. Create a GitHub PAT that can trigger dispatches (fine-grained: *Contents: read & write*; classic: `repo`).
+3. Apps Script → **Project Settings → Script Properties** → add `GITHUB_TOKEN = <PAT>`.
+4. Run `setupTrigger()` once and authorize. It polls every minute and fires one
+   dispatch per session after uploads settle (`QUIET_MINUTES`, default 2).
+
+### C. Manual run / reprocess the same footage
+
+- **Actions → Run Pipeline → Run workflow** triggers a run by hand.
+- Tick **reset** to move PROCESSED→RAW, delete REVIEW drafts and clear state
+  first — reprocesses the existing footage without re-uploading. Locally the
+  equivalent is `python scripts/reset_and_rerun.py` (`--reset-only` to skip the run).
+
+### D. Folder moves
+
+Raw videos are archived RAW→PROCESSED automatically after processing, using the
+operator OAuth token (the service account cannot move operator-owned files).
+
+> **Note on slow-mo cost:** optical-flow interpolation (`SLOWMO_INTERPOLATE`) is
+> CPU-heavy. On GitHub's 2-core runners a multi-athlete session can take a long
+> time; set `SLOWMO_INTERPOLATE=false` (repo variable) to fall back to plain
+> speed-ramps if runs approach the 6h job limit.

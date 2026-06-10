@@ -319,7 +319,7 @@ def get_approved_drafts() -> list[dict]:
 def mark_draft_delivered(file_id: str) -> None:
     """Move a delivered reel from APPROVED to PROCESSED folder."""
     try:
-        service         = _get_drive_service()
+        service         = _get_upload_service()
         file_meta       = service.files().get(fileId=file_id, fields="parents").execute()
         current_parents = ",".join(file_meta.get("parents", []))
         service.files().update(
@@ -369,7 +369,7 @@ def move_to_pending_payment(file_id: str) -> None:
         logger.warning("⚠️ PENDING_PAYMENT_FOLDER_ID not configured — skipping move for %s", file_id)
         return
     try:
-        service         = _get_drive_service()
+        service         = _get_upload_service()
         file_meta       = _drive_retry(lambda: service.files().get(fileId=file_id, fields="parents").execute())
         current_parents = ",".join(file_meta.get("parents", []))
         _drive_retry(lambda: service.files().update(
@@ -424,9 +424,11 @@ def mark_as_processed(file_id: str) -> None:
     _save_processed_ids(ids)
     print(f"✅ Marked {file_id} as processed")
 
-    # Move original to the PROCESSED archive folder
+    # Move original to the PROCESSED archive folder.
+    # Use the user OAuth service: the operator owns the uploaded raw files, so the
+    # service account lacks permission to move them (403) and the file would stay in RAW.
     try:
-        service = _get_drive_service()
+        service = _get_upload_service()
         file_meta = _drive_retry(lambda: service.files().get(fileId=file_id, fields="parents").execute())
         current_parents = ",".join(file_meta.get("parents", []))
         _drive_retry(lambda: service.files().update(

@@ -1,0 +1,111 @@
+name: Run Pipeline
+
+# Triggered when new drone footage lands in the Drive RAW folder.
+#
+#  • repository_dispatch (type: new-raw-video) — fired near-instantly by the
+#    Google Apps Script watcher (apps_script/trigger.gs) on upload.
+#  • workflow_dispatch — manual "Run workflow" button in the Actions tab.
+#
+# Required GitHub repository secrets (Settings → Secrets and variables → Actions):
+#   GEMINI_API_KEY              Gemini API key
+#   GOOGLE_SERVICE_ACCOUNT_JSON Full service-account JSON (file *contents*)
+#   DRIVE_USER_TOKEN_JSON       Contents of drive_user_token.json (operator OAuth — needed for uploads/moves)
+#   RAW_FOLDER_ID               Drive RAW folder ID
+#   PROCESSED_FOLDER_ID         Drive PROCESSED folder ID
+#   REVIEW_FOLDER_ID            Drive REVIEW folder ID
+#   APPROVED_FOLDER_ID          Drive APPROVED folder ID
+#   OWNER_EMAIL                 Operator email
+# Optional secrets:
+#   NOTIFY_EMAIL, PREVIEW_FOLDER_ID, PENDING_PAYMENT_FOLDER_ID,
+#   SUPABASE_URL, SUPABASE_SERVICE_KEY, SENTRY_DSN
+
+on:
+  repository_dispatch:
+    types: [new-raw-video]
+  workflow_dispatch:
+    inputs:
+      reset:
+        description: 'Reset first (move PROCESSED→RAW, delete REVIEW drafts, clear state) so the same footage is reprocessed'
+        type: boolean
+        default: false
+
+# Never run two pipeline jobs at once (they'd fight over the same RAW files).
+concurrency:
+  group: pipeline-run
+  cancel-in-progress: false
+
+jobs:
+  run:
+    name: Process new drone footage
+    runs-on: ubuntu-latest
+    timeout-minutes: 350   # GitHub hard cap is 360; leave headroom
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          # CPU-only torch keeps the install light (no CUDA wheels on the runner)
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install -r requirements.txt
+
+      - name: Write credential files from secrets
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          DRIVE_USER_TOKEN_JSON: ${{ secrets.DRIVE_USER_TOKEN_JSON }}
+        run: |
+          printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+          printf '%s' "$DRIVE_USER_TOKEN_JSON" > drive_user_token.json
+          # Sanity check that they are valid JSON (fails fast with a clear error)
+          python -c "import json; json.load(open('service_account.json'))"
+          python -c "import json; json.load(open('drive_user_token.json'))"
+
+      - name: Reset (optional — manual runs only)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset }}
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
+          DRIVE_USER_TOKEN: drive_user_token.json
+          RAW_FOLDER_ID: ${{ secrets.RAW_FOLDER_ID }}
+          PROCESSED_FOLDER_ID: ${{ secrets.PROCESSED_FOLDER_ID }}
+          REVIEW_FOLDER_ID: ${{ secrets.REVIEW_FOLDER_ID }}
+          APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          TMP_DIR: /tmp/dtor
+        run: python scripts/reset_and_rerun.py --reset-only
+
+      - name: Run pipeline
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
+          DRIVE_USER_TOKEN: drive_user_token.json
+          RAW_FOLDER_ID: ${{ secrets.RAW_FOLDER_ID }}
+          PROCESSED_FOLDER_ID: ${{ secrets.PROCESSED_FOLDER_ID }}
+          REVIEW_FOLDER_ID: ${{ secrets.REVIEW_FOLDER_ID }}
+          APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
+          PREVIEW_FOLDER_ID: ${{ secrets.PREVIEW_FOLDER_ID }}
+          PENDING_PAYMENT_FOLDER_ID: ${{ secrets.PENDING_PAYMENT_FOLDER_ID }}
+          OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          TMP_DIR: /tmp/dtor
+        run: python run.py
+
+      - name: Clean up credential files
+        if: always()
+        run: rm -f service_account.json drive_user_token.json
