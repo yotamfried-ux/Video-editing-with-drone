@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requireOperator } from '@/lib/operator-auth';
+import { enforceRateLimit } from '@/lib/ratelimit';
 
 export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const limited = await enforceRateLimit(req, 'support', 20, 60);
+  if (limited) return limited;
+
+  // Operator-only: replying to a support ticket impersonates SportReel support
+  // and pushes a notification to the athlete. Without this guard anyone could
+  // forge replies (phishing). Mirrors the gate on /api/pricing.
+  if (!requireOperator(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const { id } = await params;
   const { reply } = await req.json();
 

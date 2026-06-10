@@ -1,0 +1,43 @@
+name: Android Gradle Check
+
+# Compiles the Android project on a GitHub runner (which has the Android SDK)
+# so native/Gradle build failures surface in logs we can read here — instead of
+# only on EAS. Use this to debug build breakage before spending an EAS build.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  gradle-check:
+    name: expo prebuild + gradlew assembleDebug
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Expo prebuild (generate android/)
+        working-directory: mobile
+        env:
+          EXPO_NO_TELEMETRY: '1'
+        run: npx expo prebuild --platform android --no-install
+
+      - name: Gradle assembleDebug
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --stacktrace --no-daemon

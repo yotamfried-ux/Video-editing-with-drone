@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { requireOperator } from '@/lib/operator-auth';
 
 // GET /api/pricing — public list of sport prices (read-only, safe to expose)
 export async function GET() {
@@ -16,8 +17,7 @@ export async function GET() {
 
 // POST /api/pricing — operator-only upsert, protected by x-operator-secret header
 export async function POST(req: NextRequest) {
-  const secret = req.headers.get('x-operator-secret');
-  if (!secret || secret !== process.env.OPERATOR_SECRET) {
+  if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 

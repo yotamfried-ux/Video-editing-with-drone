@@ -8,11 +8,16 @@ import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { apiFetch } from '@/shared/lib/api';
+import { useDownloadTokenStore } from '@/features/payment/downloadTokenStore';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export default function SuccessScreen() {
-  const { reel_id, dt } = useLocalSearchParams<{ reel_id: string; dt: string }>();
+  const { reel_id } = useLocalSearchParams<{ reel_id: string }>();
   const router = useRouter();
+  const dt = useDownloadTokenStore((s) => s.get(reel_id));
+  const clearToken = useDownloadTokenStore((s) => s.clear);
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
 
@@ -20,10 +25,27 @@ export default function SuccessScreen() {
     if (!dt) { Alert.alert('Error', 'No download token'); return; }
     setDownloading(true);
     try {
-      const { downloadUrl } = await apiFetch<{ downloadUrl: string }>(`/api/download/${dt}`);
+      // The payment is confirmed asynchronously by the webhook, so the download
+      // endpoint returns 403 until status='completed'. Retry with backoff so a
+      // just-finished purchase still works without unlocking anything early.
+      let downloadUrl: string | undefined;
+      const delays = [0, 1500, 3000, 5000, 5000];
+      for (let i = 0; i < delays.length; i++) {
+        if (delays[i]) await sleep(delays[i]);
+        try {
+          ({ downloadUrl } = await apiFetch<{ downloadUrl: string }>(`/api/download/${dt}`));
+          break;
+        } catch (err: any) {
+          const pending = String(err?.message ?? '').includes('403');
+          if (!pending || i === delays.length - 1) throw err;
+        }
+      }
+      if (!downloadUrl) throw new Error('Download not ready');
+
       const dest = FileSystem.documentDirectory + `sportreel_${reel_id}.mp4`;
       await FileSystem.downloadAsync(downloadUrl, dest);
       setDownloaded(true);
+      clearToken(reel_id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Downloaded!', 'Your clip has been saved to your device.');
     } catch (e: any) {

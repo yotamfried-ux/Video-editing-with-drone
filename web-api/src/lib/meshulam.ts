@@ -47,5 +47,15 @@ export function verifyMeshulamWebhook(body: Record<string, string>, secret: stri
     .createHmac('sha256', secret)
     .update(sorted)
     .digest('hex');
-  return signature === expected;
+
+  // Constant-time comparison: a plain === leaks the signature byte-by-byte via
+  // response timing, letting an attacker forge a valid webhook.
+  const a = Buffer.from(signature ?? '', 'utf8');
+  const b = Buffer.from(expected, 'utf8');
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }

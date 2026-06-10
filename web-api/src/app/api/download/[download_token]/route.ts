@@ -1,11 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { enforceRateLimit } from '@/lib/ratelimit';
+import { isUuid } from '@/lib/validate';
 
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: Promise<{ download_token: string }> }
 ) {
+  const limited = await enforceRateLimit(req, 'download', 30, 60);
+  if (limited) return limited;
+
   const { download_token } = await params;
+  if (!isUuid(download_token)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { data: payment } = await supabaseAdmin
     .from('payments')
@@ -28,7 +34,7 @@ export async function GET(
 
   const { data: signed } = await supabaseAdmin.storage
     .from('reels')
-    .createSignedUrl(storagePath, 86400); // 24 hours
+    .createSignedUrl(storagePath, 900); // 15 minutes — short-lived to limit URL-leak window
 
   if (!signed?.signedUrl) {
     return NextResponse.json({ error: 'Could not generate download URL' }, { status: 500 });

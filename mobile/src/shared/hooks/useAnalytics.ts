@@ -1,10 +1,8 @@
-import { supabase } from '../lib/supabase';
+import { apiFetch } from '../lib/api';
 
-type EventType =
-  | 'reel_viewed'
-  | 'checkout_started'
-  | 'payment_completed'
-  | 'download_completed';
+// payment_completed is recorded only by the verified payment webhooks on the
+// server — the client may not log it (prevents revenue/funnel tampering).
+type EventType = 'reel_viewed' | 'checkout_started' | 'download_completed';
 
 export function useAnalytics() {
   const logEvent = async (
@@ -12,9 +10,10 @@ export function useAnalytics() {
     meta?: { reel_id?: string; payment_id?: string }
   ) => {
     try {
-      await supabase.from('analytics_events').insert({
-        event_type: eventType,
-        ...meta,
+      // analytics_events is service_role-only; insert via the server route.
+      await apiFetch('/api/events', {
+        method: 'POST',
+        body: JSON.stringify({ event_type: eventType, ...meta }),
       });
     } catch {
       // analytics is best-effort; ignore failures

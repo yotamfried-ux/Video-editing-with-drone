@@ -7,7 +7,7 @@ import { Card } from '@/shared/components/Card';
 import { Button } from '@/shared/components/Button';
 import { Badge } from '@/shared/components/Badge';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
-import { supabase } from '@/shared/lib/supabase';
+import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 const APP_DOMAIN = process.env.EXPO_PUBLIC_APP_DOMAIN ?? 'sportreel.app';
@@ -28,11 +28,13 @@ export default function OperatorReelsScreen() {
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
-    const { data } = await supabase
-      .from('reels')
-      .select('id, token, sport, athlete_desc, status, expires_at, recording_date')
-      .order('created_at', { ascending: false });
-    if (data) setReels(data as ReelRow[]);
+    // reels no longer allow broad anon read; fetch via the operator API.
+    try {
+      const { reels: data } = await operatorFetch<{ reels: ReelRow[] }>('/api/operator/reels');
+      setReels(data ?? []);
+    } catch {
+      setReels([]);
+    }
   }, []);
 
   useEffect(() => { load(); }, [load]);
