@@ -8,8 +8,7 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://bcndgmymnismbxvdeetc.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ",
         "EXPO_PUBLIC_API_BASE_URL": "https://video-editing-with-drone.vercel.app",
-        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51TgXCICwQyJBd9MdnZum7LfttimmjbMwlys25dS7GGXDj4B9aX5uWla3sN84KkpaKpX3txVPIr0y65UygDVH6OUG007rD31Tyq",
-        "EXPO_PUBLIC_CLOUDFLARE_CUSTOMER_CODE": ""
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51TgXCICwQyJBd9MdnZum7LfttimmjbMwlys25dS7GGXDj4B9aX5uWla3sN84KkpaKpX3txVPIr0y65UygDVH6OUG007rD31Tyq"
       }
     },
     "preview": {
@@ -19,8 +18,7 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://bcndgmymnismbxvdeetc.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ",
         "EXPO_PUBLIC_API_BASE_URL": "https://video-editing-with-drone.vercel.app",
-        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51TgXCICwQyJBd9MdnZum7LfttimmjbMwlys25dS7GGXDj4B9aX5uWla3sN84KkpaKpX3txVPIr0y65UygDVH6OUG007rD31Tyq",
-        "EXPO_PUBLIC_CLOUDFLARE_CUSTOMER_CODE": ""
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51TgXCICwQyJBd9MdnZum7LfttimmjbMwlys25dS7GGXDj4B9aX5uWla3sN84KkpaKpX3txVPIr0y65UygDVH6OUG007rD31Tyq"
       }
     },
     "production": {
@@ -29,8 +27,7 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://bcndgmymnismbxvdeetc.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ",
         "EXPO_PUBLIC_API_BASE_URL": "https://video-editing-with-drone.vercel.app",
-        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51TgXCICwQyJBd9MdnZum7LfttimmjbMwlys25dS7GGXDj4B9aX5uWla3sN84KkpaKpX3txVPIr0y65UygDVH6OUG007rD31Tyq",
-        "EXPO_PUBLIC_CLOUDFLARE_CUSTOMER_CODE": ""
+        "EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY": "pk_test_51TgXCICwQyJBd9MdnZum7LfttimmjbMwlys25dS7GGXDj4B9aX5uWla3sN84KkpaKpX3txVPIr0y65UygDVH6OUG007rD31Tyq"
       }
     }
   },
