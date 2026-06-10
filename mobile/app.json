@@ -39,8 +39,9 @@
       ["expo-notifications", { "icon": "./assets/icon.png", "color": "#00E5FF" }]
     ],
     "experiments": { "typedRoutes": true },
+    "owner": "yotam102",
     "extra": {
-      "eas": { "projectId": "FILL_IN_EAS_PROJECT_ID" }
+      "eas": { "projectId": "5c03988f-3dae-4763-953a-672717dedda2" }
     }
   }
 }
