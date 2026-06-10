@@ -80,7 +80,12 @@ export default function CheckoutScreen() {
 
         <Button label="Pay with Card" onPress={handleStripe} loading={loading} />
         <Spacer size={Spacing.md} />
-        <Button label="Pay with Bit 📱" onPress={handleBit} loading={loading} variant="secondary" />
+        {!!process.env.EXPO_PUBLIC_BIT_ENABLED && (
+          <>
+            <Button label="Pay with Bit 📱" onPress={handleBit} loading={loading} variant="secondary" />
+            <Spacer size={Spacing.sm} />
+          </>
+        )}
         <Spacer size={Spacing.sm} />
         <Button label="Cancel" onPress={() => router.back()} variant="ghost" />
       </View>

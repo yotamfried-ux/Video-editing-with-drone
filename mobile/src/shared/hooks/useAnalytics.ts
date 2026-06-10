@@ -11,10 +11,14 @@ export function useAnalytics() {
     eventType: EventType,
     meta?: { reel_id?: string; payment_id?: string }
   ) => {
-    await supabase.from('analytics_events').insert({
-      event_type: eventType,
-      ...meta,
-    }).catch(() => {});
+    try {
+      await supabase.from('analytics_events').insert({
+        event_type: eventType,
+        ...meta,
+      });
+    } catch {
+      // analytics is best-effort; ignore failures
+    }
   };
   return { logEvent };
 }

@@ -1,5 +1,5 @@
 import React, { useRef, useState } from 'react';
-import { View, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, TouchableOpacity, StyleSheet } from 'react-native';
 import Video, { VideoRef } from 'react-native-video';
 import Animated, {
   useSharedValue,
@@ -13,37 +13,14 @@ import { Text } from '@/shared/components/Text';
 interface Props {
   streamUrl: string;
   watermarkSuffix: string;
-  streamUid?: string;
   onEnd?: () => void;
 }
 
-export function ProtectedPlayer({
-  streamUrl,
-  watermarkSuffix,
-  streamUid,
-  onEnd,
-}: Props) {
+export function ProtectedPlayer({ streamUrl, watermarkSuffix, onEnd }: Props) {
   useScreenCapture();
   const videoRef = useRef<VideoRef>(null);
   const [paused, setPaused] = useState(false);
   const controlsOpacity = useSharedValue(1);
-
-  const drmConfig = streamUid
-    ? Platform.select({
-        ios: {
-          type: 'fairplay',
-          licenseServer:
-            'https://customer-stream.cloudflarestream.com/drm/fairplay/license',
-          certificateUrl:
-            'https://customer-stream.cloudflarestream.com/drm/fairplay/certificate',
-        },
-        android: {
-          type: 'widevine',
-          licenseServer:
-            'https://customer-stream.cloudflarestream.com/drm/widevine/license',
-        },
-      })
-    : undefined;
 
   const animStyle = useAnimatedStyle(() => ({
     opacity: controlsOpacity.value,
@@ -66,7 +43,6 @@ export function ProtectedPlayer({
         <Video
           ref={videoRef}
           source={{ uri: streamUrl }}
-          drm={drmConfig as any}
           style={StyleSheet.absoluteFill}
           resizeMode="cover"
           paused={paused}
@@ -75,12 +51,9 @@ export function ProtectedPlayer({
         />
       </TouchableOpacity>
 
-      <WatermarkOverlay suffix={watermarkSuffix} />
+      <WatermarkOverlay suffix={watermarkSuffix} preview />
 
-      <Animated.View
-        style={[styles.controls, animStyle]}
-        pointerEvents="box-none"
-      >
+      <Animated.View style={[styles.controls, animStyle]} pointerEvents="box-none">
         <TouchableOpacity
           style={styles.playBtn}
           onPress={() => setPaused(!paused)}
