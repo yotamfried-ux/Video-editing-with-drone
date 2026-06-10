@@ -69,13 +69,19 @@ def _safe_remove(path: str | None) -> None:
 
 
 REEL_W, REEL_H  = 1080, 1920
-XFADE_DUR       = 0.5    # חפיפה בין קליפים (שניות) — מינימום מומלץ לרילס
-CLIP_FADE_DUR   = 0.25   # fade in/out בתוך קליפ
+XFADE_DUR       = 0.25   # average transition overlap — used for duration budgeting only
 MAX_REEL_SEC    = 88     # מתחת ל-90s של Instagram Reels
-SLOWMO_FPS_MIN  = 50     # fps מינימלי לslow-mo חלק (50 / 60fps)
+SLOWMO_FPS_MIN  = 50     # fps מינימלי לslow-mo נייטיב; מתחת לזה → אינטרפולציה
+SLOWMO_INTERP_FPS_MIN = 24  # מתחת לזה גם אינטרפולציה לא תציל
 ZOOM_MIN_HEADROOM = 1.15  # min zoom_headroom before applying any zoom
 TARGET_REEL_MIN = 12     # shorter reels → warn only
 TARGET_REEL_MAX = 30     # split into multiple reels when a single one would exceed this
+
+# Encoding: intermediate clips get re-encoded again at compile, so they must be
+# near-transparent (CRF 16) or the double generation visibly degrades the output.
+CLIP_CRF  = "16"
+REEL_CRF  = "17"
+X264_PRESET = "medium"
 
 
 def _clamp(start: float, end: float, video_path: str) -> tuple[float, float]:
@@ -182,16 +188,19 @@ def _pick_music(sport: str = "") -> str | None:
     return chosen
 
 
-def _compute_cut_times(durations: list[float]) -> list[float]:
+def _compute_cut_times(durations: list[float],
+                       transitions: list[str] | None = None) -> list[float]:
     """מחשב את זמני החיתוך (xfade offsets) בריל המורכב — קלט ליישור beats."""
     n = len(durations)
     if n <= 1:
         return []
-    cuts = [round(durations[0] - XFADE_DUR, 3)]
-    cumulative = durations[0] + durations[1] - XFADE_DUR
+    pairs = _pair_transitions(n, transitions)
+    cuts = [round(durations[0] - pairs[0][1], 3)]
+    cumulative = durations[0] + durations[1] - pairs[0][1]
     for i in range(2, n):
-        cuts.append(round(cumulative - XFADE_DUR, 3))
-        cumulative += durations[i] - XFADE_DUR
+        dur_i = pairs[i - 1][1]
+        cuts.append(round(cumulative - dur_i, 3))
+        cumulative += durations[i] - dur_i
     return cuts
 
 
@@ -459,21 +468,6 @@ def _build_grade(sport: str, score: int, event_type: str) -> str:
     return f"eq=contrast={contrast}:saturation={saturation}:brightness={brightness}"
 
 
-# ── Sport-specific xfade transition presets ────────────────────────────────
-_SPORT_XFADES: dict[str, list[str]] = {
-    "surfing":       ["slideleft", "slideright", "zoomin"],
-    "skateboarding": ["zoomin",    "pixelize",   "slideleft"],
-    "snowboarding":  ["fadewhite", "slidedown",  "slideleft"],
-    "skiing":        ["fadewhite", "slideleft",  "slideright"],
-    "football":      ["slideleft", "wipeleft",   "slideright"],
-    "soccer":        ["slideleft", "wipeleft",   "slideright"],
-    "basketball":    ["wipeleft",  "slideleft",  "slideright"],
-    "cycling":       ["slideleft", "wiperight",  "slideright"],
-    "motocross":     ["slideleft", "zoomin",     "wipeleft"],
-    "parkour":       ["zoomin",    "slideleft",  "pixelize"],
-    "_default":      ["slideleft", "slideright", "fade"],
-}
-
 _SPORT_BPM: dict[str, tuple[int, int]] = {
     "surfing":       (85,  120),
     "swimming":      (80,  115),
@@ -649,9 +643,10 @@ def _cut_clip_with_qa(
     sport: str = "",
     source_info: dict | None = None,
     session_peak: int = 10,
+    target_fps: int | None = None,
 ) -> str | None:
     """cut_clip() wrapper: QA → reason-specific fix → basic mode fallback."""
-    clip = cut_clip(video_path, event, index, slowmo, sport, source_info, session_peak)
+    clip = cut_clip(video_path, event, index, slowmo, sport, source_info, session_peak, target_fps)
     if not clip or not config.QA_CROP_CHECK:
         return clip
 
@@ -670,12 +665,12 @@ def _cut_clip_with_qa(
     if reason == "FRAMING":
         cx = event.get("crop_x", 0.5)
         corrected = {**event, "crop_x": round(0.5 + (0.5 - cx) * 0.5, 4)}
-        retry = cut_clip(video_path, corrected, index + 500, slowmo, sport, source_info, session_peak)
+        retry = cut_clip(video_path, corrected, index + 500, slowmo, sport, source_info, session_peak, target_fps)
     elif reason == "POOR_CLOSEUP":
         corrected = {**event, "edit": {**event.get("edit", {}), "zoom": 1.0, "focus": "full"}}
-        retry = cut_clip(video_path, corrected, index + 500, slowmo, sport, source_info, session_peak)
+        retry = cut_clip(video_path, corrected, index + 500, slowmo, sport, source_info, session_peak, target_fps)
     elif reason == "MOTION_BLUR":
-        retry = cut_clip(video_path, event, index + 500, False, sport, source_info, session_peak)
+        retry = cut_clip(video_path, event, index + 500, False, sport, source_info, session_peak, target_fps)
     else:
         # LIGHTING or unrecognised — targeted fix won't help; go straight to basic
         retry = None
@@ -691,7 +686,7 @@ def _cut_clip_with_qa(
     print(f"  📽️  Basic mode — full width, no zoom, no slow-mo")
     basic = {**event, "edit": {**event.get("edit", {}), "zoom": 1.0,
                                "slowmo": False, "focus": "full"}}
-    return cut_clip(video_path, basic, index + 1000, False, sport, source_info, session_peak)
+    return cut_clip(video_path, basic, index + 1000, False, sport, source_info, session_peak, target_fps)
 
 
 def cut_clip(
@@ -702,6 +697,7 @@ def cut_clip(
     sport: str = "",
     source_info: dict | None = None,
     session_peak: int = 10,
+    target_fps: int | None = None,
 ) -> str | None:
     """
     חותך רגע שיא:
@@ -748,9 +744,18 @@ def cut_clip(
         source_info = _get_source_info(video_path)
     zoom_headroom = source_info.get("zoom_headroom", 1.0)
     can_slowmo    = source_info.get("can_slowmo", True)
+    source_fps    = float(source_info.get("fps", 30.0))
+    source_height = int(source_info.get("height", 1080))
+
+    # Quality floor: low-res sources can't survive zoom/upscale — force basic framing
+    low_res_source = source_height < config.MIN_SOURCE_HEIGHT
+    if low_res_source:
+        logger.warning("Source %dp < %dp quality floor — forcing wide framing, no zoom",
+                       source_height, config.MIN_SOURCE_HEIGHT)
+        _log_quality_issue(video_path, event, "LOW_RES_SOURCE", source_info, "basic_mode")
 
     # Merge zoom: artistic intent capped by technical ceiling
-    if zoom_headroom >= ZOOM_MIN_HEADROOM:
+    if zoom_headroom >= ZOOM_MIN_HEADROOM and not low_res_source:
         applied_zoom = min(requested_zoom, zoom_headroom * 0.9)
         applied_zoom = max(1.0, applied_zoom)
     else:
@@ -758,27 +763,43 @@ def cut_clip(
         if requested_zoom > 1.1:
             logger.debug("Zoom ×%.1f requested but headroom only ×%.2f — no zoom applied",
                          requested_zoom, zoom_headroom)
-    use_slowmo = requested_sm and can_slowmo
-    if requested_sm and not can_slowmo:
-        logger.warning("slowmo requested but source %.0ffps < %dfps — skipping speed-ramp",
-                       source_info.get("fps", 0), SLOWMO_FPS_MIN)
+
+    # Slow-mo: native when source fps supplies the extra frames (≥50fps);
+    # otherwise motion-interpolated (optical flow) so 30fps drone footage still
+    # gets dramatic slow-mo instead of silently dropping the effect.
+    _interp_capable = (
+        config.SLOWMO_INTERPOLATE
+        and not can_slowmo
+        and source_fps >= SLOWMO_INTERP_FPS_MIN
+        and not low_res_source
+    )
+    _sm_capable = can_slowmo or _interp_capable
+    use_slowmo  = requested_sm and _sm_capable
+    if requested_sm and not _sm_capable:
+        logger.warning("slowmo requested but source %.0ffps too low even for interpolation",
+                       source_fps)
 
     # Layer 3: event-type constraints — floor/ceiling on zoom, force/block slowmo
     type_hint = _TYPE_HINTS.get(event_type.lower(), {})
-    if "zoom_floor" in type_hint and zoom_headroom >= ZOOM_MIN_HEADROOM:
+    if "zoom_floor" in type_hint and zoom_headroom >= ZOOM_MIN_HEADROOM and not low_res_source:
         applied_zoom = max(applied_zoom, min(type_hint["zoom_floor"], zoom_headroom * 0.9))
     if "zoom_ceil" in type_hint:
         applied_zoom = min(applied_zoom, type_hint["zoom_ceil"])
-    if (type_hint.get("slowmo_min") and not use_slowmo and can_slowmo
+    if (type_hint.get("slowmo_min") and not use_slowmo and _sm_capable
             and edit_hints.get("slowmo") is not False):
         use_slowmo = True   # type mandates slowmo — but not when explicitly blocked
     if not type_hint.get("slowmo_max", True):
         use_slowmo = False  # type forbids slowmo (wipeout, crash)
 
-    # Score-based slowmo depth: higher score → longer, deeper slow-motion
+    slowmo_interp = use_slowmo and not can_slowmo  # interpolated (optical flow) path
+
+    # Score-based slowmo depth: higher score → longer, deeper slow-motion.
+    # Interpolated slow-mo is capped at 2× — beyond that optical flow artifacts show.
     if use_slowmo:
-        if score >= 9:
+        if score >= 9 and not slowmo_interp:
             sm_frac, sm_pts_expr = 0.50, "2.5*(PTS-STARTPTS)"  # 50% center at 0.4×
+        elif score >= 9:
+            sm_frac, sm_pts_expr = 0.50, "2*(PTS-STARTPTS)"    # interp cap: 0.5×
         elif score >= 7:
             sm_frac, sm_pts_expr = 0.40, "2*(PTS-STARTPTS)"    # 40% center at 0.5×
         else:
@@ -786,6 +807,13 @@ def cut_clip(
         slow_factor = float(sm_pts_expr.split("*")[0])
     else:
         sm_frac, sm_pts_expr, slow_factor = 0.40, "PTS-STARTPTS", 1.0
+
+    # Optical-flow frame synthesis appended to the slowed segment only (it's
+    # far too expensive to run on the whole clip).
+    _interp_filter = (
+        f",minterpolate=fps=30:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1"
+        if slowmo_interp else ""
+    )
 
     # Log non-trivial edit decisions
     if applied_zoom > 1.05 or use_slowmo != slowmo:
@@ -838,7 +866,7 @@ def cut_clip(
         fg_section = (
             f"[fg_in]split=3[f1][f2][f3];"
             f"[f1]trim=0:{pk_t1},setpts=PTS-STARTPTS,{fg_wide}[fs1];"
-            f"[f2]trim={pk_t1}:{pk_t2},setpts={mid_pts},{fg_zoom}[fs2];"
+            f"[f2]trim={pk_t1}:{pk_t2},setpts={mid_pts}{_interp_filter},{fg_zoom}[fs2];"
             f"[f3]trim={pk_t2}:{input_dur:.3f},setpts=PTS-STARTPTS,{fg_wide}[fs3];"
             f"[fs1][fs2][fs3]concat=n=3:v=1:a=0[fg]"
         )
@@ -852,7 +880,7 @@ def cut_clip(
         en_pts  = sm_pts_expr if use_slowmo else "PTS-STARTPTS"
         fg_section = (
             f"[fg_in]split=2[f1][f2];"
-            f"[f1]trim=0:{en_t1},setpts={en_pts},{fg_zoom}[fs1];"
+            f"[f1]trim=0:{en_t1},setpts={en_pts}{_interp_filter},{fg_zoom}[fs1];"
             f"[f2]trim={en_t1}:{input_dur:.3f},setpts=PTS-STARTPTS,{fg_wide}[fs2];"
             f"[fs1][fs2]concat=n=2:v=1:a=0[fg]"
         )
@@ -871,7 +899,7 @@ def cut_clip(
             ramp = (
                 f"[merged]split=3[s1_in][s2_in][s3_in];"
                 f"[s1_in]trim=0:{t1},setpts=PTS-STARTPTS[s1];"
-                f"[s2_in]trim={t1}:{t2},setpts={sm_pts_expr}[s2];"
+                f"[s2_in]trim={t1}:{t2},setpts={sm_pts_expr}{_interp_filter}[s2];"
                 f"[s3_in]trim={t2}:{input_dur:.3f},setpts=PTS-STARTPTS[s3];"
                 f"[s1][s2][s3]concat=n=3:v=1:a=0[ramped];"
                 f"[ramped]"
@@ -881,8 +909,6 @@ def cut_clip(
             ramp         = ""
         output_dur = round(input_dur * ((1 - sm_frac) + sm_frac * slow_factor), 3)
 
-    clip_fade = min(CLIP_FADE_DUR, output_dur / 6)
-
     os.makedirs(config.TMP_DIR, exist_ok=True)
     out = os.path.join(config.TMP_DIR, f"{Path(video_path).stem}_clip{index:02d}.mp4")
 
@@ -891,11 +917,12 @@ def cut_clip(
         f"[bg_in]scale={REEL_W}:{REEL_H}:force_original_aspect_ratio=increase,"
         f"crop={REEL_W}:{REEL_H},gblur=sigma=25:steps=2[bg]"
     )
+    # No per-clip fade in/out: combined with the reel's crossfades it created a
+    # double-dip to black at every join ("fade soup"). The reel-level fade in/out
+    # is applied once in compile_reel; joins are handled purely by xfade.
     post_grade = (
         f"{grade},"
-        f"{unsharp_str},"
-        f"fade=t=in:st=0:d={clip_fade:.2f},"
-        f"fade=t=out:st={output_dur - clip_fade:.2f}:d={clip_fade:.2f}"
+        f"{unsharp_str}"
         f"[out]"
     )
 
@@ -917,9 +944,15 @@ def cut_clip(
             f"{post_grade}"
         )
 
-    slowmo_tag = " [🐢 speed-ramp]" if use_slowmo else ""
+    slowmo_tag = (" [🐢 speed-ramp+interp]" if (use_slowmo and slowmo_interp)
+                  else " [🐢 speed-ramp]" if use_slowmo else "")
     print(f"🎬 Clip {index}: {start:.1f}s→{end:.1f}s [{event_type}] "
           f"({input_dur:.1f}s in / {output_dur:.1f}s out){slowmo_tag}")
+
+    # Preserve source frame rate up to 60fps — forcing 60fps sources down to 30
+    # visibly degrades motion smoothness for no benefit (Reels support 60fps).
+    # target_fps overrides (set per-reel so all clips in one reel match for xfade).
+    out_fps = target_fps or (60 if source_fps >= 50 else 30)
 
     cmd = [
         "ffmpeg", "-y",
@@ -932,10 +965,10 @@ def cut_clip(
         "-an",
         "-c:v", "libx264",
         "-profile:v", "high",       # H.264 High Profile — תקן ל-1080p
-        "-crf", "20",
-        "-preset", "fast",
-        "-r", "30",
-        "-g", "60",                 # GOP = 2s @ 30fps — תקן Azure/Teams (default של FFmpeg 250f ≈ 8s)
+        "-crf", CLIP_CRF,           # near-transparent: clip gets re-encoded at compile
+        "-preset", X264_PRESET,
+        "-r", str(out_fps),
+        "-g", str(out_fps * 2),     # GOP = 2s — תקן Azure/Teams (default של FFmpeg 250f ≈ 8s)
         "-pix_fmt", "yuv420p",      # 4:2:0 chroma subsampling — חובה לאינסטגרם
         "-colorspace", "bt709",     # BT.709 — תקן Microsoft ל-HD מעל 720p
         "-color_primaries", "bt709",
@@ -948,8 +981,10 @@ def cut_clip(
         try: os.remove(out)
         except OSError: pass
 
+    # Optical-flow interpolation is CPU-heavy — allow extra time for those clips
+    _clip_timeout = 900 if slowmo_interp else 300
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=_clip_timeout)
         if r.returncode != 0:
             logger.error("FFmpeg clip %d: %s", index, r.stderr[-1500:])
             print(f"❌ Clip {index} failed: {r.stderr[-300:]}")
@@ -971,50 +1006,59 @@ def cut_clip(
 
 # ── שלב 2: compilation לריל אחד ──────────────────────────────────────────
 
-_TRANSITION_MAP: dict[str, str] = {
-    "cut":   "fadeblack",   # near-instant (0.1s) — high-impact moments
-    "fade":  "fade",        # soft cross-fade — calm/flowing moments
-    "slide": "slideleft",   # slide — general purpose
-    "zoom":  "zoomin",      # zoom-in — building intensity before climax
+# Natural transitions: sports reels live on fast cuts. "cut" is a 0.12s micro-fade
+# (visually a hard cut, but masks any frame mismatch), "fade"/"slide" are quick
+# dissolves, "zoom" is reserved for the build-up into the climax.
+_TRANSITION_MAP: dict[str, tuple[str, float]] = {
+    "cut":   ("fade",   0.12),   # reads as a hard cut — high-impact moments
+    "slide": ("fade",   0.22),   # quick dissolve — general purpose default
+    "fade":  ("fade",   0.40),   # soft cross-fade — calm/flowing moments
+    "zoom":  ("zoomin", 0.45),   # zoom-in — building intensity before climax
 }
+_DEFAULT_TRANSITION: tuple[str, float] = ("fade", 0.22)
+
+
+def _pair_transitions(n: int, transitions: list[str] | None) -> list[tuple[str, float]]:
+    """Resolve the (xfade_name, duration) for each of the n-1 clip joins.
+    Join i sits between clip i and clip i+1 and uses clip i's transition_out."""
+    pairs = []
+    for i in range(n - 1):
+        key = transitions[i] if transitions and i < len(transitions) else None
+        pairs.append(_TRANSITION_MAP.get(key, _DEFAULT_TRANSITION))
+    return pairs
 
 
 def _xfade_filter(
     n: int,
     durations: list[float],
-    sport: str = "",
     transitions: list[str] | None = None,
 ) -> str:
     """Build xfade filter_complex between n clips.
     transitions: optional list[str] of Gemini transition_out values per clip.
-    Uses sport-specific random pool as fallback when not provided.
     """
     if n == 1:
         return "[0:v]null[xfout]"
 
-    _options = _SPORT_XFADES.get(sport.lower(), _SPORT_XFADES["_default"])
-
-    def _pick(i: int) -> str:
-        if transitions and i < len(transitions):
-            return _TRANSITION_MAP.get(transitions[i], "slideleft")
-        return random.choice(_options)
+    pairs = _pair_transitions(n, transitions)
 
     parts      = []
-    offset     = round(durations[0] - XFADE_DUR, 3)
+    name0, dur0 = pairs[0]
+    offset     = round(durations[0] - dur0, 3)
     out_lbl    = "[xfout]" if n == 2 else "[xf1]"
     parts.append(
-        f"[0:v][1:v]xfade=transition={_pick(0)}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+        f"[0:v][1:v]xfade=transition={name0}:duration={dur0}:offset={offset}{out_lbl}"
     )
 
-    cumulative = durations[0] + durations[1] - XFADE_DUR
+    cumulative = durations[0] + durations[1] - dur0
     for i in range(2, n):
-        offset  = round(cumulative - XFADE_DUR, 3)
+        name_i, dur_i = pairs[i - 1]
+        offset  = round(cumulative - dur_i, 3)
         prev    = "[xf1]" if i == 2 else f"[xf{i-1}]"
         out_lbl = "[xfout]" if i == n - 1 else f"[xf{i}]"
         parts.append(
-            f"{prev}[{i}:v]xfade=transition={_pick(i-1)}:duration={XFADE_DUR}:offset={offset}{out_lbl}"
+            f"{prev}[{i}:v]xfade=transition={name_i}:duration={dur_i}:offset={offset}{out_lbl}"
         )
-        cumulative += durations[i] - XFADE_DUR
+        cumulative += durations[i] - dur_i
 
     return ";".join(parts)
 
@@ -1073,15 +1117,32 @@ def compile_reel(
     music_path: str | None = None,
     transitions: list[str] | None = None,
     style: dict | None = None,
+    fps: int = 30,
 ) -> str | None:
-    """מחבר קליפים לריל אחד עם xfade + לוגו watermark + כותרת תחתית."""
+    """מחבר קליפים לריל אחד עם xfade + לוגו watermark."""
     n = len(clip_paths)
     if n == 0:
         return None
 
     with ThreadPoolExecutor(max_workers=min(n, config.MAX_CUT_WORKERS)) as _pool:
         durations = list(_pool.map(_get_duration, clip_paths))
-    total_dur = sum(durations) - XFADE_DUR * (n - 1)
+
+    # Infer pace from style (if provided) or from clip durations as fallback.
+    # Fast pace → prefer "cut" transitions when Gemini didn't specify per-clip.
+    # Must run BEFORE duration math — transition choice affects join overlap.
+    if style:
+        pace = style.get("pace", "moderate")
+    else:
+        avg_dur = sum(durations) / n if n else 10.0
+        pace = "fast" if avg_dur < 8 else ("slow" if avg_dur > 15 else "moderate")
+
+    if pace == "fast" and not transitions:
+        transitions = ["cut"] * n
+    elif pace == "slow" and not transitions:
+        transitions = ["fade"] * n
+
+    _pair_durs = [d for _, d in _pair_transitions(n, transitions)]
+    total_dur  = sum(durations) - sum(_pair_durs)
 
     if total_dur > MAX_REEL_SEC:
         logger.warning("⚠️ Reel %.0fs > 90s Instagram limit", total_dur)
@@ -1096,37 +1157,33 @@ def compile_reel(
     if has_logo:
         inputs += ["-i", logo_path]
 
-    # Infer pace from style (if provided) or from clip durations as fallback.
-    # Fast pace → prefer "cut" transitions when Gemini didn't specify per-clip.
-    if style:
-        pace = style.get("pace", "moderate")
-    else:
-        avg_dur = sum(durations) / n if n else 10.0
-        pace = "fast" if avg_dur < 8 else ("slow" if avg_dur > 15 else "moderate")
+    xfade_f = _xfade_filter(n, durations, transitions=transitions)
 
-    # Apply pace to any unspecified (None/fallback) transitions
-    if pace == "fast" and not transitions:
-        transitions = ["cut"] * n
-    elif pace == "slow" and not transitions:
-        transitions = ["fade"] * n
-
-    xfade_f = _xfade_filter(n, durations, sport=sport, transitions=transitions)
+    # Reel-level fade in/out — applied ONCE here instead of per-clip, so joins
+    # stay clean (no double dip-to-black at every transition).
+    _reel_fade_in  = 0.25
+    _reel_fade_out = 0.40
+    xfade_f += (
+        f";[xfout]fade=t=in:st=0:d={_reel_fade_in},"
+        f"fade=t=out:st={max(0.0, total_dur - _reel_fade_out):.3f}:d={_reel_fade_out}[faded]"
+    )
 
     if has_logo:
         logo_w = REEL_W // 13
         logo_f = (
             f"[{logo_idx}:v]scale={logo_w}:-1,format=rgba,"
             f"colorchannelmixer=aa=0.85[logo];"
-            f"[xfout][logo]overlay=W-w-20:H-h-20[final]"
+            f"[faded][logo]overlay=W-w-20:H-h-20[final]"
         )
         filter_complex = xfade_f + ";" + logo_f
         map_out = "[final]"
     else:
         filter_complex = xfade_f
-        map_out = "[xfout]"
+        map_out = "[faded]"
 
-    # Athlete lower-third text overlay — middle of reel (after teaser, before fade-out)
-    display_text = athlete_label[:25].strip()
+    # Athlete lower-third text overlay — disabled by default: the identity label
+    # ("red shirt #7") is an internal matching string, not viewer-facing content.
+    display_text = athlete_label[:25].strip() if config.ATHLETE_TEXT_OVERLAY else ""
     font_path    = _find_font()
     if display_text and font_path:
         safe_text  = display_text.replace("'", "\\'").replace(":", "\\:")
@@ -1149,7 +1206,7 @@ def compile_reel(
         filter_complex += ";" + drawtext_f
         map_out = "[captioned]"
 
-    cut_times = _compute_cut_times(durations)
+    cut_times = _compute_cut_times(durations, transitions)
     has_music = bool(music_path)
     music_idx  = n + (1 if has_logo else 0)
     if has_music:
@@ -1199,10 +1256,10 @@ def compile_reel(
         *(["-map", "[aout]"] if has_music else ["-an"]),
         "-c:v", "libx264",
         "-profile:v", "high",       # H.264 High Profile — תקן ל-1080p
-        "-crf", "18",
-        "-preset", "fast",
-        "-r", "30",
-        "-g", "60",                 # GOP = 2s @ 30fps — תקן Azure/Teams
+        "-crf", REEL_CRF,
+        "-preset", X264_PRESET,
+        "-r", str(fps),
+        "-g", str(fps * 2),         # GOP = 2s — תקן Azure/Teams
         "-pix_fmt", "yuv420p",      # 4:2:0 chroma subsampling — חובה לאינסטגרם
         "-colorspace", "bt709",     # BT.709 — תקן Microsoft ל-HD מעל 720p
         "-color_primaries", "bt709",
@@ -1261,7 +1318,12 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         return []
 
     session_peak   = max((ev.get("score", 7) for ev in all_events), default=7)
-    slowmo_capable = any(_get_source_fps(app["path"]) >= SLOWMO_FPS_MIN for app in appearances)
+    _src_fpses     = [_get_source_fps(app["path"]) for app in appearances]
+    slowmo_capable = (any(f >= SLOWMO_FPS_MIN for f in _src_fpses)
+                      or (config.SLOWMO_INTERPOLATE
+                          and any(f >= SLOWMO_INTERP_FPS_MIN for f in _src_fpses)))
+    # Uniform fps across the whole reel — xfade needs matching frame rates
+    reel_fps       = 60 if all(f >= 50 for f in _src_fpses) else 30
     partitions     = _partition_events(all_events, slowmo_capable)
     first_stem     = Path(appearances[0]["path"]).stem
     reels: list[str] = []
@@ -1270,16 +1332,21 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         ordered = _narrative_order(part_events)
 
         # Teaser loop: prepend a 2.5s preview of the climax as the very first clip.
-        # Structure: [flash of climax] → [opener] → [build] → [full climax]
-        # When the reel loops, the viewer sees [full climax] → [flash of same climax]
-        # which feels like a natural callback rather than an abrupt restart.
+        # Structure: [flash of climax PEAK] → [opener] → [build] → [full climax]
+        # The flash samples around the 65% mark of the climax — not its start,
+        # which is buildup and would open the reel with 2.5s of nothing.
         _climax_ev  = ordered[-1]
         _preview_dur = 2.5
-        if (len(ordered) >= 2
-                and (_climax_ev["end"] - _climax_ev["start"]) > _preview_dur + 2.0):
+        _climax_src_dur = _climax_ev["end"] - _climax_ev["start"]
+        if len(ordered) >= 2 and _climax_src_dur > _preview_dur + 2.0:
+            _peak_t        = _climax_ev["start"] + _climax_src_dur * 0.65
+            _preview_start = min(_peak_t - _preview_dur / 2,
+                                 _climax_ev["end"] - _preview_dur)
+            _preview_start = max(_preview_start, _climax_ev["start"])
             _preview_ev = {
                 **_climax_ev,
-                "end":  _climax_ev["start"] + _preview_dur,
+                "start": _preview_start,
+                "end":   _preview_start + _preview_dur,
                 "edit": {
                     **(_climax_ev.get("edit") or {}),
                     "slowmo":         False,
@@ -1316,7 +1383,8 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         clip_paths = []
         with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
             future_map = {
-                pool.submit(_cut_clip_with_qa, src, ev, idx_base + i, sw, sport, si, session_peak): i
+                pool.submit(_cut_clip_with_qa, src, ev, idx_base + i, sw, sport, si,
+                            session_peak, reel_fps): i
                 for i, src, ev, sw, si in tasks
             }
             results: dict[int, str] = {}
@@ -1361,7 +1429,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         try:
             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                       sport=sport, athlete_label=athlete_label,
-                                      transitions=event_transitions)
+                                      transitions=event_transitions, fps=reel_fps)
             if reel_clean:
                 reels.append(reel_clean)
                 if _events_out is not None:
@@ -1373,7 +1441,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                 reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
                                           sport=sport, athlete_label=athlete_label,
                                           music_path=music_track,
-                                          transitions=event_transitions)
+                                          transitions=event_transitions, fps=reel_fps)
                 if reel_music:
                     reels.append(reel_music)
                     if _events_out is not None:
@@ -1451,15 +1519,22 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
     src_info   = _get_source_info(video_path)
     source_fps = src_info["fps"]
     slowmo     = src_info["can_slowmo"]
+    slowmo_any = slowmo or (config.SLOWMO_INTERPOLATE
+                            and source_fps >= SLOWMO_INTERP_FPS_MIN)
+    reel_fps   = 60 if source_fps >= 50 else 30
     if slowmo:
-        print(f"🐢 Source {source_fps:.0f}fps — slow-mo 50% enabled")
+        print(f"🐢 Source {source_fps:.0f}fps — native slow-mo enabled")
+    elif slowmo_any:
+        print(f"🐢 Source {source_fps:.0f}fps — interpolated slow-mo (optical flow)")
     else:
-        print(f"⚡ Source {source_fps:.0f}fps — slow-mo skipped (need {SLOWMO_FPS_MIN}+fps)")
+        print(f"⚡ Source {source_fps:.0f}fps — slow-mo skipped (below {SLOWMO_INTERP_FPS_MIN}fps)")
     if src_info["zoom_headroom"] >= ZOOM_MIN_HEADROOM:
         print(f"🔍 Source {src_info['width']}×{src_info['height']} — zoom headroom ×{src_info['zoom_headroom']:.1f}")
+    if src_info.get("height", 1080) < config.MIN_SOURCE_HEIGHT:
+        print(f"⚠️ Source {src_info.get('height')}p below {config.MIN_SOURCE_HEIGHT}p quality floor — basic framing only")
 
     # 2. פיצול events לפרטישנים (כל פרטישן ≤ TARGET_REEL_MAX שניות)
-    partitions = _partition_events(events, slowmo)
+    partitions = _partition_events(events, slowmo_any)
     if len(partitions) > 1:
         print(f"📦 {len(events)} events → {len(partitions)} reels (≤{TARGET_REEL_MAX}s each)")
 
@@ -1478,15 +1553,21 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
             ordered[-1] = {**ordered[-1], "_cap_dur": 15.0}
 
         # Teaser loop: prepend a 2.5s flash of the climax as the very first clip.
-        # Multi-clip: flash from the beginning of the climax (same visual at end→loop).
-        # Single-clip: flash from the near-end of the capped climax so the loop point
-        # is seamless — end of reel and teaser show identical content.
+        # The flash must show the PEAK of the climax — not its start: events open
+        # with 1-2s of buildup, and a buildup-only teaser is exactly the kind of
+        # "2 seconds of nothing" that kills the hook. Sample around the 65% mark
+        # (same peak center the slowmo ramp uses).
+        # Single-clip: flash from the near-end of the capped climax so the loop
+        # point is seamless — end of reel and teaser show identical content.
         _climax_ev      = ordered[-1]
         _preview_dur    = 2.5
         _climax_src_dur = _climax_ev["end"] - _climax_ev["start"]
         if _climax_src_dur > _preview_dur + 2.0:
             if len(ordered) >= 2:
-                _preview_start = _climax_ev["start"]
+                _peak_t        = _climax_ev["start"] + _climax_src_dur * 0.65
+                _preview_start = min(_peak_t - _preview_dur / 2,
+                                     _climax_ev["end"] - _preview_dur)
+                _preview_start = max(_preview_start, _climax_ev["start"])
             else:
                 _cap           = float(_climax_ev.get("_cap_dur", _climax_src_dur))
                 _eff_end       = _climax_ev["start"] + min(_climax_src_dur, _cap)
@@ -1522,7 +1603,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
             future_map = {
                 pool.submit(_cut_clip_with_qa, video_path, ev, idx_base + i,
-                            slowmo, sport, src_info, session_peak): i
+                            slowmo, sport, src_info, session_peak, reel_fps): i
                 for i, ev in enumerate(ordered)
             }
             results: dict[int, str] = {}
@@ -1569,7 +1650,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         try:
             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                       sport=sport, athlete_label=athlete_label,
-                                      transitions=event_transitions)
+                                      transitions=event_transitions, fps=reel_fps)
             if reel_clean:
                 reels.append(reel_clean)
 
@@ -1579,7 +1660,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                 reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
                                           sport=sport, athlete_label=athlete_label,
                                           music_path=music_track,
-                                          transitions=event_transitions)
+                                          transitions=event_transitions, fps=reel_fps)
                 if reel_music:
                     reels.append(reel_music)
         finally:

@@ -49,6 +49,18 @@ QA_RESULTS_FILE: str         = os.getenv("QA_RESULTS_FILE", "qa_results.jsonl")
 PENDING_UPLOADS_DIR: str = os.getenv("PENDING_UPLOADS_DIR", "pending_uploads")
 QUALITY_LOG_FILE: str    = os.getenv("QUALITY_LOG_FILE", "quality_issues.jsonl")
 
+# ── Editorial quality gates ───────────────────────────────────────────────────
+# Events shorter than this (real content, before any padding) are dropped —
+# a 2s fragment has no visible performance and ruins the hook.
+MIN_EVENT_SEC: float = float(os.getenv("MIN_EVENT_SEC", "5"))
+# Sources below this height get a quality warning + forced basic mode (no zoom).
+MIN_SOURCE_HEIGHT: int = int(os.getenv("MIN_SOURCE_HEIGHT", "720"))
+# Motion-interpolated slow-mo for sources below 50fps (optical flow, slower encode).
+SLOWMO_INTERPOLATE: bool = os.getenv("SLOWMO_INTERPOLATE", "true").lower() == "true"
+# Burn athlete identity description as lower-third text. Off — the identity
+# string ("red shirt #7") is an internal matching label, not viewer content.
+ATHLETE_TEXT_OVERLAY: bool = os.getenv("ATHLETE_TEXT_OVERLAY", "false").lower() == "true"
+
 # ── SportReel platform (Supabase + Cloudflare Stream) ────────────────────────
 SUPABASE_URL: str              = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY: str      = os.getenv("SUPABASE_SERVICE_KEY", "")

@@ -449,6 +449,10 @@ SELECTION RULES:
 - If a person has NO moments reaching score 6, return an EMPTY events list for them.
   Not every person in frame has usable highlights — omitting is better than forcing bad clips.
 - Do NOT include score < 6 under any circumstances.
+- Every event must contain a COMPLETE, VISIBLE action: setup → execution → outcome.
+  Do NOT report fragments where nothing clearly happens (a 2-second ripple, a half-visible
+  turn, an action that starts after the camera looks away). If the real content is shorter
+  than 5 seconds, it is not an event — skip it rather than stretching its timestamps.
 - Avoid overlapping timestamps: if two moments for the same person start within 3 seconds
   of each other, include ONLY the higher-scored one.
 - Prefer variety: avoid 3+ nearly identical consecutive moves
@@ -601,6 +605,12 @@ def _parse_session(raw_text: str) -> dict:
         for ev in p.get("events", []):
             start  = float(ev.get("start", 0))
             end    = float(ev.get("end", start + 10))
+            # Drop fragments below MIN_EVENT_SEC instead of padding them out:
+            # a 2s ripple padded to 6s is 4s of nothing — it kills the hook.
+            if end - start < config.MIN_EVENT_SEC:
+                logger.info("Dropping %.1fs fragment '%s' @%.1fs (< %.0fs min)",
+                            end - start, ev.get("type", "?"), start, config.MIN_EVENT_SEC)
+                continue
             if end - start < _MIN_CLIP_SEC:
                 end = start + _MIN_CLIP_SEC
             crop_x = float(ev.get("crop_x", 0.5))
@@ -777,6 +787,11 @@ def _parse_analysis(raw_text: str) -> dict:
     for ev in data["events"]:
         start  = float(ev.get("start", 0))
         end    = float(ev.get("end", start + 10))
+        # Drop fragments below MIN_EVENT_SEC instead of padding them out (see _parse_session)
+        if end - start < config.MIN_EVENT_SEC:
+            logger.info("Dropping %.1fs fragment '%s' @%.1fs (< %.0fs min)",
+                        end - start, ev.get("type", "?"), start, config.MIN_EVENT_SEC)
+            continue
         if end - start < _MIN_CLIP_SEC:
             end = start + _MIN_CLIP_SEC
         crop_x = max(0.0, min(1.0, float(ev.get("crop_x", 0.5))))

@@ -582,12 +582,13 @@ def test_music_analysis() -> None:
     # ── _compute_cut_times ───────────────────────────
     durs = [8.0, 6.5, 7.0]
     cuts = _compute_cut_times(durs)
-    # cut 0 = durs[0] - XFADE_DUR = 8.0 - 0.5 = 7.5
-    # cut 1 = cumulative(durs[0]+durs[1]-XFADE_DUR) - XFADE_DUR = (8+6.5-0.5) - 0.5 = 13.5
-    if len(cuts) == 2 and abs(cuts[0] - 7.5) < 0.01 and abs(cuts[1] - 13.5) < 0.01:
+    # Default transition = quick dissolve 0.22s:
+    # cut 0 = durs[0] - 0.22 = 7.78
+    # cut 1 = cumulative(durs[0]+durs[1]-0.22) - 0.22 = (8+6.5-0.22) - 0.22 = 14.06
+    if len(cuts) == 2 and abs(cuts[0] - 7.78) < 0.01 and abs(cuts[1] - 14.06) < 0.01:
         ok("_compute_cut_times — correct xfade offsets", str(cuts))
     else:
-        fail("_compute_cut_times", f"expected [7.5, 13.5], got {cuts}")
+        fail("_compute_cut_times", f"expected [7.78, 14.06], got {cuts}")
 
     # ── analyze_music_library report ─────────────────
     old_music_dir   = getattr(config, "MUSIC_DIR", "music")
@@ -1566,18 +1567,15 @@ def test_editor_improvements() -> None:
     except Exception as e:
         fail("_find_font", str(e))
 
-    # ── _xfade_filter sport-specific transition ──
+    # ── _xfade_filter default transition (quick dissolve) ──
     try:
-        flt = _xfade_filter(2, [7.0, 7.0], sport="surfing")
-        known = ["slideleft", "slideright", "zoomin", "fade", "wipeleft",
-                 "pixelize", "fadewhite", "wiperight", "slidedown"]
-        if any(t in flt for t in known):
-            ok("_xfade_filter — sport-specific transition selected",
-               next(t for t in known if t in flt))
+        flt = _xfade_filter(2, [7.0, 7.0])
+        if "transition=fade" in flt and "duration=0.22" in flt:
+            ok("_xfade_filter — default quick dissolve (fade 0.22s)")
         else:
-            fail("_xfade_filter — sport transition", f"no known transition in: {flt[:100]}")
+            fail("_xfade_filter — default transition", f"unexpected filter: {flt[:100]}")
     except Exception as e:
-        fail("_xfade_filter — sport transition", str(e))
+        fail("_xfade_filter — default transition", str(e))
 
     # ── compile_reel with athlete_label smoke test ──
     if not Path(VIDEO_60FPS).exists():
@@ -2631,9 +2629,10 @@ def test_prompt_to_edit_gaps() -> None:
     # ── _xfade_filter uses transitions list when provided ──
     from pipeline.stages.editor import _xfade_filter
     transitions_list = ["cut", "fade", "slide", "zoom"]
-    filt = _xfade_filter(4, [2.0, 2.0, 2.0, 2.0], sport="surfing", transitions=transitions_list)
-    if "fadeblack" in filt and "slideleft" in filt:
-        ok("_xfade_filter: uses provided transitions list (fadeblack + slideleft present)")
+    filt = _xfade_filter(4, [2.0, 2.0, 2.0, 2.0], transitions=transitions_list)
+    # cut→fade 0.12s, fade→fade 0.40s, slide→fade 0.22s (zoom is the unused 4th out)
+    if "duration=0.12" in filt and "duration=0.4" in filt and "duration=0.22" in filt:
+        ok("_xfade_filter: per-transition durations applied (0.12/0.4/0.22)")
     else:
         fail("_xfade_filter transitions list", f"filter: {filt[:120]!r}")
 
