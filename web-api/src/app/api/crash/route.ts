@@ -19,7 +19,13 @@ export async function POST(req: NextRequest) {
   // Log the exception type on its own line first — Vercel truncates long messages,
   // so the most critical information must come first.
   const lines = report.split('\n').filter((l) => l.trim());
-  const excLine = lines.find((l) => /Exception|Error:|CRASH/.test(l)) ?? lines[0] ?? '(empty)';
+  // Prefer the specific Java exception class (e.g. "java.lang.RuntimeException: ...")
+  // over the generic "ANDROID NATIVE CRASH" header so the actual error is visible
+  // even in truncated log views.
+  const javaLine = lines.find((l) =>
+    /^(java|android|com\.facebook|com\.sportreel|expo)\.\S/.test(l.trim())
+  );
+  const excLine = (javaLine ?? lines.find((l) => /Exception|Error:|CRASH/.test(l)) ?? lines[0] ?? '(empty)').slice(0, 200);
   console.error(`[MOBILE-CRASH] ${new Date().toISOString()} | ${excLine}`);
   // Log remaining stack frames in small batches so each is visible in the log table.
   for (let i = 0; i < lines.length; i += 15) {

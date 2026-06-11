@@ -19,7 +19,15 @@ const CRASH_HANDLER = `
       try {
         val sw = java.io.StringWriter()
         throwable.printStackTrace(java.io.PrintWriter(sw))
-        val report = "ANDROID NATIVE CRASH\\nthread=" + thread.name + "\\n" + sw.toString()
+        val stackTrace = sw.toString()
+        // Put the exception class on the first line so it is visible even in
+        // truncated log views.  Then include the versionCode so we know which
+        // APK is crashing.
+        val vCode = try {
+          val info = base.packageManager.getPackageInfo(base.packageName, 0)
+          info.versionCode.toString()
+        } catch (_: Throwable) { "?" }
+        val report = stackTrace.trim() + "\\nthread=" + thread.name + "\\napk_version=" + vCode
         val sender = Thread {
           try {
             val url = java.net.URL("https://video-editing-with-drone.vercel.app/api/crash")
