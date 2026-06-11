@@ -15,9 +15,10 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import { supabase } from '@/shared/lib/supabase';
 import { useAuthStore } from '@/shared/hooks/useAuth';
 import { registerPushToken } from '@/shared/lib/notifications';
-import { setCrashContext } from '@/shared/lib/crashReporter';
+import { setCrashContext, installJsCrashReporter } from '@/shared/lib/crashReporter';
 
 SplashScreen.preventAutoHideAsync();
+installJsCrashReporter();
 
 function CrashContextSync() {
   const pathname = usePathname();
