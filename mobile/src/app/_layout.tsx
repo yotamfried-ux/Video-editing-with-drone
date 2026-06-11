@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { Stack } from 'expo-router';
+import { Stack, usePathname } from 'expo-router';
 import {
   useFonts,
   PlusJakartaSans_400Regular,
@@ -15,8 +15,19 @@ import { StripeProvider } from '@stripe/stripe-react-native';
 import { supabase } from '@/shared/lib/supabase';
 import { useAuthStore } from '@/shared/hooks/useAuth';
 import { registerPushToken } from '@/shared/lib/notifications';
+import { setCrashContext } from '@/shared/lib/crashReporter';
 
 SplashScreen.preventAutoHideAsync();
+
+function CrashContextSync() {
+  const pathname = usePathname();
+  const userId = useAuthStore((s) => s.user?.id);
+
+  useEffect(() => { setCrashContext({ screen: pathname }); }, [pathname]);
+  useEffect(() => { setCrashContext({ userId }); }, [userId]);
+
+  return null;
+}
 
 export default function RootLayout() {
   const setSession = useAuthStore((s) => s.setSession);
@@ -57,6 +68,7 @@ export default function RootLayout() {
             process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''
           }
         >
+          <CrashContextSync />
           <Stack screenOptions={{ headerShown: false }} />
         </StripeProvider>
       </SafeAreaProvider>
