@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 
-type Step = 'credentials' | 'profile' | 'face';
+type Step = 'credentials' | 'profile' | 'face' | 'done';
 
-export function useRegistration(initialStep: Step = 'credentials') {
+export function useRegistration(initialStep: Step = 'credentials', skipFace = false) {
   const [step, setStep] = useState<Step>(initialStep);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -70,7 +70,7 @@ export function useRegistration(initialStep: Step = 'credentials') {
       return;
     }
     setLoading(false);
-    setStep('face');
+    setStep(skipFace ? 'done' : 'face');
   };
 
   const uploadFacePhoto = async (uri: string) => {
@@ -96,7 +96,7 @@ export function useRegistration(initialStep: Step = 'credentials') {
     }
   };
 
-  const skipFace = () => {};
+  const onSkipFace = () => { setStep('done'); };
 
   return {
     step,
@@ -111,6 +111,6 @@ export function useRegistration(initialStep: Step = 'credentials') {
     submitCredentials,
     submitProfile,
     uploadFacePhoto,
-    skipFace,
+    skipFace: onSkipFace,
   };
 }

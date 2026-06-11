@@ -5,6 +5,9 @@ import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Colors, Spacing, Radius } from '@/shared/constants/theme';
 
+// Minimum face photo size for reliable embedding.
+const MIN_DIMENSION_PX = 400;
+
 interface Props {
   onUpload: (uri: string) => void;
   onSkip: () => void;
@@ -14,25 +17,43 @@ interface Props {
 export function FaceUploadStep({ onUpload, onSkip, loading }: Props) {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [consented, setConsented] = useState(false);
+  const [qualityError, setQualityError] = useState<string | null>(null);
+
+  const validateAndSet = (asset: ImagePicker.ImagePickerAsset) => {
+    setQualityError(null);
+    if (asset.width < MIN_DIMENSION_PX || asset.height < MIN_DIMENSION_PX) {
+      setQualityError(
+        `Photo is too small (${asset.width}×${asset.height}px). Use a clearer, higher-resolution image — minimum ${MIN_DIMENSION_PX}×${MIN_DIMENSION_PX}px.`
+      );
+      return;
+    }
+    setPhotoUri(asset.uri);
+  };
 
   const pickFromCamera = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== 'granted') return;
     const r = await ImagePicker.launchCameraAsync({
-      quality: 0.85,
+      quality: 0.9,
       allowsEditing: true,
       aspect: [1, 1],
     });
-    if (!r.canceled) setPhotoUri(r.assets[0].uri);
+    if (!r.canceled) validateAndSet(r.assets[0]);
   };
 
   const pickFromLibrary = async () => {
     const r = await ImagePicker.launchImageLibraryAsync({
-      quality: 0.85,
+      quality: 0.9,
       allowsEditing: true,
       aspect: [1, 1],
     });
-    if (!r.canceled) setPhotoUri(r.assets[0].uri);
+    if (!r.canceled) validateAndSet(r.assets[0]);
+  };
+
+  const retake = () => {
+    setPhotoUri(null);
+    setConsented(false);
+    setQualityError(null);
   };
 
   return (
@@ -41,12 +62,30 @@ export function FaceUploadStep({ onUpload, onSkip, loading }: Props) {
         Get notified when you're in a clip
       </Text>
       <Text variant="body" color={Colors.textSecondary} style={styles.subtitle}>
-        Optionally add a face photo so we can automatically match your
-        highlights. You can always do this later from your profile.
+        Add a face photo so we can automatically match your highlights.
+        You can always do this later from your profile.
       </Text>
 
+      <View style={styles.tips}>
+        <Text variant="caption" color={Colors.textSecondary}>For best results:</Text>
+        <Text variant="caption" color={Colors.textSecondary}>• Frontal photo, face clearly visible</Text>
+        <Text variant="caption" color={Colors.textSecondary}>• Good lighting, no heavy shadows</Text>
+        <Text variant="caption" color={Colors.textSecondary}>• No sunglasses or hats</Text>
+      </View>
+
+      {qualityError && (
+        <Text variant="caption" color={Colors.danger} style={{ textAlign: 'center' }}>
+          {qualityError}
+        </Text>
+      )}
+
       {photoUri ? (
-        <Image source={{ uri: photoUri }} style={styles.preview} />
+        <>
+          <Image source={{ uri: photoUri }} style={styles.preview} />
+          <TouchableOpacity onPress={retake} style={styles.retakeBtn}>
+            <Text variant="caption" color={Colors.accent}>Retake</Text>
+          </TouchableOpacity>
+        </>
       ) : (
         <View style={styles.photoButtons}>
           <Button
@@ -108,11 +147,21 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   subtitle: { textAlign: 'center', marginVertical: Spacing.sm },
+  tips: {
+    backgroundColor: '#1E293B',
+    borderRadius: 10,
+    padding: Spacing.md,
+    gap: 4,
+  },
   preview: {
     width: 160,
     height: 160,
     borderRadius: 80,
     alignSelf: 'center',
+  },
+  retakeBtn: {
+    alignSelf: 'center',
+    padding: Spacing.sm,
   },
   photoButtons: { flexDirection: 'row', gap: Spacing.sm },
   halfBtn: { flex: 1 },

@@ -41,7 +41,7 @@ export default function LoginScreen() {
       .eq('user_id', data.user.id)
       .maybeSingle();
     router.replace(
-      profile?.name ? '/(tabs)/discover' : '/(auth)/register?step=profile'
+      profile?.name ? '/(tabs)/discover' : '/(auth)/register?step=profile&nameOnly=true'
     );
     setLoading(false);
   };
