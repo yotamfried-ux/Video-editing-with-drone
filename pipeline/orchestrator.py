@@ -61,6 +61,7 @@ def _run_reel_qa(reels: list[str], sport: str, athlete_label: str) -> None:
         score   = qa.get("engagement_score", "?")
         overall = qa.get("overall", "")
         name    = Path(reel).name
+        defects = qa.get("defects", [])
         if verdict == "FAIL":
             tech_issues = qa.get("technical", {}).get("issues", [])
             weak = {k: v for k, v in qa.get("content", {}).items()
@@ -74,6 +75,13 @@ def _run_reel_qa(reels: list[str], sport: str, athlete_label: str) -> None:
                   f"{'; '.join(detail) or overall}")
         else:
             print(f"  ✅ Reel QA PASS [{name}] engagement={score} — {overall}")
+        # Defects are printed for PASS too — minor issues are still worth a look.
+        for d in defects:
+            sev  = str(d.get("severity", "minor")).upper()
+            mark = "🔴" if sev == "CRITICAL" else "🟡"
+            at   = d.get("at_seconds")
+            at_s = f" @{at:.0f}s" if isinstance(at, (int, float)) else ""
+            print(f"     {mark} {d.get('type', '?')}{at_s} — {d.get('note', '')}")
 
 
 def _drain_and_flag(filename_to_file_id: dict[str, str]) -> None:

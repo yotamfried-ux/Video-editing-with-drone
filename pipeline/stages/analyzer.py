@@ -188,16 +188,40 @@ Apply documented short-form best practices:
 - CLARITY: the subject is always readable; vertical 9:16 framing respected.
 - LOOPABILITY: the ending flows back into the start (seamless replay).
 
+Additionally scan the FULL reel for production defects. Report EVERY occurrence
+with its approximate timestamp in seconds:
+- DUPLICATE_MOMENT  — the same action/wave/trick appears more than once anywhere
+                      in the reel (even re-framed or at a different speed)
+- PREMATURE_CUT     — an action is cut before its natural completion (e.g. a wave
+                      ride ends mid-ride instead of at the finish/exit)
+- UNNATURAL_SLOWMO  — slow motion that stutters, drags far too long, or covers
+                      buildup instead of the apex of the action
+- IDENTITY_MISMATCH — a clip clearly shows a different person than the rest of
+                      the reel (different clothing / equipment / board / build)
+- SOFT_FOCUS        — noticeably blurry or low-detail footage relative to the rest
+- DEAD_TIME         — more than ~2 seconds with no meaningful action
+- BAD_FIRST_CLIP    — the opening clip contains no real action (empty water,
+                      paddling only, subject barely visible)
+
+severity rules: DUPLICATE_MOMENT and IDENTITY_MISMATCH are always "critical".
+PREMATURE_CUT is "critical" when it truncates the reel's best moment, else "minor".
+Anything that would clearly make a viewer scroll away is "critical"; otherwise "minor".
+
 Return JSON only (no markdown fences):
 {
   "content": {
     "hook": 0-10, "pacing": 0-10, "payoff": 0-10,
     "clarity": 0-10, "loopability": 0-10
   },
+  "defects": [
+    {"type": "<code from the list above>", "severity": "critical|minor",
+     "at_seconds": <number>, "note": "<short explanation>"}
+  ],
   "engagement_score": 0-100,
   "overall": "<one sentence summary>"
 }
 
+defects must be an empty list when the reel is clean.
 engagement_score is your heuristic estimate of social-media performance.
 Be strict and calibrated — reserve 80+ for genuinely scroll-stopping reels.\
 """
@@ -302,6 +326,7 @@ def _persist_qa_result(result: dict, reel_path: str, sport: str) -> None:
             "engagement_score": result.get("engagement_score"),
             "verdict":        result.get("verdict"),
             "content":        result.get("content"),
+            "defects":        result.get("defects", []),
             "technical_pass": result.get("technical", {}).get("pass"),
             "overall":        result.get("overall", ""),
             "actual_performance": None,
@@ -330,6 +355,7 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
         "verdict": "PASS",
         "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
         "content": dict(_QA_PASS_CONTENT),
+        "defects": [],
         "engagement_score": 100,
         "overall": "QA skipped",
     }
@@ -362,10 +388,15 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
 
             engagement = int(parsed.get("engagement_score", 0))
             engagement_ok = engagement >= config.QA_ENGAGEMENT_THRESHOLD
+            defects = [d for d in (parsed.get("defects") or []) if isinstance(d, dict)]
+            critical = [d for d in defects
+                        if str(d.get("severity", "")).lower() == "critical"]
             result = {
-                "verdict": "PASS" if (technical_pass and engagement_ok) else "FAIL",
+                "verdict": "PASS" if (technical_pass and engagement_ok and not critical)
+                           else "FAIL",
                 "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
                 "content": parsed.get("content", {}),
+                "defects": defects,
                 "engagement_score": engagement,
                 "overall": parsed.get("overall", ""),
             }
