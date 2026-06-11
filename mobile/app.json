@@ -4,6 +4,7 @@
     "slug": "sportreel",
     "version": "1.0.0",
     "scheme": "sportreel",
+    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -37,7 +38,8 @@
       ["expo-local-authentication", { "faceIDPermission": "Used to secure operator access." }],
       "expo-font",
       ["expo-build-properties", { "android": { "kotlinVersion": "1.9.25" } }],
-      "expo-updates"
+      "expo-updates",
+      "./plugins/withCrashReporter"
     ],
     "updates": {
       "url": "https://u.expo.dev/5c03988f-3dae-4763-953a-672717dedda2",
