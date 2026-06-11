@@ -169,6 +169,8 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
     final = list(reels)
 
     for reel in [r for r in reels if "_music" not in os.path.basename(r)]:
+        _write_status("qa", 0.46, reel=Path(reel).name[:60],
+                      athlete=str(athlete_label)[:60])
         qa = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
         _print_qa_result(reel, qa)
         cur, attempt = reel, 0
@@ -185,6 +187,8 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
             n_before = sum(1 for e in evs if not e.get("_teaser"))
             print(f"  🔁 QA re-edit {attempt}/{config.QA_MAX_RETRIES}: "
                   f"{n_before}→{len(fixed)} clip(s)")
+            _write_status("qa", 0.47, reel=Path(cur).name[:60],
+                          re_edit=f"{attempt}/{config.QA_MAX_RETRIES}")
             new_out: list = []
             try:
                 new_reels = recompile(fixed, new_out)
@@ -425,12 +429,24 @@ def _classify_input(videos: list[dict]) -> str:
     return "clips_session"
 
 
+def _write_status(stage: str, progress: float, **meta) -> None:
+    """Best-effort pipeline status update (visible live in the operator app)."""
+    try:
+        from integrations.supabase_uploader import write_pipeline_status
+        write_pipeline_status(stage, progress, **meta)
+    except Exception:
+        pass
+
+
 def _compile_clusters(clusters: list[dict], activity: str,
                       fn_to_id: dict[str, str] | None = None) -> int:
     pending: list[tuple[str, str]] = []
     pending_meta: list[tuple[str, str, list[dict], dict]] = []
     fn_to_id = fn_to_id or {}
-    for cluster in clusters:
+    for ci, cluster in enumerate(clusters):
+        _write_status("editing", 0.30 + 0.15 * (ci / max(1, len(clusters))),
+                      cluster=f"{ci + 1}/{len(clusters)}",
+                      athlete=str(cluster.get("description", ""))[:60])
         first_path     = cluster["appearances"][0]["path"] if cluster["appearances"] else None
         source_quality = _get_source_info(first_path) if first_path else {}
         all_events     = [ev for app in cluster["appearances"] for ev in app.get("events", [])]

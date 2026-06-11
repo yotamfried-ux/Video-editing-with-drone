@@ -2,6 +2,21 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
 
+// GET /api/operator/reprocess — recent reprocess requests (operator app shows
+// the queue + status on the Pipeline screen).
+export async function GET(req: NextRequest) {
+  if (!requireOperator(req)) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+  const { data, error } = await supabaseAdmin
+    .from('reprocess_requests')
+    .select('id, draft_name, notes, status, created_at, processed_at')
+    .order('created_at', { ascending: false })
+    .limit(20);
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  return NextResponse.json({ requests: data ?? [] });
+}
+
 // POST /api/operator/reprocess — operator sends a reel back for re-editing.
 //
 // Body: { reel_id?: string, draft_name?: string, notes: string }
