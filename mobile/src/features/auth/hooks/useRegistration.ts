@@ -26,6 +26,12 @@ export function useRegistration() {
       setLoading(false);
       return;
     }
+    if (!data.session) {
+      // Supabase has email confirmation enabled — user must confirm before continuing.
+      setError('Check your email and click the confirmation link, then open the app again.');
+      setLoading(false);
+      return;
+    }
     setUserId(data.user?.id ?? null);
     setLoading(false);
     setStep('profile');
@@ -35,11 +41,11 @@ export function useRegistration() {
     if (!userId) return;
     setLoading(true);
     setError(null);
-    const { error: e } = await supabase.from('athlete_profiles').upsert({
-      user_id: userId,
-      email,
-      name,
-    });
+    // The DB trigger already inserted the row on signup; we only need to set name.
+    const { error: e } = await supabase
+      .from('athlete_profiles')
+      .update({ name })
+      .eq('user_id', userId);
     if (e) {
       setError(e.message);
       setLoading(false);
