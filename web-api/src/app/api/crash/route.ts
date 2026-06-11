@@ -1,19 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { enforceRateLimit } from '@/lib/ratelimit';
+import { supabaseAdmin } from '@/lib/supabase-admin';
 
 // POST /api/crash — mobile crash report sink.
 //
 // The app's native + JS crash handlers POST stack traces here. The report is
-// written to the function log (visible in Vercel runtime logs) so crashes on
-// real devices can be diagnosed without adb or a third-party crash service.
+// written to the function log (visible in Vercel runtime logs) AND stored in
+// the crash_reports table, because Vercel's log table truncates messages —
+// the full stack trace is only reliably readable from the database.
 // No auth: a crashing app has no session; rate-limited instead.
 export async function POST(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'crash', 20, 60);
   if (limited) return limited;
 
+  const contentType = req.headers.get('content-type') ?? '';
   const report = (await req.text()).slice(0, 20_000);
   if (!report.trim()) {
     return NextResponse.json({ error: 'Empty report' }, { status: 400 });
+  }
+
+  // Full report → database (survives truncation, queryable later).
+  try {
+    await supabaseAdmin.from('crash_reports').insert({
+      content_type: contentType.slice(0, 100),
+      report,
+    });
+  } catch {
+    // storage failure must not block the log path below
   }
 
   // Put the exception class FIRST so it's visible in Vercel's truncated log table
