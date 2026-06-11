@@ -64,6 +64,10 @@ For each cluster, set "confidence":
 If confidence is "low" AND the cluster spans more than one clip, SPLIT it into
 individual single-appearance clusters instead of merging.
 
+FINAL CHECK before answering: review your clusters as a set. If TWO clusters
+describe the same clothing+equipment combination, they are almost certainly the
+SAME person — merge them. Each real person must appear EXACTLY once in the output.
+
 Return ONLY valid JSON, no markdown:
 {{
   "clusters": [
@@ -121,6 +125,10 @@ For each cluster, set "confidence":
 If confidence is "low" AND the cluster spans more than one clip, SPLIT it into
 individual single-appearance clusters instead of merging.
 
+FINAL CHECK before answering: review your clusters as a set. If TWO clusters
+describe the same clothing+equipment combination, they are almost certainly the
+SAME person — merge them. Each real person must appear EXACTLY once in the output.
+
 Return ONLY valid JSON, no markdown:
 {{
   "clusters": [
@@ -165,6 +173,7 @@ def _build_clusters_from_data(data: dict, clip_analyses: list[dict]) -> list[dic
                     "path":        ca["path"],
                     "events":      person["events"],
                     "description": person.get("description", "unknown athlete"),
+                    "thumbnail":   person.get("thumbnail", ""),
                 })
 
         if not resolved:
@@ -184,12 +193,14 @@ def _build_clusters_from_data(data: dict, clip_analyses: list[dict]) -> list[dic
             for app in resolved:
                 result.append({
                     "description": app["description"],
-                    "appearances": [{"path": app["path"], "events": app["events"]}],
+                    "appearances": [{"path": app["path"], "events": app["events"],
+                                     "thumbnail": app.get("thumbnail", "")}],
                 })
         else:
             result.append({
                 "description": cluster.get("description", "unknown athlete"),
-                "appearances": [{"path": a["path"], "events": a["events"]} for a in resolved],
+                "appearances": [{"path": a["path"], "events": a["events"],
+                                 "thumbnail": a.get("thumbnail", "")} for a in resolved],
             })
     return result
 
@@ -314,7 +325,8 @@ def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
             person = next((p for p in ca.get("analysis", {}).get("persons", [])
                            if p["id"] == entry["person_id"]), None)
             if person and person.get("events"):
-                appearances.append({"path": ca["path"], "events": person["events"]})
+                appearances.append({"path": ca["path"], "events": person["events"],
+                                    "thumbnail": person.get("thumbnail", "")})
         if appearances:
             first    = valid_entries[group_idxs[0]]
             first_ca = clip_analyses[first["clip_index"]]
@@ -407,6 +419,131 @@ def _text_cluster(descriptions: list[dict], clip_analyses: list[dict]) -> list[d
     return _build_clusters_from_data(data, clip_analyses)
 
 
+# ── Post-clustering safeguards ────────────────────────────────────────────────
+
+def _merge_duplicate_clusters(clusters: list[dict]) -> list[dict]:
+    """Merge clusters whose descriptions are effectively identical.
+
+    Fixes the operator-reported bug where the SAME athlete gets two reels titled
+    as different people (clustering split them across tiers/chunks). Never merges
+    two clusters that share a source clip — two people in one clip are by
+    definition different. False merges are caught by _verify_multi_clusters.
+    """
+    def _norm(d: str) -> str:
+        return re.sub(r"[^a-z0-9 ]", "", d.lower()).strip()
+
+    merged: dict[str, dict] = {}
+    order: list[str] = []
+    for c in clusters:
+        key = _norm(c.get("description", ""))
+        if key and key in merged:
+            existing_paths = {a["path"] for a in merged[key]["appearances"]}
+            if any(a["path"] in existing_paths for a in c["appearances"]):
+                # same clip appears in both → different people with similar looks
+                key = key + f"#{len(order)}"
+                merged[key] = c
+                order.append(key)
+                continue
+            logger.info("Merging duplicate-description clusters: '%s'", c.get("description", "?")[:40])
+            print(f"  🔗 Merged duplicate identity '{c.get('description','?')[:40]}' "
+                  f"(+{len(c['appearances'])} clip(s))")
+            merged[key]["appearances"].extend(c["appearances"])
+        else:
+            merged[key or f"#{len(order)}"] = c
+            order.append(key or f"#{len(order)}")
+    return [merged[k] for k in order]
+
+
+_VERIFY_PROMPT = """\
+The thumbnail images above were grouped as showing the SAME athlete across
+different drone video clips. Verify this grouping.
+
+DRONE/AERIAL footage: do not rely on faces. Compare clothing colors (top-down
+view of torso/shoulders), equipment (board/bike/helmet color and shape), and
+jersey/bib numbers when visible.
+
+Return ONLY valid JSON, no markdown:
+{"mismatched_indices": [<image numbers that show a DIFFERENT person than the majority>]}
+
+Return an empty list when all images plausibly show the same person.
+Only flag an index when you are CONFIDENT it is a different person (clearly
+different clothing AND equipment) — borderline cases stay in the group.
+"""
+
+
+def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
+    """Visual verification pass for multi-clip clusters (anti mixed-athlete reels).
+
+    For each cluster spanning 2+ clips with thumbnails, asks Gemini flash to
+    confirm every appearance shows the same person; confidently-mismatched
+    appearances are split into their own clusters. Fail-open: any error keeps
+    the cluster unchanged.
+    """
+    verified: list[dict] = []
+    for cluster in clusters:
+        apps   = cluster.get("appearances", [])
+        thumbs = [a.get("thumbnail", "") for a in apps]
+        if len(apps) < 2 or not all(t and os.path.exists(t) for t in thumbs):
+            verified.append(cluster)
+            continue
+
+        uploaded: list = []
+        try:
+            content: list = []
+            for i, t in enumerate(thumbs):
+                gfile = genai.upload_file(path=t, mime_type="image/jpeg")
+                uploaded.append(gfile)
+                content.append(f"[Image {i}]:")
+                content.append(gfile)
+            content.append(_VERIFY_PROMPT)
+
+            model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+            raw   = _retry_gemini(lambda: model.generate_content(
+                content, request_options={"timeout": 60}
+            ).text.strip())
+            raw  = re.sub(r"^```(?:json)?\s*", "", raw)
+            raw  = re.sub(r"\s*```$", "", raw)
+            bad  = {int(i) for i in json.loads(raw).get("mismatched_indices", [])
+                    if isinstance(i, (int, float)) and 0 <= int(i) < len(apps)}
+
+            if not bad or len(bad) >= len(apps):  # all flagged = unreliable answer
+                verified.append(cluster)
+                continue
+
+            keep  = [a for i, a in enumerate(apps) if i not in bad]
+            split = [a for i, a in enumerate(apps) if i in bad]
+            print(f"  ✂️  Identity verification split {len(split)} clip(s) out of "
+                  f"'{cluster.get('description','?')[:40]}' — different athlete detected")
+            logger.warning("Identity verify: split %d/%d appearance(s) from '%s'",
+                           len(split), len(apps), cluster.get("description", "?"))
+            verified.append({**cluster, "appearances": keep})
+            for a in split:
+                verified.append({
+                    "description": cluster.get("description", "unknown athlete") + " (separated)",
+                    "appearances": [a],
+                })
+        except Exception as e:
+            logger.debug("Cluster verification skipped (%s) — keeping as-is", e)
+            verified.append(cluster)
+        finally:
+            for gfile in uploaded:
+                try:
+                    genai.delete_file(gfile.name)
+                except Exception:
+                    pass
+    return verified
+
+
+def _post_process_clusters(clusters: list[dict]) -> list[dict]:
+    """Shared safety pass: merge duplicate identities, then visually verify
+    multi-clip clusters so one reel never mixes two athletes."""
+    if not clusters:
+        return clusters
+    clusters = _merge_duplicate_clusters(clusters)
+    clusters = _verify_multi_clusters(clusters)
+    return clusters
+
+
 # ── Thumbnail cleanup ─────────────────────────────────────────────────────────
 
 def _cleanup_thumbnails(clip_analyses: list[dict]) -> None:
@@ -475,7 +612,7 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
             result = _try_clip_cluster(clip_analyses)
             if result is not None:
                 logger.info("Identity clustering: CLIP Re-ID succeeded (%d clusters)", len(result))
-                return result
+                return _post_process_clusters(result)
         except Exception as e:
             logger.warning("CLIP clustering error: %s", e)
 
@@ -484,7 +621,7 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
             result = _try_visual_cluster(descriptions, clip_analyses)
             if result:
                 logger.info("Identity clustering: Gemini visual succeeded (%d clusters)", len(result))
-                return result
+                return _post_process_clusters(result)
         except Exception as e:
             logger.warning("Gemini visual clustering error: %s", e)
 
@@ -493,7 +630,7 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
             result = _text_cluster(descriptions, clip_analyses)
             if result:
                 logger.info("Identity clustering: Gemini text succeeded (%d clusters)", len(result))
-                return result
+                return _post_process_clusters(result)
         except Exception as e:
             logger.error("Identity clustering failed at all Gemini tiers, falling back: %s", e)
 

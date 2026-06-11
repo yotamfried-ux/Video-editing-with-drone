@@ -44,44 +44,196 @@ _FILENAME_SPORT_HINTS: dict[str, str] = {
 }
 
 
-def _run_reel_qa(reels: list[str], sport: str, athlete_label: str) -> None:
-    """Run independent social-media QA on each non-music reel and log the result.
+def _print_qa_result(reel: str, qa: dict) -> None:
+    verdict = qa.get("verdict", "PASS")
+    score   = qa.get("engagement_score", "?")
+    overall = qa.get("overall", "")
+    name    = Path(reel).name
+    if verdict == "FAIL":
+        tech_issues = qa.get("technical", {}).get("issues", [])
+        weak = {k: v for k, v in qa.get("content", {}).items()
+                if isinstance(v, (int, float)) and v < 6}
+        detail = []
+        if tech_issues:
+            detail.append(f"technical: {tech_issues}")
+        if weak:
+            detail.append(f"weak: {weak}")
+        print(f"  ⚠️  Reel QA FAIL [{name}] engagement={score} — "
+              f"{'; '.join(detail) or overall}")
+    else:
+        print(f"  ✅ Reel QA PASS [{name}] engagement={score} — {overall}")
+    # Defects are printed for PASS too — minor issues are still worth a look.
+    for d in qa.get("defects", []):
+        sev  = str(d.get("severity", "minor")).upper()
+        mark = "🔴" if sev == "CRITICAL" else "🟡"
+        at   = d.get("at_seconds")
+        at_s = f" @{at:.0f}s" if isinstance(at, (int, float)) else ""
+        print(f"     {mark} {d.get('type', '?')}{at_s} — {d.get('note', '')}")
 
-    Advisory only — never blocks upload. Reports verdict, engagement score,
-    technical spec issues, and any weak content dimensions.
+
+def _qa_blocking(qa: dict) -> bool:
+    """A reel blocks on QA only for critical content defects — the class of
+    problem the re-edit loop can actually fix by dropping/adjusting clips."""
+    if qa.get("verdict") != "FAIL":
+        return False
+    return any(str(d.get("severity", "")).lower() == "critical"
+               for d in qa.get("defects", []))
+
+
+# Defect types fixed by REMOVING the offending clip from the timeline.
+_DROP_DEFECTS = {"DUPLICATE_MOMENT", "IDENTITY_MISMATCH", "SOFT_FOCUS",
+                 "NO_VISIBLE_ACTION", "DEAD_TIME", "LOW_QUALITY"}
+
+
+def _apply_qa_fixes(ordered_events: list[dict], defects: list[dict]) -> tuple[list[dict], bool]:
+    """Translate QA defects into event-level edits.
+
+    ordered_events is the reel timeline (including the cold-open teaser, which
+    carries "_teaser": True). Defect timestamps are mapped to clips via estimated
+    clip durations. Returns (fixed_events_without_teaser, changed) — the teaser
+    is stripped because recompilation rebuilds it from the new climax.
     """
-    if not config.QA_REEL_CHECK:
-        return
-    from pipeline.stages.analyzer import qa_check_reel
-    for reel in reels:
-        if "_music" in os.path.basename(reel):
+    from pipeline.stages.editor import _est_clip_dur
+
+    # Approximate cumulative timeline (xfade overlaps ~0.2-0.5s are within the
+    # matching tolerance — QA timestamps are approximate anyway).
+    spans: list[tuple[float, float]] = []
+    t = 0.0
+    for ev in ordered_events:
+        dur = (_est_clip_dur(ev, True) if not ev.get("_teaser")
+               else (ev["end"] - ev["start"]))
+        spans.append((t, t + dur))
+        t += dur
+
+    def _idx_at(seconds: float) -> int | None:
+        for i, (s, e) in enumerate(spans):
+            if s - 1.5 <= seconds <= e + 1.5:
+                return i
+        return None
+
+    drop: set[int] = set()
+    fixed = [dict(ev) for ev in ordered_events]
+    changed = False
+    n_real = sum(1 for ev in ordered_events if not ev.get("_teaser"))
+
+    for d in defects:
+        if str(d.get("severity", "")).lower() != "critical":
             continue
-        qa      = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
-        verdict = qa.get("verdict", "PASS")
-        score   = qa.get("engagement_score", "?")
-        overall = qa.get("overall", "")
-        name    = Path(reel).name
-        defects = qa.get("defects", [])
-        if verdict == "FAIL":
-            tech_issues = qa.get("technical", {}).get("issues", [])
-            weak = {k: v for k, v in qa.get("content", {}).items()
-                    if isinstance(v, (int, float)) and v < 6}
-            detail = []
-            if tech_issues:
-                detail.append(f"technical: {tech_issues}")
-            if weak:
-                detail.append(f"weak: {weak}")
-            print(f"  ⚠️  Reel QA FAIL [{name}] engagement={score} — "
-                  f"{'; '.join(detail) or overall}")
-        else:
-            print(f"  ✅ Reel QA PASS [{name}] engagement={score} — {overall}")
-        # Defects are printed for PASS too — minor issues are still worth a look.
-        for d in defects:
-            sev  = str(d.get("severity", "minor")).upper()
-            mark = "🔴" if sev == "CRITICAL" else "🟡"
-            at   = d.get("at_seconds")
-            at_s = f" @{at:.0f}s" if isinstance(at, (int, float)) else ""
-            print(f"     {mark} {d.get('type', '?')}{at_s} — {d.get('note', '')}")
+        dtype = str(d.get("type", "")).upper()
+        at    = d.get("at_seconds")
+        idx   = _idx_at(float(at)) if isinstance(at, (int, float)) else None
+
+        if dtype == "BAD_FIRST_CLIP":
+            idx = next((i for i, ev in enumerate(fixed) if not ev.get("_teaser")), None)
+            if idx is not None and n_real - len(drop) > 1:
+                drop.add(idx); changed = True
+            continue
+        if idx is None or fixed[idx].get("_teaser"):
+            continue  # unmappable, or points at the intentional cold-open
+        if dtype in _DROP_DEFECTS:
+            if n_real - len(drop) > 1:   # never drop the last real clip
+                drop.add(idx); changed = True
+        elif dtype == "UNNATURAL_SLOWMO":
+            edit = dict(fixed[idx].get("edit") or {})
+            if edit.get("slowmo"):
+                edit["slowmo"] = False
+                fixed[idx]["edit"] = edit
+                changed = True
+        elif dtype == "PREMATURE_CUT":
+            fixed[idx]["end"] = float(fixed[idx]["end"]) + 3.0  # clamped at cut time
+            changed = True
+
+    if not changed:
+        return ordered_events, False
+    result = [ev for i, ev in enumerate(fixed)
+              if i not in drop and not ev.get("_teaser")]
+    return result, bool(result)
+
+
+def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
+             recompile) -> tuple[list[str], dict, set[str]]:
+    """QA every clean reel; critical FAILs trigger automatic re-edit + re-check.
+
+    recompile(events, new_events_out) → list[str] rebuilds a reel (and its music
+    sibling) from an adjusted event list. After config.QA_MAX_RETRIES the reel is
+    kept but flagged so the draft name tells the operator it needs manual review.
+
+    Returns (final_reels, events_by_reel, flagged_paths).
+    """
+    events_by_reel: dict = {p: evs for p, evs in events_out}
+    flagged: set[str] = set()
+    if not config.QA_REEL_CHECK or not reels:
+        return reels, events_by_reel, flagged
+
+    from pipeline.stages.analyzer import qa_check_reel
+    final = list(reels)
+
+    for reel in [r for r in reels if "_music" not in os.path.basename(r)]:
+        qa = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
+        _print_qa_result(reel, qa)
+        cur, attempt = reel, 0
+
+        while config.QA_GATE and _qa_blocking(qa) and attempt < config.QA_MAX_RETRIES:
+            evs = events_by_reel.get(cur)
+            if not evs:
+                break
+            fixed, ok = _apply_qa_fixes(evs, qa.get("defects", []))
+            if not ok:
+                print("  ⏭️  No actionable fix for QA defects — keeping reel as-is")
+                break
+            attempt += 1
+            n_before = sum(1 for e in evs if not e.get("_teaser"))
+            print(f"  🔁 QA re-edit {attempt}/{config.QA_MAX_RETRIES}: "
+                  f"{n_before}→{len(fixed)} clip(s)")
+            new_out: list = []
+            try:
+                new_reels = recompile(fixed, new_out)
+            except Exception:
+                logger.exception("QA re-edit recompile failed — keeping previous reel")
+                break
+            if not new_reels:
+                break
+            for p, e in new_out:
+                events_by_reel[p] = e
+            new_clean = next((r for r in new_reels
+                              if "_music" not in os.path.basename(r)), None)
+            if not new_clean:
+                break
+            # Swap old reel + its music sibling for the re-edited versions
+            sibling = cur.replace(".mp4", "_music.mp4")
+            for old in (cur, sibling):
+                if old in final:
+                    final.remove(old)
+                if old not in new_reels and os.path.exists(old):
+                    try: os.remove(old)
+                    except OSError: pass
+            final.extend(r for r in new_reels if r not in final)
+            cur = new_clean
+            qa = qa_check_reel(cur, sport=sport, athlete_label=athlete_label)
+            _print_qa_result(cur, qa)
+
+        if _qa_blocking(qa):
+            flagged.add(cur)
+            print(f"  🚩 QA still failing after {attempt} re-edit(s) — "
+                  f"uploading FLAGGED for operator review")
+
+    return final, events_by_reel, flagged
+
+
+def _group_appearances(events: list[dict]) -> list[dict]:
+    """Group _src-tagged events back into the appearances structure the
+    multi-source compiler expects, preserving source order."""
+    by_src: dict[str, list[dict]] = {}
+    order: list[str] = []
+    for ev in events:
+        src = ev.get("_src")
+        if not src:
+            continue
+        if src not in by_src:
+            by_src[src] = []
+            order.append(src)
+        by_src[src].append({k: v for k, v in ev.items() if k != "_src"})
+    return [{"path": src, "events": by_src[src]} for src in order]
 
 
 def _drain_and_flag(filename_to_file_id: dict[str, str]) -> None:
@@ -180,6 +332,62 @@ def _save_reel_metadata(draft_name: str, sport: str,
         logger.warning("Failed to save reel metadata for %s: %s", draft_name, e)
 
 
+def _record_draft_sources(draft_name: str, sources: list[dict],
+                          sport: str, athlete_desc: str) -> None:
+    """Persist draft → raw-source mapping in Supabase (CI runners are ephemeral;
+    this is what makes operator 'reprocess this reel' possible later)."""
+    try:
+        from integrations.supabase_uploader import record_draft
+        record_draft(draft_name, sources, sport, athlete_desc)
+    except Exception as e:
+        logger.debug("Draft source recording skipped (non-critical): %s", e)
+
+
+def _handle_reprocess_requests() -> list[str]:
+    """Consume operator reprocess requests from Supabase.
+
+    For each pending request: re-queue the raw source video(s) (PROCESSED → RAW
+    in Drive) and inject the operator's notes into this run's analysis prompts.
+    Returns the operator-note keys created, so main() can clear them after the
+    run (they are reprocess-specific and must not leak into future sessions).
+    """
+    try:
+        from integrations.supabase_uploader import (fetch_pending_reprocess,
+                                                    lookup_draft_sources,
+                                                    mark_reprocess)
+        requests = fetch_pending_reprocess()
+    except Exception as e:
+        logger.debug("Reprocess check skipped: %s", e)
+        return []
+    if not requests:
+        return []
+
+    from integrations.drive import requeue_video
+    from pipeline.stages.feedback import record_operator_note
+    print(f"\n🔁 {len(requests)} operator reprocess request(s) found")
+    note_keys: list[str] = []
+    for req in requests:
+        req_id     = req.get("id", "")
+        draft_name = req.get("draft_name", "") or ""
+        notes      = (req.get("notes") or "").strip()
+        sources    = lookup_draft_sources(draft_name) if draft_name else []
+        requeued   = 0
+        for src in sources:
+            if src.get("id") and requeue_video(src["id"]):
+                requeued += 1
+        if requeued:
+            print(f"  ↩️  '{draft_name}': {requeued} source video(s) re-queued")
+            if notes:
+                key = f"reprocess_{req_id[:8]}"
+                record_operator_note(key, notes)
+                note_keys.append(key)
+            mark_reprocess(req_id, "queued")
+        else:
+            print(f"  ⚠️  '{draft_name}': source videos not found — cannot reprocess")
+            mark_reprocess(req_id, "source_not_found")
+    return note_keys
+
+
 def _safe_draft_name(description: str) -> str:
     safe  = "".join(c if c.isalnum() or c in " _-" else "_" for c in description)
     safe  = safe.strip()[:50].strip()
@@ -217,9 +425,11 @@ def _classify_input(videos: list[dict]) -> str:
     return "clips_session"
 
 
-def _compile_clusters(clusters: list[dict], activity: str) -> int:
+def _compile_clusters(clusters: list[dict], activity: str,
+                      fn_to_id: dict[str, str] | None = None) -> int:
     pending: list[tuple[str, str]] = []
     pending_meta: list[tuple[str, str, list[dict], dict]] = []
+    fn_to_id = fn_to_id or {}
     for cluster in clusters:
         first_path     = cluster["appearances"][0]["path"] if cluster["appearances"] else None
         source_quality = _get_source_info(first_path) if first_path else {}
@@ -228,8 +438,18 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
         reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
                                           athlete_label=cluster["description"],
                                           _events_out=events_out)
-        _run_reel_qa(reels, sport=activity, athlete_label=cluster["description"])
-        events_by_reel = {path: evs for path, evs in events_out}
+
+        def _recompile(evs: list[dict], out: list) -> list[str]:
+            return compile_multi_source_reel(_group_appearances(evs), sport=activity,
+                                             athlete_label=cluster["description"],
+                                             _events_out=out)
+
+        reels, events_by_reel, flagged = _qa_gate(
+            reels, events_out, activity, cluster["description"], _recompile)
+
+        sources = [{"id": fn_to_id.get(Path(app["path"]).name, ""),
+                    "name": Path(app["path"]).name}
+                   for app in cluster["appearances"]]
         clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
         clean_idx   = 0
         for reel in reels:
@@ -238,10 +458,13 @@ def _compile_clusters(clusters: list[dict], activity: str) -> int:
                 clean_idx += 1
             part_label  = f" (part {clean_idx})" if clean_count > 1 else ""
             music_label = " (music)" if is_music else ""
-            name        = _safe_draft_name(cluster["description"] + part_label + music_label)
+            qa_label    = " QA-FLAGGED" if reel in flagged else ""
+            name        = _safe_draft_name(cluster["description"] + part_label
+                                           + music_label + qa_label)
             reel_events = events_by_reel.get(reel, all_events)
             pending.append((reel, name))
             pending_meta.append((reel, name, reel_events, source_quality))
+            _record_draft_sources(name, sources, activity, cluster["description"])
 
     def _upload_one(args: tuple[str, str]) -> bool:
         reel_path, name = args
@@ -350,9 +573,18 @@ def _process_long_video(video_meta: dict) -> int:
     for person in persons:
         if not person.get("events"):
             continue
+        events_out: list[tuple[str, list[dict]]] = []
         reels = create_reel(local_path, person["events"], sport=activity,
-                            athlete_label=person["description"])
-        _run_reel_qa(reels, sport=activity, athlete_label=person["description"])
+                            athlete_label=person["description"],
+                            _events_out=events_out)
+
+        def _recompile(evs: list[dict], out: list) -> list[str]:
+            cleaned = [{k: v for k, v in ev.items() if k != "_src"} for ev in evs]
+            return create_reel(local_path, cleaned, sport=activity,
+                               athlete_label=person["description"], _events_out=out)
+
+        reels, events_by_reel, flagged = _qa_gate(
+            reels, events_out, activity, person["description"], _recompile)
         _drain_and_flag(_fn_to_id)
         clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
         clean_idx   = 0
@@ -362,10 +594,15 @@ def _process_long_video(video_meta: dict) -> int:
                 clean_idx += 1
             part_label  = f" (part {clean_idx})" if clean_count > 1 else ""
             music_label = " (music)" if is_music else ""
-            name        = _safe_draft_name(person["description"] + part_label + music_label)
+            qa_label    = " QA-FLAGGED" if reel in flagged else ""
+            name        = _safe_draft_name(person["description"] + part_label
+                                           + music_label + qa_label)
+            reel_events = events_by_reel.get(reel, person["events"])
             try:
                 upload_draft(reel, name)
-                _save_reel_metadata(name, activity, person["events"], source_quality)
+                _save_reel_metadata(name, activity, reel_events, source_quality)
+                _record_draft_sources(name, [{"id": file_id, "name": filename}],
+                                      activity, person["description"])
                 drafts += 1
             except Exception:
                 logger.exception("Draft upload failed for %s", name)
@@ -412,8 +649,8 @@ def _process_clips_session(videos: list[dict]) -> int:
             mark_as_processed(ca["meta"]["id"])
         return 0
     print(f"👥 Found {len(clusters)} unique person(s)")
-    drafts = _compile_clusters(clusters, activity)
     fn_to_id = {Path(ca["path"]).name: ca["meta"]["id"] for ca in clip_analyses}
+    drafts = _compile_clusters(clusters, activity, fn_to_id)
     _drain_and_flag(fn_to_id)
     for ca in clip_analyses:
         try: os.remove(ca["path"])
@@ -461,8 +698,8 @@ def _process_mixed_session(videos: list[dict]) -> int:
             mark_as_processed(ca["meta"]["id"])
         return 0
     print(f"👥 Found {len(clusters)} unique person(s)")
-    drafts = _compile_clusters(clusters, activity)
     fn_to_id = {Path(ca["path"]).name: ca["meta"]["id"] for ca in clip_analyses}
+    drafts = _compile_clusters(clusters, activity, fn_to_id)
     _drain_and_flag(fn_to_id)
     for ca in clip_analyses:
         try: os.remove(ca["path"])
@@ -486,6 +723,9 @@ def main() -> None:
 
     _retry_pending_uploads()
     _check_disk_space()
+
+    # Operator "send back for re-edit" requests: re-queue sources + inject notes
+    reprocess_note_keys = _handle_reprocess_requests()
 
     new_videos = get_new_videos()
     if not new_videos:
@@ -513,5 +753,17 @@ def main() -> None:
         print("   Review in Drive, then run:  python deliver.py")
     else:
         print("\n⚠️ No drafts produced")
+
+    # Reprocess-specific operator notes were applied this run — clear them so
+    # they don't leak into unrelated future sessions, and close the requests.
+    if reprocess_note_keys:
+        from pipeline.stages.feedback import clear_operator_note
+        for key in reprocess_note_keys:
+            clear_operator_note(key)
+        try:
+            from integrations.supabase_uploader import close_queued_reprocess
+            close_queued_reprocess()
+        except Exception:
+            pass
 
     logger.info("Phase 1 complete. Videos: %d, Drafts: %d", len(new_videos), drafts)

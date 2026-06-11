@@ -443,6 +443,31 @@ def mark_as_processed(file_id: str) -> None:
         print(f"⚠️ Could not move original to PROCESSED folder: {e}")
 
 
+def requeue_video(file_id: str) -> bool:
+    """Reverse of mark_as_processed: move a raw video PROCESSED → RAW and remove
+    its ID from processed.json so the next scan picks it up again. Used by the
+    operator 'reprocess this reel' flow. Returns True on success."""
+    try:
+        service = _get_upload_service()
+        file_meta = _drive_retry(lambda: service.files().get(
+            fileId=file_id, fields="parents, name").execute())
+        current_parents = ",".join(file_meta.get("parents", []))
+        _drive_retry(lambda: service.files().update(
+            fileId=file_id,
+            addParents=config.RAW_FOLDER_ID,
+            removeParents=current_parents,
+            fields="id, parents",
+        ).execute())
+        ids = _load_processed_ids()
+        ids.discard(file_id)
+        _save_processed_ids(ids)
+        print(f"↩️  Re-queued '{file_meta.get('name', file_id)}' for reprocessing")
+        return True
+    except Exception as e:
+        logger.warning("⚠️ Could not requeue file %s: %s", file_id, e)
+        return False
+
+
 def flag_quality_issue(file_id: str, reasons: str) -> None:
     """Update the raw video's Drive description with a quality flag for operator visibility."""
     try:

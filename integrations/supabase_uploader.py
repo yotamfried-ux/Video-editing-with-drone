@@ -59,6 +59,52 @@ def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: 
     return f"https://{domain}/reel/{token}"
 
 
+def record_draft(draft_name: str, sources: list[dict],
+                 sport: str, athlete_desc: str) -> None:
+    """Upsert the draft → raw-source mapping (drafts table). Enables operator
+    reprocess requests to find which raw videos produced a given draft."""
+    _supabase().table("drafts").upsert({
+        "draft_name":   draft_name,
+        "sources":      sources,
+        "sport":        sport,
+        "athlete_desc": athlete_desc,
+    }).execute()
+
+
+def lookup_draft_sources(draft_name: str) -> list[dict]:
+    """Return [{"id": drive_file_id, "name": filename}] for a draft, or []."""
+    res = (_supabase().table("drafts").select("sources")
+           .eq("draft_name", draft_name).limit(1).execute())
+    if res.data:
+        return res.data[0].get("sources") or []
+    return []
+
+
+def fetch_pending_reprocess() -> list[dict]:
+    """Operator reprocess requests not yet acted on."""
+    res = (_supabase().table("reprocess_requests").select("*")
+           .eq("status", "pending").order("created_at").execute())
+    return res.data or []
+
+
+def mark_reprocess(req_id: str, status: str) -> None:
+    from datetime import datetime, timezone
+    _supabase().table("reprocess_requests").update({
+        "status":       status,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("id", req_id).execute()
+
+
+def close_queued_reprocess() -> None:
+    """Mark all 'queued' requests as done — called after a successful run that
+    consumed them (their sources were processed in this run)."""
+    from datetime import datetime, timezone
+    _supabase().table("reprocess_requests").update({
+        "status":       "done",
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }).eq("status", "queued").execute()
+
+
 def write_pipeline_status(stage: str, progress: float, **meta) -> None:
     """Upsert pipeline_status table (id=1). Called from orchestrator to show progress in app."""
     try:
