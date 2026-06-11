@@ -35,8 +35,13 @@ jobs:
 
       - name: Publish OTA update
         working-directory: mobile
+        env:
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
         run: |
+          # Use only the first line of the commit message — the full body
+          # contains special chars (parens, quotes) that break eas update args.
+          FIRST_LINE=$(printf '%s' "$COMMIT_MSG" | head -1)
           eas update \
             --channel preview \
-            --message "${{ github.event.head_commit.message }}" \
+            --message "$FIRST_LINE" \
             --non-interactive
