@@ -1,12 +1,30 @@
 name: EAS Update
 
+# JS-only changes ship over the air in ~3 minutes — no new APK build.
+# Native changes (new libraries, config plugins, app.json native fields)
+# still require a full EAS Build.
 on:
   push:
-    branches: [main]
+    branches: [main, 'claude/drone-pipeline-bootstrap-Yf0Hs']
     paths:
       - 'mobile/**'
       - '!mobile/android/**'
       - '!mobile/ios/**'
+  workflow_dispatch:
+    inputs:
+      message:
+        description: 'Update message (shown in expo.dev dashboard)'
+        required: false
+        default: 'JS update'
+        type: string
+      channel:
+        description: 'Update channel (must match the installed build profile)'
+        required: true
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production
 
 jobs:
   update:
@@ -37,11 +55,20 @@ jobs:
         working-directory: mobile
         env:
           COMMIT_MSG: ${{ github.event.head_commit.message }}
+          INPUT_MSG: ${{ inputs.message }}
+          INPUT_CHANNEL: ${{ inputs.channel }}
         run: |
-          # Use only the first line of the commit message — the full body
-          # contains special chars (parens, quotes) that break eas update args.
-          FIRST_LINE=$(printf '%s' "$COMMIT_MSG" | head -1)
+          # Manual runs pass message/channel as inputs; push runs use the
+          # commit message first line (full body contains special chars that
+          # break eas update args).
+          if [ -n "$INPUT_CHANNEL" ]; then
+            CHANNEL="$INPUT_CHANNEL"
+            MSG="$INPUT_MSG"
+          else
+            CHANNEL="preview"
+            MSG=$(printf '%s' "$COMMIT_MSG" | head -1)
+          fi
           eas update \
-            --channel preview \
-            --message "$FIRST_LINE" \
+            --channel "$CHANNEL" \
+            --message "$MSG" \
             --non-interactive
