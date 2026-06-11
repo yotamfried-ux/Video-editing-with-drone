@@ -101,6 +101,7 @@ def _drain_and_flag(filename_to_file_id: dict[str, str]) -> None:
 
 
 def _check_disk_space() -> None:
+    os.makedirs(config.TMP_DIR, exist_ok=True)  # fresh CI runners start without it
     free = shutil.disk_usage(config.TMP_DIR).free / (1024 ** 3)
     if free < _MIN_FREE_GB:
         raise RuntimeError(
