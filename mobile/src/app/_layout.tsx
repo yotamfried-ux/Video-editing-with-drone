@@ -9,6 +9,7 @@ import {
   PlusJakartaSans_800ExtraBold,
 } from '@expo-google-fonts/plus-jakarta-sans';
 import * as SplashScreen from 'expo-splash-screen';
+import * as Updates from 'expo-updates';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { StripeProvider } from '@stripe/stripe-react-native';
@@ -19,6 +20,23 @@ import { setCrashContext, installJsCrashReporter } from '@/shared/lib/crashRepor
 
 SplashScreen.preventAutoHideAsync();
 installJsCrashReporter();
+
+// Apply pending OTA updates on cold start so fixes land on the first open,
+// not the one after. Incompatible bundles are filtered out by the
+// fingerprint runtimeVersion, so reloading here is safe.
+async function applyPendingUpdate() {
+  if (__DEV__ || !Updates.isEnabled) return;
+  try {
+    const check = await Updates.checkForUpdateAsync();
+    if (check.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      await Updates.reloadAsync();
+    }
+  } catch {
+    // Offline or update server unreachable — continue with the current bundle.
+  }
+}
+applyPendingUpdate();
 
 function CrashContextSync() {
   const pathname = usePathname();
