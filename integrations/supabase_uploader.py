@@ -61,6 +61,7 @@ def publish_reel_approved(
         "stream_uid": stream_uid,
         "storage_path": storage_path,
         "source_video": draft_name,
+        "status": "published",
     }).execute()
 
     return reel_id
@@ -91,6 +92,7 @@ def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: 
         "stream_uid": stream_uid,
         "storage_path": storage_path,
         "source_video": Path(local_path).name,
+        "status": "published",
     }).execute()
 
     token = row.data[0]["token"]
