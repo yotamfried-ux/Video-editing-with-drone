@@ -1,5 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, FlatList, Linking, RefreshControl } from 'react-native';
+import {
+  View,
+  StyleSheet,
+  FlatList,
+  Linking,
+  RefreshControl,
+  Modal,
+  TextInput,
+  Alert,
+} from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
@@ -26,6 +35,9 @@ export default function OperatorReelsScreen() {
   const router = useRouter();
   const [reels, setReels] = useState<ReelRow[]>([]);
   const [refreshing, setRefreshing] = useState(false);
+  const [reprocessTarget, setReprocessTarget] = useState<ReelRow | null>(null);
+  const [reprocessNotes, setReprocessNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
 
   const load = useCallback(async () => {
     // reels no longer allow broad anon read; fetch via the operator API.
@@ -53,6 +65,31 @@ export default function OperatorReelsScreen() {
     Linking.openURL(`whatsapp://send?text=${msg}`).catch(() =>
       Linking.openURL(`https://wa.me/?text=${msg}`)
     );
+  };
+
+  const submitReprocess = async () => {
+    if (!reprocessTarget) return;
+    setSubmitting(true);
+    try {
+      await operatorFetch('/api/operator/reprocess', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reel_id: reprocessTarget.id,
+          notes: reprocessNotes.trim(),
+        }),
+      });
+      setReprocessTarget(null);
+      setReprocessNotes('');
+      Alert.alert(
+        'Sent for re-edit',
+        'The source footage will be reprocessed with your notes on the next pipeline run.'
+      );
+    } catch (e) {
+      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not send reprocess request.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -109,10 +146,64 @@ export default function OperatorReelsScreen() {
                   style={{ flex: 1, height: 44 }}
                 />
               </View>
+              <Button
+                label="Send back for re-edit"
+                onPress={() => {
+                  setReprocessNotes('');
+                  setReprocessTarget(item);
+                }}
+                variant="ghost"
+                style={{ height: 44 }}
+              />
             </Card>
           )}
         />
       </View>
+
+      <Modal
+        visible={reprocessTarget !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setReprocessTarget(null)}
+      >
+        <View style={styles.modalBackdrop}>
+          <Card bordered style={styles.modalCard}>
+            <Text variant="title">Re-edit reel</Text>
+            <Text variant="caption" color={Colors.textSecondary}>
+              {reprocessTarget?.athlete_desc || reprocessTarget?.sport || ''}
+            </Text>
+            <Text variant="body" color={Colors.textSecondary}>
+              Describe what's wrong — your notes go straight to the editing AI
+              (e.g. "wrong surfer in clip 3", "drop the short waves", "too much slow-mo").
+            </Text>
+            <TextInput
+              style={styles.notesInput}
+              value={reprocessNotes}
+              onChangeText={setReprocessNotes}
+              placeholder="Notes for the re-edit…"
+              placeholderTextColor={Colors.textSecondary}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+            <View style={styles.actions}>
+              <Button
+                label="Cancel"
+                onPress={() => setReprocessTarget(null)}
+                variant="ghost"
+                style={{ flex: 1, height: 44 }}
+              />
+              <Button
+                label={submitting ? 'Sending…' : 'Send for re-edit'}
+                onPress={submitReprocess}
+                disabled={submitting || !reprocessNotes.trim()}
+                variant="secondary"
+                style={{ flex: 1, height: 44 }}
+              />
+            </View>
+          </Card>
+        </View>
+      </Modal>
     </SafeArea>
   );
 }
@@ -121,4 +212,19 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.lg },
   cardHead: { flexDirection: 'row', alignItems: 'flex-start', gap: Spacing.sm },
   actions: { flexDirection: 'row', gap: Spacing.sm },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    padding: Spacing.lg,
+  },
+  modalCard: { gap: Spacing.sm },
+  notesInput: {
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 8,
+    padding: Spacing.sm,
+    minHeight: 96,
+    color: Colors.textPrimary,
+  },
 });

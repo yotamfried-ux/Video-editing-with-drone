@@ -15,6 +15,8 @@ import { Spacer } from '@/shared/components/Spacer';
 import { useAuth } from '@/shared/hooks/useAuth';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { supabase } from '@/shared/lib/supabase';
+import { getOperatorSecret } from '@/features/operator/lib/operatorSecret';
+import { useOperatorUnlock } from '@/features/operator/hooks/useOperatorUnlock';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function ProfileScreen() {
@@ -24,12 +26,16 @@ export default function ProfileScreen() {
   const [name, setName] = useState('');
   const [taps, setTaps] = useState(0);
 
-  const handleLogoTap = () => {
+  const handleLogoTap = async () => {
     const next = taps + 1;
     setTaps(next);
     if (next >= 5) {
       setTaps(0);
-      router.push('/(operator)/pipeline');
+      const ok = await useOperatorUnlock.getState().unlock();
+      if (!ok) return;
+      // First time (no secret yet) — land on settings to configure it.
+      const secret = await getOperatorSecret();
+      router.push(secret ? '/(operator)/pipeline' : '/(operator)/settings');
     }
   };
 

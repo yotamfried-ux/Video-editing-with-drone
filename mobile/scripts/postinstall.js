@@ -4,20 +4,13 @@
 const fs = require('fs');
 const path = require('path');
 
-// 1. expo-modules-core: "main" points to src/index.ts → redirect to index.js
-(function patchExpoModulesCore() {
-  const pkgPath = path.join('node_modules', 'expo-modules-core', 'package.json');
-  try {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
-    if (pkg.main === 'src/index.ts') {
-      pkg.main = 'index.js';
-      fs.writeFileSync(pkgPath, JSON.stringify(pkg, null, 2));
-      console.log('postinstall: patched expo-modules-core main → index.js');
-    }
-  } catch (_) {}
-})();
+// NOTE: do NOT patch expo-modules-core's "main" field. It intentionally points
+// to src/index.ts (Metro compiles TS); its index.js is a `module.exports = null`
+// stub for Node-only contexts. Redirecting main to index.js makes Metro bundle
+// `null` as the entire library → "Cannot read property 'requireOptionalNativeModule'
+// of null" crash at app startup. (This was the "SportReel keeps stopping" bug.)
 
-// 2. expo-screen-capture: no app.plugin.js, main is ESM → create a CJS no-op plugin
+// expo-screen-capture: no app.plugin.js, main is ESM → create a CJS no-op plugin
 (function patchExpoScreenCapture() {
   const pluginPath = path.join('node_modules', 'expo-screen-capture', 'app.plugin.js');
   if (!fs.existsSync(pluginPath)) {

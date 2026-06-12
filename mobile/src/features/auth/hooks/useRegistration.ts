@@ -1,17 +1,31 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
 import * as ImagePicker from 'expo-image-picker';
 
-type Step = 'credentials' | 'profile' | 'face';
+type Step = 'credentials' | 'profile' | 'face' | 'done';
 
-export function useRegistration() {
-  const [step, setStep] = useState<Step>('credentials');
+export function useRegistration(initialStep: Step = 'credentials', skipFace = false) {
+  const [step, setStep] = useState<Step>(initialStep);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [name, setName] = useState('');
   const [userId, setUserId] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Resuming mid-flow (e.g. login routed here because the profile has no
+  // name yet) — hydrate userId from the stored session instead of signUp.
+  useEffect(() => {
+    if (initialStep === 'credentials') return;
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        setUserId(session.user.id);
+        setEmail(session.user.email ?? '');
+      } else {
+        setStep('credentials');
+      }
+    });
+  }, []);
 
   const submitCredentials = async () => {
     if (password.length < 6) {
@@ -26,6 +40,12 @@ export function useRegistration() {
       setLoading(false);
       return;
     }
+    if (!data.session) {
+      // Supabase has email confirmation enabled — user must confirm before continuing.
+      setError('Check your email and click the confirmation link, then open the app again.');
+      setLoading(false);
+      return;
+    }
     setUserId(data.user?.id ?? null);
     setLoading(false);
     setStep('profile');
@@ -33,20 +53,24 @@ export function useRegistration() {
 
   const submitProfile = async () => {
     if (!userId) return;
+    if (!name.trim()) {
+      setError('Please enter your name');
+      return;
+    }
     setLoading(true);
     setError(null);
-    const { error: e } = await supabase.from('athlete_profiles').upsert({
-      user_id: userId,
-      email,
-      name,
-    });
+    // The DB trigger already inserted the row on signup; we only need to set name.
+    const { error: e } = await supabase
+      .from('athlete_profiles')
+      .update({ name: name.trim() })
+      .eq('user_id', userId);
     if (e) {
       setError(e.message);
       setLoading(false);
       return;
     }
     setLoading(false);
-    setStep('face');
+    setStep(skipFace ? 'done' : 'face');
   };
 
   const uploadFacePhoto = async (uri: string) => {
@@ -72,7 +96,7 @@ export function useRegistration() {
     }
   };
 
-  const skipFace = () => {};
+  const onSkipFace = () => { setStep('done'); };
 
   return {
     step,
@@ -87,6 +111,6 @@ export function useRegistration() {
     submitCredentials,
     submitProfile,
     uploadFacePhoto,
-    skipFace,
+    skipFace: onSkipFace,
   };
 }

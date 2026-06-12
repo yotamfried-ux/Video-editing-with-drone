@@ -191,20 +191,30 @@ Apply documented short-form best practices:
 Additionally scan the FULL reel for production defects. Report EVERY occurrence
 with its approximate timestamp in seconds:
 - DUPLICATE_MOMENT  — the same action/wave/trick appears more than once anywhere
-                      in the reel (even re-framed or at a different speed)
+                      in the reel (even re-framed or at a different speed).
+                      EXCEPTION: a deliberate "cold open" — a ≤3s flash of the
+                      climax at the very START of the reel that repeats later as
+                      the finale — is an intentional editing technique, NOT a defect.
 - PREMATURE_CUT     — an action is cut before its natural completion (e.g. a wave
                       ride ends mid-ride instead of at the finish/exit)
 - UNNATURAL_SLOWMO  — slow motion that stutters, drags far too long, or covers
                       buildup instead of the apex of the action
 - IDENTITY_MISMATCH — a clip clearly shows a different person than the rest of
-                      the reel (different clothing / equipment / board / build)
+                      the reel (different clothing / equipment / board / build).
+                      Check EVERY clip — mixed-athlete reels are the worst defect.
 - SOFT_FOCUS        — noticeably blurry or low-detail footage relative to the rest
+- LOW_QUALITY       — visible pixelation, compression artifacts, or upscaling
+                      softness (image looks stretched / lacks detail at 1080p)
+- NO_VISIBLE_ACTION — a clip where nothing meaningful is actually visible: a wave
+                      with no readable ride, an athlete too small/far to see, or a
+                      moment so short (1-2s of content) that no action registers
 - DEAD_TIME         — more than ~2 seconds with no meaningful action
 - BAD_FIRST_CLIP    — the opening clip contains no real action (empty water,
                       paddling only, subject barely visible)
 
-severity rules: DUPLICATE_MOMENT and IDENTITY_MISMATCH are always "critical".
-PREMATURE_CUT is "critical" when it truncates the reel's best moment, else "minor".
+severity rules: DUPLICATE_MOMENT, IDENTITY_MISMATCH and NO_VISIBLE_ACTION are
+always "critical". PREMATURE_CUT is "critical" when it truncates the reel's best
+moment, else "minor". LOW_QUALITY is "critical" when it affects most of the reel.
 Anything that would clearly make a viewer scroll away is "critical"; otherwise "minor".
 
 Return JSON only (no markdown fences):
@@ -484,6 +494,10 @@ SELECTION RULES:
   Do NOT report fragments where nothing clearly happens (a 2-second ripple, a half-visible
   turn, an action that starts after the camera looks away). If the real content is shorter
   than 5 seconds, it is not an event — skip it rather than stretching its timestamps.
+- THE ACTION MUST BE READABLE ON A PHONE SCREEN: if a viewer watching this segment
+  could not tell you what the athlete actually did (wave too small, athlete a distant
+  dot, spray hides everything), it is NOT an event regardless of duration. Never pad
+  timestamps around a 1-2s moment to satisfy the minimum — skip it entirely.
 - Avoid overlapping timestamps: if two moments for the same person start within 3 seconds
   of each other, include ONLY the higher-scored one.
 - Prefer variety: avoid 3+ nearly identical consecutive moves

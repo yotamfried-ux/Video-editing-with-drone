@@ -1,19 +1,67 @@
-import React from 'react';
-import { View, StyleSheet, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useState } from 'react';
+import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
+import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { PipelineBar } from '@/features/operator/components/PipelineBar';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
+import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
-const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'done'];
+const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
+
+interface ReprocessRow {
+  id: string;
+  draft_name: string | null;
+  notes: string;
+  status: string;
+  created_at: string;
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  pending: '⏳ waiting for next run',
+  queued: '🔁 re-editing now',
+  done: '✅ done',
+  source_not_found: '⚠️ source not found',
+};
 
 export default function PipelineScreen() {
   const status = usePipelineStatus();
   const meta = (status?.meta ?? {}) as Record<string, unknown>;
+  const [requests, setRequests] = useState<ReprocessRow[]>([]);
+  const [triggering, setTriggering] = useState(false);
+
+  const loadRequests = useCallback(async () => {
+    try {
+      const { requests: data } = await operatorFetch<{ requests: ReprocessRow[] }>(
+        '/api/operator/reprocess'
+      );
+      setRequests(data ?? []);
+    } catch {
+      setRequests([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadRequests();
+    const t = setInterval(loadRequests, 15000);
+    return () => clearInterval(t);
+  }, [loadRequests]);
+
+  const runPipeline = async () => {
+    setTriggering(true);
+    try {
+      await operatorFetch('/api/operator/pipeline/run', { method: 'POST' });
+      Alert.alert('Pipeline triggered', 'The run starts within a few seconds — watch the progress here.');
+    } catch (e) {
+      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not trigger the pipeline.');
+    } finally {
+      setTriggering(false);
+    }
+  };
 
   return (
     <SafeArea>
@@ -28,6 +76,13 @@ export default function PipelineScreen() {
 
           <Card bordered style={{ gap: Spacing.md }}>
             <PipelineBar stage={status?.stage ?? 'idle'} progress={status?.progress ?? 0} />
+            <Button
+              label={triggering ? 'Triggering…' : '▶ Run pipeline now'}
+              onPress={runPipeline}
+              disabled={triggering}
+              variant="secondary"
+              style={{ height: 44 }}
+            />
           </Card>
 
           {/* Stage timeline */}
@@ -57,6 +112,30 @@ export default function PipelineScreen() {
             })}
           </Card>
 
+          {/* Re-edit queue */}
+          {requests.length > 0 && (
+            <Card bordered style={{ gap: Spacing.sm }}>
+              <Text variant="title">Re-edit requests</Text>
+              {requests.map((r) => (
+                <View key={r.id} style={{ gap: 2 }}>
+                  <View style={styles.metaRow}>
+                    <Text variant="caption" color={Colors.textPrimary} numberOfLines={1} style={{ flex: 1 }}>
+                      {r.draft_name || r.id.slice(0, 8)}
+                    </Text>
+                    <Text variant="caption" color={Colors.accent}>
+                      {STATUS_LABEL[r.status] ?? r.status}
+                    </Text>
+                  </View>
+                  {!!r.notes && (
+                    <Text variant="caption" color={Colors.textSecondary} numberOfLines={2}>
+                      “{r.notes}”
+                    </Text>
+                  )}
+                </View>
+              ))}
+            </Card>
+          )}
+
           {/* Meta from last run */}
           {Object.keys(meta).length > 0 && (
             <Card bordered style={{ gap: Spacing.xs }}>
@@ -80,5 +159,5 @@ const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.lg },
   stageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.cardBorder },
-  metaRow: { flexDirection: 'row', justifyContent: 'space-between' },
+  metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
 });

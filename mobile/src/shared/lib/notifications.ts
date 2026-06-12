@@ -1,17 +1,39 @@
-/**
- * Push notifications — temporarily disabled.
- *
- * expo-notifications requires Firebase (google-services.json) on Android.
- * Without it the native module can crash a release build at startup
- * ("SportReel keeps stopping"), and remote push cannot work anyway, so the
- * package is removed from the build entirely until Firebase is configured.
- *
- * To re-enable:
- *   1. Create a Firebase project and download google-services.json into mobile/
- *   2. app.json → android: { "googleServicesFile": "./google-services.json" }
- *   3. npx expo install expo-notifications and restore the plugin in app.json
- *   4. Restore the registration logic from this file's git history
- */
-export async function registerPushToken(): Promise<void> {
-  // no-op until Firebase is configured
+import { Platform } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import Constants from 'expo-constants';
+
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({
+    shouldShowAlert: true,
+    shouldPlaySound: true,
+    shouldSetBadge: true,
+  }),
+});
+
+export async function registerPushToken(): Promise<string | null> {
+  if (!Device.isDevice) return null;
+
+  if (Platform.OS === 'android') {
+    await Notifications.setNotificationChannelAsync('default', {
+      name: 'SportReel',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#5B6EF5',
+    });
+  }
+
+  const { status: existing } = await Notifications.getPermissionsAsync();
+  const { status } =
+    existing === 'granted'
+      ? { status: existing }
+      : await Notifications.requestPermissionsAsync();
+
+  if (status !== 'granted') return null;
+
+  const projectId = Constants.expoConfig?.extra?.eas?.projectId;
+  if (!projectId) return null;
+
+  const { data } = await Notifications.getExpoPushTokenAsync({ projectId });
+  return data;
 }

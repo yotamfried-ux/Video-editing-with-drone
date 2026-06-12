@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
@@ -13,7 +13,13 @@ const STEPS = ['Account', 'Profile', 'Face ID'] as const;
 
 export default function RegisterScreen() {
   const router = useRouter();
-  const reg = useRegistration();
+  const { step: stepParam, nameOnly } = useLocalSearchParams<{ step?: string; nameOnly?: string }>();
+  const isNameOnly = nameOnly === 'true';
+  const reg = useRegistration(stepParam === 'profile' ? 'profile' : 'credentials', isNameOnly);
+
+  useEffect(() => {
+    if (reg.step === 'done') router.replace('/(tabs)/discover');
+  }, [reg.step]);
 
   const stepIndex = reg.step === 'credentials' ? 0 : reg.step === 'profile' ? 1 : 2;
 
@@ -55,7 +61,7 @@ export default function RegisterScreen() {
           <FaceUploadStep
             onUpload={async (uri) => {
               await reg.uploadFacePhoto(uri);
-              router.replace('/(tabs)/highlights');
+              router.replace('/(tabs)/discover');
             }}
             onSkip={() => router.replace('/(tabs)/discover')}
             loading={reg.loading}

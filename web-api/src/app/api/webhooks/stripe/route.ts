@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { sendPaymentConfirmEmail } from '@/lib/email';
 
 export async function POST(req: NextRequest) {
   const sig = req.headers.get('stripe-signature')!;
@@ -26,7 +27,18 @@ export async function POST(req: NextRequest) {
       .update({ status: 'sold' })
       .eq('id', reelId);
 
-    const { data: reel } = await supabaseAdmin.from('reels').select('sport, recording_date').eq('id', reelId).single();
+    const { data: reel } = await supabaseAdmin
+      .from('reels')
+      .select('sport, recording_date, user_id')
+      .eq('id', reelId)
+      .single();
+
+    if (reel?.user_id) {
+      const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(reel.user_id);
+      if (user?.email) {
+        sendPaymentConfirmEmail(user.email, reelId, intent.amount).catch(() => {});
+      }
+    }
 
     await supabaseAdmin.from('analytics_events').insert({
       event_type: 'payment_completed',

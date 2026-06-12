@@ -25,12 +25,20 @@
     },
     "android": {
       "package": "com.sportreel.app",
-      "versionCode": 1,
+      "versionCode": 2,
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#0A0E1A"
       },
-      "permissions": ["android.permission.INTERNET", "android.permission.CAMERA", "android.permission.READ_EXTERNAL_STORAGE"]
+      "permissions": [
+        "android.permission.INTERNET",
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ]
     },
     "plugins": [
       "expo-router",
@@ -39,16 +47,22 @@
       "expo-font",
       ["expo-build-properties", { "android": { "kotlinVersion": "1.9.25" } }],
       "expo-updates",
+      [
+        "expo-notifications",
+        {
+          "color": "#5B6EF5"
+        }
+      ],
       "./plugins/withCrashReporter"
     ],
     "updates": {
       "url": "https://u.expo.dev/5c03988f-3dae-4763-953a-672717dedda2",
       "enabled": true,
       "checkAutomatically": "ON_LOAD",
-      "fallbackToCacheTimeout": 30000
+      "fallbackToCacheTimeout": 0
     },
     "runtimeVersion": {
-      "policy": "appVersion"
+      "policy": "fingerprint"
     },
     "experiments": { "typedRoutes": true },
     "owner": "yotam102",

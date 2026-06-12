@@ -24,12 +24,25 @@ export default function LoginScreen() {
   const login = async () => {
     setLoading(true);
     setError(null);
-    const { error: e } = await supabase.auth.signInWithPassword({
+    const { data, error: e } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    if (e) setError(e.message);
-    else router.replace('/(tabs)/discover');
+    if (e) {
+      setError(e.message);
+      setLoading(false);
+      return;
+    }
+    // Resume onboarding if the profile was never completed (e.g. the user
+    // signed up but closed the app before entering their name).
+    const { data: profile } = await supabase
+      .from('athlete_profiles')
+      .select('name')
+      .eq('user_id', data.user.id)
+      .maybeSingle();
+    router.replace(
+      profile?.name ? '/(tabs)/discover' : '/(auth)/register?step=profile&nameOnly=true'
+    );
     setLoading(false);
   };
 

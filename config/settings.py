@@ -48,6 +48,11 @@ QA_DUR_OK_MIN: float         = float(os.getenv("QA_DUR_OK_MIN", "7"))
 # Aligned with the editor's TARGET_REEL_MAX (85s) — flag only true outliers.
 QA_DUR_OK_MAX: float         = float(os.getenv("QA_DUR_OK_MAX", "90"))
 QA_RESULTS_FILE: str         = os.getenv("QA_RESULTS_FILE", "qa_results.jsonl")
+# QA gate: when a reel FAILs with critical defects, automatically re-edit
+# (drop/fix the offending clips) and re-check, up to QA_MAX_RETRIES times.
+# Reels still failing after retries are uploaded with a QA-FLAGGED name.
+QA_GATE: bool       = os.getenv("QA_GATE", "true").lower() == "true"
+QA_MAX_RETRIES: int = int(os.getenv("QA_MAX_RETRIES", "2"))
 PENDING_UPLOADS_DIR: str = os.getenv("PENDING_UPLOADS_DIR", "pending_uploads")
 QUALITY_LOG_FILE: str    = os.getenv("QUALITY_LOG_FILE", "quality_issues.jsonl")
 

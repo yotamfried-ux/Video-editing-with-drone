@@ -1157,7 +1157,9 @@ def _add_loop_bookend(reel_path: str, total_dur: float, has_audio: bool = False)
         ),
         "-map", "[out]",
         *(["-map", "0:a", "-c:a", "copy"] if has_audio else ["-an"]),
-        "-c:v", "libx264", "-preset", "fast", "-crf", "18",
+        # This re-encodes the ENTIRE reel (3rd H.264 generation after clip CRF14
+        # and compile CRF16) — must be near-transparent or the whole reel softens.
+        "-c:v", "libx264", "-preset", "medium", "-crf", "14",
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         tmp,
     ]
@@ -1416,8 +1418,9 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             _preview_start = max(_preview_start, _climax_ev["start"])
             _preview_ev = {
                 **_climax_ev,
-                "start": _preview_start,
-                "end":   _preview_start + _preview_dur,
+                "start":   _preview_start,
+                "end":     _preview_start + _preview_dur,
+                "_teaser": True,  # intentional cold-open duplicate — QA loop must not treat as defect
                 "edit": {
                     **(_climax_ev.get("edit") or {}),
                     "slowmo":         False,
@@ -1440,16 +1443,18 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             event_transitions[_n - 2] = "zoom"
         idx_base          = 91 + part_idx * 50
 
-        # Extract _src before submitting to thread pool (pop is not thread-safe on shared dict)
+        # Keep _src on the ordered events (the QA re-edit loop needs the source
+        # mapping); pass a cleaned copy to the cutting tasks.
         tasks = []
         src_info_cache: dict[str, dict] = {}
         for i, event in enumerate(ordered):
-            src    = event.pop("_src")
+            src    = event["_src"]
             if src not in src_info_cache:
                 src_info_cache[src] = _get_source_info(src)
             si     = src_info_cache[src]
             slowmo = si["can_slowmo"]
-            tasks.append((i, src, event, slowmo, si))
+            clean  = {k: v for k, v in event.items() if k != "_src"}
+            tasks.append((i, src, clean, slowmo, si))
 
         clip_paths = []
         with ThreadPoolExecutor(max_workers=config.MAX_CUT_WORKERS) as pool:
@@ -1578,10 +1583,13 @@ def create_preview(reel_path: str, athlete_label: str = "") -> str:
 # ── ממשק ראשי ─────────────────────────────────────────────────────────────
 
 def create_reel(video_path: str, events: list[dict], sport: str = "",
-                athlete_label: str = "") -> list[str]:
+                athlete_label: str = "",
+                _events_out: list | None = None) -> list[str]:
     """
     מקבל סרטון גולמי + events מ-Gemini.
     מחזיר רשימת ריל 9:16 מוכנים להעלאה (אחד או יותר אם ה-events עוברים את TARGET_REEL_MAX).
+    _events_out: optional list; if provided, (reel_path, ordered_events) tuples are
+    appended for each produced reel (enables the QA re-edit loop + per-reel metadata).
     """
     print(f"\n🎬 Creating reel from '{Path(video_path).name}' ({len(events)} event(s))")
 
@@ -1657,8 +1665,9 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                 _preview_start = _eff_end - _preview_dur
             _preview_ev = {
                 **_climax_ev,
-                "start": _preview_start,
-                "end":   _preview_start + _preview_dur,
+                "start":   _preview_start,
+                "end":     _preview_start + _preview_dur,
+                "_teaser": True,  # intentional cold-open duplicate — QA loop must not treat as defect
                 "edit": {
                     **(_climax_ev.get("edit") or {}),
                     "slowmo":         False,
@@ -1736,6 +1745,8 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                                       transitions=event_transitions, fps=reel_fps)
             if reel_clean:
                 reels.append(reel_clean)
+                if _events_out is not None:
+                    _events_out.append((reel_clean, ordered))
 
             music_track = _pick_music(sport)
             if music_track:
@@ -1746,6 +1757,8 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                                           transitions=event_transitions, fps=reel_fps)
                 if reel_music:
                     reels.append(reel_music)
+                    if _events_out is not None:
+                        _events_out.append((reel_music, ordered))
         finally:
             for p in clip_paths:
                 try: os.remove(p)

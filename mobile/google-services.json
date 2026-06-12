@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "359271345662",
+    "project_id": "sportreel-3eb42",
+    "storage_bucket": "sportreel-3eb42.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:359271345662:android:06fac5b381e6dc0bed64af",
+        "android_client_info": {
+          "package_name": "com.sportreel.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBirXBCxmVPHfNwk1E0fVv-JzyUrilXtPM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
