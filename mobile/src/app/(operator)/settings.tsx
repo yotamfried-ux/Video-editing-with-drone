@@ -1,7 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import { View, TextInput, StyleSheet, ScrollView, Alert } from 'react-native';
-import * as LocalAuthentication from 'expo-local-authentication';
-import { useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
@@ -16,29 +14,14 @@ import {
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function OperatorSettingsScreen() {
-  const router = useRouter();
-  const [biometricPassed, setBiometricPassed] = useState(false);
   const [secretSet, setSecretSet] = useState<boolean | null>(null);
   const [input, setInput] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Biometric already enforced by the (operator) layout via useOperatorUnlock.
   useEffect(() => {
-    // Settings bypasses OperatorGate so it can be reached before a secret
-    // is configured. Require biometric here instead.
-    LocalAuthentication.authenticateAsync({
-      promptMessage: 'Operator access requires authentication',
-      fallbackLabel: 'Use Passcode',
-    }).then((r) => {
-      if (r.success) {
-        setBiometricPassed(true);
-        getOperatorSecret().then((s) => setSecretSet(!!s));
-      } else {
-        router.replace('/(tabs)/discover');
-      }
-    });
+    getOperatorSecret().then((s) => setSecretSet(!!s));
   }, []);
-
-  if (!biometricPassed) return null;
 
   const save = async () => {
     if (!input.trim()) return;

@@ -1,17 +1,10 @@
-import { Stack, usePathname } from 'expo-router';
-import { OperatorGate } from '@/features/operator/components/OperatorGate';
+import { Redirect, Stack } from 'expo-router';
+import { useOperatorUnlock } from '@/features/operator/hooks/useOperatorUnlock';
 
 export default function OperatorLayout() {
-  const pathname = usePathname();
-  // Settings handles its own biometric auth internally so it can be reached
-  // before a secret is configured (chicken-and-egg: you need settings to set
-  // the secret, but the gate requires a secret to enter settings).
-  if (pathname.endsWith('/settings')) {
-    return <Stack screenOptions={{ headerShown: false }} />;
-  }
-  return (
-    <OperatorGate>
-      <Stack screenOptions={{ headerShown: false }} />
-    </OperatorGate>
-  );
+  const unlocked = useOperatorUnlock((s) => s.unlocked);
+  // Biometric runs at the entry point (profile 5-tap → unlock()). Anyone who
+  // lands here without passing it — deep link, stale navigation — is bounced.
+  if (!unlocked) return <Redirect href="/(tabs)/profile" />;
+  return <Stack screenOptions={{ headerShown: false }} />;
 }

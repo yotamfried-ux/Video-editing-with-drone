@@ -16,6 +16,7 @@ import { useAuth } from '@/shared/hooks/useAuth';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { supabase } from '@/shared/lib/supabase';
 import { getOperatorSecret } from '@/features/operator/lib/operatorSecret';
+import { useOperatorUnlock } from '@/features/operator/hooks/useOperatorUnlock';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function ProfileScreen() {
@@ -30,8 +31,9 @@ export default function ProfileScreen() {
     setTaps(next);
     if (next >= 5) {
       setTaps(0);
-      // Route directly to settings when no secret is configured so the user
-      // can set it up without hitting the gate's chicken-and-egg problem.
+      const ok = await useOperatorUnlock.getState().unlock();
+      if (!ok) return;
+      // First time (no secret yet) — land on settings to configure it.
       const secret = await getOperatorSecret();
       router.push(secret ? '/(operator)/pipeline' : '/(operator)/settings');
     }
