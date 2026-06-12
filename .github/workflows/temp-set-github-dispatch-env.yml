@@ -1,0 +1,37 @@
+name: Temp — Re-set GitHub Dispatch env vars in Vercel (safe)
+on:
+  workflow_dispatch:
+jobs:
+  set-env:
+    runs-on: ubuntu-latest
+    env:
+      DISPATCH_TOKEN: ${{ secrets.GITHUB_DISPATCH_TOKEN }}
+      VERCEL_TOKEN_VAL: ${{ secrets.VERCEL_TOKEN }}
+    steps:
+      - name: Install jq
+        run: sudo apt-get install -y jq
+
+      - name: Set GITHUB_DISPATCH_TOKEN
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg v "$DISPATCH_TOKEN" \
+            '{"key":"GITHUB_DISPATCH_TOKEN","value":$v,"type":"encrypted","target":["production","preview","development"]}')
+          echo "Payload length: ${#PAYLOAD}"
+          curl -sf -X POST \
+            "https://api.vercel.com/v10/projects/prj_ucNsOHpdQBum3FHgED5ZPuGimrTq/env?teamId=team_uUUpzY1J0BvqvtYwemoFoBdm&upsert=true" \
+            -H "Authorization: Bearer $VERCEL_TOKEN_VAL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+          echo "✅ GITHUB_DISPATCH_TOKEN set"
+
+      - name: Set GITHUB_REPO
+        run: |
+          PAYLOAD=$(jq -n \
+            --arg v "yotamfried-ux/Video-editing-with-drone" \
+            '{"key":"GITHUB_REPO","value":$v,"type":"plain","target":["production","preview","development"]}')
+          curl -sf -X POST \
+            "https://api.vercel.com/v10/projects/prj_ucNsOHpdQBum3FHgED5ZPuGimrTq/env?teamId=team_uUUpzY1J0BvqvtYwemoFoBdm&upsert=true" \
+            -H "Authorization: Bearer $VERCEL_TOKEN_VAL" \
+            -H "Content-Type: application/json" \
+            -d "$PAYLOAD"
+          echo "✅ GITHUB_REPO set"
