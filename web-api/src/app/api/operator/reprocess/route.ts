@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
+import { enforceRateLimit } from '@/lib/ratelimit';
 
 // GET /api/operator/reprocess — recent reprocess requests (operator app shows
 // the queue + status on the Pipeline screen).
@@ -30,6 +31,8 @@ export async function POST(req: NextRequest) {
   if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const limited = await enforceRateLimit(req, 'reprocess-write', 10, 60);
+  if (limited) return limited;
 
   let body: { reel_id?: string; draft_name?: string; notes?: string };
   try {

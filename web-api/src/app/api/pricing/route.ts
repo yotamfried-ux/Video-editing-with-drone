@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
+import { enforceRateLimit } from '@/lib/ratelimit';
 
 // GET /api/pricing — public list of sport prices (read-only, safe to expose)
 export async function GET() {
@@ -20,6 +21,8 @@ export async function POST(req: NextRequest) {
   if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+  const limited = await enforceRateLimit(req, 'pricing-write', 20, 60);
+  if (limited) return limited;
 
   const { sport, price_ils } = await req.json();
   if (typeof sport !== 'string' || !sport.trim()) {
