@@ -10,6 +10,7 @@ const TABS = [
   { label: 'Pricing', path: '/(operator)/pricing' },
   { label: 'Reels', path: '/(operator)/reels' },
   { label: 'Support', path: '/(operator)/support' },
+  { label: 'Settings', path: '/(operator)/settings' },
 ] as const;
 
 export function OperatorNav() {
