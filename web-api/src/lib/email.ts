@@ -1,13 +1,14 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
 const FROM = process.env.RESEND_FROM_EMAIL ?? 'onboarding@resend.dev';
 const APP_URL = process.env.APP_DOMAIN
   ? `https://${process.env.APP_DOMAIN}`
   : 'https://video-editing-with-drone.vercel.app';
 
+const resend = () => new Resend(process.env.RESEND_API_KEY);
+
 export async function sendReelReadyEmail(to: string, reelId: string) {
-  await resend.emails.send({
+  await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: 'Your SportReel highlight is ready! 🎬',
@@ -25,7 +26,7 @@ export async function sendReelReadyEmail(to: string, reelId: string) {
 }
 
 export async function sendPaymentConfirmEmail(to: string, reelId: string, amountIls: number) {
-  await resend.emails.send({
+  await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: 'Payment confirmed ✓',
@@ -45,7 +46,7 @@ export async function sendPaymentConfirmEmail(to: string, reelId: string, amount
 export async function sendOperatorNotifyEmail(reelId: string, sport: string) {
   const to = process.env.NOTIFY_EMAIL ?? process.env.OWNER_EMAIL;
   if (!to) return;
-  await resend.emails.send({
+  await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: `New reel ready for review — ${sport}`,
