@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { Platform } from 'react-native';
 import { Stack, usePathname } from 'expo-router';
 import {
   useFonts,
@@ -38,6 +39,15 @@ async function applyPendingUpdate() {
 }
 applyPendingUpdate();
 
+async function syncPushToken(userId: string) {
+  const token = await registerPushToken();
+  if (!token) return;
+  await supabase.from('push_tokens').upsert(
+    { user_id: userId, token, platform: Platform.OS, updated_at: new Date().toISOString() },
+    { onConflict: 'user_id,platform' }
+  );
+}
+
 function CrashContextSync() {
   const pathname = usePathname();
   const userId = useAuthStore((s) => s.user?.id);
@@ -62,13 +72,13 @@ export default function RootLayout() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      if (session) registerPushToken().catch(() => {});
+      if (session) syncPushToken(session.user.id).catch(() => {});
     });
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange((_, session) => {
       setSession(session);
-      if (session) registerPushToken().catch(() => {});
+      if (session) syncPushToken(session.user.id).catch(() => {});
     });
     return () => subscription.unsubscribe();
   }, []);

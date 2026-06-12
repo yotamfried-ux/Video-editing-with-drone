@@ -1,0 +1,31 @@
+{
+  "_comment": "PLACEHOLDER — replace with real google-services.json from Firebase Console (Project Settings → Your apps → Android app → com.sportreel.app). Push notifications will not work on Android until this is replaced.",
+  "project_info": {
+    "project_number": "000000000000",
+    "firebase_url": "https://sportreel-placeholder-default-rtdb.firebaseio.com",
+    "project_id": "sportreel-placeholder",
+    "storage_bucket": "sportreel-placeholder.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000sportreel",
+        "android_client_info": {
+          "package_name": "com.sportreel.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "REPLACE_WITH_REAL_FIREBASE_API_KEY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
