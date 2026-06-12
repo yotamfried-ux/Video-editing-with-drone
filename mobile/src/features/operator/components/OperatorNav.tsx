@@ -7,6 +7,7 @@ import { Colors, Spacing, Radius } from '@/shared/constants/theme';
 
 const TABS = [
   { label: 'Pipeline', path: '/(operator)/pipeline' },
+  { label: 'Review', path: '/(operator)/review' },
   { label: 'Analytics', path: '/(operator)/analytics' },
   { label: 'Pricing', path: '/(operator)/pricing' },
   { label: 'Reels', path: '/(operator)/reels' },
