@@ -1,0 +1,16 @@
+name: Temp Export SA
+on:
+  workflow_dispatch:
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Write SA to file
+        run: echo "$SA" > sa.json
+        env:
+          SA: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sa-export
+          path: sa.json
+          retention-days: 1
