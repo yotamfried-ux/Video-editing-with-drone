@@ -12,31 +12,33 @@ on:
 jobs:
   set-env:
     runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      TEAM_ID: team_uUUpzY1J0BvqvtYwemoFoBdm
+      PROJECT_ID: prj_ucNsOHpdQBum3FHgED5ZPuGimrtq
     steps:
       - name: Set GOOGLE_SERVICE_ACCOUNT_JSON
         run: |
-          curl -sf -X POST https://api.vercel.com/v10/projects/prj_ucNsOHpdQBum3FHgED5ZPuGimrtq/env \
+          SA_VALUE=$(printf '%s' "$SA_JSON" | jq -Rs .)
+          RESPONSE=$(curl -sf -X POST "https://api.vercel.com/v10/projects/$PROJECT_ID/env?teamId=$TEAM_ID" \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"key\":\"GOOGLE_SERVICE_ACCOUNT_JSON\",\"value\":$(echo "$SA_JSON" | jq -Rs .),\"type\":\"encrypted\",\"target\":[\"production\",\"preview\",\"development\"]}"
+            -d "{\"key\":\"GOOGLE_SERVICE_ACCOUNT_JSON\",\"value\":$SA_VALUE,\"type\":\"encrypted\",\"target\":[\"production\",\"preview\",\"development\"]}" \
+            -w "\n%{http_code}")
+          echo "HTTP: $(echo "$RESPONSE" | tail -1)"
         env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
           SA_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       - name: Set REVIEW_FOLDER_ID
         run: |
-          curl -sf -X POST https://api.vercel.com/v10/projects/prj_ucNsOHpdQBum3FHgED5ZPuGimrtq/env \
+          curl -sf -X POST "https://api.vercel.com/v10/projects/$PROJECT_ID/env?teamId=$TEAM_ID" \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"key\":\"REVIEW_FOLDER_ID\",\"value\":\"${{ github.event.inputs.review_folder_id }}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+            -d '{"key":"REVIEW_FOLDER_ID","value":"${{ github.event.inputs.review_folder_id }}","type":"plain","target":["production","preview","development"]}'
       - name: Set APPROVED_FOLDER_ID
         run: |
-          curl -sf -X POST https://api.vercel.com/v10/projects/prj_ucNsOHpdQBum3FHgED5ZPuGimrtq/env \
+          curl -sf -X POST "https://api.vercel.com/v10/projects/$PROJECT_ID/env?teamId=$TEAM_ID" \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "{\"key\":\"APPROVED_FOLDER_ID\",\"value\":\"${{ github.event.inputs.approved_folder_id }}\",\"type\":\"plain\",\"target\":[\"production\",\"preview\",\"development\"]}"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+            -d '{"key":"APPROVED_FOLDER_ID","value":"${{ github.event.inputs.approved_folder_id }}","type":"plain","target":["production","preview","development"]}'
       - name: Done
-        run: echo "All 3 env vars set in Vercel. Delete this workflow now."
+        run: echo "All 3 env vars set. Delete this workflow."
