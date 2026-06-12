@@ -15,28 +15,19 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       TEAM_ID: team_uUUpzY1J0BvqvtYwemoFoBdm
-      PROJECT_ID: prj_ucNsOHpdQBum3FHgED5ZPuGimrtq
+      PROJECT_ID: prj_ucNsOHpdQBum3FHgED5ZPuGimrTq
     steps:
-      - name: Debug - test token
-        run: |
-          HTTP=$(curl -s -o /dev/null -w "%{http_code}" \
-            -H "Authorization: Bearer $VERCEL_TOKEN" \
-            "https://api.vercel.com/v2/user")
-          echo "Token test HTTP: $HTTP"
       - name: Set GOOGLE_SERVICE_ACCOUNT_JSON
         run: |
           SA_VALUE=$(printf '%s' "$SA_JSON" | jq -Rs .)
-          BODY="{\"key\":\"GOOGLE_SERVICE_ACCOUNT_JSON\",\"value\":$SA_VALUE,\"type\":\"encrypted\",\"target\":[\"production\",\"preview\",\"development\"]}"
           RESPONSE=$(curl -s -X POST "https://api.vercel.com/v10/projects/$PROJECT_ID/env?teamId=$TEAM_ID" \
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Content-Type: application/json" \
-            -d "$BODY" \
+            -d "{\"key\":\"GOOGLE_SERVICE_ACCOUNT_JSON\",\"value\":$SA_VALUE,\"type\":\"encrypted\",\"target\":[\"production\",\"preview\",\"development\"]}" \
             -w "\nHTTP_CODE:%{http_code}")
           HTTP_CODE=$(echo "$RESPONSE" | grep 'HTTP_CODE:' | cut -d: -f2)
-          BODY_RESP=$(echo "$RESPONSE" | grep -v 'HTTP_CODE:')
           echo "HTTP: $HTTP_CODE"
-          echo "Body (first 200 chars): ${BODY_RESP:0:200}"
-          [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || exit 1
+          [ "$HTTP_CODE" = "200" ] || [ "$HTTP_CODE" = "201" ] || (echo "$RESPONSE" | grep -v HTTP_CODE | head -c 300; exit 1)
         env:
           SA_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
       - name: Set REVIEW_FOLDER_ID
@@ -51,3 +42,5 @@ jobs:
             -H "Authorization: Bearer $VERCEL_TOKEN" \
             -H "Content-Type: application/json" \
             -d '{"key":"APPROVED_FOLDER_ID","value":"${{ github.event.inputs.approved_folder_id }}","type":"plain","target":["production","preview","development"]}'
+      - name: Done
+        run: echo "All 3 env vars set successfully in Vercel!"
