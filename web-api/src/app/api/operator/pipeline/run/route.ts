@@ -7,7 +7,7 @@ import { enforceRateLimit } from '@/lib/ratelimit';
 // Fires a GitHub repository_dispatch (type: new-raw-video) — the same event the
 // Drive watcher uses — so the standard "Run Pipeline" workflow starts within
 // seconds. Requires two Vercel env vars:
-//   GITHUB_DISPATCH_TOKEN — fine-grained PAT with Actions:write on the repo
+//   GITHUB_DISPATCH_TOKEN — fine-grained PAT with Contents:write on the repo
 //   GITHUB_REPO           — e.g. "yotamfried-ux/Video-editing-with-drone"
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) {
