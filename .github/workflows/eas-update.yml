@@ -5,7 +5,7 @@ name: EAS Update
 # still require a full EAS Build.
 on:
   push:
-    branches: [main, 'claude/drone-pipeline-bootstrap-Yf0Hs']
+    branches: [main, 'claude/drone-pipeline-bootstrap-Yf0Hs', 'claude/continue-previous-qbk7c9']
     paths:
       - 'mobile/**'
       - '!mobile/android/**'
