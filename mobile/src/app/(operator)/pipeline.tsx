@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -33,6 +35,8 @@ export default function PipelineScreen() {
   const meta = (status?.meta ?? {}) as Record<string, unknown>;
   const [requests, setRequests] = useState<ReprocessRow[]>([]);
   const [triggering, setTriggering] = useState(false);
+  const [resetting, setResetting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const loadRequests = useCallback(async () => {
     try {
@@ -63,6 +67,93 @@ export default function PipelineScreen() {
     }
   };
 
+  const confirmReset = () => {
+    Alert.alert(
+      'האם אתה בטוח?',
+      'כל הטיוטות ב-REVIEW יימחקו, הסרטונים המעובדים יחזרו ל-RAW, והפייפליין יתחיל מחדש על אותו חומר.',
+      [
+        { text: 'ביטול', style: 'cancel' },
+        { text: 'אפס והרץ מחדש', style: 'destructive', onPress: resetAndRerun },
+      ]
+    );
+  };
+
+  const resetAndRerun = async () => {
+    setResetting(true);
+    try {
+      await operatorFetch('/api/operator/pipeline/reset', { method: 'POST' });
+      Alert.alert('Reset triggered', 'The pipeline will reset and rerun within a few seconds.');
+    } catch (e) {
+      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not reset the pipeline.');
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  const uploadFootage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Please allow access to your media library.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'videos',
+      allowsMultipleSelection: false,
+      videoMaxDuration: 7200,
+    });
+    if (result.canceled || !result.assets?.length) return;
+
+    const asset = result.assets[0];
+    const filename = asset.fileName ?? `footage_${Date.now()}.mp4`;
+    const mimeType = asset.mimeType ?? 'video/mp4';
+
+    setUploadProgress(0);
+    try {
+      // Step 1: get Drive resumable upload URL (file never passes through Vercel)
+      const { uploadUrl } = await operatorFetch<{ uploadUrl: string }>(
+        '/api/operator/upload',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filename, mimeType }),
+        }
+      );
+
+      // Step 2: stream bytes directly to Drive with progress
+      const task = FileSystem.createUploadTask(
+        uploadUrl,
+        asset.uri,
+        {
+          httpMethod: 'PUT',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: { 'Content-Type': mimeType },
+        },
+        (progress) => {
+          const pct = Math.round(
+            (progress.totalBytesSent / progress.totalBytesExpectedToSend) * 100
+          );
+          setUploadProgress(pct);
+        }
+      );
+      const uploadResult = await task.uploadAsync();
+      if (!uploadResult || uploadResult.status >= 300) {
+        throw new Error(`Upload failed with status ${uploadResult?.status}`);
+      }
+
+      setUploadProgress(null);
+
+      // Step 3: trigger pipeline
+      await operatorFetch('/api/operator/pipeline/run', { method: 'POST' });
+      Alert.alert('Uploaded!', `"${filename}" is in RAW — the pipeline starts now.`);
+    } catch (e) {
+      setUploadProgress(null);
+      Alert.alert('Failed', e instanceof Error ? e.message : 'Upload failed.');
+    }
+  };
+
+  const busy = triggering || resetting || uploadProgress !== null;
+
   return (
     <SafeArea>
       <View style={styles.container}>
@@ -76,12 +167,29 @@ export default function PipelineScreen() {
 
           <Card bordered style={{ gap: Spacing.md }}>
             <PipelineBar stage={status?.stage ?? 'idle'} progress={status?.progress ?? 0} />
+
             <Button
               label={triggering ? 'Triggering…' : '▶ Run pipeline now'}
               onPress={runPipeline}
-              disabled={triggering}
+              disabled={busy}
               variant="secondary"
               style={{ height: 44 }}
+            />
+
+            <Button
+              label={uploadProgress !== null ? `Uploading… ${uploadProgress}%` : '📤 Upload footage'}
+              onPress={uploadFootage}
+              disabled={busy}
+              variant="secondary"
+              style={{ height: 44 }}
+            />
+
+            <Button
+              label={resetting ? 'Resetting…' : '🔄 Reset & rerun'}
+              onPress={confirmReset}
+              disabled={busy}
+              variant="secondary"
+              style={{ height: 44, borderColor: Colors.error ?? '#e53e3e' }}
             />
           </Card>
 
@@ -128,7 +236,7 @@ export default function PipelineScreen() {
                   </View>
                   {!!r.notes && (
                     <Text variant="caption" color={Colors.textSecondary} numberOfLines={2}>
-                      “{r.notes}”
+                      "{r.notes}"
                     </Text>
                   )}
                 </View>

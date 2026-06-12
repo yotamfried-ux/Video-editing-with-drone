@@ -99,3 +99,32 @@ export async function moveFile(fileId: string, fromFolderId: string, toFolderId:
     throw new Error(`Drive move failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
   }
 }
+
+// Creates a resumable upload session in the given Drive folder and returns the
+// upload URL. The caller (mobile app) uploads the file bytes directly to that
+// URL — the file never passes through Vercel, so there's no body-size limit.
+export async function createUploadSession(
+  filename: string,
+  folderId: string,
+  mimeType = 'video/mp4',
+): Promise<string> {
+  const token = await getAccessToken();
+  const res = await fetch(
+    'https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&supportsAllDrives=true',
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'X-Upload-Content-Type': mimeType,
+      },
+      body: JSON.stringify({ name: filename, parents: [folderId] }),
+    }
+  );
+  if (!res.ok) {
+    throw new Error(`Drive upload init failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+  const uploadUrl = res.headers.get('location');
+  if (!uploadUrl) throw new Error('Drive returned no upload URL');
+  return uploadUrl;
+}

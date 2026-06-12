@@ -99,12 +99,19 @@ def deliver_preview() -> None:
         client       = find_client(draft["name"])
         athlete_name = client.get("name", "") if client else ""
 
-        local_path   = None
-        preview_path = None
+        local_path      = None
+        preview_path    = None
+        face_frame_path = None
 
         try:
             local_path   = download_video(draft["id"], draft["name"])
             preview_path = create_preview(local_path, athlete_label=athlete_name)
+            # Extract a frame for face matching before local_path is deleted.
+            try:
+                from pipeline.stages.editor import extract_frame
+                face_frame_path = extract_frame(local_path, 2.0)
+            except Exception as _fe:
+                logger.debug("Face frame extraction skipped for '%s': %s", draft["name"], _fe)
         except Exception as exc:
             logger.error("Preview prep failed for '%s': %s", draft["name"], exc)
             continue
@@ -116,12 +123,39 @@ def deliver_preview() -> None:
         try:
             preview_name = draft["name"].replace(".mp4", "_preview.mp4")
             preview_link = upload_preview(preview_path, preview_name)
+
+            # Publish preview to Supabase so reel appears in Discover immediately.
+            reel_id = None
+            try:
+                from integrations.supabase_uploader import publish_reel_approved as _pub
+                reel_meta = _load_reel_metadata(draft["name"])
+                reel_id = _pub(
+                    preview_path=preview_path,
+                    draft_name=draft["name"],
+                    drive_file_id=draft["id"],
+                    reel_meta=reel_meta or {},
+                )
+                print(f"📱 '{draft['name']}' published to Discover (id={reel_id})")
+            except Exception as _pe:
+                logger.warning("Discover publish failed for '%s': %s", draft["name"], _pe)
+
+            # Face match + notify (non-fatal; files still on disk at this point).
+            if reel_id and face_frame_path:
+                try:
+                    from integrations.face_matcher import match_reel_and_notify as _match
+                    _match(reel_id, face_frame_path)
+                except Exception as _me:
+                    logger.warning("Face matching failed for reel %s: %s", reel_id, _me)
+
         except Exception as exc:
             logger.error("Preview upload failed for '%s': %s", draft["name"], exc)
             continue
         finally:
             if preview_path:
                 try: os.remove(preview_path)
+                except OSError: pass
+            if face_frame_path:
+                try: os.remove(face_frame_path)
                 except OSError: pass
 
         move_to_pending_payment(draft["id"])
@@ -271,15 +305,19 @@ def deliver_final() -> None:
             print(f"⚠️  No client match for '{draft['name']}' — archived without email delivery")
         mark_draft_delivered(draft["id"])
         try:
-            from integrations.supabase_uploader import publish_reel as _publish_reel
-            reel_meta = _load_reel_metadata(draft["name"]) or {}
-            shareable_url = _publish_reel(
-                local_path=_last_delivered_path.get(draft["id"], ""),
-                athlete_desc=reel_meta.get("description", ""),
-                sport=reel_meta.get("sport", "unknown"),
-                drive_file_id=draft["id"],
-            )
-            print(f"🌐 Published to SportReel: {shareable_url}")
+            from integrations.supabase_uploader import publish_reel as _publish_reel, _supabase
+            existing = _supabase().table("reels").select("id").eq("source_video", draft["name"]).limit(1).execute()
+            if existing.data:
+                print(f"🌐 Already in Discover: {draft['name']}")
+            else:
+                reel_meta = _load_reel_metadata(draft["name"]) or {}
+                shareable_url = _publish_reel(
+                    local_path=_last_delivered_path.get(draft["id"], ""),
+                    athlete_desc=reel_meta.get("description", ""),
+                    sport=reel_meta.get("sport", "unknown"),
+                    drive_file_id=draft["id"],
+                )
+                print(f"🌐 Published to SportReel: {shareable_url}")
         except Exception as _exc:
             logger.warning("SportReel publish skipped: %s", _exc)
         print(f"✅ Archived: {draft['name']}")

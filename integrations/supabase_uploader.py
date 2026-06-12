@@ -27,6 +27,46 @@ def _get_drive_recording_date(file_id: str) -> str:
     return meta["createdTime"][:10]
 
 
+def publish_reel_approved(
+    preview_path: str,
+    draft_name: str,
+    drive_file_id: str,
+    reel_meta: dict,
+) -> str:
+    """Upload 480p preview to Cloudflare Stream + Supabase Storage at approval time.
+
+    Called from Phase 2a so reels appear in Discover immediately after operator approval,
+    before payment. Returns the new reel_id (UUID string).
+    """
+    from integrations.cloudflare_stream import upload_to_stream
+
+    recording_date = _get_drive_recording_date(drive_file_id)
+    reel_id = str(uuid4())
+    storage_path = f"{recording_date}/{reel_id}_preview.mp4"
+
+    stream_uid = None
+    try:
+        stream_uid = upload_to_stream(preview_path)
+    except Exception:
+        logger.warning("Cloudflare Stream upload failed for preview %s", preview_path)
+
+    with open(preview_path, "rb") as f:
+        _supabase().storage.from_("reels").upload(storage_path, f)
+
+    _supabase().table("reels").insert({
+        "id": reel_id,
+        "sport": reel_meta.get("sport", "unknown"),
+        "athlete_desc": reel_meta.get("description", ""),
+        "recording_date": recording_date,
+        "stream_uid": stream_uid,
+        "storage_path": storage_path,
+        "source_video": draft_name,
+        "status": "published",
+    }).execute()
+
+    return reel_id
+
+
 def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: str) -> str:
     """Upload reel to Cloudflare Stream + Supabase Storage, insert DB row. Returns share URL."""
     from integrations.cloudflare_stream import upload_to_stream
@@ -52,6 +92,7 @@ def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: 
         "stream_uid": stream_uid,
         "storage_path": storage_path,
         "source_video": Path(local_path).name,
+        "status": "published",
     }).execute()
 
     token = row.data[0]["token"]
