@@ -189,7 +189,7 @@ export default function PipelineScreen() {
               onPress={confirmReset}
               disabled={busy}
               variant="secondary"
-              style={{ height: 44, borderColor: Colors.error ?? '#e53e3e' }}
+              style={{ height: 44, borderColor: Colors.danger }}
             />
           </Card>
 
