@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -72,11 +73,7 @@ export default function PipelineScreen() {
       'כל הטיוטות ב-REVIEW יימחקו, הסרטונים המעובדים יחזרו ל-RAW, והפייפליין יתחיל מחדש על אותו חומר.',
       [
         { text: 'ביטול', style: 'cancel' },
-        {
-          text: 'אפס והרץ מחדש',
-          style: 'destructive',
-          onPress: resetAndRerun,
-        },
+        { text: 'אפס והרץ מחדש', style: 'destructive', onPress: resetAndRerun },
       ]
     );
   };
@@ -111,8 +108,9 @@ export default function PipelineScreen() {
     const filename = asset.fileName ?? `footage_${Date.now()}.mp4`;
     const mimeType = asset.mimeType ?? 'video/mp4';
 
+    setUploadProgress(0);
     try {
-      // Step 1: get a resumable Drive upload URL (file goes directly to Drive — no Vercel limit)
+      // Step 1: get Drive resumable upload URL (file never passes through Vercel)
       const { uploadUrl } = await operatorFetch<{ uploadUrl: string }>(
         '/api/operator/upload',
         {
@@ -122,19 +120,27 @@ export default function PipelineScreen() {
         }
       );
 
-      // Step 2: stream the file directly to Drive, tracking progress
-      setUploadProgress(0);
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        xhr.open('PUT', uploadUrl);
-        xhr.setRequestHeader('Content-Type', mimeType);
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) setUploadProgress(Math.round((e.loaded / e.total) * 100));
-        };
-        xhr.onload = () => (xhr.status < 300 ? resolve() : reject(new Error(`Upload failed: ${xhr.status}`)));
-        xhr.onerror = () => reject(new Error('Network error during upload'));
-        xhr.send({ uri: asset.uri } as unknown as XMLHttpRequestBodyInit);
-      });
+      // Step 2: stream bytes directly to Drive with progress
+      const task = FileSystem.createUploadTask(
+        uploadUrl,
+        asset.uri,
+        {
+          httpMethod: 'PUT',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: { 'Content-Type': mimeType },
+        },
+        (progress) => {
+          const pct = Math.round(
+            (progress.totalBytesSent / progress.totalBytesExpectedToSend) * 100
+          );
+          setUploadProgress(pct);
+        }
+      );
+      const uploadResult = await task.uploadAsync();
+      if (!uploadResult || uploadResult.status >= 300) {
+        throw new Error(`Upload failed with status ${uploadResult?.status}`);
+      }
+
       setUploadProgress(null);
 
       // Step 3: trigger pipeline
@@ -145,6 +151,8 @@ export default function PipelineScreen() {
       Alert.alert('Failed', e instanceof Error ? e.message : 'Upload failed.');
     }
   };
+
+  const busy = triggering || resetting || uploadProgress !== null;
 
   return (
     <SafeArea>
@@ -163,19 +171,15 @@ export default function PipelineScreen() {
             <Button
               label={triggering ? 'Triggering…' : '▶ Run pipeline now'}
               onPress={runPipeline}
-              disabled={triggering || resetting || uploadProgress !== null}
+              disabled={busy}
               variant="secondary"
               style={{ height: 44 }}
             />
 
             <Button
-              label={
-                uploadProgress !== null
-                  ? `Uploading… ${uploadProgress}%`
-                  : '📤 Upload footage'
-              }
+              label={uploadProgress !== null ? `Uploading… ${uploadProgress}%` : '📤 Upload footage'}
               onPress={uploadFootage}
-              disabled={triggering || resetting || uploadProgress !== null}
+              disabled={busy}
               variant="secondary"
               style={{ height: 44 }}
             />
@@ -183,7 +187,7 @@ export default function PipelineScreen() {
             <Button
               label={resetting ? 'Resetting…' : '🔄 Reset & rerun'}
               onPress={confirmReset}
-              disabled={triggering || resetting || uploadProgress !== null}
+              disabled={busy}
               variant="secondary"
               style={{ height: 44, borderColor: Colors.error ?? '#e53e3e' }}
             />
