@@ -11,74 +11,35 @@ interface Props {
   children: React.ReactNode;
 }
 
-type State = 'loading' | 'no-secret' | 'awaiting-biometric' | 'authenticated' | 'failed';
-
 export function OperatorGate({ children }: Props) {
   const router = useRouter();
-  const [state, setState] = useState<State>('loading');
+  const [authenticated, setAuthenticated] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    // Check secret exists before requesting biometric — if there is no secret
-    // this device is not an operator device and there is nothing to protect.
-    getOperatorSecret().then((secret) => {
-      if (!secret) {
-        setState('no-secret');
-      } else {
-        setState('awaiting-biometric');
-        triggerBiometric();
-      }
-    });
-  }, []);
-
-  const triggerBiometric = async () => {
+  const authenticate = async () => {
     setError(null);
+    const secret = await getOperatorSecret();
+    if (!secret) {
+      // No secret — send to settings (which has its own biometric prompt).
+      router.replace('/(operator)/settings');
+      return;
+    }
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage: 'Operator access requires biometric authentication',
       fallbackLabel: 'Use Passcode',
     });
     if (result.success) {
-      setState('authenticated');
+      setAuthenticated(true);
     } else {
-      setState('failed');
       setError('Authentication failed. Try again.');
     }
   };
 
-  if (state === 'authenticated') return <>{children}</>;
+  useEffect(() => {
+    authenticate();
+  }, []);
 
-  if (state === 'no-secret') {
-    return (
-      <View style={styles.container}>
-        <Text variant="headline" style={{ textAlign: 'center' }}>Operator Access</Text>
-        <Text variant="body" color={Colors.textSecondary} style={styles.sub}>
-          This device has no operator secret configured.
-          You cannot use the operator area without it.
-        </Text>
-        <Button
-          label="Set up operator secret"
-          onPress={() => {
-            // Require biometric even for secret setup
-            LocalAuthentication.authenticateAsync({
-              promptMessage: 'Confirm your identity to set up operator access',
-              fallbackLabel: 'Use Passcode',
-            }).then((r) => {
-              if (r.success) {
-                setState('authenticated');
-                router.replace('/(operator)/settings');
-              }
-            });
-          }}
-        />
-        <Button
-          label="Go back"
-          onPress={() => router.replace('/(tabs)/discover')}
-          variant="ghost"
-          style={{ marginTop: Spacing.sm }}
-        />
-      </View>
-    );
-  }
+  if (authenticated) return <>{children}</>;
 
   return (
     <View style={styles.container}>
@@ -87,10 +48,10 @@ export function OperatorGate({ children }: Props) {
         Biometric authentication required
       </Text>
       {error && (
-        <Text variant="caption" color={Colors.danger}>{error}</Text>
-      )}
-      {state === 'failed' && (
-        <Button label="Try again" onPress={triggerBiometric} />
+        <>
+          <Text variant="caption" color={Colors.danger}>{error}</Text>
+          <Button label="Try again" onPress={authenticate} />
+        </>
       )}
     </View>
   );
