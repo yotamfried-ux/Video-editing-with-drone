@@ -79,6 +79,79 @@ def match_and_notify(persons: list[dict], video_path: str) -> None:
             logger.exception("Face matching failed for person: %s", person.get("description"))
 
 
+def match_reel_and_notify(reel_id: str, frame_path: str) -> None:
+    """Match a pre-extracted video frame against registered athletes.
+
+    Called at Phase 2a (approval) with an already-extracted frame image path.
+    On match: updates reels.matched_athlete, sends push notification + email.
+    """
+    try:
+        import face_recognition
+        from integrations.supabase_uploader import _supabase
+    except ImportError:
+        logger.warning("face_recognition not installed — skipping face matching")
+        return
+
+    compute_pending_embeddings()
+    sb = _supabase()
+
+    try:
+        img = face_recognition.load_image_file(frame_path)
+        encs = face_recognition.face_encodings(img)
+        if not encs:
+            logger.debug("No face found in frame for reel %s", reel_id)
+            return
+
+        result = sb.rpc("match_athlete_face", {
+            "query_embedding": encs[0].tolist(),
+            "threshold": 0.60,
+        }).execute()
+
+        if not result.data:
+            logger.debug("No athlete match for reel %s", reel_id)
+            return
+
+        match = result.data[0]
+        sb.table("reels").update(
+            {"matched_athlete": match["id"]}
+        ).eq("id", reel_id).execute()
+        logger.info("Matched reel %s to athlete %s", reel_id, match["id"])
+
+        if match.get("push_token"):
+            _send_push_notification(match["push_token"], {"events": [{}]})
+
+        # Look up athlete email and send notification
+        try:
+            profile = sb.table("athlete_profiles").select("email").eq("id", match["id"]).limit(1).execute()
+            athlete_email = (profile.data[0].get("email", "") if profile.data else "")
+        except Exception:
+            athlete_email = ""
+
+        if athlete_email:
+            try:
+                from integrations.notifier import send_summary_email
+                import config
+                domain = getattr(config, "APP_DOMAIN", "sportreel.app")
+                reel_row = sb.table("reels").select("token").eq("id", reel_id).limit(1).execute()
+                reel_url = (
+                    f"https://{domain}/reel/{reel_row.data[0]['token']}"
+                    if reel_row.data
+                    else f"https://{domain}/discover"
+                )
+                send_summary_email(
+                    recipients=[athlete_email],
+                    clips_links=[reel_url],
+                    sport_type="mixed",
+                    video_name="Your highlight clip is ready",
+                )
+                logger.info("Sent match notification email to %s for reel %s", athlete_email, reel_id)
+            except Exception:
+                logger.warning("Failed to send match email to %s for reel %s", athlete_email, reel_id)
+
+    except Exception:
+        logger.exception("Face matching failed for reel %s", reel_id)
+
+
 def _send_push_notification(push_token: str, person: dict) -> None:
     """Send Expo push notification to athlete."""
     import requests

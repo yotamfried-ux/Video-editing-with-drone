@@ -73,6 +73,15 @@ export function FaceUploadStep({ onUpload, onSkip, loading }: Props) {
         <Text variant="caption" color={Colors.textSecondary}>• No sunglasses or hats</Text>
       </View>
 
+      <View style={styles.discoverNote}>
+        <Text variant="caption" color={Colors.textSecondary} style={styles.discoverNoteText}>
+          Keep in mind: face recognition improves your chances of being found automatically,
+          but it isn't perfect. Clips featuring you may appear in{' '}
+          <Text variant="caption" color={Colors.accent}>Discover</Text>
+          {' '}without a direct notification — check there regularly so you never miss a highlight.
+        </Text>
+      </View>
+
       {qualityError && (
         <Text variant="caption" color={Colors.danger} style={{ textAlign: 'center' }}>
           {qualityError}
@@ -153,6 +162,13 @@ const styles = StyleSheet.create({
     padding: Spacing.md,
     gap: 4,
   },
+  discoverNote: {
+    borderLeftWidth: 2,
+    borderLeftColor: Colors.accent,
+    paddingLeft: Spacing.sm,
+    opacity: 0.8,
+  },
+  discoverNoteText: { lineHeight: 18 },
   preview: {
     width: 160,
     height: 160,
