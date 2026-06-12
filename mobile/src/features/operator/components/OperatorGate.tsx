@@ -63,7 +63,10 @@ export function OperatorGate({ children }: Props) {
               promptMessage: 'Confirm your identity to set up operator access',
               fallbackLabel: 'Use Passcode',
             }).then((r) => {
-              if (r.success) router.replace('/(operator)/settings');
+              if (r.success) {
+                setState('authenticated');
+                router.replace('/(operator)/settings');
+              }
             });
           }}
         />
