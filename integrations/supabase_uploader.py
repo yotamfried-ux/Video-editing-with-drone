@@ -2,6 +2,7 @@
 
 import logging
 from pathlib import Path
+from secrets import token_urlsafe
 from uuid import uuid4
 
 from supabase import create_client, Client
@@ -62,6 +63,7 @@ def publish_reel_approved(
         "storage_path": storage_path,
         "source_video": draft_name,
         "status": "published",
+        "token": token_urlsafe(8),
     }).execute()
 
     return reel_id
@@ -84,7 +86,8 @@ def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: 
     with open(local_path, "rb") as f:
         _supabase().storage.from_("reels").upload(storage_path, f)
 
-    row = _supabase().table("reels").insert({
+    share_token = token_urlsafe(8)
+    _supabase().table("reels").insert({
         "id": reel_id,
         "sport": sport,
         "athlete_desc": athlete_desc,
@@ -93,11 +96,11 @@ def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: 
         "storage_path": storage_path,
         "source_video": Path(local_path).name,
         "status": "published",
+        "token": share_token,
     }).execute()
 
-    token = row.data[0]["token"]
     domain = getattr(config, "APP_DOMAIN", "sportreel.app")
-    return f"https://{domain}/reel/{token}"
+    return f"https://{domain}/reel/{share_token}"
 
 
 def record_draft(draft_name: str, sources: list[dict],

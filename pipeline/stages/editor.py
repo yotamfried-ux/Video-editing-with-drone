@@ -68,6 +68,27 @@ def _safe_remove(path: str | None) -> None:
             pass
 
 
+def extract_frame(video_path: str, timestamp: float) -> str:
+    """Extract a single JPEG frame at timestamp. Returns the frame path.
+
+    Used by face matching (delivery / face_matcher) to grab a still for
+    embedding computation. Raises on ffmpeg failure or missing output.
+    """
+    stem = Path(video_path).stem
+    out_path = os.path.join(config.TMP_DIR, f"frame_{stem}_{timestamp:.3f}.jpg")
+    subprocess.run([
+        "ffmpeg", "-y",
+        "-ss", str(max(0.0, timestamp)),
+        "-i", video_path,
+        "-frames:v", "1",
+        "-q:v", "3",
+        out_path,
+    ], capture_output=True, timeout=30, check=True)
+    if not os.path.exists(out_path):
+        raise RuntimeError(f"Frame extraction failed for {video_path} @ {timestamp:.1f}s")
+    return out_path
+
+
 REEL_W, REEL_H  = 1080, 1920
 XFADE_DUR       = 0.25   # average transition overlap — used for duration budgeting only
 MAX_REEL_SEC    = 88     # מתחת ל-90s של Instagram Reels

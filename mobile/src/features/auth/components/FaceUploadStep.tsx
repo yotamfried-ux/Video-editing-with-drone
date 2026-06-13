@@ -3,7 +3,7 @@ import { View, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
-import { Colors, Spacing, Radius } from '@/shared/constants/theme';
+import { Colors, Spacing } from '@/shared/constants/theme';
 
 // Minimum face photo size for reliable embedding.
 const MIN_DIMENSION_PX = 400;

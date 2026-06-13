@@ -22,7 +22,7 @@ def compute_pending_embeddings() -> None:
         if not p.get("photo_path"):
             continue
         try:
-            img_bytes = sb.storage.from_("athlete_photos").download(p["photo_path"])
+            img_bytes = sb.storage.from_("athlete-photos").download(p["photo_path"])
             img = face_recognition.load_image_file(io.BytesIO(img_bytes))
             encs = face_recognition.face_encodings(img)
             if encs:
@@ -120,13 +120,8 @@ def match_reel_and_notify(reel_id: str, frame_path: str) -> None:
         if match.get("push_token"):
             _send_push_notification(match["push_token"], {"events": [{}]})
 
-        # Look up athlete email and send notification
-        try:
-            profile = sb.table("athlete_profiles").select("email").eq("id", match["id"]).limit(1).execute()
-            athlete_email = (profile.data[0].get("email", "") if profile.data else "")
-        except Exception:
-            athlete_email = ""
-
+        # match_athlete_face RPC returns the athlete's email directly
+        athlete_email = match.get("email") or ""
         if athlete_email:
             try:
                 from integrations.notifier import send_summary_email

@@ -3,13 +3,14 @@ import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { getPriceForReel } from '@/lib/pricing';
 import { enforceRateLimit } from '@/lib/ratelimit';
+import { isUuid } from '@/lib/validate';
 
 export async function POST(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'checkout', 10, 60);
   if (limited) return limited;
 
   const { reel_id } = await req.json();
-  if (!reel_id) return NextResponse.json({ error: 'reel_id required' }, { status: 400 });
+  if (!isUuid(reel_id)) return NextResponse.json({ error: 'reel_id must be a valid UUID' }, { status: 400 });
 
   const amountIls = await getPriceForReel(reel_id);
 
