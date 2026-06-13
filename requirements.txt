@@ -12,6 +12,11 @@ Pillow>=10.0.0
 torch>=2.0.0
 transformers>=4.35.0
 
+# Face recognition for athlete matching (128-float embeddings).
+# dlib compiles from source — needs cmake + a C++ toolchain (build-essential).
+# CI installs cmake via apt before `pip install -r requirements.txt`.
+face_recognition>=1.3.0
+
 # ffmpeg must be installed separately via system package manager:
 #   Ubuntu/Debian: sudo apt install ffmpeg
 #   macOS:         brew install ffmpeg

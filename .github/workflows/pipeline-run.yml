@@ -43,10 +43,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Install ffmpeg
+      - name: Install ffmpeg + dlib build deps
         run: |
           sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          sudo apt-get install -y ffmpeg cmake build-essential
 
       - name: Setup Python
         uses: actions/setup-python@v5
