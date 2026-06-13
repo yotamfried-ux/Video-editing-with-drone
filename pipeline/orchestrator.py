@@ -23,11 +23,11 @@ from integrations.ffmpeg      import get_source_info as _get_source_info
 
 logger = logging.getLogger(__name__)
 
-_LARGE_FILE_BYTES    = 100_000_000
+_LARGE_FILE_BYTES    = config.LARGE_FILE_BYTES
 _MAX_DL_WORKERS      = min(4, config.MAX_CUT_WORKERS)
-_MAX_UL_WORKERS      = 3
+_MAX_UL_WORKERS      = config.MAX_UL_WORKERS
 _MAX_STAGED_ATTEMPTS = 5
-_MIN_FREE_GB         = 5.0
+_MIN_FREE_GB         = config.MIN_FREE_GB
 
 _FILENAME_SPORT_HINTS: dict[str, str] = {
     "surf":     "surfing",
@@ -484,8 +484,17 @@ def _compile_clusters(clusters: list[dict], activity: str,
 
     def _upload_one(args: tuple[str, str]) -> bool:
         reel_path, name = args
+        # Drive uploads get the same transient-error backoff as Gemini calls.
+        from integrations.retry import retry_transient
         try:
-            upload_draft(reel_path, name)
+            retry_transient(lambda: upload_draft(reel_path, name),
+                            attempts=config.UPLOAD_RETRY_ATTEMPTS, label="drive-upload")
+            # Verified success → safe to remove the local copy.
+            try:
+                if os.path.exists(reel_path):
+                    os.remove(reel_path)
+            except OSError:
+                pass
             return True
         except Exception as exc:
             os.makedirs(config.PENDING_UPLOADS_DIR, exist_ok=True)
@@ -497,14 +506,12 @@ def _compile_clusters(clusters: list[dict], activity: str,
                 logger.error("Upload failed for '%s' — staged at %s for next run", name, staged)
                 print(f"⚠️  Upload failed — reel saved to pending_uploads/ for next run")
             except Exception:
-                logger.error("Could not stage reel %s — reel lost: %s", reel_path, exc)
+                # Staging failed: do NOT delete — leave the reel on disk so the
+                # next run's _retry_pending_uploads() (or the operator) can recover
+                # it. Deleting here would be the one path that truly loses a reel.
+                logger.error("Could not stage reel %s — left on disk for recovery: %s",
+                             reel_path, exc)
             return False
-        finally:
-            try:
-                if os.path.exists(reel_path):
-                    os.remove(reel_path)
-            except OSError:
-                pass
 
     if not pending:
         return 0

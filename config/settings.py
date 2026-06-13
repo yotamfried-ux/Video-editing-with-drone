@@ -76,6 +76,46 @@ CLOUDFLARE_STREAM_API_TOKEN: str = os.getenv("CLOUDFLARE_STREAM_API_TOKEN", "")
 CLOUDFLARE_CUSTOMER_CODE: str  = os.getenv("CLOUDFLARE_CUSTOMER_CODE", "")
 APP_DOMAIN: str                = os.getenv("APP_DOMAIN", "sportreel.app")
 
+# ── Subprocess / API timeouts (seconds) ──────────────────────────────────────
+# Previously hardcoded across analyzer.py / editor.py / integrations. Centralized
+# so slow CI runners or long 4K sources can be tuned without code changes.
+FFPROBE_TIMEOUT: int            = int(os.getenv("FFPROBE_TIMEOUT", "30"))
+FFMPEG_CHUNK_TIMEOUT: int       = int(os.getenv("FFMPEG_CHUNK_TIMEOUT", "120"))
+FFMPEG_PROXY_TIMEOUT: int       = int(os.getenv("FFMPEG_PROXY_TIMEOUT", "300"))
+FFMPEG_CLIP_TIMEOUT: int        = int(os.getenv("FFMPEG_CLIP_TIMEOUT", "300"))
+FFMPEG_CLIP_INTERP_TIMEOUT: int = int(os.getenv("FFMPEG_CLIP_INTERP_TIMEOUT", "900"))
+FFMPEG_REEL_TIMEOUT: int        = int(os.getenv("FFMPEG_REEL_TIMEOUT", "600"))
+FFMPEG_FRAME_TIMEOUT: int       = int(os.getenv("FFMPEG_FRAME_TIMEOUT", "30"))
+FFMPEG_LOOP_TIMEOUT: int        = int(os.getenv("FFMPEG_LOOP_TIMEOUT", "60"))
+GEMINI_CLIP_QA_TIMEOUT: int     = int(os.getenv("GEMINI_CLIP_QA_TIMEOUT", "30"))
+GEMINI_REEL_QA_TIMEOUT: int     = int(os.getenv("GEMINI_REEL_QA_TIMEOUT", "120"))
+GEMINI_SESSION_TIMEOUT: int     = int(os.getenv("GEMINI_SESSION_TIMEOUT", "300"))
+STREAM_UPLOAD_TIMEOUT: int      = int(os.getenv("STREAM_UPLOAD_TIMEOUT", "300"))
+
+# ── Concurrency / file thresholds ─────────────────────────────────────────────
+LARGE_FILE_BYTES: int      = int(os.getenv("LARGE_FILE_BYTES", str(100_000_000)))
+MAX_UL_WORKERS: int        = int(os.getenv("MAX_UL_WORKERS", "3"))
+MIN_FREE_GB: float         = float(os.getenv("MIN_FREE_GB", "5.0"))
+UPLOAD_RETRY_ATTEMPTS: int = int(os.getenv("UPLOAD_RETRY_ATTEMPTS", "4"))
+
+# ── Analysis proxy (pre-Gemini downscale) ─────────────────────────────────────
+# Drone footage has small, detail-critical subjects; crf 28/veryfast/1280 lost
+# board colors and far surfers, hurting identity + scoring accuracy.
+PROXY_MAX_WIDTH: int = int(os.getenv("PROXY_MAX_WIDTH", "1600"))
+PROXY_CRF: int       = int(os.getenv("PROXY_CRF", "23"))
+PROXY_PRESET: str    = os.getenv("PROXY_PRESET", "faster")
+
+# ── Identity clustering (CLIP re-ID) ──────────────────────────────────────────
+# CLIP cosine similarity bands. Pairs in [CLIP_MERGE_THRESHOLD, CLIP_HIGH_CONF)
+# require a second signal (Gemini visual "same person?") before merging; pairs
+# >= CLIP_HIGH_CONF merge directly; below the threshold never merge.
+CLIP_MERGE_THRESHOLD: float = float(os.getenv("CLIP_MERGE_THRESHOLD", "0.78"))
+CLIP_HIGH_CONF: float       = float(os.getenv("CLIP_HIGH_CONF", "0.88"))
+# Frames sampled per person for identity evidence (multi-frame > single thumb).
+IDENTITY_FRAMES: int        = int(os.getenv("IDENTITY_FRAMES", "5"))
+# Optional mild duration weighting of moment scores (auditable, off by default).
+SCORE_DURATION_WEIGHT: bool = os.getenv("SCORE_DURATION_WEIGHT", "false").lower() == "true"
+
 # ── LangSmith observability (optional) ────────────────────────────────────────
 # Set LANGSMITH_API_KEY + LANGSMITH_TRACING=true to enable tracing.
 # Without these vars @traceable decorators are no-ops — no crash in production.

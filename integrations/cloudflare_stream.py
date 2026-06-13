@@ -12,7 +12,7 @@ def upload_to_stream(local_path: str) -> str:
     url = f"https://api.cloudflare.com/client/v4/accounts/{config.CLOUDFLARE_ACCOUNT_ID}/stream"
     headers = {"Authorization": f"Bearer {config.CLOUDFLARE_STREAM_API_TOKEN}"}
     with open(local_path, "rb") as f:
-        resp = requests.post(url, headers=headers, files={"file": f}, timeout=300)
+        resp = requests.post(url, headers=headers, files={"file": f}, timeout=config.STREAM_UPLOAD_TIMEOUT)
     resp.raise_for_status()
     return resp.json()["result"]["uid"]
 

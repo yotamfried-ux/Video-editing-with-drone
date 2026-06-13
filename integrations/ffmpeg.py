@@ -8,6 +8,8 @@ import logging
 import subprocess
 from functools import lru_cache
 
+import config
+
 logger = logging.getLogger(__name__)
 
 # Minimum FPS for smooth slow-motion (duplicated from editor constants for isolation)
@@ -24,7 +26,7 @@ def get_duration(path: str) -> float:
         path,
     ]
     try:
-        return float(subprocess.check_output(cmd, text=True, timeout=30).strip())
+        return float(subprocess.check_output(cmd, text=True, timeout=config.FFPROBE_TIMEOUT).strip())
     except Exception:
         return float("inf")
 
@@ -40,7 +42,7 @@ def get_source_fps(video_path: str) -> float:
         video_path,
     ]
     try:
-        raw = subprocess.check_output(cmd, text=True, timeout=15).strip()
+        raw = subprocess.check_output(cmd, text=True, timeout=config.FFPROBE_TIMEOUT).strip()
         num, den = raw.split("/")
         return round(float(num) / float(den), 2)
     except Exception:
@@ -54,7 +56,7 @@ def get_source_info(video_path: str) -> dict:
             ["ffprobe", "-v", "error", "-select_streams", "v:0",
              "-show_entries", "stream=width,height,r_frame_rate",
              "-of", "json", video_path],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=config.FFPROBE_TIMEOUT,
         )
         data = json.loads(r.stdout)
         s    = data["streams"][0]
@@ -85,7 +87,7 @@ def get_reel_specs(path: str) -> dict:
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
-            capture_output=True, text=True, timeout=15,
+            capture_output=True, text=True, timeout=config.FFPROBE_TIMEOUT,
         )
         has_audio = "audio" in r.stdout
     except Exception:

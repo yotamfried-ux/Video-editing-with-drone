@@ -40,7 +40,7 @@ def _extract_thumbnail(video_path: str, timestamp: float) -> str | None:
             "-q:v", "3",
             out_path,
         ]
-        subprocess.run(cmd, capture_output=True, timeout=30, check=True)
+        subprocess.run(cmd, capture_output=True, timeout=config.FFMPEG_FRAME_TIMEOUT, check=True)
         return out_path if os.path.exists(out_path) else None
     except Exception as e:
         logger.debug("Thumbnail extraction failed at %.1fs: %s", timestamp, e)
@@ -54,7 +54,7 @@ def _chunk_video(video_path: str, max_minutes: int = _CHUNK_MAX_MINUTES) -> list
     import math
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
-        capture_output=True, timeout=30, check=True,
+        capture_output=True, timeout=config.FFPROBE_TIMEOUT, check=True,
     )
     duration = float(json.loads(probe.stdout)["format"]["duration"])
     seg_secs = max_minutes * 60
@@ -75,28 +75,29 @@ def _chunk_video(video_path: str, max_minutes: int = _CHUNK_MAX_MINUTES) -> list
             "-t", str(seg_secs),
             "-c", "copy",
             out,
-        ], capture_output=True, timeout=120, check=True)
+        ], capture_output=True, timeout=config.FFMPEG_CHUNK_TIMEOUT, check=True)
         chunks.append(out)
     logger.info("Chunked '%s' → %d segments", stem, n_chunks)
     return chunks
 
 
-_PROXY_MAX_WIDTH = 1280  # px — Gemini doesn't need full resolution for event detection
-
-
 def _make_proxy(video_path: str) -> str | None:
-    """Downscale to 720p for Gemini upload when source exceeds _PROXY_MAX_WIDTH.
+    """Downscale for Gemini upload when source exceeds config.PROXY_MAX_WIDTH.
     Returns proxy path, or None if source is already small enough.
     Proxy is placed in TMP_DIR and must be deleted by the caller.
+
+    Quality (crf/preset/width) is config-driven — drone footage has tiny,
+    detail-critical subjects, so over-aggressive compression hurts identity +
+    scoring accuracy.
     """
     probe = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json",
          "-show_streams", "-select_streams", "v:0", video_path],
-        capture_output=True, timeout=30, check=True,
+        capture_output=True, timeout=config.FFPROBE_TIMEOUT, check=True,
     )
     info = json.loads(probe.stdout)
     width = int(info["streams"][0]["width"])
-    if width <= _PROXY_MAX_WIDTH:
+    if width <= config.PROXY_MAX_WIDTH:
         return None
 
     stem = Path(video_path).stem
@@ -104,11 +105,11 @@ def _make_proxy(video_path: str) -> str | None:
     proxy_path = os.path.join(config.TMP_DIR, f"proxy_{stem}.mp4")
     subprocess.run([
         "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"scale={_PROXY_MAX_WIDTH}:-2",
-        "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
+        "-vf", f"scale={config.PROXY_MAX_WIDTH}:-2",
+        "-c:v", "libx264", "-crf", str(config.PROXY_CRF), "-preset", config.PROXY_PRESET,
         "-an",
         proxy_path,
-    ], capture_output=True, timeout=300, check=True)
+    ], capture_output=True, timeout=config.FFMPEG_PROXY_TIMEOUT, check=True)
     mb = Path(proxy_path).stat().st_size / 1024 / 1024
     print(f"📐 Proxy created: {Path(proxy_path).name} ({mb:.1f} MB) from {width}px source")
     return proxy_path
@@ -134,10 +135,14 @@ def _merge_session_results(chunk_results: list[dict], seg_secs: float) -> dict:
             ]
             raw_persons.append({**person, "events": shifted_events})
 
-    # Merge by description key (first 40 chars, lowercase)
+    # Merge by normalized description key. Full normalized text (not a 40-char
+    # prefix) avoids false-merging different athletes that share a long common
+    # prefix; any resulting chunk-level over-split is reconciled downstream by
+    # identity.cluster_clips (CLIP + Gemini verification).
+    from pipeline.text_utils import normalize_description
     merged: dict[str, dict] = {}
     for p in raw_persons:
-        key = p["description"].lower()[:40]
+        key = normalize_description(p["description"])
         if key not in merged:
             merged[key] = {**p}
         else:
@@ -246,7 +251,7 @@ def _qa_check_clip(clip_path: str, event: dict) -> str:
         _out = subprocess.check_output(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", clip_path],
-            text=True, timeout=10,
+            text=True, timeout=config.FFPROBE_TIMEOUT,
         )
         duration = float(_out.strip())
     except Exception:
@@ -284,7 +289,7 @@ def _qa_check_clip(clip_path: str, event: dict) -> str:
         model    = genai.GenerativeModel(model_name=_QA_MODEL)
         resp     = _with_retry(lambda: model.generate_content(
             [img_file, _QA_REASON_PROMPT],
-            request_options={"timeout": 30},
+            request_options={"timeout": config.GEMINI_CLIP_QA_TIMEOUT},
         ))
         try:
             genai.delete_file(img_file.name)
@@ -389,7 +394,7 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
 
             model = genai.GenerativeModel(model_name=_QA_REEL_MODEL)
             resp = _with_retry(lambda: model.generate_content(
-                [vf, prompt], request_options={"timeout": 120}
+                [vf, prompt], request_options={"timeout": config.GEMINI_REEL_QA_TIMEOUT}
             ))
             text = resp.text.strip()
             if text.startswith("```"):
@@ -420,19 +425,13 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
 
 
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
-    """Retry fn() on transient Gemini errors (429 / quota / 503) with exponential back-off."""
-    for attempt in range(1, attempts + 1):
-        try:
-            return fn()
-        except Exception as e:
-            transient = any(x in str(e).lower()
-                            for x in ["429", "quota", "503", "unavailable", "resource exhausted"])
-            if not transient or attempt == attempts:
-                raise
-            delay = base_delay * (2 ** (attempt - 1))   # 4s, 8s, 16s
-            print(f"  ⏳ Gemini error ({attempt}/{attempts}), retry in {delay}s...")
-            logger.warning("Gemini transient error, retry %d/%d in %ds: %s", attempt, attempts, delay, e)
-            time.sleep(delay)
+    """Retry fn() on transient Gemini errors with exponential back-off.
+
+    Thin wrapper over the shared integrations.retry.retry_transient — single
+    source of truth for the backoff markers (now also covers deadline/timeout)."""
+    from integrations.retry import retry_transient
+    return retry_transient(fn, attempts=attempts, base_delay=base_delay,
+                           label="gemini")
 
 
 @traceable(run_type="llm", name="gemini-analyze-chunk")
@@ -440,7 +439,7 @@ def _gemini_call_session(vf, prompt: str, model_name: str, video_name: str) -> s
     """Traced Gemini call for session analysis — inputs/output logged to LangSmith."""
     model = genai.GenerativeModel(model_name=model_name)
     resp = _with_retry(lambda: model.generate_content(
-        [vf, prompt], request_options={"timeout": 300}
+        [vf, prompt], request_options={"timeout": config.GEMINI_SESSION_TIMEOUT}
     ))
     return resp.text
 

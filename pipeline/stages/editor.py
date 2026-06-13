@@ -83,7 +83,7 @@ def extract_frame(video_path: str, timestamp: float) -> str:
         "-frames:v", "1",
         "-q:v", "3",
         out_path,
-    ], capture_output=True, timeout=30, check=True)
+    ], capture_output=True, timeout=config.FFMPEG_FRAME_TIMEOUT, check=True)
     if not os.path.exists(out_path):
         raise RuntimeError(f"Frame extraction failed for {video_path} @ {timestamp:.1f}s")
     return out_path
@@ -1071,7 +1071,7 @@ def cut_clip(
         except OSError: pass
 
     # Optical-flow interpolation is CPU-heavy — allow extra time for those clips
-    _clip_timeout = 900 if slowmo_interp else 300
+    _clip_timeout = config.FFMPEG_CLIP_INTERP_TIMEOUT if slowmo_interp else config.FFMPEG_CLIP_TIMEOUT
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=_clip_timeout)
         if r.returncode != 0:
@@ -1185,7 +1185,7 @@ def _add_loop_bookend(reel_path: str, total_dur: float, has_audio: bool = False)
         tmp,
     ]
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=config.FFMPEG_LOOP_TIMEOUT)
         if r.returncode == 0:
             os.replace(tmp, reel_path)
         else:
@@ -1362,7 +1362,7 @@ def compile_reel(
 
     print(f"🎬 Compiling: {n} clip(s), {total_dur:.0f}s → {Path(output_path).name}{music_tag}")
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=config.FFMPEG_REEL_TIMEOUT)
         if r.returncode != 0:
             logger.error("Reel compile: %s", r.stderr[-2000:])
             print(f"❌ Compile failed: {r.stderr[-400:]}")
@@ -1593,7 +1593,7 @@ def create_preview(reel_path: str, athlete_label: str = "") -> str:
         "-c:a", "copy",
         out,
     ]
-    result = subprocess.run(cmd, capture_output=True, timeout=300)
+    result = subprocess.run(cmd, capture_output=True, timeout=config.FFMPEG_CLIP_TIMEOUT)
     if result.returncode != 0:
         raise RuntimeError(
             f"Preview generation failed: {result.stderr.decode(errors='replace')[:400]}"

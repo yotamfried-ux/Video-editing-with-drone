@@ -7,7 +7,6 @@ import json
 import logging
 import os
 import re
-import time
 
 from langsmith import traceable
 
@@ -206,19 +205,13 @@ def _build_clusters_from_data(data: dict, clip_analyses: list[dict]) -> list[dic
 
 
 def _retry_gemini(fn, attempts: int = 3, base_delay: int = 4) -> str:
-    """Call fn() with exponential back-off on transient Gemini errors."""
-    for attempt in range(1, attempts + 1):
-        try:
-            return fn()
-        except Exception as e:
-            transient = any(x in str(e).lower()
-                            for x in ["429", "quota", "503", "unavailable", "resource exhausted"])
-            if not transient or attempt == attempts:
-                raise
-            delay = base_delay * (2 ** (attempt - 1))
-            logger.warning("Gemini cluster retry %d/%d in %ds: %s", attempt, attempts, delay, e)
-            time.sleep(delay)
-    raise RuntimeError("unreachable")
+    """Call fn() with exponential back-off on transient Gemini errors.
+
+    Thin wrapper over the shared integrations.retry.retry_transient (also covers
+    deadline/timeout, which the previous inline marker list missed)."""
+    from integrations.retry import retry_transient
+    return retry_transient(fn, attempts=attempts, base_delay=base_delay,
+                           label="gemini-cluster")
 
 
 @traceable(run_type="llm", name="gemini-cluster-visual")
@@ -429,8 +422,7 @@ def _merge_duplicate_clusters(clusters: list[dict]) -> list[dict]:
     two clusters that share a source clip — two people in one clip are by
     definition different. False merges are caught by _verify_multi_clusters.
     """
-    def _norm(d: str) -> str:
-        return re.sub(r"[^a-z0-9 ]", "", d.lower()).strip()
+    from pipeline.text_utils import normalize_description as _norm
 
     merged: dict[str, dict] = {}
     order: list[str] = []
