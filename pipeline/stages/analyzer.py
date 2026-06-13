@@ -178,7 +178,7 @@ _QA_REASON_PROMPT = (
     "  LIGHTING      — too dark, overexposed, or too hazy to see athlete clearly\n"
 )
 
-_QA_REASON_CODES = ("PASS", "POOR_CLOSEUP", "MOTION_BLUR", "FRAMING", "LIGHTING")
+_QA_REASON_CODES = ("PASS", "POOR_CLOSEUP", "MOTION_BLUR", "FRAMING", "LIGHTING", "UNKNOWN")
 
 _QA_REEL_MODEL = "gemini-2.5-flash"
 
@@ -243,8 +243,11 @@ Be strict and calibrated — reserve 80+ for genuinely scroll-stopping reels.\
 
 
 def _qa_check_clip(clip_path: str, event: dict) -> str:
-    """Return reason code: 'PASS' | 'POOR_CLOSEUP' | 'MOTION_BLUR' | 'FRAMING' | 'LIGHTING'.
-    Returns 'PASS' on any error so a network blip never drops a clip.
+    """Return reason code: 'PASS' | 'POOR_CLOSEUP' | 'MOTION_BLUR' | 'FRAMING' |
+    'LIGHTING' | 'UNKNOWN'.
+    Returns 'UNKNOWN' on error (was silently 'PASS') so a network blip still never
+    drops/alters a clip — the caller keeps it — but the fact that QA did not run is
+    observable (logged + sent to Sentry) instead of masquerading as a real PASS.
     """
     # Use actual processed clip duration (slowmo expands output beyond source event window)
     try:
@@ -298,8 +301,10 @@ def _qa_check_clip(clip_path: str, event: dict) -> str:
         code = resp.text.strip().upper().split()[0] if resp.text.strip() else "PASS"
         return code if code in _QA_REASON_CODES else "PASS"
     except Exception as _e:
-        logger.debug("QA check error (assuming pass): %s", _e)
-        return "PASS"
+        logger.warning("QA clip check errored (keeping clip, marked UNKNOWN): %s", _e)
+        from integrations.observability import capture
+        capture(_e, where="_qa_check_clip", clip=clip_path)
+        return "UNKNOWN"
     finally:
         try:
             os.remove(thumb)
@@ -334,8 +339,10 @@ def _persist_qa_result(result: dict, reel_path: str, sport: str) -> None:
     """Append QA result to qa_results.jsonl — forward-compatible with future
     real engagement ingestion (actual_performance starts null, joinable by 'reel')."""
     try:
+        from pipeline.run_context import get_run_id
         record = {
             "ts":             datetime.now(timezone.utc).isoformat(),
+            "run_id":         get_run_id(),
             "reel":           Path(reel_path).name,
             "sport":          sport,
             "engagement_score": result.get("engagement_score"),
@@ -421,7 +428,14 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
             _delete_video(vf)
     except Exception as exc:
         logger.warning("qa_check_reel failed for %s: %s", Path(reel_path).name, exc)
-        return _PASS
+        from integrations.observability import capture
+        capture(exc, where="qa_check_reel", reel=Path(reel_path).name)
+        # Non-blocking like before (verdict != FAIL, so _qa_blocking keeps it),
+        # but distinctly marked so operators see QA errored rather than truly passed.
+        unknown = {**_PASS, "verdict": "UNKNOWN", "qa_error": True,
+                   "overall": "QA errored — skipped"}
+        _persist_qa_result(unknown, reel_path, sport)
+        return unknown
 
 
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):

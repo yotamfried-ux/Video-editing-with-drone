@@ -152,6 +152,10 @@ def close_queued_reprocess() -> None:
 def write_pipeline_status(stage: str, progress: float, **meta) -> None:
     """Upsert pipeline_status table (id=1). Called from orchestrator to show progress in app."""
     try:
+        from pipeline.run_context import get_run_id
+        rid = get_run_id()
+        if rid:
+            meta = {**meta, "run_id": rid}
         _supabase().table("pipeline_status").upsert({
             "id": 1,
             "stage": stage,

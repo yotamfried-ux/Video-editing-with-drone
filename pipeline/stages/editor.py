@@ -741,6 +741,11 @@ def _cut_clip_with_qa(
     reason = _qa_check_clip(clip, event)
     if reason == "PASS":
         return clip
+    if reason == "UNKNOWN":
+        # QA could not run (e.g. Gemini blip) — keep the clip unchanged, as before,
+        # but record that QA was skipped rather than treating it as a real pass.
+        _log_quality_issue(video_path, event, "UNKNOWN", source_info or {}, "qa_errored")
+        return clip
 
     # Stage 1 failed — log and apply targeted fix
     si = source_info or {}

@@ -741,8 +741,14 @@ def main() -> None:
         print(f"   Last approval: {stats['last_approval']}")
         return
 
+    from pipeline.run_context import new_run_id
+    from integrations.observability import setup_pipeline_scope
+    run_id = new_run_id()
+    setup_pipeline_scope(run_id)
+
     print("\n🎬 D to R Pipeline — Phase 1: Ingest & Draft")
     print(f"📁 Tmp dir: {config.TMP_DIR}")
+    print(f"🆔 Run: {run_id}")
 
     _retry_pending_uploads()
     _check_disk_space()
