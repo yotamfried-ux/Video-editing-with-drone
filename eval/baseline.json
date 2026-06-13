@@ -1,0 +1,14 @@
+{
+  "aggregate": {
+    "precision": 0.4545,
+    "recall": 1.0,
+    "f1": 0.625
+  },
+  "fixtures": {
+    "surf_sample.json": {
+      "precision": 0.4545,
+      "recall": 1.0,
+      "f1": 0.625
+    }
+  }
+}

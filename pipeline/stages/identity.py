@@ -234,6 +234,49 @@ def _gemini_call_cluster_text(prompt: str, model_name: str, n_clips: int) -> str
 
 # ── Tier 1: CLIP Re-ID (optional — requires torch + transformers + Pillow) ────
 
+def _gemini_confirm_same(frames_a: list[str], frames_b: list[str],
+                         max_each: int = 2) -> bool:
+    """Second signal for the merge gate: ask Gemini whether two people are the same.
+
+    Returns True only on an explicit "yes". On any error or ambiguity returns
+    False — conservative, since a false merge contaminates a reel (the product's
+    worst failure), whereas a false split is recovered by _remerge_confirmed /
+    operator review.
+    """
+    fa = [f for f in (frames_a or []) if os.path.exists(f)][:max_each]
+    fb = [f for f in (frames_b or []) if os.path.exists(f)][:max_each]
+    if not fa or not fb:
+        return False
+    uploaded = []
+    try:
+        for f in fa + fb:
+            uploaded.append(genai.upload_file(path=f, mime_type="image/jpeg"))
+        prompt = (
+            "These are frames of one or two athletes from drone sports footage. "
+            "The FIRST set and the SECOND set — are they the SAME person? "
+            "Consider build, wetsuit/clothing, board/gear, hair. Beware look-alikes "
+            "in similar gear. Answer strictly YES or NO."
+        )
+        content = [uploaded[0], *uploaded[1:len(fa)], "--- SECOND ---",
+                   *uploaded[len(fa):], prompt]
+        model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+        resp = _retry_gemini(lambda: model.generate_content(
+            content, request_options={"timeout": config.GEMINI_REEL_QA_TIMEOUT}
+        ).text.strip())
+        return resp.strip().upper().startswith("YES")
+    except Exception as exc:
+        logger.warning("Gemini same-person confirm failed (defaulting NO): %s", exc)
+        from integrations.observability import capture
+        capture(exc, where="_gemini_confirm_same")
+        return False
+    finally:
+        for uf in uploaded:
+            try:
+                genai.delete_file(uf.name)
+            except Exception:
+                pass
+
+
 def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
     """
     Tier 1: cosine-similarity clustering using CLIP visual embeddings.
@@ -247,12 +290,21 @@ def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
         logger.debug("CLIP Re-ID unavailable (install torch + transformers + Pillow to enable)")
         return None
 
-    # Collect persons that have extracted thumbnails
+    # Collect persons that have extracted frames (E1: multi-frame evidence; fall
+    # back to the single thumbnail for older data).
+    def _person_frames(p: dict) -> list[str]:
+        fs = [f for f in (p.get("frames") or []) if f and os.path.exists(f)]
+        if fs:
+            return fs
+        t = p.get("thumbnail", "")
+        return [t] if t and os.path.exists(t) else []
+
     entries = [
-        {"clip_index": i, "person_id": p["id"], "thumbnail": p.get("thumbnail", "")}
+        {"clip_index": i, "person_id": p["id"], "thumbnail": p.get("thumbnail", ""),
+         "frames": _person_frames(p)}
         for i, ca in enumerate(clip_analyses)
         for p in ca.get("analysis", {}).get("persons", [])
-        if p.get("thumbnail") and os.path.exists(p.get("thumbnail", ""))
+        if _person_frames(p)
     ]
     if len(entries) < 2:
         return None  # nothing useful to cluster
@@ -267,50 +319,55 @@ def _try_clip_cluster(clip_analyses: list[dict]) -> list[dict] | None:
     embeddings: list = []
     for entry in entries:
         try:
-            img    = PILImage.open(entry["thumbnail"]).convert("RGB")
-            inputs = processor(images=img, return_tensors="pt")
-            with torch.no_grad():
-                emb = clip_model.get_image_features(**inputs)
-                emb = emb / emb.norm(dim=-1, keepdim=True)
-            embeddings.append(emb.squeeze(0))
+            # Average the normalized CLIP embedding over all kept frames — more
+            # stable than a single (possibly blurry) frame.
+            per_frame = []
+            for fp in entry["frames"]:
+                img    = PILImage.open(fp).convert("RGB")
+                inputs = processor(images=img, return_tensors="pt")
+                with torch.no_grad():
+                    e = clip_model.get_image_features(**inputs)
+                    e = e / e.norm(dim=-1, keepdim=True)
+                per_frame.append(e.squeeze(0))
+            if not per_frame:
+                continue
+            emb = torch.stack(per_frame).mean(dim=0)
+            emb = emb / emb.norm()
+            embeddings.append(emb)
             valid_entries.append(entry)
         except Exception as img_err:
-            logger.debug("CLIP embed failed for %s: %s", entry["thumbnail"], img_err)
+            logger.debug("CLIP embed failed for %s: %s", entry.get("thumbnail"), img_err)
 
     if len(valid_entries) < 2:
         return None
 
-    # Cosine similarity matrix → union-find clustering at threshold 0.78
-    emb_matrix = torch.stack(embeddings)
+    # Cosine similarity matrix → TWO-SIGNAL gated clustering. Pairs above
+    # CLIP_HIGH_CONF merge on CLIP alone; pairs in the uncertain band
+    # [CLIP_MERGE_THRESHOLD, CLIP_HIGH_CONF) require a Gemini "same person?"
+    # confirmation before merging (avoids the surf look-alike false-merge that
+    # contaminates a reel). See pipeline.clustering.union_find_merge.
+    from pipeline.clustering import union_find_merge
+    from integrations.observability import breadcrumb
+
+    emb_matrix  = torch.stack(embeddings)
     sim_matrix  = (emb_matrix @ emb_matrix.T).tolist()
-    _THRESHOLD  = 0.78
+    clip_indices = [e["clip_index"] for e in valid_entries]
 
-    n      = len(valid_entries)
-    parent = list(range(n))
+    def _confirm(i: int, j: int) -> bool:
+        same = _gemini_confirm_same(valid_entries[i]["frames"], valid_entries[j]["frames"])
+        breadcrumb("identity", "clip-merge confirm",
+                   sim=round(sim_matrix[i][j], 3), i=i, j=j, same=same)
+        return same
 
-    def _find(x: int) -> int:
-        while parent[x] != x:
-            parent[x] = parent[parent[x]]
-            x = parent[x]
-        return x
-
-    for i in range(n):
-        for j in range(i + 1, n):
-            if sim_matrix[i][j] >= _THRESHOLD:
-                # persons in the same clip are by definition different people — never merge
-                if valid_entries[i]["clip_index"] == valid_entries[j]["clip_index"]:
-                    continue
-                pi, pj = _find(i), _find(j)
-                if pi != pj:
-                    parent[pi] = pj
-
-    from collections import defaultdict
-    groups: dict[int, list[int]] = defaultdict(list)
-    for i in range(n):
-        groups[_find(i)].append(i)
+    grouped = union_find_merge(
+        sim_matrix, clip_indices,
+        merge_threshold=config.CLIP_MERGE_THRESHOLD,
+        high_conf=config.CLIP_HIGH_CONF,
+        confirm_fn=_confirm,
+    )
 
     result: list[dict] = []
-    for group_idxs in groups.values():
+    for group_idxs in grouped:
         appearances: list[dict] = []
         for idx in group_idxs:
             entry  = valid_entries[idx]

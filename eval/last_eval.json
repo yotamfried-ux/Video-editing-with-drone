@@ -1,0 +1,15 @@
+{
+  "gated": true,
+  "fixtures": {
+    "surf_sample.json": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0
+    }
+  },
+  "aggregate": {
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0
+  }
+}

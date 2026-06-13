@@ -1,0 +1,23 @@
+{
+  "description": "Synthetic surf re-ID fixture. 4 athletes across 8 single-person clips. Includes a look-alike trap (different athletes A vs B at mid-band sim 0.83) and a same-athlete mid-band pair (A clip0 vs A clip2 at 0.80) to exercise both false-merge and false-split.",
+  "items": [
+    {"clip_index": 0, "true_athlete": "A"},
+    {"clip_index": 1, "true_athlete": "A"},
+    {"clip_index": 2, "true_athlete": "A"},
+    {"clip_index": 3, "true_athlete": "B"},
+    {"clip_index": 4, "true_athlete": "B"},
+    {"clip_index": 5, "true_athlete": "C"},
+    {"clip_index": 6, "true_athlete": "C"},
+    {"clip_index": 7, "true_athlete": "D"}
+  ],
+  "sim_matrix": [
+    [1.00, 0.92, 0.80, 0.83, 0.55, 0.50, 0.52, 0.51],
+    [0.92, 1.00, 0.91, 0.60, 0.58, 0.49, 0.50, 0.48],
+    [0.80, 0.91, 1.00, 0.62, 0.57, 0.51, 0.53, 0.50],
+    [0.83, 0.60, 0.62, 1.00, 0.90, 0.54, 0.55, 0.52],
+    [0.55, 0.58, 0.57, 0.90, 1.00, 0.56, 0.54, 0.53],
+    [0.50, 0.49, 0.51, 0.54, 0.56, 1.00, 0.93, 0.60],
+    [0.52, 0.50, 0.53, 0.55, 0.54, 0.93, 1.00, 0.58],
+    [0.51, 0.48, 0.50, 0.52, 0.53, 0.60, 0.58, 1.00]
+  ]
+}

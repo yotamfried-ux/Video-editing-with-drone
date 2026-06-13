@@ -47,6 +47,55 @@ def _extract_thumbnail(video_path: str, timestamp: float) -> str | None:
         return None
 
 
+def _frame_sharpness(path: str) -> float:
+    """Variance-of-Laplacian sharpness score for a frame (higher = sharper).
+
+    Falls back to file size when PIL/numpy are unavailable — a larger JPEG at fixed
+    quality usually means more high-frequency detail, a reasonable cheap proxy.
+    """
+    try:
+        import numpy as np
+        from PIL import Image as PILImage
+        img = np.asarray(PILImage.open(path).convert("L"), dtype="float64")
+        # 3x3 Laplacian kernel via finite differences (no scipy dependency).
+        lap = (
+            -4 * img
+            + np.roll(img, 1, 0) + np.roll(img, -1, 0)
+            + np.roll(img, 1, 1) + np.roll(img, -1, 1)
+        )
+        return float(lap.var())
+    except Exception:
+        try:
+            return float(os.path.getsize(path))
+        except OSError:
+            return float("-inf")
+
+
+def _extract_person_frames(video_path: str, event: dict, n: int) -> list[str]:
+    """Extract up to n frames spread across the event window for identity evidence.
+
+    A single midpoint thumbnail can be blurry / occluded / tiny-in-frame, which
+    poisons both CLIP clustering and Gemini verification. Sampling several frames
+    lets the caller pick the sharpest and average embeddings.
+    """
+    start = float(event.get("start", 0.0))
+    end   = float(event.get("end", start))
+    span  = max(0.0, end - start)
+    if n <= 1 or span <= 0:
+        mid = (start + end) / 2 if span else max(0.0, start)
+        f = _extract_thumbnail(video_path, mid)
+        return [f] if f else []
+    fracs = [(i + 1) / (n + 1) for i in range(n)]  # evenly spaced, excl. endpoints
+    frames: list[str] = []
+    seen: set[str] = set()
+    for fr in fracs:
+        f = _extract_thumbnail(video_path, start + span * fr)
+        if f and f not in seen:
+            seen.add(f)
+            frames.append(f)
+    return frames
+
+
 def _chunk_video(video_path: str, max_minutes: int = _CHUNK_MAX_MINUTES) -> list[str]:
     """Split video into ≤max_minutes segments using FFmpeg stream copy.
     Returns [video_path] unchanged when duration fits in one chunk.
@@ -472,6 +521,14 @@ and NOT compared to other people in the same footage):
 A beginner's best ride is a 9 for them, even if an advanced athlete in the same session
 would score a 10. Score each person against their own range of moments in this footage.
 
+JUDGE EXECUTION, NOT JUST MOTION. A fast or dramatic-looking moment is NOT automatically
+high-scoring. Weight, in order: (1) execution quality — clean control, completed
+maneuver, no fall/stumble; (2) ride/line quality — a sustained, well-chosen line or
+sequence beats a brief flashy burst; (3) duration of the committed action — a longer
+clean ride generally beats a short one; only then (4) raw speed/spray/airtime. A
+short, spray-heavy clip where the athlete is mostly reacting should score BELOW a
+longer, controlled, well-executed ride even if the latter looks calmer.
+
   10 : Once-in-a-session moment — peak trick/wave/play, athlete at absolute best, no hesitation
   9  : Clear highlight — clean execution, impressive for this athlete today
   8  : Strong moment — good skill with minor imperfection or brief camera wobble
@@ -810,15 +867,19 @@ def analyze_session(video_path: str) -> dict:
             n = len(result["persons"])
             print(f"✅ Activity: '{result['activity']}' | {n} person(s) from {len(chunks)} chunks")
 
-        # Reference thumbnail per person's best event (always from original video)
+        # Multi-frame identity evidence per person's best event (from original
+        # video): sample several frames, keep the sharpest as the primary
+        # thumbnail and retain the rest for CLIP averaging + Gemini verification.
+        from pipeline.clustering import pick_sharpest
         for person in result.get("persons", []):
             events = person.get("events", [])
             if events:
-                best = events[0]  # sorted by score desc in _parse_session
-                mid  = (best["start"] + best["end"]) / 2
-                thumb = _extract_thumbnail(video_path, mid)
-                if thumb:
-                    person["thumbnail"] = thumb
+                best   = events[0]  # sorted by score desc in _parse_session
+                frames = _extract_person_frames(video_path, best, config.IDENTITY_FRAMES)
+                if frames:
+                    primary = pick_sharpest(frames, _frame_sharpness) or frames[0]
+                    person["thumbnail"] = primary
+                    person["frames"] = frames
 
         return result
 
