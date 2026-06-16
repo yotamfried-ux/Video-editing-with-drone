@@ -1,0 +1,822 @@
+{
+  "/home/user/Video-editing-with-drone/.claude/settings.json": {
+    "mtime": 1781635535.9963741,
+    "ast_hash": "00e37d247961d53628258f4a1e63387a",
+    "semantic_hash": "00e37d247961d53628258f4a1e63387a"
+  },
+  "/home/user/Video-editing-with-drone/config/__init__.py": {
+    "mtime": 1781635536.0043743,
+    "ast_hash": "5703ba82815d9a9325fcb41aa0badb82",
+    "semantic_hash": "5703ba82815d9a9325fcb41aa0badb82"
+  },
+  "/home/user/Video-editing-with-drone/config/settings.py": {
+    "mtime": 1781635536.0074842,
+    "ast_hash": "89a0446a73bb30a18784c001bcc7e364",
+    "semantic_hash": "89a0446a73bb30a18784c001bcc7e364"
+  },
+  "/home/user/Video-editing-with-drone/debug.py": {
+    "mtime": 1781635536.0074842,
+    "ast_hash": "cf28a77c419245d2a53ea3661af476c5",
+    "semantic_hash": "cf28a77c419245d2a53ea3661af476c5"
+  },
+  "/home/user/Video-editing-with-drone/deliver.py": {
+    "mtime": 1781635536.0074842,
+    "ast_hash": "0bc9ba8d0833741d846c379f6a48af9d",
+    "semantic_hash": "0bc9ba8d0833741d846c379f6a48af9d"
+  },
+  "/home/user/Video-editing-with-drone/deliver_final.py": {
+    "mtime": 1781635536.0074842,
+    "ast_hash": "ac1b952606aca6fbbbfc8ab727394e76",
+    "semantic_hash": "ac1b952606aca6fbbbfc8ab727394e76"
+  },
+  "/home/user/Video-editing-with-drone/integrations/__init__.py": {
+    "mtime": 1781635536.0074842,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/home/user/Video-editing-with-drone/integrations/cloudflare_stream.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "54fcd6f32b42147f18267d283e5b240a",
+    "semantic_hash": "54fcd6f32b42147f18267d283e5b240a"
+  },
+  "/home/user/Video-editing-with-drone/integrations/drive.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "901445d22d2fe8364cb0703e4406069e",
+    "semantic_hash": "901445d22d2fe8364cb0703e4406069e"
+  },
+  "/home/user/Video-editing-with-drone/integrations/face_matcher.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "d357a26d7c273d786e7037d24a5adeb4",
+    "semantic_hash": "d357a26d7c273d786e7037d24a5adeb4"
+  },
+  "/home/user/Video-editing-with-drone/integrations/ffmpeg.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "3a13b70d2deac6c118ace2e5ea084f5b",
+    "semantic_hash": "3a13b70d2deac6c118ace2e5ea084f5b"
+  },
+  "/home/user/Video-editing-with-drone/integrations/gemini.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "fafb2c89518cbbc9a72c3be46cf47e6a",
+    "semantic_hash": "fafb2c89518cbbc9a72c3be46cf47e6a"
+  },
+  "/home/user/Video-editing-with-drone/integrations/notifier.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "95f640419497d49a5c432dd7a5ed02da",
+    "semantic_hash": "95f640419497d49a5c432dd7a5ed02da"
+  },
+  "/home/user/Video-editing-with-drone/integrations/observability.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "09ae35589c263326693a3f65f8206db8",
+    "semantic_hash": "09ae35589c263326693a3f65f8206db8"
+  },
+  "/home/user/Video-editing-with-drone/integrations/supabase_uploader.py": {
+    "mtime": 1781635536.0115767,
+    "ast_hash": "613569cb5e265c49108d3ff8d8bf7a7c",
+    "semantic_hash": "613569cb5e265c49108d3ff8d8bf7a7c"
+  },
+  "/home/user/Video-editing-with-drone/mobile/app.json": {
+    "mtime": 1781635536.01417,
+    "ast_hash": "9a6abff07dc7d85c0c99d80106151a53",
+    "semantic_hash": "9a6abff07dc7d85c0c99d80106151a53"
+  },
+  "/home/user/Video-editing-with-drone/mobile/babel.config.js": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "05b06ed3f7c1992f5c319b5f61f67c54",
+    "semantic_hash": "05b06ed3f7c1992f5c319b5f61f67c54"
+  },
+  "/home/user/Video-editing-with-drone/mobile/eas.json": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "0504f91c08d4def4dd2dc8e4ba76f722",
+    "semantic_hash": "0504f91c08d4def4dd2dc8e4ba76f722"
+  },
+  "/home/user/Video-editing-with-drone/mobile/google-services.json": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "3c232bf59ce56caee93fc7b20766acaf",
+    "semantic_hash": "3c232bf59ce56caee93fc7b20766acaf"
+  },
+  "/home/user/Video-editing-with-drone/mobile/index.js": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "26b56339680f7b4e9ec82a56db28bcee",
+    "semantic_hash": "26b56339680f7b4e9ec82a56db28bcee"
+  },
+  "/home/user/Video-editing-with-drone/mobile/metro.config.js": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "f397ec9928b4be1b8c0bbfcaed2ea1ed",
+    "semantic_hash": "f397ec9928b4be1b8c0bbfcaed2ea1ed"
+  },
+  "/home/user/Video-editing-with-drone/mobile/package.json": {
+    "mtime": 1781635536.016374,
+    "ast_hash": "c0c04e0281e99b87dc5755aa75d6ae1b",
+    "semantic_hash": "c0c04e0281e99b87dc5755aa75d6ae1b"
+  },
+  "/home/user/Video-editing-with-drone/mobile/plugins/withCrashReporter.js": {
+    "mtime": 1781635536.016374,
+    "ast_hash": "96d7ad21de11311a56746318be34a447",
+    "semantic_hash": "96d7ad21de11311a56746318be34a447"
+  },
+  "/home/user/Video-editing-with-drone/mobile/scripts/postinstall.js": {
+    "mtime": 1781635536.016374,
+    "ast_hash": "9f557f36ac78a8bae6d65ed5af5fec9c",
+    "semantic_hash": "9f557f36ac78a8bae6d65ed5af5fec9c"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(auth)/_layout.tsx": {
+    "mtime": 1781635536.0235877,
+    "ast_hash": "b62a67e87654b73ac72fc44d962807c5",
+    "semantic_hash": "b62a67e87654b73ac72fc44d962807c5"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(auth)/login.tsx": {
+    "mtime": 1781635536.0238614,
+    "ast_hash": "46df03f334da4532ec2ad0c1a1386404",
+    "semantic_hash": "46df03f334da4532ec2ad0c1a1386404"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(auth)/register.tsx": {
+    "mtime": 1781635536.0238614,
+    "ast_hash": "5aa64f524aa54ea036ad976e189b356f",
+    "semantic_hash": "5aa64f524aa54ea036ad976e189b356f"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/_layout.tsx": {
+    "mtime": 1781635536.0238614,
+    "ast_hash": "bf9abde8c4f79f157ffd50328460b18b",
+    "semantic_hash": "bf9abde8c4f79f157ffd50328460b18b"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/analytics.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "3328e1679968cbaba5b0fff0250d7f5c",
+    "semantic_hash": "3328e1679968cbaba5b0fff0250d7f5c"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/index.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "7e8083407c6b669270e16b8a35c09cf5",
+    "semantic_hash": "7e8083407c6b669270e16b8a35c09cf5"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/pipeline.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "fa3a79d03c96f4c8f38b88d29f672c0f",
+    "semantic_hash": "fa3a79d03c96f4c8f38b88d29f672c0f"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/pricing.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "c7bae6e89c4f880d042d43f2e7f8dbd2",
+    "semantic_hash": "c7bae6e89c4f880d042d43f2e7f8dbd2"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/reels.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "ff04d7591cb442b6c39dbea81e639e40",
+    "semantic_hash": "ff04d7591cb442b6c39dbea81e639e40"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/review.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "2509086d2e710f1f68c92555b3204f54",
+    "semantic_hash": "2509086d2e710f1f68c92555b3204f54"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/settings.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "484adbf6b16335b0109e27941fc37f1b",
+    "semantic_hash": "484adbf6b16335b0109e27941fc37f1b"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(operator)/support.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "aafdb879b8a1bb50a7d3d83f7ce52205",
+    "semantic_hash": "aafdb879b8a1bb50a7d3d83f7ce52205"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(tabs)/_layout.tsx": {
+    "mtime": 1781635536.024846,
+    "ast_hash": "cf96b53de9f7139ca3de6ce9c2a91a27",
+    "semantic_hash": "cf96b53de9f7139ca3de6ce9c2a91a27"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(tabs)/discover.tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "c158277a543d671204e7939bc4ba8d0a",
+    "semantic_hash": "c158277a543d671204e7939bc4ba8d0a"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(tabs)/highlights.tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "7233b2fdb56cfe93d89cdc37b7523ee4",
+    "semantic_hash": "7233b2fdb56cfe93d89cdc37b7523ee4"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/(tabs)/profile.tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "f4b137ee916da43ffcbcfec3d2927e0d",
+    "semantic_hash": "f4b137ee916da43ffcbcfec3d2927e0d"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/_layout.tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "2a3cffaa08857b780ff84713eb422cdf",
+    "semantic_hash": "2a3cffaa08857b780ff84713eb422cdf"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/checkout/[reel_id].tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "d4027615c0f61b52c9e5c7fa8aa2011b",
+    "semantic_hash": "d4027615c0f61b52c9e5c7fa8aa2011b"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/index.tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "0d72fdf6991a5909026b194573d3d5cc",
+    "semantic_hash": "0d72fdf6991a5909026b194573d3d5cc"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/success/[reel_id].tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "d3dae7c695c1579735fcabc29800e206",
+    "semantic_hash": "d3dae7c695c1579735fcabc29800e206"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/support/_layout.tsx": {
+    "mtime": 1781635536.0267603,
+    "ast_hash": "e0465822c5761bf939821b1afb2f8a62",
+    "semantic_hash": "e0465822c5761bf939821b1afb2f8a62"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/support/new.tsx": {
+    "mtime": 1781635536.029581,
+    "ast_hash": "6ef83776d2258cea0e3ad6044e789aa3",
+    "semantic_hash": "6ef83776d2258cea0e3ad6044e789aa3"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/app/support/suggest.tsx": {
+    "mtime": 1781635536.029581,
+    "ast_hash": "a0ef8129415d568321b75e90e4c8ef33",
+    "semantic_hash": "a0ef8129415d568321b75e90e4c8ef33"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/auth/components/FaceUploadStep.tsx": {
+    "mtime": 1781635536.030132,
+    "ast_hash": "f7621d073951d0ca2e5057dbc9d519da",
+    "semantic_hash": "f7621d073951d0ca2e5057dbc9d519da"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/auth/hooks/useRegistration.ts": {
+    "mtime": 1781635536.030132,
+    "ast_hash": "13b668844c1b69062e3f066359dc9f89",
+    "semantic_hash": "13b668844c1b69062e3f066359dc9f89"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/components/OperatorNav.tsx": {
+    "mtime": 1781635536.0316546,
+    "ast_hash": "9f1e8aa66731cf3cc61a71916ab6fbf3",
+    "semantic_hash": "9f1e8aa66731cf3cc61a71916ab6fbf3"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/components/PipelineBar.tsx": {
+    "mtime": 1781635536.032092,
+    "ast_hash": "ced71bffbf2801667cfad3008fa91cf4",
+    "semantic_hash": "ced71bffbf2801667cfad3008fa91cf4"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/components/RevenueChart.tsx": {
+    "mtime": 1781635536.032092,
+    "ast_hash": "0d5311d3781655bda33109e69fbbb426",
+    "semantic_hash": "0d5311d3781655bda33109e69fbbb426"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/hooks/useAnalytics.ts": {
+    "mtime": 1781635536.032092,
+    "ast_hash": "db12730756019cd8d29d09004cbf1a45",
+    "semantic_hash": "db12730756019cd8d29d09004cbf1a45"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/hooks/useOperatorUnlock.ts": {
+    "mtime": 1781635536.0330603,
+    "ast_hash": "90cb1e109d236b57605619f02e9ba569",
+    "semantic_hash": "90cb1e109d236b57605619f02e9ba569"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/hooks/usePipelineStatus.ts": {
+    "mtime": 1781635536.0330603,
+    "ast_hash": "50120adc02de8c7dadb4c604697598f0",
+    "semantic_hash": "50120adc02de8c7dadb4c604697598f0"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/hooks/usePricing.ts": {
+    "mtime": 1781635536.0330603,
+    "ast_hash": "df5ae3529998de051700c5de5ad03b1d",
+    "semantic_hash": "df5ae3529998de051700c5de5ad03b1d"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/lib/operatorApi.ts": {
+    "mtime": 1781635536.0330603,
+    "ast_hash": "c4730ef243641b525c87b6d16ffa935a",
+    "semantic_hash": "c4730ef243641b525c87b6d16ffa935a"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/operator/lib/operatorSecret.ts": {
+    "mtime": 1781635536.0342298,
+    "ast_hash": "b06e701a324300382e97e17a917daec2",
+    "semantic_hash": "b06e701a324300382e97e17a917daec2"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/payment/components/BitWebView.tsx": {
+    "mtime": 1781635536.0345838,
+    "ast_hash": "74a4a6014ae8df47e91a63a6418a2fda",
+    "semantic_hash": "74a4a6014ae8df47e91a63a6418a2fda"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/payment/downloadTokenStore.ts": {
+    "mtime": 1781635536.0345838,
+    "ast_hash": "a52b0dce22b5f2ec88c914706eebd906",
+    "semantic_hash": "a52b0dce22b5f2ec88c914706eebd906"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/payment/hooks/useCheckout.ts": {
+    "mtime": 1781635536.0345838,
+    "ast_hash": "96de9f7ab502da9b36c00735cc99a74d",
+    "semantic_hash": "96de9f7ab502da9b36c00735cc99a74d"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/profile/hooks/useProfile.ts": {
+    "mtime": 1781635536.035925,
+    "ast_hash": "8a44981b6912e7b585588542436ede2b",
+    "semantic_hash": "8a44981b6912e7b585588542436ede2b"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/sessions/components/ReelThumb.tsx": {
+    "mtime": 1781635536.0366592,
+    "ast_hash": "f20b83773030436b508063817c9c1719",
+    "semantic_hash": "f20b83773030436b508063817c9c1719"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/sessions/components/SessionCard.tsx": {
+    "mtime": 1781635536.0373082,
+    "ast_hash": "d9b22750fc3e41f8c8f3ccc2317b8948",
+    "semantic_hash": "d9b22750fc3e41f8c8f3ccc2317b8948"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/sessions/hooks/useSessions.ts": {
+    "mtime": 1781635536.0373082,
+    "ast_hash": "6b9aaf47b2dabfc94b0e19aac51679e9",
+    "semantic_hash": "6b9aaf47b2dabfc94b0e19aac51679e9"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/video/components/ProtectedPlayer.tsx": {
+    "mtime": 1781635536.0383196,
+    "ast_hash": "013b0c403cd5aa972b6e1c9cceb793f1",
+    "semantic_hash": "013b0c403cd5aa972b6e1c9cceb793f1"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/video/components/WatermarkOverlay.tsx": {
+    "mtime": 1781635536.0386724,
+    "ast_hash": "d4dda922ef24aded3e292700ab12d4e8",
+    "semantic_hash": "d4dda922ef24aded3e292700ab12d4e8"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/video/hooks/useReelStream.ts": {
+    "mtime": 1781635536.0386724,
+    "ast_hash": "f56b0b2ddbf8a91dfda3b0e92d0ef0b4",
+    "semantic_hash": "f56b0b2ddbf8a91dfda3b0e92d0ef0b4"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/features/video/hooks/useScreenCapture.ts": {
+    "mtime": 1781635536.0395918,
+    "ast_hash": "4ec83c31e23f203e698b65eb458365ba",
+    "semantic_hash": "4ec83c31e23f203e698b65eb458365ba"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/components/Badge.tsx": {
+    "mtime": 1781635536.0400934,
+    "ast_hash": "000b0af55668c5bc3f7f0f387b391a78",
+    "semantic_hash": "000b0af55668c5bc3f7f0f387b391a78"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/components/Button.tsx": {
+    "mtime": 1781635536.0407119,
+    "ast_hash": "8b1431a8b804127a5cc21cb2af17d9f7",
+    "semantic_hash": "8b1431a8b804127a5cc21cb2af17d9f7"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/components/Card.tsx": {
+    "mtime": 1781635536.0407119,
+    "ast_hash": "f0285991f2826dc60e7b05a3990d751f",
+    "semantic_hash": "f0285991f2826dc60e7b05a3990d751f"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/components/SafeArea.tsx": {
+    "mtime": 1781635536.0407119,
+    "ast_hash": "622542c2b642813b64eaa9e40178a603",
+    "semantic_hash": "622542c2b642813b64eaa9e40178a603"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/components/Spacer.tsx": {
+    "mtime": 1781635536.0407119,
+    "ast_hash": "f007f13218a8a8a86f5b0e7469bda690",
+    "semantic_hash": "f007f13218a8a8a86f5b0e7469bda690"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/components/Text.tsx": {
+    "mtime": 1781635536.0407119,
+    "ast_hash": "1d139c7f21192ad71eaf60078f89dc47",
+    "semantic_hash": "1d139c7f21192ad71eaf60078f89dc47"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/constants/theme.ts": {
+    "mtime": 1781635536.0407119,
+    "ast_hash": "9f3780b63dd7dfd50c40476868821fc4",
+    "semantic_hash": "9f3780b63dd7dfd50c40476868821fc4"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/constants/typography.ts": {
+    "mtime": 1781635536.0420198,
+    "ast_hash": "5bea7fa07eca640e74d0f6c7371f5716",
+    "semantic_hash": "5bea7fa07eca640e74d0f6c7371f5716"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/hooks/useAnalytics.ts": {
+    "mtime": 1781635536.0420198,
+    "ast_hash": "2801d2ca91cc155dcf18b4f8c2c7ddff",
+    "semantic_hash": "2801d2ca91cc155dcf18b4f8c2c7ddff"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/hooks/useAuth.ts": {
+    "mtime": 1781635536.0428667,
+    "ast_hash": "1eeaef5f2771033dff9baf91f624f671",
+    "semantic_hash": "1eeaef5f2771033dff9baf91f624f671"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/hooks/useSupabase.ts": {
+    "mtime": 1781635536.0428667,
+    "ast_hash": "62e3da0ebd8fd35f79bbd41f01389429",
+    "semantic_hash": "62e3da0ebd8fd35f79bbd41f01389429"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/legal/privacyPolicy.ts": {
+    "mtime": 1781635536.0428667,
+    "ast_hash": "889dcfb87c9754ae68be73a8a017779b",
+    "semantic_hash": "889dcfb87c9754ae68be73a8a017779b"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/legal/terms.ts": {
+    "mtime": 1781635536.0435798,
+    "ast_hash": "ed2463fecbbeae42861221cdd1b0d428",
+    "semantic_hash": "ed2463fecbbeae42861221cdd1b0d428"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/lib/api.ts": {
+    "mtime": 1781635536.0435798,
+    "ast_hash": "9c6bbc3bd6fc24ad9e6a808e59d068be",
+    "semantic_hash": "9c6bbc3bd6fc24ad9e6a808e59d068be"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/lib/crashReporter.ts": {
+    "mtime": 1781635536.0441961,
+    "ast_hash": "f8eebda7dcfcdee9e6ec712be1a00806",
+    "semantic_hash": "f8eebda7dcfcdee9e6ec712be1a00806"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/lib/database.types.ts": {
+    "mtime": 1781635536.0441961,
+    "ast_hash": "bfdca8b0382de2b13743f1713701a3d2",
+    "semantic_hash": "bfdca8b0382de2b13743f1713701a3d2"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/lib/notifications.ts": {
+    "mtime": 1781635536.0441961,
+    "ast_hash": "5346a5557841a674f6a069bfd419e175",
+    "semantic_hash": "5346a5557841a674f6a069bfd419e175"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/lib/secureStorage.ts": {
+    "mtime": 1781635536.0441961,
+    "ast_hash": "f41c1196fddafc892c65f05e47a0eeb7",
+    "semantic_hash": "f41c1196fddafc892c65f05e47a0eeb7"
+  },
+  "/home/user/Video-editing-with-drone/mobile/src/shared/lib/supabase.ts": {
+    "mtime": 1781635536.0441961,
+    "ast_hash": "3c102e1bd7d1e0bcf8981daf5c154b34",
+    "semantic_hash": "3c102e1bd7d1e0bcf8981daf5c154b34"
+  },
+  "/home/user/Video-editing-with-drone/mobile/tsconfig.json": {
+    "mtime": 1781635536.0441961,
+    "ast_hash": "d4372195e085c981afb8d9f6b6fa813b",
+    "semantic_hash": "d4372195e085c981afb8d9f6b6fa813b"
+  },
+  "/home/user/Video-editing-with-drone/pipeline/__init__.py": {
+    "mtime": 1781635536.0441961,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/home/user/Video-editing-with-drone/pipeline/orchestrator.py": {
+    "mtime": 1781635536.0462334,
+    "ast_hash": "9aae6e1034de0b4fbc5da8aa52b7a25f",
+    "semantic_hash": "9aae6e1034de0b4fbc5da8aa52b7a25f"
+  },
+  "/home/user/Video-editing-with-drone/pipeline/stages/__init__.py": {
+    "mtime": 1781635536.0462334,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/home/user/Video-editing-with-drone/pipeline/stages/analyzer.py": {
+    "mtime": 1781635536.0474524,
+    "ast_hash": "7ab4c4124e28eebabafec1a7d4598685",
+    "semantic_hash": "7ab4c4124e28eebabafec1a7d4598685"
+  },
+  "/home/user/Video-editing-with-drone/pipeline/stages/editor.py": {
+    "mtime": 1781635536.0474524,
+    "ast_hash": "c514f807cd3e7c689980e57b2c490207",
+    "semantic_hash": "c514f807cd3e7c689980e57b2c490207"
+  },
+  "/home/user/Video-editing-with-drone/pipeline/stages/feedback.py": {
+    "mtime": 1781635536.0474524,
+    "ast_hash": "9878c413379ffdbf6d51f8e14876a0a3",
+    "semantic_hash": "9878c413379ffdbf6d51f8e14876a0a3"
+  },
+  "/home/user/Video-editing-with-drone/pipeline/stages/identity.py": {
+    "mtime": 1781635536.0474524,
+    "ast_hash": "6916ffe9181c95a7741c7dc243c6df0b",
+    "semantic_hash": "6916ffe9181c95a7741c7dc243c6df0b"
+  },
+  "/home/user/Video-editing-with-drone/run.py": {
+    "mtime": 1781635536.0474524,
+    "ast_hash": "c651e17be94ececf9dc9f7c29767274b",
+    "semantic_hash": "c651e17be94ececf9dc9f7c29767274b"
+  },
+  "/home/user/Video-editing-with-drone/scripts/add_note.py": {
+    "mtime": 1781635536.0474524,
+    "ast_hash": "7ac5171562bf81b2070d720772f603c3",
+    "semantic_hash": "7ac5171562bf81b2070d720772f603c3"
+  },
+  "/home/user/Video-editing-with-drone/scripts/auth_drive_user.py": {
+    "mtime": 1781635536.0508144,
+    "ast_hash": "c0843a5460664d912c034a124583a4a2",
+    "semantic_hash": "c0843a5460664d912c034a124583a4a2"
+  },
+  "/home/user/Video-editing-with-drone/scripts/reset_and_rerun.py": {
+    "mtime": 1781635536.0508144,
+    "ast_hash": "b7f5b9b90d572b2cbdd3b257602b1c69",
+    "semantic_hash": "b7f5b9b90d572b2cbdd3b257602b1c69"
+  },
+  "/home/user/Video-editing-with-drone/scripts/setup_drive.py": {
+    "mtime": 1781635536.0508144,
+    "ast_hash": "5152342fc90de4845ebd7d59cf2b0480",
+    "semantic_hash": "5152342fc90de4845ebd7d59cf2b0480"
+  },
+  "/home/user/Video-editing-with-drone/scripts/upload_test_video.py": {
+    "mtime": 1781635536.0508144,
+    "ast_hash": "cb13927a732f98823dd13549c7af4be8",
+    "semantic_hash": "cb13927a732f98823dd13549c7af4be8"
+  },
+  "/home/user/Video-editing-with-drone/services/__init__.py": {
+    "mtime": 1781635536.0508144,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "/home/user/Video-editing-with-drone/services/client_manager.py": {
+    "mtime": 1781635536.0522597,
+    "ast_hash": "3116c9cfff111717f9e4af978612b6cc",
+    "semantic_hash": "3116c9cfff111717f9e4af978612b6cc"
+  },
+  "/home/user/Video-editing-with-drone/services/delivery.py": {
+    "mtime": 1781635536.0522597,
+    "ast_hash": "898f3239f5b57154ac6103a67318d005",
+    "semantic_hash": "898f3239f5b57154ac6103a67318d005"
+  },
+  "/home/user/Video-editing-with-drone/services/music.py": {
+    "mtime": 1781635536.0522597,
+    "ast_hash": "4c9b5219cbb901598eec9fc371795d0d",
+    "semantic_hash": "4c9b5219cbb901598eec9fc371795d0d"
+  },
+  "/home/user/Video-editing-with-drone/supabase/migrations/20260611_add_drafts_and_reprocess_requests.sql": {
+    "mtime": 1781635536.0533595,
+    "ast_hash": "f4bbae9ea387eaf2f4834ca4896908f7",
+    "semantic_hash": "f4bbae9ea387eaf2f4834ca4896908f7"
+  },
+  "/home/user/Video-editing-with-drone/supabase/migrations/20260612_add_pipeline_status.sql": {
+    "mtime": 1781635536.054085,
+    "ast_hash": "dac6a7aca4e3763a759648e60b165cb0",
+    "semantic_hash": "dac6a7aca4e3763a759648e60b165cb0"
+  },
+  "/home/user/Video-editing-with-drone/supabase/migrations/20260612_create_core_schema.sql": {
+    "mtime": 1781635536.054085,
+    "ast_hash": "39a3808b152737734c1c078a64d706ee",
+    "semantic_hash": "39a3808b152737734c1c078a64d706ee"
+  },
+  "/home/user/Video-editing-with-drone/supabase/verify_schema.sql": {
+    "mtime": 1781635536.054085,
+    "ast_hash": "1cdd7faad0ace205b9221e8f220abb35",
+    "semantic_hash": "1cdd7faad0ace205b9221e8f220abb35"
+  },
+  "/home/user/Video-editing-with-drone/web-api/next-env.d.ts": {
+    "mtime": 1781635536.055383,
+    "ast_hash": "ba64ff7d54714a8f64db89b1003207d8",
+    "semantic_hash": "ba64ff7d54714a8f64db89b1003207d8"
+  },
+  "/home/user/Video-editing-with-drone/web-api/next.config.ts": {
+    "mtime": 1781635536.055383,
+    "ast_hash": "c9b9d8ca06ef3e27db33788171f40a48",
+    "semantic_hash": "c9b9d8ca06ef3e27db33788171f40a48"
+  },
+  "/home/user/Video-editing-with-drone/web-api/package.json": {
+    "mtime": 1781635536.055383,
+    "ast_hash": "68210b9033687e6987adf5e27345b49a",
+    "semantic_hash": "68210b9033687e6987adf5e27345b49a"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/analytics/route.ts": {
+    "mtime": 1781635536.057281,
+    "ast_hash": "a3f4c42be9aa0d6dbfd49e02ff112212",
+    "semantic_hash": "a3f4c42be9aa0d6dbfd49e02ff112212"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/checkout/meshulam/route.ts": {
+    "mtime": 1781635536.0579739,
+    "ast_hash": "f13b31446c516fea06d70e90017b1778",
+    "semantic_hash": "f13b31446c516fea06d70e90017b1778"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/checkout/stripe/route.ts": {
+    "mtime": 1781635536.0579739,
+    "ast_hash": "98ec366715943eec284fbe0b78a5ad73",
+    "semantic_hash": "98ec366715943eec284fbe0b78a5ad73"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/crash/route.ts": {
+    "mtime": 1781635536.0579739,
+    "ast_hash": "4bd2e69856c22254f0b7b0b746d019f1",
+    "semantic_hash": "4bd2e69856c22254f0b7b0b746d019f1"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/download/[download_token]/route.ts": {
+    "mtime": 1781635536.0597196,
+    "ast_hash": "6862d47b6956a5f9d6e1a63222069609",
+    "semantic_hash": "6862d47b6956a5f9d6e1a63222069609"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/events/route.ts": {
+    "mtime": 1781635536.0597196,
+    "ast_hash": "f83e24232cd8e67d71307da4fa785d30",
+    "semantic_hash": "f83e24232cd8e67d71307da4fa785d30"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/drafts/approve/route.ts": {
+    "mtime": 1781635536.0613189,
+    "ast_hash": "6948b5ffaf1b211469fa8aec5475af92",
+    "semantic_hash": "6948b5ffaf1b211469fa8aec5475af92"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/drafts/route.ts": {
+    "mtime": 1781635536.0613189,
+    "ast_hash": "6069f27a20bd57046398213f0c25c34d",
+    "semantic_hash": "6069f27a20bd57046398213f0c25c34d"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/pipeline/reset/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "700aaaa9b825d7772bcdceb4cfb58998",
+    "semantic_hash": "700aaaa9b825d7772bcdceb4cfb58998"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/pipeline/run/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "69b4f09c3d0be589493e28c99f0bc051",
+    "semantic_hash": "69b4f09c3d0be589493e28c99f0bc051"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/reels/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "caf6e86d6d9adf976d3fe12d502f26c5",
+    "semantic_hash": "caf6e86d6d9adf976d3fe12d502f26c5"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/reprocess/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "988a2e8b2acdb60c3c278d252090bca3",
+    "semantic_hash": "988a2e8b2acdb60c3c278d252090bca3"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/support/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "9829a0c7ebb81e87f89a599c5d0abf6e",
+    "semantic_hash": "9829a0c7ebb81e87f89a599c5d0abf6e"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/operator/upload/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "10ef0d08802e7c93cc324e286cf2b766",
+    "semantic_hash": "10ef0d08802e7c93cc324e286cf2b766"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/pricing/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "2381463942f63eafe5052825efa44e1d",
+    "semantic_hash": "2381463942f63eafe5052825efa44e1d"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/sessions/route.ts": {
+    "mtime": 1781635536.0628366,
+    "ast_hash": "8141e3d97b53847cfd870b3c4178a3a2",
+    "semantic_hash": "8141e3d97b53847cfd870b3c4178a3a2"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/stream/[token]/route.ts": {
+    "mtime": 1781635536.0669084,
+    "ast_hash": "93eb1ce63e4960ca2a54dfc3ea466913",
+    "semantic_hash": "93eb1ce63e4960ca2a54dfc3ea466913"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/support/[id]/route.ts": {
+    "mtime": 1781635536.0680177,
+    "ast_hash": "51994e75420600b9a7f4172a6b1ee653",
+    "semantic_hash": "51994e75420600b9a7f4172a6b1ee653"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/webhooks/meshulam/route.ts": {
+    "mtime": 1781635536.0689926,
+    "ast_hash": "a03658e80b9f30ff5236a2142eb523fc",
+    "semantic_hash": "a03658e80b9f30ff5236a2142eb523fc"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/app/api/webhooks/stripe/route.ts": {
+    "mtime": 1781635536.0689926,
+    "ast_hash": "189697162414274e85d01de3b252c4db",
+    "semantic_hash": "189697162414274e85d01de3b252c4db"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/cloudflare.ts": {
+    "mtime": 1781635536.0689926,
+    "ast_hash": "be82340e1c92fa1add72e6ec2632c169",
+    "semantic_hash": "be82340e1c92fa1add72e6ec2632c169"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/email.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "b4435ae16c3efdc0d875ec4628b237e8",
+    "semantic_hash": "b4435ae16c3efdc0d875ec4628b237e8"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/google-drive.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "e837d17541246cad278fa7eb9eeb823f",
+    "semantic_hash": "e837d17541246cad278fa7eb9eeb823f"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/meshulam.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "008858e1d0065b9d7e856665b55ecd4e",
+    "semantic_hash": "008858e1d0065b9d7e856665b55ecd4e"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/operator-auth.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "4539a8273e6bfe52e4aba5d8b19b8560",
+    "semantic_hash": "4539a8273e6bfe52e4aba5d8b19b8560"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/pricing.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "ad6c71d3370f9fe37e083b9ad0e41273",
+    "semantic_hash": "ad6c71d3370f9fe37e083b9ad0e41273"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/ratelimit.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "5edf4d0a9e6dad01d096787c5019d692",
+    "semantic_hash": "5edf4d0a9e6dad01d096787c5019d692"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/stripe.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "0f43caca056170d098c1e5b7b146eabb",
+    "semantic_hash": "0f43caca056170d098c1e5b7b146eabb"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/supabase-admin.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "8bc2575acdeab9ff767ee220cfea1db8",
+    "semantic_hash": "8bc2575acdeab9ff767ee220cfea1db8"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/lib/validate.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "1fb3788f8830a17754b9e96a4d97d7fb",
+    "semantic_hash": "1fb3788f8830a17754b9e96a4d97d7fb"
+  },
+  "/home/user/Video-editing-with-drone/web-api/src/types/database.ts": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "f80d18026715e901db1d6dab0dff14c9",
+    "semantic_hash": "f80d18026715e901db1d6dab0dff14c9"
+  },
+  "/home/user/Video-editing-with-drone/web-api/tsconfig.json": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "c94de116e78a07f363ee396ed20a60ba",
+    "semantic_hash": "c94de116e78a07f363ee396ed20a60ba"
+  },
+  "/home/user/Video-editing-with-drone/web-api/vercel.json": {
+    "mtime": 1781635536.0704565,
+    "ast_hash": "973729a73026d98e279d39af0665d0b4",
+    "semantic_hash": "973729a73026d98e279d39af0665d0b4"
+  },
+  "/home/user/Video-editing-with-drone/.claude/commands/security-review.md": {
+    "mtime": 1781635678.86438,
+    "ast_hash": "8a9060b8524bccf9961209f6f0138bbd",
+    "semantic_hash": "8a9060b8524bccf9961209f6f0138bbd"
+  },
+  "/home/user/Video-editing-with-drone/.claude/commands/use-engineering-os.md": {
+    "mtime": 1781635675.2086027,
+    "ast_hash": "7f3a285d8bbf36bf1e2909538d07543a",
+    "semantic_hash": "7f3a285d8bbf36bf1e2909538d07543a"
+  },
+  "/home/user/Video-editing-with-drone/.engineering-os/REFERENCE.md": {
+    "mtime": 1781635675.196322,
+    "ast_hash": "569432b032af17ba8c76b5006103bea6",
+    "semantic_hash": "569432b032af17ba8c76b5006103bea6"
+  },
+  "/home/user/Video-editing-with-drone/.github/workflows/android-gradle-check.yml": {
+    "mtime": 1781635536.003545,
+    "ast_hash": "1d94411358c5eb706546292aef155852",
+    "semantic_hash": "1d94411358c5eb706546292aef155852"
+  },
+  "/home/user/Video-editing-with-drone/.github/workflows/deliver.yml": {
+    "mtime": 1781635536.0040643,
+    "ast_hash": "dc11f3ea1f6473fee6177e209e571a38",
+    "semantic_hash": "dc11f3ea1f6473fee6177e209e571a38"
+  },
+  "/home/user/Video-editing-with-drone/.github/workflows/eas-build.yml": {
+    "mtime": 1781635536.0040643,
+    "ast_hash": "7b91663203ae5b503abd41579a263652",
+    "semantic_hash": "7b91663203ae5b503abd41579a263652"
+  },
+  "/home/user/Video-editing-with-drone/.github/workflows/eas-update.yml": {
+    "mtime": 1781635536.0040643,
+    "ast_hash": "14f144fc15ad1076d853af9b12db242c",
+    "semantic_hash": "14f144fc15ad1076d853af9b12db242c"
+  },
+  "/home/user/Video-editing-with-drone/.github/workflows/pipeline-run.yml": {
+    "mtime": 1781635536.0040643,
+    "ast_hash": "ea4d118fea0a8dfd5704978e799f7f26",
+    "semantic_hash": "ea4d118fea0a8dfd5704978e799f7f26"
+  },
+  "/home/user/Video-editing-with-drone/.github/workflows/security.yml": {
+    "mtime": 1781635678.86038,
+    "ast_hash": "547e5166e91599b229a5dc0c29257383",
+    "semantic_hash": "547e5166e91599b229a5dc0c29257383"
+  },
+  "/home/user/Video-editing-with-drone/CLAUDE.md": {
+    "mtime": 1781635675.2026262,
+    "ast_hash": "67207b611fe4942e755e59eb3d32bae3",
+    "semantic_hash": "67207b611fe4942e755e59eb3d32bae3"
+  },
+  "/home/user/Video-editing-with-drone/DEPLOYMENT.md": {
+    "mtime": 1781635536.0040643,
+    "ast_hash": "9d5e891642f41f949f8b99da4c24dc7b",
+    "semantic_hash": "9d5e891642f41f949f8b99da4c24dc7b"
+  },
+  "/home/user/Video-editing-with-drone/README.md": {
+    "mtime": 1781635536.0040643,
+    "ast_hash": "1c76db97a4d60ea1e8a549b3f43eb861",
+    "semantic_hash": "1c76db97a4d60ea1e8a549b3f43eb861"
+  },
+  "/home/user/Video-editing-with-drone/requirements.txt": {
+    "mtime": 1781635536.0474524,
+    "ast_hash": "c54b3e77f4a6c50ad0a4bbed1915b277",
+    "semantic_hash": "c54b3e77f4a6c50ad0a4bbed1915b277"
+  },
+  "/home/user/Video-editing-with-drone/assets/logo.png": {
+    "mtime": 1781635536.0040643,
+    "ast_hash": "c5af1d0eb19ee8b9d16078c7a855efe5",
+    "semantic_hash": "c5af1d0eb19ee8b9d16078c7a855efe5"
+  },
+  "/home/user/Video-editing-with-drone/mobile/assets/adaptive-icon.png": {
+    "mtime": 1781635536.01417,
+    "ast_hash": "5a4c5b8c5cebe6f6a40b9b013f3ee0d7",
+    "semantic_hash": "5a4c5b8c5cebe6f6a40b9b013f3ee0d7"
+  },
+  "/home/user/Video-editing-with-drone/mobile/assets/favicon.png": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "b9f520830d7b9d6dd47a66df9e0d8b96",
+    "semantic_hash": "b9f520830d7b9d6dd47a66df9e0d8b96"
+  },
+  "/home/user/Video-editing-with-drone/mobile/assets/icon.png": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "43556fe0cdb7b9a687bea0e8a4251d4d",
+    "semantic_hash": "43556fe0cdb7b9a687bea0e8a4251d4d"
+  },
+  "/home/user/Video-editing-with-drone/mobile/assets/splash.png": {
+    "mtime": 1781635536.014916,
+    "ast_hash": "ac3eb29228921251cda7714e447d831f",
+    "semantic_hash": "ac3eb29228921251cda7714e447d831f"
+  }
+}
