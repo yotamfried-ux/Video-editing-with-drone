@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
+import { useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -37,8 +38,21 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 export default function PipelineScreen() {
-  const status = usePipelineStatus();
+  const router = useRouter();
+  const { status, loading: statusLoading, error: statusError } = usePipelineStatus();
   const meta = (status?.meta ?? {}) as Record<string, unknown>;
+
+  const handleOperatorError = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('secret not set')) {
+      Alert.alert('Operator secret required', msg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go to Settings', onPress: () => router.push('/(operator)/settings' as never) },
+      ]);
+    } else {
+      Alert.alert('Failed', msg);
+    }
+  };
   const [requests, setRequests] = useState<ReprocessRow[]>([]);
   const [triggering, setTriggering] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -69,7 +83,7 @@ export default function PipelineScreen() {
       setLastRunId(result.pipeline_run_id);
       Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds — watch the progress here.`);
     } catch (e) {
-      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not trigger the pipeline.');
+      handleOperatorError(e);
     } finally {
       setTriggering(false);
     }
@@ -92,7 +106,7 @@ export default function PipelineScreen() {
       await operatorFetch('/api/operator/pipeline/reset', { method: 'POST' });
       Alert.alert('Reset triggered', 'The pipeline will reset and rerun within a few seconds.');
     } catch (e) {
-      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not reset the pipeline.');
+      handleOperatorError(e);
     } finally {
       setResetting(false);
     }
@@ -157,7 +171,7 @@ export default function PipelineScreen() {
       Alert.alert('Uploaded!', `"${filename}" is in RAW — run ${run.pipeline_run_id.slice(0, 8)} starts now.`);
     } catch (e) {
       setUploadProgress(null);
-      Alert.alert('Failed', e instanceof Error ? e.message : 'Upload failed.');
+      handleOperatorError(e);
     }
   };
 
@@ -169,9 +183,12 @@ export default function PipelineScreen() {
         <OperatorNav />
         <ScrollView contentContainerStyle={{ gap: Spacing.md, paddingBottom: Spacing.xl }}>
           <Text variant="display">Pipeline</Text>
-          <Text variant="caption" color={Colors.textSecondary}>
-            Live status · polls every 5s
-            {status?.updated_at ? ` · updated ${new Date(status.updated_at).toLocaleTimeString()}` : ''}
+          <Text variant="caption" color={statusError ? Colors.danger : Colors.textSecondary}>
+            {statusError
+              ? `⚠ status unavailable · ${statusError}`
+              : statusLoading
+              ? 'Loading status…'
+              : `Live status · polls every 5s${status?.updated_at ? ` · updated ${new Date(status.updated_at).toLocaleTimeString()}` : ''}`}
           </Text>
 
           <Card bordered style={{ gap: Spacing.md }}>
@@ -203,7 +220,7 @@ export default function PipelineScreen() {
               onPress={confirmReset}
               disabled={busy}
               variant="secondary"
-              style={{ height: 44, borderColor: Colors.error ?? '#e53e3e' }}
+              style={{ height: 44, borderColor: Colors.danger }}
             />
           </Card>
 

@@ -35,7 +35,7 @@ export function OperatorNav() {
       </View>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
         {TABS.map((t) => {
-          const active = pathname.includes(t.path.split('/').pop()!);
+          const active = pathname.split('/').pop() === t.path.split('/').pop();
           return (
             <TouchableOpacity
               key={t.path}
