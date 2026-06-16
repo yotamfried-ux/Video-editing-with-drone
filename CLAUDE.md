@@ -50,3 +50,43 @@ Without these, pipeline status updates (progress bar in operator app) will silen
 - Mobile app polls `pipeline_status` every 5s via `usePipelineStatus` hook.
 - `match_athlete_face` RPC: cosine similarity over JSONB face embeddings (128-float arrays from `face_recognition`).
 - Auth trigger: `on_auth_user_created` → inserts row in `athlete_profiles` on every new signup.
+
+<!-- BEGIN engineering-os (managed) -->
+## Engineering OS — governance layer (read-only reference)
+
+This project is governed by **Engineering OS**, a read-only reference at
+`/root/.engineering-os` (see `.engineering-os/REFERENCE.md`).
+
+**Before any task**, read and apply:
+- `/root/.engineering-os/CLAUDE.md` — role, precedence, skill activation, end-of-task usage report
+- `/root/.engineering-os/core/` — workflow, git cadence, quality gates, skill orchestration, documentation
+- `/root/.engineering-os/patterns/` — reusable, security-reviewed code patterns
+- `/root/.engineering-os/external-skills/` — external skill wrappers (SIP) + which are default-on
+
+Apply these rules to THIS project's code. **Never modify anything under
+`/root/.engineering-os`** — it is shared, read-only reference. Run
+`/root/.engineering-os/scripts/skill-bootstrap.sh` to see which skills are present here.
+
+### Manual install required — superpowers plugin
+
+superpowers cannot be installed by a script. Inside Claude Code CLI, run:
+```
+/plugin install superpowers@claude-plugins-official
+```
+This is a one-time step per machine. Verify with `/plugin list`.
+
+### Cross-project learning loop
+
+When you encounter a bug, lesson, failed solution, or validated pattern in THIS project
+that is relevant beyond it, follow the two-step protocol:
+
+1. **Document locally first** — create `lessons-learned/` or `failed-solutions/` in
+   this repo using the schema in `/root/.engineering-os/core/learning-loop.md`.
+2. **Promote to Engineering OS when confidence ≥ Medium** (root cause proven, not just
+   "it stopped happening") — open a PR to `https://github.com/yotamfried-ux/Engineering-OS` adding the lesson to
+   `lessons-learned/` or `patterns/`. This is how Engineering OS accumulates
+   cross-project wisdom. Read `/root/.engineering-os/core/learning-loop.md › <learning_loop>`
+   for the full promotion protocol (Observation → Verified Lesson → Best Practice).
+
+Never write directly to `/root/.engineering-os` — all contributions go via PR.
+<!-- END engineering-os (managed) -->
