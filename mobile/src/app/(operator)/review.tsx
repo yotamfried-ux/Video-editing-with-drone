@@ -8,7 +8,9 @@ import {
   Modal,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -32,6 +34,7 @@ function formatSize(bytes: number | null): string {
 }
 
 export default function OperatorReviewScreen() {
+  const router = useRouter();
   const [drafts, setDrafts] = useState<DraftRow[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -40,6 +43,18 @@ export default function OperatorReviewScreen() {
   const [reeditTarget, setReeditTarget] = useState<DraftRow | null>(null);
   const [reeditNotes, setReeditNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+
+  const handleOperatorError = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('secret not set')) {
+      Alert.alert('Operator secret required', msg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go to Settings', onPress: () => router.push('/(operator)/settings' as never) },
+      ]);
+    } else {
+      Alert.alert('Failed', msg);
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -83,7 +98,7 @@ export default function OperatorReviewScreen() {
               setDrafts((d) => d.filter((x) => x.id !== draft.id));
               Alert.alert('Approved ✅', 'The reel moved to APPROVED and will be delivered on the next run.');
             } catch (e) {
-              Alert.alert('Failed', e instanceof Error ? e.message : 'Could not approve.');
+              handleOperatorError(e);
             } finally {
               setApproving(null);
             }
@@ -112,7 +127,7 @@ export default function OperatorReviewScreen() {
         'The source footage will be reprocessed with your notes on the next pipeline run.'
       );
     } catch (e) {
-      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not send re-edit request.');
+      handleOperatorError(e);
     } finally {
       setSubmitting(false);
     }
@@ -135,7 +150,9 @@ export default function OperatorReviewScreen() {
             </View>
           }
           ListEmptyComponent={
-            !loaded ? null : loadError ? (
+            !loaded ? (
+              <ActivityIndicator color={Colors.accent} style={{ marginTop: Spacing.xl }} />
+            ) : loadError ? (
               <Card bordered style={{ gap: Spacing.sm, borderColor: Colors.danger }}>
                 <Text variant="title">Couldn't load drafts</Text>
                 <Text variant="caption" color={Colors.textSecondary}>{loadError}</Text>
