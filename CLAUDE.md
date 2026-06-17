@@ -17,16 +17,16 @@ Drone video pipeline → AI editing → athlete highlights marketplace.
 3. Confirmed pipeline runs end-to-end when triggered from the operator app.
 4. Created Supabase migrations for all missing tables.
 5. Allowed Supabase MCP tools in `.claude/settings.json`.
+6. Applied all 3 Supabase migrations via MCP — verified 15/15 ✅.
+7. Fixed 6 mobile app bugs (branch `claude/engineering-os-setup-w42yk1`):
+   - `Colors.error` → `Colors.danger` in pipeline.tsx
+   - Tab active detection: exact segment comparison in OperatorNav
+   - `usePipelineStatus`: added `loading` + `error` state (was silently null on failure)
+   - Operator secret missing: Alert with "Go to Settings" navigation in pipeline/review/reels
+   - Review screen: `ActivityIndicator` while loading (was blank)
+   - Reels screen: added `loaded`/`loadError` state + spinner + error card
 
 ## What still needs to be done
-### Supabase migrations — NOT YET APPLIED to the live DB
-Run these in order at `https://supabase.com/dashboard/project/bcndgmymnismbxvdeetc/sql/new`:
-1. `supabase/migrations/20260611_add_drafts_and_reprocess_requests.sql`
-2. `supabase/migrations/20260612_add_pipeline_status.sql`
-3. `supabase/migrations/20260612_create_core_schema.sql`
-
-Then verify with `supabase/verify_schema.sql` — every row must return `true`.
-
 ### Storage bucket
 Create bucket `athlete-photos` (Private) at:
 `https://supabase.com/dashboard/project/bcndgmymnismbxvdeetc/storage/buckets`
@@ -36,6 +36,8 @@ Create bucket `athlete-photos` (Private) at:
 `https://github.com/yotamfried-ux/Video-editing-with-drone/settings/secrets/actions`
 
 Without these, pipeline status updates (progress bar in operator app) will silently fail.
+
+`CLAUDE_API_KEY` must be added for the security-review CI check to pass (currently ❌ failing).
 
 ## Key env vars
 | Where | Var | Value / note |
