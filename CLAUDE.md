@@ -50,3 +50,23 @@ Without these, pipeline status updates (progress bar in operator app) will silen
 - Mobile app polls `pipeline_status` every 5s via `usePipelineStatus` hook.
 - `match_athlete_face` RPC: cosine similarity over JSONB face embeddings (128-float arrays from `face_recognition`).
 - Auth trigger: `on_auth_user_created` → inserts row in `athlete_profiles` on every new signup.
+
+<!-- BEGIN engineering-os (managed) -->
+## Engineering OS — governance layer
+
+This repository uses **Engineering OS** as a read-only engineering governance and knowledge layer.
+
+Reference source:
+- Local reference path: `${ENGINEERING_OS_HOME:-$HOME/.engineering-os}`
+- Source repo: `https://github.com/yotamfried-ux/Engineering-OS`
+
+Before code changes, apply the Engineering OS workflow:
+1. Read this project context and the Engineering OS reference instructions.
+2. Use the relevant skill/workflow for the task type.
+3. Prefer existing patterns and documented lessons before inventing new structure.
+4. Validate with tests or explicit checks before pushing.
+5. Use PRs for changes; do not merge to `main` without explicit owner approval.
+6. When CodeRabbit reviews a PR, address actionable comments before merge.
+
+Do not commit generated Graph/analysis artifacts or local machine paths as part of governance setup. Keep this project-specific PR surface small and auditable.
+<!-- END engineering-os (managed) -->
