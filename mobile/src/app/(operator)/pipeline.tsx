@@ -10,6 +10,7 @@ import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { PipelineBar } from '@/features/operator/components/PipelineBar';
+import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import { Colors, Spacing } from '@/shared/constants/theme';
@@ -223,6 +224,8 @@ export default function PipelineScreen() {
               style={{ height: 44, borderColor: Colors.danger }}
             />
           </Card>
+
+          <PipelineRunsCard />
 
           {/* Stage timeline */}
           <Card bordered style={{ gap: Spacing.sm }}>
