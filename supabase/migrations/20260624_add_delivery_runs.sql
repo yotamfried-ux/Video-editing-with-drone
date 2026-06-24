@@ -10,7 +10,7 @@ create table if not exists public.delivery_runs (
   approved_file_id    text not null,
   approved_file_name  text,
   source_video        text,
-  status              text not null default 'queued', -- queued | running | discover_published | succeeded | failed | dispatch_failed
+  status              text not null default 'queued',
   stage               text not null default 'queued',
   github_event        text,
   github_run_id       bigint,
@@ -21,7 +21,31 @@ create table if not exists public.delivery_runs (
   approved_at         timestamptz not null default now(),
   started_at          timestamptz,
   finished_at         timestamptz,
-  updated_at          timestamptz not null default now()
+  updated_at          timestamptz not null default now(),
+  constraint delivery_runs_status_chk check (
+    status in ('queued','running','discover_published','succeeded','failed','dispatch_failed')
+  ),
+  constraint delivery_runs_stage_chk check (
+    stage in (
+      'queued',
+      'approved_moved_to_drive',
+      'delivery_workflow_dispatched',
+      'dispatch_failed',
+      'starting',
+      'scanning_approved',
+      'no_approved_drafts',
+      'previewing',
+      'creating_preview',
+      'preview_failed',
+      'publishing_discover',
+      'discover_published',
+      'discover_publish_failed',
+      'preview_upload_failed',
+      'emailing_athlete',
+      'finished',
+      'failed'
+    )
+  )
 );
 
 create index if not exists delivery_runs_created_idx on public.delivery_runs (approved_at desc);
