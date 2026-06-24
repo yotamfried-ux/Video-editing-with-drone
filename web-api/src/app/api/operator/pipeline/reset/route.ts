@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
+import { supabaseAdmin } from '@/lib/supabase-admin';
+
+const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 
 // POST /api/operator/pipeline/reset — resets pipeline state and reruns.
 // Fires GitHub workflow_dispatch on pipeline-run.yml with reset=true, which:
@@ -24,6 +27,27 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const { data: run, error: insertError } = await supabaseAdmin
+    .from('pipeline_runs')
+    .insert({
+      source: 'reset',
+      status: 'queued',
+      stage: 'dispatching_reset',
+      progress: 0,
+      github_event: 'workflow_dispatch:pipeline-run.yml',
+      github_run_url: actionsUrl(repo),
+      meta: { requested_by: 'operator_app', reset: true },
+    })
+    .select('id')
+    .single();
+
+  if (insertError || !run) {
+    return NextResponse.json(
+      { error: insertError?.message ?? 'Could not create reset pipeline run' },
+      { status: 500 },
+    );
+  }
+
   const res = await fetch(
     `https://api.github.com/repos/${repo}/actions/workflows/pipeline-run.yml/dispatches`,
     {
@@ -33,16 +57,22 @@ export async function POST(req: NextRequest) {
         Accept: 'application/vnd.github+json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ ref: 'main', inputs: { reset: 'true' } }),
+      body: JSON.stringify({
+        ref: 'main',
+        inputs: { reset: 'true', pipeline_run_id: run.id },
+      }),
     }
   );
 
   if (res.status !== 204) {
     const text = await res.text();
-    return NextResponse.json(
-      { error: `GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}` },
-      { status: 502 },
-    );
+    const message = `GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`;
+    await supabaseAdmin
+      .from('pipeline_runs')
+      .update({ status: 'dispatch_failed', stage: 'dispatch_failed', error: message, finished_at: new Date().toISOString() })
+      .eq('id', run.id);
+    return NextResponse.json({ error: message, pipeline_run_id: run.id }, { status: 502 });
   }
-  return NextResponse.json({ ok: true });
+
+  return NextResponse.json({ ok: true, pipeline_run_id: run.id, github_actions_url: actionsUrl(repo) });
 }
