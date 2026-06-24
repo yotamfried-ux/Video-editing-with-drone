@@ -111,7 +111,7 @@ jobs:
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           TMP_DIR: /tmp/dtor
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
-        run: python run.py
+        run: python scripts/run_tracked.py
 
       - name: Clean up credential files
         if: always()
