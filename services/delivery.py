@@ -122,7 +122,7 @@ def deliver_preview() -> None:
                 logger.debug("Face frame extraction skipped for '%s': %s", draft["name"], _fe)
         except Exception as exc:
             logger.error("Preview prep failed for '%s': %s", draft["name"], exc)
-            mark_delivery_run(status="failed", stage="preview_failed", error=str(exc), source_video=draft["name"])
+            mark_delivery_run(status="running", stage="preview_failed", error=str(exc), source_video=draft["name"])
             continue
         finally:
             if local_path:
@@ -154,7 +154,7 @@ def deliver_preview() -> None:
                 print(f"📱 '{draft['name']}' published to Discover (id={reel_id})")
             except Exception as _pe:
                 logger.warning("Discover publish failed for '%s': %s", draft["name"], _pe)
-                mark_delivery_run(status="failed", stage="discover_publish_failed", error=str(_pe), source_video=draft["name"])
+                mark_delivery_run(status="running", stage="discover_publish_failed", error=str(_pe), source_video=draft["name"])
 
             # Face match + notify (non-fatal; files still on disk at this point).
             if reel_id and face_frame_path:
@@ -166,7 +166,7 @@ def deliver_preview() -> None:
 
         except Exception as exc:
             logger.error("Preview upload failed for '%s': %s", draft["name"], exc)
-            mark_delivery_run(status="failed", stage="preview_upload_failed", error=str(exc), source_video=draft["name"])
+            mark_delivery_run(status="running", stage="preview_upload_failed", error=str(exc), source_video=draft["name"])
             continue
         finally:
             if preview_path:
