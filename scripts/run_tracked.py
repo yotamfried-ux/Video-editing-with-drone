@@ -8,5 +8,12 @@ from pipeline.orchestrator import main
 if __name__ == "__main__":
     from integrations.observability import init_sentry
     init_sentry()
-    main()
-    mark_run(status="succeeded", stage="finished", progress=1.0)
+    ok = False
+    try:
+        main()
+        ok = True
+    finally:
+        if ok:
+            mark_run(status="succeeded", stage="finished", progress=1.0)
+        else:
+            mark_run(status="failed", stage="failed")
