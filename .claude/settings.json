@@ -4,7 +4,25 @@
       "mcp__2e409c57-7772-44e6-b758-62f70c079c49__apply_migration",
       "mcp__2e409c57-7772-44e6-b758-62f70c079c49__execute_sql",
       "mcp__2e409c57-7772-44e6-b758-62f70c079c49__list_tables",
-      "mcp__2e409c57-7772-44e6-b758-62f70c079c49__list_projects"
+      "mcp__2e409c57-7772-44e6-b758-62f70c079c49__list_projects",
+      "mcp__Supabase__execute_sql",
+      "mcp__Supabase__apply_migration",
+      "mcp__Supabase__list_tables",
+      "mcp__Supabase__list_migrations",
+      "mcp__Supabase__get_logs",
+      "mcp__Supabase__list_projects",
+      "mcp__Supabase__get_project",
+      "mcp__Vercel__get_runtime_errors",
+      "mcp__Vercel__get_runtime_logs",
+      "mcp__Vercel__list_deployments",
+      "mcp__Vercel__get_deployment",
+      "mcp__github__actions_list",
+      "mcp__github__actions_get",
+      "mcp__github__get_job_logs",
+      "mcp__github__list_pull_requests",
+      "mcp__github__pull_request_read",
+      "mcp__github__push_files",
+      "mcp__github__create_pull_request"
     ]
   }
 }
