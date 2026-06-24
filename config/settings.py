@@ -60,10 +60,18 @@ QUALITY_LOG_FILE: str    = os.getenv("QUALITY_LOG_FILE", "quality_issues.jsonl")
 # Events shorter than this (real content, before any padding) are dropped —
 # a 2s fragment has no visible performance and ruins the hook.
 MIN_EVENT_SEC: float = float(os.getenv("MIN_EVENT_SEC", "5"))
-# Sources below this height get a quality warning + forced basic mode (no zoom).
-MIN_SOURCE_HEIGHT: int = int(os.getenv("MIN_SOURCE_HEIGHT", "720"))
+# Sources below this height are forced into basic framing (no extra zoom).
+# 1080p landscape must be upscaled to 1080x1920 for vertical reels, so it should
+# not receive additional destructive zoom/crop. 1440p+ has safer vertical detail.
+MIN_SOURCE_HEIGHT: int = int(os.getenv("MIN_SOURCE_HEIGHT", "1440"))
+# Source height required before the renderer should consider a 1080x1920 output
+# truly safe. Below this, diagnostics recommend a 720x1280 render path.
+REEL_FULL_HD_MIN_SOURCE_HEIGHT: int = int(os.getenv("REEL_FULL_HD_MIN_SOURCE_HEIGHT", "1440"))
+# Warn when forcing 1080x1920 would upscale the source by this factor or more.
+REEL_WARN_UPSCALE_FACTOR: float = float(os.getenv("REEL_WARN_UPSCALE_FACTOR", "1.25"))
 # Motion-interpolated slow-mo for sources below 50fps (optical flow, slower encode).
-SLOWMO_INTERPOLATE: bool = os.getenv("SLOWMO_INTERPOLATE", "true").lower() == "true"
+# Default off for quality preservation: optical flow often creates mushy drone footage.
+SLOWMO_INTERPOLATE: bool = os.getenv("SLOWMO_INTERPOLATE", "false").lower() == "true"
 # Burn athlete identity description as lower-third text. Off — the identity
 # string ("red shirt #7") is an internal matching label, not viewer content.
 ATHLETE_TEXT_OVERLAY: bool = os.getenv("ATHLETE_TEXT_OVERLAY", "false").lower() == "true"
