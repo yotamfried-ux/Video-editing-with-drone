@@ -29,14 +29,18 @@ export async function POST(req: NextRequest) {
 
     const { data: reel } = await supabaseAdmin
       .from('reels')
-      .select('sport, recording_date, user_id')
+      .select('sport, recording_date, matched_athlete')
       .eq('id', reelId)
       .single();
 
-    if (reel?.user_id) {
-      const { data: { user } } = await supabaseAdmin.auth.admin.getUserById(reel.user_id);
-      if (user?.email) {
-        sendPaymentConfirmEmail(user.email, reelId, intent.amount).catch(() => {});
+    if (reel?.matched_athlete) {
+      const { data: profile } = await supabaseAdmin
+        .from('athlete_profiles')
+        .select('email')
+        .eq('id', reel.matched_athlete)
+        .single();
+      if (profile?.email) {
+        sendPaymentConfirmEmail(profile.email, reelId, intent.amount).catch(() => {});
       }
     }
 

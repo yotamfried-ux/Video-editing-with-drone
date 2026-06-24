@@ -31,5 +31,10 @@ export async function GET(req: NextRequest) {
     grouped.get(key)!.reels.push(reel);
   }
 
-  return NextResponse.json({ sessions: [...grouped.values()] });
+  // hasMore is based on raw reel count — sessions are grouped, so their
+  // length says nothing about whether another page of reels exists.
+  return NextResponse.json({
+    sessions: [...grouped.values()],
+    hasMore: (reels?.length ?? 0) === limit,
+  });
 }

@@ -8,6 +8,7 @@ import {
   Modal,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
@@ -34,18 +35,35 @@ interface ReelRow {
 export default function OperatorReelsScreen() {
   const router = useRouter();
   const [reels, setReels] = useState<ReelRow[]>([]);
+  const [loaded, setLoaded] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [reprocessTarget, setReprocessTarget] = useState<ReelRow | null>(null);
   const [reprocessNotes, setReprocessNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  const handleOperatorError = (e: unknown) => {
+    const msg = e instanceof Error ? e.message : 'Unknown error';
+    if (msg.includes('secret not set')) {
+      Alert.alert('Operator secret required', msg, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Go to Settings', onPress: () => router.push('/(operator)/settings' as never) },
+      ]);
+    } else {
+      Alert.alert('Failed', msg);
+    }
+  };
+
   const load = useCallback(async () => {
-    // reels no longer allow broad anon read; fetch via the operator API.
     try {
       const { reels: data } = await operatorFetch<{ reels: ReelRow[] }>('/api/operator/reels');
       setReels(data ?? []);
-    } catch {
+      setLoadError(null);
+    } catch (e) {
       setReels([]);
+      setLoadError(e instanceof Error ? e.message : 'Failed to load reels');
+    } finally {
+      setLoaded(true);
     }
   }, []);
 
@@ -86,7 +104,7 @@ export default function OperatorReelsScreen() {
         'The source footage will be reprocessed with your notes on the next pipeline run.'
       );
     } catch (e) {
-      Alert.alert('Failed', e instanceof Error ? e.message : 'Could not send reprocess request.');
+      handleOperatorError(e);
     } finally {
       setSubmitting(false);
     }
@@ -109,7 +127,16 @@ export default function OperatorReelsScreen() {
             </View>
           }
           ListEmptyComponent={
-            <Text variant="body" color={Colors.textSecondary}>No reels yet.</Text>
+            !loaded ? (
+              <ActivityIndicator color={Colors.accent} style={{ marginTop: Spacing.xl }} />
+            ) : loadError ? (
+              <Card bordered style={{ gap: Spacing.sm, borderColor: Colors.danger }}>
+                <Text variant="title">Couldn't load reels</Text>
+                <Text variant="caption" color={Colors.textSecondary}>{loadError}</Text>
+              </Card>
+            ) : (
+              <Text variant="body" color={Colors.textSecondary}>No reels yet.</Text>
+            )
           }
           ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
           renderItem={({ item }) => (

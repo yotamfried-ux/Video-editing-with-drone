@@ -82,7 +82,7 @@ export function useRegistration(initialStep: Step = 'credentials', skipFace = fa
       const blob = await response.arrayBuffer();
       const path = `${userId}/photo.jpg`;
       const { error: upErr } = await supabase.storage
-        .from('athlete_photos')
+        .from('athlete-photos')
         .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
       if (upErr) throw upErr;
       await supabase

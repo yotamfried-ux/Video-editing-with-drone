@@ -10,15 +10,23 @@ interface PipelineStatus {
 
 export function usePipelineStatus() {
   const [status, setStatus] = useState<PipelineStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = async () => {
-    const { data } = await supabase
+    const { data, error: err } = await supabase
       .from('pipeline_status')
       .select('stage, progress, meta, updated_at')
       .eq('id', 1)
       .single();
-    if (data) setStatus(data as PipelineStatus);
+    if (err) {
+      setError(err.message);
+    } else if (data) {
+      setStatus(data as PipelineStatus);
+      setError(null);
+    }
+    setLoading(false);
   };
 
   useEffect(() => {
@@ -29,5 +37,5 @@ export function usePipelineStatus() {
     };
   }, []);
 
-  return status;
+  return { status, loading, error };
 }
