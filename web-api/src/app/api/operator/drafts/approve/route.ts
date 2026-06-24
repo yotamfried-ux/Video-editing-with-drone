@@ -8,6 +8,13 @@ export const dynamic = 'force-dynamic';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/deliver.yml`;
 
+type DeliveryRunPatch = {
+  status?: string;
+  stage?: string;
+  error?: string;
+  finished_at?: string;
+};
+
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const limited = await enforceRateLimit(req, 'draft-approve', 20, 60);
@@ -53,7 +60,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Draft moved to APPROVED, but could not create delivery status record.', drive_move_completed: true }, { status: 500 });
   }
 
-  async function updateDeliveryRun(fields: Record<string, unknown>) {
+  async function updateDeliveryRun(fields: DeliveryRunPatch) {
     const { error } = await supabaseAdmin.from('delivery_runs').update(fields).eq('id', deliveryRun.id);
     if (error) console.error('delivery run update failed', error.message);
     return error;
