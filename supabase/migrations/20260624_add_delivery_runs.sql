@@ -1,6 +1,9 @@
 -- Delivery run contract for operator approval → GitHub Actions → Discover publish.
 -- This complements pipeline_runs: it tracks what happens after an operator approves
 -- a draft and the Deliver Preview workflow starts.
+--
+-- Apply after adding GitHub secret SUPABASE_DB_URL, using the existing
+-- Run Supabase Migration workflow.
 
 create table if not exists public.delivery_runs (
   id                  uuid primary key default gen_random_uuid(),
