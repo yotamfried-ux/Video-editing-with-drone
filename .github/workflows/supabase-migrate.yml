@@ -1,0 +1,80 @@
+name: Run Supabase Migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      migration:
+        description: "Migration filename under supabase/migrations"
+        required: true
+        type: string
+        default: "20260624_add_pipeline_runs.sql"
+      confirm_apply:
+        description: "Type APPLY to run against the live database"
+        required: true
+        type: string
+        default: "DRY_RUN"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supabase-migration
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Run selected migration
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Validate selected migration
+        env:
+          MIGRATION: ${{ inputs.migration }}
+        run: |
+          set -euo pipefail
+          case "$MIGRATION" in
+            ""|*"/"*|*".."*)
+              echo "Invalid migration filename: $MIGRATION" >&2
+              exit 1
+              ;;
+          esac
+          test -f "supabase/migrations/$MIGRATION"
+          echo "MIGRATION_PATH=supabase/migrations/$MIGRATION" >> "$GITHUB_ENV"
+
+      - name: Install psql client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+
+      - name: Dry run summary
+        if: ${{ inputs.confirm_apply != 'APPLY' }}
+        run: |
+          echo "Dry run only. To apply, rerun this workflow with confirm_apply=APPLY."
+          echo "Selected migration: $MIGRATION_PATH"
+          sed -n '1,160p' "$MIGRATION_PATH"
+
+      - name: Require database URL
+        if: ${{ inputs.confirm_apply == 'APPLY' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          if [ -z "${SUPABASE_DB_URL:-}" ]; then
+            echo "Missing GitHub secret SUPABASE_DB_URL." >&2
+            echo "Add it under Settings > Secrets and variables > Actions." >&2
+            echo "Expected format: postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres?sslmode=require" >&2
+            exit 1
+          fi
+
+      - name: Apply migration
+        if: ${{ inputs.confirm_apply == 'APPLY' }}
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+        run: |
+          set -euo pipefail
+          echo "Applying migration: $MIGRATION_PATH"
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$MIGRATION_PATH"
+          echo "Migration applied successfully."

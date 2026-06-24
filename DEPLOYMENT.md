@@ -183,3 +183,29 @@ operator OAuth token (the service account cannot move operator-owned files).
 > CPU-heavy. On GitHub's 2-core runners a multi-athlete session can take a long
 > time; set `SLOWMO_INTERPOLATE=false` (repo variable) to fall back to plain
 > speed-ramps if runs approach the 6h job limit.
+
+---
+
+## 7. Database migrations
+
+New Supabase migrations live under `supabase/migrations/` and can be applied from
+GitHub Actions using `.github/workflows/supabase-migrate.yml`.
+
+### Required GitHub secret
+
+Add under **Settings → Secrets and variables → Actions**:
+
+| Secret | Value |
+|---|---|
+| `SUPABASE_DB_URL` | Postgres connection string with SSL, for example `postgresql://postgres:<DB_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require` |
+
+### Apply a migration
+
+1. Go to **Actions → Run Supabase Migration → Run workflow**.
+2. Set `migration` to the filename, for example `20260624_add_pipeline_runs.sql`.
+3. Leave `confirm_apply=DRY_RUN` first to print the selected SQL without applying it.
+4. Rerun with `confirm_apply=APPLY` to execute it against the live Supabase database.
+
+The workflow validates the filename, installs `postgresql-client`, fails clearly if
+`SUPABASE_DB_URL` is missing, and runs `psql -v ON_ERROR_STOP=1` so SQL errors stop
+the job immediately.
