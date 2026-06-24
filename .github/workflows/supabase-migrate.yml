@@ -1,6 +1,7 @@
 name: Run Supabase Migration
 
 on:
+  # Manual runner for any migration.
   workflow_dispatch:
     inputs:
       migration:
@@ -14,6 +15,13 @@ on:
         type: string
         default: "DRY_RUN"
 
+  # One-time bootstrap for the current pipeline_runs migration. This fires when
+  # this workflow change reaches main. The SQL is idempotent, so reruns are safe.
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/supabase-migrate.yml"
+
 permissions:
   contents: read
 
@@ -26,13 +34,14 @@ jobs:
     name: Run selected migration
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      MIGRATION: ${{ inputs.migration || '20260624_add_pipeline_runs.sql' }}
+      CONFIRM_APPLY: ${{ inputs.confirm_apply || 'APPLY' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Validate selected migration
-        env:
-          MIGRATION: ${{ inputs.migration }}
         run: |
           set -euo pipefail
           case "$MIGRATION" in
@@ -50,14 +59,14 @@ jobs:
           sudo apt-get install -y postgresql-client
 
       - name: Dry run summary
-        if: ${{ inputs.confirm_apply != 'APPLY' }}
+        if: ${{ env.CONFIRM_APPLY != 'APPLY' }}
         run: |
           echo "Dry run only. To apply, rerun this workflow with confirm_apply=APPLY."
           echo "Selected migration: $MIGRATION_PATH"
           sed -n '1,160p' "$MIGRATION_PATH"
 
       - name: Require database URL
-        if: ${{ inputs.confirm_apply == 'APPLY' }}
+        if: ${{ env.CONFIRM_APPLY == 'APPLY' }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
@@ -70,7 +79,7 @@ jobs:
           fi
 
       - name: Apply migration
-        if: ${{ inputs.confirm_apply == 'APPLY' }}
+        if: ${{ env.CONFIRM_APPLY == 'APPLY' }}
         env:
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
         run: |
