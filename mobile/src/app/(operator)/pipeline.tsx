@@ -23,6 +23,12 @@ interface ReprocessRow {
   created_at: string;
 }
 
+interface PipelineStartResponse {
+  ok: boolean;
+  pipeline_run_id: string;
+  github_actions_url?: string;
+}
+
 const STATUS_LABEL: Record<string, string> = {
   pending: '⏳ waiting for next run',
   queued: '🔁 re-editing now',
@@ -37,6 +43,7 @@ export default function PipelineScreen() {
   const [triggering, setTriggering] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [lastRunId, setLastRunId] = useState<string | null>(null);
 
   const loadRequests = useCallback(async () => {
     try {
@@ -58,8 +65,9 @@ export default function PipelineScreen() {
   const runPipeline = async () => {
     setTriggering(true);
     try {
-      await operatorFetch('/api/operator/pipeline/run', { method: 'POST' });
-      Alert.alert('Pipeline triggered', 'The run starts within a few seconds — watch the progress here.');
+      const result = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/start', { method: 'POST' });
+      setLastRunId(result.pipeline_run_id);
+      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds — watch the progress here.`);
     } catch (e) {
       Alert.alert('Failed', e instanceof Error ? e.message : 'Could not trigger the pipeline.');
     } finally {
@@ -143,9 +151,10 @@ export default function PipelineScreen() {
 
       setUploadProgress(null);
 
-      // Step 3: trigger pipeline
-      await operatorFetch('/api/operator/pipeline/run', { method: 'POST' });
-      Alert.alert('Uploaded!', `"${filename}" is in RAW — the pipeline starts now.`);
+      // Step 3: trigger tracked pipeline run
+      const run = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/start', { method: 'POST' });
+      setLastRunId(run.pipeline_run_id);
+      Alert.alert('Uploaded!', `"${filename}" is in RAW — run ${run.pipeline_run_id.slice(0, 8)} starts now.`);
     } catch (e) {
       setUploadProgress(null);
       Alert.alert('Failed', e instanceof Error ? e.message : 'Upload failed.');
@@ -167,6 +176,11 @@ export default function PipelineScreen() {
 
           <Card bordered style={{ gap: Spacing.md }}>
             <PipelineBar stage={status?.stage ?? 'idle'} progress={status?.progress ?? 0} />
+            {lastRunId && (
+              <Text variant="caption" color={Colors.textSecondary}>
+                Current app-triggered run: {lastRunId.slice(0, 8)}
+              </Text>
+            )}
 
             <Button
               label={triggering ? 'Triggering…' : '▶ Run pipeline now'}
