@@ -42,18 +42,38 @@ def _get_service():
     return build("drive", "v3", credentials=creds)
 
 
+def _is_revoked_oauth_credentials(exc: Exception) -> bool:
+    text = str(exc).lower()
+    return "invalid_grant" in text or "expired or revoked" in text
+
+
 def _get_user_service():
-    """User OAuth service for operations on user-owned files (delete, move)."""
+    """User OAuth service for operations on user-owned files.
+
+    When the stored OAuth refresh credentials can no longer refresh, use the
+    service account as a fallback. Per-file Drive permission failures are still
+    logged later by the reset steps.
+    """
     token_file = os.getenv("DRIVE_USER_TOKEN", "drive_user_token.json")
     if os.path.exists(token_file):
         from google.oauth2.credentials import Credentials
+        from google.auth.exceptions import RefreshError
         from google.auth.transport.requests import Request
-        creds = Credentials.from_authorized_user_file(token_file, _SCOPES)
-        if creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-            with open(token_file, "w") as f:
-                f.write(creds.to_json())
-        return build("drive", "v3", credentials=creds)
+
+        try:
+            creds = Credentials.from_authorized_user_file(token_file, _SCOPES)
+            if creds.expired and creds.refresh_token:
+                creds.refresh(Request())
+                with open(token_file, "w") as f:
+                    f.write(creds.to_json())
+            return build("drive", "v3", credentials=creds)
+        except RefreshError as exc:
+            if not _is_revoked_oauth_credentials(exc):
+                raise
+            print(
+                "⚠️ Stored Drive OAuth credentials are expired or revoked. "
+                "Falling back to the service account for reset operations."
+            )
     return _get_service()
 
 
