@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
+import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
 export const dynamic = 'force-dynamic';
@@ -8,6 +9,9 @@ export async function GET(req: NextRequest) {
   if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await enforceRateLimit(req, 'delivery-status', 120, 60);
+  if (limited) return limited;
 
   const limitParam = new URL(req.url).searchParams.get('limit');
   const parsedLimit = Number.parseInt(limitParam ?? '10', 10);
@@ -20,7 +24,8 @@ export async function GET(req: NextRequest) {
     .limit(limit);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('delivery-status query failed', error.message);
+    return NextResponse.json({ error: 'Could not load delivery status' }, { status: 500 });
   }
 
   return NextResponse.json({ runs: data ?? [] });
