@@ -72,6 +72,9 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           TMP_DIR: /tmp/dtor
+          DELIVERY_RUN_ID: ${{ github.event.client_payload.delivery_run_id || '' }}
+          DELIVERY_APPROVED_FILE_ID: ${{ github.event.client_payload.approved_file_id || '' }}
+          DELIVERY_APPROVED_FILE_NAME: ${{ github.event.client_payload.approved_file_name || '' }}
         run: python deliver.py
 
       - name: Clean up credential files

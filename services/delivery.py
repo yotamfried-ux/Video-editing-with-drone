@@ -17,6 +17,7 @@ from pipeline.stages.editor   import create_preview
 from integrations.notifier import send_summary_email
 from services.client_manager  import find_client
 from pipeline.stages.feedback import record_approval as _record_approval
+from integrations.delivery_status import mark_delivery_run
 
 logger = logging.getLogger(__name__)
 
@@ -73,10 +74,15 @@ def _save_delivered(ids: set[str]) -> None:
 def deliver_preview() -> None:
     """Scan APPROVED folder → generate 480p preview → email → move to PENDING_PAYMENT."""
     print("\n🔍 D to R Pipeline — Phase 2a: Preview Delivery")
+    mark_delivery_run(status="running", stage="scanning_approved")
 
     approved = get_approved_drafts()
+    target_file_id = os.getenv("DELIVERY_APPROVED_FILE_ID", "").strip()
+    if target_file_id:
+        approved = [d for d in approved if d.get("id") == target_file_id]
     if not approved:
         print("✅ No approved drafts — nothing to preview")
+        mark_delivery_run(status="succeeded", stage="no_approved_drafts")
         return
 
     already_previewed = _load_previewed()
@@ -92,6 +98,7 @@ def deliver_preview() -> None:
         print(f"⚠️ No link for '{d['name']}' — skipped (check Drive permissions)")
 
     print(f"\n📋 {len(to_preview)} reel(s) to preview")
+    mark_delivery_run(status="running", stage="previewing", meta={"approved_count": len(to_preview)})
 
     preview_results: list[tuple[dict, str, dict | None]] = []
 
@@ -104,6 +111,7 @@ def deliver_preview() -> None:
         face_frame_path = None
 
         try:
+            mark_delivery_run(status="running", stage="creating_preview", source_video=draft["name"])
             local_path   = download_video(draft["id"], draft["name"])
             preview_path = create_preview(local_path, athlete_label=athlete_name)
             # Extract a frame for face matching before local_path is deleted.
@@ -114,6 +122,7 @@ def deliver_preview() -> None:
                 logger.debug("Face frame extraction skipped for '%s': %s", draft["name"], _fe)
         except Exception as exc:
             logger.error("Preview prep failed for '%s': %s", draft["name"], exc)
+            mark_delivery_run(status="running", stage="preview_failed", error=str(exc), source_video=draft["name"])
             continue
         finally:
             if local_path:
@@ -127,6 +136,7 @@ def deliver_preview() -> None:
             # Publish preview to Supabase so reel appears in Discover immediately.
             reel_id = None
             try:
+                mark_delivery_run(status="running", stage="publishing_discover", source_video=draft["name"])
                 from integrations.supabase_uploader import publish_reel_approved as _pub
                 reel_meta = _load_reel_metadata(draft["name"])
                 reel_id = _pub(
@@ -135,9 +145,16 @@ def deliver_preview() -> None:
                     drive_file_id=draft["id"],
                     reel_meta=reel_meta or {},
                 )
+                mark_delivery_run(
+                    status="discover_published",
+                    stage="discover_published",
+                    discover_reel_id=reel_id,
+                    source_video=draft["name"],
+                )
                 print(f"📱 '{draft['name']}' published to Discover (id={reel_id})")
             except Exception as _pe:
                 logger.warning("Discover publish failed for '%s': %s", draft["name"], _pe)
+                mark_delivery_run(status="running", stage="discover_publish_failed", error=str(_pe), source_video=draft["name"])
 
             # Face match + notify (non-fatal; files still on disk at this point).
             if reel_id and face_frame_path:
@@ -149,6 +166,7 @@ def deliver_preview() -> None:
 
         except Exception as exc:
             logger.error("Preview upload failed for '%s': %s", draft["name"], exc)
+            mark_delivery_run(status="running", stage="preview_upload_failed", error=str(exc), source_video=draft["name"])
             continue
         finally:
             if preview_path:
@@ -196,6 +214,7 @@ def deliver_preview() -> None:
         if not email or email == config.OWNER_EMAIL:
             continue
         try:
+            mark_delivery_run(status="discover_published", stage="emailing_athlete")
             send_summary_email(
                 recipients  = [email],
                 clips_links = group["links"],

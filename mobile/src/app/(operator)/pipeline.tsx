@@ -11,6 +11,7 @@ import { Spacer } from '@/shared/components/Spacer';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { PipelineBar } from '@/features/operator/components/PipelineBar';
 import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCard';
+import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatusCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import { Colors, Spacing } from '@/shared/constants/theme';
@@ -226,6 +227,7 @@ export default function PipelineScreen() {
           </Card>
 
           <PipelineRunsCard />
+          <DeliveryStatusCard />
 
           {/* Stage timeline */}
           <Card bordered style={{ gap: Spacing.sm }}>
