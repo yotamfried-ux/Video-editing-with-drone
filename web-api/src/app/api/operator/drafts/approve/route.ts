@@ -60,8 +60,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Draft moved to APPROVED, but could not create delivery status record.', drive_move_completed: true }, { status: 500 });
   }
 
+  const runId = deliveryRun.id as string;
+
   async function updateDeliveryRun(fields: DeliveryRunPatch) {
-    const { error } = await supabaseAdmin.from('delivery_runs').update(fields).eq('id', deliveryRun.id);
+    const { error } = await supabaseAdmin.from('delivery_runs').update(fields).eq('id', runId);
     if (error) console.error('delivery run update failed', error.message);
     return error;
   }
@@ -78,7 +80,7 @@ export async function POST(req: NextRequest) {
         error: error ? `${message} Also failed to persist delivery status.` : message,
         drive_move_completed: true,
         delivery_started: false,
-        delivery_run_id: deliveryRun.id,
+        delivery_run_id: runId,
       },
       { status },
     );
@@ -93,7 +95,7 @@ export async function POST(req: NextRequest) {
     res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-      body: JSON.stringify({ event_type: 'reel-approved', client_payload: { approved_file_id: fileId, approved_file_name: fileName, delivery_run_id: deliveryRun.id } }),
+      body: JSON.stringify({ event_type: 'reel-approved', client_payload: { approved_file_id: fileId, approved_file_name: fileName, delivery_run_id: runId } }),
       signal: controller.signal,
     });
   } catch (e) {
@@ -110,10 +112,10 @@ export async function POST(req: NextRequest) {
   const updateError = await updateDeliveryRun({ status: 'queued', stage: 'delivery_workflow_dispatched' });
   if (updateError) {
     return NextResponse.json(
-      { error: 'Delivery started, but status update failed.', drive_move_completed: true, delivery_started: true, delivery_run_id: deliveryRun.id },
+      { error: 'Delivery started, but status update failed.', drive_move_completed: true, delivery_started: true, delivery_run_id: runId },
       { status: 202 },
     );
   }
 
-  return NextResponse.json({ ok: true, delivery_started: true, delivery_run_id: deliveryRun.id, github_actions_url: actionsUrl(repo) });
+  return NextResponse.json({ ok: true, delivery_started: true, delivery_run_id: runId, github_actions_url: actionsUrl(repo) });
 }
