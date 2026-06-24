@@ -8,8 +8,8 @@ const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflo
 // POST /api/operator/drafts/approve — operator approves a draft from the app.
 // Moves the file from REVIEW → APPROVED, then immediately fires a GitHub
 // repository_dispatch (reel-approved) so the Deliver Preview workflow starts
-// within seconds. Dispatch failure is surfaced to the app instead of being
-// silently swallowed, because otherwise the UI can claim delivery started when
+// within seconds. Dispatch failure is returned as an API error instead of being
+// silently swallowed, because otherwise the app can claim delivery started when
 // no GitHub Actions run was created.
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) {
@@ -52,11 +52,11 @@ export async function POST(req: NextRequest) {
   if (!token || !repo) {
     return NextResponse.json(
       {
-        ok: true,
+        error: 'Draft moved to APPROVED, but GITHUB_DISPATCH_TOKEN / GITHUB_REPO is not configured. Trigger Deliver Preview manually.',
+        drive_move_completed: true,
         delivery_started: false,
-        warning: 'Draft moved to APPROVED, but GITHUB_DISPATCH_TOKEN / GITHUB_REPO is not configured. Trigger Deliver Preview manually.',
       },
-      { status: 202 }
+      { status: 502 }
     );
   }
 
@@ -74,11 +74,11 @@ export async function POST(req: NextRequest) {
   } catch (e) {
     return NextResponse.json(
       {
-        ok: true,
+        error: e instanceof Error ? e.message : 'Draft moved to APPROVED, but delivery dispatch failed. Trigger Deliver Preview manually.',
+        drive_move_completed: true,
         delivery_started: false,
-        warning: e instanceof Error ? e.message : 'Draft moved to APPROVED, but delivery dispatch failed. Trigger Deliver Preview manually.',
       },
-      { status: 202 }
+      { status: 502 }
     );
   }
 
@@ -86,11 +86,11 @@ export async function POST(req: NextRequest) {
     const text = await res.text();
     return NextResponse.json(
       {
-        ok: true,
+        error: `Draft moved to APPROVED, but GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`,
+        drive_move_completed: true,
         delivery_started: false,
-        warning: `Draft moved to APPROVED, but GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`,
       },
-      { status: 202 }
+      { status: 502 }
     );
   }
 
