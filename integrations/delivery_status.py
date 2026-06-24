@@ -23,7 +23,7 @@ def mark_delivery_run(**fields) -> None:
     """
     run_id = _delivery_run_id()
     if not run_id or not fields:
-      return
+        return
 
     try:
         from integrations.supabase_uploader import _supabase
