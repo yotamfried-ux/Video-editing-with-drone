@@ -28,6 +28,11 @@ on:
         description: 'Reset first (move PROCESSED→RAW, delete REVIEW drafts, clear state) so the same footage is reprocessed'
         type: boolean
         default: false
+      pipeline_run_id:
+        description: 'Optional pipeline_runs.id correlation id created by the operator app'
+        required: false
+        type: string
+        default: ''
 
 # Never run two pipeline jobs at once (they'd fight over the same RAW files).
 concurrency:
@@ -84,6 +89,7 @@ jobs:
           APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           TMP_DIR: /tmp/dtor
+          PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
         run: python scripts/reset_and_rerun.py --reset-only
 
       - name: Run pipeline
@@ -104,6 +110,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
           TMP_DIR: /tmp/dtor
+          PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
         run: python run.py
 
       - name: Clean up credential files
