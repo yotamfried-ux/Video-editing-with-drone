@@ -1,4 +1,13 @@
 """Tracked Phase 1 entry point for GitHub Actions."""
+
+import os
+import sys
+
+# When executed as `python scripts/run_tracked.py`, Python puts `scripts/` on
+# sys.path instead of the repository root. Add the root so top-level packages
+# such as `integrations` and `pipeline` import reliably in GitHub Actions.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from integrations.run_status import mark_run
 
 mark_run(status="running", stage="starting", progress=0.01)
