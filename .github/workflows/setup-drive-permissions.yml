@@ -1,0 +1,44 @@
+name: Setup Drive Permissions
+
+# One-time (or re-runnable) workflow that grants d2r.yotam@gmail.com
+# writer access to the REVIEW and APPROVED Drive folders so the pipeline
+# can upload drafts on behalf of that account.
+#
+# Run manually from Actions → Setup Drive Permissions → Run workflow.
+
+on:
+  workflow_dispatch:
+
+jobs:
+  share:
+    name: Share REVIEW + APPROVED folders
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install google-api-python-client google-auth python-dotenv
+
+      - name: Write service account credentials
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+
+      - name: Share folders
+        env:
+          GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
+          REVIEW_FOLDER_ID: ${{ secrets.REVIEW_FOLDER_ID }}
+          APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
+        run: python scripts/share_drive_folders.py
+
+      - name: Clean up
+        if: always()
+        run: rm -f service_account.json
