@@ -28,6 +28,10 @@ on:
         description: 'Reset first (move PROCESSED→RAW, delete REVIEW drafts, clear state) so the same footage is reprocessed'
         type: boolean
         default: false
+      full_clean:
+        description: 'Full clean: also delete all generated outputs from APPROVED folder (use for a complete test reset)'
+        type: boolean
+        default: false
       pipeline_run_id:
         description: 'Optional pipeline_runs.id correlation id created by the operator app'
         required: false
@@ -90,7 +94,11 @@ jobs:
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           TMP_DIR: /tmp/dtor
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
-        run: python scripts/reset_and_rerun.py --reset-only
+          FULL_CLEAN: ${{ inputs.full_clean || 'false' }}
+        run: |
+          EXTRA_FLAGS=""
+          if [ "$FULL_CLEAN" = "true" ]; then EXTRA_FLAGS="--full-clean"; fi
+          python scripts/reset_and_rerun.py --reset-only $EXTRA_FLAGS
 
       - name: Run pipeline
         env:

@@ -180,10 +180,17 @@ def get_new_videos() -> list[dict]:
     try:
         service = _get_drive_service()
 
-        # Recover IDs that are in Drive PROCESSED folder but missing from the local cache
+        # Recover IDs that are in Drive PROCESSED folder but missing from the local cache.
+        # WARNING: if reset_and_rerun.py Step 2 (PROCESSED→RAW) failed silently, videos
+        # left in PROCESSED will be re-added here and silently skipped this run.
         drive_ids = _sync_processed_from_drive(service)
         recovered = drive_ids - already_done
         if recovered:
+            print(
+                f"⚠️  Re-synced {len(recovered)} ID(s) from Drive PROCESSED folder "
+                "(were missing from local processed.json — this is normal after a CI restart, "
+                "but means those videos will NOT be re-processed this run)."
+            )
             logger.info("Recovered %d processed IDs from Drive PROCESSED folder", len(recovered))
             _save_processed_ids(already_done | recovered)
             already_done |= recovered

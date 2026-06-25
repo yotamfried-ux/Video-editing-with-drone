@@ -93,20 +93,35 @@ export default function PipelineScreen() {
 
   const confirmReset = () => {
     Alert.alert(
-      'האם אתה בטוח?',
-      'כל הטיוטות ב-REVIEW יימחקו, הסרטונים המעובדים יחזרו ל-RAW, והפייפליין יתחיל מחדש על אותו חומר.',
+      'Reset & rerun',
+      'בחר סוג איפוס:',
       [
         { text: 'ביטול', style: 'cancel' },
-        { text: 'אפס והרץ מחדש', style: 'destructive', onPress: resetAndRerun },
+        {
+          text: 'איפוס רגיל (REVIEW בלבד)',
+          onPress: () => resetAndRerun(false),
+        },
+        {
+          text: 'איפוס מלא (REVIEW + APPROVED)',
+          style: 'destructive',
+          onPress: () => resetAndRerun(true),
+        },
       ]
     );
   };
 
-  const resetAndRerun = async () => {
+  const resetAndRerun = async (fullClean: boolean) => {
     setResetting(true);
     try {
-      await operatorFetch('/api/operator/pipeline/reset', { method: 'POST' });
-      Alert.alert('Reset triggered', 'The pipeline will reset and rerun within a few seconds.');
+      await operatorFetch('/api/operator/pipeline/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ full_clean: fullClean }),
+      });
+      const msg = fullClean
+        ? 'Full clean triggered — REVIEW + APPROVED will be cleared, pipeline reruns from scratch.'
+        : 'Reset triggered — REVIEW drafts will be cleared, pipeline reruns.';
+      Alert.alert('Reset triggered', msg);
     } catch (e) {
       handleOperatorError(e);
     } finally {

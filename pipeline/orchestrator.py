@@ -15,6 +15,7 @@ from pathlib import Path
 import config
 from integrations.drive    import (download_video, get_new_videos, mark_as_processed,
                                     upload_draft, record_failure, flag_quality_issue)
+from integrations.run_status import mark_run
 from pipeline.stages.analyzer import analyze_session
 from pipeline.stages.editor   import create_reel, compile_multi_source_reel, drain_quality_issues
 from pipeline.stages.identity import cluster_clips
@@ -22,6 +23,10 @@ from pipeline.stages.feedback import get_stats as _feedback_stats
 from integrations.ffmpeg      import get_source_info as _get_source_info
 
 logger = logging.getLogger(__name__)
+
+# Set to True by main() when pipeline exits with no new videos to process.
+# run_tracked.py reads this flag to write no_input instead of succeeded.
+no_input: bool = False
 
 _LARGE_FILE_BYTES    = 100_000_000
 _MAX_DL_WORKERS      = min(4, config.MAX_CUT_WORKERS)
@@ -746,6 +751,9 @@ def main() -> None:
     new_videos = get_new_videos()
     if not new_videos:
         print("✅ No new videos — exiting")
+        global no_input
+        no_input = True
+        mark_run(status="no_input", stage="no_input", progress=1.0)
         return
 
     from integrations.supabase_uploader import write_pipeline_status

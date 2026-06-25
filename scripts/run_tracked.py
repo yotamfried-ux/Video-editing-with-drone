@@ -12,6 +12,7 @@ from integrations.run_status import mark_run
 
 mark_run(status="running", stage="starting", progress=0.01)
 
+import pipeline.orchestrator as _orchestrator
 from pipeline.orchestrator import main
 
 if __name__ == "__main__":
@@ -23,6 +24,11 @@ if __name__ == "__main__":
         ok = True
     finally:
         if ok:
-            mark_run(status="succeeded", stage="finished", progress=1.0)
+            # no_input=True means the orchestrator found nothing to do (no new videos).
+            # Don't overwrite that with succeeded — succeeded implies drafts were produced.
+            if _orchestrator.no_input:
+                pass  # mark_run(no_input) was already called inside main()
+            else:
+                mark_run(status="succeeded", stage="finished", progress=1.0)
         else:
             mark_run(status="failed", stage="failed")
