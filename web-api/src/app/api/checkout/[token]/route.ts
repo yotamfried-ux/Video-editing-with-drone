@@ -27,7 +27,7 @@ async function getPrice(sport: string | null): Promise<number> {
   const exact = data?.find((row) => row.sport === normalized);
   const fallback = data?.find((row) => row.sport === 'default');
   const amount = exact?.price_ils ?? fallback?.price_ils;
-  if (!Number.isInteger(amount) || amount <= 0) {
+  if (typeof amount !== 'number' || !Number.isInteger(amount) || amount <= 0) {
     throw new Error(`No positive price configured for ${normalized}`);
   }
   return amount;
