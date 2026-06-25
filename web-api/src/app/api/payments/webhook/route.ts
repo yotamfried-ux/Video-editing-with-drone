@@ -27,11 +27,18 @@ export async function POST(req: NextRequest) {
 
   if (event.type === 'checkout.session.completed') {
     const session = event.data.object as Stripe.Checkout.Session;
+
+    // Guard: some payment methods (ACH, SEPA, BNPL) complete the session before funds settle.
+    // Only mark paid when Stripe confirms the money moved.
+    if (session.payment_status !== 'paid') {
+      return NextResponse.json({ received: true });
+    }
+
     const purchaseId = session.metadata?.purchase_id;
     const reelId = session.metadata?.reel_id;
 
     if (purchaseId && reelId) {
-      await supabaseAdmin
+      const { error: purchaseErr } = await supabaseAdmin
         .from('purchases')
         .update({
           status: 'paid',
@@ -43,7 +50,19 @@ export async function POST(req: NextRequest) {
         })
         .eq('id', purchaseId);
 
-      await supabaseAdmin.from('reels').update({ status: 'sold' }).eq('id', reelId);
+      if (purchaseErr) {
+        return NextResponse.json({ error: purchaseErr.message }, { status: 500 });
+      }
+
+      const { error: reelErr } = await supabaseAdmin
+        .from('reels')
+        .update({ status: 'sold' })
+        .eq('id', reelId);
+
+      if (reelErr) {
+        return NextResponse.json({ error: reelErr.message }, { status: 500 });
+      }
+
       await supabaseAdmin.from('analytics_events').insert({
         event_type: 'reel_purchased',
         reel_id: reelId,
@@ -56,10 +75,14 @@ export async function POST(req: NextRequest) {
     const session = event.data.object as Stripe.Checkout.Session;
     const purchaseId = session.metadata?.purchase_id;
     if (purchaseId) {
-      await supabaseAdmin
+      const { error: expireErr } = await supabaseAdmin
         .from('purchases')
         .update({ status: 'expired', metadata: { session_id: session.id } })
         .eq('id', purchaseId);
+
+      if (expireErr) {
+        return NextResponse.json({ error: expireErr.message }, { status: 500 });
+      }
     }
   }
 
