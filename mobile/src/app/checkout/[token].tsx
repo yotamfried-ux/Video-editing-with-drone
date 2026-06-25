@@ -28,6 +28,17 @@ export default function CheckoutScreen() {
 
   const startCheckout = async () => {
     if (!token) return;
+
+    // Reuse the existing Stripe session URL instead of creating a new purchase row.
+    if (checkout?.checkout_url) {
+      try {
+        await Linking.openURL(checkout.checkout_url);
+      } catch {
+        Alert.alert('Checkout failed', 'Cannot open Stripe checkout on this device');
+      }
+      return;
+    }
+
     setLoading(true);
     try {
       const result = await apiFetch<CheckoutResponse>(`/api/checkout/${token}`, {
