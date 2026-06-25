@@ -195,17 +195,16 @@ def get_new_videos() -> list[dict]:
             _save_processed_ids(already_done | recovered)
             already_done |= recovered
 
-        query = (
-            f"'{config.RAW_FOLDER_ID}' in parents "
-            "and mimeType contains 'video/' "
-            "and trashed = false"
-        )
+        # No mimeType filter in the query — some files uploaded directly to Drive
+        # get mimeType = "application/octet-stream" instead of "video/*", so we'd
+        # miss them. We filter client-side by mimeType OR file extension instead.
+        query = f"'{config.RAW_FOLDER_ID}' in parents and trashed = false"
         all_files: list[dict] = []
         page_token: str | None = None
         while True:
             kwargs: dict = dict(
                 q=query,
-                fields="nextPageToken, files(id, name, size, createdTime)",
+                fields="nextPageToken, files(id, name, size, createdTime, mimeType)",
                 pageSize=1000,
             )
             if page_token:
@@ -220,8 +219,14 @@ def get_new_videos() -> list[dict]:
         print(f"❌ Failed to list Drive folder: {e}")
         return []
 
-    new_files = [f for f in all_files if f["id"] not in already_done]
-    print(f"✅ Found {len(new_files)} new video(s) (skipped {len(all_files) - len(new_files)} already processed)")
+    _VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".mts", ".mxf"}
+    video_files = [
+        f for f in all_files
+        if "video" in f.get("mimeType", "")
+        or Path(f["name"]).suffix.lower() in _VIDEO_EXTS
+    ]
+    new_files = [f for f in video_files if f["id"] not in already_done]
+    print(f"✅ Found {len(new_files)} new video(s) (skipped {len(video_files) - len(new_files)} already processed)")
     return new_files
 
 
@@ -269,7 +274,7 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
     """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
     print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
     try:
-        service       = _get_upload_service()
+        service       = _get_drive_service()  # service account owns the file → can delete during reset
         file_metadata = {"name": draft_name, "parents": [config.REVIEW_FOLDER_ID]}
         media         = MediaFileUpload(draft_path, mimetype="video/mp4", resumable=True)
         uploaded      = _drive_retry(lambda: service.files().create(
