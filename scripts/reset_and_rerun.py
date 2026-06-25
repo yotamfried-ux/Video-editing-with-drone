@@ -168,11 +168,15 @@ def step1_delete_review_drafts(service, user_service, dry_run: bool = False):
 def step2_restore_processed_to_raw(service, dry_run: bool = False):
     print("\n── Step 2: Move files from PROCESSED → RAW ────────────────────────")
     files = _list_folder(service, config.PROCESSED_FOLDER_ID)
-    _VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".mts", ".mxf"}
-    videos = [f for f in files if "video" in f.get("mimeType", "") or
-              Path(f["name"]).suffix.lower() in _VIDEO_EXTS]
+    # Log everything so we can see what's there even when the filter misses it
+    for f in files:
+        print(f"  📄 found in PROCESSED: {f['name']} (mimeType={f.get('mimeType', 'unknown')})")
+    # Move ALL files — PROCESSED only ever holds processed source footage.
+    # A type filter here caused silent skips when mimeType was octet-stream
+    # or the extension wasn't in our list.
+    videos = files
     if not videos:
-        print("  No video files found in PROCESSED folder.")
+        print("  No files found in PROCESSED folder.")
         return
     if dry_run:
         for f in videos:
