@@ -105,12 +105,45 @@ def _move_file(service, file_id: str, from_folder: str, to_folder: str) -> None:
     ).execute()
 
 
-def step1_delete_review_drafts(service, user_service):
+def step0_delete_approved(service, user_service, dry_run: bool = False):
+    print("\n── Step 0: Delete generated outputs from APPROVED folder ──────────")
+    files = _list_folder(service, config.APPROVED_FOLDER_ID)
+    mp4s = [f for f in files if "video" in f.get("mimeType", "") or f["name"].endswith(".mp4")]
+    if not mp4s:
+        print("  No video files found in APPROVED folder.")
+        return
+    if dry_run:
+        for f in mp4s:
+            print(f"  [dry-run] Would delete from APPROVED: {f['name']}")
+        return
+    for f in mp4s:
+        deleted = False
+        for svc in (user_service, service):
+            try:
+                svc.files().delete(fileId=f["id"]).execute()
+                print(f"  🗑  Deleted from APPROVED: {f['name']}")
+                deleted = True
+                break
+            except Exception:
+                pass
+        if not deleted:
+            try:
+                user_service.files().update(fileId=f["id"], body={"trashed": True}).execute()
+                print(f"  🗑  Trashed from APPROVED: {f['name']}")
+            except Exception as e:
+                print(f"  ⚠️  Could not delete/trash {f['name']} from APPROVED: {e}")
+
+
+def step1_delete_review_drafts(service, user_service, dry_run: bool = False):
     print("\n── Step 1: Delete draft reels from REVIEW folder ─────────────────")
     files = _list_folder(service, config.REVIEW_FOLDER_ID)
     mp4s = [f for f in files if "video" in f.get("mimeType", "") or f["name"].endswith(".mp4")]
     if not mp4s:
         print("  No draft videos found in REVIEW folder.")
+        return
+    if dry_run:
+        for f in mp4s:
+            print(f"  [dry-run] Would delete from REVIEW: {f['name']}")
         return
     for f in mp4s:
         deleted = False
@@ -131,7 +164,7 @@ def step1_delete_review_drafts(service, user_service):
                 print(f"  ⚠️  Could not delete/trash {f['name']}: {e}")
 
 
-def step2_restore_processed_to_raw(service):
+def step2_restore_processed_to_raw(service, dry_run: bool = False):
     print("\n── Step 2: Move files from PROCESSED → RAW ────────────────────────")
     files = _list_folder(service, config.PROCESSED_FOLDER_ID)
     videos = [f for f in files if "video" in f.get("mimeType", "") or
@@ -139,16 +172,58 @@ def step2_restore_processed_to_raw(service):
     if not videos:
         print("  No video files found in PROCESSED folder.")
         return
+    if dry_run:
+        for f in videos:
+            print(f"  [dry-run] Would restore to RAW: {f['name']}")
+        return
+
+    errors = []
+    restored_ids: set[str] = set()
     for f in videos:
         try:
             _move_file(service, f["id"], config.PROCESSED_FOLDER_ID, config.RAW_FOLDER_ID)
             print(f"  ↩️  Restored: {f['name']}")
+            restored_ids.add(f["id"])
         except Exception as e:
-            print(f"  ⚠️  Could not move {f['name']}: {e}")
+            print(f"  ❌ Could not move {f['name']}: {e}")
+            errors.append(f"{f['name']}: {e}")
+
+    if errors:
+        print(f"\n❌ {len(errors)} file(s) failed to restore from PROCESSED → RAW:")
+        for err in errors:
+            print(f"   • {err}")
+        sys.exit(
+            "❌ Step 2 failed — aborting reset to prevent a false 'No new videos' on next run.\n"
+            "   Fix the Drive permissions above, then run reset_and_rerun.py again."
+        )
+
+    # Verify: re-list PROCESSED and confirm all restored videos are gone.
+    # _sync_processed_from_drive() in the pipeline will re-add any IDs still in
+    # PROCESSED, causing the source to be silently skipped.  Fail hard here if
+    # the move didn't stick.
+    print("  🔍 Verifying move (re-scanning PROCESSED folder)...")
+    remaining = _list_folder(service, config.PROCESSED_FOLDER_ID)
+    still_there = [f for f in remaining if f["id"] in restored_ids]
+    if still_there:
+        names = ", ".join(f["name"] for f in still_there)
+        sys.exit(
+            f"❌ Verification failed — {len(still_there)} file(s) still in PROCESSED after move: {names}\n"
+            "   The pipeline would silently skip them.  Check Drive folder permissions and retry."
+        )
+    print(f"  ✅ Verified: {len(restored_ids)} video(s) moved to RAW, PROCESSED is clean.")
 
 
-def step3_clear_local_state():
+def step3_clear_local_state(dry_run: bool = False):
     print("\n── Step 3: Clear local processed.json ─────────────────────────────")
+    if dry_run:
+        print(f"  [dry-run] Would clear: {config.PROCESSED_IDS_FILE}")
+        failed_path = os.path.join(
+            os.path.dirname(os.path.abspath(config.PROCESSED_IDS_FILE)),
+            "failed_ids.json"
+        )
+        if os.path.exists(failed_path):
+            print(f"  [dry-run] Would clear: {failed_path}")
+        return
     with open(config.PROCESSED_IDS_FILE, "w") as f:
         json.dump([], f)
     print("  ✅ processed.json cleared")
@@ -176,15 +251,30 @@ def main():
     parser.add_argument("--no-restore", action="store_true",
                         help="Do not move files from PROCESSED back to RAW "
                              "(use when the raw video is already in RAW).")
+    parser.add_argument("--full-clean", action="store_true",
+                        help="Also delete generated outputs from the APPROVED folder "
+                             "(use for a complete test reset including previously approved reels).")
+    parser.add_argument("--dry-run", action="store_true",
+                        help="Print what would be deleted/moved without making any changes.")
     args = parser.parse_args()
+
+    if args.dry_run:
+        print("⚠️  DRY RUN — no changes will be made\n")
 
     service = _get_service()
     user_service = _get_user_service()
+
+    if args.full_clean:
+        step0_delete_approved(service, user_service, dry_run=args.dry_run)
     if not args.keep_drafts:
-        step1_delete_review_drafts(service, user_service)
+        step1_delete_review_drafts(service, user_service, dry_run=args.dry_run)
     if not args.no_restore:
-        step2_restore_processed_to_raw(user_service)
-    step3_clear_local_state()
+        step2_restore_processed_to_raw(user_service, dry_run=args.dry_run)
+    step3_clear_local_state(dry_run=args.dry_run)
+
+    if args.dry_run:
+        print("\n✅ Dry run complete — nothing was changed.")
+        return
 
     if args.reset_only:
         print("\n✅ Reset complete (--reset-only) — pipeline NOT run.")

@@ -10,6 +10,7 @@ const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflo
 //   1. Moves all PROCESSED videos back to RAW
 //   2. Deletes REVIEW drafts and clears local state
 //   3. Reruns the full pipeline on the existing footage
+// Optional body: { full_clean: true } — also deletes from APPROVED folder.
 // Rate-limited to 3 calls per hour (destructive operation).
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) {
@@ -27,6 +28,14 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  let fullClean = false;
+  try {
+    const body = await req.json();
+    fullClean = body?.full_clean === true;
+  } catch {
+    // no body — default to standard reset
+  }
+
   const { data: run, error: insertError } = await supabaseAdmin
     .from('pipeline_runs')
     .insert({
@@ -36,7 +45,7 @@ export async function POST(req: NextRequest) {
       progress: 0,
       github_event: 'workflow_dispatch:pipeline-run.yml',
       github_run_url: actionsUrl(repo),
-      meta: { requested_by: 'operator_app', reset: true },
+      meta: { requested_by: 'operator_app', reset: true, full_clean: fullClean },
     })
     .select('id')
     .single();
@@ -59,7 +68,7 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         ref: 'main',
-        inputs: { reset: 'true', pipeline_run_id: run.id },
+        inputs: { reset: 'true', full_clean: String(fullClean), pipeline_run_id: run.id },
       }),
     }
   );
@@ -74,5 +83,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message, pipeline_run_id: run.id }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, pipeline_run_id: run.id, github_actions_url: actionsUrl(repo) });
+  return NextResponse.json({ ok: true, pipeline_run_id: run.id, full_clean: fullClean, github_actions_url: actionsUrl(repo) });
 }
