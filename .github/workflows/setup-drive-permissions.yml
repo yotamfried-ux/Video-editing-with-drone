@@ -1,8 +1,8 @@
 name: Setup Drive Permissions
 
-# One-time (or re-runnable) workflow that grants d2r.yotam@gmail.com
+# One-time (or re-runnable) workflow that grants the upload OAuth account
 # writer access to the REVIEW and APPROVED Drive folders so the pipeline
-# can upload drafts on behalf of that account.
+# can upload drafts. Auto-detects the account email from DRIVE_USER_TOKEN_JSON.
 #
 # Run manually from Actions → Setup Drive Permissions → Run workflow.
 
@@ -27,18 +27,22 @@ jobs:
       - name: Install dependencies
         run: pip install google-api-python-client google-auth python-dotenv
 
-      - name: Write service account credentials
+      - name: Write credential files
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
-        run: printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+          DRIVE_USER_TOKEN_JSON: ${{ secrets.DRIVE_USER_TOKEN_JSON }}
+        run: |
+          printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+          printf '%s' "$DRIVE_USER_TOKEN_JSON" > drive_user_token.json
 
       - name: Share folders
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
+          DRIVE_USER_TOKEN: drive_user_token.json
           REVIEW_FOLDER_ID: ${{ secrets.REVIEW_FOLDER_ID }}
           APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
         run: python scripts/share_drive_folders.py
 
       - name: Clean up
         if: always()
-        run: rm -f service_account.json
+        run: rm -f service_account.json drive_user_token.json
