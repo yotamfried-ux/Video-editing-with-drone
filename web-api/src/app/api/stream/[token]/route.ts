@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { enforceRateLimit } from '@/lib/ratelimit';
-import { isUuid } from '@/lib/validate';
+
+const PUBLIC_TOKEN_RE = /^[A-Za-z0-9_-]{8,80}$/;
 
 export async function GET(
   req: NextRequest,
@@ -11,7 +12,7 @@ export async function GET(
   if (limited) return limited;
 
   const { token } = await params;
-  if (!isUuid(token)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  if (!PUBLIC_TOKEN_RE.test(token)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   const { data: reel } = await supabaseAdmin
     .from('reels')
@@ -27,7 +28,6 @@ export async function GET(
     return NextResponse.json({ error: 'File not available' }, { status: 404 });
   }
 
-  // Mark as viewed on first watch
   if (reel.status === 'published') {
     await supabaseAdmin.from('reels').update({ status: 'viewed' }).eq('id', reel.id);
     await supabaseAdmin.from('analytics_events').insert({
@@ -36,8 +36,6 @@ export async function GET(
     });
   }
 
-  // 15-minute signed URL for watermarked preview (before payment).
-  // Short TTL limits the window if the URL leaks via logs/sharing.
   const { data: signed } = await supabaseAdmin.storage
     .from('reels')
     .createSignedUrl(reel.storage_path, 900);
