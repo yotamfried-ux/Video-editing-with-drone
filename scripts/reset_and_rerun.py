@@ -275,7 +275,7 @@ def main():
     if not args.keep_drafts:
         step1_delete_review_drafts(service, user_service, dry_run=args.dry_run)
     if not args.no_restore:
-        step2_restore_processed_to_raw(user_service, dry_run=args.dry_run)
+        step2_restore_processed_to_raw(service, dry_run=args.dry_run)
     step3_clear_local_state(dry_run=args.dry_run)
 
     if args.dry_run:
