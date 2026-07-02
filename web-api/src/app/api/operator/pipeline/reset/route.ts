@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { githubDispatchError } from '@/lib/github-dispatch-error';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 
@@ -74,8 +75,7 @@ export async function POST(req: NextRequest) {
   );
 
   if (res.status !== 204) {
-    const text = await res.text();
-    const message = `GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`;
+    const message = githubDispatchError(res.status, await res.text());
     await supabaseAdmin
       .from('pipeline_runs')
       .update({ status: 'dispatch_failed', stage: 'dispatch_failed', error: message, finished_at: new Date().toISOString() })
