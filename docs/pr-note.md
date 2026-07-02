@@ -1,1 +1,0 @@
-GAP-009 operator contract consolidation.
