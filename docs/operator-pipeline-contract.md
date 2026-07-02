@@ -50,10 +50,19 @@ If GitHub returns `403`, `404`, or `422`, the API should return an actionable op
 
 The app has two status layers:
 
-1. `pipeline_status` — single live status row polled by `usePipelineStatus()` for the progress bar.
-2. `pipeline_runs` and `delivery_runs` — durable history rows created by operator actions and updated by the workflows.
+1. `pipeline_status` — a singleton global live-progress row used for the progress bar.
+2. `pipeline_runs` and `delivery_runs` — durable history rows created by operator actions and updated by workflows.
 
-The app should prefer durable run rows when explaining what happened to a user action. The single `pipeline_status` row is useful for live progress, but it cannot distinguish between multiple requested runs.
+The singleton live-progress row is allowed to describe whatever workflow most recently updated it. It must not be presented as proof that a specific operator action is running.
+
+Operator-facing explanations for a specific action must use the durable row created by that action:
+
+- `POST /api/operator/pipeline/start` returns `pipeline_run_id`.
+- `POST /api/operator/pipeline/reset` returns `pipeline_run_id`.
+- `POST /api/operator/reprocess` returns `pipeline_run_id`.
+- `POST /api/operator/drafts/approve` returns `delivery_run_id` and `delivery_started`.
+
+The mobile Pipeline screen should label the progress bar as global live progress and send operators to Recent pipeline runs for run-scoped status.
 
 ## Minimal-change rules
 
