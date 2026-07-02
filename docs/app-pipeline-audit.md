@@ -106,6 +106,21 @@ Follow-up:
 - API-level automation for the same smoke path is still desirable, but tool-side write restrictions blocked adding a RAW-check endpoint in this pass.
 - Broader end-to-end automation remains tracked as GAP-011.
 
+### GAP-004 — Mobile type-check enforcement
+
+Status: fixed on 2026-07-02.
+
+Result:
+
+- Added `.github/workflows/mobile-check.yml`.
+- Any PR that changes `mobile/**` now runs a dedicated mobile check.
+- The check installs the mobile app dependencies with `npm ci` from `mobile/package-lock.json`.
+- The check runs `npm run type-check`, which maps to `tsc --noEmit` in `mobile/package.json`.
+
+Follow-up:
+
+- This enforces TypeScript safety for mobile code changes, but broader mobile runtime smoke testing remains tracked by GAP-011.
+
 ### GAP-006 — Open PR #30 appears superseded
 
 Status: closed as superseded on 2026-07-02.
@@ -123,32 +138,6 @@ Follow-up:
 - Keep future open PRs limited to active work only.
 
 ## Open gaps
-
-### GAP-004 — Mobile type-check is not clearly enforced by CI
-
-Severity: medium-high.
-
-Area: mobile CI, PR readiness.
-
-Problem:
-
-- Vercel checks validate web/API deployment, but mobile TypeScript can regress unless a separate mobile check runs.
-
-Root cause:
-
-- Mobile app lives in the same repo but may not have a required validation workflow.
-
-Target invariant:
-
-- Any PR that changes `mobile/` should run mobile type-check at minimum.
-
-Repair loop:
-
-1. Inspect GitHub Actions and mobile package scripts.
-2. Add or update CI so mobile changes run the mobile type-check command.
-3. Keep the workflow lightweight.
-4. Validate with a mobile-only PR.
-5. Document mobile validation in the operator app contract or deployment guide.
 
 ### GAP-005 — Direct mobile status reads need consolidation
 
@@ -299,14 +288,13 @@ Repair loop:
 3. Remove stale README sections that imply the system is only a local Python pipeline.
 4. Consolidate operator API response contracts so mobile screens do not invent local meanings.
 5. Move remaining direct mobile status reads behind the operator API boundary.
-6. Add mobile validation to CI before treating mobile PRs as fully verified.
 
 ## Next recommended repair order
 
-1. GAP-004 — mobile type-check enforcement.
-2. GAP-005 — direct mobile status read consolidation.
-3. GAP-007 — review PR #45 under a Discover-specific loop.
-4. GAP-008 — README and deployment documentation cleanup.
+1. GAP-005 — direct mobile status read consolidation.
+2. GAP-007 — review PR #45 under a Discover-specific loop.
+3. GAP-008 — README and deployment documentation cleanup.
+4. GAP-009 — operator API response contract consolidation.
 
 ## Audit maintenance rule
 
