@@ -137,6 +137,87 @@ def _save_processed_ids(ids: set[str]) -> None:
     os.replace(tmp, config.PROCESSED_IDS_FILE)  # atomic on POSIX
 
 
+class DriveMoveError(RuntimeError):
+    """Raised when a Drive folder transition cannot be verified."""
+
+
+def _parents(meta: dict) -> set[str]:
+    return {p for p in meta.get("parents", []) if p}
+
+
+def _move_file_between_folders(service, file_id: str, from_folder_id: str,
+                               to_folder_id: str, action: str) -> str:
+    """Move a Drive file and verify that the expected folder transition happened.
+
+    Google Drive folder movement is implemented as a parent update. A failed or
+    partially applied parent update must not be treated as success because the
+    pipeline uses Drive folder membership as durable processing state.
+    """
+    file_meta = _drive_retry(lambda: service.files().get(
+        fileId=file_id,
+        fields="id, name, parents",
+        supportsAllDrives=True,
+    ).execute())
+    name = file_meta.get("name", file_id)
+    current = _parents(file_meta)
+
+    if to_folder_id in current and from_folder_id not in current:
+        logger.info("Drive %s already complete for %s (%s)", action, name, file_id)
+        return name
+
+    if from_folder_id not in current:
+        raise DriveMoveError(
+            f"Drive {action} refused for '{name}' ({file_id}): expected source "
+            f"folder {from_folder_id}, current parents={sorted(current) or '[]'}"
+        )
+
+    updated = _drive_retry(lambda: service.files().update(
+        fileId=file_id,
+        addParents=to_folder_id,
+        removeParents=",".join(sorted(current)),
+        fields="id, name, parents",
+        supportsAllDrives=True,
+    ).execute())
+    updated_parents = _parents(updated)
+    if to_folder_id not in updated_parents or from_folder_id in updated_parents:
+        raise DriveMoveError(
+            f"Drive {action} did not complete for '{name}' ({file_id}): "
+            f"parents after update={sorted(updated_parents) or '[]'}"
+        )
+    return updated.get("name", name)
+
+
+def _move_with_available_credentials(file_id: str, from_folder_id: str,
+                                     to_folder_id: str, action: str) -> str:
+    """Try both Drive credential paths before failing the operator-visible state."""
+    errors: list[str] = []
+    for label, factory in (
+        ("user OAuth/upload service", _get_upload_service),
+        ("service account", _get_drive_service),
+    ):
+        try:
+            service = factory()
+            moved_name = _move_file_between_folders(
+                service,
+                file_id,
+                from_folder_id,
+                to_folder_id,
+                action,
+            )
+            logger.info("Drive %s succeeded with %s for %s", action, label, file_id)
+            return moved_name
+        except Exception as exc:
+            errors.append(f"{label}: {exc}")
+            logger.warning("Drive %s failed with %s for %s: %s", action, label, file_id, exc)
+    raise DriveMoveError(f"Drive {action} failed with all credentials: {' | '.join(errors)}")
+
+
+def _mark_processed_cache(file_id: str) -> None:
+    ids = _load_processed_ids()
+    ids.add(file_id)
+    _save_processed_ids(ids)
+
+
 def _sync_processed_from_drive(service) -> set[str]:
     """
     Query PROCESSED_FOLDER_ID and return the set of file IDs found there.
@@ -152,6 +233,8 @@ def _sync_processed_from_drive(service) -> set[str]:
                 q=query,
                 fields="nextPageToken, files(id)",
                 pageSize=1000,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
             if page_token:
                 kwargs["pageToken"] = page_token
@@ -206,6 +289,8 @@ def get_new_videos() -> list[dict]:
                 q=query,
                 fields="nextPageToken, files(id, name, size, createdTime, mimeType)",
                 pageSize=1000,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
             if page_token:
                 kwargs["pageToken"] = page_token
@@ -249,7 +334,7 @@ def download_video(file_id: str, filename: str) -> str:
 
     try:
         service = _get_drive_service()
-        request = service.files().get_media(fileId=file_id)
+        request = service.files().get_media(fileId=file_id, supportsAllDrives=True)
         with open(tmp_path, "wb") as fh:
             downloader = MediaIoBaseDownload(fh, request)
             done = False
@@ -278,7 +363,10 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
         file_metadata = {"name": draft_name, "parents": [config.REVIEW_FOLDER_ID]}
         media         = MediaFileUpload(draft_path, mimetype="video/mp4", resumable=True)
         uploaded      = _drive_retry(lambda: service.files().create(
-            body=file_metadata, media_body=media, fields="id, webViewLink"
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink",
+            supportsAllDrives=True,
         ).execute())
         file_id = uploaded.get("id", "")
         link    = uploaded.get("webViewLink", "")
@@ -287,6 +375,7 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
                 fileId=file_id,
                 body={"type": "anyone", "role": "reader"},
                 fields="id",
+                supportsAllDrives=True,
             ).execute())
         except Exception as perm_err:
             logger.warning("⚠️ Could not set public permission on draft %s: %s", draft_name, perm_err)
@@ -312,6 +401,8 @@ def get_approved_drafts() -> list[dict]:
                 q=query,
                 fields="nextPageToken, files(id, name, webViewLink)",
                 pageSize=1000,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
             if page_token:
                 kwargs["pageToken"] = page_token
@@ -331,15 +422,12 @@ def get_approved_drafts() -> list[dict]:
 def mark_draft_delivered(file_id: str) -> None:
     """Move a delivered reel from APPROVED to PROCESSED folder."""
     try:
-        service         = _get_upload_service()
-        file_meta       = service.files().get(fileId=file_id, fields="parents").execute()
-        current_parents = ",".join(file_meta.get("parents", []))
-        service.files().update(
-            fileId=file_id,
-            addParents=config.PROCESSED_FOLDER_ID,
-            removeParents=current_parents,
-            fields="id, parents",
-        ).execute()
+        _move_with_available_credentials(
+            file_id,
+            config.APPROVED_FOLDER_ID,
+            config.PROCESSED_FOLDER_ID,
+            "mark delivered draft",
+        )
         logger.info("Moved delivered draft %s to PROCESSED", file_id)
     except Exception as e:
         logger.warning("⚠️ Could not move delivered draft %s: %s", file_id, e)
@@ -355,7 +443,10 @@ def upload_preview(preview_path: str, preview_name: str) -> str:
         file_metadata = {"name": preview_name, "parents": [config.PREVIEW_FOLDER_ID]}
         media         = MediaFileUpload(preview_path, mimetype="video/mp4", resumable=True)
         uploaded      = _drive_retry(lambda: service.files().create(
-            body=file_metadata, media_body=media, fields="id, webViewLink"
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink",
+            supportsAllDrives=True,
         ).execute())
         file_id = uploaded.get("id", "")
         link    = uploaded.get("webViewLink", "")
@@ -364,6 +455,7 @@ def upload_preview(preview_path: str, preview_name: str) -> str:
                 fileId=file_id,
                 body={"type": "anyone", "role": "reader"},
                 fields="id",
+                supportsAllDrives=True,
             ).execute())
         except Exception as perm_err:
             logger.warning("⚠️ Could not set public permission on preview %s: %s", preview_name, perm_err)
@@ -381,15 +473,12 @@ def move_to_pending_payment(file_id: str) -> None:
         logger.warning("⚠️ PENDING_PAYMENT_FOLDER_ID not configured — skipping move for %s", file_id)
         return
     try:
-        service         = _get_upload_service()
-        file_meta       = _drive_retry(lambda: service.files().get(fileId=file_id, fields="parents").execute())
-        current_parents = ",".join(file_meta.get("parents", []))
-        _drive_retry(lambda: service.files().update(
-            fileId=file_id,
-            addParents=config.PENDING_PAYMENT_FOLDER_ID,
-            removeParents=current_parents,
-            fields="id, parents",
-        ).execute())
+        _move_with_available_credentials(
+            file_id,
+            config.APPROVED_FOLDER_ID,
+            config.PENDING_PAYMENT_FOLDER_ID,
+            "move reel to pending payment",
+        )
         logger.info("Moved reel %s → PENDING_PAYMENT", file_id)
     except Exception as e:
         logger.warning("⚠️ Could not move %s to PENDING_PAYMENT: %s", file_id, e)
@@ -411,6 +500,8 @@ def get_pending_payment_drafts() -> list[dict]:
                 q=query,
                 fields="nextPageToken, files(id, name, webViewLink)",
                 pageSize=1000,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
             )
             if page_token:
                 kwargs["pageToken"] = page_token
@@ -428,31 +519,32 @@ def get_pending_payment_drafts() -> list[dict]:
 
 def mark_as_processed(file_id: str) -> None:
     """
-    Record file_id in processed.json so it won't be picked up again.
-    Also moves the original to PROCESSED_FOLDER_ID in Drive.
+    Move the original to PROCESSED_FOLDER_ID and only then record file_id in
+    processed.json so a failed Drive archive never creates a skipped RAW file.
     """
-    ids = _load_processed_ids()
-    ids.add(file_id)
-    _save_processed_ids(ids)
-    print(f"✅ Marked {file_id} as processed")
-
-    # Move original to the PROCESSED archive folder.
-    # Use the user OAuth service: the operator owns the uploaded raw files, so the
-    # service account lacks permission to move them (403) and the file would stay in RAW.
     try:
-        service = _get_upload_service()
-        file_meta = _drive_retry(lambda: service.files().get(fileId=file_id, fields="parents").execute())
-        current_parents = ",".join(file_meta.get("parents", []))
-        _drive_retry(lambda: service.files().update(
-            fileId=file_id,
-            addParents=config.PROCESSED_FOLDER_ID,
-            removeParents=current_parents,
-            fields="id, parents",
-        ).execute())
-        print(f"📁 Moved original {file_id} to PROCESSED folder")
+        moved_name = _move_with_available_credentials(
+            file_id,
+            config.RAW_FOLDER_ID,
+            config.PROCESSED_FOLDER_ID,
+            "archive processed raw",
+        )
     except Exception as e:
-        logger.warning("⚠️ Could not move file %s to PROCESSED folder: %s", file_id, e)
-        print(f"⚠️ Could not move original to PROCESSED folder: {e}")
+        logger.error(
+            "❌ Could not archive processed raw %s. Not updating %s: %s",
+            file_id,
+            config.PROCESSED_IDS_FILE,
+            e,
+        )
+        print(
+            f"❌ Could not move original {file_id} to PROCESSED. "
+            "It was not marked as processed, so the next run can retry."
+        )
+        raise
+
+    _mark_processed_cache(file_id)
+    print(f"📁 Moved original '{moved_name}' ({file_id}) to PROCESSED folder")
+    print(f"✅ Marked {file_id} as processed")
 
 
 def requeue_video(file_id: str) -> bool:
@@ -460,20 +552,16 @@ def requeue_video(file_id: str) -> bool:
     its ID from processed.json so the next scan picks it up again. Used by the
     operator 'reprocess this reel' flow. Returns True on success."""
     try:
-        service = _get_upload_service()
-        file_meta = _drive_retry(lambda: service.files().get(
-            fileId=file_id, fields="parents, name").execute())
-        current_parents = ",".join(file_meta.get("parents", []))
-        _drive_retry(lambda: service.files().update(
-            fileId=file_id,
-            addParents=config.RAW_FOLDER_ID,
-            removeParents=current_parents,
-            fields="id, parents",
-        ).execute())
+        moved_name = _move_with_available_credentials(
+            file_id,
+            config.PROCESSED_FOLDER_ID,
+            config.RAW_FOLDER_ID,
+            "requeue processed raw",
+        )
         ids = _load_processed_ids()
         ids.discard(file_id)
         _save_processed_ids(ids)
-        print(f"↩️  Re-queued '{file_meta.get('name', file_id)}' for reprocessing")
+        print(f"↩️  Re-queued '{moved_name}' for reprocessing")
         return True
     except Exception as e:
         logger.warning("⚠️ Could not requeue file %s: %s", file_id, e)
@@ -488,6 +576,7 @@ def flag_quality_issue(file_id: str, reasons: str) -> None:
             fileId=file_id,
             body={"description": f"[QUALITY FLAG: {reasons}]"},
             fields="id, description",
+            supportsAllDrives=True,
         ).execute())
         logger.info("Drive quality flag set on %s: %s", file_id, reasons)
     except Exception as exc:
