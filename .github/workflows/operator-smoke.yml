@@ -1,0 +1,46 @@
+name: Operator Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      api_base_url:
+        description: 'Deployed API base URL'
+        required: true
+        type: string
+      sessions_sport:
+        description: 'Sport filter'
+        required: false
+        default: 'stripe_test'
+        type: string
+      run_pipeline:
+        description: 'Trigger pipeline run'
+        required: false
+        default: false
+        type: boolean
+      checkout_token:
+        description: 'Optional checkout token'
+        required: false
+        default: ''
+        type: string
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run smoke
+        env:
+          OPERATOR_SECRET: ${{ secrets.OPERATOR_SECRET }}
+        run: |
+          ARGS=""
+          if [ "${{ inputs.run_pipeline }}" = "true" ]; then ARGS="$ARGS --run-pipeline"; fi
+          if [ -n "${{ inputs.checkout_token }}" ]; then ARGS="$ARGS --checkout-token '${{ inputs.checkout_token }}'"; fi
+          python scripts/operator_smoke.py --api-base-url "${{ inputs.api_base_url }}" --operator-secret "$OPERATOR_SECRET" --sessions-sport "${{ inputs.sessions_sport }}" --report-path operator-smoke-report.md $ARGS
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: operator-smoke-report
+          path: operator-smoke-report.md
