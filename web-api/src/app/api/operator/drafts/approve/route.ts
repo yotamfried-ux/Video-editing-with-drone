@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
-import { moveFile } from '@/lib/google-drive';
+import { getFile, moveFile } from '@/lib/google-drive';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { githubDispatchError } from '@/lib/github-dispatch-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -29,8 +30,19 @@ export async function POST(req: NextRequest) {
   let body: { file_id?: string; file_name?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   const fileId = (body.file_id ?? '').trim();
-  const fileName = (body.file_name ?? '').trim() || null;
   if (!fileId) return NextResponse.json({ error: 'file_id required' }, { status: 400 });
+
+  let fileName = (body.file_name ?? '').trim() || null;
+  if (!fileName) {
+    try {
+      fileName = (await getFile(fileId)).name;
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'Drive file lookup failed' },
+        { status: 502 },
+      );
+    }
+  }
 
   try {
     await moveFile(fileId, reviewFolder, approvedFolder);
@@ -50,7 +62,7 @@ export async function POST(req: NextRequest) {
       stage: 'approved_moved_to_drive',
       github_event: 'reel-approved',
       github_run_url: repo ? actionsUrl(repo) : null,
-      meta: { requested_by: 'operator_app' },
+      meta: { requested_by: 'operator_app', approved_file_name: fileName },
     })
     .select('id')
     .single();
@@ -86,7 +98,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!token || !repo) return failDispatch('Delivery dispatch is not configured. Trigger Deliver Preview manually.');
+  if (!token || !repo) return failDispatch('Delivery dispatch is not configured. Set GITHUB_DISPATCH_TOKEN and GITHUB_REPO in Vercel, then trigger Deliver Preview manually.');
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -105,8 +117,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (res.status !== 204) {
-    const text = await res.text();
-    return failDispatch(`GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`);
+    return failDispatch(githubDispatchError(res.status, await res.text()));
   }
 
   const updateError = await updateDeliveryRun({ status: 'queued', stage: 'delivery_workflow_dispatched' });

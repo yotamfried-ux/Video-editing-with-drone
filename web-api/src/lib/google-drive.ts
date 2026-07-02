@@ -63,6 +63,21 @@ export interface DriveFile {
   thumbnailLink?: string;
 }
 
+export async function getFile(fileId: string): Promise<DriveFile> {
+  const token = await getAccessToken();
+  const params = new URLSearchParams({
+    fields: 'id,name,createdTime,size,webViewLink,thumbnailLink',
+    supportsAllDrives: 'true',
+  });
+  const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?${params}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) {
+    throw new Error(`Drive file lookup failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+  }
+  return res.json() as Promise<DriveFile>;
+}
+
 export async function listFolder(folderId: string): Promise<DriveFile[]> {
   const token = await getAccessToken();
   const params = new URLSearchParams({

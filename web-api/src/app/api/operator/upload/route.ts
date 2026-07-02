@@ -10,7 +10,7 @@ import { createUploadSession } from '@/lib/google-drive';
 // Flow:
 //   1. Mobile calls this endpoint to get an uploadUrl
 //   2. Mobile PUTs the video bytes directly to uploadUrl (Drive API)
-//   3. Mobile calls POST /api/operator/pipeline/run to start processing
+//   3. Mobile calls POST /api/operator/pipeline/start to create a tracked run
 //
 // Body: { filename?: string, mimeType?: string }
 export async function POST(req: NextRequest) {
