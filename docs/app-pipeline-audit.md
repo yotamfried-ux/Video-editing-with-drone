@@ -54,9 +54,25 @@ Fixed:
 
 Residual risk:
 
-- The re-edit flow has similar feedback drift and should be audited next.
+- Re-edit feedback was tracked separately as GAP-002 and fixed after this audit entry.
 
 ## Closed or superseded gaps
+
+### GAP-002 — Re-edit response and operator feedback drift
+
+Status: fixed on 2026-07-02.
+
+Result:
+
+- The Review screen no longer tells the operator that re-edit will wait for the next pipeline run.
+- `submitReedit` now consumes the `/api/operator/reprocess` response.
+- The success alert includes the returned `pipeline_run_id` prefix when the API provides it.
+- API failures still flow through `handleOperatorError`, so failed dispatches are not displayed as success.
+
+Follow-up:
+
+- Broader API response contract consolidation remains tracked as GAP-009.
+- Real external-service smoke testing remains tracked as GAP-011.
 
 ### GAP-006 — Open PR #30 appears superseded
 
@@ -105,34 +121,6 @@ Repair loop:
 4. Use singleton status only for generic live progress, with copy that prevents run confusion.
 5. Validate by starting different operator actions and confirming the UI does not mix statuses.
 6. Update `docs/operator-pipeline-contract.md`.
-
-### GAP-002 — Re-edit action likely has the same feedback drift approval had
-
-Severity: high.
-
-Area: mobile Review screen, `POST /api/operator/reprocess`, pipeline run tracking.
-
-Problem:
-
-- The Review screen tells the operator that re-edit will happen on the next pipeline run.
-- The API path creates tracking records and starts a workflow, so the app should display the actual result.
-
-Root cause:
-
-- Mobile UI treats operator actions as fire-and-forget and does not consistently consume response metadata.
-
-Target invariant:
-
-- Every operator action that creates a run returns a run identifier, and the app surfaces that identifier or routes the operator to the relevant status card.
-
-Repair loop:
-
-1. Inspect the reprocess API response body and failure modes.
-2. Add a typed mobile response for reprocess.
-3. Show a message based on the actual API result, not a generic future-run message.
-4. Include the created pipeline run prefix when available.
-5. Verify API failure is not displayed as success.
-6. Update the Review action documentation.
 
 ### GAP-003 — Upload footage flow needs a real app-to-pipeline smoke test
 
@@ -357,12 +345,11 @@ Repair loop:
 
 ## Next recommended repair order
 
-1. GAP-002 — re-edit response and operator feedback drift.
-2. GAP-001 — status model mismatch between singleton progress and durable run history.
-3. GAP-003 — upload-to-run smoke test.
-4. GAP-004 — mobile type-check enforcement.
-5. GAP-007 — review PR #45 under a Discover-specific loop.
-6. GAP-008 — README and deployment documentation cleanup.
+1. GAP-001 — status model mismatch between singleton progress and durable run history.
+2. GAP-003 — upload-to-run smoke test.
+3. GAP-004 — mobile type-check enforcement.
+4. GAP-007 — review PR #45 under a Discover-specific loop.
+5. GAP-008 — README and deployment documentation cleanup.
 
 ## Audit maintenance rule
 

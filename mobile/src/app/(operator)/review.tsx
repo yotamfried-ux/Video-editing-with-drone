@@ -138,7 +138,7 @@ export default function OperatorReviewScreen() {
     if (!reeditTarget) return;
     setSubmitting(true);
     try {
-      await operatorFetch('/api/operator/reprocess', {
+      const { pipeline_run_id: pipelineRunId } = await operatorFetch<{ pipeline_run_id?: string }>('/api/operator/reprocess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -150,7 +150,7 @@ export default function OperatorReviewScreen() {
       setReeditNotes('');
       Alert.alert(
         'Sent for re-edit',
-        'The source footage will be reprocessed with your notes on the next pipeline run.'
+        `Pipeline run: ${shortId(pipelineRunId)}. Check Pipeline status for progress.`
       );
     } catch (e) {
       handleOperatorError(e);
