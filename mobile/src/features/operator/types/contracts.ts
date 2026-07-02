@@ -182,3 +182,15 @@ export type DiscoverDiagnosticsResponse = {
   sessions: DiscoverDiagnosticSession[];
   reels: DiscoverDiagnosticReel[];
 };
+
+export type OperatorAnalyticsSummary = {
+  todayRevenue: number;
+  weekRevenue: number;
+  monthRevenue: number;
+  totalReels: number;
+  soldReels: number;
+  expiredReels: number;
+  funnelViewed: number;
+  funnelCheckout: number;
+  funnelPaid: number;
+};
