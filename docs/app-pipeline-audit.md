@@ -56,6 +56,24 @@ Residual risk:
 
 - The re-edit flow has similar feedback drift and should be audited next.
 
+## Closed or superseded gaps
+
+### GAP-006 — Open PR #30 appears superseded
+
+Status: closed as superseded on 2026-07-02.
+
+Result:
+
+- PR #30 was closed unmerged.
+- Current `main` already contains `web-api/src/lib/github-dispatch-error.ts`.
+- Current operator dispatch routes already import and use `githubDispatchError`.
+- No unique code from PR #30 is required for the current app-pipeline path.
+
+Follow-up:
+
+- No merge required.
+- Keep future open PRs limited to active work only.
+
 ## Open gaps
 
 ### GAP-001 — Live singleton status can conflict with durable run history
@@ -197,32 +215,6 @@ Repair loop:
 4. Keep public reads only with explicit RLS and documentation.
 5. Validate that the app works without undocumented direct table access.
 
-### GAP-006 — Open PR #30 appears superseded
-
-Severity: medium.
-
-Area: PR hygiene.
-
-Problem:
-
-- PR #30 is still open and describes dispatch error improvements.
-- PR #46 already added the shared dispatch error helper and updated dispatch routes.
-
-Root cause:
-
-- Older draft PRs remained open after newer PRs replaced their changes.
-
-Target invariant:
-
-- Open PRs should represent active work only.
-
-Repair loop:
-
-1. Compare PR #30 against current `main`.
-2. Confirm no unique behavior remains.
-3. Close PR #30 as superseded by PR #46, or extract any missing change into a new focused PR.
-4. Document the decision in the PR comment.
-
 ### GAP-007 — Open PR #45 belongs to a Discover-specific loop
 
 Severity: medium.
@@ -356,13 +348,12 @@ Repair loop:
 
 ## Cleanup opportunities
 
-1. Close or supersede PR #30 after confirming no unique diff remains.
-2. Review PR #45 separately under a Discover-specific loop.
-3. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.
-4. Remove stale README sections that imply the system is only a local Python pipeline.
-5. Consolidate operator API response contracts so mobile screens do not invent local meanings.
-6. Prefer durable run rows over global singleton status for operator-facing explanations.
-7. Add mobile validation to CI before treating mobile PRs as fully verified.
+1. Review PR #45 separately under a Discover-specific loop.
+2. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.
+3. Remove stale README sections that imply the system is only a local Python pipeline.
+4. Consolidate operator API response contracts so mobile screens do not invent local meanings.
+5. Prefer durable run rows over global singleton status for operator-facing explanations.
+6. Add mobile validation to CI before treating mobile PRs as fully verified.
 
 ## Next recommended repair order
 
@@ -370,9 +361,8 @@ Repair loop:
 2. GAP-001 — status model mismatch between singleton progress and durable run history.
 3. GAP-003 — upload-to-run smoke test.
 4. GAP-004 — mobile type-check enforcement.
-5. GAP-006 — close or extract PR #30.
-6. GAP-007 — review PR #45 under a Discover-specific loop.
-7. GAP-008 — README and deployment documentation cleanup.
+5. GAP-007 — review PR #45 under a Discover-specific loop.
+6. GAP-008 — README and deployment documentation cleanup.
 
 ## Audit maintenance rule
 
