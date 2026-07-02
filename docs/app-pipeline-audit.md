@@ -71,6 +71,24 @@ Residual risk:
 
 - Broader response-shape consolidation remains tracked separately as GAP-009.
 
+### PR #57 — Discover reels smoke loop
+
+Status: merged.
+
+Fixed:
+
+- Draft PR #45 was closed as superseded and replaced with a fresh PR based on current `main`.
+- Added `GET /api/operator/discover-diagnostics` behind `requireOperator(req)`, rate limiting, and server-side `supabaseAdmin`.
+- Added a reel expiry migration that sets a 7-day default for future Discover reels and backfills only active `published` / `viewed` rows with missing `expires_at`.
+- Added non-destructive Discover smoke SQL for creating a `stripe_test` reel without deleting existing rows.
+- Added diagnostics for expiry default checks and previewing active rows with missing expiry.
+- Added `docs/discover-reels-smoke-loop.md` with scope, safety invariants, migration verification, smoke procedure, and rollback notes.
+
+Residual risk:
+
+- CodeRabbit hit a review rate limit on PR #57, so self-review was used as the review gate.
+- Full Stripe webhook completion and sold-state verification remain part of GAP-011.
+
 ## Closed or superseded gaps
 
 ### GAP-001 — Live singleton status can conflict with durable run history
@@ -168,34 +186,24 @@ Follow-up:
 - No merge required.
 - Keep future open PRs limited to active work only.
 
-## Open gaps
-
 ### GAP-007 — Open PR #45 belongs to a Discover-specific loop
 
-Severity: medium.
+Status: fixed on 2026-07-02 by PR #57.
 
-Area: Discover, smoke diagnostics, database defaults.
+Result:
 
-Problem:
+- PR #45 was reviewed and closed unmerged as superseded.
+- The relevant Discover diagnostics, expiry default, and smoke-loop work were extracted into PR #57 on current `main`.
+- Operator diagnostics remain behind the operator API boundary.
+- The migration is limited to future defaults and active rows with missing expiry.
+- The smoke SQL was changed to be non-destructive.
 
-- PR #45 is still open and addresses Discover diagnostics and reel expiry behavior.
-- It should not be mixed into the current operator app-pipeline fixes without review.
+Follow-up:
 
-Root cause:
+- Run the documented Discover smoke procedure in a real Supabase/Stripe Sandbox environment.
+- Keep full webhook and sold-state verification under GAP-011.
 
-- Discover smoke work is related to delivery outcome but is a separate subsystem from operator action dispatch and pipeline status.
-
-Target invariant:
-
-- Discover fixes should be validated as their own loop with database migration review and smoke checks.
-
-Repair loop:
-
-1. Review PR #45 against current `main` after PRs #46-#55.
-2. Confirm the migration is still needed and safe.
-3. Run or document the Discover smoke checks.
-4. Validate operator diagnostics remain behind operator auth.
-5. Merge or close PR #45 based on current relevance.
+## Open gaps
 
 ### GAP-008 — README and deployment docs are behind the actual architecture
 
@@ -291,19 +299,18 @@ Repair loop:
 
 ## Cleanup opportunities
 
-1. Review PR #45 separately under a Discover-specific loop.
-2. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.
-3. Remove stale README sections that imply the system is only a local Python pipeline.
-4. Consolidate operator API response contracts so mobile screens do not invent local meanings.
-5. Keep future privileged/operator reads behind the operator API boundary.
+1. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.
+2. Remove stale README sections that imply the system is only a local Python pipeline.
+3. Consolidate operator API response contracts so mobile screens do not invent local meanings.
+4. Keep future privileged/operator reads behind the operator API boundary.
+5. Re-run the Discover smoke loop when validating GAP-011.
 
 ## Next recommended repair order
 
-1. GAP-007 — review PR #45 under a Discover-specific loop.
-2. GAP-008 — README and deployment documentation cleanup.
-3. GAP-009 — operator API response contract consolidation.
-4. GAP-010 — legacy route alias removal policy.
-5. GAP-011 — real end-to-end validation.
+1. GAP-008 — README and deployment documentation cleanup.
+2. GAP-009 — operator API response contract consolidation.
+3. GAP-010 — legacy route alias removal policy.
+4. GAP-011 — real end-to-end validation.
 
 ## Audit maintenance rule
 
