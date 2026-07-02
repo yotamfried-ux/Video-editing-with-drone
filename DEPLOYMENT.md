@@ -237,6 +237,7 @@ The workflow validates the filename and uses `psql -v ON_ERROR_STOP=1` so SQL er
 - `GET /api/sessions` returns 200.
 - `GET /api/operator/pipeline/status` rejects missing/invalid operator secret.
 - A valid operator request to `GET /api/operator/pipeline/status` returns the current live status.
+- Operator Smoke passes and stores `operator-smoke-report.md`: see `docs/operator-smoke.md`.
 
 ### Operator app / pipeline
 
@@ -272,6 +273,7 @@ The workflow validates the filename and uses `psql -v ON_ERROR_STOP=1` so SQL er
 - `docs/operator-api-boundary.md` — privileged operator API boundary.
 - `docs/operator-api-contracts.md` — operator API response contracts.
 - `docs/legacy-route-policy.md` — compatibility alias policy and removal conditions.
+- `docs/operator-smoke.md` — repeatable operator smoke gate and report artifact.
 - `docs/drive-move-contract.md` — Drive state invariant.
 - `docs/upload-to-run-smoke.md` — Upload footage smoke loop.
 - `docs/discover-reels-smoke-loop.md` — Discover/checkout smoke loop.
