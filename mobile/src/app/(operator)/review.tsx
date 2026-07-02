@@ -27,10 +27,36 @@ interface DraftRow {
   watch_url: string | null;
 }
 
+interface ApproveDraftResponse {
+  ok?: boolean;
+  delivery_started?: boolean;
+  delivery_run_id?: string;
+  github_actions_url?: string;
+}
+
 function formatSize(bytes: number | null): string {
   if (!bytes) return '';
   const mb = bytes / (1024 * 1024);
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
+}
+
+function shortId(id?: string): string {
+  return id ? id.slice(0, 8) : 'unknown';
+}
+
+function showApprovalResult(result: ApproveDraftResponse) {
+  if (result.delivery_started) {
+    Alert.alert(
+      'Delivery started ✅',
+      `Delivery workflow started. Delivery run: ${shortId(result.delivery_run_id)}.`,
+    );
+    return;
+  }
+
+  Alert.alert(
+    'Approved, delivery not started',
+    `The draft moved to APPROVED, but no delivery workflow was started. Delivery run: ${shortId(result.delivery_run_id)}. Check Delivery status before retrying.`,
+  );
 }
 
 export default function OperatorReviewScreen() {
@@ -82,7 +108,7 @@ export default function OperatorReviewScreen() {
   const approve = (draft: DraftRow) => {
     Alert.alert(
       'Approve this reel?',
-      `"${draft.name}" will move to APPROVED and get delivered to the athlete on the next pipeline run.`,
+      `"${draft.name}" will move to APPROVED and start the delivery workflow now.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -90,13 +116,13 @@ export default function OperatorReviewScreen() {
           onPress: async () => {
             setApproving(draft.id);
             try {
-              await operatorFetch('/api/operator/drafts/approve', {
+              const result = await operatorFetch<ApproveDraftResponse>('/api/operator/drafts/approve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ file_id: draft.id, file_name: draft.name }),
               });
               setDrafts((d) => d.filter((x) => x.id !== draft.id));
-              Alert.alert('Approved ✅', 'The reel moved to APPROVED and will be delivered on the next run.');
+              showApprovalResult(result);
             } catch (e) {
               handleOperatorError(e);
             } finally {
