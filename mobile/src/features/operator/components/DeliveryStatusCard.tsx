@@ -3,19 +3,8 @@ import { View, StyleSheet } from 'react-native';
 import { Card } from '@/shared/components/Card';
 import { Text } from '@/shared/components/Text';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import type { DeliveryRun, DeliveryStatusResponse } from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
-
-type DeliveryRun = {
-  id: string;
-  approved_file_name: string | null;
-  source_video: string | null;
-  status: string;
-  stage: string;
-  discover_reel_id: string | null;
-  error: string | null;
-  approved_at: string;
-  updated_at: string | null;
-};
 
 const STATUS_LABEL: Record<string, string> = {
   queued: 'Queued',
@@ -37,7 +26,7 @@ export function DeliveryStatusCard() {
 
   const loadRuns = useCallback(async () => {
     try {
-      const result = await operatorFetch<{ runs: DeliveryRun[] }>('/api/operator/delivery-status?limit=8');
+      const result = await operatorFetch<DeliveryStatusResponse>('/api/operator/delivery-status?limit=8');
       setRuns(result.runs ?? []);
       setError(null);
     } catch (e) {
@@ -54,9 +43,9 @@ export function DeliveryStatusCard() {
 
   return (
     <Card bordered style={{ gap: Spacing.sm }}>
-      <Text variant="title">Approval → Discover status</Text>
+      <Text variant="title">Delivery status</Text>
       <Text variant="caption" color={Colors.textSecondary}>
-        Approved videos appear in Discover only after the delivery workflow publishes the preview.
+        Approved videos appear in Discover after the delivery workflow publishes the preview.
       </Text>
       {error ? (
         <Text variant="caption" color={Colors.danger}>{error}</Text>
