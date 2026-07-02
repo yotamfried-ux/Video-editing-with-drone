@@ -18,7 +18,15 @@ Operator mobile app -> API operator routes -> GitHub Actions workflows -> Python
 | Send draft or reel for re-edit | `POST /api/operator/reprocess` | `workflow_dispatch` -> `.github/workflows/pipeline-run.yml` | `pipeline_runs`, `reprocess_requests` |
 | Approve draft | `POST /api/operator/drafts/approve` | `repository_dispatch: reel-approved` -> `.github/workflows/deliver.yml` | `delivery_runs` |
 
-`POST /api/operator/pipeline/run` is only a backward-compatible alias for older app builds. Current app code should use `/api/operator/pipeline/start`.
+## Compatibility aliases
+
+Compatibility aliases are allowed only to protect already-installed app builds or external integrations during a controlled migration window. New app code must call the canonical route.
+
+| Alias route | Canonical route | Owner | Reason kept | Removal condition |
+|---|---|---|---|---|
+| `POST /api/operator/pipeline/run` | `POST /api/operator/pipeline/start` | Operator app pipeline contract | Older operator app builds may still call `/run`; current app code uses `/start`. | Remove only after the operator mobile app version that uses `/start` has been released and old `/run` callers are no longer supported or observable in logs. |
+
+Alias route files must delegate to the canonical route and must not contain business logic. See `docs/legacy-route-policy.md`.
 
 ## Operator authorization
 
@@ -82,8 +90,8 @@ When fixing this area:
 1. Do not move Python, FFmpeg, or Gemini processing into the mobile app.
 2. Do not add new operator features while fixing broken existing flows.
 3. Keep the API layer as the boundary for private credentials and privileged actions.
-4. Keep old API aliases only when they prevent breaking already-installed app builds.
-5. Update this document, `docs/operator-api-contracts.md`, or the deployment guide whenever a route, required setting, workflow, response shape, or tracking table changes.
+4. Keep old API aliases only when they prevent breaking already-installed app builds and when they are listed in `docs/legacy-route-policy.md` with a removal condition.
+5. Update this document, `docs/operator-api-contracts.md`, `docs/legacy-route-policy.md`, or the deployment guide whenever a route, required setting, workflow, response shape, alias, or tracking table changes.
 
 ## Manual verification loop
 
