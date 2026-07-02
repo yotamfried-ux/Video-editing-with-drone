@@ -17,22 +17,8 @@ import { Card } from '@/shared/components/Card';
 import { Button } from '@/shared/components/Button';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import type { ApproveDraftResponse, DraftRow, DraftsResponse, ReprocessSubmitResponse } from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
-
-interface DraftRow {
-  id: string;
-  name: string;
-  created_at: string;
-  size: number | null;
-  watch_url: string | null;
-}
-
-interface ApproveDraftResponse {
-  ok?: boolean;
-  delivery_started?: boolean;
-  delivery_run_id?: string;
-  github_actions_url?: string;
-}
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -47,7 +33,7 @@ function shortId(id?: string): string {
 function showApprovalResult(result: ApproveDraftResponse) {
   if (result.delivery_started) {
     Alert.alert(
-      'Delivery started ✅',
+      'Delivery started',
       `Delivery workflow started. Delivery run: ${shortId(result.delivery_run_id)}.`,
     );
     return;
@@ -84,7 +70,7 @@ export default function OperatorReviewScreen() {
 
   const load = useCallback(async () => {
     try {
-      const { drafts: data } = await operatorFetch<{ drafts: DraftRow[] }>(
+      const { drafts: data } = await operatorFetch<DraftsResponse>(
         '/api/operator/drafts'
       );
       setDrafts(data ?? []);
@@ -138,7 +124,7 @@ export default function OperatorReviewScreen() {
     if (!reeditTarget) return;
     setSubmitting(true);
     try {
-      const { pipeline_run_id: pipelineRunId } = await operatorFetch<{ pipeline_run_id?: string }>('/api/operator/reprocess', {
+      const { pipeline_run_id: pipelineRunId } = await operatorFetch<ReprocessSubmitResponse>('/api/operator/reprocess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -180,12 +166,12 @@ export default function OperatorReviewScreen() {
               <ActivityIndicator color={Colors.accent} style={{ marginTop: Spacing.xl }} />
             ) : loadError ? (
               <Card bordered style={{ gap: Spacing.sm, borderColor: Colors.danger }}>
-                <Text variant="title">Couldn't load drafts</Text>
+                <Text variant="title">Could not load drafts</Text>
                 <Text variant="caption" color={Colors.textSecondary}>{loadError}</Text>
               </Card>
             ) : (
               <Text variant="body" color={Colors.textSecondary}>
-                No drafts waiting for review. 🎉
+                No drafts waiting for review.
               </Text>
             )
           }
@@ -199,7 +185,7 @@ export default function OperatorReviewScreen() {
               </Text>
               {item.watch_url && (
                 <Button
-                  label="▶ Watch in Drive"
+                  label="Watch in Drive"
                   onPress={() => Linking.openURL(item.watch_url!)}
                   variant="ghost"
                   style={{ height: 44 }}
@@ -216,7 +202,7 @@ export default function OperatorReviewScreen() {
                   style={{ flex: 1, height: 44 }}
                 />
                 <Button
-                  label={approving === item.id ? 'Approving…' : '✓ Approve'}
+                  label={approving === item.id ? 'Approving...' : 'Approve'}
                   onPress={() => approve(item)}
                   disabled={approving !== null}
                   style={{ flex: 1, height: 44 }}
@@ -240,14 +226,13 @@ export default function OperatorReviewScreen() {
               {reeditTarget?.name}
             </Text>
             <Text variant="body" color={Colors.textSecondary}>
-              Describe what to change — your notes go straight to the editing AI
-              (e.g. "wrong surfer in clip 3", "too much slow-mo").
+              Describe what to change. Your notes go straight to the editing AI.
             </Text>
             <TextInput
               style={styles.notesInput}
               value={reeditNotes}
               onChangeText={setReeditNotes}
-              placeholder="Notes for the re-edit…"
+              placeholder="Notes for the re-edit..."
               placeholderTextColor={Colors.textSecondary}
               multiline
               numberOfLines={4}
@@ -261,7 +246,7 @@ export default function OperatorReviewScreen() {
                 style={{ flex: 1, height: 44 }}
               />
               <Button
-                label={submitting ? 'Sending…' : 'Send for re-edit'}
+                label={submitting ? 'Sending...' : 'Send for re-edit'}
                 onPress={submitReedit}
                 disabled={submitting || !reeditNotes.trim()}
                 variant="secondary"
