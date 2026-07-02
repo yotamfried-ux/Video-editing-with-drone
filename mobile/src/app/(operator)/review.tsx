@@ -150,7 +150,7 @@ export default function OperatorReviewScreen() {
       setReeditNotes('');
       Alert.alert(
         'Sent for re-edit',
-        'The source footage will be reprocessed with your notes on the next pipeline run.'
+        'The re-edit request started. Check Pipeline status for progress.'
       );
     } catch (e) {
       handleOperatorError(e);
