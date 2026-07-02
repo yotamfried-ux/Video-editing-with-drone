@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
-import { moveFile } from '@/lib/google-drive';
+import { getFile, moveFile } from '@/lib/google-drive';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
 
@@ -30,8 +30,19 @@ export async function POST(req: NextRequest) {
   let body: { file_id?: string; file_name?: string };
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   const fileId = (body.file_id ?? '').trim();
-  const fileName = (body.file_name ?? '').trim() || null;
   if (!fileId) return NextResponse.json({ error: 'file_id required' }, { status: 400 });
+
+  let fileName = (body.file_name ?? '').trim() || null;
+  if (!fileName) {
+    try {
+      fileName = (await getFile(fileId)).name;
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : 'Drive file lookup failed' },
+        { status: 502 },
+      );
+    }
+  }
 
   try {
     await moveFile(fileId, reviewFolder, approvedFolder);
@@ -51,7 +62,7 @@ export async function POST(req: NextRequest) {
       stage: 'approved_moved_to_drive',
       github_event: 'reel-approved',
       github_run_url: repo ? actionsUrl(repo) : null,
-      meta: { requested_by: 'operator_app' },
+      meta: { requested_by: 'operator_app', approved_file_name: fileName },
     })
     .select('id')
     .single();
