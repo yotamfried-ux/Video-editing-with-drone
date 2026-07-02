@@ -1,11 +1,15 @@
 import { useState, useEffect, useRef } from 'react';
-import { supabase } from '@/shared/lib/supabase';
+import { operatorFetch } from '@/features/operator/lib/operatorApi';
 
 interface PipelineStatus {
   stage: string;
   progress: number;
   meta: Record<string, unknown>;
   updated_at: string;
+}
+
+interface PipelineStatusResponse {
+  status: PipelineStatus | null;
 }
 
 export function usePipelineStatus() {
@@ -15,18 +19,15 @@ export function usePipelineStatus() {
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const fetchStatus = async () => {
-    const { data, error: err } = await supabase
-      .from('pipeline_status')
-      .select('stage, progress, meta, updated_at')
-      .eq('id', 1)
-      .single();
-    if (err) {
-      setError(err.message);
-    } else if (data) {
-      setStatus(data as PipelineStatus);
+    try {
+      const result = await operatorFetch<PipelineStatusResponse>('/api/operator/pipeline/status');
+      setStatus(result.status);
       setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load pipeline status');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => {
