@@ -58,6 +58,23 @@ Residual risk:
 
 ## Closed or superseded gaps
 
+### GAP-001 — Live singleton status can conflict with durable run history
+
+Status: fixed on 2026-07-02.
+
+Result:
+
+- Pipeline UI now labels the progress bar as global live progress.
+- The UI directs operators to Recent pipeline runs for run-scoped status.
+- Reset and rerun now consumes the API response and stores the returned `pipeline_run_id`.
+- The tracked pipeline entrypoint mirrors live progress updates into the active durable run row when a run id exists.
+- The operator contract now documents that the singleton row is global and durable rows explain specific operator actions.
+
+Follow-up:
+
+- External service smoke tests remain tracked as GAP-011.
+- API boundary consolidation remains tracked as GAP-005.
+
 ### GAP-002 — Re-edit response and operator feedback drift
 
 Status: fixed on 2026-07-02.
@@ -91,36 +108,6 @@ Follow-up:
 - Keep future open PRs limited to active work only.
 
 ## Open gaps
-
-### GAP-001 — Live singleton status can conflict with durable run history
-
-Severity: high.
-
-Area: mobile operator status, `pipeline_status`, `pipeline_runs`, `delivery_runs`.
-
-Problem:
-
-- The app has a single live `pipeline_status` row and separate durable run tables.
-- A singleton row cannot distinguish recent or overlapping operator actions.
-- The operator can see progress from a different action than the run they just started.
-
-Root cause:
-
-- Live progress is global while operator actions are run-scoped.
-
-Target invariant:
-
-- Every operator action should be explainable from a durable run row.
-- Singleton progress may exist, but it must be clearly marked as global or tied to the latest durable run.
-
-Repair loop:
-
-1. Map all reads of `pipeline_status`, `pipeline_runs`, and `delivery_runs` in the mobile app.
-2. Add or adjust an operator API status route if direct table access is no longer acceptable.
-3. Make the UI prefer durable run rows when explaining operator actions.
-4. Use singleton status only for generic live progress, with copy that prevents run confusion.
-5. Validate by starting different operator actions and confirming the UI does not mix statuses.
-6. Update `docs/operator-pipeline-contract.md`.
 
 ### GAP-003 — Upload footage flow needs a real app-to-pipeline smoke test
 
@@ -176,20 +163,16 @@ Repair loop:
 4. Validate with a mobile-only PR.
 5. Document mobile validation in the operator app contract or deployment guide.
 
-### GAP-005 — Direct Supabase access from mobile may be wider than needed
+### GAP-005 — Direct mobile status reads need consolidation
 
 Severity: medium-high.
 
-Area: mobile Supabase client, `pipeline_status`, operator authorization boundary.
+Area: mobile status client, operator authorization boundary.
 
 Problem:
 
-- Some operator status data is read directly from Supabase while other operator data goes through the API.
+- Some operator status data is still read from the app while other operator data goes through the API.
 - This creates inconsistent security and debugging boundaries.
-
-Root cause:
-
-- The app evolved from direct status polling to privileged operator API routes without consolidating the read model.
 
 Target invariant:
 
@@ -197,7 +180,7 @@ Target invariant:
 
 Repair loop:
 
-1. Identify every direct Supabase read in `mobile/`.
+1. Identify every direct status read in `mobile/`.
 2. Classify each read as public, operator-only, or obsolete.
 3. Move operator-only reads behind API routes.
 4. Keep public reads only with explicit RLS and documentation.
@@ -267,10 +250,6 @@ Problem:
 - Mobile defines local response interfaces for API calls.
 - API route response shapes are not centrally typed or generated.
 
-Root cause:
-
-- The repo has separate mobile and web-api packages without shared contract definitions.
-
 Target invariant:
 
 - Operator API response shapes should be documented and easy to keep aligned.
@@ -294,10 +273,6 @@ Problem:
 - `/api/operator/pipeline/run` is intentionally kept as a compatibility alias for older app builds.
 - Without a removal policy, legacy aliases can become permanent clutter and confuse future fixes.
 
-Root cause:
-
-- Backward compatibility was added correctly, but no expiry or owner was documented.
-
 Target invariant:
 
 - Every compatibility alias has a purpose, owner, and removal condition.
@@ -319,10 +294,6 @@ Problem:
 
 - Several fixes are code-reviewed and CI-green but not yet proven against real Drive, Supabase, GitHub Actions, and app UI together.
 
-Root cause:
-
-- The system spans services that are difficult to validate with unit tests alone.
-
 Target invariant:
 
 - Each critical operator action has a repeatable smoke test that proves the full path or fails with an actionable diagnostic.
@@ -340,14 +311,14 @@ Repair loop:
 2. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.
 3. Remove stale README sections that imply the system is only a local Python pipeline.
 4. Consolidate operator API response contracts so mobile screens do not invent local meanings.
-5. Prefer durable run rows over global singleton status for operator-facing explanations.
+5. Move remaining direct mobile status reads behind the operator API boundary.
 6. Add mobile validation to CI before treating mobile PRs as fully verified.
 
 ## Next recommended repair order
 
-1. GAP-001 — status model mismatch between singleton progress and durable run history.
-2. GAP-003 — upload-to-run smoke test.
-3. GAP-004 — mobile type-check enforcement.
+1. GAP-003 — upload-to-run smoke test.
+2. GAP-004 — mobile type-check enforcement.
+3. GAP-005 — direct mobile status read consolidation.
 4. GAP-007 — review PR #45 under a Discover-specific loop.
 5. GAP-008 — README and deployment documentation cleanup.
 

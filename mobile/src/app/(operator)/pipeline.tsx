@@ -30,6 +30,7 @@ interface PipelineStartResponse {
   ok: boolean;
   pipeline_run_id: string;
   github_actions_url?: string;
+  full_clean?: boolean;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -83,7 +84,7 @@ export default function PipelineScreen() {
     try {
       const result = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/start', { method: 'POST' });
       setLastRunId(result.pipeline_run_id);
-      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds — watch the progress here.`);
+      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds — watch Recent pipeline runs for this run.`);
     } catch (e) {
       handleOperatorError(e);
     } finally {
@@ -113,15 +114,17 @@ export default function PipelineScreen() {
   const resetAndRerun = async (fullClean: boolean) => {
     setResetting(true);
     try {
-      await operatorFetch('/api/operator/pipeline/reset', {
+      const result = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_clean: fullClean }),
       });
-      const msg = fullClean
-        ? 'Full clean triggered — REVIEW + APPROVED will be cleared, pipeline reruns from scratch.'
-        : 'Reset triggered — REVIEW drafts will be cleared, pipeline reruns.';
-      Alert.alert('Reset triggered', msg);
+      setLastRunId(result.pipeline_run_id);
+      const scope = fullClean ? 'Full clean' : 'Reset';
+      Alert.alert(
+        'Reset triggered',
+        `${scope} run ${result.pipeline_run_id.slice(0, 8)} started. Watch Recent pipeline runs for this reset.`
+      );
     } catch (e) {
       handleOperatorError(e);
     } finally {
@@ -149,7 +152,6 @@ export default function PipelineScreen() {
 
     setUploadProgress(0);
     try {
-      // Step 1: get Drive resumable upload URL (file never passes through Vercel)
       const { uploadUrl } = await operatorFetch<{ uploadUrl: string }>(
         '/api/operator/upload',
         {
@@ -159,7 +161,6 @@ export default function PipelineScreen() {
         }
       );
 
-      // Step 2: stream bytes directly to Drive with progress
       const task = FileSystem.createUploadTask(
         uploadUrl,
         asset.uri,
@@ -182,7 +183,6 @@ export default function PipelineScreen() {
 
       setUploadProgress(null);
 
-      // Step 3: trigger tracked pipeline run
       const run = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/start', { method: 'POST' });
       setLastRunId(run.pipeline_run_id);
       Alert.alert('Uploaded!', `"${filename}" is in RAW — run ${run.pipeline_run_id.slice(0, 8)} starts now.`);
@@ -204,15 +204,21 @@ export default function PipelineScreen() {
             {statusError
               ? `⚠ status unavailable · ${statusError}`
               : statusLoading
-              ? 'Loading status…'
-              : `Live status · polls every 5s${status?.updated_at ? ` · updated ${new Date(status.updated_at).toLocaleTimeString()}` : ''}`}
+              ? 'Loading global live status…'
+              : `Global live status · polls every 5s${status?.updated_at ? ` · updated ${new Date(status.updated_at).toLocaleTimeString()}` : ''}`}
           </Text>
 
           <Card bordered style={{ gap: Spacing.md }}>
+            <View style={{ gap: Spacing.xs }}>
+              <Text variant="title">Global live progress</Text>
+              <Text variant="caption" color={Colors.textSecondary}>
+                This bar shows the singleton live pipeline signal. For the run you started, use Recent pipeline runs below.
+              </Text>
+            </View>
             <PipelineBar stage={status?.stage ?? 'idle'} progress={status?.progress ?? 0} />
             {lastRunId && (
               <Text variant="caption" color={Colors.textSecondary}>
-                Current app-triggered run: {lastRunId.slice(0, 8)}
+                Last app-triggered run: {lastRunId.slice(0, 8)} · see Recent pipeline runs for run-scoped status
               </Text>
             )}
 
@@ -244,9 +250,8 @@ export default function PipelineScreen() {
           <PipelineRunsCard />
           <DeliveryStatusCard />
 
-          {/* Stage timeline */}
           <Card bordered style={{ gap: Spacing.sm }}>
-            <Text variant="title">Stages</Text>
+            <Text variant="title">Global live stages</Text>
             {STAGES.map((s) => {
               const isCurrent = status?.stage === s;
               const idx = STAGES.indexOf(status?.stage ?? 'idle');
@@ -271,7 +276,6 @@ export default function PipelineScreen() {
             })}
           </Card>
 
-          {/* Re-edit queue */}
           {requests.length > 0 && (
             <Card bordered style={{ gap: Spacing.sm }}>
               <Text variant="title">Re-edit requests</Text>
@@ -295,10 +299,12 @@ export default function PipelineScreen() {
             </Card>
           )}
 
-          {/* Meta from last run */}
           {Object.keys(meta).length > 0 && (
             <Card bordered style={{ gap: Spacing.xs }}>
-              <Text variant="title">Run Details</Text>
+              <Text variant="title">Global live metadata</Text>
+              <Text variant="caption" color={Colors.textSecondary}>
+                Metadata from the singleton live signal. Run history above is the durable action log.
+              </Text>
               <Spacer size={Spacing.xs} />
               {Object.entries(meta).map(([k, v]) => (
                 <View key={k} style={styles.metaRow}>

@@ -10,7 +10,32 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from integrations.run_status import mark_run
 
+
+def _install_status_mirror() -> None:
+    """Mirror singleton live progress into the active durable run row.
+
+    The pipeline still writes `pipeline_status` for the global live progress bar,
+    but app-triggered actions need their own durable row to explain what happened
+    to that specific run. This wrapper is installed before importing the
+    orchestrator so every `write_pipeline_status(...)` import used by the run is
+    mirrored to `pipeline_runs` when PIPELINE_RUN_ID is present.
+    """
+    try:
+        import integrations.supabase_uploader as status_writer
+    except Exception:
+        return
+
+    original = status_writer.write_pipeline_status
+
+    def tracked_write_pipeline_status(stage: str, progress: float, **meta) -> None:
+        original(stage, progress, **meta)
+        mark_run(stage=stage, progress=progress, meta=meta)
+
+    status_writer.write_pipeline_status = tracked_write_pipeline_status
+
+
 mark_run(status="running", stage="starting", progress=0.01)
+_install_status_mirror()
 
 import pipeline.orchestrator as _orchestrator
 from pipeline.orchestrator import main
