@@ -56,6 +56,21 @@ Residual risk:
 
 - Re-edit feedback was tracked separately as GAP-002 and fixed after this audit entry.
 
+### PR #55 — Update operator status
+
+Status: merged.
+
+Fixed:
+
+- Added `GET /api/operator/pipeline/status` as the operator API boundary for pipeline status.
+- The route requires `requireOperator(req)` and reads `pipeline_status` server-side through `supabaseAdmin`.
+- `mobile/src/features/operator/hooks/usePipelineStatus.ts` now uses `operatorFetch('/api/operator/pipeline/status')` instead of direct Supabase reads.
+- `docs/operator-api-boundary.md` and `docs/gap-005-operator-status-boundary.md` document the boundary and validation.
+
+Residual risk:
+
+- Broader response-shape consolidation remains tracked separately as GAP-009.
+
 ## Closed or superseded gaps
 
 ### GAP-001 — Live singleton status can conflict with durable run history
@@ -73,7 +88,7 @@ Result:
 Follow-up:
 
 - External service smoke tests remain tracked as GAP-011.
-- API boundary consolidation remains tracked as GAP-005.
+- Broader API response contract consolidation remains tracked as GAP-009.
 
 ### GAP-002 — Re-edit response and operator feedback drift
 
@@ -121,6 +136,22 @@ Follow-up:
 
 - This enforces TypeScript safety for mobile code changes, but broader mobile runtime smoke testing remains tracked by GAP-011.
 
+### GAP-005 — Direct mobile status reads need consolidation
+
+Status: fixed on 2026-07-02 by PR #55.
+
+Result:
+
+- Operator pipeline status now goes through `GET /api/operator/pipeline/status`.
+- The API route enforces `requireOperator(req)` and performs the privileged Supabase read server-side through `supabaseAdmin`.
+- The mobile operator status hook now uses `operatorFetch('/api/operator/pipeline/status')`.
+- The remaining direct Supabase usage in `mobile/src` is limited to end-user auth/profile/athlete data covered by RLS-oriented flows, not privileged operator status.
+
+Follow-up:
+
+- Keep future privileged/operator data behind `operatorFetch`.
+- Shared operator API response contracts remain tracked by GAP-009.
+
 ### GAP-006 — Open PR #30 appears superseded
 
 Status: closed as superseded on 2026-07-02.
@@ -138,29 +169,6 @@ Follow-up:
 - Keep future open PRs limited to active work only.
 
 ## Open gaps
-
-### GAP-005 — Direct mobile status reads need consolidation
-
-Severity: medium-high.
-
-Area: mobile status client, operator authorization boundary.
-
-Problem:
-
-- Some operator status data is still read from the app while other operator data goes through the API.
-- This creates inconsistent security and debugging boundaries.
-
-Target invariant:
-
-- Privileged operator screens should consistently use the API boundary unless a table is intentionally public and documented as safe.
-
-Repair loop:
-
-1. Identify every direct status read in `mobile/`.
-2. Classify each read as public, operator-only, or obsolete.
-3. Move operator-only reads behind API routes.
-4. Keep public reads only with explicit RLS and documentation.
-5. Validate that the app works without undocumented direct table access.
 
 ### GAP-007 — Open PR #45 belongs to a Discover-specific loop
 
@@ -183,7 +191,7 @@ Target invariant:
 
 Repair loop:
 
-1. Review PR #45 against current `main` after PRs #46-#48.
+1. Review PR #45 against current `main` after PRs #46-#55.
 2. Confirm the migration is still needed and safe.
 3. Run or document the Discover smoke checks.
 4. Validate operator diagnostics remain behind operator auth.
@@ -287,14 +295,15 @@ Repair loop:
 2. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.
 3. Remove stale README sections that imply the system is only a local Python pipeline.
 4. Consolidate operator API response contracts so mobile screens do not invent local meanings.
-5. Move remaining direct mobile status reads behind the operator API boundary.
+5. Keep future privileged/operator reads behind the operator API boundary.
 
 ## Next recommended repair order
 
-1. GAP-005 — direct mobile status read consolidation.
-2. GAP-007 — review PR #45 under a Discover-specific loop.
-3. GAP-008 — README and deployment documentation cleanup.
-4. GAP-009 — operator API response contract consolidation.
+1. GAP-007 — review PR #45 under a Discover-specific loop.
+2. GAP-008 — README and deployment documentation cleanup.
+3. GAP-009 — operator API response contract consolidation.
+4. GAP-010 — legacy route alias removal policy.
+5. GAP-011 — real end-to-end validation.
 
 ## Audit maintenance rule
 
