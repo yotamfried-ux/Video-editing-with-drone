@@ -24,6 +24,12 @@ Operator mobile app -> API operator routes -> GitHub Actions workflows -> Python
 
 Every privileged route must validate the operator authorization header through `requireOperator(req)`. The mobile app stores the operator authorization value in the device keychain and sends it through `operatorFetch()`.
 
+## Drive state contract
+
+Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the move from `RAW_FOLDER_ID` to `PROCESSED_FOLDER_ID` has been verified.
+
+See `docs/drive-move-contract.md` for the RAW -> PROCESSED invariant and the required verification loop for Drive transitions.
+
 ## GitHub dispatch configuration
 
 The API layer needs:
