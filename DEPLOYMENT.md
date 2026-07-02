@@ -187,7 +187,7 @@ The watcher waits for uploads to settle before dispatching, so multi-clip sessio
 ### Manual and operator-triggered runs
 
 - Operator app run button: `POST /api/operator/pipeline/start`.
-- Legacy alias: `POST /api/operator/pipeline/run` is compatibility-only.
+- Legacy alias: `POST /api/operator/pipeline/run` is compatibility-only and governed by `docs/legacy-route-policy.md`.
 - GitHub UI: **Actions -> Run Pipeline -> Run workflow**.
 - Reset/rerun: `POST /api/operator/pipeline/reset` or `python scripts/reset_and_rerun.py` locally for diagnostics.
 
@@ -270,6 +270,8 @@ The workflow validates the filename and uses `psql -v ON_ERROR_STOP=1` so SQL er
 - `README.md` — short current overview.
 - `docs/operator-pipeline-contract.md` — route/workflow/tracking contract.
 - `docs/operator-api-boundary.md` — privileged operator API boundary.
+- `docs/operator-api-contracts.md` — operator API response contracts.
+- `docs/legacy-route-policy.md` — compatibility alias policy and removal conditions.
 - `docs/drive-move-contract.md` — Drive state invariant.
 - `docs/upload-to-run-smoke.md` — Upload footage smoke loop.
 - `docs/discover-reels-smoke-loop.md` — Discover/checkout smoke loop.
