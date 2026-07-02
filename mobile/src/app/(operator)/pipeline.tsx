@@ -14,30 +14,22 @@ import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCar
 import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatusCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import type {
+  OperatorUploadInitResponse,
+  PipelineDispatchResponse,
+  PipelineResetResponse,
+  ReprocessListResponse,
+  ReprocessRow,
+} from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
 
-interface ReprocessRow {
-  id: string;
-  draft_name: string | null;
-  notes: string;
-  status: string;
-  created_at: string;
-}
-
-interface PipelineStartResponse {
-  ok: boolean;
-  pipeline_run_id: string;
-  github_actions_url?: string;
-  full_clean?: boolean;
-}
-
 const STATUS_LABEL: Record<string, string> = {
-  pending: '⏳ waiting for next run',
-  queued: '🔁 re-editing now',
-  done: '✅ done',
-  source_not_found: '⚠️ source not found',
+  pending: 'Waiting for next run',
+  queued: 'Re-editing now',
+  done: 'Done',
+  source_not_found: 'Source not found',
 };
 
 export default function PipelineScreen() {
@@ -64,7 +56,7 @@ export default function PipelineScreen() {
 
   const loadRequests = useCallback(async () => {
     try {
-      const { requests: data } = await operatorFetch<{ requests: ReprocessRow[] }>(
+      const { requests: data } = await operatorFetch<ReprocessListResponse>(
         '/api/operator/reprocess'
       );
       setRequests(data ?? []);
@@ -82,9 +74,9 @@ export default function PipelineScreen() {
   const runPipeline = async () => {
     setTriggering(true);
     try {
-      const result = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/start', { method: 'POST' });
+      const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', { method: 'POST' });
       setLastRunId(result.pipeline_run_id);
-      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds — watch Recent pipeline runs for this run.`);
+      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds. Watch Recent pipeline runs for this run.`);
     } catch (e) {
       handleOperatorError(e);
     } finally {
@@ -94,19 +86,12 @@ export default function PipelineScreen() {
 
   const confirmReset = () => {
     Alert.alert(
-      'Reset & rerun',
-      'בחר סוג איפוס:',
+      'Reset and rerun',
+      'Choose reset scope:',
       [
-        { text: 'ביטול', style: 'cancel' },
-        {
-          text: 'איפוס רגיל (REVIEW בלבד)',
-          onPress: () => resetAndRerun(false),
-        },
-        {
-          text: 'איפוס מלא (REVIEW + APPROVED)',
-          style: 'destructive',
-          onPress: () => resetAndRerun(true),
-        },
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Standard reset', onPress: () => resetAndRerun(false) },
+        { text: 'Full clean', style: 'destructive', onPress: () => resetAndRerun(true) },
       ]
     );
   };
@@ -114,17 +99,14 @@ export default function PipelineScreen() {
   const resetAndRerun = async (fullClean: boolean) => {
     setResetting(true);
     try {
-      const result = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/reset', {
+      const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_clean: fullClean }),
       });
       setLastRunId(result.pipeline_run_id);
-      const scope = fullClean ? 'Full clean' : 'Reset';
-      Alert.alert(
-        'Reset triggered',
-        `${scope} run ${result.pipeline_run_id.slice(0, 8)} started. Watch Recent pipeline runs for this reset.`
-      );
+      const scope = result.full_clean ? 'Full clean' : 'Reset';
+      Alert.alert('Reset triggered', `${scope} run ${result.pipeline_run_id.slice(0, 8)} started. Watch Recent pipeline runs for this reset.`);
     } catch (e) {
       handleOperatorError(e);
     } finally {
@@ -152,7 +134,7 @@ export default function PipelineScreen() {
 
     setUploadProgress(0);
     try {
-      const { uploadUrl } = await operatorFetch<{ uploadUrl: string }>(
+      const { uploadUrl } = await operatorFetch<OperatorUploadInitResponse>(
         '/api/operator/upload',
         {
           method: 'POST',
@@ -170,9 +152,7 @@ export default function PipelineScreen() {
           headers: { 'Content-Type': mimeType },
         },
         (progress) => {
-          const pct = Math.round(
-            (progress.totalBytesSent / progress.totalBytesExpectedToSend) * 100
-          );
+          const pct = Math.round((progress.totalBytesSent / progress.totalBytesExpectedToSend) * 100);
           setUploadProgress(pct);
         }
       );
@@ -183,9 +163,9 @@ export default function PipelineScreen() {
 
       setUploadProgress(null);
 
-      const run = await operatorFetch<PipelineStartResponse>('/api/operator/pipeline/start', { method: 'POST' });
+      const run = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', { method: 'POST' });
       setLastRunId(run.pipeline_run_id);
-      Alert.alert('Uploaded!', `"${filename}" is in RAW — run ${run.pipeline_run_id.slice(0, 8)} starts now.`);
+      Alert.alert('Uploaded', `"${filename}" is in RAW. Run ${run.pipeline_run_id.slice(0, 8)} starts now.`);
     } catch (e) {
       setUploadProgress(null);
       handleOperatorError(e);
@@ -202,9 +182,9 @@ export default function PipelineScreen() {
           <Text variant="display">Pipeline</Text>
           <Text variant="caption" color={statusError ? Colors.danger : Colors.textSecondary}>
             {statusError
-              ? `⚠ status unavailable · ${statusError}`
+              ? `Status unavailable: ${statusError}`
               : statusLoading
-              ? 'Loading global live status…'
+              ? 'Loading global live status...'
               : `Global live status · polls every 5s${status?.updated_at ? ` · updated ${new Date(status.updated_at).toLocaleTimeString()}` : ''}`}
           </Text>
 
@@ -222,29 +202,9 @@ export default function PipelineScreen() {
               </Text>
             )}
 
-            <Button
-              label={triggering ? 'Triggering…' : '▶ Run pipeline now'}
-              onPress={runPipeline}
-              disabled={busy}
-              variant="secondary"
-              style={{ height: 44 }}
-            />
-
-            <Button
-              label={uploadProgress !== null ? `Uploading… ${uploadProgress}%` : '📤 Upload footage'}
-              onPress={uploadFootage}
-              disabled={busy}
-              variant="secondary"
-              style={{ height: 44 }}
-            />
-
-            <Button
-              label={resetting ? 'Resetting…' : '🔄 Reset & rerun'}
-              onPress={confirmReset}
-              disabled={busy}
-              variant="secondary"
-              style={{ height: 44, borderColor: Colors.danger }}
-            />
+            <Button label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy} variant="secondary" style={{ height: 44 }} />
+            <Button label={uploadProgress !== null ? `Uploading... ${uploadProgress}%` : 'Upload footage'} onPress={uploadFootage} disabled={busy} variant="secondary" style={{ height: 44 }} />
+            <Button label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
           </Card>
 
           <PipelineRunsCard />
@@ -258,19 +218,8 @@ export default function PipelineScreen() {
               const done = STAGES.indexOf(s) < idx;
               return (
                 <View key={s} style={styles.stageRow}>
-                  <View
-                    style={[
-                      styles.dot,
-                      done && { backgroundColor: Colors.success },
-                      isCurrent && { backgroundColor: Colors.accent },
-                    ]}
-                  />
-                  <Text
-                    variant="body"
-                    color={isCurrent ? Colors.textPrimary : Colors.textSecondary}
-                  >
-                    {s.toUpperCase()}
-                  </Text>
+                  <View style={[styles.dot, done && { backgroundColor: Colors.success }, isCurrent && { backgroundColor: Colors.accent }]} />
+                  <Text variant="body" color={isCurrent ? Colors.textPrimary : Colors.textSecondary}>{s.toUpperCase()}</Text>
                 </View>
               );
             })}
@@ -282,18 +231,10 @@ export default function PipelineScreen() {
               {requests.map((r) => (
                 <View key={r.id} style={{ gap: 2 }}>
                   <View style={styles.metaRow}>
-                    <Text variant="caption" color={Colors.textPrimary} numberOfLines={1} style={{ flex: 1 }}>
-                      {r.draft_name || r.id.slice(0, 8)}
-                    </Text>
-                    <Text variant="caption" color={Colors.accent}>
-                      {STATUS_LABEL[r.status] ?? r.status}
-                    </Text>
+                    <Text variant="caption" color={Colors.textPrimary} numberOfLines={1} style={{ flex: 1 }}>{r.draft_name || r.id.slice(0, 8)}</Text>
+                    <Text variant="caption" color={Colors.accent}>{STATUS_LABEL[r.status] ?? r.status}</Text>
                   </View>
-                  {!!r.notes && (
-                    <Text variant="caption" color={Colors.textSecondary} numberOfLines={2}>
-                      "{r.notes}"
-                    </Text>
-                  )}
+                  {!!r.notes && <Text variant="caption" color={Colors.textSecondary} numberOfLines={2}>"{r.notes}"</Text>}
                 </View>
               ))}
             </Card>
@@ -302,9 +243,7 @@ export default function PipelineScreen() {
           {Object.keys(meta).length > 0 && (
             <Card bordered style={{ gap: Spacing.xs }}>
               <Text variant="title">Global live metadata</Text>
-              <Text variant="caption" color={Colors.textSecondary}>
-                Metadata from the singleton live signal. Run history above is the durable action log.
-              </Text>
+              <Text variant="caption" color={Colors.textSecondary}>Metadata from the singleton live signal. Run history above is the durable action log.</Text>
               <Spacer size={Spacing.xs} />
               {Object.entries(meta).map(([k, v]) => (
                 <View key={k} style={styles.metaRow}>
