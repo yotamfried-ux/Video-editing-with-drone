@@ -1,211 +1,278 @@
 # SportReel — Deployment Guide
 
-This guide covers taking SportReel from source to a live, store-ready product.
-Three cloud layers plus the mobile app. Supabase is already provisioned and live.
+This guide covers taking SportReel from source to an operational app-pipeline system.
 
+The production architecture has these layers:
+
+```text
+Operator mobile app
+  -> web-api on Vercel
+  -> GitHub Actions workflows
+  -> Python pipeline and delivery scripts
+  -> Google Drive folders + Supabase tracking tables
+  -> Review, Delivery, Discover, checkout, and app status screens
 ```
-Supabase (LIVE)  →  web-api on Vercel  →  Mobile app (EAS → App Store / Play)
-                         ↑
-                  Stripe · Meshulam · Cloudflare Stream
-```
+
+The mobile app is a control surface. Do not move Python, FFmpeg, Gemini, Drive moves, or other heavy processing into mobile code.
 
 ---
 
-## 0. What's already done
+## 0. What's already provisioned / expected
 
-| Piece | Status |
+| Piece | Status / purpose |
 |---|---|
-| Supabase project (`bcndgmymnismbxvdeetc`) | **Live** — URL `https://bcndgmymnismbxvdeetc.supabase.co` |
-| DB schema (8 tables + RLS + pgvector) | **Applied** |
-| Storage buckets (`reels`, `athlete_photos`) | **Created** (private) |
-| Cron jobs (48h expiry, 7d cleanup) | **Scheduled** |
-| `web-api` (Next.js 15) | Code complete, builds clean |
-| `mobile` (Expo SDK 52) | Code complete |
-| Python pipeline integrations | Code complete |
+| Supabase project (`bcndgmymnismbxvdeetc`) | Live project used by web-api, mobile RLS flows, and the Python pipeline. |
+| Supabase migrations | Live schema plus migrations in `supabase/migrations/`. Apply new migrations through the migration workflow or Supabase SQL editor. |
+| Storage buckets | Private buckets for reel assets and athlete profile assets. |
+| `web-api` | Next.js API layer deployed from the `web-api` root directory on Vercel. |
+| `mobile` | Expo app for athlete/user flows and the hidden operator console. |
+| Python pipeline | Runs in GitHub Actions or locally for development; writes Drive/Supabase state. |
+| Google Drive folders | Durable pipeline state for RAW, PROCESSED, REVIEW, APPROVED, preview, and pending-payment handoff. |
+| GitHub Actions | Dispatch target for pipeline, delivery, mobile checks, and Supabase migrations. |
 
 ---
 
-## 1. Accounts you must create (cannot be automated)
+## 1. External accounts and credentials
 
-These require your identity/payment, so only you can create them:
+These require identity, billing, or dashboard setup:
 
-| Service | Why | What to grab |
+| Service | Why | Required values |
 |---|---|---|
-| **Stripe** | Card payments | `sk_live_…` (secret), `pk_live_…` (publishable), `whsec_…` (webhook secret) |
-| **Meshulam** | Bit wallet (Israel) | API key, webhook secret |
-| **Cloudflare** | DRM video streaming (Stream is a paid add-on) | Account ID, Stream API token, customer code |
-| **Apple Developer** | App Store ($99/yr) | Apple ID, App Store Connect app ID |
-| **Google Play** | Play Store ($25 once) | Service account JSON |
-| **Expo (EAS)** | Builds the app | free account |
+| Stripe | Discover checkout and payment completion | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, publishable key for mobile |
+| Meshulam | Bit/wallet payments where supported | API key, user ID, webhook secret |
+| Cloudflare Stream | Stream hosting / protected playback | Account ID, Stream API token, customer code |
+| Google Cloud | Drive access and service account JSON | `GOOGLE_SERVICE_ACCOUNT_JSON`; Drive API enabled |
+| GitHub | Dispatch workflows from operator API / Apps Script | Dispatch token scoped to this repository |
+| Expo / Apple / Google Play | Mobile builds and store submission | EAS account and store credentials |
+| Supabase | DB, auth, storage, service-role API access | URL, anon key, service-role key, DB URL for migrations |
 
-The **Supabase service_role key** already exists in your dashboard:
-Settings → API → `service_role` secret. Needed by `web-api` and the pipeline.
+The Supabase service-role key is used only by trusted server/pipeline contexts: Vercel web-api and GitHub Actions pipeline jobs. Do not put it in mobile code.
 
 ---
 
-## 2. Deploy the backend (web-api → Vercel)
+## 2. Deploy the API layer: `web-api` -> Vercel
 
-Done from this repo. Root directory is `web-api`.
+The Vercel project root directory must be `web-api`.
 
-### Environment variables (set on the Vercel project)
+### Required Vercel environment variables
 
-```
+```bash
 SUPABASE_URL=https://bcndgmymnismbxvdeetc.supabase.co
 SUPABASE_SERVICE_KEY=<service_role secret>
-CLOUDFLARE_ACCOUNT_ID=<…>
-CLOUDFLARE_STREAM_API_TOKEN=<…>
-CLOUDFLARE_CUSTOMER_CODE=<…>
-STRIPE_SECRET_KEY=sk_live_…
-STRIPE_WEBHOOK_SECRET=whsec_…
-MESHULAM_API_KEY=<…>
-MESHULAM_WEBHOOK_SECRET=<…>
+
+OPERATOR_SECRET=<shared operator secret entered once in the mobile operator settings>
+UPSTASH_REDIS_REST_URL=<optional rate-limit Redis URL>
+UPSTASH_REDIS_REST_TOKEN=<optional rate-limit Redis token>
+
+GITHUB_REPO=yotamfried-ux/Video-editing-with-drone
+GITHUB_DISPATCH_TOKEN=<fine-grained token for repository/workflow dispatch>
+
+GOOGLE_SERVICE_ACCOUNT_JSON=<single-line service account JSON>
+RAW_FOLDER_ID=<Drive RAW folder id, required by /api/operator/upload>
+REVIEW_FOLDER_ID=<Drive REVIEW folder id>
+APPROVED_FOLDER_ID=<Drive APPROVED folder id>
+
+CLOUDFLARE_ACCOUNT_ID=<...>
+CLOUDFLARE_STREAM_API_TOKEN=<...>
+CLOUDFLARE_CUSTOMER_CODE=<...>
+
+STRIPE_SECRET_KEY=sk_live_...
+STRIPE_WEBHOOK_SECRET=whsec_...
+MESHULAM_API_KEY=<...>
+MESHULAM_USER_ID=<...>
+MESHULAM_WEBHOOK_SECRET=<...>
+
+RESEND_API_KEY=<...>
+RESEND_FROM_EMAIL=<...>
+NEXT_PUBLIC_APP_DOMAIN=sportreel.app
 ```
 
-### Webhooks to register after the first deploy
+Use `web-api/.env.example` as the exact API-side checklist.
 
-- Stripe → `https://<deployment>/api/webhooks/stripe` (event: `payment_intent.succeeded`)
-- Meshulam → `https://<deployment>/api/webhooks/meshulam`
+### Webhooks
+
+Register these after the first Vercel deployment:
+
+| Provider | Current endpoint | Events / notes |
+|---|---|---|
+| Stripe Checkout | `https://<deployment>/api/payments/webhook` | `checkout.session.completed`, `checkout.session.expired`. This is the current Discover checkout path backed by `purchases`. |
+| Stripe legacy payment-intent route | `https://<deployment>/api/webhooks/stripe` | Existing legacy handler for `payment_intent.succeeded`; keep only while legacy payment-intent clients need it. |
+| Meshulam | `https://<deployment>/api/webhooks/meshulam` | Meshulam success callbacks. |
 
 ---
 
-## 3. Pipeline `.env` additions
+## 3. Mobile app configuration
 
+`mobile/.env` should include:
+
+```bash
+EXPO_PUBLIC_SUPABASE_URL=https://bcndgmymnismbxvdeetc.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon key>
+EXPO_PUBLIC_API_BASE_URL=https://<vercel deployment>
+EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
+EXPO_PUBLIC_APP_DOMAIN=sportreel.app
 ```
-SUPABASE_URL=https://bcndgmymnismbxvdeetc.supabase.co
-SUPABASE_SERVICE_KEY=<service_role secret>
-CLOUDFLARE_ACCOUNT_ID=<…>
-CLOUDFLARE_STREAM_API_TOKEN=<…>
-CLOUDFLARE_CUSTOMER_CODE=<…>
-APP_DOMAIN=sportreel.app
-```
 
-Install the face-matching dependency: `pip install face_recognition` (needs dlib).
-
----
-
-## 4. Mobile app (EAS → stores)
-
-```
-mobile/.env
-  EXPO_PUBLIC_SUPABASE_URL=https://bcndgmymnismbxvdeetc.supabase.co
-  EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon key>
-  EXPO_PUBLIC_API_BASE_URL=https://<vercel deployment>
-  EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_…
-  EXPO_PUBLIC_APP_DOMAIN=sportreel.app
-```
+Build and submit through EAS:
 
 ```bash
 cd mobile
+npm ci
+npm run type-check
 npx eas-cli@latest login
-eas init                                   # fills projectId in app.json
-eas build --platform all --profile preview # internal test build
+eas init
+eas build --platform all --profile preview
 eas build --platform all --profile production
-eas submit --platform ios                  # App Store Connect
-eas submit --platform android              # Play Console
+eas submit --platform ios
+eas submit --platform android
 ```
 
-### Store requirements
-- Privacy Policy URL (host at `sportreel.app/privacy`) — content already in `mobile/src/shared/legal/`
-- Face biometrics: declare in App Store Connect (Apple guideline 5.1.1)
-- External payment (Stripe/Meshulam): disclose; no StoreKit/IAP
-- App Review note: explain the hidden operator section (5× logo tap + Face ID) and supply review credentials
+Store requirements:
+
+- Privacy Policy URL, for example `https://sportreel.app/privacy`.
+- Face/biometric disclosure if app-store review requires it.
+- External payment disclosure for Stripe/Meshulam flows.
+- App Review note explaining the hidden operator section and how reviewers can access it.
 
 ---
 
-## 5. Verification checklist
+## 4. Pipeline and delivery secrets for GitHub Actions
 
-1. `web-api` deploys; `GET /api/sessions` returns 200
-2. Pipeline run updates `pipeline_status` (visible in operator → Pipeline)
-3. Reel publish writes both `stream_uid` and `storage_path`
-4. Stripe test card → webhook flips `payments.status` + `reels.status=sold`
-5. Download token → Supabase Storage signed URL works
-6. Screenshot blocked (Android FLAG_SECURE / iOS black frame)
-7. Operator gate: 5× tap → Face ID
-8. Push notification on face match → deep links to My Highlights
+Add these under **Settings -> Secrets and variables -> Actions**:
 
----
-
-## 6. Pipeline automation (Drive → GitHub Actions)
-
-The editing pipeline runs automatically when new footage lands in the Drive RAW
-folder. No machine of yours needs to stay on.
-
-```
-Upload session to RAW  →  Apps Script watcher (waits for uploads to settle)
-                                                        ↓
-                                            repository_dispatch (one per session)
-                                                        ↓
-                              GitHub Actions: .github/workflows/pipeline-run.yml
-                                  (ffmpeg + Gemini + slow-mo → drafts to REVIEW)
-```
-
-RAW acts as the waiting queue: only not-yet-processed clips are turned into
-reels, and each processed session is moved to PROCESSED so it is never redone.
-Clips uploaded together are grouped into one reel per athlete — the watcher
-waits `QUIET_MINUTES` (default 2) of no new uploads before firing, so a
-multi-clip session is processed whole rather than split across runs. Runs are
-serialized (`concurrency: pipeline-run`), so two uploads never collide.
-
-### A. GitHub repository secrets
-
-Add under **Settings → Secrets and variables → Actions**:
-
-| Secret | Value |
+| Secret / variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` | Gemini API key |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Full contents of the service-account JSON file |
-| `DRIVE_USER_TOKEN_JSON` | Full contents of `drive_user_token.json` (operator OAuth — required for uploads/moves) |
-| `RAW_FOLDER_ID` / `PROCESSED_FOLDER_ID` / `REVIEW_FOLDER_ID` / `APPROVED_FOLDER_ID` | Drive folder IDs |
-| `OWNER_EMAIL` | Operator email |
-| *(optional)* `NOTIFY_EMAIL`, `PREVIEW_FOLDER_ID`, `PENDING_PAYMENT_FOLDER_ID`, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `SENTRY_DSN` | as applicable |
+| `GEMINI_API_KEY` | Gemini highlight analysis. |
+| `GOOGLE_SERVICE_ACCOUNT_JSON` | Drive API access. |
+| `DRIVE_USER_TOKEN_JSON` | Operator OAuth token required for owner-file uploads/moves. |
+| `RAW_FOLDER_ID` | Incoming footage queue. |
+| `PROCESSED_FOLDER_ID` | Verified archive for processed originals. |
+| `REVIEW_FOLDER_ID` | Draft reels awaiting operator approval. |
+| `APPROVED_FOLDER_ID` | Approved reels ready for delivery. |
+| `PREVIEW_FOLDER_ID` | Optional watermarked preview handoff. |
+| `PENDING_PAYMENT_FOLDER_ID` | Optional full reel handoff before payment. |
+| `OWNER_EMAIL` | Operator notification recipient. |
+| `NOTIFY_EMAIL` | Optional fallback client notification recipient. |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Durable tracking rows and publishing state. |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_STREAM_API_TOKEN` / `CLOUDFLARE_CUSTOMER_CODE` | Stream upload/playback integration. |
+| `APP_DOMAIN` | Public app/web domain used in delivery links. |
+| `SENTRY_DSN` | Optional pipeline observability. |
 
-### B. Google Apps Script watcher
-
-1. In `apps_script/trigger.gs`, set `RAW_FOLDER_ID` (owner/repo are pre-filled).
-2. Create a GitHub PAT that can trigger dispatches (fine-grained: *Contents: read & write*; classic: `repo`).
-3. Apps Script → **Project Settings → Script Properties** → add `GITHUB_TOKEN = <PAT>`.
-4. Run `setupTrigger()` once and authorize. It polls every minute and fires one
-   dispatch per session after uploads settle (`QUIET_MINUTES`, default 2).
-
-### C. Manual run / reprocess the same footage
-
-- **Actions → Run Pipeline → Run workflow** triggers a run by hand.
-- Tick **reset** to move PROCESSED→RAW, delete REVIEW drafts and clear state
-  first — reprocesses the existing footage without re-uploading. Locally the
-  equivalent is `python scripts/reset_and_rerun.py` (`--reset-only` to skip the run).
-
-### D. Folder moves
-
-Raw videos are archived RAW→PROCESSED automatically after processing, using the
-operator OAuth token (the service account cannot move operator-owned files).
-
-> **Note on slow-mo cost:** optical-flow interpolation (`SLOWMO_INTERPOLATE`) is
-> CPU-heavy. On GitHub's 2-core runners a multi-athlete session can take a long
-> time; set `SLOWMO_INTERPOLATE=false` (repo variable) to fall back to plain
-> speed-ramps if runs approach the 6h job limit.
+Pipeline environment behavior is defined in `config/settings.py`.
 
 ---
 
-## 7. Database migrations
+## 5. Drive -> GitHub Actions automation
 
-New Supabase migrations live under `supabase/migrations/` and can be applied from
-GitHub Actions using `.github/workflows/supabase-migrate.yml`.
+Production-style pipeline runs should be triggered through the app/API boundary or Drive watcher, not by asking mobile to process videos.
 
-### Required GitHub secret
+```text
+Operator uploads footage or RAW receives footage
+  -> Apps Script watcher or operator API dispatch
+  -> `.github/workflows/pipeline-run.yml`
+  -> `scripts/run_tracked.py` / Python pipeline
+  -> Drive move + Supabase status rows
+  -> operator Pipeline screen
+```
 
-Add under **Settings → Secrets and variables → Actions**:
+### Apps Script watcher
+
+1. In `apps_script/trigger.gs`, set `RAW_FOLDER_ID` and repository settings.
+2. Create a GitHub token that can trigger dispatches.
+3. Apps Script -> Project Settings -> Script Properties -> add `GITHUB_TOKEN=<token>`.
+4. Run `setupTrigger()` once and authorize.
+
+The watcher waits for uploads to settle before dispatching, so multi-clip sessions are processed as one logical run.
+
+### Manual and operator-triggered runs
+
+- Operator app run button: `POST /api/operator/pipeline/start`.
+- Legacy alias: `POST /api/operator/pipeline/run` is compatibility-only.
+- GitHub UI: **Actions -> Run Pipeline -> Run workflow**.
+- Reset/rerun: `POST /api/operator/pipeline/reset` or `python scripts/reset_and_rerun.py` locally for diagnostics.
+
+---
+
+## 6. Drive state contract
+
+Drive folder membership is source-of-truth operational state. `processed.json` is runner cache only.
+
+Required folder behavior:
+
+1. Footage starts in RAW.
+2. The pipeline processes a session and writes draft reels to REVIEW.
+3. Originals are moved RAW -> PROCESSED only after the move can be verified.
+4. Operator approval moves/records delivery into APPROVED / delivery handoff.
+5. Optional preview and pending-payment folders support the Discover/payment handoff.
+
+See `docs/drive-move-contract.md` and `docs/operator-pipeline-contract.md` for the exact invariants.
+
+---
+
+## 7. Supabase migrations
+
+New migrations live under `supabase/migrations/`.
+
+Required GitHub secret:
 
 | Secret | Value |
 |---|---|
 | `SUPABASE_DB_URL` | Postgres connection string with SSL, for example `postgresql://postgres:<DB_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require` |
 
-### Apply a migration
+Apply through **Actions -> Run Supabase Migration -> Run workflow**:
 
-1. Go to **Actions → Run Supabase Migration → Run workflow**.
-2. Set `migration` to the filename, for example `20260624_add_pipeline_runs.sql`.
-3. Leave `confirm_apply=DRY_RUN` first to print the selected SQL without applying it.
-4. Rerun with `confirm_apply=APPLY` to execute it against the live Supabase database.
+1. Set `migration` to the filename, for example `20260702_set_reel_expiry_default.sql`.
+2. Run with `confirm_apply=DRY_RUN` first.
+3. Rerun with `confirm_apply=APPLY` after reviewing the SQL.
 
-The workflow validates the filename, installs `postgresql-client`, fails clearly if
-`SUPABASE_DB_URL` is missing, and runs `psql -v ON_ERROR_STOP=1` so SQL errors stop
-the job immediately.
+The workflow validates the filename and uses `psql -v ON_ERROR_STOP=1` so SQL errors stop the job.
+
+---
+
+## 8. Verification checklist
+
+### API / Vercel
+
+- Vercel deploy succeeds from `web-api`.
+- `GET /api/sessions` returns 200.
+- `GET /api/operator/pipeline/status` rejects missing/invalid operator secret.
+- A valid operator request to `GET /api/operator/pipeline/status` returns the current live status.
+
+### Operator app / pipeline
+
+- `POST /api/operator/pipeline/start` returns `pipeline_run_id` or an actionable dispatch error.
+- `GET /api/operator/pipeline/runs` shows the durable run row.
+- Upload footage smoke loop passes: see `docs/upload-to-run-smoke.md`.
+- Reset/rerun and re-edit responses display returned run IDs, not stale “next run” copy.
+
+### Review / delivery
+
+- Draft approval calls `POST /api/operator/drafts/approve`.
+- Success is shown only when `delivery_started: true`.
+- `GET /api/operator/delivery-status` shows the matching delivery run.
+
+### Discover / payments
+
+- Apply new Discover/payment migrations before relying on checkout.
+- Run `docs/discover-reels-smoke-loop.md` in Supabase/Stripe Sandbox.
+- `POST /api/checkout/{token}` returns a checkout URL for an active, unexpired reel.
+- Stripe Checkout webhook to `/api/payments/webhook` marks the purchase paid and the reel sold.
+
+### Mobile checks
+
+- Any mobile change must pass `.github/workflows/mobile-check.yml`.
+- Local validation: `cd mobile && npm ci && npm run type-check`.
+
+---
+
+## 9. Operational docs to keep aligned
+
+- `README.md` — short current overview.
+- `docs/operator-pipeline-contract.md` — route/workflow/tracking contract.
+- `docs/operator-api-boundary.md` — privileged operator API boundary.
+- `docs/drive-move-contract.md` — Drive state invariant.
+- `docs/upload-to-run-smoke.md` — Upload footage smoke loop.
+- `docs/discover-reels-smoke-loop.md` — Discover/checkout smoke loop.
+- `docs/app-pipeline-audit.md` — readiness gaps and repair order.
+
+When a route, workflow, tracking table, or Drive folder behavior changes, update the focused contract first and then keep this guide as the deployment index.

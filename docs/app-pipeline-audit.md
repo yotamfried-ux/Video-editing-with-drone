@@ -89,6 +89,24 @@ Residual risk:
 - CodeRabbit hit a review rate limit on PR #57, so self-review was used as the review gate.
 - Full Stripe webhook completion and sold-state verification remain part of GAP-011.
 
+### PR #59 — README and deployment architecture cleanup
+
+Status: merged.
+
+Fixed:
+
+- Replaced the stale Python-only README with a current platform overview covering mobile, web-api, GitHub Actions, Python pipeline, Drive, Supabase, delivery, payments, and Discover.
+- Reworked `DEPLOYMENT.md` into an operational deployment index for the current app-pipeline architecture.
+- Updated route references for current operator flows, pipeline status, run history, delivery status, upload, reprocess, approval, and Discover diagnostics.
+- Updated webhook guidance to distinguish the current Stripe Checkout webhook path from the legacy payment-intent webhook path.
+- Linked focused contract docs instead of duplicating low-level behavior in top-level docs.
+
+Residual risk:
+
+- Operator API response-shape drift remains tracked under GAP-009.
+- Legacy route alias removal policy remains tracked under GAP-010.
+- Real end-to-end validation remains tracked under GAP-011.
+
 ## Closed or superseded gaps
 
 ### GAP-001 — Live singleton status can conflict with durable run history
@@ -203,33 +221,23 @@ Follow-up:
 - Run the documented Discover smoke procedure in a real Supabase/Stripe Sandbox environment.
 - Keep full webhook and sold-state verification under GAP-011.
 
-## Open gaps
-
 ### GAP-008 — README and deployment docs are behind the actual architecture
 
-Severity: medium.
+Status: fixed on 2026-07-02 by PR #59.
 
-Area: documentation, onboarding, operations.
+Result:
 
-Problem:
+- README now describes the current platform architecture instead of only the old local Python Drive pipeline.
+- DEPLOYMENT now covers the current deployment layers, web-api env, mobile env, GitHub Actions secrets, Drive state, Supabase migrations, webhooks, and smoke verification loops.
+- Top-level docs now point to focused contracts for operator API, Drive moves, upload-to-run smoke, Discover smoke, and app-pipeline audit.
+- Stale route and folder descriptions were replaced with current route names and Drive folder roles.
 
-- Older docs still describe the project mostly as a Python Drive pipeline.
-- The actual system now includes mobile operator app, Next.js API, Supabase tracking, GitHub Actions dispatch, delivery, and Discover.
+Follow-up:
 
-Root cause:
+- Keep README and DEPLOYMENT as indexes; update focused contract docs first when future behavior changes.
+- Continue response-shape consolidation under GAP-009.
 
-- Architecture evolved faster than top-level docs.
-
-Target invariant:
-
-- The root README describes the current architecture and points to deeper contracts instead of duplicating stale details.
-
-Repair loop:
-
-1. Audit README, DEPLOYMENT, and docs for stale route names, old run commands, and missing mobile/API concepts.
-2. Rewrite the top-level overview around app -> API -> workflows -> Python -> Drive/Supabase -> app.
-3. Link to focused docs instead of copying low-level details everywhere.
-4. Validate route names and workflow names against current code.
+## Open gaps
 
 ### GAP-009 — Operator API response contracts are duplicated manually in mobile
 
@@ -300,17 +308,15 @@ Repair loop:
 ## Cleanup opportunities
 
 1. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.
-2. Remove stale README sections that imply the system is only a local Python pipeline.
-3. Consolidate operator API response contracts so mobile screens do not invent local meanings.
-4. Keep future privileged/operator reads behind the operator API boundary.
-5. Re-run the Discover smoke loop when validating GAP-011.
+2. Consolidate operator API response contracts so mobile screens do not invent local meanings.
+3. Keep future privileged/operator reads behind the operator API boundary.
+4. Re-run the Discover smoke loop when validating GAP-011.
 
 ## Next recommended repair order
 
-1. GAP-008 — README and deployment documentation cleanup.
-2. GAP-009 — operator API response contract consolidation.
-3. GAP-010 — legacy route alias removal policy.
-4. GAP-011 — real end-to-end validation.
+1. GAP-009 — operator API response contract consolidation.
+2. GAP-010 — legacy route alias removal policy.
+3. GAP-011 — real end-to-end validation.
 
 ## Audit maintenance rule
 
