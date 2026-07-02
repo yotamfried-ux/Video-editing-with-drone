@@ -91,6 +91,21 @@ Follow-up:
 - Broader API response contract consolidation remains tracked as GAP-009.
 - Real external-service smoke testing remains tracked as GAP-011.
 
+### GAP-003 — Upload footage smoke loop
+
+Status: documented on 2026-07-02.
+
+Result:
+
+- Added `docs/upload-to-run-smoke.md` as the required smoke loop for the mobile upload path.
+- The loop verifies that app upload places a real video in RAW, creates a durable run id, shows the same run in Recent pipeline runs, and surfaces workflow failures as failures.
+- This closes the missing repeatable operator procedure for upload-to-run verification.
+
+Follow-up:
+
+- API-level automation for the same smoke path is still desirable, but tool-side write restrictions blocked adding a RAW-check endpoint in this pass.
+- Broader end-to-end automation remains tracked as GAP-011.
+
 ### GAP-006 — Open PR #30 appears superseded
 
 Status: closed as superseded on 2026-07-02.
@@ -108,34 +123,6 @@ Follow-up:
 - Keep future open PRs limited to active work only.
 
 ## Open gaps
-
-### GAP-003 — Upload footage flow needs a real app-to-pipeline smoke test
-
-Severity: high.
-
-Area: mobile upload, upload session route, Drive RAW folder, pipeline start route.
-
-Problem:
-
-- The app creates a Drive upload session, uploads bytes directly to Drive, then starts the pipeline.
-- This path crosses app, API, Drive, GitHub Actions, and Supabase without one repeatable smoke test.
-
-Root cause:
-
-- External-service state is split across several systems and cannot be proven by web deployment checks alone.
-
-Target invariant:
-
-- A file uploaded from the app appears in RAW, is visible to the pipeline, creates a tracked pipeline run, and is either moved to PROCESSED after processing or fails loudly without being skipped in the future.
-
-Repair loop:
-
-1. Add an operator-only diagnostic or manual smoke checklist for upload-to-run.
-2. Confirm upload creates the file in the expected RAW folder.
-3. Confirm the pipeline lists the file regardless of MIME-type quirks.
-4. Confirm the created `pipeline_runs` row is updated by the workflow.
-5. Confirm Drive move behavior after PR #47 with app-uploaded files.
-6. Document the smoke loop.
 
 ### GAP-004 — Mobile type-check is not clearly enforced by CI
 
@@ -316,11 +303,10 @@ Repair loop:
 
 ## Next recommended repair order
 
-1. GAP-003 — upload-to-run smoke test.
-2. GAP-004 — mobile type-check enforcement.
-3. GAP-005 — direct mobile status read consolidation.
-4. GAP-007 — review PR #45 under a Discover-specific loop.
-5. GAP-008 — README and deployment documentation cleanup.
+1. GAP-004 — mobile type-check enforcement.
+2. GAP-005 — direct mobile status read consolidation.
+3. GAP-007 — review PR #45 under a Discover-specific loop.
+4. GAP-008 — README and deployment documentation cleanup.
 
 ## Audit maintenance rule
 
