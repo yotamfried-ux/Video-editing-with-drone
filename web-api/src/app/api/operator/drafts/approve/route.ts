@@ -3,6 +3,7 @@ import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { moveFile } from '@/lib/google-drive';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { githubDispatchError } from '@/lib/github-dispatch-error';
 
 export const dynamic = 'force-dynamic';
 
@@ -86,7 +87,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!token || !repo) return failDispatch('Delivery dispatch is not configured. Trigger Deliver Preview manually.');
+  if (!token || !repo) return failDispatch('Delivery dispatch is not configured. Set GITHUB_DISPATCH_TOKEN and GITHUB_REPO in Vercel, then trigger Deliver Preview manually.');
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
@@ -105,8 +106,7 @@ export async function POST(req: NextRequest) {
   }
 
   if (res.status !== 204) {
-    const text = await res.text();
-    return failDispatch(`GitHub dispatch failed (${res.status}): ${text.slice(0, 200)}`);
+    return failDispatch(githubDispatchError(res.status, await res.text()));
   }
 
   const updateError = await updateDeliveryRun({ status: 'queued', stage: 'delivery_workflow_dispatched' });
