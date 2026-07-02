@@ -3,21 +3,8 @@ import { Pressable, View, StyleSheet } from 'react-native';
 import { Card } from '@/shared/components/Card';
 import { Text } from '@/shared/components/Text';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import type { PipelineRun, PipelineRunsResponse } from '@/features/operator/types/contracts';
 import { Colors, Radius, Spacing } from '@/shared/constants/theme';
-
-type PipelineRun = {
-  id: string;
-  source: string;
-  status: string;
-  stage: string | null;
-  progress: number | null;
-  github_run_url: string | null;
-  error: string | null;
-  queued_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  updated_at: string | null;
-};
 
 const COLLAPSED_LIMIT = 3;
 
@@ -74,7 +61,7 @@ export function PipelineRunsCard() {
 
   const loadRuns = useCallback(async () => {
     try {
-      const result = await operatorFetch<{ runs: PipelineRun[] }>('/api/operator/pipeline/runs?limit=12');
+      const result = await operatorFetch<PipelineRunsResponse>('/api/operator/pipeline/runs?limit=12');
       setRuns(result.runs ?? []);
       setError(null);
     } catch (e) {

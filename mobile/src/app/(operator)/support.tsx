@@ -7,23 +7,10 @@ import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import type { OperatorSuggestion, OperatorSupportResponse, OperatorSupportTicket, SupportReplyResponse } from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
-interface Ticket {
-  id: string;
-  message: string;
-  status: string;
-  operator_reply: string | null;
-  created_at: string;
-}
-
-interface Suggestion {
-  id: string;
-  message: string;
-  created_at: string;
-}
-
-function TicketCard({ ticket, onReplied }: { ticket: Ticket; onReplied: () => void }) {
+function TicketCard({ ticket, onReplied }: { ticket: OperatorSupportTicket; onReplied: () => void }) {
   const [reply, setReply] = useState(ticket.operator_reply ?? '');
   const [sending, setSending] = useState(false);
 
@@ -31,7 +18,7 @@ function TicketCard({ ticket, onReplied }: { ticket: Ticket; onReplied: () => vo
     if (!reply.trim()) return;
     setSending(true);
     try {
-      await operatorFetch(`/api/support/${ticket.id}`, {
+      await operatorFetch<SupportReplyResponse>(`/api/support/${ticket.id}`, {
         method: 'PATCH',
         body: JSON.stringify({ reply: reply.trim() }),
       });
@@ -74,16 +61,12 @@ function TicketCard({ ticket, onReplied }: { ticket: Ticket; onReplied: () => vo
 }
 
 export default function OperatorSupportScreen() {
-  const [tickets, setTickets] = useState<Ticket[]>([]);
-  const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
+  const [tickets, setTickets] = useState<OperatorSupportTicket[]>([]);
+  const [suggestions, setSuggestions] = useState<OperatorSuggestion[]>([]);
 
   const load = useCallback(async () => {
-    // support_tickets/suggestions are restricted to each user's own rows by
-    // RLS; the operator reads the full list via the operator API.
     try {
-      const data = await operatorFetch<{ tickets: Ticket[]; suggestions: Suggestion[] }>(
-        '/api/operator/support'
-      );
+      const data = await operatorFetch<OperatorSupportResponse>('/api/operator/support');
       setTickets(data.tickets ?? []);
       setSuggestions(data.suggestions ?? []);
     } catch {

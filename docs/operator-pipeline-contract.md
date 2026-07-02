@@ -24,6 +24,17 @@ Operator mobile app -> API operator routes -> GitHub Actions workflows -> Python
 
 Every privileged route must validate the operator authorization header through `requireOperator(req)`. The mobile app stores the operator authorization value in the device keychain and sends it through `operatorFetch()`.
 
+## Response contracts
+
+Operator response shapes are tracked in `docs/operator-api-contracts.md` and mirrored in `mobile/src/features/operator/types/contracts.ts`.
+
+Rules:
+
+1. Mobile operator code must import named response/row types from `mobile/src/features/operator/types/contracts.ts` instead of creating local response interfaces.
+2. Any API route response-shape change must update `docs/operator-api-contracts.md` and the mobile mirror in the same PR.
+3. Partial success routes must return explicit booleans such as `delivery_started` and durable IDs such as `pipeline_run_id` or `delivery_run_id`.
+4. Mobile UI copy must be based on returned fields, not optimistic assumptions.
+
 ## Drive state contract
 
 Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the move from `RAW_FOLDER_ID` to `PROCESSED_FOLDER_ID` has been verified.
@@ -72,7 +83,7 @@ When fixing this area:
 2. Do not add new operator features while fixing broken existing flows.
 3. Keep the API layer as the boundary for private credentials and privileged actions.
 4. Keep old API aliases only when they prevent breaking already-installed app builds.
-5. Update this document or the deployment guide whenever a route, required setting, workflow, or tracking table changes.
+5. Update this document, `docs/operator-api-contracts.md`, or the deployment guide whenever a route, required setting, workflow, response shape, or tracking table changes.
 
 ## Manual verification loop
 
@@ -83,4 +94,5 @@ For each app-pipeline fix:
 3. Confirm the correct tracking row is created.
 4. Confirm the expected GitHub workflow starts or the route returns an actionable error.
 5. Confirm the mobile app displays the result without a raw JSON error.
-6. Update documentation before merging.
+6. Check Vercel preview before merge and main deployment after merge.
+7. Update documentation before merging.

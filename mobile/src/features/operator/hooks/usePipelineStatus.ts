@@ -1,16 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
-
-interface PipelineStatus {
-  stage: string;
-  progress: number;
-  meta: Record<string, unknown>;
-  updated_at: string;
-}
-
-interface PipelineStatusResponse {
-  status: PipelineStatus | null;
-}
+import type { PipelineStatus, PipelineStatusResponse } from '@/features/operator/types/contracts';
 
 export function usePipelineStatus() {
   const [status, setStatus] = useState<PipelineStatus | null>(null);
