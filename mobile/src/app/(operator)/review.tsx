@@ -93,7 +93,7 @@ export default function OperatorReviewScreen() {
               await operatorFetch('/api/operator/drafts/approve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_id: draft.id }),
+                body: JSON.stringify({ file_id: draft.id, file_name: draft.name }),
               });
               setDrafts((d) => d.filter((x) => x.id !== draft.id));
               Alert.alert('Approved ✅', 'The reel moved to APPROVED and will be delivered on the next run.');
