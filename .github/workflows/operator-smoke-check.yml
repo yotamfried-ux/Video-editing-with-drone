@@ -7,6 +7,7 @@ on:
       - '.github/workflows/operator-smoke-check.yml'
       - 'scripts/operator_smoke.py'
       - 'scripts/test_operator_smoke_contract.py'
+      - 'scripts/test_operator_smoke_workflow_validator.py'
       - 'scripts/validate_operator_smoke_workflow.py'
 
 jobs:
@@ -19,5 +20,7 @@ jobs:
           python-version: '3.11'
       - name: Validate Operator Smoke workflow
         run: python scripts/validate_operator_smoke_workflow.py
+      - name: Validate Operator Smoke workflow validator contract
+        run: python scripts/test_operator_smoke_workflow_validator.py
       - name: Validate Operator Smoke contract
         run: python scripts/test_operator_smoke_contract.py
