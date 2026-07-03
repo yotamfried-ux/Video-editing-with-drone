@@ -11,7 +11,7 @@ The workflow runs `scripts/operator_smoke.py` as a command line program and reli
 
 ## Change
 
-`script/test_operator_smoke_contract.py` now invokes `operator_smoke.main()` with temporary report files and mocked request behavior.
+`scripts/test_operator_smoke_contract.py` now invokes `operator_smoke.main()` with temporary report files and mocked request behavior.
 
 ## Result
 
