@@ -33,4 +33,6 @@ without argument splitting or literal quote bugs.
 
 The workflow also fails with a clear message when `OPERATOR_SECRET` is not configured.
 
-Vercel should no longer spend build quota on PRs that do not change the deployed `web-api` app.
+Vercel should no longer spend build quota on future PRs that do not change the deployed `web-api` app.
+
+This PR changes `web-api/vercel.json`, so its own Vercel run can still be blocked until the quota resets.
