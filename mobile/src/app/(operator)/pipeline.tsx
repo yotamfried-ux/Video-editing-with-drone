@@ -18,6 +18,7 @@ import type {
   OperatorUploadInitResponse,
   PipelineDispatchResponse,
   PipelineResetResponse,
+  PipelineRun,
   ReprocessListResponse,
   ReprocessRow,
 } from '@/features/operator/types/contracts';
@@ -32,10 +33,47 @@ const STATUS_LABEL: Record<string, string> = {
   source_not_found: 'Source not found',
 };
 
+const RUN_STATUS_LABEL: Record<string, string> = {
+  queued: 'Queued',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+  no_input: 'No input',
+  dispatch_failed: 'Dispatch failed',
+};
+
+function terminalStageForRun(run: PipelineRun | null): string {
+  if (!run) return 'idle';
+  if (run.status === 'succeeded') return 'done';
+  if (run.status === 'failed' || run.status === 'dispatch_failed') return 'failed';
+  if (run.status === 'no_input') return 'no_input';
+  return run.stage ?? 'idle';
+}
+
+function displayProgressForRun(run: PipelineRun | null): number {
+  if (!run) return 0;
+  if (run.progress != null) return run.progress;
+  if (['succeeded', 'failed', 'dispatch_failed', 'no_input'].includes(run.status)) return 1;
+  return 0;
+}
+
+function latestRunLabel(run: PipelineRun): string {
+  return `${RUN_STATUS_LABEL[run.status] ?? run.status} · ${run.id.slice(0, 8)}`;
+}
+
 export default function PipelineScreen() {
   const router = useRouter();
-  const { status, loading: statusLoading, error: statusError } = usePipelineStatus();
+  const {
+    status,
+    latestRun,
+    globalLiveStale,
+    globalLiveStaleReason,
+    loading: statusLoading,
+    error: statusError,
+  } = usePipelineStatus();
   const meta = (status?.meta ?? {}) as Record<string, unknown>;
+  const displayStage = globalLiveStale && latestRun ? terminalStageForRun(latestRun) : status?.stage ?? 'idle';
+  const displayProgress = globalLiveStale && latestRun ? displayProgressForRun(latestRun) : status?.progress ?? 0;
 
   const handleOperatorError = (e: unknown) => {
     const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -192,10 +230,20 @@ export default function PipelineScreen() {
             <View style={{ gap: Spacing.xs }}>
               <Text variant="title">Global live progress</Text>
               <Text variant="caption" color={Colors.textSecondary}>
-                This bar shows the singleton live pipeline signal. For the run you started, use Recent pipeline runs below.
+                This bar shows the singleton live pipeline signal. If that signal is stale, it falls back to the latest terminal app-triggered run.
               </Text>
             </View>
-            <PipelineBar stage={status?.stage ?? 'idle'} progress={status?.progress ?? 0} />
+            <PipelineBar stage={displayStage} progress={displayProgress} />
+            {globalLiveStale && latestRun && (
+              <View style={styles.staleNotice}>
+                <Text variant="caption" color={latestRun.status === 'succeeded' || latestRun.status === 'no_input' ? Colors.success : Colors.danger}>
+                  {globalLiveStaleReason ?? `Global live signal is stale; latest run ${latestRun.id.slice(0, 8)} finished with status ${latestRun.status}.`}
+                </Text>
+                <Text variant="caption" color={Colors.textSecondary}>
+                  Showing verified latest run status instead: {latestRunLabel(latestRun)}
+                </Text>
+              </View>
+            )}
             {lastRunId && (
               <Text variant="caption" color={Colors.textSecondary}>
                 Last app-triggered run: {lastRunId.slice(0, 8)} · see Recent pipeline runs for run-scoped status
@@ -213,9 +261,9 @@ export default function PipelineScreen() {
           <Card bordered style={{ gap: Spacing.sm }}>
             <Text variant="title">Global live stages</Text>
             {STAGES.map((s) => {
-              const isCurrent = status?.stage === s;
-              const idx = STAGES.indexOf(status?.stage ?? 'idle');
-              const done = STAGES.indexOf(s) < idx;
+              const displayStageIndex = STAGES.indexOf(displayStage);
+              const isCurrent = displayStage === s;
+              const done = displayStageIndex >= 0 && STAGES.indexOf(s) < displayStageIndex;
               return (
                 <View key={s} style={styles.stageRow}>
                   <View style={[styles.dot, done && { backgroundColor: Colors.success }, isCurrent && { backgroundColor: Colors.accent }]} />
@@ -264,4 +312,10 @@ const styles = StyleSheet.create({
   stageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.cardBorder },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
+  staleNotice: {
+    gap: Spacing.xs,
+    borderLeftWidth: 3,
+    borderLeftColor: Colors.accent,
+    paddingLeft: Spacing.sm,
+  },
 });
