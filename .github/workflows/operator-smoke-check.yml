@@ -22,9 +22,30 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Detect Web API changes
+        id: web-api-changes
+        shell: bash
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q '^web-api/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.web-api-changes.outputs.changed == 'true'
+        with:
+          node-version: '20'
+      - name: Validate Web API type-check
+        if: steps.web-api-changes.outputs.changed == 'true'
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
       - name: Validate Operator Smoke workflow
         run: python scripts/validate_operator_smoke_workflow.py
       - name: Validate Operator Smoke workflow validator contract
