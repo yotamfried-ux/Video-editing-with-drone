@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import argparse
+import sys
+import tempfile
+from pathlib import Path
 from typing import Any, Dict, Tuple
 
 import operator_smoke
@@ -25,6 +28,12 @@ def fake_req(root: str, path: str, token: str = '', method: str = 'GET') -> Tupl
     if path.startswith('/api/checkout/') and method == 'POST':
         return 200, {'checkout_url': 'https://checkout.example'}, root + path
     return 404, {'error': 'not found'}, root + path
+
+
+def failing_req(root: str, path: str, token: str = '', method: str = 'GET') -> Tuple[int, Dict[str, Any], str]:
+    if path.startswith('/api/operator/pipeline/runs'):
+        return 500, {'error': 'boom'}, root + path
+    return fake_req(root, path, token, method)
 
 
 def validate_helpers() -> None:
@@ -97,9 +106,56 @@ def validate_full_smoke_contract() -> None:
         raise SystemExit('full smoke report did not pass')
 
 
+def run_cli_with(req_impl, report_path: Path) -> int:
+    original_req = operator_smoke.req
+    original_argv = sys.argv[:]
+    operator_smoke.req = req_impl
+    sys.argv = [
+        'operator_smoke.py',
+        '--api-base-url',
+        'example.com',
+        '--operator-secret',
+        'secret',
+        '--sessions-sport',
+        'stripe_test',
+        '--run-pipeline',
+        '--checkout-token',
+        'checkout token with spaces',
+        '--report-path',
+        str(report_path),
+    ]
+    try:
+        return operator_smoke.main()
+    finally:
+        operator_smoke.req = original_req
+        sys.argv = original_argv
+
+
+def validate_cli_contract() -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        pass_report = Path(tmp) / 'pass-report.md'
+        pass_code = run_cli_with(fake_req, pass_report)
+        if pass_code != 0:
+            raise SystemExit(f'expected CLI pass exit code 0, got {pass_code}')
+        pass_text = pass_report.read_text(encoding='utf-8')
+        if 'Result: PASS' not in pass_text:
+            raise SystemExit('CLI pass report missing PASS result')
+
+        fail_report = Path(tmp) / 'fail-report.md'
+        fail_code = run_cli_with(failing_req, fail_report)
+        if fail_code != 1:
+            raise SystemExit(f'expected CLI fail exit code 1, got {fail_code}')
+        fail_text = fail_report.read_text(encoding='utf-8')
+        if 'Result: FAIL' not in fail_text:
+            raise SystemExit('CLI fail report missing FAIL result')
+        if '| pipeline run history | FAIL |' not in fail_text:
+            raise SystemExit('CLI fail report missing failed check row')
+
+
 def main() -> int:
     validate_helpers()
     validate_full_smoke_contract()
+    validate_cli_contract()
     print('Operator Smoke contract checks passed')
     return 0
 
