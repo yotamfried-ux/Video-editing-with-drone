@@ -72,4 +72,7 @@ def mark_terminal_run(
     except Exception:
         logger.warning("pipeline_status terminal update skipped", exc_info=True)
 
-    mark_run(status=status, stage=stage, progress=global_progress, meta=global_meta)
+    run_fields: dict[str, Any] = {"status": status, "stage": stage, "meta": global_meta}
+    if progress is not None or status in {"succeeded", "no_input"}:
+        run_fields["progress"] = global_progress
+    mark_run(**run_fields)
