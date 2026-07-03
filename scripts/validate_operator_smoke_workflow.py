@@ -6,7 +6,7 @@ from pathlib import Path
 workflow = Path('.github/workflows/operator-smoke.yml').read_text(encoding='utf-8')
 
 required = [
-    'args=',
+    'args=(',
     'python scripts/operator_smoke.py "${args[@]}"',
     'OPERATOR_SECRET repository secret is required',
     'shell: bash',
