@@ -11,6 +11,9 @@ export type PipelineStatus = {
 
 export type PipelineStatusResponse = {
   status: PipelineStatus | null;
+  latest_run?: PipelineRun | null;
+  global_live_stale?: boolean;
+  global_live_stale_reason?: string | null;
 };
 
 export type PipelineRunSource = 'manual' | 'upload' | 'reset' | 'reprocess' | 'drive_watcher' | string;
