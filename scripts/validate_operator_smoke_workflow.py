@@ -3,9 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-workflow = Path('.github/workflows/operator-smoke.yml').read_text(encoding='utf-8')
-
-required = [
+REQUIRED_MARKERS = [
     'args=(',
     'python scripts/operator_smoke.py "${args[@]}"',
     'OPERATOR_SECRET repository secret is required',
@@ -16,15 +14,26 @@ required = [
     'path: operator-smoke-report.md',
 ]
 
-missing = [item for item in required if item not in workflow]
 
-if missing:
-    raise SystemExit('Operator Smoke workflow validation failed. Missing: ' + ', '.join(missing))
+def validate(workflow: str) -> None:
+    missing = [item for item in REQUIRED_MARKERS if item not in workflow]
 
-if 'ARGS=' in workflow:
-    raise SystemExit('Operator Smoke workflow must not use string-based ARGS construction')
+    if missing:
+        raise SystemExit('Operator Smoke workflow validation failed. Missing: ' + ', '.join(missing))
 
-if workflow.count('operator-smoke-report.md') < 2:
-    raise SystemExit('Operator Smoke workflow must write and upload operator-smoke-report.md')
+    if 'ARGS=' in workflow:
+        raise SystemExit('Operator Smoke workflow must not use string-based ARGS construction')
 
-print('Operator Smoke workflow validation passed')
+    if workflow.count('operator-smoke-report.md') < 2:
+        raise SystemExit('Operator Smoke workflow must write and upload operator-smoke-report.md')
+
+
+def main() -> int:
+    workflow = Path('.github/workflows/operator-smoke.yml').read_text(encoding='utf-8')
+    validate(workflow)
+    print('Operator Smoke workflow validation passed')
+    return 0
+
+
+if __name__ == '__main__':
+    raise SystemExit(main())
