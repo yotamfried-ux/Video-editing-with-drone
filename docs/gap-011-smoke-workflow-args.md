@@ -15,6 +15,9 @@ The workflow also did not fail early when the `OPERATOR_SECRET` repository secre
 - Replaced the string-based `ARGS` construction with a bash array.
 - Passed the array using `"${args[@]}"` so each argument is preserved exactly.
 - Added a fail-fast guard for a missing `OPERATOR_SECRET` repository secret.
+- Added `scripts/validate_operator_smoke_workflow.py`.
+- Added `.github/workflows/operator-smoke-check.yml` so future PRs touching the smoke workflow validate the wiring.
+- Added a validation step inside `Operator Smoke` before the actual smoke run.
 
 ## Result
 
@@ -24,3 +27,5 @@ The manual Operator Smoke workflow can now safely pass optional flags such as:
 - `--checkout-token <token>`
 
 without argument splitting or literal quote bugs.
+
+The workflow also fails with a clear message when `OPERATOR_SECRET` is not configured.
