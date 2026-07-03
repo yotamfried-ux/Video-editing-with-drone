@@ -34,11 +34,29 @@ jobs:
       - name: Run smoke
         env:
           OPERATOR_SECRET: ${{ secrets.OPERATOR_SECRET }}
+        shell: bash
         run: |
-          ARGS=""
-          if [ "${{ inputs.run_pipeline }}" = "true" ]; then ARGS="$ARGS --run-pipeline"; fi
-          if [ -n "${{ inputs.checkout_token }}" ]; then ARGS="$ARGS --checkout-token '${{ inputs.checkout_token }}'"; fi
-          python scripts/operator_smoke.py --api-base-url "${{ inputs.api_base_url }}" --operator-secret "$OPERATOR_SECRET" --sessions-sport "${{ inputs.sessions_sport }}" --report-path operator-smoke-report.md $ARGS
+          if [[ -z "$OPERATOR_SECRET" ]]; then
+            echo "OPERATOR_SECRET repository secret is required for Operator Smoke."
+            exit 1
+          fi
+
+          args=(
+            --api-base-url "${{ inputs.api_base_url }}"
+            --operator-secret "$OPERATOR_SECRET"
+            --sessions-sport "${{ inputs.sessions_sport }}"
+            --report-path operator-smoke-report.md
+          )
+
+          if [[ "${{ inputs.run_pipeline }}" == "true" ]]; then
+            args+=(--run-pipeline)
+          fi
+
+          if [[ -n "${{ inputs.checkout_token }}" ]]; then
+            args+=(--checkout-token "${{ inputs.checkout_token }}")
+          fi
+
+          python scripts/operator_smoke.py "${args[@]}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
