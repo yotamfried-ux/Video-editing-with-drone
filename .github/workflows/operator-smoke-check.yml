@@ -5,22 +5,52 @@ on:
     paths:
       - '.github/workflows/operator-smoke.yml'
       - '.github/workflows/operator-smoke-check.yml'
+      - 'integrations/run_status.py'
       - 'scripts/operator_smoke.py'
+      - 'scripts/run_tracked.py'
       - 'scripts/test_operator_smoke_contract.py'
       - 'scripts/test_operator_smoke_workflow_validator.py'
+      - 'scripts/test_pipeline_status_stale_contract.py'
       - 'scripts/validate_operator_smoke_workflow.py'
+      - 'web-api/src/app/api/operator/pipeline/status/route.ts'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/hooks/usePipelineStatus.ts'
+      - 'mobile/src/features/operator/types/contracts.ts'
 
 jobs:
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Detect Web API changes
+        id: web-api-changes
+        shell: bash
+        run: |
+          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q '^web-api/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: steps.web-api-changes.outputs.changed == 'true'
+        with:
+          node-version: '20'
+      - name: Validate Web API type-check
+        if: steps.web-api-changes.outputs.changed == 'true'
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
       - name: Validate Operator Smoke workflow
         run: python scripts/validate_operator_smoke_workflow.py
       - name: Validate Operator Smoke workflow validator contract
         run: python scripts/test_operator_smoke_workflow_validator.py
       - name: Validate Operator Smoke contract
         run: python scripts/test_operator_smoke_contract.py
+      - name: Validate Pipeline Status stale contract
+        run: python scripts/test_pipeline_status_stale_contract.py

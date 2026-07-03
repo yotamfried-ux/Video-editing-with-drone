@@ -8,7 +8,7 @@ import sys
 # such as `integrations` and `pipeline` import reliably in GitHub Actions.
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from integrations.run_status import mark_run
+from integrations.run_status import mark_run, mark_terminal_run
 
 
 def _install_status_mirror() -> None:
@@ -52,8 +52,8 @@ if __name__ == "__main__":
             # no_input=True means the orchestrator found nothing to do (no new videos).
             # Don't overwrite that with succeeded — succeeded implies drafts were produced.
             if _orchestrator.no_input:
-                pass  # mark_run(no_input) was already called inside main()
+                mark_terminal_run(status="no_input", stage="no_input", progress=1.0)
             else:
-                mark_run(status="succeeded", stage="finished", progress=1.0)
+                mark_terminal_run(status="succeeded", stage="finished", progress=1.0)
         else:
-            mark_run(status="failed", stage="failed")
+            mark_terminal_run(status="failed", stage="failed")
