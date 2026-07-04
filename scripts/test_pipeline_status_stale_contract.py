@@ -72,9 +72,10 @@ def validate_terminal_run_mirrors_global_status() -> None:
         run_status.mark_terminal_run(status="no_input", stage="no_input", progress=1.0)
         run_status.mark_terminal_run(
             status="failed",
-            stage="no_drafts_produced",
-            error="No REVIEW drafts were produced.",
+            stage="no_drafts_after_qa",
+            error="No REVIEW drafts were produced after QA.",
             error_code="no_drafts_produced",
+            no_drafts_reason="no_drafts_after_qa",
         )
     finally:
         if previous_env is None:
@@ -109,12 +110,14 @@ def validate_terminal_run_mirrors_global_status() -> None:
     no_output_update = updates[2]["fields"]
     if no_output_update.get("status") != "failed":
         raise SystemExit("no-output terminal run was not marked failed")
-    if no_output_update.get("stage") != "no_drafts_produced":
-        raise SystemExit("no-output terminal run did not preserve the failure stage")
+    if no_output_update.get("stage") != "no_drafts_after_qa":
+        raise SystemExit("no-output terminal run did not preserve the diagnostic failure stage")
     if not no_output_update.get("error"):
         raise SystemExit("no-output terminal run did not persist a visible error")
     if no_output_update.get("meta", {}).get("error_code") != "no_drafts_produced":
         raise SystemExit("no-output terminal run did not persist the error code")
+    if no_output_update.get("meta", {}).get("no_drafts_reason") != "no_drafts_after_qa":
+        raise SystemExit("no-output terminal run did not persist the diagnostic reason")
 
 
 def validate_run_tracked_no_output_contract() -> None:
@@ -122,13 +125,19 @@ def validate_run_tracked_no_output_contract() -> None:
     required = [
         "_produced_review_drafts",
         "drafts_created",
-        "no_drafts_produced",
+        "_last_observed_stage",
+        "_last_observed_progress",
+        "_last_observed_meta",
+        "_no_drafts_failure",
+        "no_drafts_reason",
+        "last_observed_stage",
+        "last_observed_meta",
         "sys.exit(1)",
-        "mark_terminal_run(status=\"failed\", stage=\"no_drafts_produced\"",
+        "mark_terminal_run(status=\"failed\", stage=stage",
     ]
     missing = [token for token in required if token not in script]
     if missing:
-        raise SystemExit(f"run_tracked is missing no-output failure contract tokens: {missing}")
+        raise SystemExit(f"run_tracked is missing no-output diagnostic contract tokens: {missing}")
 
 
 def validate_status_endpoint_contract() -> None:
