@@ -11,6 +11,7 @@ on:
       - 'integrations/run_status.py'
       - 'integrations/storage.py'
       - 'pipeline/cross_source_dedup.py'
+      - 'pipeline/perception/event_fingerprint.py'
       - 'pipeline/perception/**'
       - 'pipeline/runtime_quality.py'
       - 'pipeline/stages/analyzer.py'
