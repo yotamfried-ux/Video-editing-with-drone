@@ -136,3 +136,12 @@ export async function moveR2Object(sourceKey: string, destinationPrefix: string)
   if (!deleteRes.ok) throw new Error(`R2 delete failed (${deleteRes.status}): ${deleteText.slice(0, 200)}`);
   return destKey;
 }
+
+export async function verifyR2Object(key: string): Promise<{ exists: boolean; size: number | null; status: number }> {
+  const res = await signedFetch('HEAD', key);
+  return {
+    exists: res.ok,
+    size: res.ok ? Number(res.headers.get('content-length') ?? '0') : null,
+    status: res.status,
+  };
+}
