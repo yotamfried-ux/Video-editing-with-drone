@@ -385,6 +385,17 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
     except Exception as e:
         logger.error("❌ Failed to upload draft %s: %s", draft_name, e)
         print(f"❌ Draft upload failed for '{draft_name}': {e}")
+        try:
+            from integrations.supabase_uploader import write_pipeline_status
+            write_pipeline_status(
+                "uploading",
+                0.49,
+                draft_name=draft_name,
+                upload_failed=True,
+                upload_error=str(e),
+            )
+        except Exception:
+            pass
         raise
 
 
