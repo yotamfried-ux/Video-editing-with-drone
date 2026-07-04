@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import Any
 
 import config
+from pipeline.perception.crop_math import event_has_bbox_metadata, resolve_event_crop
 
 logger = logging.getLogger(__name__)
 
 _MIN_KEEP_SCORE = 6
+_MIN_VISIBLE_RATIO = 0.35
 _IDENTITY_THUMB_SIZE = 640
 
 
@@ -42,6 +44,35 @@ def _safe_remove(path: str | None) -> None:
         os.remove(path)
     except OSError:
         pass
+
+
+def _normalize_event_crop(event: dict) -> dict | None:
+    """Prefer measured bbox crop when perception metadata is attached.
+
+    Current Gemini-only events intentionally keep their existing crop contract.
+    Future perception events with invalid/missing bbox metadata fail safe by
+    being dropped instead of silently falling back to an unreliable LLM crop.
+    """
+    crop = resolve_event_crop(event, min_visible_ratio=_MIN_VISIBLE_RATIO)
+    has_bbox = event_has_bbox_metadata(event)
+    if has_bbox and not crop["perception_crop_usable"]:
+        logger.info(
+            "Dropping event '%s' — unusable perception crop: %s",
+            event.get("type", "?"),
+            crop["perception_crop_status"],
+        )
+        return None
+    if not has_bbox:
+        return event
+    return {
+        **event,
+        "crop_x": round(float(crop["crop_x"]), 4),
+        "crop_y": round(float(crop["crop_y"]), 4),
+        "visible_ratio": round(float(crop["visible_ratio"]), 4),
+        "crop_source": crop["crop_source"],
+        "perception_crop_status": crop["perception_crop_status"],
+        "perception_crop_usable": crop["perception_crop_usable"],
+    }
 
 
 def _extract_identity_thumbnail(video_path: str, event: dict, timestamp: float) -> str | None:
@@ -86,7 +117,13 @@ def _extract_identity_thumbnail(video_path: str, event: dict, timestamp: float) 
 
 
 def _harden_person(video_path: str, person: dict) -> dict | None:
-    events = [ev for ev in person.get("events", []) if _score(ev) >= _MIN_KEEP_SCORE]
+    events = []
+    for ev in person.get("events", []):
+        if _score(ev) < _MIN_KEEP_SCORE:
+            continue
+        normalized = _normalize_event_crop(ev)
+        if normalized is not None:
+            events.append(normalized)
     if not events:
         return None
 
@@ -126,11 +163,11 @@ def _harden_session_result(video_path: str, result: dict) -> dict:
 
     if dropped_events or dropped_people:
         print(
-            f"🧹 Quality filter: dropped {dropped_events} weak event(s) "
-            f"and {dropped_people} athlete(s) with no score≥{_MIN_KEEP_SCORE} moments"
+            f"🧹 Quality filter: dropped {dropped_events} weak/framing-risk event(s) "
+            f"and {dropped_people} athlete(s) with no usable score≥{_MIN_KEEP_SCORE} moments"
         )
         logger.info(
-            "Pipeline quality filter dropped %d weak event(s), %d person(s)",
+            "Pipeline quality filter dropped %d weak/framing-risk event(s), %d person(s)",
             dropped_events,
             dropped_people,
         )
