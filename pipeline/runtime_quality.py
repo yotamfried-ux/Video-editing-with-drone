@@ -119,11 +119,10 @@ def _extract_identity_thumbnail(video_path: str, event: dict, timestamp: float) 
 def _harden_person(video_path: str, person: dict) -> dict | None:
     events = []
     for ev in person.get("events", []):
-        if _score(ev) < _MIN_KEEP_SCORE:
-            continue
-        normalized = _normalize_event_crop(ev)
-        if normalized is not None:
-            events.append(normalized)
+        if _score(ev) >= _MIN_KEEP_SCORE:
+            normalized = _normalize_event_crop(ev)
+            if normalized is not None:
+                events.append(normalized)
     if not events:
         return None
 
