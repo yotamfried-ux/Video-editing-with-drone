@@ -41,10 +41,14 @@ def _install_status_mirror() -> None:
 
 
 def _no_drafts_failure() -> tuple[str, str, dict]:
-    reason = f"no_drafts_after_{_last_observed_stage}"
-    error = f"{_NO_DRAFTS_ERROR} Last observed stage: {_last_observed_stage}."
+    if _last_observed_stage == "qa":
+        reason = "all_draft_uploads_failed"
+        error = "All draft uploads failed after QA; no REVIEW drafts were created."
+    else:
+        reason = f"no_drafts_after_{_last_observed_stage}"
+        error = f"{_NO_DRAFTS_ERROR} Last observed stage: {_last_observed_stage}."
     meta = {
-        "error_code": "no_drafts_produced",
+        "error_code": reason,
         "no_drafts_reason": reason,
         "last_observed_stage": _last_observed_stage,
         "last_observed_progress": _last_observed_progress,
