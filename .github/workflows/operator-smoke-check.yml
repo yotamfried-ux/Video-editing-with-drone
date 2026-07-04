@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/operator-smoke.yml'
       - '.github/workflows/operator-smoke-check.yml'
+      - '.github/workflows/pipeline-run.yml'
       - 'integrations/drive.py'
       - 'integrations/r2_storage.py'
       - 'integrations/run_status.py'
