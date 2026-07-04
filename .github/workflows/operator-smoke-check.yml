@@ -6,13 +6,17 @@ on:
       - '.github/workflows/operator-smoke.yml'
       - '.github/workflows/operator-smoke-check.yml'
       - 'integrations/drive.py'
+      - 'integrations/r2_storage.py'
       - 'integrations/run_status.py'
+      - 'integrations/storage.py'
+      - 'requirements.txt'
       - 'scripts/operator_smoke.py'
       - 'scripts/run_tracked.py'
       - 'scripts/test_drive_upload_contract.py'
       - 'scripts/test_operator_smoke_contract.py'
       - 'scripts/test_operator_smoke_workflow_validator.py'
       - 'scripts/test_pipeline_status_stale_contract.py'
+      - 'scripts/test_storage_contract.py'
       - 'scripts/validate_operator_smoke_workflow.py'
       - 'web-api/src/app/api/operator/pipeline/status/route.ts'
       - 'mobile/src/app/(operator)/pipeline.tsx'
@@ -58,3 +62,5 @@ jobs:
         run: python scripts/test_pipeline_status_stale_contract.py
       - name: Validate Drive upload credential contract
         run: python scripts/test_drive_upload_contract.py
+      - name: Validate Storage abstraction contract
+        run: python scripts/test_storage_contract.py
