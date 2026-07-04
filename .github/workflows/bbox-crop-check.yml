@@ -16,5 +16,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install lightweight runtime config dependency
+        run: python -m pip install python-dotenv
       - name: Validate BBox crop contract
+        env:
+          GEMINI_API_KEY: test
+          GOOGLE_SERVICE_ACCOUNT_JSON: '{}'
+          RAW_FOLDER_ID: test
+          PROCESSED_FOLDER_ID: test
+          REVIEW_FOLDER_ID: test
+          APPROVED_FOLDER_ID: test
+          OWNER_EMAIL: test@example.com
         run: python scripts/test_bbox_crop_contract.py
