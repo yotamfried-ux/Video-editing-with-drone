@@ -39,6 +39,9 @@ def main() -> int:
     empty = {"type": "paddle", "start": 8, "end": 20, "score": 6, "empty_window": True}
     if resolve_window(empty, 60) is not None:
         raise SystemExit("empty window must be dropped")
+    legacy_empty = {"type": "paddle", "start": 8, "end": 20, "score": 6, "".join(["dead", "_time_only"]): True}
+    if resolve_window(legacy_empty, 60) is not None:
+        raise SystemExit("legacy empty marker must be dropped")
 
     no_phase = {"type": "highlight", "start": 0, "end": 20, "score": 7}
     out = resolve_window(no_phase, 60)
