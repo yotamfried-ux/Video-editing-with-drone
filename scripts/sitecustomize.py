@@ -9,18 +9,31 @@ from pathlib import Path
 import sys
 
 
-def _install_analyzer_score_guard() -> None:
+def _repo_root() -> str:
     root = Path(__file__).resolve().parents[1]
     root_text = str(root)
     if root_text not in sys.path:
         sys.path.insert(0, root_text)
+    return root_text
+
+
+def _install_analyzer_score_guard() -> None:
+    _repo_root()
     try:
         from pipeline.analyzer_score_guard import install
         install()
     except Exception:
-        # Do not fail interpreter startup. The dedicated contract test verifies
-        # this hook and the normal pipeline logging will surface later failures.
+        pass
+
+
+def _install_window_policy() -> None:
+    _repo_root()
+    try:
+        from pipeline.window_policy import install
+        install()
+    except Exception:
         pass
 
 
 _install_analyzer_score_guard()
+_install_window_policy()
