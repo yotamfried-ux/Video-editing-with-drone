@@ -13,6 +13,9 @@ from integrations.run_status import mark_run, mark_terminal_run
 
 _NO_DRAFTS_ERROR = "Pipeline completed without REVIEW drafts."
 _produced_review_drafts = False
+_last_observed_stage = "starting"
+_last_observed_progress = 0.01
+_last_observed_meta: dict = {}
 
 
 def _install_status_mirror() -> None:
@@ -25,13 +28,29 @@ def _install_status_mirror() -> None:
     original = status_writer.write_pipeline_status
 
     def tracked_write_pipeline_status(stage: str, progress: float, **meta) -> None:
-        global _produced_review_drafts
+        global _produced_review_drafts, _last_observed_stage, _last_observed_progress, _last_observed_meta
         original(stage, progress, **meta)
+        _last_observed_stage = stage
+        _last_observed_progress = progress
+        _last_observed_meta = dict(meta)
         mark_run(stage=stage, progress=progress, meta=meta)
         if stage == "done" and int(meta.get("drafts_created") or 0) > 0:
             _produced_review_drafts = True
 
     status_writer.write_pipeline_status = tracked_write_pipeline_status
+
+
+def _no_drafts_failure() -> tuple[str, str, dict]:
+    reason = f"no_drafts_after_{_last_observed_stage}"
+    error = f"{_NO_DRAFTS_ERROR} Last observed stage: {_last_observed_stage}."
+    meta = {
+        "error_code": "no_drafts_produced",
+        "no_drafts_reason": reason,
+        "last_observed_stage": _last_observed_stage,
+        "last_observed_progress": _last_observed_progress,
+        "last_observed_meta": _last_observed_meta,
+    }
+    return reason, error, meta
 
 
 mark_run(status="running", stage="starting", progress=0.01)
@@ -54,5 +73,6 @@ if __name__ == "__main__":
     elif _produced_review_drafts:
         mark_terminal_run(status="succeeded", stage="finished", progress=1.0)
     else:
-        mark_terminal_run(status="failed", stage="no_drafts_produced", error=_NO_DRAFTS_ERROR, error_code="no_drafts_produced")
+        stage, error, meta = _no_drafts_failure()
+        mark_terminal_run(status="failed", stage=stage, error=error, **meta)
         sys.exit(1)
