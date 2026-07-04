@@ -22,7 +22,7 @@ def require_tokens(label: str, text: str, tokens: list[str]) -> None:
 
 
 def require_no_tokens(label: str, text: str, tokens: list[str]) -> None:
-    present = [token for token in text if token in text]
+    present = [token for token in tokens if token in text]
     if present:
         raise SystemExit(f"{label} contains forbidden tokens: {present}")
 
