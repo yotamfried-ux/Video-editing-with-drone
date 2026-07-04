@@ -36,6 +36,17 @@ from googleapiclient.discovery import build
 _SCOPES = ["https://www.googleapis.com/auth/drive"]
 
 
+def _storage_backend_name() -> str:
+    return os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
+
+
+def _install_storage_backend_alias_for_inline_pipeline() -> None:
+    if _storage_backend_name() == "drive":
+        return
+    import integrations.storage as storage
+    sys.modules["integrations.drive"] = storage
+
+
 def _get_service():
     creds = service_account.Credentials.from_service_account_file(
         config.GOOGLE_SERVICE_ACCOUNT_JSON, scopes=_SCOPES
@@ -244,6 +255,74 @@ def step3_clear_local_state(dry_run: bool = False):
         print("  ✅ failed_ids.json cleared")
 
 
+def _r2_delete_prefix(prefix: str, label: str, dry_run: bool = False) -> int:
+    from integrations import r2_storage
+
+    objects = r2_storage.list_objects(prefix)
+    videos = [obj for obj in objects if r2_storage._is_video_key(obj["Key"])]
+    if not videos:
+        print(f"  No video files found in {label}.")
+        return 0
+    if dry_run:
+        for obj in videos:
+            print(f"  [dry-run] Would delete from {label}: {obj['Key']}")
+        return 0
+    for obj in videos:
+        r2_storage.delete_object(obj["Key"])
+        print(f"  🗑  Deleted from {label}: {obj['Key']}")
+    return len(videos)
+
+
+def _reset_r2(args) -> bool:
+    if _storage_backend_name() == "drive":
+        return False
+    if _storage_backend_name() != "r2":
+        raise RuntimeError(f"Unsupported STORAGE_BACKEND for reset: {_storage_backend_name()}")
+
+    from integrations import r2_storage
+    print("\n☁️  R2 reset mode")
+    if args.full_clean:
+        print("\n── Step 0: Delete generated outputs from approved/ ────────────────")
+        _r2_delete_prefix(r2_storage.APPROVED_PREFIX, "approved/", dry_run=args.dry_run)
+    if not args.keep_drafts:
+        print("\n── Step 1: Delete draft reels from review/ ────────────────────────")
+        _r2_delete_prefix(r2_storage.REVIEW_PREFIX, "review/", dry_run=args.dry_run)
+    if not args.no_restore:
+        print("\n── Step 2: Move objects from processed/ → raw/ ────────────────────")
+        if args.dry_run:
+            processed = r2_storage.list_objects(r2_storage.PROCESSED_PREFIX)
+            if not processed:
+                print("  No objects found in processed/.")
+            for obj in processed:
+                print(f"  [dry-run] Would restore to raw/: {obj['Key']}")
+        else:
+            restored = r2_storage.restore_processed_to_raw()
+            print(f"  ✅ Restored {restored} object(s) to raw/.")
+    step3_clear_local_state(dry_run=args.dry_run)
+    return True
+
+
+def _run_pipeline_inline() -> None:
+    print("\n✅ Reset complete — running pipeline...\n")
+    print("=" * 60)
+
+    # Run pipeline inline
+    import logging
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+        handlers=[
+            logging.StreamHandler(sys.stdout),
+            logging.FileHandler(config.LOG_FILE),
+        ],
+    )
+    from integrations.observability import init_sentry
+    init_sentry()
+    _install_storage_backend_alias_for_inline_pipeline()
+    from pipeline.orchestrator import main as pipeline_main
+    pipeline_main()
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(
@@ -267,6 +346,16 @@ def main():
     if args.dry_run:
         print("⚠️  DRY RUN — no changes will be made\n")
 
+    if _reset_r2(args):
+        if args.dry_run:
+            print("\n✅ Dry run complete — nothing was changed.")
+            return
+        if args.reset_only:
+            print("\n✅ Reset complete (--reset-only) — pipeline NOT run.")
+            return
+        _run_pipeline_inline()
+        return
+
     service = _get_service()
     user_service = _get_user_service()
 
@@ -286,23 +375,7 @@ def main():
         print("\n✅ Reset complete (--reset-only) — pipeline NOT run.")
         return
 
-    print("\n✅ Reset complete — running pipeline...\n")
-    print("=" * 60)
-
-    # Run pipeline inline
-    import logging
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s — %(message)s",
-        handlers=[
-            logging.StreamHandler(sys.stdout),
-            logging.FileHandler(config.LOG_FILE),
-        ],
-    )
-    from integrations.observability import init_sentry
-    init_sentry()
-    from pipeline.orchestrator import main as pipeline_main
-    pipeline_main()
+    _run_pipeline_inline()
 
 
 if __name__ == "__main__":
