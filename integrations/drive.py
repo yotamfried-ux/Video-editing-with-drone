@@ -359,7 +359,7 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
     """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
     print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
     try:
-        service       = _get_drive_service()  # service account owns REVIEW folder — stable quota, can also delete own files
+        service       = _get_upload_service()
         file_metadata = {"name": draft_name, "parents": [config.REVIEW_FOLDER_ID]}
         media         = MediaFileUpload(draft_path, mimetype="video/mp4", resumable=True)
         uploaded      = _drive_retry(lambda: service.files().create(
@@ -518,66 +518,37 @@ def get_pending_payment_drafts() -> list[dict]:
 
 
 def mark_as_processed(file_id: str) -> None:
-    """
-    Move the original to PROCESSED_FOLDER_ID and only then record file_id in
-    processed.json so a failed Drive archive never creates a skipped RAW file.
-    """
-    try:
-        moved_name = _move_with_available_credentials(
-            file_id,
-            config.RAW_FOLDER_ID,
-            config.PROCESSED_FOLDER_ID,
-            "archive processed raw",
-        )
-    except Exception as e:
-        logger.error(
-            "❌ Could not archive processed raw %s. Not updating %s: %s",
-            file_id,
-            config.PROCESSED_IDS_FILE,
-            e,
-        )
-        print(
-            f"❌ Could not move original {file_id} to PROCESSED. "
-            "It was not marked as processed, so the next run can retry."
-        )
-        raise
+    """Move RAW file to PROCESSED, then update local processed.json cache.
 
+    If the Drive move fails, raise instead of marking the local cache. This keeps
+    Drive folder state as the source of truth and prevents false 'processed'
+    status when a file is still in RAW.
+    """
+    moved_name = _move_with_available_credentials(
+        file_id,
+        config.RAW_FOLDER_ID,
+        config.PROCESSED_FOLDER_ID,
+        "mark processed",
+    )
     _mark_processed_cache(file_id)
-    print(f"📁 Moved original '{moved_name}' ({file_id}) to PROCESSED folder")
-    print(f"✅ Marked {file_id} as processed")
+    print(f"📦 Marked as processed: {moved_name}")
 
 
 def requeue_video(file_id: str) -> bool:
-    """Reverse of mark_as_processed: move a raw video PROCESSED → RAW and remove
-    its ID from processed.json so the next scan picks it up again. Used by the
-    operator 'reprocess this reel' flow. Returns True on success."""
+    """Move a previously processed source video back to RAW for reprocessing."""
     try:
         moved_name = _move_with_available_credentials(
             file_id,
             config.PROCESSED_FOLDER_ID,
             config.RAW_FOLDER_ID,
-            "requeue processed raw",
+            "requeue processed source",
         )
-        ids = _load_processed_ids()
-        ids.discard(file_id)
-        _save_processed_ids(ids)
-        print(f"↩️  Re-queued '{moved_name}' for reprocessing")
-        return True
     except Exception as e:
-        logger.warning("⚠️ Could not requeue file %s: %s", file_id, e)
+        logger.warning("Could not requeue video %s: %s", file_id, e)
         return False
-
-
-def flag_quality_issue(file_id: str, reasons: str) -> None:
-    """Update the raw video's Drive description with a quality flag for operator visibility."""
-    try:
-        service = _get_drive_service()
-        _drive_retry(lambda: service.files().update(
-            fileId=file_id,
-            body={"description": f"[QUALITY FLAG: {reasons}]"},
-            fields="id, description",
-            supportsAllDrives=True,
-        ).execute())
-        logger.info("Drive quality flag set on %s: %s", file_id, reasons)
-    except Exception as exc:
-        logger.warning("Could not set Drive quality flag on %s: %s", file_id, exc)
+    ids = _load_processed_ids()
+    if file_id in ids:
+        ids.remove(file_id)
+        _save_processed_ids(ids)
+    print(f"↩️  Re-queued for processing: {moved_name}")
+    return True
