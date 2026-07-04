@@ -20,6 +20,8 @@ def _time(event, *names):
 
 
 def resolve_window(event, source_duration):
+    if event.get("empty_window") is True:
+        return None
     start = _num(event.get("start"))
     end = _num(event.get("end"), start)
     if start >= source_duration - 2.0:
