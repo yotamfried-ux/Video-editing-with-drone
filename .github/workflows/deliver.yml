@@ -1,19 +1,5 @@
 name: Deliver Preview
 
-# Triggered immediately when the operator approves a reel from the app.
-# Runs Phase 2a (deliver.py): downloads from Drive APPROVED, generates a
-# 480p watermarked preview, emails the athlete, and moves to PENDING_PAYMENT.
-#
-# Required secrets (same Secrets page as pipeline-run):
-#   GOOGLE_SERVICE_ACCOUNT_JSON  Full service-account JSON
-#   DRIVE_USER_TOKEN_JSON        Operator OAuth token (needed for Drive moves)
-#   APPROVED_FOLDER_ID           Drive APPROVED folder ID
-#   PREVIEW_FOLDER_ID            Drive PREVIEW folder ID
-#   PENDING_PAYMENT_FOLDER_ID    Drive PENDING_PAYMENT folder ID
-#   OWNER_EMAIL                  Operator email
-# Optional:
-#   NOTIFY_EMAIL, SUPABASE_URL, SUPABASE_SERVICE_KEY, SENTRY_DSN
-
 on:
   repository_dispatch:
     types: [reel-approved]
@@ -28,6 +14,8 @@ jobs:
     name: Deliver approved reel to athlete
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    env:
+      STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || secrets.STORAGE_BACKEND || 'drive' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,10 +42,20 @@ jobs:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           DRIVE_USER_TOKEN_JSON: ${{ secrets.DRIVE_USER_TOKEN_JSON }}
         run: |
-          printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
-          printf '%s' "$DRIVE_USER_TOKEN_JSON" > drive_user_token.json
-          python -c "import json; json.load(open('service_account.json'))"
-          python -c "import json; json.load(open('drive_user_token.json'))"
+          if [ "$STORAGE_BACKEND" = "drive" ]; then
+            printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+            printf '%s' "$DRIVE_USER_TOKEN_JSON" > drive_user_token.json
+            python -c "import json; json.load(open('service_account.json'))"
+            python -c "import json; json.load(open('drive_user_token.json'))"
+          else
+            if [ -n "$GOOGLE_SERVICE_ACCOUNT_JSON" ]; then
+              printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
+            fi
+            if [ -n "$DRIVE_USER_TOKEN_JSON" ]; then
+              printf '%s' "$DRIVE_USER_TOKEN_JSON" > drive_user_token.json
+            fi
+            echo "Skipping required Drive credential validation for STORAGE_BACKEND=$STORAGE_BACKEND"
+          fi
 
       - name: Run delivery (Phase 2a)
         env:
@@ -66,6 +64,12 @@ jobs:
           APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
           PREVIEW_FOLDER_ID: ${{ secrets.PREVIEW_FOLDER_ID }}
           PENDING_PAYMENT_FOLDER_ID: ${{ secrets.PENDING_PAYMENT_FOLDER_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
