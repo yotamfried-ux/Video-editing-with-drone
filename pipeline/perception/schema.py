@@ -55,6 +55,8 @@ class PerceptionDetection:
             "perception_source_video": self.source_video,
             "perception_frame_index": self.frame_index,
             "perception_time_sec": self.time_sec,
+            "perception_frame_width": self.frame_width,
+            "perception_frame_height": self.frame_height,
             "bbox_xyxy": list(self.xyxy),
             "perception_confidence": self.confidence,
             "perception_class_id": self.class_id,
@@ -63,4 +65,7 @@ class PerceptionDetection:
             "crop_x": self.crop_x,
             "crop_y": self.crop_y,
             "visible_ratio": self.visible_ratio,
+            "crop_source": "bbox",
+            "perception_crop_status": "ok",
+            "perception_crop_usable": True,
         }
