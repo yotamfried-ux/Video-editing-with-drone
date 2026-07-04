@@ -11,15 +11,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from integrations.run_status import mark_run, mark_terminal_run
 
 
-def _install_status_mirror() -> None:
-    """Mirror singleton live progress into the active durable run row.
+_NO_DRAFTS_ERROR = "Pipeline completed without REVIEW drafts."
+_produced_review_drafts = False
 
-    The pipeline still writes `pipeline_status` for the global live progress bar,
-    but app-triggered actions need their own durable row to explain what happened
-    to that specific run. This wrapper is installed before importing the
-    orchestrator so every `write_pipeline_status(...)` import used by the run is
-    mirrored to `pipeline_runs` when PIPELINE_RUN_ID is present.
-    """
+
+def _install_status_mirror() -> None:
+    """Mirror singleton live progress into the active durable run row."""
     try:
         import integrations.supabase_uploader as status_writer
     except Exception:
@@ -28,8 +25,11 @@ def _install_status_mirror() -> None:
     original = status_writer.write_pipeline_status
 
     def tracked_write_pipeline_status(stage: str, progress: float, **meta) -> None:
+        global _produced_review_drafts
         original(stage, progress, **meta)
         mark_run(stage=stage, progress=progress, meta=meta)
+        if stage == "done" and int(meta.get("drafts_created") or 0) > 0:
+            _produced_review_drafts = True
 
     status_writer.write_pipeline_status = tracked_write_pipeline_status
 
@@ -43,17 +43,16 @@ from pipeline.orchestrator import main
 if __name__ == "__main__":
     from integrations.observability import init_sentry
     init_sentry()
-    ok = False
     try:
         main()
-        ok = True
-    finally:
-        if ok:
-            # no_input=True means the orchestrator found nothing to do (no new videos).
-            # Don't overwrite that with succeeded — succeeded implies drafts were produced.
-            if _orchestrator.no_input:
-                mark_terminal_run(status="no_input", stage="no_input", progress=1.0)
-            else:
-                mark_terminal_run(status="succeeded", stage="finished", progress=1.0)
-        else:
-            mark_terminal_run(status="failed", stage="failed")
+    except Exception as exc:
+        mark_terminal_run(status="failed", stage="failed", error=str(exc))
+        raise
+
+    if _orchestrator.no_input:
+        mark_terminal_run(status="no_input", stage="no_input", progress=1.0)
+    elif _produced_review_drafts:
+        mark_terminal_run(status="succeeded", stage="finished", progress=1.0)
+    else:
+        mark_terminal_run(status="failed", stage="no_drafts_produced", error=_NO_DRAFTS_ERROR, error_code="no_drafts_produced")
+        sys.exit(1)
