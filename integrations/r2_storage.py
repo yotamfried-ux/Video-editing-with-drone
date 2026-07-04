@@ -9,8 +9,6 @@ import os
 from pathlib import Path
 from urllib.parse import quote
 
-import config
-
 RAW_PREFIX = "raw/"
 PROCESSED_PREFIX = "processed/"
 REVIEW_PREFIX = "review/"
@@ -106,8 +104,16 @@ def _object_to_video(item: dict) -> dict:
     }
 
 
+def _processed_ids_file() -> str:
+    return os.getenv("PROCESSED_IDS_FILE", "processed.json")
+
+
+def _tmp_dir() -> str:
+    return os.getenv("TMP_DIR", "/tmp/dtor")
+
+
 def _failed_ids_path() -> str:
-    base = os.path.dirname(os.path.abspath(config.PROCESSED_IDS_FILE))
+    base = os.path.dirname(os.path.abspath(_processed_ids_file()))
     return os.path.join(base, "failed_ids.json")
 
 
@@ -184,7 +190,7 @@ def get_new_videos() -> list[dict]:
 
 
 def download_video(file_id_or_key: str, filename: str) -> str:
-    local_path = os.path.join(config.TMP_DIR, filename)
+    local_path = os.path.join(_tmp_dir(), filename)
     return download_object(file_id_or_key, local_path)
 
 
