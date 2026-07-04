@@ -19,6 +19,7 @@ def require_tokens(label: str, text: str, tokens: list[str]) -> None:
 def main() -> int:
     storage = _read("integrations/storage.py")
     r2 = _read("integrations/r2_storage.py")
+    run_tracked = _read("scripts/run_tracked.py")
     requirements = _read("requirements.txt")
 
     require_tokens(
@@ -36,6 +37,8 @@ def main() -> int:
             "def requeue_video(file_id_or_key: str)",
             "def delete_review_drafts()",
             "def restore_processed_to_raw()",
+            "def record_failure(file_id_or_key: str, max_failures: int = 3)",
+            "def flag_quality_issue(file_id_or_key: str, reasons: str)",
         ],
     )
 
@@ -48,6 +51,7 @@ def main() -> int:
             "REVIEW_PREFIX = \"review/\"",
             "APPROVED_PREFIX = \"approved/\"",
             "PREVIEWS_PREFIX = \"previews/\"",
+            "METADATA_PREFIX = \"metadata/\"",
             "R2_ACCOUNT_ID",
             "R2_ACCESS_KEY_ID",
             "R2_SECRET_ACCESS_KEY",
@@ -63,6 +67,24 @@ def main() -> int:
             "def upload_draft(draft_path: str, draft_name: str)",
             "def delete_review_drafts()",
             "def restore_processed_to_raw()",
+            "def record_failure(file_id_or_key: str, max_failures: int = 3)",
+            "def flag_quality_issue(file_id_or_key: str, reasons: str)",
+            "quality_flags",
+            "put_object(",
+        ],
+    )
+
+    require_tokens(
+        "tracked pipeline storage routing",
+        run_tracked,
+        [
+            "def _install_storage_backend_alias()",
+            'os.getenv("STORAGE_BACKEND", "drive")',
+            "if backend == \"drive\":",
+            "import integrations.storage as storage",
+            'sys.modules["integrations.drive"] = storage',
+            "_install_storage_backend_alias()",
+            "import pipeline.orchestrator as _orchestrator",
         ],
     )
 

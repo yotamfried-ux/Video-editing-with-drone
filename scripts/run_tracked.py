@@ -18,6 +18,21 @@ _last_observed_progress = 0.01
 _last_observed_meta: dict = {}
 
 
+def _install_storage_backend_alias() -> None:
+    """Route legacy integrations.drive imports through storage.py for non-Drive backends.
+
+    pipeline.orchestrator still imports the historical Drive adapter. For the
+    GitHub Actions entry point we can safely alias that module to the storage
+    router when STORAGE_BACKEND=r2, while leaving default Drive behavior exactly
+    unchanged.
+    """
+    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
+    if backend == "drive":
+        return
+    import integrations.storage as storage
+    sys.modules["integrations.drive"] = storage
+
+
 def _install_status_mirror() -> None:
     """Mirror singleton live progress into the active durable run row."""
     try:
@@ -65,6 +80,7 @@ def _no_drafts_failure() -> tuple[str, str, dict]:
 
 mark_run(status="running", stage="starting", progress=0.01)
 _install_status_mirror()
+_install_storage_backend_alias()
 
 import pipeline.orchestrator as _orchestrator
 from pipeline.orchestrator import main
