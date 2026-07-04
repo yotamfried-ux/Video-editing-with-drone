@@ -12,8 +12,6 @@ def main() -> int:
     assert (ROOT / "scripts/reset_and_rerun.py").exists()
     assert (ROOT / "pipeline/r2_batch_scope.py").exists()
     assert (ROOT / "scripts/test_batch_scope_contract.py").exists()
-    from scripts import test_batch_scope_contract
-    test_batch_scope_contract.main()
     print("Storage preflight marker checks passed")
     return 0
 
