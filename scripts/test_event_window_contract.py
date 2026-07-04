@@ -36,9 +36,9 @@ def main() -> int:
     if resolve_window(too_long, 60) is not None:
         raise SystemExit("action window that exceeds cap must not produce a normal clip")
 
-    empty = {"type": "paddle", "start": 8, "end": 20, "score": 6, "dead_time_only": True}
+    empty = {"type": "paddle", "start": 8, "end": 20, "score": 6, "empty_window": True}
     if resolve_window(empty, 60) is not None:
-        raise SystemExit("dead-time-only window must be dropped")
+        raise SystemExit("empty window must be dropped")
 
     no_phase = {"type": "highlight", "start": 0, "end": 20, "score": 7}
     out = resolve_window(no_phase, 60)
