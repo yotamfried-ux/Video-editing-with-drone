@@ -21,6 +21,7 @@ on:
       - 'scripts/test_storage_contract.py'
       - 'scripts/test_storage_preflight_marker.py'
       - 'scripts/validate_operator_smoke_workflow.py'
+      - 'web-api/src/app/api/operator/pipeline/start/route.ts'
       - 'web-api/src/app/api/operator/pipeline/status/route.ts'
       - 'mobile/src/app/(operator)/pipeline.tsx'
       - 'mobile/src/features/operator/hooks/usePipelineStatus.ts'
