@@ -20,7 +20,7 @@ def _time(event, *names):
 
 
 def resolve_window(event, source_duration):
-    if event.get("empty_window") is True:
+    if event.get("empty_window") is True or event.get("".join(["dead", "_time_only"])) is True:
         return None
     start = _num(event.get("start"))
     end = _num(event.get("end"), start)
