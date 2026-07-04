@@ -35,5 +35,15 @@ def _install_window_policy() -> None:
         pass
 
 
+def _install_narrative_policy() -> None:
+    _repo_root()
+    try:
+        from pipeline.narrative_policy import install
+        install()
+    except Exception:
+        pass
+
+
 _install_analyzer_score_guard()
 _install_window_policy()
+_install_narrative_policy()
