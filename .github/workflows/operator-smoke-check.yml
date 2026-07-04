@@ -10,6 +10,9 @@ on:
       - 'integrations/r2_storage.py'
       - 'integrations/run_status.py'
       - 'integrations/storage.py'
+      - 'pipeline/runtime_quality.py'
+      - 'pipeline/stages/analyzer.py'
+      - 'pipeline/stages/identity.py'
       - 'requirements.txt'
       - 'scripts/operator_smoke.py'
       - 'scripts/reset_and_rerun.py'
@@ -17,6 +20,7 @@ on:
       - 'scripts/test_drive_upload_contract.py'
       - 'scripts/test_operator_smoke_contract.py'
       - 'scripts/test_operator_smoke_workflow_validator.py'
+      - 'scripts/test_pipeline_quality_contract.py'
       - 'scripts/test_pipeline_status_stale_contract.py'
       - 'scripts/test_storage_contract.py'
       - 'scripts/test_storage_preflight_marker.py'
@@ -63,6 +67,8 @@ jobs:
         run: python scripts/test_operator_smoke_workflow_validator.py
       - name: Validate Operator Smoke contract
         run: python scripts/test_operator_smoke_contract.py
+      - name: Validate Pipeline quality contract
+        run: python scripts/test_pipeline_quality_contract.py
       - name: Validate Pipeline Status stale contract
         run: python scripts/test_pipeline_status_stale_contract.py
       - name: Validate Drive upload credential contract
