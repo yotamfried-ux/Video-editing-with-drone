@@ -411,5 +411,173 @@ def get_approved_drafts() -> list[dict]:
             page_token = page.get("nextPageToken")
             if not page_token:
                 break
-        print(f"✅ Found {len(files)} approved reel(s)
-")
+        print(f"✅ Found {len(files)} approved reel(s)")
+        return files
+    except Exception as e:
+        logger.error("❌ Failed to scan APPROVED folder: %s", e)
+        print(f"❌ Failed to scan APPROVED folder: {e}")
+        return []
+
+
+def mark_draft_delivered(file_id: str) -> None:
+    """Move a delivered reel from APPROVED to PROCESSED folder."""
+    try:
+        _move_with_available_credentials(
+            file_id,
+            config.APPROVED_FOLDER_ID,
+            config.PROCESSED_FOLDER_ID,
+            "mark delivered draft",
+        )
+        logger.info("Moved delivered draft %s to PROCESSED", file_id)
+    except Exception as e:
+        logger.warning("⚠️ Could not move delivered draft %s: %s", e)
+
+
+def upload_preview(preview_path: str, preview_name: str) -> str:
+    """Upload a 480p watermarked preview to PREVIEW_FOLDER_ID. Returns webViewLink."""
+    if not config.PREVIEW_FOLDER_ID:
+        raise ValueError("PREVIEW_FOLDER_ID not configured — set it in .env")
+    print(f"🔍 Uploading preview '{preview_name}'...")
+    try:
+        service       = _get_upload_service()
+        file_metadata = {"name": preview_name, "parents": [config.PREVIEW_FOLDER_ID]}
+        media         = MediaFileUpload(preview_path, mimetype="video/mp4", resumable=True)
+        uploaded      = _drive_retry(lambda: service.files().create(
+            body=file_metadata,
+            media_body=media,
+            fields="id, webViewLink",
+            supportsAllDrives=True,
+        ).execute())
+        file_id = uploaded.get("id", "")
+        link    = uploaded.get("webViewLink", "")
+        try:
+            _drive_retry(lambda: service.permissions().create(
+                fileId=file_id,
+                body={"type": "anyone", "role": "reader"},
+                fields="id",
+                supportsAllDrives=True,
+            ).execute())
+        except Exception as perm_err:
+            logger.warning("⚠️ Could not set public permission on preview %s: %s", preview_name, perm_err)
+        print(f"✅ Preview link: {link}")
+        logger.info("Preview uploaded %s → %s", preview_name, link)
+        return link
+    except Exception as e:
+        logger.error("❌ Failed to upload preview %s: %s", preview_name, e)
+        raise
+
+
+def move_to_pending_payment(file_id: str) -> None:
+    """Move a reel from APPROVED_FOLDER_ID → PENDING_PAYMENT_FOLDER_ID."""
+    if not config.PENDING_PAYMENT_FOLDER_ID:
+        logger.warning("⚠️ PENDING_PAYMENT_FOLDER_ID not configured — skipping move for %s", file_id)
+        return
+    try:
+        _move_with_available_credentials(
+            file_id,
+            config.APPROVED_FOLDER_ID,
+            config.PENDING_PAYMENT_FOLDER_ID,
+            "move reel to pending payment",
+        )
+        logger.info("Moved reel %s → PENDING_PAYMENT", file_id)
+    except Exception as e:
+        logger.warning("⚠️ Could not move %s to PENDING_PAYMENT: %s", e)
+
+
+def get_pending_payment_drafts() -> list[dict]:
+    """Scan PENDING_PAYMENT_FOLDER_ID for reels awaiting payment. Returns [{id, name, webViewLink}]."""
+    if not config.PENDING_PAYMENT_FOLDER_ID:
+        logger.warning("⚠️ PENDING_PAYMENT_FOLDER_ID not configured")
+        return []
+    print("💳 Scanning PENDING_PAYMENT folder for reels awaiting payment...")
+    try:
+        service    = _get_drive_service()
+        query      = f"'{config.PENDING_PAYMENT_FOLDER_ID}' in parents and trashed = false"
+        files: list[dict] = []
+        page_token: str | None = None
+        while True:
+            kwargs: dict = dict(
+                q=query,
+                fields="nextPageToken, files(id, name, webViewLink)",
+                pageSize=1000,
+                supportsAllDrives=True,
+                includeItemsFromAllDrives=True,
+            )
+            if page_token:
+                kwargs["pageToken"] = page_token
+            page       = service.files().list(**kwargs).execute()
+            files.extend(page.get("files", []))
+            page_token = page.get("nextPageToken")
+            if not page_token:
+                break
+        print(f"✅ Found {len(files)} reel(s) awaiting payment")
+        return files
+    except Exception as e:
+        logger.error("❌ Failed to scan PENDING_PAYMENT folder: %s", e)
+        return []
+
+
+def mark_as_processed(file_id: str) -> None:
+    """
+    Move the original to PROCESSED_FOLDER_ID and only then record file_id in
+    processed.json so a failed Drive archive never creates a skipped RAW file.
+    """
+    try:
+        moved_name = _move_with_available_credentials(
+            file_id,
+            config.RAW_FOLDER_ID,
+            config.PROCESSED_FOLDER_ID,
+            "archive processed raw",
+        )
+    except Exception as e:
+        logger.error(
+            "❌ Could not archive processed raw %s. Not updating %s: %s",
+            file_id,
+            config.PROCESSED_IDS_FILE,
+            e,
+        )
+        print(
+            f"❌ Could not move original {file_id} to PROCESSED. "
+            "It was not marked as processed, so the next run can retry."
+        )
+        raise
+
+    _mark_processed_cache(file_id)
+    print(f"📁 Moved original '{moved_name}' ({file_id}) to PROCESSED folder")
+    print(f"✅ Marked {file_id} as processed")
+
+
+def requeue_video(file_id: str) -> bool:
+    """Reverse of mark_as_processed: move a raw video PROCESSED → RAW and remove
+    its ID from processed.json so the next scan picks it up again. Used by the
+    operator 'reprocess this reel' flow. Returns True on success."""
+    try:
+        moved_name = _move_with_available_credentials(
+            file_id,
+            config.PROCESSED_FOLDER_ID,
+            config.RAW_FOLDER_ID,
+            "requeue processed raw",
+        )
+        ids = _load_processed_ids()
+        ids.discard(file_id)
+        _save_processed_ids(ids)
+        print(f"↩️  Re-queued '{moved_name}' for reprocessing")
+        return True
+    except Exception as e:
+        logger.warning("⚠️ Could not requeue file %s: %s", file_id, e)
+        return False
+
+
+def flag_quality_issue(file_id: str, reasons: str) -> None:
+    """Update the raw video's Drive description with a quality flag for operator visibility."""
+    try:
+        service = _get_drive_service()
+        _drive_retry(lambda: service.files().update(
+            fileId=file_id,
+            body={"description": f"[QUALITY FLAG: {reasons}]"},
+            fields="id, description",
+            supportsAllDrives=True,
+        ).execute())
+        logger.info("Drive quality flag set on %s: %s", file_id, reasons)
+    except Exception as exc:
+        logger.warning("Could not set Drive quality flag on %s: %s", file_id, exc)
