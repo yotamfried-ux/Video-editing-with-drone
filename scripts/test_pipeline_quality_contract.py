@@ -23,11 +23,6 @@ def require_no_tokens(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} contains forbidden tokens: {present}")
 
 
-def require_before(label: str, text: str, first: str, second: str) -> None:
-    if text.index(first) > text.index(second):
-        raise SystemExit(f"{label}: expected {first!r} before {second!r}")
-
-
 def main() -> int:
     runtime = _read("pipeline/runtime_quality.py")
     run_tracked = _read("scripts/run_tracked.py")
@@ -42,10 +37,11 @@ def main() -> int:
         [
             "_MIN_KEEP_SCORE = 6",
             "if _score(ev) >= _MIN_KEEP_SCORE",
+            "_IDENTITY_THUMB_SIZE = 640",
             "identity_thumb_",
             "crop_x",
             "crop_y",
-            "crop=640:640",
+            "crop={_IDENTITY_THUMB_SIZE}:{_IDENTITY_THUMB_SIZE}:",
             "original = analyzer.analyze_session",
             "analyzer.analyze_session = hardened_analyze_session",
             "_sportreel_quality_runtime_installed",
@@ -67,15 +63,8 @@ def main() -> int:
         [
             "def _install_pipeline_quality_runtime()",
             "from pipeline.runtime_quality import install",
-            "_install_pipeline_quality_runtime()",
-            "import pipeline.orchestrator as _orchestrator",
+            "_install_pipeline_quality_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
         ],
-    )
-    require_before(
-        "tracked runner quality install order",
-        run_tracked,
-        "_install_pipeline_quality_runtime()",
-        "import pipeline.orchestrator as _orchestrator",
     )
 
     require_tokens(
