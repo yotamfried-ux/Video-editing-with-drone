@@ -1,9 +1,4 @@
-"""Cloudflare R2 storage adapter for the SportReel pipeline.
-
-This module intentionally matches the high-level Drive adapter function names so
-pipeline code can switch through integrations.storage without changing the
-editing, analysis, QA, or delivery logic.
-"""
+"""Cloudflare R2 storage adapter for the SportReel pipeline."""
 
 from __future__ import annotations
 
@@ -20,6 +15,7 @@ RAW_PREFIX = "raw/"
 PROCESSED_PREFIX = "processed/"
 REVIEW_PREFIX = "review/"
 APPROVED_PREFIX = "approved/"
+PENDING_PAYMENT_PREFIX = "pending_payment/"
 PENDING_UPLOADS_PREFIX = "pending_uploads/"
 PREVIEWS_PREFIX = "previews/"
 METADATA_PREFIX = "metadata/"
@@ -35,7 +31,7 @@ def _require_env(name: str) -> str:
 
 
 def _bucket() -> str:
-    return _require_env("R2_BUCKET")
+    return os.getenv("R2_BUCKET", "").strip() or "sportreel"
 
 
 def _endpoint_url() -> str:
@@ -52,8 +48,8 @@ def _client():
     return boto3.client(
         "s3",
         endpoint_url=_endpoint_url(),
-        aws_access_key_id=_require_env("R2_ACCESS_KEY_ID"),
-        aws_secret_access_key=_require_env("R2_SECRET_ACCESS_KEY"),
+        aws_access_key_id=os.getenv("R2_ACCESS_KEY_ID") or os.getenv("ACCESS_KEY_ID"),
+        aws_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY") or os.getenv("SECRET_KEY_ID"),
     )
 
 
@@ -66,7 +62,12 @@ def _object_url(key: str) -> str:
     base = _public_base_url()
     if base:
         return f"{base}/{quote(key)}"
-    return f"r2://{_bucket()}/{key}"
+    expires = int(os.getenv("R2_SIGNED_URL_EXPIRES", "604800"))
+    return _client().generate_presigned_url(
+        "get_object",
+        Params={"Bucket": _bucket(), "Key": key},
+        ExpiresIn=expires,
+    )
 
 
 def _content_type(path_or_name: str) -> str:
@@ -173,8 +174,6 @@ def move_object(source_key: str, dest_key: str) -> None:
         CopySource={"Bucket": _bucket(), "Key": source_key},
         Key=dest_key,
     )
-    # Verify destination exists before deleting the source. This mirrors the
-    # Drive folder-state safety contract used by reset/processed transitions.
     client.head_object(Bucket=_bucket(), Key=dest_key)
     client.delete_object(Bucket=_bucket(), Key=source_key)
 
@@ -216,6 +215,16 @@ def requeue_video(file_id_or_key: str) -> bool:
 def get_approved_drafts() -> list[dict]:
     objects = _list_objects(APPROVED_PREFIX)
     return [_object_to_video(obj) for obj in objects if _is_video_key(obj["Key"])]
+
+
+def get_pending_payment_drafts() -> list[dict]:
+    objects = _list_objects(PENDING_PAYMENT_PREFIX)
+    return [_object_to_video(obj) for obj in objects if _is_video_key(obj["Key"])]
+
+
+def move_to_pending_payment(file_id_or_key: str) -> None:
+    dest_key = _join(PENDING_PAYMENT_PREFIX, _basename(file_id_or_key))
+    move_object(file_id_or_key, dest_key)
 
 
 def mark_draft_delivered(file_id_or_key: str) -> None:
