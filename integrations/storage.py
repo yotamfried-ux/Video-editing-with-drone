@@ -83,3 +83,11 @@ def delete_review_drafts() -> int:
 
 def restore_processed_to_raw() -> int:
     return _call("restore_processed_to_raw")
+
+
+def record_failure(file_id_or_key: str, max_failures: int = 3) -> bool:
+    return _call("record_failure", file_id_or_key, max_failures)
+
+
+def flag_quality_issue(file_id_or_key: str, reasons: str) -> None:
+    return _call("flag_quality_issue", file_id_or_key, reasons)
