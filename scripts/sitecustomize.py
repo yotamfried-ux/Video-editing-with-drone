@@ -44,6 +44,16 @@ def _install_narrative_policy() -> None:
         pass
 
 
+def _install_qa_gate_policy() -> None:
+    _repo_root()
+    try:
+        from pipeline.qa_gate_policy import install
+        install()
+    except Exception:
+        pass
+
+
 _install_analyzer_score_guard()
 _install_window_policy()
 _install_narrative_policy()
+_install_qa_gate_policy()
