@@ -26,6 +26,9 @@ import { Colors, Spacing } from '@/shared/constants/theme';
 
 const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
 
+type UploadInit = OperatorUploadInitResponse & { storage_key?: string; storage_backend?: string };
+type UploadVerify = { ok: boolean; exists: boolean; size?: number | null; storage_key?: string; r2_status?: number };
+
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Waiting for next run',
   queued: 'Re-editing now',
@@ -172,7 +175,7 @@ export default function PipelineScreen() {
 
     setUploadProgress(0);
     try {
-      const { uploadUrl } = await operatorFetch<OperatorUploadInitResponse>(
+      const uploadInit = await operatorFetch<UploadInit>(
         '/api/operator/upload',
         {
           method: 'POST',
@@ -182,7 +185,7 @@ export default function PipelineScreen() {
       );
 
       const task = FileSystem.createUploadTask(
-        uploadUrl,
+        uploadInit.uploadUrl,
         asset.uri,
         {
           httpMethod: 'PUT',
@@ -199,10 +202,21 @@ export default function PipelineScreen() {
         throw new Error(`Upload failed with status ${uploadResult?.status}`);
       }
 
+      if (uploadInit.storage_key) {
+        const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storage_key: uploadInit.storage_key }),
+        });
+        if (!verified.exists) {
+          throw new Error(`Upload finished but R2 verification failed for ${uploadInit.storage_key}`);
+        }
+      }
+
       setUploadProgress(null);
       Alert.alert(
         'Uploaded to queue',
-        `"${filename}" is in RAW. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
+        `"${uploadInit.filename}" is verified in RAW. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
       );
     } catch (e) {
       setUploadProgress(null);
