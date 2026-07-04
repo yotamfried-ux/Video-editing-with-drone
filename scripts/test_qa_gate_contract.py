@@ -42,8 +42,9 @@ def main() -> int:
         raise SystemExit("final verdict or retry count missing")
     if diag["critical_defect_count"] != 2:
         raise SystemExit("critical defect count missing")
-    if not all(key in diag["defects"][0] for key in ["type", "severity", "event_id", "source", "decision"] if key != "decision"):
-        raise SystemExit("defect metadata missing required fields")
+    for key in ["type", "severity", "event_id", "source", "decision"]:
+        if key not in diag["defects"][0]:
+            raise SystemExit(f"defect metadata missing required field: {key}")
     if diag["decision"] != "flagged_manual_review":
         raise SystemExit("decision missing from QA diagnostics")
 
@@ -62,9 +63,11 @@ def main() -> int:
 
     text = (ROOT / "pipeline/qa_gate_policy.py").read_text(encoding="utf-8")
     boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
-    for token in ["original_qa_gate", "original_save_metadata", "qa_gate_with_diagnostics", "save_metadata_with_qa"]:
+    for token in ["_OrchestratorPatchFinder", "_OrchestratorPatchLoader", "_patch_orchestrator", "original_qa_gate", "original_save_metadata", "qa_gate_with_diagnostics", "save_metadata_with_qa"]:
         if token not in text:
             raise SystemExit(f"missing install token: {token}")
+    if "import pipeline.orchestrator" in text:
+        raise SystemExit("QA gate policy must not import orchestrator during bootstrap")
     if "from pipeline.qa_gate_policy import install" not in boot:
         raise SystemExit("QA gate policy is not bootstrapped")
 
