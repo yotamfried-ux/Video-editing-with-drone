@@ -5,7 +5,7 @@ lightweight Operator Smoke Check job without installing the full video stack.
 """
 from __future__ import annotations
 
-from typing import Sequence
+from typing import Any, Sequence
 
 BBox = tuple[float, float, float, float]
 
@@ -66,4 +66,76 @@ def bbox_to_crop(xyxy: Sequence[float], frame_width: int, frame_height: int) -> 
         "crop_x": crop_x,
         "crop_y": crop_y,
         "visible_ratio": bbox_visible_ratio(xyxy, frame_width, frame_height),
+    }
+
+
+def _maybe_int(value: Any) -> int | None:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed > 0 else None
+
+
+def event_has_bbox_metadata(event: dict[str, Any]) -> bool:
+    return event.get("bbox_xyxy") is not None
+
+
+def event_frame_dimensions(event: dict[str, Any]) -> tuple[int, int] | None:
+    width = _maybe_int(event.get("perception_frame_width") or event.get("frame_width"))
+    height = _maybe_int(event.get("perception_frame_height") or event.get("frame_height"))
+    if width is None or height is None:
+        return None
+    return width, height
+
+
+def resolve_event_crop(
+    event: dict[str, Any],
+    *,
+    default_crop_y: float = 0.65,
+    min_visible_ratio: float = 0.35,
+) -> dict[str, Any]:
+    """Resolve editor crop values, preferring measured perception bbox data.
+
+    Events without bbox metadata keep the historical Gemini crop contract. Events
+    with bbox metadata must also include frame dimensions; otherwise they are
+    marked unusable so the runtime layer can fail safe instead of using a risky
+    LLM crop for a supposedly measured detection.
+    """
+    fallback = {
+        "crop_x": clamp(float(event.get("crop_x", 0.5))),
+        "crop_y": clamp(float(event.get("crop_y", default_crop_y))),
+        "visible_ratio": event.get("visible_ratio"),
+        "crop_source": "event",
+        "perception_crop_status": "no_bbox",
+        "perception_crop_usable": True,
+    }
+    if not event_has_bbox_metadata(event):
+        return fallback
+
+    dimensions = event_frame_dimensions(event)
+    if dimensions is None:
+        return {
+            **fallback,
+            "crop_source": "bbox",
+            "perception_crop_status": "missing_frame_dimensions",
+            "perception_crop_usable": False,
+        }
+
+    try:
+        crop = bbox_to_crop(event["bbox_xyxy"], dimensions[0], dimensions[1])
+    except (TypeError, ValueError):
+        return {
+            **fallback,
+            "crop_source": "bbox",
+            "perception_crop_status": "invalid_bbox",
+            "perception_crop_usable": False,
+        }
+
+    usable = crop["visible_ratio"] >= min_visible_ratio
+    return {
+        **crop,
+        "crop_source": "bbox",
+        "perception_crop_status": "ok" if usable else "low_visible_ratio",
+        "perception_crop_usable": usable,
     }
