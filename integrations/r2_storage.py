@@ -8,6 +8,7 @@ editing, analysis, QA, or delivery logic.
 from __future__ import annotations
 
 from datetime import timezone
+import json
 import mimetypes
 import os
 from pathlib import Path
@@ -21,6 +22,7 @@ REVIEW_PREFIX = "review/"
 APPROVED_PREFIX = "approved/"
 PENDING_UPLOADS_PREFIX = "pending_uploads/"
 PREVIEWS_PREFIX = "previews/"
+METADATA_PREFIX = "metadata/"
 
 _VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".mts", ".mxf"}
 
@@ -101,6 +103,27 @@ def _object_to_video(item: dict) -> dict:
         "mimeType": content_type,
         "webViewLink": _object_url(key),
     }
+
+
+def _failed_ids_path() -> str:
+    base = os.path.dirname(os.path.abspath(config.PROCESSED_IDS_FILE))
+    return os.path.join(base, "failed_ids.json")
+
+
+def _load_failed_ids() -> dict[str, int]:
+    try:
+        with open(_failed_ids_path()) as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_failed_ids(failed: dict[str, int]) -> None:
+    path = _failed_ids_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(failed, f, indent=2)
+    os.replace(tmp, path)
 
 
 def _list_objects(prefix: str) -> list[dict]:
@@ -216,3 +239,25 @@ def restore_processed_to_raw() -> int:
         move_object(key, dest_key)
         restored += 1
     return restored
+
+
+def record_failure(file_id_or_key: str, max_failures: int = 3) -> bool:
+    failed = _load_failed_ids()
+    failed[file_id_or_key] = failed.get(file_id_or_key, 0) + 1
+    _save_failed_ids(failed)
+    return failed[file_id_or_key] >= max_failures
+
+
+def flag_quality_issue(file_id_or_key: str, reasons: str) -> None:
+    key = f"{METADATA_PREFIX}quality_flags/{quote(file_id_or_key, safe='')}.json"
+    body = json.dumps(
+        {"source_key": file_id_or_key, "reasons": reasons},
+        ensure_ascii=False,
+        indent=2,
+    ).encode("utf-8")
+    _client().put_object(
+        Bucket=_bucket(),
+        Key=key,
+        Body=body,
+        ContentType="application/json",
+    )
