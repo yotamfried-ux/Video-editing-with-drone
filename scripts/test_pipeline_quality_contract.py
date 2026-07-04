@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +23,13 @@ def require_no_tokens(label: str, text: str, tokens: list[str]) -> None:
     present = [token for token in tokens if token in text]
     if present:
         raise SystemExit(f"{label} contains forbidden tokens: {present}")
+
+
+def run_identity_runtime_contract() -> None:
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts/test_identity_failsafe_contract.py")],
+        check=True,
+    )
 
 
 def main() -> int:
@@ -106,6 +115,7 @@ def main() -> int:
         ],
     )
 
+    run_identity_runtime_contract()
     print("Pipeline quality hardening contract checks passed")
     return 0
 
