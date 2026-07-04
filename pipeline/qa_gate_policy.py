@@ -1,12 +1,16 @@
 """QA gate diagnostics for PQ-009."""
 from __future__ import annotations
 
+import importlib.abc
+import importlib.machinery
 import json
 import os
+import sys
 from typing import Any
 
 BLOCKING_DEFECT_TYPES = {"IDENTITY_MISMATCH", "NO_VISIBLE_ACTION", "BAD_FRAMING", "DUPLICATE_MOMENT"}
 _INSTALLED_FLAG = "_sportreel_qa_gate_policy_installed"
+_FINDER_FLAG = "_sportreel_qa_gate_import_hook_installed"
 
 
 def defect_type(defect: dict[str, Any]) -> str:
@@ -32,6 +36,7 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
             "source": defect.get("source") or defect.get("source_video") or defect.get("video"),
             "note": defect.get("note", ""),
             "blocking": is_critical_defect(defect),
+            "decision": decision,
         })
     return {
         "decision": decision,
@@ -72,9 +77,8 @@ def _augment_metadata_file(meta_file: str, draft_name: str, qa_gate: dict[str, A
     os.replace(tmp, meta_file)
 
 
-def install() -> None:
+def _patch_orchestrator(orchestrator: Any) -> None:
     import config
-    import pipeline.orchestrator as orchestrator
 
     if getattr(orchestrator, _INSTALLED_FLAG, False):
         return
@@ -118,3 +122,37 @@ def install() -> None:
     orchestrator._qa_gate = qa_gate_with_diagnostics
     orchestrator._save_reel_metadata = save_metadata_with_qa
     setattr(orchestrator, _INSTALLED_FLAG, True)
+
+
+class _OrchestratorPatchLoader(importlib.abc.Loader):
+    def __init__(self, loader: importlib.abc.Loader):
+        self.loader = loader
+
+    def create_module(self, spec):
+        create = getattr(self.loader, "create_module", None)
+        return create(spec) if create else None
+
+    def exec_module(self, module) -> None:
+        self.loader.exec_module(module)
+        _patch_orchestrator(module)
+
+
+class _OrchestratorPatchFinder(importlib.abc.MetaPathFinder):
+    def find_spec(self, fullname, path=None, target=None):
+        if fullname != "pipeline.orchestrator":
+            return None
+        spec = importlib.machinery.PathFinder.find_spec(fullname, path)
+        if spec and spec.loader:
+            spec.loader = _OrchestratorPatchLoader(spec.loader)
+        return spec
+
+
+def install() -> None:
+    module = sys.modules.get("pipeline.orchestrator")
+    if module is not None:
+        _patch_orchestrator(module)
+        return
+    if getattr(sys, _FINDER_FLAG, False):
+        return
+    sys.meta_path.insert(0, _OrchestratorPatchFinder())
+    setattr(sys, _FINDER_FLAG, True)
