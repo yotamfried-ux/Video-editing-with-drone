@@ -61,6 +61,12 @@ def _install_pipeline_quality_runtime() -> None:
     install()
 
 
+def _install_identity_failsafe_runtime() -> None:
+    """Harden identity clustering before orchestrator imports cluster_clips."""
+    from pipeline.identity_failsafe import install
+    install()
+
+
 def _no_drafts_failure() -> tuple[str, str, dict]:
     upload_error = _last_observed_meta.get("upload_error")
     if upload_error:
@@ -88,6 +94,7 @@ mark_run(status="running", stage="starting", progress=0.01)
 _install_status_mirror()
 _install_storage_backend_alias()
 _install_pipeline_quality_runtime()
+_install_identity_failsafe_runtime()
 
 import pipeline.orchestrator as _orchestrator
 from pipeline.orchestrator import main
