@@ -44,7 +44,8 @@ def quality_score(event: dict[str, Any]) -> float:
     action_bonus = 0.6 if event.get("peak_time") is not None or event.get("action_time") is not None else 0.0
     window_bonus = 0.4 if str(event.get("window_validation_status", "valid")).lower() in {"valid", "adjusted"} else -2.0
     identity_bonus = 0.4 if _identity_ok(event) else -3.0
-    return score * 0.6 + visible * 1.6 + perception * 1.0 + track_bonus + action_bonus + window_bonus + identity_bonus
+    evidence_penalty = 0.0 if has_quality_evidence(event) else -3.0
+    return score * 0.6 + visible * 1.6 + perception * 1.0 + track_bonus + action_bonus + window_bonus + identity_bonus + evidence_penalty
 
 
 def choose_climax(events: list[dict[str, Any]]) -> dict[str, Any] | None:
