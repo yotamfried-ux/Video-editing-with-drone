@@ -3,16 +3,10 @@ import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
+import { safeBatchId } from '@/lib/r2-storage';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 
-// POST /api/operator/pipeline/reset — resets pipeline state and reruns.
-// Fires GitHub workflow_dispatch on pipeline-run.yml with reset=true, which:
-//   1. Moves all PROCESSED videos back to RAW
-//   2. Deletes REVIEW drafts and clears local state
-//   3. Reruns the full pipeline on the existing footage
-// Optional body: { full_clean: true } — also deletes from APPROVED folder.
-// Rate-limited to 3 calls per hour (destructive operation).
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -23,20 +17,18 @@ export async function POST(req: NextRequest) {
   const token = process.env.GITHUB_DISPATCH_TOKEN;
   const repo = process.env.GITHUB_REPO;
   if (!token || !repo) {
-    return NextResponse.json(
-      { error: 'GITHUB_DISPATCH_TOKEN / GITHUB_REPO not configured' },
-      { status: 503 },
-    );
+    return NextResponse.json({ error: 'GITHUB_DISPATCH_TOKEN / GITHUB_REPO not configured' }, { status: 503 });
   }
 
   let fullClean = false;
+  let batchId = '';
   try {
     const body = await req.json();
     fullClean = body?.full_clean === true;
-  } catch {
-    // no body — default to standard reset
-  }
+    batchId = safeBatchId(body?.batch_id);
+  } catch {}
 
+  const meta = { requested_by: 'operator_app', reset: true, full_clean: fullClean, ...(batchId ? { batch_id: batchId } : {}) };
   const { data: run, error: insertError } = await supabaseAdmin
     .from('pipeline_runs')
     .insert({
@@ -46,33 +38,27 @@ export async function POST(req: NextRequest) {
       progress: 0,
       github_event: 'workflow_dispatch:pipeline-run.yml',
       github_run_url: actionsUrl(repo),
-      meta: { requested_by: 'operator_app', reset: true, full_clean: fullClean },
+      meta,
     })
     .select('id')
     .single();
 
   if (insertError || !run) {
-    return NextResponse.json(
-      { error: insertError?.message ?? 'Could not create reset pipeline run' },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: insertError?.message ?? 'Could not create reset pipeline run' }, { status: 500 });
   }
 
-  const res = await fetch(
-    `https://api.github.com/repos/${repo}/actions/workflows/pipeline-run.yml/dispatches`,
-    {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${token}`,
-        Accept: 'application/vnd.github+json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        ref: 'main',
-        inputs: { reset: 'true', full_clean: String(fullClean), pipeline_run_id: run.id },
-      }),
-    }
-  );
+  const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/pipeline-run.yml/dispatches`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: 'application/vnd.github+json',
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      ref: 'main',
+      inputs: { reset: 'true', full_clean: String(fullClean), pipeline_run_id: run.id, batch_id: batchId },
+    }),
+  });
 
   if (res.status !== 204) {
     const message = githubDispatchError(res.status, await res.text());
@@ -83,5 +69,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message, pipeline_run_id: run.id }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, pipeline_run_id: run.id, full_clean: fullClean, github_actions_url: actionsUrl(repo) });
+  return NextResponse.json({ ok: true, pipeline_run_id: run.id, batch_id: batchId || null, full_clean: fullClean, github_actions_url: actionsUrl(repo) });
 }

@@ -43,6 +43,7 @@ export type PipelineRunsResponse = {
 export type PipelineDispatchResponse = {
   ok: true;
   pipeline_run_id: string;
+  batch_id?: string | null;
   github_actions_url?: string;
 };
 
@@ -53,6 +54,7 @@ export type PipelineResetResponse = PipelineDispatchResponse & {
 export type OperatorUploadInitResponse = {
   uploadUrl: string;
   filename: string;
+  batch_id?: string | null;
 };
 
 export type ReprocessRow = {

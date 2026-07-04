@@ -8,20 +8,32 @@ export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const limited = await enforceRateLimit(req, 'operator-upload', 10, 3600);
   if (limited) return limited;
-  let body: { filename?: string; mimeType?: string } = {};
-  try { body = await req.json(); } catch {}
+
+  let body: { filename?: string; mimeType?: string; batch_id?: string } = {};
+  try {
+    body = await req.json();
+  } catch {}
+
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const filename = (body.filename ?? '').trim() || `footage_${stamp}.mp4`;
   const mimeType = (body.mimeType ?? '').trim() || 'video/mp4';
+  const requestedBatchId = (body.batch_id ?? '').trim();
+
   try {
     if (shouldUseR2Storage()) {
-      const upload = createR2UploadUrl(filename);
-      return NextResponse.json({ uploadUrl: upload.uploadUrl, filename: upload.filename, storage_backend: 'r2', storage_key: upload.key });
+      const upload = createR2UploadUrl(filename, requestedBatchId);
+      return NextResponse.json({
+        uploadUrl: upload.uploadUrl,
+        filename: upload.filename,
+        batch_id: upload.batch_id,
+        storage_backend: 'r2',
+        storage_key: upload.key,
+      });
     }
     const rawFolder = process.env.RAW_FOLDER_ID;
     if (!rawFolder) return NextResponse.json({ error: 'RAW_FOLDER_ID not configured' }, { status: 503 });
     const uploadUrl = await createUploadSession(filename, rawFolder, mimeType);
-    return NextResponse.json({ uploadUrl, filename, storage_backend: 'drive' });
+    return NextResponse.json({ uploadUrl, filename, batch_id: requestedBatchId || null, storage_backend: 'drive' });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : 'Upload init failed' }, { status: 502 });
   }

@@ -94,6 +94,8 @@ export default function PipelineScreen() {
   const [resetting, setResetting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
+  const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
+  const [lastBatchId, setLastBatchId] = useState<string | null>(null);
 
   const loadRequests = useCallback(async () => {
     try {
@@ -115,8 +117,17 @@ export default function PipelineScreen() {
   const runPipeline = async () => {
     setTriggering(true);
     try {
-      const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', { method: 'POST' });
+      const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ batch_id: activeBatchId }),
+      });
       setLastRunId(result.pipeline_run_id);
+      const finishedBatch = result.batch_id ?? activeBatchId;
+      if (finishedBatch) {
+        setLastBatchId(finishedBatch);
+        setActiveBatchId(null);
+      }
       Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds. Watch Recent pipeline runs for this run.`);
     } catch (e) {
       handleOperatorError(e);
@@ -143,9 +154,10 @@ export default function PipelineScreen() {
       const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_clean: fullClean }),
+        body: JSON.stringify({ full_clean: fullClean, batch_id: lastBatchId ?? activeBatchId }),
       });
       setLastRunId(result.pipeline_run_id);
+      if (result.batch_id) setLastBatchId(result.batch_id);
       const scope = result.full_clean ? 'Full clean' : 'Reset';
       Alert.alert('Reset triggered', `${scope} run ${result.pipeline_run_id.slice(0, 8)} started. Watch Recent pipeline runs for this reset.`);
     } catch (e) {
@@ -180,9 +192,10 @@ export default function PipelineScreen() {
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename, mimeType }),
+          body: JSON.stringify({ filename, mimeType, batch_id: activeBatchId }),
         }
       );
+      if (uploadInit.batch_id) setActiveBatchId(uploadInit.batch_id);
 
       const task = FileSystem.createUploadTask(
         uploadInit.uploadUrl,
@@ -216,7 +229,7 @@ export default function PipelineScreen() {
       setUploadProgress(null);
       Alert.alert(
         'Uploaded to queue',
-        `"${uploadInit.filename}" is verified in RAW. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
+        `"${uploadInit.filename}" is verified in RAW batch ${uploadInit.batch_id?.slice(0, 16) ?? 'current'}. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
       );
     } catch (e) {
       setUploadProgress(null);
@@ -244,8 +257,10 @@ export default function PipelineScreen() {
             <View style={{ gap: Spacing.xs }}>
               <Text variant="title">Global live progress</Text>
               <Text variant="caption" color={Colors.textSecondary}>
-                Upload all footage for a batch first. Run pipeline now only when the RAW queue is ready.
+                Upload all footage for a batch first. Run pipeline now only when the current batch is ready.
               </Text>
+              {activeBatchId && <Text variant="caption" color={Colors.accent}>Current upload batch: {activeBatchId.slice(0, 24)}</Text>}
+              {lastBatchId && !activeBatchId && <Text variant="caption" color={Colors.textSecondary}>Last completed batch: {lastBatchId.slice(0, 24)}</Text>}
             </View>
             <PipelineBar stage={displayStage} progress={displayProgress} />
             {globalLiveStale && latestRun && (

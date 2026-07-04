@@ -34,6 +34,8 @@ const sha256Hex = (value: string) => createHash('sha256').update(value).digest('
 const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 const encodeKey = (key: string) => key.split('/').map(encode).join('/');
 const safeFilename = (filename: string) => basename(filename).replace(/[\\/]+/g, '_').trim() || `footage_${Date.now()}.mp4`;
+export const safeBatchId = (batchId?: string | null) => (batchId ?? '').replace(/[^A-Za-z0-9_-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
+export const newBatchId = (now = new Date()) => `batch_${now.toISOString().replace(/[:.]/g, '-').slice(0, 19)}_${Math.random().toString(36).slice(2, 8)}`;
 const objectPath = (key = '') => (key ? `/${bucket()}/${encodeKey(key)}` : `/${bucket()}`);
 
 export const r2Basename = (key: string) => basename(key.replace(/\/+$/, ''));
@@ -75,11 +77,12 @@ export function createR2SignedGetUrl(key: string): string {
   return presign('GET', key);
 }
 
-export function createR2UploadUrl(filename: string): { uploadUrl: string; key: string; filename: string } {
+export function createR2UploadUrl(filename: string, requestedBatchId?: string | null): { uploadUrl: string; key: string; filename: string; batch_id: string } {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  const batchId = safeBatchId(requestedBatchId) || newBatchId();
   const storageName = `${stamp}_${safeFilename(filename)}`;
-  const key = `raw/${storageName}`;
-  return { uploadUrl: presign('PUT', key), key, filename: storageName };
+  const key = `raw/${batchId}/${storageName}`;
+  return { uploadUrl: presign('PUT', key), key, filename: storageName, batch_id: batchId };
 }
 
 async function signedFetch(method: string, key: string, query = new URLSearchParams(), extraHeaders: Record<string, string> = {}) {
