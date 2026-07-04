@@ -200,10 +200,10 @@ export default function PipelineScreen() {
       }
 
       setUploadProgress(null);
-
-      const run = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', { method: 'POST' });
-      setLastRunId(run.pipeline_run_id);
-      Alert.alert('Uploaded', `"${filename}" is in RAW. Run ${run.pipeline_run_id.slice(0, 8)} starts now.`);
+      Alert.alert(
+        'Uploaded to queue',
+        `"${filename}" is in RAW. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
+      );
     } catch (e) {
       setUploadProgress(null);
       handleOperatorError(e);
@@ -230,7 +230,7 @@ export default function PipelineScreen() {
             <View style={{ gap: Spacing.xs }}>
               <Text variant="title">Global live progress</Text>
               <Text variant="caption" color={Colors.textSecondary}>
-                This bar shows the singleton live pipeline signal. If that signal is stale, it falls back to the latest terminal app-triggered run.
+                Upload all footage for a batch first. Run pipeline now only when the RAW queue is ready.
               </Text>
             </View>
             <PipelineBar stage={displayStage} progress={displayProgress} />
