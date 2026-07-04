@@ -47,6 +47,7 @@ def mark_terminal_run(
     status: str,
     stage: str,
     progress: float | None = None,
+    error: str | None = None,
     **meta: Any,
 ) -> None:
     """Finalize both the durable run row and the singleton global live signal.
@@ -61,6 +62,8 @@ def mark_terminal_run(
     run_id = get_run_id()
     if run_id:
         global_meta["pipeline_run_id"] = run_id
+    if error:
+        global_meta["error"] = error
     global_meta.update(meta)
 
     # Write the global singleton first. In run_tracked.py this writer is patched
@@ -75,4 +78,6 @@ def mark_terminal_run(
     run_fields: dict[str, Any] = {"status": status, "stage": stage, "meta": global_meta}
     if progress is not None or status in {"succeeded", "no_input"}:
         run_fields["progress"] = global_progress
+    if error:
+        run_fields["error"] = error
     mark_run(**run_fields)
