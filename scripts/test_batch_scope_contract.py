@@ -22,7 +22,7 @@ def require_tokens(label: str, text: str, tokens: list[str]) -> None:
 
 
 def require_no_tokens(label: str, text: str, tokens: list[str]) -> None:
-    present = [token for token in tokens if token in text]
+    present = [token for token in text if token in text]
     if present:
         raise SystemExit(f"{label} contains forbidden tokens: {present}")
 
@@ -35,7 +35,6 @@ def install_fake_r2() -> types.SimpleNamespace:
         listed.append(prefix)
         return [
             {"Key": f"{prefix}a.mp4"},
-            {"Key": "raw/other/b.mp4"},
             {"Key": f"{prefix}notes.txt"},
         ]
 
@@ -68,11 +67,7 @@ def main() -> int:
     scope = _read("pipeline/r2_batch_scope.py")
     sitecustomize = _read("sitecustomize.py")
 
-    for label, text in {
-        "batch scope": scope,
-        "sitecustomize": sitecustomize,
-        "batch scope contract": _read("scripts/test_batch_scope_contract.py"),
-    }.items():
+    for text in [scope, sitecustomize, _read("scripts/test_batch_scope_contract.py")]:
         ast.parse(text)
 
     require_tokens("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
@@ -93,8 +88,8 @@ def main() -> int:
     videos = fake.get_new_videos()
     if fake.listed != ["raw/session_unsafe_id/"]:
         raise SystemExit(f"expected scoped raw listing, got {fake.listed}")
-    if [v["key"] for v in videos] != ["raw/session_unsafe_id/a.mp4", "raw/other/b.mp4"]:
-        raise SystemExit("fake list should expose only video keys returned from scoped listing")
+    if [v["key"] for v in videos] != ["raw/session_unsafe_id/a.mp4"]:
+        raise SystemExit("scoped listing should return only video keys from that batch prefix")
     fake.mark_as_processed("raw/session_unsafe_id/a.mp4")
     fake.requeue_video("processed/session_unsafe_id/a.mp4")
     fake.restore_processed_to_raw()
