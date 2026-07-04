@@ -30,21 +30,20 @@ export async function POST(req: NextRequest) {
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 8000);
-  let res: Response;
   try {
-    res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+    const res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ event_type: 'new-raw-video', client_payload: { pipeline_run_id: run.id, source: 'manual' } }),
       signal: controller.signal,
     });
+
+    if (res.status !== 204) return failDispatch(githubDispatchError(res.status, await res.text()));
   } catch (e) {
     return failDispatch(e instanceof Error ? e.message : 'GitHub dispatch request failed');
   } finally {
     clearTimeout(timeout);
   }
-
-  if (res.status !== 204) return failDispatch(githubDispatchError(res.status, await res.text()));
 
   await supabaseAdmin.from('pipeline_runs').update({ status: 'queued', stage: 'workflow_dispatched', github_run_url: actionsUrl(repo) }).eq('id', run.id);
   return NextResponse.json({ ok: true, pipeline_run_id: run.id, github_actions_url: actionsUrl(repo) });
