@@ -72,10 +72,10 @@ def validate_terminal_run_mirrors_global_status() -> None:
         run_status.mark_terminal_run(status="no_input", stage="no_input", progress=1.0)
         run_status.mark_terminal_run(
             status="failed",
-            stage="no_drafts_after_qa",
-            error="No REVIEW drafts were produced after QA.",
-            error_code="no_drafts_produced",
-            no_drafts_reason="no_drafts_after_qa",
+            stage="all_draft_uploads_failed",
+            error="All draft uploads failed after QA.",
+            error_code="all_draft_uploads_failed",
+            no_drafts_reason="all_draft_uploads_failed",
         )
     finally:
         if previous_env is None:
@@ -110,14 +110,14 @@ def validate_terminal_run_mirrors_global_status() -> None:
     no_output_update = updates[2]["fields"]
     if no_output_update.get("status") != "failed":
         raise SystemExit("no-output terminal run was not marked failed")
-    if no_output_update.get("stage") != "no_drafts_after_qa":
-        raise SystemExit("no-output terminal run did not preserve the diagnostic failure stage")
+    if no_output_update.get("stage") != "all_draft_uploads_failed":
+        raise SystemExit("post-QA no-output run did not preserve the upload failure stage")
     if not no_output_update.get("error"):
         raise SystemExit("no-output terminal run did not persist a visible error")
-    if no_output_update.get("meta", {}).get("error_code") != "no_drafts_produced":
-        raise SystemExit("no-output terminal run did not persist the error code")
-    if no_output_update.get("meta", {}).get("no_drafts_reason") != "no_drafts_after_qa":
-        raise SystemExit("no-output terminal run did not persist the diagnostic reason")
+    if no_output_update.get("meta", {}).get("error_code") != "all_draft_uploads_failed":
+        raise SystemExit("post-QA no-output run did not persist the upload failure error code")
+    if no_output_update.get("meta", {}).get("no_drafts_reason") != "all_draft_uploads_failed":
+        raise SystemExit("post-QA no-output run did not persist the upload failure reason")
 
 
 def validate_run_tracked_no_output_contract() -> None:
@@ -129,7 +129,7 @@ def validate_run_tracked_no_output_contract() -> None:
         "_last_observed_progress",
         "_last_observed_meta",
         "_no_drafts_failure",
-        "no_drafts_reason",
+        "all_draft_uploads_failed",
         "last_observed_stage",
         "last_observed_meta",
         "sys.exit(1)",
