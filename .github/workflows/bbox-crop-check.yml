@@ -1,0 +1,20 @@
+name: BBox Crop Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/bbox-crop-check.yml'
+      - 'pipeline/perception/**'
+      - 'pipeline/runtime_quality.py'
+      - 'scripts/test_bbox_crop_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate BBox crop contract
+        run: python scripts/test_bbox_crop_contract.py
