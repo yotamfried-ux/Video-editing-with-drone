@@ -11,9 +11,9 @@ sys.path.insert(0, str(ROOT))
 def main() -> int:
     from pipeline.window_policy import resolve_window
 
-    late_start = {"type": "cutback", "start": 12, "end": 24, "score": 8, "setup_start": 9, "peak_time": 17, "outcome_end": 23}
+    late_start = {"type": "cutback", "start": 12, "end": 20, "score": 8, "setup_start": 10, "peak_time": 16, "outcome_end": 20}
     out = resolve_window(late_start, 60)
-    if not out or out["start"] > 9 or out["final_cut_start"] > 9:
+    if not out or out["start"] > 10 or out["final_cut_start"] > 10:
         raise SystemExit("late-start event must preserve setup")
     if out["window_validation_status"] not in ("adjusted", "valid"):
         raise SystemExit("late-start event missing validation status")
