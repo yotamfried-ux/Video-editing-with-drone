@@ -24,6 +24,7 @@ on:
       - 'web-api/src/app/api/operator/pipeline/start/route.ts'
       - 'web-api/src/app/api/operator/pipeline/status/route.ts'
       - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/app/(operator)/review.tsx'
       - 'mobile/src/features/operator/hooks/usePipelineStatus.ts'
       - 'mobile/src/features/operator/types/contracts.ts'
 
