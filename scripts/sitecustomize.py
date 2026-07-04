@@ -53,7 +53,17 @@ def _install_qa_gate_policy() -> None:
         pass
 
 
+def _install_draft_diagnostics() -> None:
+    _repo_root()
+    try:
+        from pipeline.draft_diagnostics import install
+        install()
+    except Exception:
+        pass
+
+
 _install_analyzer_score_guard()
 _install_window_policy()
 _install_narrative_policy()
 _install_qa_gate_policy()
+_install_draft_diagnostics()

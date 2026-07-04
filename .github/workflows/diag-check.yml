@@ -1,0 +1,20 @@
+name: Diag Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/diag-check.yml'
+      - 'pipeline/draft_diagnostics.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_draft_diagnostics_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate diag contract
+        run: python scripts/test_draft_diagnostics_contract.py
