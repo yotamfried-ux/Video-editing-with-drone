@@ -1,4 +1,19 @@
 """deliver.py — D to R pipeline Phase 2a: Preview Delivery entry point."""
+
+import os
+import sys
+
+
+def _install_storage_backend_alias() -> None:
+    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
+    if backend == "drive":
+        return
+    import integrations.storage as storage
+    sys.modules["integrations.drive"] = storage
+
+
+_install_storage_backend_alias()
+
 from services.delivery import deliver_preview as main
 from integrations.delivery_status import mark_delivery_run
 
