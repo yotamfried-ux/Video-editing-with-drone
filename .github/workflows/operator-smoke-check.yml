@@ -44,6 +44,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install perception dependency
+        run: python -m pip install 'supervision>=0.29.0,<0.30.0'
       - name: Detect Web API changes
         id: web-api-changes
         shell: bash
