@@ -1,32 +1,5 @@
 name: Run Pipeline
 
-# Triggered when new drone footage lands in the Drive/R2 RAW source.
-#
-#  • repository_dispatch (type: new-raw-video) — fired near-instantly by the
-#    watcher/upload flow.
-#  • workflow_dispatch — manual "Run workflow" button in the Actions tab.
-#
-# Required GitHub repository secrets (Settings → Secrets and variables → Actions):
-#   GEMINI_API_KEY              Gemini API key
-#   OWNER_EMAIL                 Operator email
-#   GOOGLE_SERVICE_ACCOUNT_JSON Full service-account JSON (Drive backend only)
-#   DRIVE_USER_TOKEN_JSON       Contents of drive_user_token.json (Drive backend only)
-#   RAW_FOLDER_ID               Drive RAW folder ID (Drive backend only)
-#   PROCESSED_FOLDER_ID         Drive PROCESSED folder ID (Drive backend only)
-#   REVIEW_FOLDER_ID            Drive REVIEW folder ID (Drive backend only)
-#   APPROVED_FOLDER_ID          Drive APPROVED folder ID (Drive backend only)
-#   R2_ACCESS_KEY_ID            Cloudflare R2 access key (R2 backend only)
-#   R2_SECRET_ACCESS_KEY        Cloudflare R2 secret key (R2 backend only)
-#   R2_ACCOUNT_ID               Cloudflare account id (R2 backend only)
-#   R2_BUCKET                   Cloudflare R2 bucket name (R2 backend only)
-# Optional secrets:
-#   NOTIFY_EMAIL, PREVIEW_FOLDER_ID, PENDING_PAYMENT_FOLDER_ID,
-#   SUPABASE_URL, SUPABASE_SERVICE_KEY, SENTRY_DSN,
-#   R2_ENDPOINT_URL, R2_PUBLIC_BASE_URL
-# Optional repository variables:
-#   STORAGE_BACKEND             drive or r2. Defaults to drive.
-#   GEMINI_MODEL
-
 on:
   repository_dispatch:
     types: [new-raw-video]
@@ -46,7 +19,6 @@ on:
         type: string
         default: ''
 
-# Never run two pipeline jobs at once (they'd fight over the same RAW files).
 concurrency:
   group: pipeline-run
   cancel-in-progress: false
@@ -55,9 +27,9 @@ jobs:
   run:
     name: Process new drone footage
     runs-on: ubuntu-latest
-    timeout-minutes: 350   # GitHub hard cap is 360; leave headroom
+    timeout-minutes: 350
     env:
-      STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || 'drive' }}
+      STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || secrets.STORAGE_BACKEND || 'drive' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -76,7 +48,6 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          # CPU-only torch keeps the install light (no CUDA wheels on the runner)
           pip install torch --index-url https://download.pytorch.org/whl/cpu
           pip install -r requirements.txt
 
@@ -88,7 +59,6 @@ jobs:
           if [ "$STORAGE_BACKEND" = "drive" ]; then
             printf '%s' "$GOOGLE_SERVICE_ACCOUNT_JSON" > service_account.json
             printf '%s' "$DRIVE_USER_TOKEN_JSON" > drive_user_token.json
-            # Sanity check that they are valid JSON (fails fast with a clear error)
             python -c "import json; json.load(open('service_account.json'))"
             python -c "import json; json.load(open('drive_user_token.json'))"
           else
@@ -103,10 +73,10 @@ jobs:
 
       - name: Preflight storage access
         env:
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
         run: python scripts/check_storage_access.py
@@ -121,10 +91,10 @@ jobs:
           PROCESSED_FOLDER_ID: ${{ secrets.PROCESSED_FOLDER_ID }}
           REVIEW_FOLDER_ID: ${{ secrets.REVIEW_FOLDER_ID }}
           APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
@@ -146,10 +116,10 @@ jobs:
           PROCESSED_FOLDER_ID: ${{ secrets.PROCESSED_FOLDER_ID }}
           REVIEW_FOLDER_ID: ${{ secrets.REVIEW_FOLDER_ID }}
           APPROVED_FOLDER_ID: ${{ secrets.APPROVED_FOLDER_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
           PREVIEW_FOLDER_ID: ${{ secrets.PREVIEW_FOLDER_ID }}
