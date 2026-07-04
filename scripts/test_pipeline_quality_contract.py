@@ -32,14 +32,25 @@ def run_identity_runtime_contract() -> None:
     )
 
 
+def run_cross_source_dedup_contract() -> None:
+    subprocess.run(
+        [sys.executable, str(ROOT / "scripts/test_cross_source_dedup_contract.py")],
+        check=True,
+    )
+
+
 def main() -> int:
     runtime = _read("pipeline/runtime_quality.py")
     identity_failsafe = _read("pipeline/identity_failsafe.py")
+    cross_source_dedup = _read("pipeline/cross_source_dedup.py")
+    event_fingerprint = _read("pipeline/perception/event_fingerprint.py")
     run_tracked = _read("scripts/run_tracked.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
     ast.parse(runtime)
     ast.parse(identity_failsafe)
+    ast.parse(cross_source_dedup)
+    ast.parse(event_fingerprint)
     ast.parse(run_tracked)
 
     require_tokens(
@@ -91,6 +102,29 @@ def main() -> int:
     )
 
     require_tokens(
+        "cross-source dedup hardening",
+        cross_source_dedup,
+        [
+            "deduplicate_cross_source_events",
+            "_sportreel_cross_source_dedup_installed",
+            "editor._partition_events = partition_with_event_filter",
+        ],
+    )
+    require_tokens(
+        "event fingerprinting",
+        event_fingerprint,
+        [
+            "def event_fingerprint",
+            "def event_quality_score",
+            "def deduplicate_cross_source_events",
+            "event_fingerprint",
+            "bbox_trajectory_hash",
+            "thumbnail_hash",
+            "dedup_dropped_duplicates",
+        ],
+    )
+
+    require_tokens(
         "tracked runner quality install",
         run_tracked,
         [
@@ -98,8 +132,11 @@ def main() -> int:
             "from pipeline.runtime_quality import install",
             "def _install_identity_failsafe_runtime()",
             "from pipeline.identity_failsafe import install",
+            "def _install_cross_source_dedup_runtime()",
+            "from pipeline.cross_source_dedup import install",
             "_install_pipeline_quality_runtime()",
-            "_install_identity_failsafe_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
+            "_install_identity_failsafe_runtime()",
+            "_install_cross_source_dedup_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
         ],
     )
 
@@ -110,12 +147,17 @@ def main() -> int:
             "pipeline/runtime_quality.py",
             "pipeline/stages/analyzer.py",
             "pipeline/stages/identity.py",
+            "pipeline/cross_source_dedup.py",
+            "pipeline/perception/event_fingerprint.py",
             "scripts/test_pipeline_quality_contract.py",
+            "scripts/test_cross_source_dedup_contract.py",
             "Validate Pipeline quality contract",
+            "Validate Cross-source dedup contract",
         ],
     )
 
     run_identity_runtime_contract()
+    run_cross_source_dedup_contract()
     print("Pipeline quality hardening contract checks passed")
     return 0
 
