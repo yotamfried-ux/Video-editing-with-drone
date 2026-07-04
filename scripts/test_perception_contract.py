@@ -33,13 +33,11 @@ class FakeDetections:
     data = {"class_name": ["athlete", "athlete"]}
 
 
-def require_runtime_contract() -> None:
-    from pipeline.perception.crop_math import bbox_center_norm, bbox_to_crop, bbox_visible_ratio
-    from pipeline.perception.schema import PerceptionDetection
-    from pipeline.perception.supervision_adapter import detections_from_supervision, supervision_available
+def require_detection_conversion(detections_obj) -> None:
+    from pipeline.perception.supervision_adapter import detections_from_supervision
 
     detections = detections_from_supervision(
-        FakeDetections(),
+        detections_obj,
         source_video="raw/session/clip.mp4",
         frame_index=12,
         time_sec=1.5,
@@ -54,14 +52,45 @@ def require_runtime_contract() -> None:
         raise SystemExit("adapter did not preserve tracker/class/confidence fields")
     if det.xyxy != (0.0, 10.0, 100.0, 210.0):
         raise SystemExit("adapter did not normalize xyxy bbox")
-
-    crop = det.crop
-    if round(crop["crop_x"], 4) != round(50 / 640, 4):
+    if round(det.crop_x, 4) != round(50 / 640, 4):
         raise SystemExit("bbox crop_x should use bbox center")
-    if round(crop["crop_y"], 4) != round(110 / 480, 4):
+    if round(det.crop_y, 4) != round(110 / 480, 4):
         raise SystemExit("bbox crop_y should use bbox center")
-    if crop["visible_ratio"] != 1.0:
+    if det.visible_ratio != 1.0:
         raise SystemExit("fully in-frame bbox should have visible_ratio=1")
+
+    metadata = det.to_event_metadata()
+    required = {"bbox_xyxy", "perception_confidence", "perception_class_name", "track_id", "crop_x", "crop_y", "visible_ratio"}
+    missing = required - set(metadata)
+    if missing:
+        raise SystemExit(f"event metadata missing fields: {sorted(missing)}")
+
+
+def require_real_supervision_contract() -> None:
+    from pipeline.perception.supervision_adapter import supervision_available
+
+    if not supervision_available():
+        raise SystemExit("supervision must be installed in the smoke job")
+
+    import numpy as np
+    import supervision as sv
+
+    detections = sv.Detections(
+        xyxy=np.array([[0, 10, 100, 210], [300, 100, 500, 400]], dtype=float),
+        confidence=np.array([0.92, 0.31], dtype=float),
+        class_id=np.array([0, 0], dtype=int),
+        tracker_id=np.array([7, 8], dtype=int),
+        data={"class_name": np.array(["athlete", "athlete"])},
+    )
+    require_detection_conversion(detections)
+
+
+def require_runtime_contract() -> None:
+    from pipeline.perception.crop_math import bbox_center_norm, bbox_to_crop, bbox_visible_ratio
+    from pipeline.perception.schema import PerceptionDetection
+    from pipeline.perception.supervision_adapter import supervision_available
+
+    require_detection_conversion(FakeDetections())
 
     if round(bbox_visible_ratio((-10, -10, 10, 10), 100, 100), 2) != 0.25:
         raise SystemExit("visible_ratio should account for bbox outside the frame")
@@ -69,12 +98,6 @@ def require_runtime_contract() -> None:
         raise SystemExit("bbox_center_norm should return normalized bbox center")
     if bbox_to_crop((40, 20, 60, 40), 100, 100)["visible_ratio"] != 1.0:
         raise SystemExit("bbox_to_crop should include visible_ratio")
-
-    metadata = det.to_event_metadata()
-    required = {"bbox_xyxy", "perception_confidence", "perception_class_name", "track_id", "crop_x", "crop_y", "visible_ratio"}
-    missing = required - set(metadata)
-    if missing:
-        raise SystemExit(f"event metadata missing fields: {sorted(missing)}")
 
     PerceptionDetection(
         source_video="clip.mp4",
@@ -86,6 +109,7 @@ def require_runtime_contract() -> None:
     )
     if not isinstance(supervision_available(), bool):
         raise SystemExit("supervision_available must return bool")
+    require_real_supervision_contract()
 
 
 def main() -> int:
@@ -107,7 +131,7 @@ def main() -> int:
     require_tokens("perception schema", schema, ["class PerceptionDetection", "xyxy", "confidence", "class_id", "class_name", "tracker_id", "visible_ratio", "to_event_metadata", "bbox_xyxy"])
     require_tokens("supervision adapter", adapter, ["def supervision_available()", 'find_spec("supervision")', "def detections_from_supervision", "xyxy", "confidence", "class_id", "tracker_id", "min_confidence", "PerceptionDetection("])
     require_no_tokens("perception foundation", "\n".join([schema, adapter, crop_math]), ["from supervision.tracker", "update_with_detections"])
-    require_tokens("operator smoke workflow perception coverage", workflow, ["pipeline/perception/**", "scripts/test_perception_contract.py", "Validate Perception contract"])
+    require_tokens("operator smoke workflow perception coverage", workflow, ["pipeline/perception/**", "scripts/test_perception_contract.py", "Install perception dependency", "Validate Perception contract"])
 
     require_runtime_contract()
     print("Perception foundation contract checks passed")
