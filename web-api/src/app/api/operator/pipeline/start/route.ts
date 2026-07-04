@@ -6,6 +6,12 @@ import { githubDispatchError } from '@/lib/github-dispatch-error';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 
+function timeoutAfter(ms: number): Promise<never> {
+  return new Promise((_, reject) => {
+    setTimeout(() => reject(new Error('GitHub dispatch timed out')), ms);
+  });
+}
+
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const limited = await enforceRateLimit(req, 'pipeline-run', 5, 60);
@@ -28,21 +34,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message, pipeline_run_id: run.id }, { status: 502 });
   }
 
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
-    const res = await fetch(`https://api.github.com/repos/${repo}/dispatches`, {
+    const dispatch = fetch(`https://api.github.com/repos/${repo}/dispatches`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
       body: JSON.stringify({ event_type: 'new-raw-video', client_payload: { pipeline_run_id: run.id, source: 'manual' } }),
-      signal: controller.signal,
     });
-
+    const res = await Promise.race([dispatch, timeoutAfter(8000)]);
     if (res.status !== 204) return failDispatch(githubDispatchError(res.status, await res.text()));
   } catch (e) {
     return failDispatch(e instanceof Error ? e.message : 'GitHub dispatch request failed');
-  } finally {
-    clearTimeout(timeout);
   }
 
   await supabaseAdmin.from('pipeline_runs').update({ status: 'queued', stage: 'workflow_dispatched', github_run_url: actionsUrl(repo) }).eq('id', run.id);
