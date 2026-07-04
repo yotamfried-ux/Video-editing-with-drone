@@ -20,6 +20,7 @@ def main() -> int:
     storage = _read("integrations/storage.py")
     r2 = _read("integrations/r2_storage.py")
     run_tracked = _read("scripts/run_tracked.py")
+    deliver = _read("deliver.py")
     requirements = _read("requirements.txt")
 
     require_tokens(
@@ -35,6 +36,8 @@ def main() -> int:
             "def upload_preview(preview_path: str, preview_name: str)",
             "def mark_as_processed(file_id_or_key: str)",
             "def requeue_video(file_id_or_key: str)",
+            "def get_pending_payment_drafts()",
+            "def move_to_pending_payment(file_id_or_key: str)",
             "def delete_review_drafts()",
             "def restore_processed_to_raw()",
             "def record_failure(file_id_or_key: str, max_failures: int = 3)",
@@ -50,6 +53,7 @@ def main() -> int:
             "PROCESSED_PREFIX = \"processed/\"",
             "REVIEW_PREFIX = \"review/\"",
             "APPROVED_PREFIX = \"approved/\"",
+            "PENDING_PAYMENT_PREFIX = \"pending_payment/\"",
             "PREVIEWS_PREFIX = \"previews/\"",
             "METADATA_PREFIX = \"metadata/\"",
             "R2_ACCOUNT_ID",
@@ -59,12 +63,15 @@ def main() -> int:
             "R2_ENDPOINT_URL",
             "R2_PUBLIC_BASE_URL",
             "boto3.client(",
+            "generate_presigned_url(",
             "endpoint_url=_endpoint_url()",
             "def upload_object(local_path: str, key: str",
             "def move_object(source_key: str, dest_key: str)",
             "client.head_object(Bucket=_bucket(), Key=dest_key)",
             "def get_new_videos()",
             "def upload_draft(draft_path: str, draft_name: str)",
+            "def get_pending_payment_drafts()",
+            "def move_to_pending_payment(file_id_or_key: str)",
             "def delete_review_drafts()",
             "def restore_processed_to_raw()",
             "def record_failure(file_id_or_key: str, max_failures: int = 3)",
@@ -85,6 +92,18 @@ def main() -> int:
             'sys.modules["integrations.drive"] = storage',
             "_install_storage_backend_alias()",
             "import pipeline.orchestrator as _orchestrator",
+        ],
+    )
+
+    require_tokens(
+        "delivery storage routing",
+        deliver,
+        [
+            "def _install_storage_backend_alias()",
+            "import integrations.storage as storage",
+            'sys.modules["integrations.drive"] = storage',
+            "_install_storage_backend_alias()",
+            "from services.delivery import deliver_preview as main",
         ],
     )
 
