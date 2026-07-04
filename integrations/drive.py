@@ -430,7 +430,7 @@ def mark_draft_delivered(file_id: str) -> None:
         )
         logger.info("Moved delivered draft %s to PROCESSED", file_id)
     except Exception as e:
-        logger.warning("⚠️ Could not move delivered draft %s: %s", e)
+        logger.warning("⚠️ Could not move delivered draft %s: %s", file_id, e)
 
 
 def upload_preview(preview_path: str, preview_name: str) -> str:
@@ -481,7 +481,7 @@ def move_to_pending_payment(file_id: str) -> None:
         )
         logger.info("Moved reel %s → PENDING_PAYMENT", file_id)
     except Exception as e:
-        logger.warning("⚠️ Could not move %s to PENDING_PAYMENT: %s", e)
+        logger.warning("⚠️ Could not move %s to PENDING_PAYMENT: %s", file_id, e)
 
 
 def get_pending_payment_drafts() -> list[dict]:
