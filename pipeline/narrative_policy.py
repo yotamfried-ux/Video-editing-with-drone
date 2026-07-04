@@ -64,8 +64,7 @@ def order_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rest_desc = sorted(rest, key=quality_score, reverse=True)
     opener = rest_desc[0] if rest_desc else None
     middle = sorted(rest_desc[1:], key=quality_score)
-    ordered = ([opener] if opener else []) + middle + [climax]
-    return ordered
+    return ([opener] if opener else []) + middle + [climax]
 
 
 def install() -> None:
@@ -75,14 +74,25 @@ def install() -> None:
     if getattr(editor, flag, False):
         return
 
+    original_cut_clip = editor.cut_clip
+
+    def cut_clip_without_unqualified_teaser(video_path, event, index, slowmo=False, sport="", source_info=None, session_peak=10, target_fps=None):
+        if event.get("_teaser") is True and event.get("_disable_teaser") is True:
+            return None
+        return original_cut_clip(video_path, event, index, slowmo, sport, source_info, session_peak, target_fps)
+
     def patched_narrative_order(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ordered = order_events(events)
         if not ordered:
             return ordered
         if choose_climax(events) is None:
-            # No qualified climax: keep order but prevent teaser/slowmo-worthy climax marking.
-            return editor._enforce_single_slowmo([{**event, "edit": {**(event.get("edit") or {}), "slowmo": False}} for event in ordered])
+            no_teaser = [
+                {**event, "_disable_teaser": True, "_is_climax": False, "edit": {**(event.get("edit") or {}), "slowmo": False}}
+                for event in ordered
+            ]
+            return no_teaser
         return editor._enforce_single_slowmo(editor._break_slowmo_runs(ordered))
 
+    editor.cut_clip = cut_clip_without_unqualified_teaser
     editor._narrative_order = patched_narrative_order
     setattr(editor, flag, True)
