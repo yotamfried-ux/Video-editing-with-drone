@@ -359,7 +359,7 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
     """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
     print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
     try:
-        service       = _get_drive_service()  # service account owns REVIEW folder — stable quota, can also delete own files
+        service       = _get_upload_service()
         file_metadata = {"name": draft_name, "parents": [config.REVIEW_FOLDER_ID]}
         media         = MediaFileUpload(draft_path, mimetype="video/mp4", resumable=True)
         uploaded      = _drive_retry(lambda: service.files().create(
