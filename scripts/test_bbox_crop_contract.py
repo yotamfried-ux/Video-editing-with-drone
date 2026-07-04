@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import ast
 import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -19,11 +20,16 @@ def require_tokens(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} is missing contract tokens: {missing}")
 
 
+def install_fake_config() -> None:
+    fake = types.SimpleNamespace(TMP_DIR="/tmp/dtor", QUALITY_LOG_FILE="quality_issues.jsonl")
+    sys.modules["config"] = fake
+
+
 def main() -> int:
     crop_math = _read("pipeline/perception/crop_math.py")
     schema = _read("pipeline/perception/schema.py")
     runtime = _read("pipeline/runtime_quality.py")
-    workflow = _read(".github/workflows/operator-smoke-check.yml")
+    workflow = _read(".github/workflows/bbox-crop-check.yml")
     for text in (crop_math, schema, runtime, _read("scripts/test_bbox_crop_contract.py")):
         ast.parse(text)
 
@@ -33,6 +39,7 @@ def main() -> int:
     require_tokens("workflow coverage", workflow, ["scripts/test_bbox_crop_contract.py", "Validate BBox crop contract"])
 
     from pipeline.perception.crop_math import resolve_event_crop
+    install_fake_config()
     import pipeline.runtime_quality as rq
 
     event = {
