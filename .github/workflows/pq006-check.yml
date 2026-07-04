@@ -1,0 +1,21 @@
+name: PQ006 Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pq006-check.yml'
+      - 'pipeline/analyzer_score_guard.py'
+      - 'pipeline/stages/analyzer.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_analyzer_score_guard_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate PQ006 contract
+        run: python scripts/test_analyzer_score_guard_contract.py
