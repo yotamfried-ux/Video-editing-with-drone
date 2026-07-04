@@ -16,11 +16,29 @@ def require_tokens(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} is missing contract tokens: {missing}")
 
 
+def require_upload_queue_contract(pipeline_screen: str) -> None:
+    upload_start = pipeline_screen.index("const uploadFootage")
+    upload_end = pipeline_screen.index("const busy", upload_start)
+    upload_block = pipeline_screen[upload_start:upload_end]
+    if "/api/operator/pipeline/start" in upload_block:
+        raise SystemExit("Upload footage must only queue RAW footage; it must not auto-run the pipeline")
+    require_tokens(
+        "operator upload queue UX",
+        upload_block,
+        [
+            "Uploaded to queue",
+            "Upload more footage for this athlete/session",
+            "Run pipeline now when the batch is ready",
+        ],
+    )
+
+
 def main() -> int:
     storage = _read("integrations/storage.py")
     r2 = _read("integrations/r2_storage.py")
     run_tracked = _read("scripts/run_tracked.py")
     deliver = _read("deliver.py")
+    pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
     requirements = _read("requirements.txt")
 
     require_tokens(
@@ -106,6 +124,8 @@ def main() -> int:
             "from services.delivery import deliver_preview as main",
         ],
     )
+
+    require_upload_queue_contract(pipeline_screen)
 
     if "boto3" not in requirements:
         raise SystemExit("requirements.txt must include boto3 for R2 S3-compatible storage")
