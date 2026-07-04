@@ -185,7 +185,7 @@ export default function OperatorReviewScreen() {
               </Text>
               {item.watch_url && (
                 <Button
-                  label="Watch in Drive"
+                  label="Watch draft"
                   onPress={() => Linking.openURL(item.watch_url!)}
                   variant="ghost"
                   style={{ height: 44 }}

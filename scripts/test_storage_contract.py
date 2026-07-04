@@ -39,12 +39,18 @@ def require_upload_queue_contract(pipeline_screen: str) -> None:
     )
 
 
+def require_review_watch_label_contract(review_screen: str) -> None:
+    require_tokens("review watch label", review_screen, ['label="Watch draft"'])
+    require_no_tokens("review legacy storage label", review_screen, ["Watch in Drive"])
+
+
 def main() -> int:
     storage = _read("integrations/storage.py")
     r2 = _read("integrations/r2_storage.py")
     run_tracked = _read("scripts/run_tracked.py")
     deliver = _read("deliver.py")
     pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
+    review_screen = _read("mobile/src/app/(operator)/review.tsx")
     requirements = _read("requirements.txt")
 
     require_tokens(
@@ -142,6 +148,7 @@ def main() -> int:
     )
 
     require_upload_queue_contract(pipeline_screen)
+    require_review_watch_label_contract(review_screen)
 
     if "boto3" not in requirements:
         raise SystemExit("requirements.txt must include boto3 for R2 S3-compatible storage")
