@@ -55,6 +55,12 @@ def _install_status_mirror() -> None:
     status_writer.write_pipeline_status = tracked_write_pipeline_status
 
 
+def _install_pipeline_quality_runtime() -> None:
+    """Harden analyzer output before orchestrator imports analyze_session."""
+    from pipeline.runtime_quality import install
+    install()
+
+
 def _no_drafts_failure() -> tuple[str, str, dict]:
     upload_error = _last_observed_meta.get("upload_error")
     if upload_error:
@@ -81,6 +87,7 @@ def _no_drafts_failure() -> tuple[str, str, dict]:
 mark_run(status="running", stage="starting", progress=0.01)
 _install_status_mirror()
 _install_storage_backend_alias()
+_install_pipeline_quality_runtime()
 
 import pipeline.orchestrator as _orchestrator
 from pipeline.orchestrator import main
