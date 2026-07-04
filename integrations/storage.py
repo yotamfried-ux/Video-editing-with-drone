@@ -73,6 +73,14 @@ def get_approved_drafts() -> list[dict]:
     return _call("get_approved_drafts")
 
 
+def get_pending_payment_drafts() -> list[dict]:
+    return _call("get_pending_payment_drafts")
+
+
+def move_to_pending_payment(file_id_or_key: str) -> None:
+    return _call("move_to_pending_payment", file_id_or_key)
+
+
 def mark_draft_delivered(file_id_or_key: str) -> None:
     return _call("mark_draft_delivered", file_id_or_key)
 
