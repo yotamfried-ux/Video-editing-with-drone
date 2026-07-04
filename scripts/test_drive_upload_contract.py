@@ -17,6 +17,7 @@ def _function_body(text: str, name: str) -> str:
 
 def main() -> int:
     drive = (ROOT / "integrations/drive.py").read_text(encoding="utf-8")
+    run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
     upload_draft = _function_body(drive, "upload_draft")
     upload_preview = _function_body(drive, "upload_preview")
 
@@ -28,6 +29,24 @@ def main() -> int:
         raise SystemExit("Drive upload credentials must remain configurable through DRIVE_USER_TOKEN")
     if "service       = _get_upload_service()" not in upload_preview:
         raise SystemExit("upload_preview upload credential contract unexpectedly changed")
+
+    required_upload_error_tokens = [
+        "upload_error=str(e)",
+        "upload_failed=True",
+        "write_pipeline_status(\n                \"uploading\"",
+    ]
+    missing = [token for token in required_upload_error_tokens if token not in upload_draft]
+    if missing:
+        raise SystemExit(f"upload_draft must report original Drive upload failures: {missing}")
+
+    required_tracked_error_tokens = [
+        "upload_error = _last_observed_meta.get(\"upload_error\")",
+        "All draft uploads failed: {upload_error}",
+        "meta[\"upload_error\"] = upload_error",
+    ]
+    missing = [token for token in required_tracked_error_tokens if token not in run_tracked]
+    if missing:
+        raise SystemExit(f"run_tracked must surface original Drive upload failures: {missing}")
 
     print("Drive upload credential contract checks passed")
     return 0
