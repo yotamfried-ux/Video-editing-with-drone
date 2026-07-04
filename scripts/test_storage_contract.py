@@ -16,6 +16,12 @@ def require_tokens(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} is missing contract tokens: {missing}")
 
 
+def require_no_tokens(label: str, text: str, tokens: list[str]) -> None:
+    present = [token for token in tokens if token in text]
+    if present:
+        raise SystemExit(f"{label} contains forbidden tokens: {present}")
+
+
 def require_upload_queue_contract(pipeline_screen: str) -> None:
     upload_start = pipeline_screen.index("const uploadFootage")
     upload_end = pipeline_screen.index("const busy", upload_start)
@@ -96,6 +102,16 @@ def main() -> int:
             "def flag_quality_issue(file_id_or_key: str, reasons: str)",
             "quality_flags",
             "put_object(",
+            "def _tmp_dir() -> str:",
+            "def _processed_ids_file() -> str:",
+        ],
+    )
+    require_no_tokens(
+        "r2 adapter preflight imports",
+        r2,
+        [
+            "import config",
+            "config.",
         ],
     )
 
