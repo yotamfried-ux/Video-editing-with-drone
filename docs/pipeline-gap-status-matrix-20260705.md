@@ -38,12 +38,12 @@ Status values:
 | REAL-RECALL-001 | Good moments are not silently dropped. | #108 adds candidate decision ledger/false-negative schema, but the high-five/social miss has not been re-run or explained yet. | #108 | Contract/CI + pending real-run validation | Pending real-run validation | Inspect next run ledger for detected/selected/dropped social moments. |
 | REAL-ATHLETE-001 | Same athlete maps to stable `athlete_id` and does not create many standalone drafts. | #109 assigns stable `athlete_id`, merges only strong same-athlete evidence, marks merged same-athlete groups as collections, and emits duplicate evidence; not real-run validated yet. | #109 | Contract/CI only | Closed by contract | Validate on next real run and expand to tracker-backed canonicalization. |
 | REAL-UI-001 | QA/review-required drafts cannot be approved like normal drafts. | #112 makes `/api/operator/drafts` expose approval policy metadata, disables Approve in mobile Review, and shows blocking reasons; #113 routes approval through a storage-derived filename policy handler so direct API calls cannot bypass the QA block with a clean `file_name`. | #112, #113 | Contract/CI only | Closed by contract | Verify in deployed UI after Vercel quota/build succeeds. |
-| REAL-UPLOAD-001 | Upload button supports selecting/uploading many videos in one action. | API initializes one upload session per filename; frontend multi-select/parallel behavior is not proven and rate limit may block big batches. | none yet | Not validated | Open | Add multi-file input, concurrent upload, shared batch id, per-file progress, and contract test. |
+| REAL-UPLOAD-001 | Upload button supports selecting/uploading many videos in one action. | #115 adds multi-file upload initialization with shared `batch_id`, keeps single-file compatibility, adds operator UI multi-select/concurrent upload/per-file progress/retry, and extends upload/batch contracts. | #115 | Contract/CI only | Closed by contract | Validate with a real multi-file operator upload only after audit/gap files remain synchronized and user approves a real run. |
 | REAL-TRACE-001 | Every candidate has decision trace. | #108 adds `candidate_decision_ledger` and feedback schema to draft diagnostics, including selected/review-required/QA-blocked/dropped entries where surfaced by the artifact. | #108 | Contract/CI only | Pending real-run validation | Verify ledger completeness in the next real run artifacts and UI metadata. |
 
 ## Immediate implication
 
-The ledger foundation, athlete canonicalization, same-window multi-person guard, wave completion scoring, and operator approval blocking are now implemented by contract, so the active repair order is:
+The ledger foundation, athlete canonicalization, same-window multi-person guard, wave completion scoring, operator approval blocking, and multi-file batch upload are now implemented by contract, so the active repair order is:
 
-1. Add multi-video batch upload for `REAL-UPLOAD-001`.
-2. Validate all quality claims with a real pipeline run only after audit/gap files remain synchronized.
+1. Validate all quality claims with a real pipeline run only after audit/gap files remain synchronized and the user approves the run.
+2. Continue deeper product-quality work on `REAL-VALUE-001` / replay eval and ranking without claiming real-run validation yet.
