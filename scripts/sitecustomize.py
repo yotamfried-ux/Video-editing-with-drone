@@ -71,6 +71,15 @@ def _install_draft_diagnostics() -> None:
         pass
 
 
+def _install_candidate_ledger() -> None:
+    _repo_root()
+    try:
+        from pipeline.candidate_ledger import install
+        install()
+    except Exception:
+        pass
+
+
 def _install_real_identity_gate() -> None:
     _repo_root()
     try:
@@ -113,6 +122,7 @@ _install_cut_window_guard()
 _install_narrative_policy()
 _install_qa_gate_policy()
 _install_draft_diagnostics()
+_install_candidate_ledger()
 _install_real_identity_gate()
 _install_final_duplicate_guard()
 _install_context_qa_gate()
