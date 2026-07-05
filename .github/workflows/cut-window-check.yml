@@ -1,0 +1,22 @@
+name: Cut Window Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/cut-window-check.yml'
+      - 'pipeline/cut_window_guard.py'
+      - 'pipeline/draft_diagnostics.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_cut_window_guard_contract.py'
+      - 'docs/pipeline-quality-audit-real-run-20260705.md'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate cut window guard contract
+        run: python scripts/test_cut_window_guard_contract.py
