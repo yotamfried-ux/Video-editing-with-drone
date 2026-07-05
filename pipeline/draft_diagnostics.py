@@ -44,12 +44,15 @@ def build_diagnostic_artifact(draft_name: str, sport: str, events: list[dict[str
     identity_members = []
     for idx, event in enumerate(events):
         eid = _event_id(event, idx)
+        identity_gate = _clean(event.get("identity_gate")) if isinstance(event.get("identity_gate"), dict) else None
         raw_events.append({"event_id": eid, "type": event.get("type", ""), "score": event.get("score"), "start": event.get("original_start", event.get("start")), "end": event.get("original_end", event.get("end")), "description": event.get("description", "")})
         tracks.append({"event_id": eid, "track_id": event.get("track_id"), "bbox_xyxy": event.get("bbox_xyxy"), "confidence": event.get("perception_confidence") or event.get("confidence"), "visible_ratio": event.get("visible_ratio")})
-        identity_members.append({"event_id": eid, "person_id": event.get("person_id") or event.get("athlete_id"), "identity_confidence": event.get("identity_confidence"), "identity_mismatch": event.get("identity_mismatch")})
-        ordered.append({"order": idx, "event_id": eid, "type": event.get("type", ""), "score": event.get("score"), "start": event.get("start"), "end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "cut_adjustment_reason": event.get("cut_adjustment_reason"), "is_teaser": bool(event.get("_teaser")), "is_climax": bool(event.get("_is_climax"))})
+        identity_members.append({"event_id": eid, "person_id": event.get("person_id") or event.get("athlete_id"), "identity_confidence": event.get("identity_confidence"), "identity_mismatch": event.get("identity_mismatch"), "identity_gate": identity_gate})
+        ordered.append({"order": idx, "event_id": eid, "type": event.get("type", ""), "score": event.get("score"), "start": event.get("start"), "end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "cut_adjustment_reason": event.get("cut_adjustment_reason"), "is_teaser": bool(event.get("_teaser")), "is_climax": bool(event.get("_is_climax")), "identity_gate": identity_gate})
         for duplicate in event.get("dedup_dropped_duplicates", []) or []:
             dropped.append({"event_id": eid, "reason": "duplicate_moment", "detail": _clean(duplicate)})
+        if identity_gate and identity_gate.get("decision") == "split_to_single_appearance":
+            dropped.append({"event_id": eid, "reason": identity_gate.get("reason", "identity_gate"), "detail": identity_gate})
         if isinstance(event.get("qa_gate"), dict):
             qa = _clean(event["qa_gate"])
             for defect in qa.get("defects", []) or []:
