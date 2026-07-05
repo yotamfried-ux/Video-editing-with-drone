@@ -9,5 +9,5 @@ def mark_review_required(qa, reason="qa_result_unavailable"):
     if not needs_review(qa):
         return qa
     defects = list(qa.get("defects", []) or [])
-    defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "minor", "note": reason})
+    defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": reason})
     return {**qa, "verdict": "FAIL", "qa_review_required": True, "overall": reason, "engagement_score": 0, "defects": defects}
