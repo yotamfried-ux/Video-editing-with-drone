@@ -98,6 +98,15 @@ def _install_context_qa_gate() -> None:
         pass
 
 
+def _install_context_qa_long_video() -> None:
+    _repo_root()
+    try:
+        from pipeline.context_qa_long_video import install
+        install()
+    except Exception:
+        pass
+
+
 _install_analyzer_score_guard()
 _install_window_policy()
 _install_cut_window_guard()
@@ -107,3 +116,4 @@ _install_draft_diagnostics()
 _install_real_identity_gate()
 _install_final_duplicate_guard()
 _install_context_qa_gate()
+_install_context_qa_long_video()
