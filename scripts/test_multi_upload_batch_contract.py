@@ -44,12 +44,15 @@ def main() -> int:
             "MAX_BATCH_FILES",
             "files?: UploadFileInput[]",
             "normalizeUploadFiles",
+            "uploadFilename",
+            "String(index + 1).padStart(3, '0')",
             "operator-upload-batch",
             "safeBatchId(requestedBatchId) || newBatchId()",
             "const uploads = files.map",
-            "createR2UploadUrl(file.filename, batchId)",
+            "createR2UploadUrl(file.uploadFilename, batchId)",
             "await Promise.all(",
-            "createUploadSession(file.filename, rawFolder, file.mimeType)",
+            "createUploadSession(file.uploadFilename, rawFolder, file.mimeType)",
+            "source_filename: file.filename",
             "uploads,",
             "storage_key: upload.key",
         ],
@@ -63,7 +66,11 @@ def main() -> int:
     require_no_tokens(
         "upload route must not hard-limit every selected file as its own hourly request",
         upload_route,
-        ["enforceRateLimit(req, 'operator-upload', 10, 3600);\n  if (limited) return limited;"],
+        [
+            "enforceRateLimit(req, 'operator-upload', 10, 3600);\n  if (limited) return limited;",
+            "createR2UploadUrl(file.filename, batchId)",
+            "createUploadSession(file.filename, rawFolder, file.mimeType)",
+        ],
     )
 
     require_tokens(
