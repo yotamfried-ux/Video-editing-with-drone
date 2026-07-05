@@ -85,6 +85,12 @@ def _install_candidate_ledger_runtime() -> None:
     install()
 
 
+def _install_athlete_canonicalization_runtime() -> None:
+    """Assign stable athlete IDs before orchestrator binds analyzer/identity functions."""
+    from pipeline.athlete_canonicalization import install
+    install()
+
+
 def _no_drafts_failure() -> tuple[str, str, dict]:
     upload_error = _last_observed_meta.get("upload_error")
     if upload_error:
@@ -116,6 +122,7 @@ _install_identity_failsafe_runtime()
 _install_cross_source_dedup_runtime()
 _install_draft_diagnostics_runtime()
 _install_candidate_ledger_runtime()
+_install_athlete_canonicalization_runtime()
 
 import pipeline.orchestrator as _orchestrator
 from pipeline.orchestrator import main
