@@ -25,14 +25,14 @@ def main() -> int:
     for token in ["QA-FLAGGED", "qa_review_required", "final_verdict", "blocking", "approval_blocked_reasons"]:
         require(token in policy, f"review policy missing {token}")
 
-    require("evaluateDraftReviewPolicy({ name: f.name })" in drafts_route, "R2 drafts must expose policy metadata")
-    require("evaluateDraftReviewPolicy({ name: f.name })" in drafts_route, "Drive drafts must expose policy metadata")
+    require("evaluateDraftReviewPolicy({ name: f.name })" in drafts_route, "R2/Drive drafts must expose policy metadata")
     require("...policy" in drafts_route, "draft list must include policy fields")
 
     require("evaluateDraftReviewPolicy" in approve_route, "approve endpoint must enforce review policy")
     require("status: 409" in approve_route, "blocked approval must return 409")
-    require("moveR2Object" in approve_route and approve_route.index("evaluateDraftReviewPolicy") < approve_route.index("moveR2Object"), "policy must run before R2 move")
-    require("moveFile" in approve_route and approve_route.index("evaluateDraftReviewPolicy") < approve_route.index("moveFile"), "policy must run before Drive move")
+    policy_call = approve_route.index("const policy = evaluateDraftReviewPolicy")
+    require("await moveR2Object" in approve_route and policy_call < approve_route.index("await moveR2Object"), "policy must run before R2 move")
+    require("await moveFile" in approve_route and policy_call < approve_route.index("await moveFile"), "policy must run before Drive move")
 
     for token in ["draftIsApprovalBlocked", "approvalReasons", "Approval blocked", "disabled={approving !== null || blocked}", "Send to re-edit"]:
         require(token in review_screen, f"review screen missing {token}")
