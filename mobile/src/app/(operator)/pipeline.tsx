@@ -25,6 +25,7 @@ import type {
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
+const UPLOAD_CONCURRENCY_LIMIT = 3;
 
 type UploadSession = OperatorUploadInitResponse & {
   mimeType?: string | null;
@@ -322,21 +323,35 @@ export default function PipelineScreen() {
       const batchId = uploadInit.batch_id ?? sessions[0]?.batch_id ?? activeBatchId;
       if (batchId) setActiveBatchId(batchId);
 
-      const results = await Promise.allSettled(
-        items.map(async (item, index) => {
-          const session = sessions[index];
-          if (!session) throw new Error(`Missing upload session for ${item.filename}`);
-          await uploadAssetToSession(item, session);
+      const results: PromiseSettledResult<void>[] = new Array(items.length);
+      let nextIndex = 0;
+      const workerCount = Math.min(UPLOAD_CONCURRENCY_LIMIT, items.length);
+      await Promise.all(
+        Array.from({ length: workerCount }, async () => {
+          while (nextIndex < items.length) {
+            const index = nextIndex;
+            nextIndex += 1;
+            const item = items[index];
+            const session = sessions[index];
+            try {
+              if (!item) continue;
+              if (!session) throw new Error(`Missing upload session for ${item.filename}`);
+              await uploadAssetToSession(item, session);
+              results[index] = { status: 'fulfilled', value: undefined };
+            } catch (reason) {
+              results[index] = { status: 'rejected', reason };
+            }
+          }
         })
       );
 
-      const failed = results.filter((result) => result.status === 'rejected');
+      const failed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (failed.length) {
-        results.forEach((result, index) => {
-          if (result.status === 'rejected') {
+        results.forEach((uploadResult, index) => {
+          if (uploadResult.status === 'rejected') {
             updateUploadItem(items[index].id, {
               status: 'failed',
-              error: result.reason instanceof Error ? result.reason.message : 'Upload failed',
+              error: uploadResult.reason instanceof Error ? uploadResult.reason.message : 'Upload failed',
             });
           }
         });
