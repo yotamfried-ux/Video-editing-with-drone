@@ -1,0 +1,22 @@
+name: Wave Completion Check
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/wave_completion.py'
+      - 'pipeline/surf_ride_segment.py'
+      - 'pipeline/draft_diagnostics.py'
+      - 'scripts/test_wave_completion_contract.py'
+      - '.github/workflows/wave-completion-check.yml'
+  workflow_dispatch:
+
+jobs:
+  wave-completion:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run wave completion contract
+        run: PYTHONPATH=scripts:. python3 scripts/test_wave_completion_contract.py
