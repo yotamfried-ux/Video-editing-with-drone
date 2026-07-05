@@ -1,0 +1,9 @@
+name: Surf Ride Check
+on: [pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/test_surf_ride_continuity_contract.py
+      - run: python3 scripts/test_surf_ride_qa_contract.py
