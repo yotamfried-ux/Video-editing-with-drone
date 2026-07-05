@@ -26,8 +26,29 @@ import { Colors, Spacing } from '@/shared/constants/theme';
 
 const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
 
-type UploadInit = OperatorUploadInitResponse & { storage_key?: string; storage_backend?: string };
+type UploadSession = OperatorUploadInitResponse & {
+  mimeType?: string | null;
+  storage_key?: string;
+  storage_backend?: string;
+};
+
+type UploadInit = UploadSession & {
+  uploads?: UploadSession[];
+};
+
 type UploadVerify = { ok: boolean; exists: boolean; size?: number | null; storage_key?: string; r2_status?: number };
+type UploadItemStatus = 'queued' | 'initializing' | 'uploading' | 'verified' | 'failed';
+
+type UploadFileState = {
+  id: string;
+  uri: string;
+  filename: string;
+  mimeType: string;
+  progress: number;
+  status: UploadItemStatus;
+  batch_id?: string | null;
+  error?: string | null;
+};
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Waiting for next run',
@@ -43,6 +64,14 @@ const RUN_STATUS_LABEL: Record<string, string> = {
   failed: 'Failed',
   no_input: 'No input',
   dispatch_failed: 'Dispatch failed',
+};
+
+const UPLOAD_STATUS_LABEL: Record<UploadItemStatus, string> = {
+  queued: 'Queued',
+  initializing: 'Preparing',
+  uploading: 'Uploading',
+  verified: 'Verified',
+  failed: 'Failed',
 };
 
 function terminalStageForRun(run: PipelineRun | null): string {
@@ -62,6 +91,14 @@ function displayProgressForRun(run: PipelineRun | null): number {
 
 function latestRunLabel(run: PipelineRun): string {
   return `${RUN_STATUS_LABEL[run.status] ?? run.status} · ${run.id.slice(0, 8)}`;
+}
+
+function selectedAssetFilename(asset: ImagePicker.ImagePickerAsset, index: number): string {
+  return asset.fileName ?? `footage_${Date.now()}_${index + 1}.mp4`;
+}
+
+function selectedAssetMimeType(asset: ImagePicker.ImagePickerAsset): string {
+  return asset.mimeType ?? 'video/mp4';
 }
 
 export default function PipelineScreen() {
@@ -92,10 +129,14 @@ export default function PipelineScreen() {
   const [requests, setRequests] = useState<ReprocessRow[]>([]);
   const [triggering, setTriggering] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
+  const [uploadItems, setUploadItems] = useState<UploadFileState[]>([]);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
+
+  const updateUploadItem = useCallback((id: string, patch: Partial<UploadFileState>) => {
+    setUploadItems((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+  }, []);
 
   const loadRequests = useCallback(async () => {
     try {
@@ -167,6 +208,74 @@ export default function PipelineScreen() {
     }
   };
 
+  const uploadAssetToSession = async (item: UploadFileState, session: UploadSession) => {
+    if (!session.uploadUrl) throw new Error(`Missing upload URL for ${item.filename}`);
+    updateUploadItem(item.id, {
+      status: 'uploading',
+      progress: 0,
+      batch_id: session.batch_id,
+      error: null,
+      filename: session.filename || item.filename,
+    });
+
+    const task = FileSystem.createUploadTask(
+      session.uploadUrl,
+      item.uri,
+      {
+        httpMethod: 'PUT',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: { 'Content-Type': item.mimeType },
+      },
+      (progress) => {
+        const expected = progress.totalBytesExpectedToSend || 1;
+        const pct = Math.round((progress.totalBytesSent / expected) * 100);
+        updateUploadItem(item.id, { progress: pct });
+      }
+    );
+    const uploadResult = await task.uploadAsync();
+    if (!uploadResult || uploadResult.status >= 300) {
+      throw new Error(`Upload failed with status ${uploadResult?.status}`);
+    }
+
+    if (session.storage_key) {
+      const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storage_key: session.storage_key }),
+      });
+      if (!verified.exists) {
+        throw new Error(`Upload finished but R2 verification failed for ${session.storage_key}`);
+      }
+    }
+
+    updateUploadItem(item.id, { status: 'verified', progress: 100, batch_id: session.batch_id, error: null });
+  };
+
+  const retryUploadItem = async (item: UploadFileState) => {
+    updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null });
+    try {
+      const uploadInit = await operatorFetch<UploadInit>(
+        '/api/operator/upload',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: item.filename,
+            mimeType: item.mimeType,
+            batch_id: item.batch_id ?? activeBatchId,
+          }),
+        }
+      );
+      const session = uploadInit.uploads?.[0] ?? uploadInit;
+      if (session.batch_id) setActiveBatchId(session.batch_id);
+      await uploadAssetToSession(item, session);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Upload failed';
+      updateUploadItem(item.id, { status: 'failed', error: message });
+      handleOperatorError(e);
+    }
+  };
+
   const uploadFootage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -176,68 +285,78 @@ export default function PipelineScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: 'videos',
-      allowsMultipleSelection: false,
+      allowsMultipleSelection: true,
       videoMaxDuration: 7200,
     });
     if (result.canceled || !result.assets?.length) return;
 
-    const asset = result.assets[0];
-    const filename = asset.fileName ?? `footage_${Date.now()}.mp4`;
-    const mimeType = asset.mimeType ?? 'video/mp4';
+    const items: UploadFileState[] = result.assets.map((asset, index) => {
+      const filename = selectedAssetFilename(asset, index);
+      return {
+        id: `${Date.now()}_${index}_${filename}`,
+        uri: asset.uri,
+        filename,
+        mimeType: selectedAssetMimeType(asset),
+        progress: 0,
+        status: 'queued',
+        batch_id: activeBatchId,
+        error: null,
+      };
+    });
+    setUploadItems(items);
 
-    setUploadProgress(0);
     try {
+      setUploadItems((current) => current.map((item) => ({ ...item, status: 'initializing' })));
       const uploadInit = await operatorFetch<UploadInit>(
         '/api/operator/upload',
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filename, mimeType, batch_id: activeBatchId }),
+          body: JSON.stringify({
+            files: items.map((item) => ({ filename: item.filename, mimeType: item.mimeType })),
+            batch_id: activeBatchId,
+          }),
         }
       );
-      if (uploadInit.batch_id) setActiveBatchId(uploadInit.batch_id);
+      const sessions = uploadInit.uploads?.length ? uploadInit.uploads : [uploadInit];
+      const batchId = uploadInit.batch_id ?? sessions[0]?.batch_id ?? activeBatchId;
+      if (batchId) setActiveBatchId(batchId);
 
-      const task = FileSystem.createUploadTask(
-        uploadInit.uploadUrl,
-        asset.uri,
-        {
-          httpMethod: 'PUT',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: { 'Content-Type': mimeType },
-        },
-        (progress) => {
-          const pct = Math.round((progress.totalBytesSent / progress.totalBytesExpectedToSend) * 100);
-          setUploadProgress(pct);
-        }
+      const results = await Promise.allSettled(
+        items.map(async (item, index) => {
+          const session = sessions[index];
+          if (!session) throw new Error(`Missing upload session for ${item.filename}`);
+          await uploadAssetToSession(item, session);
+        })
       );
-      const uploadResult = await task.uploadAsync();
-      if (!uploadResult || uploadResult.status >= 300) {
-        throw new Error(`Upload failed with status ${uploadResult?.status}`);
-      }
 
-      if (uploadInit.storage_key) {
-        const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storage_key: uploadInit.storage_key }),
+      const failed = results.filter((result) => result.status === 'rejected');
+      if (failed.length) {
+        results.forEach((result, index) => {
+          if (result.status === 'rejected') {
+            updateUploadItem(items[index].id, {
+              status: 'failed',
+              error: result.reason instanceof Error ? result.reason.message : 'Upload failed',
+            });
+          }
         });
-        if (!verified.exists) {
-          throw new Error(`Upload finished but R2 verification failed for ${uploadInit.storage_key}`);
-        }
+        Alert.alert('Some uploads failed', `${failed.length} of ${items.length} files failed. Retry failed files before running the pipeline.`);
+        return;
       }
 
-      setUploadProgress(null);
       Alert.alert(
         'Uploaded to queue',
-        `"${uploadInit.filename}" is verified in RAW batch ${uploadInit.batch_id?.slice(0, 16) ?? 'current'}. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
+        `${items.length} file${items.length === 1 ? '' : 's'} verified in RAW batch ${batchId?.slice(0, 16) ?? 'current'}. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
       );
     } catch (e) {
-      setUploadProgress(null);
+      setUploadItems((current) => current.map((item) => ({ ...item, status: 'failed', error: e instanceof Error ? e.message : 'Upload failed' })));
       handleOperatorError(e);
     }
   };
 
-  const busy = triggering || resetting || uploadProgress !== null;
+  const uploadBusy = uploadItems.some((item) => ['queued', 'initializing', 'uploading'].includes(item.status));
+  const verifiedUploads = uploadItems.filter((item) => item.status === 'verified').length;
+  const busy = triggering || resetting || uploadBusy;
 
   return (
     <SafeArea>
@@ -280,8 +399,38 @@ export default function PipelineScreen() {
             )}
 
             <Button label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy} variant="secondary" style={{ height: 44 }} />
-            <Button label={uploadProgress !== null ? `Uploading... ${uploadProgress}%` : 'Upload footage'} onPress={uploadFootage} disabled={busy} variant="secondary" style={{ height: 44 }} />
+            <Button
+              label={uploadBusy ? `Uploading ${verifiedUploads}/${uploadItems.length}...` : 'Upload footage'}
+              onPress={uploadFootage}
+              disabled={busy}
+              variant="secondary"
+              style={{ height: 44 }}
+            />
             <Button label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
+            {uploadItems.length > 0 && (
+              <View style={{ gap: Spacing.sm }}>
+                <Text variant="caption" color={Colors.textSecondary}>Upload batch progress</Text>
+                {uploadItems.map((item) => (
+                  <View key={item.id} style={styles.uploadRow}>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text variant="caption" color={Colors.textPrimary} numberOfLines={1}>{item.filename}</Text>
+                      <Text variant="caption" color={item.status === 'failed' ? Colors.danger : Colors.textSecondary}>
+                        {UPLOAD_STATUS_LABEL[item.status]} · {item.progress}%
+                        {item.error ? ` · ${item.error}` : ''}
+                      </Text>
+                    </View>
+                    {item.status === 'failed' && (
+                      <Button
+                        label="Retry"
+                        onPress={() => retryUploadItem(item)}
+                        variant="ghost"
+                        style={{ height: 36 }}
+                      />
+                    )}
+                  </View>
+                ))}
+              </View>
+            )}
           </Card>
 
           <PipelineRunsCard />
@@ -341,6 +490,15 @@ const styles = StyleSheet.create({
   stageRow: { flexDirection: 'row', alignItems: 'center', gap: Spacing.sm },
   dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.cardBorder },
   metaRow: { flexDirection: 'row', justifyContent: 'space-between', gap: Spacing.sm },
+  uploadRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 8,
+    padding: Spacing.sm,
+  },
   staleNotice: {
     gap: Spacing.xs,
     borderLeftWidth: 3,
