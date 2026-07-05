@@ -83,6 +83,10 @@ export type DraftRow = {
   created_at: string;
   size: number | null;
   watch_url: string | null;
+  review_required?: boolean;
+  approval_blocked?: boolean;
+  approval_blocked_reasons?: string[];
+  approval_policy_version?: string;
 };
 
 export type DraftsResponse = {
@@ -92,6 +96,7 @@ export type DraftsResponse = {
 export type ApproveDraftResponse = {
   ok?: true;
   drive_move_completed?: boolean;
+  storage_move_completed?: boolean;
   delivery_started: boolean;
   delivery_run_id: string;
   github_actions_url?: string;
