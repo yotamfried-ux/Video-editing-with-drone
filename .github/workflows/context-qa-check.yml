@@ -1,0 +1,23 @@
+name: Context QA Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/context-qa-check.yml'
+      - 'pipeline/context_qa_gate.py'
+      - 'pipeline/context_qa_long_video.py'
+      - 'pipeline/draft_diagnostics.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_context_qa_gate_contract.py'
+      - 'docs/pipeline-context-qa-audit-20260705.md'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate context QA gate contract
+        run: python scripts/test_context_qa_gate_contract.py
