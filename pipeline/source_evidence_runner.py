@@ -17,8 +17,9 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
         label = str(kwargs.get("athlete_label", "")) + source_evidence_prompt(context)
         kwargs["athlete_label"] = label
         result = original(reel_path, *args, **kwargs)
-        result["source_evidence_clip_count"] = len(clips)
-        result["source_evidence_visual_uploaded"] = False
+        defects = list(result.get("defects", []) or [])
+        defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": "source evidence clips created but visual source upload is not enabled"})
+        result.update({"verdict": "FAIL", "defects": defects, "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": False, "qa_review_required": True})
         return result
     finally:
         for clip in clips:
