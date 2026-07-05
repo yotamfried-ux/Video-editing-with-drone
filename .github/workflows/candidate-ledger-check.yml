@@ -6,6 +6,7 @@ on:
       - 'pipeline/candidate_ledger.py'
       - 'pipeline/draft_diagnostics.py'
       - 'scripts/sitecustomize.py'
+      - 'scripts/run_tracked.py'
       - 'scripts/test_candidate_ledger_contract.py'
       - '.github/workflows/candidate-ledger-check.yml'
   workflow_dispatch:
@@ -19,4 +20,4 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run candidate ledger contract
-        run: PYTHONPATH=. python3 -S scripts/test_candidate_ledger_contract.py
+        run: PYTHONPATH=scripts:. python3 scripts/test_candidate_ledger_contract.py
