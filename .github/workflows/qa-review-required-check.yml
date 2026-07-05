@@ -1,0 +1,20 @@
+name: QA Review Required Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qa-review-required-check.yml'
+      - 'pipeline/qa_gate_policy.py'
+      - 'pipeline/qa_state.py'
+      - 'scripts/test_qa_review_required_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate QA review required contract
+        run: python scripts/test_qa_review_required_contract.py
