@@ -44,6 +44,7 @@ def main() -> int:
     identity_failsafe = _read("pipeline/identity_failsafe.py")
     cross_source_dedup = _read("pipeline/cross_source_dedup.py")
     event_fingerprint = _read("pipeline/perception/event_fingerprint.py")
+    athlete_canonicalization = _read("pipeline/athlete_canonicalization.py")
     run_tracked = _read("scripts/run_tracked.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
@@ -51,6 +52,7 @@ def main() -> int:
     ast.parse(identity_failsafe)
     ast.parse(cross_source_dedup)
     ast.parse(event_fingerprint)
+    ast.parse(athlete_canonicalization)
     ast.parse(run_tracked)
 
     require_tokens(
@@ -123,6 +125,19 @@ def main() -> int:
             "dedup_dropped_duplicates",
         ],
     )
+    require_tokens(
+        "athlete canonicalization",
+        athlete_canonicalization,
+        [
+            "def canonicalize_clusters",
+            "def annotate_session_persons",
+            "athlete_id",
+            "athlete_canonical_evidence_status",
+            "DUPLICATE_ATHLETE",
+            "identity.cluster_clips = cluster_with_athlete_ids",
+            "analyzer.analyze_session = analyze_with_athlete_ids",
+        ],
+    )
 
     require_tokens(
         "tracked runner quality install",
@@ -138,11 +153,14 @@ def main() -> int:
             "from pipeline.draft_diagnostics import install",
             "def _install_candidate_ledger_runtime()",
             "from pipeline.candidate_ledger import install",
+            "def _install_athlete_canonicalization_runtime()",
+            "from pipeline.athlete_canonicalization import install",
             "_install_pipeline_quality_runtime()",
             "_install_identity_failsafe_runtime()",
             "_install_cross_source_dedup_runtime()",
             "_install_draft_diagnostics_runtime()",
-            "_install_candidate_ledger_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
+            "_install_candidate_ledger_runtime()",
+            "_install_athlete_canonicalization_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
         ],
     )
 
