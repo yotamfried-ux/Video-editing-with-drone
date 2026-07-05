@@ -28,7 +28,9 @@ function normalizeUploadFiles(body: UploadBody): NormalizedUploadFile[] {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const rawFiles = Array.isArray(body.files) && body.files.length
     ? body.files
-    : [{ filename: body.filename, mimeType: body.mimeType }];
+    : (body.filename ?? body.mimeType) !== undefined
+      ? [{ filename: body.filename, mimeType: body.mimeType }]
+      : [];
   const isBatch = rawFiles.length > 1;
 
   return rawFiles.map((file, index) => {
