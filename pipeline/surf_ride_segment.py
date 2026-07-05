@@ -40,7 +40,13 @@ def _peak(event: dict[str, Any]) -> float:
 
 
 def _has_explicit_end(event: dict[str, Any]) -> bool:
+    if event.get("cut_window_evidence_status") == "inferred_tail_padding":
+        return False
     return event.get("ride_end") is not None or event.get("outcome_end") is not None or event.get("landing_time") is not None or event.get("exit_time") is not None or event.get("kickout_time") is not None
+
+
+def _has_tail_inferred_end(event: dict[str, Any]) -> bool:
+    return event.get("cut_window_evidence_status") == "inferred_tail_padding" and event.get("outcome_end") is not None
 
 
 def _can_merge(a: dict[str, Any], b: dict[str, Any], sport: str) -> bool:
@@ -63,11 +69,17 @@ def _merge_group(group: list[dict[str, Any]], sport: str) -> dict[str, Any]:
     peak = max(group, key=lambda e: _num(e.get("score"), 0))
     tracks = {t for t in (_track(e) for e in group) if t}
     explicit_end = any(_has_explicit_end(e) for e in group)
+    tail_inferred_end = any(_has_tail_inferred_end(e) for e in group)
     identity_uncertain = len(tracks) != 1
     merged = {**first, "start": start, "end": end, "ride_start": start, "takeoff_time": start, "peak_time": _peak(peak), "source": _src(first), "_src": _src(first), "type": "surf_ride", "score": max(_num(e.get("score"), 0) for e in group), "ride_segment": True, "ride_fragment_count": len(group), "ride_boundary_uncertain": not explicit_end, "identity_uncertain": identity_uncertain}
     if explicit_end:
         merged["ride_end"] = end
         merged["outcome_end"] = end
+    elif tail_inferred_end:
+        merged["outcome_end"] = end
+        merged["cut_window_evidence_status"] = "inferred_tail_padding"
+        merged["cut_window_guard_reason"] = "missing_outcome_evidence"
+        merged["window_uncertain"] = True
     if len(tracks) == 1:
         merged["track_id"] = next(iter(tracks))
     if len(group) > 1:
