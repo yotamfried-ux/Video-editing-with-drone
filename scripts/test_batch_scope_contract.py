@@ -2,9 +2,13 @@
 from __future__ import annotations
 
 import ast
+import os
+import sys
+import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def read(path: str) -> str:
@@ -15,6 +19,58 @@ def require(label: str, text: str, tokens: list[str]) -> None:
     missing = [token for token in tokens if token not in text]
     if missing:
         raise SystemExit(f"{label} missing tokens: {missing}")
+
+
+def fake_r2() -> types.SimpleNamespace:
+    moves: list[tuple[str, str]] = []
+    listed: list[str] = []
+
+    def list_objects(prefix: str) -> list[dict]:
+        listed.append(prefix)
+        return [
+            {"Key": f"{prefix}clip.mp4"},
+            {"Key": f"{prefix}note.txt"},
+        ]
+
+    def move_object(source: str, dest: str) -> None:
+        moves.append((source, dest))
+
+    module = types.SimpleNamespace(
+        RAW_PREFIX="raw/",
+        PROCESSED_PREFIX="processed/",
+        list_objects=list_objects,
+        move_object=move_object,
+        _is_video_key=lambda key: key.endswith(".mp4"),
+        _object_to_video=lambda obj: {"key": obj["Key"], "id": obj["Key"], "name": obj["Key"].split("/")[-1]},
+        _sportreel_r2_batch_scope_installed=False,
+        moves=moves,
+        listed=listed,
+    )
+    sys.modules["integrations.r2_storage"] = module
+    return module
+
+
+def run_scope_probe() -> None:
+    os.environ["RAW_BATCH_ID"] = "session one"
+    module = fake_r2()
+    import pipeline.r2_batch_scope as batch_scope
+
+    batch_scope.install()
+    videos = module.get_new_videos()
+    if module.listed != ["raw/session_one/"]:
+        raise SystemExit(f"expected scoped listing, got {module.listed}")
+    if [video["key"] for video in videos] != ["raw/session_one/clip.mp4"]:
+        raise SystemExit("expected only the scoped video object")
+
+    module.mark_as_processed("raw/session_one/clip.mp4")
+    module.requeue_video("processed/session_one/clip.mp4")
+    module.restore_processed_to_raw()
+    expected = {
+        ("raw/session_one/clip.mp4", "processed/session_one/clip.mp4"),
+        ("processed/session_one/clip.mp4", "raw/session_one/clip.mp4"),
+    }
+    if not expected.issubset(set(module.moves)):
+        raise SystemExit(f"expected scoped moves, got {module.moves}")
 
 
 def main() -> int:
@@ -48,6 +104,7 @@ def main() -> int:
     if "createR2UploadUrl(file.filename, batchId)" in upload_route:
         raise SystemExit("upload route must use unique per-file upload names")
 
+    run_scope_probe()
     print("Batch scope contract checks passed")
     return 0
 
