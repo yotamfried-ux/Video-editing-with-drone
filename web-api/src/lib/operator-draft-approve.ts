@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { getFile, moveFile } from '@/lib/google-drive';
 import { moveR2Object, r2Basename, shouldUseR2Storage } from '@/lib/r2-storage';
@@ -7,22 +6,18 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
 import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
 
-export const dynamic = 'force-dynamic';
-
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/deliver.yml`;
 
 type DeliveryRunPatch = { status?: string; stage?: string; error?: string; finished_at?: string };
 
 type ApproveBody = {
   file_id?: string;
-  file_name?: string;
   review_required?: boolean;
   qa_review_required?: boolean;
   approval_blocked_reasons?: unknown;
 };
 
-export async function POST(req: NextRequest) {
-  if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+export async function approveDraftPost(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'draft-approve', 20, 60);
   if (limited) return limited;
 
@@ -30,13 +25,14 @@ export async function POST(req: NextRequest) {
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   let fileId = (body.file_id ?? '').trim();
   if (!fileId) return NextResponse.json({ error: 'file_id required' }, { status: 400 });
-  let fileName = (body.file_name ?? '').trim() || null;
+
   const useR2 = shouldUseR2Storage();
   const storageBackend = useR2 ? 'r2' : 'drive';
+  let fileName: string | null = null;
 
   if (useR2) {
-    fileName ||= r2Basename(fileId);
-  } else if (!fileName) {
+    fileName = r2Basename(fileId);
+  } else {
     try { fileName = (await getFile(fileId)).name; }
     catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'Drive file lookup failed' }, { status: 502 }); }
   }
@@ -48,15 +44,12 @@ export async function POST(req: NextRequest) {
     approval_blocked_reasons: body.approval_blocked_reasons,
   });
   if (policy.approval_blocked) {
-    return NextResponse.json(
-      {
-        error: 'Draft requires review before approval. Send it to re-edit or clear the QA block first.',
-        ...policy,
-        storage_move_completed: false,
-        delivery_started: false,
-      },
-      { status: 409 }
-    );
+    return NextResponse.json({
+      error: 'Draft requires review before approval. Send it to re-edit or clear the QA block first.',
+      ...policy,
+      storage_move_completed: false,
+      delivery_started: false,
+    }, { status: 409 });
   }
 
   if (useR2) {

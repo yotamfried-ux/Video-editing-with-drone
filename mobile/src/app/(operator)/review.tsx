@@ -30,6 +30,18 @@ function shortId(id?: string): string {
   return id ? id.slice(0, 8) : 'unknown';
 }
 
+function draftIsApprovalBlocked(draft: DraftRow): boolean {
+  return Boolean(draft.approval_blocked || draft.review_required || draft.name.toUpperCase().includes('QA-FLAGGED'));
+}
+
+function approvalReasons(draft: DraftRow): string[] {
+  const reasons = Array.isArray(draft.approval_blocked_reasons) ? draft.approval_blocked_reasons.filter(Boolean) : [];
+  if (!reasons.length && draft.name.toUpperCase().includes('QA-FLAGGED')) {
+    return ['Draft is QA-FLAGGED and must be sent to re-edit or manually reviewed before approval.'];
+  }
+  return reasons;
+}
+
 function showApprovalResult(result: ApproveDraftResponse) {
   if (result.delivery_started) {
     Alert.alert(
@@ -92,6 +104,14 @@ export default function OperatorReviewScreen() {
   };
 
   const approve = (draft: DraftRow) => {
+    const blocked = draftIsApprovalBlocked(draft);
+    if (blocked) {
+      Alert.alert(
+        'Approval blocked',
+        `${draft.name} requires review before approval. Send it to re-edit or clear the QA block first.\n\n${approvalReasons(draft).join('\n')}`
+      );
+      return;
+    }
     Alert.alert(
       'Approve this reel?',
       `"${draft.name}" will move to APPROVED and start the delivery workflow now.`,
@@ -105,7 +125,12 @@ export default function OperatorReviewScreen() {
               const result = await operatorFetch<ApproveDraftResponse>('/api/operator/drafts/approve', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ file_id: draft.id, file_name: draft.name }),
+                body: JSON.stringify({
+                  file_id: draft.id,
+                  file_name: draft.name,
+                  review_required: draft.review_required,
+                  approval_blocked_reasons: draft.approval_blocked_reasons,
+                }),
               });
               setDrafts((d) => d.filter((x) => x.id !== draft.id));
               showApprovalResult(result);
@@ -176,40 +201,55 @@ export default function OperatorReviewScreen() {
             )
           }
           ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
-          renderItem={({ item }) => (
-            <Card bordered style={{ gap: Spacing.sm }}>
-              <Text variant="title" numberOfLines={2}>{item.name}</Text>
-              <Text variant="caption" color={Colors.textSecondary}>
-                {new Date(item.created_at).toLocaleString()}
-                {item.size ? ` · ${formatSize(item.size)}` : ''}
-              </Text>
-              {item.watch_url && (
-                <Button
-                  label="Watch draft"
-                  onPress={() => Linking.openURL(item.watch_url!)}
-                  variant="ghost"
-                  style={{ height: 44 }}
-                />
-              )}
-              <View style={styles.actions}>
-                <Button
-                  label="Send to re-edit"
-                  onPress={() => {
-                    setReeditNotes('');
-                    setReeditTarget(item);
-                  }}
-                  variant="secondary"
-                  style={{ flex: 1, height: 44 }}
-                />
-                <Button
-                  label={approving === item.id ? 'Approving...' : 'Approve'}
-                  onPress={() => approve(item)}
-                  disabled={approving !== null}
-                  style={{ flex: 1, height: 44 }}
-                />
-              </View>
-            </Card>
-          )}
+          renderItem={({ item }) => {
+            const blocked = draftIsApprovalBlocked(item);
+            const reasons = approvalReasons(item);
+            return (
+              <Card bordered style={{ gap: Spacing.sm, borderColor: blocked ? Colors.danger : Colors.cardBorder }}>
+                <Text variant="title" numberOfLines={2}>{item.name}</Text>
+                <Text variant="caption" color={Colors.textSecondary}>
+                  {new Date(item.created_at).toLocaleString()}
+                  {item.size ? ` · ${formatSize(item.size)}` : ''}
+                </Text>
+                {blocked && (
+                  <View style={styles.qaBlock}>
+                    <Text variant="title">Approval blocked</Text>
+                    <Text variant="caption" color={Colors.textSecondary}>
+                      This draft must be sent to re-edit or manually reviewed before approval.
+                    </Text>
+                    {reasons.slice(0, 3).map((r) => (
+                      <Text key={r} variant="caption" color={Colors.textSecondary}>• {r}</Text>
+                    ))}
+                  </View>
+                )}
+                {item.watch_url && (
+                  <Button
+                    label="Watch draft"
+                    onPress={() => Linking.openURL(item.watch_url!)}
+                    variant="ghost"
+                    style={{ height: 44 }}
+                  />
+                )}
+                <View style={styles.actions}>
+                  <Button
+                    label="Send to re-edit"
+                    onPress={() => {
+                      setReeditNotes(blocked ? reasons.join('\n') : '');
+                      setReeditTarget(item);
+                    }}
+                    variant="secondary"
+                    style={{ flex: 1, height: 44 }}
+                  />
+                  <Button
+                    label={blocked ? 'Approval blocked' : approving === item.id ? 'Approving...' : 'Approve'}
+                    onPress={() => approve(item)}
+                    disabled={approving !== null || blocked}
+                    style={{ flex: 1, height: 44 }}
+                  />
+                </View>
+              </Card>
+            );
+          }}
         />
       </View>
 
@@ -263,6 +303,13 @@ export default function OperatorReviewScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.lg },
   actions: { flexDirection: 'row', gap: Spacing.sm },
+  qaBlock: {
+    borderWidth: 1,
+    borderColor: Colors.danger,
+    borderRadius: 8,
+    padding: Spacing.sm,
+    gap: Spacing.xs,
+  },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

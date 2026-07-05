@@ -9,6 +9,7 @@ from typing import Any, Dict, Tuple
 
 import operator_smoke
 import test_batch_scope_contract
+import test_operator_review_gate_contract
 
 
 def fake_req(root: str, path: str, token: str = '', method: str = 'GET') -> Tuple[int, Dict[str, Any], str]:
@@ -158,6 +159,7 @@ def main() -> int:
     validate_full_smoke_contract()
     validate_cli_contract()
     test_batch_scope_contract.main()
+    test_operator_review_gate_contract.main()
     print('Operator Smoke contract checks passed')
     return 0
 

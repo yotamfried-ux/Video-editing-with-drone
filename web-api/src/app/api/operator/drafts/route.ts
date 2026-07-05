@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { listFolder } from '@/lib/google-drive';
 import { createR2SignedGetUrl, listR2Prefix, shouldUseR2Storage } from '@/lib/r2-storage';
+import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
 
 // GET /api/operator/drafts — list draft reels waiting for approval.
 // R2 is the primary backend when configured; Drive remains as fallback.
@@ -14,15 +15,19 @@ export async function GET(req: NextRequest) {
     if (shouldUseR2Storage()) {
       const files = await listR2Prefix('review/');
       return NextResponse.json({
-        drafts: files.map((f) => ({
-          id: f.key,
-          name: f.name,
-          created_at: f.created_at,
-          size: f.size,
-          watch_url: createR2SignedGetUrl(f.key),
-          storage_backend: 'r2',
-          storage_key: f.key,
-        })),
+        drafts: files.map((f) => {
+          const policy = evaluateDraftReviewPolicy({ name: f.name });
+          return {
+            id: f.key,
+            name: f.name,
+            created_at: f.created_at,
+            size: f.size,
+            watch_url: createR2SignedGetUrl(f.key),
+            storage_backend: 'r2',
+            storage_key: f.key,
+            ...policy,
+          };
+        }),
       });
     }
 
@@ -35,14 +40,18 @@ export async function GET(req: NextRequest) {
     }
     const files = await listFolder(reviewFolder);
     return NextResponse.json({
-      drafts: files.map((f) => ({
-        id: f.id,
-        name: f.name,
-        created_at: f.createdTime,
-        size: f.size ? Number(f.size) : null,
-        watch_url: f.webViewLink ?? null,
-        storage_backend: 'drive',
-      })),
+      drafts: files.map((f) => {
+        const policy = evaluateDraftReviewPolicy({ name: f.name });
+        return {
+          id: f.id,
+          name: f.name,
+          created_at: f.createdTime,
+          size: f.size ? Number(f.size) : null,
+          watch_url: f.webViewLink ?? null,
+          storage_backend: 'drive',
+          ...policy,
+        };
+      }),
     });
   } catch (e) {
     return NextResponse.json(
