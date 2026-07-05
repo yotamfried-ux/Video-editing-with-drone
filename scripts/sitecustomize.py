@@ -80,6 +80,15 @@ def _install_candidate_ledger() -> None:
         pass
 
 
+def _install_athlete_canonicalization() -> None:
+    _repo_root()
+    try:
+        from pipeline.athlete_canonicalization import install
+        install()
+    except Exception:
+        pass
+
+
 def _install_real_identity_gate() -> None:
     _repo_root()
     try:
@@ -123,6 +132,7 @@ _install_narrative_policy()
 _install_qa_gate_policy()
 _install_draft_diagnostics()
 _install_candidate_ledger()
+_install_athlete_canonicalization()
 _install_real_identity_gate()
 _install_final_duplicate_guard()
 _install_context_qa_gate()
