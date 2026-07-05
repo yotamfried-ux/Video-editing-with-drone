@@ -20,6 +20,7 @@ type UploadBody = {
 
 type NormalizedUploadFile = {
   filename: string;
+  uploadFilename: string;
   mimeType: string;
 };
 
@@ -28,11 +29,17 @@ function normalizeUploadFiles(body: UploadBody): NormalizedUploadFile[] {
   const rawFiles = Array.isArray(body.files) && body.files.length
     ? body.files
     : [{ filename: body.filename, mimeType: body.mimeType }];
+  const isBatch = rawFiles.length > 1;
 
-  return rawFiles.map((file, index) => ({
-    filename: (file.filename ?? '').trim() || `footage_${stamp}_${index + 1}.mp4`,
-    mimeType: (file.mimeType ?? '').trim() || 'video/mp4',
-  }));
+  return rawFiles.map((file, index) => {
+    const filename = (file.filename ?? '').trim() || `footage_${stamp}_${index + 1}.mp4`;
+    const uniquePrefix = String(index + 1).padStart(3, '0');
+    return {
+      filename,
+      uploadFilename: isBatch ? `${uniquePrefix}_${filename}` : filename,
+      mimeType: (file.mimeType ?? '').trim() || 'video/mp4',
+    };
+  });
 }
 
 export async function POST(req: NextRequest) {
@@ -63,10 +70,11 @@ export async function POST(req: NextRequest) {
   try {
     if (shouldUseR2Storage()) {
       const uploads = files.map((file) => {
-        const upload = createR2UploadUrl(file.filename, batchId);
+        const upload = createR2UploadUrl(file.uploadFilename, batchId);
         return {
           uploadUrl: upload.uploadUrl,
           filename: upload.filename,
+          source_filename: file.filename,
           mimeType: file.mimeType,
           batch_id: upload.batch_id,
           storage_backend: 'r2',
@@ -87,8 +95,9 @@ export async function POST(req: NextRequest) {
 
     const uploads = await Promise.all(
       files.map(async (file) => ({
-        uploadUrl: await createUploadSession(file.filename, rawFolder, file.mimeType),
-        filename: file.filename,
+        uploadUrl: await createUploadSession(file.uploadFilename, rawFolder, file.mimeType),
+        filename: file.uploadFilename,
+        source_filename: file.filename,
         mimeType: file.mimeType,
         batch_id: batchId,
         storage_backend: 'drive',
