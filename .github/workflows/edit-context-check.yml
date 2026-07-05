@@ -1,0 +1,8 @@
+name: Edit Context Check
+on: [pull_request]
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 scripts/test_source_context_qa_contract.py
