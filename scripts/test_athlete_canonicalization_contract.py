@@ -14,8 +14,6 @@ def assert_true(condition: bool, message: str) -> None:
 
 
 def main() -> None:
-    # Strong evidence: two clusters with the same track_id are the same athlete and
-    # should become one collection/cluster, preventing duplicate standalone drafts.
     clusters = [
         {
             "description": "surfer in black wetsuit",
@@ -35,7 +33,19 @@ def main() -> None:
     assert_true({event.get("athlete_id") for event in events} == {athlete_id}, "all merged events must share athlete_id")
     assert_true(any(event.get("athlete_duplicate_group") for event in events), "merged duplicates must expose duplicate group evidence")
 
-    # Weak evidence: similar descriptions without track/athlete evidence must NOT be guessed together.
+    shared_track_with_source_ids = canonicalize_clusters([
+        {
+            "description": "source a surfer",
+            "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "a2", "track_id": "trk-9", "athlete_id": "ath_src_a", "athlete_canonical_evidence_status": "single_source", "person_id": "person_A"}]}],
+        },
+        {
+            "description": "source b surfer",
+            "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "b2", "track_id": "trk-9", "athlete_id": "ath_src_b", "athlete_canonical_evidence_status": "single_source", "person_id": "person_B"}]}],
+        },
+    ])
+    assert_true(len(shared_track_with_source_ids) == 1, "shared track_id must merge despite source-specific IDs")
+    assert_true(shared_track_with_source_ids[0].get("athlete_canonical_key") == "strong:track_id:trk-9", "track_id must be the merge key")
+
     weak = canonicalize_clusters([
         {"description": "surfer in black wetsuit", "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "w1", "type": "surf_ride", "start": 1, "end": 10}]}]},
         {"description": "surfer in black swimsuit", "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "w2", "type": "surf_ride", "start": 2, "end": 12}]}]},
@@ -44,7 +54,6 @@ def main() -> None:
     assert_true(all(c.get("athlete_canonical_evidence_status") == "weak" for c in weak), "weak clusters must be explicit")
     assert_true(len({c.get("athlete_id") for c in weak}) == 2, "weak clusters should still get distinct athlete IDs")
 
-    # Long-video/session path: persons and events get IDs before orchestrator loops over people.
     session = {"persons": [{"id": "person_A", "description": "surfer red board", "events": [{"event_id": "s1"}]}]}
     annotated = annotate_session_persons(session, "/tmp/source.mp4")
     person = annotated["persons"][0]
@@ -52,8 +61,6 @@ def main() -> None:
     assert_true(person["events"][0].get("athlete_id") == person.get("athlete_id"), "person event must inherit athlete_id")
     assert_true(person["events"][0].get("person_id") == "person_A", "person_id should be preserved on events")
 
-    # Runtime install path: verify patching without importing the real analyzer/identity modules
-    # because those modules pull production-only API/dependency setup that is not part of this contract.
     fake_analyzer = SimpleNamespace(
         analyze_session=lambda path: {
             "persons": [{"id": "person_B", "description": "surfer blue board", "events": [{"event_id": "p1"}]}]
