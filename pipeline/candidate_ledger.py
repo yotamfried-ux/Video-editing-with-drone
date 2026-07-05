@@ -221,22 +221,29 @@ def value_feedback_schema() -> dict[str, Any]:
     }
 
 
-def augment_diagnostic_artifact(artifact: dict[str, Any]) -> dict[str, Any]:
-    events = artifact.get("ordered_events") or []
-    # Prefer original event objects when the caller still has them; otherwise the
-    # diagnostic ordered_events rows are sufficient for a first-pass ledger.
-    if not isinstance(events, list):
-        events = []
+def augment_diagnostic_artifact(artifact: dict[str, Any], events: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    original_events = events if isinstance(events, list) else artifact.get("ordered_events") or []
+    if not isinstance(original_events, list):
+        original_events = []
     draft_name = str(artifact.get("draft_name") or "unknown_draft")
     sport = str(artifact.get("sport") or "sport")
     artifact["candidate_decision_ledger"] = build_candidate_decision_ledger(
         draft_name,
         sport,
-        [event for event in events if isinstance(event, dict)],
+        [event for event in original_events if isinstance(event, dict)],
         [event for event in artifact.get("dropped_events", []) or [] if isinstance(event, dict)],
     )
     artifact["value_feedback_schema"] = value_feedback_schema()
     return artifact
+
+
+def _events_arg(args: tuple[Any, ...], kwargs: dict[str, Any]) -> list[dict[str, Any]] | None:
+    value = kwargs.get("events")
+    if value is None and len(args) >= 3:
+        value = args[2]
+    if isinstance(value, list):
+        return [event for event in value if isinstance(event, dict)]
+    return None
 
 
 def _patch_diagnostics(diagnostics: Any) -> None:
@@ -246,7 +253,7 @@ def _patch_diagnostics(diagnostics: Any) -> None:
 
     def build_with_candidate_ledger(*args, **kwargs):
         artifact = original(*args, **kwargs)
-        return augment_diagnostic_artifact(artifact)
+        return augment_diagnostic_artifact(artifact, _events_arg(args, kwargs))
 
     diagnostics.build_diagnostic_artifact = build_with_candidate_ledger
     setattr(diagnostics, _INSTALLED_FLAG, True)
