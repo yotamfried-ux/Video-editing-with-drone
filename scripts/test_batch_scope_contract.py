@@ -17,12 +17,6 @@ def require(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} missing tokens: {missing}")
 
 
-def forbid(label: str, text: str, tokens: list[str]) -> None:
-    found = [token for token in tokens if token in text]
-    if found:
-        raise SystemExit(f"{label} contains forbidden tokens: {found}")
-
-
 def main() -> int:
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
     start_route = read("web-api/src/app/api/operator/pipeline/start/route.ts")
@@ -38,7 +32,7 @@ def main() -> int:
         ast.parse(text)
 
     require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
-    require("upload route", upload_route, ["files?: UploadFileInput[]", "normalizeUploadFiles", "safeBatchId(requestedBatchId) || newBatchId()", "createR2UploadUrl(file.filename, batchId)", "batch_id: upload.batch_id", "uploads,"])
+    require("upload route", upload_route, ["files?: UploadFileInput[]", "normalizeUploadFiles", "uploadFilename", "safeBatchId(requestedBatchId) || newBatchId()", "createR2UploadUrl(file.uploadFilename, batchId)", "batch_id: upload.batch_id", "uploads,"])
     require("pipeline start route", start_route, ["batch_id?: string", "safeBatchId", "client_payload", "batch_id"])
     require("pipeline reset route", reset_route, ["batch_id", "safeBatchId", "inputs", "pipeline_run_id: run.id"])
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
@@ -46,8 +40,13 @@ def main() -> int:
     require("operator contracts", contracts, ["batch_id?: string | null"])
     require("python startup hook", sitecustomize, ["RAW_BATCH_ID", "pipeline.r2_batch_scope", "_install_r2_batch_scope"])
     require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
-    forbid("r2 upload key legacy raw root", r2_lib, ["const key = `raw/${storageName}`"])
-    forbid("upload route legacy single file R2 call", upload_route, ["createR2UploadUrl(filename, requestedBatchId)"])
+
+    if "const key = `raw/${storageName}`" in r2_lib:
+        raise SystemExit("r2 storage key must include batch id")
+    if "createR2UploadUrl(filename, requestedBatchId)" in upload_route:
+        raise SystemExit("upload route must use normalized batch files")
+    if "createR2UploadUrl(file.filename, batchId)" in upload_route:
+        raise SystemExit("upload route must use unique per-file upload names")
 
     print("Batch scope contract checks passed")
     return 0
