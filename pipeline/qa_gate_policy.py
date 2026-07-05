@@ -1,4 +1,4 @@
-"""QA gate diagnostics for PQ-009."""
+"""QA gate diagnostics for PQ-009 and REAL-QA-002."""
 from __future__ import annotations
 
 import importlib.abc
@@ -8,7 +8,7 @@ import os
 import sys
 from typing import Any
 
-BLOCKING_DEFECT_TYPES = {"IDENTITY_MISMATCH", "NO_VISIBLE_ACTION", "BAD_FRAMING", "DUPLICATE_MOMENT"}
+BLOCKING_DEFECT_TYPES = {"IDENTITY_MISMATCH", "NO_VISIBLE_ACTION", "BAD_FRAMING", "DUPLICATE_MOMENT", "DUPLICATE_DRAFT", "QA_REVIEW_REQUIRED"}
 _INSTALLED_FLAG = "_sportreel_qa_gate_policy_installed"
 _FINDER_FLAG = "_sportreel_qa_gate_import_hook_installed"
 
@@ -45,6 +45,7 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
         "reel_path": os.path.basename(reel_path) if reel_path else "",
         "blocking_defect_types": sorted(BLOCKING_DEFECT_TYPES),
         "critical_defect_count": len([d for d in defects if d.get("blocking")]),
+        "qa_review_required": bool(qa.get("qa_review_required")),
         "defects": defects,
         "overall": qa.get("overall", ""),
         "engagement_score": qa.get("engagement_score"),
@@ -88,6 +89,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
 
     def qa_gate_with_diagnostics(reels, events_out, sport, athlete_label, recompile):
         from pipeline.stages import analyzer
+        from pipeline.qa_state import mark_review_required
         original_check = analyzer.qa_check_reel
         qa_by_reel: dict[str, dict[str, Any]] = {}
         call_count = 0
@@ -95,7 +97,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         def tracked_qa_check(reel, *args, **kwargs):
             nonlocal call_count
             call_count += 1
-            qa = original_check(reel, *args, **kwargs)
+            qa = mark_review_required(original_check(reel, *args, **kwargs))
             qa_by_reel[reel] = qa
             return qa
 
@@ -107,7 +109,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
 
         retry_count = max(0, call_count - len([r for r in reels if "_music" not in os.path.basename(r)]))
         for reel in flagged:
-            qa = qa_by_reel.get(reel, {"verdict": "FAIL", "defects": [], "overall": "QA flagged without captured details"})
+            qa = qa_by_reel.get(reel, {"verdict": "FAIL", "defects": [{"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": "missing QA details"}], "overall": "missing QA details", "qa_review_required": True})
             decision = "flagged_manual_review" if critical_defects(qa) else "flagged_nonblocking_review"
             diagnostics = build_qa_diagnostics(qa, retry_count=retry_count, decision=decision, reel_path=reel)
             events_by_reel[reel] = attach_qa_diagnostics(events_by_reel.get(reel, []), diagnostics)
