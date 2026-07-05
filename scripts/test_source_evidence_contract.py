@@ -27,9 +27,8 @@ def main() -> int:
         raise SystemExit("missing defect")
     if os.path.exists(f.name):
         raise SystemExit("clip not cleaned")
-    before = gate._qa_gate_with_edit_context
     patch.install()
-    if gate._qa_gate_with_edit_context is before:
+    if not getattr(gate, "_sportreel_source_evidence_patch_installed", False):
         raise SystemExit("patch not installed")
     if "pipeline.source_evidence_patch" not in (ROOT / "scripts/usercustomize.py").read_text(encoding="utf-8"):
         raise SystemExit("bootstrap missing")
