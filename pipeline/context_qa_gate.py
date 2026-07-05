@@ -47,7 +47,10 @@ def event_window_key(event: dict[str, Any], index: int) -> tuple[Any, ...]:
     fp = _fingerprint(event)
     if fp:
         return ("fp", fp)
-    return ("window", _src(event), _event_id(event, index), _bucket_time(event.get("start")), _bucket_time(event.get("end")), str(event.get("track_id") or ""))
+    source = _src(event)
+    if source:
+        return ("window", source, _bucket_time(event.get("start")), _bucket_time(event.get("end")), str(event.get("track_id") or ""))
+    return ("event", _event_id(event, index), _bucket_time(event.get("start")), _bucket_time(event.get("end")))
 
 
 def draft_fingerprint(events: list[dict[str, Any]]) -> tuple[tuple[Any, ...], ...]:
@@ -66,15 +69,7 @@ def draft_quality(events: list[dict[str, Any]]) -> float:
 
 
 def build_qa_package(reel_path: str, draft_name: str, events: list[dict[str, Any]], source_quality: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "reel_path": reel_path,
-        "draft_name": draft_name,
-        "fingerprint": draft_fingerprint(events),
-        "quality": draft_quality(events),
-        "events": events,
-        "source_quality": source_quality,
-        "source_windows": [{"event_id": _event_id(event, idx), "source": _src(event), "start": event.get("start"), "end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "fingerprint": _fingerprint(event)} for idx, event in enumerate(events) if not event.get("_teaser")],
-    }
+    return {"reel_path": reel_path, "draft_name": draft_name, "fingerprint": draft_fingerprint(events), "quality": draft_quality(events), "events": events, "source_quality": source_quality, "source_windows": [{"event_id": _event_id(event, idx), "source": _src(event), "start": event.get("start"), "end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "fingerprint": _fingerprint(event)} for idx, event in enumerate(events) if not event.get("_teaser")]}
 
 
 def _duplicate_detail(dropped: dict[str, Any], kept: dict[str, Any]) -> dict[str, Any]:
@@ -126,7 +121,6 @@ def filter_duplicate_draft_candidates(pending: list[tuple[str, str]], pending_me
 def _patch_orchestrator(orchestrator: Any) -> None:
     if getattr(orchestrator, _INSTALLED_FLAG, False):
         return
-
     def compile_clusters_with_context_qa(clusters: list[dict], activity: str, fn_to_id: dict[str, str] | None = None) -> int:
         try:
             from pipeline.real_identity_gate import enforce_identity_gate
@@ -202,7 +196,6 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 except Exception:
                     pass
         return sum(results)
-
     orchestrator._compile_clusters = compile_clusters_with_context_qa
     setattr(orchestrator, _INSTALLED_FLAG, True)
 
