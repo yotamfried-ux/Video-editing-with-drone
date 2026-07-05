@@ -5,7 +5,6 @@ import json
 import os
 from typing import Any
 
-import config
 from pipeline.source_evidence import make_source_clips, source_evidence_prompt
 
 
@@ -33,8 +32,8 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
         defects = [d for d in (parsed.get("defects") or []) if isinstance(d, dict)]
         critical = [d for d in defects if str(d.get("severity", "")).lower() == "critical"]
         score = int(parsed.get("engagement_score", 0))
-        ok = tech_ok and score >= config.QA_ENGAGEMENT_THRESHOLD and not critical
-        result = {"verdict": "PASS" if ok else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True}
+        threshold = int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60"))
+        result = {"verdict": "PASS" if tech_ok and score >= threshold and not critical else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True}
         analyzer._persist_qa_result(result, reel_path, sport)
         return result
     except Exception:
