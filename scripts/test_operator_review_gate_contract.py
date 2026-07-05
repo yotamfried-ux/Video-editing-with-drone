@@ -19,6 +19,7 @@ def main() -> int:
     policy = read("web-api/src/lib/draft-review-policy.ts")
     drafts_route = read("web-api/src/app/api/operator/drafts/route.ts")
     approve_route = read("web-api/src/app/api/operator/drafts/approve/route.ts")
+    approve_handler = read("web-api/src/lib/operator-draft-approve.ts")
     review_screen = read("mobile/src/app/(operator)/review.tsx")
     contracts = read("mobile/src/features/operator/types/contracts.ts")
 
@@ -28,11 +29,16 @@ def main() -> int:
     require("evaluateDraftReviewPolicy({ name: f.name })" in drafts_route, "R2/Drive drafts must expose policy metadata")
     require("...policy" in drafts_route, "draft list must include policy fields")
 
-    require("evaluateDraftReviewPolicy" in approve_route, "approve endpoint must enforce review policy")
-    require("status: 409" in approve_route, "blocked approval must return 409")
-    policy_call = approve_route.index("const policy = evaluateDraftReviewPolicy")
-    require("await moveR2Object" in approve_route and policy_call < approve_route.index("await moveR2Object"), "policy must run before R2 move")
-    require("await moveFile" in approve_route and policy_call < approve_route.index("await moveFile"), "policy must run before Drive move")
+    require("approveDraftPost" in approve_route, "approve route must delegate to the storage-derived policy handler")
+    require("file_name" not in approve_route, "approve route must not trust client-provided file_name")
+    require("file_name" not in approve_handler.split("type ApproveBody", 1)[1].split("};", 1)[0], "ApproveBody must not accept client-provided file_name")
+    require("fileName = r2Basename(fileId)" in approve_handler, "R2 policy name must come from storage key")
+    require("fileName = (await getFile(fileId)).name" in approve_handler, "Drive policy name must come from Drive lookup")
+    require("evaluateDraftReviewPolicy" in approve_handler, "approve handler must enforce review policy")
+    require("status: 409" in approve_handler, "blocked approval must return 409")
+    policy_call = approve_handler.index("const policy = evaluateDraftReviewPolicy")
+    require("await moveR2Object" in approve_handler and policy_call < approve_handler.index("await moveR2Object"), "policy must run before R2 move")
+    require("await moveFile" in approve_handler and policy_call < approve_handler.index("await moveFile"), "policy must run before Drive move")
 
     for token in ["draftIsApprovalBlocked", "approvalReasons", "Approval blocked", "disabled={approving !== null || blocked}", "Send to re-edit"]:
         require(token in review_screen, f"review screen missing {token}")

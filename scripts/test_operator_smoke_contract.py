@@ -11,6 +11,8 @@ import operator_smoke
 import test_batch_scope_contract
 import test_operator_review_gate_contract
 
+# Keep this smoke contract wired to review approval source-name enforcement.
+
 
 def fake_req(root: str, path: str, token: str = '', method: str = 'GET') -> Tuple[int, Dict[str, Any], str]:
     if path == '/api/operator/pipeline/status' and not token:
