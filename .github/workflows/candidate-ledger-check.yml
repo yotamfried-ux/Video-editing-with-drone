@@ -19,4 +19,4 @@ jobs:
         with:
           python-version: '3.12'
       - name: Run candidate ledger contract
-        run: python3 scripts/test_candidate_ledger_contract.py
+        run: PYTHONPATH=. python3 -S scripts/test_candidate_ledger_contract.py
