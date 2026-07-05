@@ -1,0 +1,22 @@
+name: Athlete Canonicalization Check
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/athlete_canonicalization.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/run_tracked.py'
+      - 'scripts/test_athlete_canonicalization_contract.py'
+      - '.github/workflows/athlete-canonicalization-check.yml'
+  workflow_dispatch:
+
+jobs:
+  athlete-canonicalization:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run athlete canonicalization contract
+        run: PYTHONPATH=scripts:. python3 scripts/test_athlete_canonicalization_contract.py
