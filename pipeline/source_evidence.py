@@ -7,8 +7,6 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
-import config
-
 MAX_WINDOWS = 4
 PAD_BEFORE = 2.0
 PAD_AFTER = 4.0
@@ -22,7 +20,7 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 
 def make_source_clips(context: dict[str, Any], tmp_dir: str | None = None) -> list[str]:
-    tmp_dir = tmp_dir or config.TMP_DIR
+    tmp_dir = tmp_dir or os.getenv("TMP_DIR", "/tmp/dtor")
     os.makedirs(tmp_dir, exist_ok=True)
     clips: list[str] = []
     for idx, win in enumerate(context.get("source_windows", [])[:MAX_WINDOWS]):
