@@ -2,6 +2,9 @@
 """Contract for REAL-ATHLETE-001 run-level athlete canonicalization."""
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 from pipeline.athlete_canonicalization import annotate_session_persons, canonicalize_clusters, install
 
 
@@ -49,11 +52,34 @@ def main() -> None:
     assert_true(person["events"][0].get("athlete_id") == person.get("athlete_id"), "person event must inherit athlete_id")
     assert_true(person["events"][0].get("person_id") == "person_A", "person_id should be preserved on events")
 
+    # Runtime install path: verify patching without importing the real analyzer/identity modules
+    # because those modules pull production-only API/dependency setup that is not part of this contract.
+    fake_analyzer = SimpleNamespace(
+        analyze_session=lambda path: {
+            "persons": [{"id": "person_B", "description": "surfer blue board", "events": [{"event_id": "p1"}]}]
+        }
+    )
+    fake_identity = SimpleNamespace(
+        cluster_clips=lambda clip_analyses: [
+            {"description": "surfer in black wetsuit", "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "c1", "track_id": "trk-42"}]}]},
+            {"description": "surfer with dark board", "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "c2", "track_id": "trk-42"}]}]},
+        ]
+    )
+    sys.modules["pipeline.stages.analyzer"] = fake_analyzer
+    sys.modules["pipeline.stages.identity"] = fake_identity
+
     install()
-    import pipeline.stages.analyzer as analyzer
-    import pipeline.stages.identity as identity
-    assert_true(getattr(analyzer, "_sportreel_athlete_canonicalization_analyzer_installed", False), "analyzer must be patched")
-    assert_true(getattr(identity, "_sportreel_athlete_canonicalization_identity_installed", False), "identity must be patched")
+    assert_true(getattr(fake_analyzer, "_sportreel_athlete_canonicalization_analyzer_installed", False), "analyzer must be patched")
+    assert_true(getattr(fake_identity, "_sportreel_athlete_canonicalization_identity_installed", False), "identity must be patched")
+
+    patched_session = fake_analyzer.analyze_session("/tmp/source.mp4")
+    patched_person = patched_session["persons"][0]
+    assert_true(str(patched_person.get("athlete_id", "")).startswith("ath_"), "patched analyzer must annotate person athlete_id")
+    assert_true(patched_person["events"][0].get("athlete_id") == patched_person.get("athlete_id"), "patched analyzer must annotate event athlete_id")
+
+    patched_clusters = fake_identity.cluster_clips([])
+    assert_true(len(patched_clusters) == 1, "patched identity must canonicalize same strong athlete evidence")
+    assert_true(patched_clusters[0].get("athlete_collection_policy") == "merged_same_athlete", "patched identity must mark duplicate athlete collection policy")
 
     with open("scripts/run_tracked.py", encoding="utf-8") as handle:
         runner = handle.read()
