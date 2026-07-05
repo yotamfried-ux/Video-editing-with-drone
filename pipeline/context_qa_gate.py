@@ -1,12 +1,19 @@
 """Run-level context QA gate.
 
-This gate evaluates all draft candidates in one run before upload. It does not
-replace reel-level Gemini QA; it adds deterministic run-level checks that need
-edit/source context, especially duplicate rendered drafts with different names.
+Evaluates all draft candidates in one run before upload. This adds
+context-aware deterministic QA that uses edit/source metadata, especially for
+duplicate rendered drafts emitted under different descriptions.
 """
 from __future__ import annotations
 
+import os
+import sys
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import Any
+
+_INSTALLED_FLAG = "_sportreel_context_qa_gate_installed"
+_QA_WRAPPED = "_sportreel_context_qa_gate_wrapped_qa"
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -33,26 +40,18 @@ def _fingerprint(event: dict[str, Any]) -> str:
 
 
 def _bucket_time(value: Any) -> int:
-    return int(round(_num(value) * 2))  # half-second buckets
+    return int(round(_num(value) * 2))
 
 
 def event_window_key(event: dict[str, Any], index: int) -> tuple[Any, ...]:
     fp = _fingerprint(event)
     if fp:
         return ("fp", fp)
-    return (
-        "window",
-        _src(event),
-        _event_id(event, index),
-        _bucket_time(event.get("start")),
-        _bucket_time(event.get("end")),
-        str(event.get("track_id") or ""),
-    )
+    return ("window", _src(event), _event_id(event, index), _bucket_time(event.get("start")), _bucket_time(event.get("end")), str(event.get("track_id") or ""))
 
 
 def draft_fingerprint(events: list[dict[str, Any]]) -> tuple[tuple[Any, ...], ...]:
-    keys = [event_window_key(event, idx) for idx, event in enumerate(events) if not event.get("_teaser")]
-    return tuple(sorted(keys))
+    return tuple(sorted(event_window_key(event, idx) for idx, event in enumerate(events) if not event.get("_teaser")))
 
 
 def draft_quality(events: list[dict[str, Any]]) -> float:
@@ -74,33 +73,12 @@ def build_qa_package(reel_path: str, draft_name: str, events: list[dict[str, Any
         "quality": draft_quality(events),
         "events": events,
         "source_quality": source_quality,
-        "source_windows": [
-            {
-                "event_id": _event_id(event, idx),
-                "source": _src(event),
-                "start": event.get("start"),
-                "end": event.get("end"),
-                "final_cut_start": event.get("final_cut_start"),
-                "final_cut_end": event.get("final_cut_end"),
-                "track_id": event.get("track_id"),
-                "fingerprint": _fingerprint(event),
-            }
-            for idx, event in enumerate(events)
-            if not event.get("_teaser")
-        ],
+        "source_windows": [{"event_id": _event_id(event, idx), "source": _src(event), "start": event.get("start"), "end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "fingerprint": _fingerprint(event)} for idx, event in enumerate(events) if not event.get("_teaser")],
     }
 
 
 def _duplicate_detail(dropped: dict[str, Any], kept: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "reason": "duplicate_rendered_draft",
-        "defect_type": "DUPLICATE_DRAFT",
-        "blocking": True,
-        "dropped_draft": dropped["draft_name"],
-        "kept_draft": kept["draft_name"],
-        "dropped_source_windows": dropped["source_windows"],
-        "kept_source_windows": kept["source_windows"],
-    }
+    return {"reason": "duplicate_rendered_draft", "defect_type": "DUPLICATE_DRAFT", "blocking": True, "dropped_draft": dropped["draft_name"], "kept_draft": kept["draft_name"], "dropped_source_windows": dropped["source_windows"], "kept_source_windows": kept["source_windows"]}
 
 
 def _attach_duplicate_detail(events: list[dict[str, Any]], detail: dict[str, Any]) -> list[dict[str, Any]]:
@@ -114,30 +92,26 @@ def filter_duplicate_draft_candidates(pending: list[tuple[str, str]], pending_me
     packages = [build_qa_package(reel, name, events, src_q) for reel, name, events, src_q in pending_meta]
     keep_by_fp: dict[tuple[tuple[Any, ...], ...], int] = {}
     dropped: list[dict[str, Any]] = []
-
     for idx, package in enumerate(packages):
         fp = package["fingerprint"]
         if not fp:
             keep_by_fp[(('empty', idx),)] = idx
-            continue
-        if fp not in keep_by_fp:
-            keep_by_fp[fp] = idx
-            continue
-        kept_idx = keep_by_fp[fp]
-        kept = packages[kept_idx]
-        if package["quality"] > kept["quality"]:
-            dropped.append(_duplicate_detail(kept, package))
+        elif fp not in keep_by_fp:
             keep_by_fp[fp] = idx
         else:
-            dropped.append(_duplicate_detail(package, kept))
-
+            kept_idx = keep_by_fp[fp]
+            kept = packages[kept_idx]
+            if package["quality"] > kept["quality"]:
+                dropped.append(_duplicate_detail(kept, package))
+                keep_by_fp[fp] = idx
+            else:
+                dropped.append(_duplicate_detail(package, kept))
     kept_indices = set(keep_by_fp.values())
-    filtered_pending: list[tuple[str, str]] = []
-    filtered_meta: list[tuple[str, str, list[dict[str, Any]], dict[str, Any]]] = []
     by_kept_name: dict[str, list[dict[str, Any]]] = {}
     for detail in dropped:
         by_kept_name.setdefault(detail["kept_draft"], []).append(detail)
-
+    filtered_pending: list[tuple[str, str]] = []
+    filtered_meta: list[tuple[str, str, list[dict[str, Any]], dict[str, Any]]] = []
     for idx, meta in enumerate(pending_meta):
         if idx not in kept_indices:
             continue
@@ -147,3 +121,114 @@ def filter_duplicate_draft_candidates(pending: list[tuple[str, str]], pending_me
         filtered_pending.append(pending[idx])
         filtered_meta.append((reel, name, events, src_q))
     return filtered_pending, filtered_meta, dropped
+
+
+def _patch_orchestrator(orchestrator: Any) -> None:
+    if getattr(orchestrator, _INSTALLED_FLAG, False):
+        return
+
+    def compile_clusters_with_context_qa(clusters: list[dict], activity: str, fn_to_id: dict[str, str] | None = None) -> int:
+        try:
+            from pipeline.real_identity_gate import enforce_identity_gate
+            clusters = enforce_identity_gate(clusters)
+        except Exception:
+            pass
+        pending: list[tuple[str, str]] = []
+        pending_meta: list[tuple[str, str, list[dict], dict]] = []
+        fn_to_id = fn_to_id or {}
+        for ci, cluster in enumerate(clusters):
+            orchestrator._write_status("editing", 0.30 + 0.15 * (ci / max(1, len(clusters))), cluster=f"{ci + 1}/{len(clusters)}", athlete=str(cluster.get("description", ""))[:60])
+            first_path = cluster["appearances"][0]["path"] if cluster.get("appearances") else None
+            source_quality = orchestrator._get_source_info(first_path) if first_path else {}
+            all_events = [ev for app in cluster.get("appearances", []) for ev in app.get("events", [])]
+            events_out: list[tuple[str, list[dict]]] = []
+            reels = orchestrator.compile_multi_source_reel(cluster.get("appearances", []), sport=activity, athlete_label=cluster.get("description", ""), _events_out=events_out)
+            def _recompile(evs: list[dict], out: list) -> list[str]:
+                return orchestrator.compile_multi_source_reel(orchestrator._group_appearances(evs), sport=activity, athlete_label=cluster.get("description", ""), _events_out=out)
+            reels, events_by_reel, flagged = orchestrator._qa_gate(reels, events_out, activity, cluster.get("description", ""), _recompile)
+            sources = [{"id": fn_to_id.get(Path(app["path"]).name, ""), "name": Path(app["path"]).name} for app in cluster.get("appearances", [])]
+            clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
+            clean_idx = 0
+            for reel in reels:
+                is_music = "_music" in os.path.basename(reel)
+                if not is_music:
+                    clean_idx += 1
+                part_label = f" (part {clean_idx})" if clean_count > 1 else ""
+                music_label = " (music)" if is_music else ""
+                qa_label = " QA-FLAGGED" if reel in flagged else ""
+                name = orchestrator._safe_draft_name(str(cluster.get("description", "")) + part_label + music_label + qa_label)
+                reel_events = events_by_reel.get(reel, all_events)
+                pending.append((reel, name))
+                pending_meta.append((reel, name, reel_events, source_quality))
+                orchestrator._record_draft_sources(name, sources, activity, str(cluster.get("description", "")))
+        pending, pending_meta, dropped = filter_duplicate_draft_candidates(pending, pending_meta)
+        for detail in dropped:
+            print(f"  Context QA blocked duplicate draft {detail['dropped_draft']} -> kept {detail['kept_draft']}")
+        def _upload_one(args: tuple[str, str]) -> bool:
+            reel_path, name = args
+            try:
+                orchestrator.upload_draft(reel_path, name)
+                return True
+            except Exception as exc:
+                os.makedirs(orchestrator.config.PENDING_UPLOADS_DIR, exist_ok=True)
+                staged = os.path.join(orchestrator.config.PENDING_UPLOADS_DIR, os.path.basename(reel_path))
+                try:
+                    orchestrator.shutil.move(reel_path, staged)
+                    with open(staged + ".name", "w") as f:
+                        f.write(name)
+                    orchestrator.logger.error("Upload failed for '%s' — staged at %s for next run", name, staged)
+                    print("⚠️  Upload failed — reel saved to pending_uploads/ for next run")
+                except Exception:
+                    orchestrator.logger.error("Could not stage reel %s — reel lost: %s", reel_path, exc)
+                return False
+            finally:
+                try:
+                    if os.path.exists(reel_path):
+                        os.remove(reel_path)
+                except OSError:
+                    pass
+        if not pending:
+            return 0
+        workers = min(len(pending), orchestrator._MAX_UL_WORKERS)
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_upload_one, pending))
+        total = len(pending)
+        for idx, ((_, name), ok, (_, _, events, src_q)) in enumerate(zip(pending, results, pending_meta), start=1):
+            if ok:
+                orchestrator._save_reel_metadata(name, activity, events, src_q)
+                try:
+                    from integrations.supabase_uploader import write_pipeline_status
+                    write_pipeline_status("uploading", 0.50 + 0.40 * (idx / total), uploaded=idx, total=total, reel_name=name)
+                except Exception:
+                    pass
+        return sum(results)
+
+    orchestrator._compile_clusters = compile_clusters_with_context_qa
+    setattr(orchestrator, _INSTALLED_FLAG, True)
+
+
+def _wrap_existing_hook() -> bool:
+    policy = sys.modules.get("pipeline.qa_gate_policy")
+    if policy is None or getattr(policy, _QA_WRAPPED, False):
+        return False
+    original = getattr(policy, "_patch_orchestrator", None)
+    if original is None:
+        return False
+    def patch_both(orchestrator: Any) -> None:
+        original(orchestrator)
+        _patch_orchestrator(orchestrator)
+    policy._patch_orchestrator = patch_both
+    setattr(policy, _QA_WRAPPED, True)
+    return True
+
+
+def install() -> None:
+    module = sys.modules.get("pipeline.orchestrator")
+    if module is not None:
+        _patch_orchestrator(module)
+        return
+    if _wrap_existing_hook():
+        return
+    import pipeline.qa_gate_policy as policy
+    policy.install()
+    _wrap_existing_hook()
