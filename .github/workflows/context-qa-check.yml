@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/context-qa-check.yml'
       - 'pipeline/context_qa_gate.py'
+      - 'pipeline/context_qa_long_video.py'
       - 'pipeline/draft_diagnostics.py'
       - 'scripts/sitecustomize.py'
       - 'scripts/test_context_qa_gate_contract.py'
