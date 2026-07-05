@@ -16,6 +16,7 @@ def app(path: str, event_id: str, track_id=None):
 
 
 def main() -> int:
+    from pipeline.draft_diagnostics import build_diagnostic_artifact
     from pipeline.real_identity_gate import enforce_identity_gate
 
     stable = [{"description": "same surfer", "appearances": [app("a.mp4", "a1", "t7"), app("b.mp4", "b1", "t7")]}]
@@ -35,6 +36,13 @@ def main() -> int:
     if first_gate.get("decision") != "split_to_single_appearance" or first_gate.get("appearance", {}).get("track_ids") != ["t1"]:
         raise SystemExit("split diagnostics missing event/source/track details")
 
+    artifact = build_diagnostic_artifact("DRAFT_identity.mp4", "surfing", out[0]["appearances"][0]["events"], {}, "review/DRAFT_identity.mp4")
+    member_gate = artifact["identity_clusters"][0]["members"][0].get("identity_gate", {})
+    if member_gate.get("reason") != "conflicting_track_ids":
+        raise SystemExit("diagnostic artifact must preserve identity gate reason")
+    if not artifact.get("dropped_events") or artifact["dropped_events"][0].get("reason") != "conflicting_track_ids":
+        raise SystemExit("diagnostic artifact must list identity-gated split in dropped_events")
+
     missing = [{"description": "uncertain surfer", "appearances": [app("a.mp4", "a1"), app("b.mp4", "b1")]}]
     out = enforce_identity_gate(missing)
     if len(out) != 2 or not all(c.get("_identity_gate_reason") == "missing_track_evidence" for c in out):
@@ -46,11 +54,14 @@ def main() -> int:
         raise SystemExit("single appearance should pass without cross-event identity proof")
 
     text = (ROOT / "pipeline/real_identity_gate.py").read_text(encoding="utf-8")
+    diag = (ROOT / "pipeline/draft_diagnostics.py").read_text(encoding="utf-8")
     boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
     audit = (ROOT / "docs/pipeline-quality-audit-real-run-20260705.md").read_text(encoding="utf-8")
     for token in ["enforce_identity_gate", "_wrap_existing_hook", "_patch_orchestrator"]:
         if token not in text:
             raise SystemExit(f"missing identity gate token: {token}")
+    if "identity_gate" not in diag:
+        raise SystemExit("draft diagnostics must include identity gate metadata")
     if "MetaPathFinder" in text or "importlib.abc" in text:
         raise SystemExit("real identity gate must compose with QA hook, not install a competing import hook")
     if "from pipeline.real_identity_gate import install" not in boot:
