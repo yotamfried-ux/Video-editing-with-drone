@@ -10,7 +10,7 @@ from pipeline.candidate_ledger import (
     install,
     value_feedback_schema,
 )
-from pipeline.draft_diagnostics import build_diagnostic_artifact
+import pipeline.draft_diagnostics as draft_diagnostics
 
 
 def assert_true(condition: bool, message: str) -> None:
@@ -66,7 +66,7 @@ def main() -> None:
     assert_true(set(VALUE_LABELS).issubset(schema["value_labels"]), "schema must expose all value labels")
 
     install()
-    artifact = build_diagnostic_artifact("DRAFT_test.mp4", "surfing", [event, uncertain], {"width": 1920, "height": 1080})
+    artifact = draft_diagnostics.build_diagnostic_artifact("DRAFT_test.mp4", "surfing", [event, uncertain], {"width": 1920, "height": 1080})
     assert_true("candidate_decision_ledger" in artifact, "diagnostic artifact must include candidate ledger")
     assert_true("value_feedback_schema" in artifact, "diagnostic artifact must include feedback schema")
     artifact_ledger = artifact["candidate_decision_ledger"]
