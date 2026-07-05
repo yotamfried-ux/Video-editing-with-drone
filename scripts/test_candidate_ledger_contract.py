@@ -5,6 +5,7 @@ from __future__ import annotations
 from pipeline.candidate_ledger import (
     OPERATOR_FEEDBACK_EVENTS,
     VALUE_LABELS,
+    augment_diagnostic_artifact,
     build_candidate_decision_ledger,
     infer_value_labels,
     install,
@@ -65,14 +66,17 @@ def main() -> None:
     assert_true(set(OPERATOR_FEEDBACK_EVENTS).issubset(schema["operator_feedback_events"]), "schema must expose all feedback events")
     assert_true(set(VALUE_LABELS).issubset(schema["value_labels"]), "schema must expose all value labels")
 
-    install()
-    artifact = draft_diagnostics.build_diagnostic_artifact("DRAFT_test.mp4", "surfing", [event, uncertain], {"width": 1920, "height": 1080})
+    base_artifact = draft_diagnostics.build_diagnostic_artifact("DRAFT_test.mp4", "surfing", [event, uncertain], {"width": 1920, "height": 1080})
+    artifact = augment_diagnostic_artifact(base_artifact, [event, uncertain])
     assert_true("candidate_decision_ledger" in artifact, "diagnostic artifact must include candidate ledger")
     assert_true("value_feedback_schema" in artifact, "diagnostic artifact must include feedback schema")
     artifact_ledger = artifact["candidate_decision_ledger"]
     assert_true(artifact_ledger["summary"]["candidate_count"] >= 2, "artifact ledger should include selected candidates")
     assert_true(artifact_ledger["summary"]["value_label_counts"].get("HIGH_FIVE") == 1, "artifact ledger must preserve original event labels")
     assert_true(artifact_ledger["summary"]["value_label_counts"].get("CUT_TOO_EARLY") == 1, "artifact ledger must preserve uncertainty labels")
+
+    install()
+    assert_true(getattr(draft_diagnostics, "_sportreel_candidate_ledger_installed", False), "install must patch diagnostics module")
 
     with open("scripts/sitecustomize.py", encoding="utf-8") as handle:
         bootstrap = handle.read()
