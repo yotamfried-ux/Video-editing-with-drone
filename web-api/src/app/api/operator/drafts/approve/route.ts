@@ -5,6 +5,7 @@ import { getFile, moveFile } from '@/lib/google-drive';
 import { moveR2Object, r2Basename, shouldUseR2Storage } from '@/lib/r2-storage';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
+import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
 
 export const dynamic = 'force-dynamic';
 
@@ -12,12 +13,20 @@ const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflo
 
 type DeliveryRunPatch = { status?: string; stage?: string; error?: string; finished_at?: string };
 
+type ApproveBody = {
+  file_id?: string;
+  file_name?: string;
+  review_required?: boolean;
+  qa_review_required?: boolean;
+  approval_blocked_reasons?: unknown;
+};
+
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   const limited = await enforceRateLimit(req, 'draft-approve', 20, 60);
   if (limited) return limited;
 
-  let body: { file_id?: string; file_name?: string };
+  let body: ApproveBody;
   try { body = await req.json(); } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }); }
   let fileId = (body.file_id ?? '').trim();
   if (!fileId) return NextResponse.json({ error: 'file_id required' }, { status: 400 });
@@ -27,16 +36,36 @@ export async function POST(req: NextRequest) {
 
   if (useR2) {
     fileName ||= r2Basename(fileId);
+  } else if (!fileName) {
+    try { fileName = (await getFile(fileId)).name; }
+    catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'Drive file lookup failed' }, { status: 502 }); }
+  }
+
+  const policy = evaluateDraftReviewPolicy({
+    name: fileName,
+    review_required: body.review_required,
+    qa_review_required: body.qa_review_required,
+    approval_blocked_reasons: body.approval_blocked_reasons,
+  });
+  if (policy.approval_blocked) {
+    return NextResponse.json(
+      {
+        error: 'Draft requires review before approval. Send it to re-edit or clear the QA block first.',
+        ...policy,
+        storage_move_completed: false,
+        delivery_started: false,
+      },
+      { status: 409 }
+    );
+  }
+
+  if (useR2) {
     try { fileId = await moveR2Object(fileId, 'approved/'); }
     catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'R2 move failed' }, { status: 502 }); }
   } else {
     const reviewFolder = process.env.REVIEW_FOLDER_ID;
     const approvedFolder = process.env.APPROVED_FOLDER_ID;
     if (!reviewFolder || !approvedFolder) return NextResponse.json({ error: 'REVIEW_FOLDER_ID / APPROVED_FOLDER_ID not configured' }, { status: 503 });
-    if (!fileName) {
-      try { fileName = (await getFile(fileId)).name; }
-      catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'Drive file lookup failed' }, { status: 502 }); }
-    }
     try { await moveFile(fileId, reviewFolder, approvedFolder); }
     catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'Drive move failed' }, { status: 502 }); }
   }
