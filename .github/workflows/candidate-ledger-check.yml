@@ -1,0 +1,22 @@
+name: Candidate Ledger Check
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/candidate_ledger.py'
+      - 'pipeline/draft_diagnostics.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_candidate_ledger_contract.py'
+      - '.github/workflows/candidate-ledger-check.yml'
+  workflow_dispatch:
+
+jobs:
+  candidate-ledger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run candidate ledger contract
+        run: python3 scripts/test_candidate_ledger_contract.py
