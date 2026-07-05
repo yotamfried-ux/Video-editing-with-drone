@@ -89,6 +89,15 @@ def _install_final_duplicate_guard() -> None:
         pass
 
 
+def _install_context_qa_gate() -> None:
+    _repo_root()
+    try:
+        from pipeline.context_qa_gate import install
+        install()
+    except Exception:
+        pass
+
+
 _install_analyzer_score_guard()
 _install_window_policy()
 _install_cut_window_guard()
@@ -97,3 +106,4 @@ _install_qa_gate_policy()
 _install_draft_diagnostics()
 _install_real_identity_gate()
 _install_final_duplicate_guard()
+_install_context_qa_gate()
