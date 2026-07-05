@@ -32,25 +32,47 @@ def _source_name(path: Any) -> str:
     return str(path or "unknown")
 
 
-def _event_tokens(event: dict[str, Any], source: str = "") -> list[str]:
-    tokens: list[str] = []
-    for key in ("athlete_id", "track_id"):
-        value = str(event.get(key) or "").strip()
-        if value:
-            tokens.append(f"{key}:{value}")
+def _strong_event_tokens(event: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Return merge tokens and evidence-only tokens for an event.
+
+    `track_id` is cross-source deterministic evidence and can merge clusters by
+    itself. Existing non-generated `athlete_id` can also merge clusters. Generated
+    single-source IDs and per-source person IDs are evidence, but must not make the
+    equivalence key stricter because that prevents shared `track_id` matches from
+    merging across files.
+    """
+    merge_tokens: list[str] = []
+    evidence_tokens: list[str] = []
+
+    track_id = str(event.get("track_id") or "").strip()
+    if track_id:
+        token = f"track_id:{track_id}"
+        merge_tokens.append(token)
+        evidence_tokens.append(token)
+
+    athlete_id = str(event.get("athlete_id") or "").strip()
+    evidence_status = str(event.get("athlete_canonical_evidence_status") or "").strip()
+    generated = athlete_id.startswith("ath_") or evidence_status in {"single_source", "weak"}
+    if athlete_id:
+        token = f"athlete_id:{athlete_id}"
+        evidence_tokens.append(token)
+        if not generated:
+            merge_tokens.append(token)
+
     person_id = str(event.get("person_id") or "").strip()
     if person_id:
-        tokens.append(f"source_person:{source}:{person_id}")
-    return tokens
+        evidence_tokens.append(f"person_id:{person_id}")
+
+    return merge_tokens, evidence_tokens
 
 
 def _cluster_strong_tokens(cluster: dict[str, Any]) -> list[str]:
     tokens: set[str] = set()
     for app in cluster.get("appearances", []) or []:
-        source = _source_name(app.get("path"))
         for event in app.get("events", []) or []:
             if isinstance(event, dict):
-                tokens.update(_event_tokens(event, source))
+                merge_tokens, _ = _strong_event_tokens(event)
+                tokens.update(merge_tokens)
     return sorted(tokens)
 
 
@@ -59,11 +81,14 @@ def _fallback_cluster_key(cluster: dict[str, Any], index: int) -> str:
     for app in cluster.get("appearances", []) or []:
         source = _source_name(app.get("path"))
         spans = []
+        evidence_tokens: list[str] = []
         for event in app.get("events", []) or []:
             if not isinstance(event, dict):
                 continue
             spans.append(f"{event.get('type','')}:{event.get('start')}:{event.get('end')}")
-        parts.append(source + "|" + ",".join(spans[:5]))
+            _, event_evidence = _strong_event_tokens(event)
+            evidence_tokens.extend(event_evidence)
+        parts.append(source + "|" + ",".join(spans[:5]) + "|" + ",".join(sorted(evidence_tokens)[:5]))
     return f"weak:{index}:{'|'.join(parts)}"
 
 
@@ -102,11 +127,19 @@ def _annotate_cluster(cluster: dict[str, Any], athlete_id: str, key: str, status
     return out
 
 
+def _merge_key(tokens: list[str]) -> str:
+    track_tokens = sorted(token for token in tokens if token.startswith("track_id:"))
+    if track_tokens:
+        return "strong:" + "|".join(track_tokens)
+    return "strong:" + "|".join(sorted(tokens))
+
+
 def canonicalize_clusters(clusters: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Assign athlete_id and merge clusters when strong evidence is identical.
 
-    Strong evidence currently means existing `athlete_id` or `track_id` on events.
-    Weak fallback IDs are stable for metadata but are never used to merge clusters.
+    Strong evidence currently means cross-source `track_id` or existing non-generated
+    `athlete_id` on events. Weak fallback IDs are stable for metadata but are never
+    used to merge clusters.
     """
     registry: dict[str, dict[str, Any]] = {}
     order: list[str] = []
@@ -115,7 +148,7 @@ def canonicalize_clusters(clusters: list[dict[str, Any]]) -> list[dict[str, Any]
     for index, cluster in enumerate(clusters or []):
         tokens = _cluster_strong_tokens(cluster)
         if tokens:
-            key = "strong:" + "|".join(tokens)
+            key = _merge_key(tokens)
             athlete_id = _athlete_id_from_key(key)
             duplicate_group = "dup_" + _short_hash(key)
             annotated = _annotate_cluster(cluster, athlete_id, key, "strong")
