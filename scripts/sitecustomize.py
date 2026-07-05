@@ -71,9 +71,19 @@ def _install_real_identity_gate() -> None:
         pass
 
 
+def _install_final_duplicate_guard() -> None:
+    _repo_root()
+    try:
+        from pipeline.final_duplicate_guard import install
+        install()
+    except Exception:
+        pass
+
+
 _install_analyzer_score_guard()
 _install_window_policy()
 _install_narrative_policy()
 _install_qa_gate_policy()
 _install_draft_diagnostics()
 _install_real_identity_gate()
+_install_final_duplicate_guard()
