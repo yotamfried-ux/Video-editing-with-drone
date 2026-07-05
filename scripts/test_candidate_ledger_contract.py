@@ -69,7 +69,10 @@ def main() -> None:
     artifact = build_diagnostic_artifact("DRAFT_test.mp4", "surfing", [event, uncertain], {"width": 1920, "height": 1080})
     assert_true("candidate_decision_ledger" in artifact, "diagnostic artifact must include candidate ledger")
     assert_true("value_feedback_schema" in artifact, "diagnostic artifact must include feedback schema")
-    assert_true(artifact["candidate_decision_ledger"]["summary"]["candidate_count"] >= 2, "artifact ledger should include selected candidates")
+    artifact_ledger = artifact["candidate_decision_ledger"]
+    assert_true(artifact_ledger["summary"]["candidate_count"] >= 2, "artifact ledger should include selected candidates")
+    assert_true(artifact_ledger["summary"]["value_label_counts"].get("HIGH_FIVE") == 1, "artifact ledger must preserve original event labels")
+    assert_true(artifact_ledger["summary"]["value_label_counts"].get("CUT_TOO_EARLY") == 1, "artifact ledger must preserve uncertainty labels")
 
     with open("scripts/sitecustomize.py", encoding="utf-8") as handle:
         bootstrap = handle.read()
