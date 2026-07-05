@@ -1,0 +1,23 @@
+name: Multi-person Clip Gate Check
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/multi_person_clip_gate.py'
+      - 'pipeline/context_qa_gate.py'
+      - 'pipeline/draft_diagnostics.py'
+      - 'pipeline/qa_gate_policy.py'
+      - 'scripts/test_multi_person_clip_gate_contract.py'
+      - '.github/workflows/multi-person-clip-gate-check.yml'
+  workflow_dispatch:
+
+jobs:
+  multi-person-clip-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Run multi-person clip gate contract
+        run: PYTHONPATH=scripts:. python3 scripts/test_multi_person_clip_gate_contract.py
