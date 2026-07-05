@@ -77,7 +77,7 @@ def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str
     for idx, event in enumerate(events or []):
         if event.get("_teaser"):
             continue
-        windows.append({"event_id": _event_id(event, idx), "source": _src(event), "source_start": event.get("start"), "source_end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "identity_gate": event.get("identity_gate"), "cut_window_status": event.get("cut_window_evidence_status"), "duplicate_evidence": event.get("dedup_dropped_duplicates", [])})
+        windows.append({"event_id": _event_id(event, idx), "source": _src(event), "source_start": event.get("start"), "source_end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "identity_gate": event.get("identity_gate"), "multi_person_clip_gate": event.get("multi_person_clip_gate"), "cut_window_status": event.get("cut_window_evidence_status"), "duplicate_evidence": event.get("dedup_dropped_duplicates", [])})
     return {"reel": reel_path, "source_windows": windows}
 
 
@@ -120,7 +120,7 @@ def filter_duplicate_draft_candidates(pending: list[tuple[str, str]], pending_me
     for idx, package in enumerate(packages):
         fp = package["fingerprint"]
         if not fp:
-            keep_by_fp[(('empty', idx),)] = idx
+            keep_by_fp[(("empty", idx),)] = idx
         elif fp not in keep_by_fp:
             keep_by_fp[fp] = idx
         else:
@@ -157,6 +157,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             clusters = enforce_identity_gate(clusters)
         except Exception:
             pass
+        from pipeline.multi_person_clip_gate import annotate_multi_person_events, has_multi_person_defect
         pending: list[tuple[str, str]] = []
         pending_meta: list[tuple[str, str, list[dict], dict]] = []
         fn_to_id = fn_to_id or {}
@@ -170,6 +171,13 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             def _recompile(evs: list[dict], out: list) -> list[str]:
                 return orchestrator.compile_multi_source_reel(orchestrator._group_appearances(evs), sport=activity, athlete_label=cluster.get("description", ""), _events_out=out)
             reels, events_by_reel, flagged = _qa_gate_with_edit_context(orchestrator, reels, events_out, activity, cluster.get("description", ""), _recompile)
+            flagged_set = set(flagged or [])
+            for reel in reels:
+                reel_events = annotate_multi_person_events(events_by_reel.get(reel, all_events), str(cluster.get("description", "")))
+                events_by_reel[reel] = reel_events
+                if has_multi_person_defect(reel_events):
+                    flagged_set.add(reel)
+            flagged = flagged_set
             sources = [{"id": fn_to_id.get(Path(app["path"]).name, ""), "name": Path(app["path"]).name} for app in cluster.get("appearances", [])]
             clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
             clean_idx = 0
