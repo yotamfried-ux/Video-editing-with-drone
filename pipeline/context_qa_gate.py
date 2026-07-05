@@ -1,11 +1,11 @@
 """Run-level context QA gate.
 
-Evaluates all draft candidates in one run before upload. This adds
-context-aware deterministic QA that uses edit/source metadata, especially for
-duplicate rendered drafts emitted under different descriptions.
+Evaluates all draft candidates in one run before upload and injects edit/source
+context into reel QA so the judge sees the JSON decisions behind the draft.
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -70,6 +70,36 @@ def draft_quality(events: list[dict[str, Any]]) -> float:
 
 def build_qa_package(reel_path: str, draft_name: str, events: list[dict[str, Any]], source_quality: dict[str, Any]) -> dict[str, Any]:
     return {"reel_path": reel_path, "draft_name": draft_name, "fingerprint": draft_fingerprint(events), "quality": draft_quality(events), "events": events, "source_quality": source_quality, "source_windows": [{"event_id": _event_id(event, idx), "source": _src(event), "start": event.get("start"), "end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "fingerprint": _fingerprint(event)} for idx, event in enumerate(events) if not event.get("_teaser")]}
+
+
+def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str, Any]:
+    windows = []
+    for idx, event in enumerate(events or []):
+        if event.get("_teaser"):
+            continue
+        windows.append({"event_id": _event_id(event, idx), "source": _src(event), "source_start": event.get("start"), "source_end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "identity_gate": event.get("identity_gate"), "cut_window_status": event.get("cut_window_evidence_status"), "duplicate_evidence": event.get("dedup_dropped_duplicates", [])})
+    return {"reel": reel_path, "source_windows": windows}
+
+
+def _context_prompt(context: dict[str, Any]) -> str:
+    compact = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
+    return "\nEDIT_SOURCE_CONTEXT_JSON:\n" + compact + "\nJudge the final draft against these source windows: identity continuity, early cuts, and repeated source windows."
+
+
+def _qa_gate_with_edit_context(orchestrator: Any, reels, events_out, sport, athlete_label, recompile):
+    from pipeline.stages import analyzer
+    context_by_reel = {reel: build_edit_context(reel, events) for reel, events in events_out}
+    original_check = analyzer.qa_check_reel
+    def contextual_check(reel, *args, **kwargs):
+        ctx = context_by_reel.get(reel)
+        if ctx:
+            kwargs["athlete_label"] = str(kwargs.get("athlete_label", "")) + _context_prompt(ctx)
+        return original_check(reel, *args, **kwargs)
+    analyzer.qa_check_reel = contextual_check
+    try:
+        return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile)
+    finally:
+        analyzer.qa_check_reel = original_check
 
 
 def _duplicate_detail(dropped: dict[str, Any], kept: dict[str, Any]) -> dict[str, Any]:
@@ -139,7 +169,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             reels = orchestrator.compile_multi_source_reel(cluster.get("appearances", []), sport=activity, athlete_label=cluster.get("description", ""), _events_out=events_out)
             def _recompile(evs: list[dict], out: list) -> list[str]:
                 return orchestrator.compile_multi_source_reel(orchestrator._group_appearances(evs), sport=activity, athlete_label=cluster.get("description", ""), _events_out=out)
-            reels, events_by_reel, flagged = orchestrator._qa_gate(reels, events_out, activity, cluster.get("description", ""), _recompile)
+            reels, events_by_reel, flagged = _qa_gate_with_edit_context(orchestrator, reels, events_out, activity, cluster.get("description", ""), _recompile)
             sources = [{"id": fn_to_id.get(Path(app["path"]).name, ""), "name": Path(app["path"]).name} for app in cluster.get("appearances", [])]
             clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
             clean_idx = 0
@@ -171,7 +201,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                     with open(staged + ".name", "w") as f:
                         f.write(name)
                     orchestrator.logger.error("Upload failed for '%s' — staged at %s for next run", name, staged)
-                    print("⚠️  Upload failed — reel saved to pending_uploads/ for next run")
+                    print("Upload failed — reel saved to pending_uploads/ for next run")
                 except Exception:
                     orchestrator.logger.error("Could not stage reel %s — reel lost: %s", reel_path, exc)
                 return False
