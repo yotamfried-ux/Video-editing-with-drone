@@ -134,9 +134,15 @@ def main() -> int:
             "from pipeline.identity_failsafe import install",
             "def _install_cross_source_dedup_runtime()",
             "from pipeline.cross_source_dedup import install",
+            "def _install_draft_diagnostics_runtime()",
+            "from pipeline.draft_diagnostics import install",
+            "def _install_candidate_ledger_runtime()",
+            "from pipeline.candidate_ledger import install",
             "_install_pipeline_quality_runtime()",
             "_install_identity_failsafe_runtime()",
-            "_install_cross_source_dedup_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
+            "_install_cross_source_dedup_runtime()",
+            "_install_draft_diagnostics_runtime()",
+            "_install_candidate_ledger_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
         ],
     )
 
