@@ -73,6 +73,18 @@ def _install_cross_source_dedup_runtime() -> None:
     install()
 
 
+def _install_draft_diagnostics_runtime() -> None:
+    """Ensure draft diagnostics are installed in the tracked pipeline entrypoint."""
+    from pipeline.draft_diagnostics import install
+    install()
+
+
+def _install_candidate_ledger_runtime() -> None:
+    """Ensure candidate decision ledger patches diagnostics before metadata save."""
+    from pipeline.candidate_ledger import install
+    install()
+
+
 def _no_drafts_failure() -> tuple[str, str, dict]:
     upload_error = _last_observed_meta.get("upload_error")
     if upload_error:
@@ -102,6 +114,8 @@ _install_storage_backend_alias()
 _install_pipeline_quality_runtime()
 _install_identity_failsafe_runtime()
 _install_cross_source_dedup_runtime()
+_install_draft_diagnostics_runtime()
+_install_candidate_ledger_runtime()
 
 import pipeline.orchestrator as _orchestrator
 from pipeline.orchestrator import main
