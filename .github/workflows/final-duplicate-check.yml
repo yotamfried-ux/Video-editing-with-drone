@@ -1,0 +1,21 @@
+name: Final Duplicate Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/final-duplicate-check.yml'
+      - 'pipeline/final_duplicate_guard.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_final_duplicate_guard_contract.py'
+      - 'docs/pipeline-quality-audit-real-run-20260705.md'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate final duplicate guard contract
+        run: python scripts/test_final_duplicate_guard_contract.py
