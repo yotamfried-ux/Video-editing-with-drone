@@ -7,6 +7,7 @@ DEBUG_DIR="$TMP_ROOT/pipeline-debug"
 LOG_FILE="$DEBUG_DIR/run_tracked.log"
 REEL_METADATA_FILE="${REEL_METADATA_FILE:-reels_metadata.json}"
 DRAFT_TRACE_FILE="$TMP_ROOT/draft_decision_trace.json"
+RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
 
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
 cd "$ROOT_DIR" || exit 98
@@ -57,5 +58,6 @@ summary = {
 PY
 
 python scripts/generate_run_quality_report.py "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" || true
+python scripts/append_qa_gate_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$LOG_FILE" || true
 
 exit "$STATUS"
