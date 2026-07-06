@@ -24,6 +24,8 @@ KNOWN_DEFECTS = CRITICAL_DEFECTS | {
     "LOW_ACTION_DENSITY",
 }
 DEFECT_PATTERN = re.compile(r"\b(" + "|".join(sorted(KNOWN_DEFECTS)) + r")\b")
+UPLOADED_DRAFTS_PATTERN = re.compile(r"✅\s*(\d+)\s+draft\(s\) uploaded to REVIEW folder")
+FLAGGED_UPLOAD_PATTERN = re.compile(r"QA still failing.*uploading FLAGGED", re.IGNORECASE)
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -45,31 +47,44 @@ def _log_text(path: Path) -> str:
     return path.read_text(encoding="utf-8", errors="ignore")
 
 
+def _uploaded_draft_count(log: str) -> int:
+    matches = [int(match.group(1)) for match in UPLOADED_DRAFTS_PATTERN.finditer(log)]
+    return matches[-1] if matches else 0
+
+
 def _qa_summary(log: str, report: dict[str, Any]) -> dict[str, Any]:
     counts = Counter(DEFECT_PATTERN.findall(log))
     critical_counts = {name: counts[name] for name in sorted(CRITICAL_DEFECTS) if counts[name]}
     defect_counts = {name: counts[name] for name in sorted(counts)}
     metrics = report.get("metrics") if isinstance(report.get("metrics"), dict) else {}
     draft_count = int(metrics.get("draft_count") or 0)
-    trace = report.get("draft_decision_trace") if isinstance(report.get("draft_decision_trace"), dict) else {}
-    qa_flagged_from_trace = 0
-    # Current trace summary does not include draft names, so also use log/name markers.
-    qa_flagged_from_log = log.count("QA-FLAGGED")
+    uploaded_count = _uploaded_draft_count(log)
+    qa_flagged_from_name = log.count("QA-FLAGGED")
+    qa_flagged_from_flow = len(FLAGGED_UPLOAD_PATTERN.findall(log))
     qa_still_failing = log.count("QA still failing")
     no_actionable_fix = log.count("No actionable fix for QA defects")
     critical_total = sum(critical_counts.values())
-    bypass = critical_total > 0 and draft_count > 0
+    bypass = critical_total > 0 and max(draft_count, uploaded_count) > 0
+    trace_mismatch = uploaded_count > 0 and draft_count > 0 and uploaded_count != draft_count
     return {
         "qa_defect_counts": defect_counts,
         "qa_critical_defect_counts": critical_counts,
         "qa_defect_count": sum(defect_counts.values()),
         "qa_critical_defect_count": critical_total,
-        "qa_flagged_draft_count": qa_flagged_from_trace + qa_flagged_from_log,
+        "qa_flagged_draft_count": qa_flagged_from_name + qa_flagged_from_flow,
         "qa_still_failing_count": qa_still_failing,
         "qa_no_actionable_fix_count": no_actionable_fix,
         "qa_gate_bypass_rate": 1.0 if bypass else 0.0,
+        "uploaded_draft_count": uploaded_count,
+        "draft_trace_count": draft_count,
+        "draft_upload_trace_mismatch_count": abs(uploaded_count - draft_count) if trace_mismatch else 0,
+        "draft_upload_trace_mismatch_rate": (abs(uploaded_count - draft_count) / uploaded_count) if trace_mismatch and uploaded_count else 0.0,
         "qa_policy_explicit": False,
     }
+
+
+def _has_classification(report: dict[str, Any], code: str) -> bool:
+    return any(item.get("code") == code for item in report.get("bug_classifications", []) if isinstance(item, dict))
 
 
 def append_summary(report_path: Path, log_path: Path) -> dict[str, Any]:
@@ -84,6 +99,9 @@ def append_summary(report_path: Path, log_path: Path) -> dict[str, Any]:
         "qa_still_failing_count": summary["qa_still_failing_count"],
         "qa_no_actionable_fix_count": summary["qa_no_actionable_fix_count"],
         "qa_gate_bypass_rate": summary["qa_gate_bypass_rate"],
+        "uploaded_draft_count": summary["uploaded_draft_count"],
+        "draft_upload_trace_mismatch_count": summary["draft_upload_trace_mismatch_count"],
+        "draft_upload_trace_mismatch_rate": summary["draft_upload_trace_mismatch_rate"],
     })
     report["qa_gate_summary"] = summary
     alerts = report.setdefault("alerts", [])
@@ -100,14 +118,27 @@ def append_summary(report_path: Path, log_path: Path) -> dict[str, Any]:
             "severity": "hard_block",
             "reason": "critical QA defects existed while drafts were still produced",
         })
-        classifications.append({
-            "code": "BUG_QA_GATE_BYPASSED",
-            "evidence": f"critical_qa_defects={summary['qa_critical_defect_count']} draft_count={metrics.get('draft_count', 0)}",
+        if not _has_classification(report, "BUG_QA_GATE_BYPASSED"):
+            classifications.append({
+                "code": "BUG_QA_GATE_BYPASSED",
+                "evidence": f"critical_qa_defects={summary['qa_critical_defect_count']} draft_count={metrics.get('draft_count', 0)} uploaded_draft_count={summary['uploaded_draft_count']}",
+            })
+    if summary["draft_upload_trace_mismatch_count"] > 0:
+        alerts.append({
+            "metric": "draft_upload_trace_mismatch_rate",
+            "severity": "hard_block",
+            "reason": "uploaded draft count does not match draft trace count",
         })
+        if not _has_classification(report, "BUG_DRAFT_TRACE_MISMATCH"):
+            classifications.append({
+                "code": "BUG_DRAFT_TRACE_MISMATCH",
+                "evidence": f"uploaded={summary['uploaded_draft_count']} traced={summary['draft_trace_count']}",
+            })
     gaps = report.setdefault("implementation_gaps", {})
     if isinstance(gaps, dict):
         gaps["qa_gate_policy_metric_ready"] = True
         gaps["qa_gate_policy_explicit"] = summary["qa_policy_explicit"]
+        gaps["draft_upload_trace_consistency_ready"] = True
     if any(alert.get("severity") == "hard_block" for alert in alerts if isinstance(alert, dict)):
         report["status"] = "fail"
     elif report.get("status") not in {"fail", "pass", "inconclusive", "regressed"}:
@@ -125,6 +156,8 @@ def main() -> int:
     print(
         "qa gate summary "
         f"critical={qa.get('qa_critical_defect_count', 0)} "
+        f"flagged={qa.get('qa_flagged_draft_count', 0)} "
+        f"uploaded={qa.get('uploaded_draft_count', 0)} "
         f"bypass_rate={qa.get('qa_gate_bypass_rate', 0)}"
     )
     return 0
