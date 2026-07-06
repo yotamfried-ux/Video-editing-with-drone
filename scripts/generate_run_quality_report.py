@@ -1,0 +1,279 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import json
+import math
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import Any
+
+VIDEO_EXTENSIONS = {".mp4", ".mov", ".m4v", ".avi", ".mkv", ".webm"}
+_TRACE_FILENAMES = {
+    "candidate_decision_ledger.json",
+    "candidate_decision_ledger.jsonl",
+    "decision_trace.json",
+    "draft_decision_trace.json",
+}
+_DROPPED_REASON_KEYS = {"dropped_reason", "drop_reason", "reject_reason"}
+_RUNTIME_BUG_TOKENS = {
+    "torchvision.ops.nms": "BUG_RUNTIME_ENVIRONMENT",
+    "torchvision::nms": "BUG_RUNTIME_ENVIRONMENT",
+    "AutoUpdate success": "BUG_RUNTIME_ENVIRONMENT",
+    "Restart runtime or rerun command": "BUG_RUNTIME_ENVIRONMENT",
+    "TimeoutExpired": "BUG_RUNTIME_ENVIRONMENT",
+    "timed out": "BUG_RUNTIME_ENVIRONMENT",
+}
+
+
+def _safe_div(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return numerator / denominator
+
+
+def _read_json(path: Path) -> Any:
+    with path.open(encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _iter_json_files(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    return [path for path in sorted(root.rglob("*.json")) if path.is_file() and "pipeline-debug" not in path.parts]
+
+
+def _is_video_file(path: str) -> bool:
+    return Path(path).suffix.lower() in VIDEO_EXTENSIONS
+
+
+def _is_draft_file(path: str) -> bool:
+    name = Path(path).name.lower()
+    return _is_video_file(path) and (name.startswith("draft") or "draft_" in name or "draft-" in name)
+
+
+def _is_sidecar(path: Path) -> bool:
+    return path.name.endswith(".perception.json")
+
+
+def _bbox_invalid(detection: dict[str, Any]) -> bool:
+    bbox = detection.get("bbox_xyxy") or detection.get("xyxy")
+    if not isinstance(bbox, list) or len(bbox) != 4:
+        return True
+    try:
+        x1, y1, x2, y2 = [float(value) for value in bbox]
+        width = float(detection.get("frame_width") or 0)
+        height = float(detection.get("frame_height") or 0)
+    except (TypeError, ValueError):
+        return True
+    if not all(math.isfinite(value) for value in [x1, y1, x2, y2, width, height]):
+        return True
+    if width <= 0 or height <= 0:
+        return True
+    if x2 <= x1 or y2 <= y1:
+        return True
+    return x1 < 0 or y1 < 0 or x2 > width or y2 > height
+
+
+def _time_invalid(detection: dict[str, Any]) -> bool:
+    try:
+        frame_index = int(detection.get("frame_index"))
+        time_sec = float(detection.get("time_sec"))
+    except (TypeError, ValueError):
+        return True
+    return frame_index < 0 or time_sec < 0 or not math.isfinite(time_sec)
+
+
+def _track_id(detection: dict[str, Any]) -> str | None:
+    value = detection.get("track_id")
+    if value is None:
+        value = detection.get("tracker_id")
+    if value is None:
+        return None
+    return str(value)
+
+
+def _load_sidecars(tmp_root: Path, debug_dir: Path) -> tuple[list[dict[str, Any]], list[str]]:
+    paths = {_path.resolve() for _path in _iter_json_files(tmp_root) if _is_sidecar(_path)}
+    copied = debug_dir / "sidecars"
+    paths.update({_path.resolve() for _path in _iter_json_files(copied) if _is_sidecar(_path)})
+    payloads: list[dict[str, Any]] = []
+    schema_errors: list[str] = []
+    for path in sorted(paths):
+        try:
+            payload = _read_json(path)
+        except Exception as exc:
+            schema_errors.append(f"{path}: {exc}")
+            continue
+        if not isinstance(payload, dict) or not isinstance(payload.get("detections", []), list):
+            schema_errors.append(f"{path}: invalid sidecar schema")
+            continue
+        payloads.append({**payload, "_path": str(path)})
+    return payloads, schema_errors
+
+
+def _load_summary(debug_dir: Path) -> dict[str, Any]:
+    path = debug_dir / "summary.json"
+    if not path.exists():
+        return {"files": [], "exit_code": None}
+    try:
+        payload = _read_json(path)
+    except Exception:
+        return {"files": [], "exit_code": None, "summary_parse_error": True}
+    return payload if isinstance(payload, dict) else {"files": [], "exit_code": None, "summary_parse_error": True}
+
+
+def _contains_trace(paths: list[Path]) -> bool:
+    return any(path.name in _TRACE_FILENAMES or "decision_trace" in path.name for path in paths)
+
+
+def _contains_dropped_reason(paths: list[Path]) -> bool:
+    for path in paths:
+        if path.suffix.lower() not in {".json", ".jsonl"}:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if any(key in text for key in _DROPPED_REASON_KEYS):
+            return True
+    return False
+
+
+def _log_text(debug_dir: Path) -> str:
+    path = debug_dir / "run_tracked.log"
+    if not path.exists():
+        return ""
+    try:
+        return path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return ""
+
+
+def _distribution_summary(values: list[float]) -> dict[str, float | int | None]:
+    if not values:
+        return {"count": 0, "min": None, "max": None, "mean": None}
+    return {
+        "count": len(values),
+        "min": min(values),
+        "max": max(values),
+        "mean": sum(values) / len(values),
+    }
+
+
+def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) -> dict[str, Any]:
+    summary = _load_summary(debug_dir)
+    files_from_summary = summary.get("files") if isinstance(summary.get("files"), list) else []
+    summary_paths = [str(item.get("path")) for item in files_from_summary if isinstance(item, dict) and item.get("path")]
+    all_tmp_json = _iter_json_files(tmp_root)
+    sidecars, sidecar_schema_errors = _load_sidecars(tmp_root, debug_dir)
+    detections: list[dict[str, Any]] = []
+    for sidecar in sidecars:
+        for item in sidecar.get("detections", []) or []:
+            if isinstance(item, dict):
+                detections.append(item)
+
+    video_count = sum(1 for path in summary_paths if _is_video_file(path))
+    draft_count = sum(1 for path in summary_paths if _is_draft_file(path))
+    sidecar_count = len(sidecars)
+    detection_count = len(detections)
+    missing_track_count = sum(1 for item in detections if _track_id(item) is None)
+    invalid_bbox_count = sum(1 for item in detections if _bbox_invalid(item))
+    invalid_time_count = sum(1 for item in detections if _time_invalid(item))
+    confidence_values = [float(item["confidence"]) for item in detections if item.get("confidence") is not None]
+    unique_tracks = Counter(_track_id(item) for item in detections if _track_id(item) is not None)
+    has_trace = _contains_trace(all_tmp_json)
+    has_dropped_reasons = _contains_dropped_reason(all_tmp_json)
+    log = _log_text(debug_dir)
+
+    metrics: dict[str, Any] = {
+        "exit_code": exit_code if exit_code is not None else summary.get("exit_code"),
+        "video_count": video_count,
+        "draft_count": draft_count,
+        "sidecar_count": sidecar_count,
+        "detection_count": detection_count,
+        "unique_track_count": len(unique_tracks),
+        "sidecar_missing_rate": 1.0 if video_count > 0 and sidecar_count == 0 else 0.0,
+        "sidecar_schema_error_rate": _safe_div(len(sidecar_schema_errors), max(sidecar_count + len(sidecar_schema_errors), 1)),
+        "track_id_missing_rate": _safe_div(missing_track_count, detection_count),
+        "bbox_out_of_bounds_rate": _safe_div(invalid_bbox_count, detection_count),
+        "invalid_time_window_rate": _safe_div(invalid_time_count, detection_count),
+        "artifact_upload_missing_rate": 1.0 if not debug_dir.exists() or not (debug_dir / "summary.json").exists() else 0.0,
+        "draft_without_decision_trace_rate": 1.0 if draft_count > 0 and not has_trace else 0.0,
+        "no_drafts_with_candidates_rate": 0.0,
+        "confidence_distribution": _distribution_summary(confidence_values),
+        "detections_per_video": _safe_div(detection_count, max(video_count, 1)),
+        "tracks_per_video": _safe_div(len(unique_tracks), max(video_count, 1)),
+    }
+
+    alerts: list[dict[str, Any]] = []
+    classifications: list[dict[str, Any]] = []
+
+    def add_alert(metric: str, severity: str, reason: str) -> None:
+        alerts.append({"metric": metric, "severity": severity, "reason": reason})
+
+    if metrics["sidecar_missing_rate"] > 0:
+        add_alert("sidecar_missing_rate", "hard_block", "perception sidecar missing while videos exist")
+    if metrics["sidecar_schema_error_rate"] > 0:
+        add_alert("sidecar_schema_error_rate", "hard_block", "one or more sidecars failed schema validation")
+    if metrics["track_id_missing_rate"] > 0:
+        add_alert("track_id_missing_rate", "hard_block", "production detections must include track_id")
+    if metrics["bbox_out_of_bounds_rate"] > 0:
+        add_alert("bbox_out_of_bounds_rate", "hard_block", "one or more detections have invalid bboxes")
+    if metrics["invalid_time_window_rate"] > 0:
+        add_alert("invalid_time_window_rate", "hard_block", "one or more detections have invalid frame/time metadata")
+    if metrics["draft_without_decision_trace_rate"] > 0:
+        add_alert("draft_without_decision_trace_rate", "hard_block", "drafts exist without decision trace")
+        classifications.append({"code": "BUG_SELECTION_BYPASSED_EVIDENCE", "evidence": "draft exists without candidate decision trace"})
+    if not has_dropped_reasons:
+        add_alert("missing_dropped_reasons", "inconclusive", "dropped candidate reasons are not available")
+        classifications.append({"code": "BUG_RECALL_UNKNOWN", "evidence": "missing dropped candidate reasons"})
+    for token, code in _RUNTIME_BUG_TOKENS.items():
+        if token in log:
+            add_alert("runtime_log", "hard_block", f"runtime log contains {token}")
+            classifications.append({"code": code, "evidence": token})
+
+    status = "pass"
+    if any(alert["severity"] == "hard_block" for alert in alerts):
+        status = "fail"
+    elif any(alert["severity"] == "inconclusive" for alert in alerts):
+        status = "inconclusive"
+
+    return {
+        "schema_version": "sportreel.run_quality_report.v1",
+        "status": status,
+        "summary": {
+            "debug_dir": str(debug_dir),
+            "tmp_root": str(tmp_root),
+            "files_observed": len(summary_paths),
+            "json_files_observed": len(all_tmp_json),
+        },
+        "metrics": metrics,
+        "alerts": alerts,
+        "bug_classifications": classifications,
+        "sidecar_schema_errors": sidecar_schema_errors,
+        "implementation_gaps": {
+            "candidate_decision_ledger_present": has_trace,
+            "dropped_reasons_present": has_dropped_reasons,
+            "mixed_subject_metric_ready": False,
+            "duplicate_athlete_metric_ready": False,
+        },
+    }
+
+
+def main() -> int:
+    if len(sys.argv) < 3:
+        print("usage: generate_run_quality_report.py DEBUG_DIR TMP_ROOT [EXIT_CODE]", file=sys.stderr)
+        return 2
+    debug_dir = Path(sys.argv[1])
+    tmp_root = Path(sys.argv[2])
+    exit_code = None if len(sys.argv) < 4 else int(sys.argv[3])
+    report = build_report(debug_dir, tmp_root, exit_code)
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    (debug_dir / "run_quality_report.json").write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
+    print(f"run quality report status={report['status']} alerts={len(report['alerts'])} bugs={len(report['bug_classifications'])}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
