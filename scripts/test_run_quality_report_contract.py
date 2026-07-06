@@ -28,8 +28,10 @@ def main() -> int:
     debug = TMP / "pipeline-debug"
     source = TMP / "source.mp4"
     draft = TMP / "DRAFT_surfer.mp4"
+    duplicate_draft = TMP / "DRAFT_surfer_part_2.mp4"
     source.write_bytes(b"source")
     draft.write_bytes(b"draft")
+    duplicate_draft.write_bytes(b"draft2")
     sidecar = TMP / "source.perception.json"
     metadata_path = TMP / "reels_metadata.json"
     trace_path = TMP / "draft_decision_trace.json"
@@ -59,12 +61,13 @@ def main() -> int:
         {
             "exit_code": 0,
             "tmp_dir": str(TMP),
-            "file_count": 4,
+            "file_count": 5,
             "sidecar_count": 1,
             "sidecars": [sidecar.name],
             "files": [
                 {"path": source.name, "size_bytes": 6},
                 {"path": draft.name, "size_bytes": 5},
+                {"path": duplicate_draft.name, "size_bytes": 6},
                 {"path": sidecar.name, "size_bytes": sidecar.stat().st_size},
                 {"path": trace_path.name, "size_bytes": 1},
             ],
@@ -80,7 +83,14 @@ def main() -> int:
                     {"type": "ride", "score": 9, "start": 12.0, "end": 20.0, "description": "clean ride", "edit": {}}
                 ],
                 "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
-            }
+            },
+            "DRAFT_surfer_part_2.mp4": {
+                "sport": "surfing",
+                "events": [
+                    {"type": "ride", "score": 8, "start": 15.0, "end": 22.0, "description": "overlapping ride", "edit": {}}
+                ],
+                "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
+            },
         },
     )
     try:
@@ -91,7 +101,7 @@ def main() -> int:
         )
         report = json.loads((debug / "run_quality_report.json").read_text(encoding="utf-8"))
         require(report["schema_version"] == "sportreel.run_quality_report.v1", "report schema version missing")
-        require(report["metrics"]["draft_count"] == 1, "draft_count metric missing")
+        require(report["metrics"]["draft_count"] == 2, "draft_count metric missing")
         require(report["metrics"]["sidecar_count"] == 1, "sidecar_count metric missing")
         require(report["metrics"]["track_id_missing_rate"] == 0.0, "track id should be present")
         require(report["metrics"]["bbox_out_of_bounds_rate"] == 0.0, "bbox should be valid")
@@ -107,7 +117,7 @@ def main() -> int:
         )
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         require(trace["schema_version"] == "sportreel.draft_decision_trace.v1", "trace schema version missing")
-        require(trace["draft_count"] == 1, "trace draft count missing")
+        require(trace["draft_count"] == 2, "trace draft count missing")
         require(trace["drafts"][0]["source_window"]["start"] == 12.0, "trace source window start missing")
         require(trace["drafts"][0]["source_window"]["end"] == 20.0, "trace source window end missing")
         require(trace["drafts"][0]["source_window"]["source_video"] == "source.mp4", "trace source video missing")
@@ -119,10 +129,15 @@ def main() -> int:
             check=True,
         )
         report = json.loads((debug / "run_quality_report.json").read_text(encoding="utf-8"))
-        require(report["metrics"]["draft_metadata_count"] == 1, "draft metadata count missing")
+        require(report["metrics"]["draft_metadata_count"] == 2, "draft metadata count missing")
         require(report["metrics"]["draft_source_window_coverage_rate"] == 1.0, "source-window coverage missing")
-        require(report["draft_decision_trace"]["drafts_with_source_window"] == 1, "trace summary missing")
-        require(report["status"] == "pass", "complete evidence fixture should pass")
+        require(report["draft_decision_trace"]["drafts_with_source_window"] == 2, "trace summary missing")
+        require(report["metrics"]["source_window_overlap_pair_count"] == 1, "overlap pair count missing")
+        require(report["metrics"]["source_window_overlap_duplicate_rate"] == 1.0, "overlap duplicate rate missing")
+        require(report["source_window_overlap_duplicates"][0]["overlap_seconds"] == 5.0, "overlap evidence missing")
+        codes = {item["code"] for item in report["bug_classifications"]}
+        require("BUG_DUPLICATE_MOMENT_LIKELY" in codes, "duplicate moment classification missing")
+        require(report["status"] == "fail", "duplicate overlap fixture should fail quality report")
         print("Run quality report contract checks passed")
         return 0
     finally:
