@@ -58,8 +58,9 @@ jobs:
           python - <<'PY'
           import torch
           import torchvision
+          import lap
           from torchvision.ops import nms
-          print(f"torch={torch.__version__} torchvision={torchvision.__version__} nms={nms.__name__}")
+          print(f"torch={torch.__version__} torchvision={torchvision.__version__} lap={lap.__version__} nms={nms.__name__}")
           PY
 
       - name: Write credential files from secrets
