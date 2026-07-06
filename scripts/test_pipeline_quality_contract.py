@@ -45,6 +45,8 @@ def main() -> int:
     cross_source_dedup = _read("pipeline/cross_source_dedup.py")
     event_fingerprint = _read("pipeline/perception/event_fingerprint.py")
     athlete_canonicalization = _read("pipeline/athlete_canonicalization.py")
+    multi_person_gate = _read("pipeline/multi_person_clip_gate.py")
+    context_qa_long_video = _read("pipeline/context_qa_long_video.py")
     run_tracked = _read("scripts/run_tracked.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
@@ -53,6 +55,8 @@ def main() -> int:
     ast.parse(cross_source_dedup)
     ast.parse(event_fingerprint)
     ast.parse(athlete_canonicalization)
+    ast.parse(multi_person_gate)
+    ast.parse(context_qa_long_video)
     ast.parse(run_tracked)
 
     require_tokens(
@@ -138,6 +142,28 @@ def main() -> int:
             "analyzer.analyze_session = analyze_with_athlete_ids",
         ],
     )
+    require_tokens(
+        "multi-person clip gate",
+        multi_person_gate,
+        [
+            "def annotate_multi_person_events",
+            "def has_multi_person_defect",
+            "MULTI_PERSON_CLIP",
+            "allowed_social_moment",
+            "qa_review_required",
+        ],
+    )
+    require_tokens(
+        "long-video multi-person gate coverage",
+        context_qa_long_video,
+        [
+            "from pipeline.multi_person_clip_gate import annotate_multi_person_events, has_multi_person_defect",
+            "reel_events = annotate_multi_person_events",
+            "if has_multi_person_defect(reel_events):",
+            "flagged_set.add(reel)",
+            "QA-FLAGGED",
+        ],
+    )
 
     require_tokens(
         "tracked runner quality install",
@@ -172,11 +198,15 @@ def main() -> int:
             "pipeline/stages/analyzer.py",
             "pipeline/stages/identity.py",
             "pipeline/cross_source_dedup.py",
+            "pipeline/multi_person_clip_gate.py",
+            "pipeline/context_qa_long_video.py",
             "pipeline/perception/event_fingerprint.py",
             "scripts/test_pipeline_quality_contract.py",
             "scripts/test_cross_source_dedup_contract.py",
+            "scripts/test_multi_person_clip_gate_contract.py",
             "Validate Pipeline quality contract",
             "Validate Cross-source dedup contract",
+            "Validate Multi-person clip gate contract",
         ],
     )
 

@@ -50,6 +50,12 @@ def main() -> int:
     require("has_multi_person_defect" in context, "context QA does not mark review-required multi-person reels")
     require("multi_person_clip_gate" in context, "context QA does not expose multi-person gate")
 
+    long_context = (ROOT / "pipeline/context_qa_long_video.py").read_text(encoding="utf-8")
+    require("annotate_multi_person_events" in long_context, "long-video context QA does not annotate multi-person events")
+    require("has_multi_person_defect" in long_context, "long-video context QA does not mark review-required multi-person reels")
+    require("flagged_set.add(reel)" in long_context, "long-video context QA does not add multi-person reels to flagged set")
+    require("QA-FLAGGED" in long_context, "long-video multi-person drafts must be visibly QA-FLAGGED")
+
     print("multi-person clip gate contract ok")
     return 0
 

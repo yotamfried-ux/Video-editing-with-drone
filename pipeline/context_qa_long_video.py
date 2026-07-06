@@ -19,6 +19,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
 
     def process_long_video_with_context_qa(video_meta: dict) -> int:
         from pipeline.context_qa_gate import filter_duplicate_draft_candidates, _qa_gate_with_edit_context
+        from pipeline.multi_person_clip_gate import annotate_multi_person_events, has_multi_person_defect
         file_id = video_meta["id"]
         filename = video_meta["name"]
         try:
@@ -60,6 +61,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 out[:] = _with_src(out, local_path)
                 return result
             reels, events_by_reel, flagged = _qa_gate_with_edit_context(orchestrator, reels, events_out, activity, person.get("description", ""), _recompile)
+            flagged_set = set(flagged or [])
             clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
             clean_idx = 0
             for reel in reels:
@@ -68,9 +70,17 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                     clean_idx += 1
                 part_label = f" (part {clean_idx})" if clean_count > 1 else ""
                 music_label = " (music)" if is_music else ""
-                qa_label = " QA-FLAGGED" if reel in flagged else ""
+                raw_events = events_by_reel.get(reel, person["events"])
+                reel_events = [
+                    {**event, "_src": local_path, "source": event.get("source") or local_path}
+                    for event in raw_events
+                ]
+                reel_events = annotate_multi_person_events(reel_events, str(person.get("description", "")))
+                events_by_reel[reel] = reel_events
+                if has_multi_person_defect(reel_events):
+                    flagged_set.add(reel)
+                qa_label = " QA-FLAGGED" if reel in flagged_set else ""
                 name = orchestrator._safe_draft_name(person.get("description", "") + part_label + music_label + qa_label)
-                reel_events = [{**event, "_src": local_path, "source": event.get("source") or local_path} for event in events_by_reel.get(reel, person["events"])]
                 pending.append((reel, name))
                 pending_meta.append((reel, name, reel_events, source_quality))
                 name_sources[name] = (name, [{"id": file_id, "name": filename}], activity, person.get("description", ""))
