@@ -33,13 +33,42 @@ def _clear_env() -> None:
         "SPORTREEL_ULTRALYTICS_MODEL",
         "SPORTREEL_ULTRALYTICS_TRACKER",
         "SPORTREEL_ULTRALYTICS_FPS",
+        "SPORTREEL_ULTRALYTICS_VID_STRIDE",
+        "SPORTREEL_ULTRALYTICS_IMGSZ",
+        "SPORTREEL_ULTRALYTICS_DEVICE",
     ]:
         os.environ.pop(key, None)
+
+
+def _require_tokens(label: str, text: str, tokens: list[str]) -> None:
+    missing = [token for token in tokens if token not in text]
+    if missing:
+        raise SystemExit(f"{label} missing tokens: {missing}")
 
 
 def main() -> int:
     from pipeline.perception.producer import detections_from_ultralytics_result, generate_sidecar
     from pipeline.perception.runtime import validate_sidecar
+
+    cli = (ROOT / "scripts/generate_perception_sidecar.py").read_text(encoding="utf-8")
+    runtime = (ROOT / "pipeline/perception/runtime.py").read_text(encoding="utf-8")
+    _require_tokens(
+        "bounded ultralytics CLI",
+        cli,
+        [
+            "_DEFAULT_VID_STRIDE = 10",
+            "_DEFAULT_IMGSZ = 640",
+            "--ultralytics-vid-stride",
+            "--ultralytics-imgsz",
+            "vid_stride",
+            "imgsz",
+            "classes",
+            "[0]",
+            "cv2.VideoCapture",
+            "result_index * stride",
+        ],
+    )
+    _require_tokens("perception timeout", runtime, ['os.getenv(_TIMEOUT_ENV, "1200")', "return 1200"])
 
     tmp = ROOT / ".tmp_ultralytics_tracker_contract"
     tmp.mkdir(exist_ok=True)
