@@ -28,6 +28,7 @@ def main() -> int:
     validator.validate(workflow)
 
     pipeline_workflow = Path('.github/workflows/pipeline-run.yml').read_text(encoding='utf-8')
+    diagnostics_script = Path('scripts/run_pipeline_with_diagnostics.sh').read_text(encoding='utf-8')
     requirements = Path('requirements.txt').read_text(encoding='utf-8')
     require_tokens(
         'pipeline runtime deps',
@@ -40,6 +41,21 @@ def main() -> int:
             'torchvision.__version__',
             'nms.__name__',
         ],
+    )
+    require_tokens(
+        'pipeline diagnostics artifact',
+        pipeline_workflow,
+        [
+            'bash scripts/run_pipeline_with_diagnostics.sh',
+            'actions/upload-artifact@v4',
+            'pipeline-diagnostics-${{ github.run_id }}',
+            '/tmp/dtor/pipeline-debug/**',
+        ],
+    )
+    require_tokens(
+        'diagnostics wrapper',
+        diagnostics_script,
+        ['run_tracked.log', 'summary.json', 'sidecars', 'PIPESTATUS[0]', '.perception.json'],
     )
     require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'lap>=0.5.12', 'ultralytics>=8.3.0'])
 
