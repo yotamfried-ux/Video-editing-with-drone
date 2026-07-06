@@ -13,6 +13,7 @@ Pillow>=10.0.0
 torch>=2.0.0
 transformers>=4.35.0
 supervision>=0.29.0,<0.30.0
+ultralytics>=8.3.0
 
 # Face recognition for athlete matching (128-float embeddings).
 # dlib compiles from source — needs cmake + a C++ toolchain (build-essential).
