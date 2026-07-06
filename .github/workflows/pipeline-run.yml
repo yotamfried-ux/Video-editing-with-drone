@@ -136,6 +136,11 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SPORTREEL_PERCEPTION_COMMAND: ${{ secrets.SPORTREEL_PERCEPTION_COMMAND || vars.SPORTREEL_PERCEPTION_COMMAND || '' }}
+          SPORTREEL_REQUIRE_PERCEPTION: ${{ secrets.SPORTREEL_REQUIRE_PERCEPTION || vars.SPORTREEL_REQUIRE_PERCEPTION || '' }}
+          SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || '' }}
+          SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || '' }}
+          SPORTREEL_ULTRALYTICS_FPS: ${{ secrets.SPORTREEL_ULTRALYTICS_FPS || vars.SPORTREEL_ULTRALYTICS_FPS || '' }}
           TMP_DIR: /tmp/dtor
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
