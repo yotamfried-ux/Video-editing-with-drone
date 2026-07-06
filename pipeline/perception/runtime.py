@@ -103,9 +103,9 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 def _timeout_sec() -> int:
     try:
-        return max(1, int(os.getenv(_TIMEOUT_ENV, "600")))
+        return max(1, int(os.getenv(_TIMEOUT_ENV, "1200")))
     except ValueError:
-        return 600
+        return 1200
 
 
 def _clip_diagnostic(value: Any) -> str:
