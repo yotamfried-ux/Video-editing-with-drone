@@ -130,7 +130,7 @@ jobs:
           print('Multi-upload batch contract checks passed')
           PY
       - name: Validate Multi-person clip gate contract
-        run: python scripts/test_multi_person_clip_gate_contract.py
+        run: PYTHONPATH=scripts:. python scripts/test_multi_person_clip_gate_contract.py
       - name: Validate Operator Smoke contract
         run: python scripts/test_operator_smoke_contract.py
       - name: Validate Perception contract
