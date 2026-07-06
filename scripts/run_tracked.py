@@ -67,6 +67,12 @@ def _install_pipeline_quality_runtime() -> None:
     install()
 
 
+def _install_selector_candidate_runtime() -> None:
+    """Emit selected/discarded selector candidates from analyzer parsing."""
+    from pipeline.selector_candidate_runtime import install
+    install()
+
+
 def _install_identity_failsafe_runtime() -> None:
     """Harden identity clustering before orchestrator imports cluster_clips."""
     from pipeline.identity_failsafe import install
@@ -125,6 +131,7 @@ _install_status_mirror()
 _install_storage_backend_alias()
 _install_perception_runtime()
 _install_pipeline_quality_runtime()
+_install_selector_candidate_runtime()
 _install_identity_failsafe_runtime()
 _install_cross_source_dedup_runtime()
 _install_draft_diagnostics_runtime()
