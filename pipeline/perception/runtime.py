@@ -46,6 +46,7 @@ _COMMAND_ENV = "SPORTREEL_PERCEPTION_COMMAND"
 _REQUIRED_ENV = "SPORTREEL_REQUIRE_PERCEPTION"
 _TIMEOUT_ENV = "SPORTREEL_PERCEPTION_TIMEOUT_SEC"
 _MAX_NEAREST_SEC = 1.0
+_DIAGNOSTIC_LIMIT = 4000
 _TRUE_VALUES = {"1", "true", "yes", "on", "required"}
 _REUSABLE_SIDECAR_STATUSES = {"ok"}
 
@@ -105,6 +106,31 @@ def _timeout_sec() -> int:
         return max(1, int(os.getenv(_TIMEOUT_ENV, "600")))
     except ValueError:
         return 600
+
+
+def _clip_diagnostic(value: Any) -> str:
+    text = "" if value is None else str(value).strip()
+    if len(text) <= _DIAGNOSTIC_LIMIT:
+        return text
+    return f"{text[-_DIAGNOSTIC_LIMIT:]} [truncated to last {_DIAGNOSTIC_LIMIT} chars]"
+
+
+def _producer_failure_message(exc: Exception) -> str:
+    if isinstance(exc, subprocess.CalledProcessError):
+        return (
+            "Perception producer failed: "
+            f"returncode={exc.returncode}; "
+            f"stdout={_clip_diagnostic(exc.stdout)!r}; "
+            f"stderr={_clip_diagnostic(exc.stderr)!r}"
+        )
+    if isinstance(exc, subprocess.TimeoutExpired):
+        return (
+            "Perception producer timed out: "
+            f"timeout={exc.timeout}; "
+            f"stdout={_clip_diagnostic(exc.stdout)!r}; "
+            f"stderr={_clip_diagnostic(exc.stderr)!r}"
+        )
+    return f"Perception producer failed: {exc}"
 
 
 def _render_command(command: str, video_path: str, sidecar_path: Path) -> list[str]:
@@ -249,10 +275,11 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
     try:
         subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
     except Exception as exc:
+        message = _producer_failure_message(exc)
         if perception_required():
-            raise RuntimeError(f"Perception producer failed: {exc}") from exc
-        logger.warning("Perception producer failed for %s: %s", video_path, exc)
-        _write_status_sidecar(video_path, output, "failed", str(exc))
+            raise RuntimeError(message) from exc
+        logger.warning("%s", message)
+        _write_status_sidecar(video_path, output, "failed", message)
         return {"path": str(output), "producer_status": "failed", "detection_count": 0}
 
     try:
