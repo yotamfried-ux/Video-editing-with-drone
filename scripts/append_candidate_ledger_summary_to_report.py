@@ -36,6 +36,21 @@ def _summary(ledger: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _recall_is_measurable(summary: dict[str, Any]) -> bool:
+    return summary["selected_count"] > 0 and summary["discarded_count"] > 0 and summary["discard_cause_coverage_rate"] == 1.0
+
+
+def _remove_recall_unknown(report: dict[str, Any]) -> None:
+    report["bug_classifications"] = [
+        item for item in report.get("bug_classifications", [])
+        if not (isinstance(item, dict) and item.get("code") == "BUG_RECALL_UNKNOWN")
+    ]
+    report["alerts"] = [
+        item for item in report.get("alerts", [])
+        if not (isinstance(item, dict) and item.get("metric") in {"missing_dropped_reasons", "candidate_discarded_count"})
+    ]
+
+
 def append_summary(report_path: Path, ledger_path: Path) -> dict[str, Any]:
     report = _read_json(report_path)
     ledger = _read_json(ledger_path)
@@ -51,7 +66,7 @@ def append_summary(report_path: Path, ledger_path: Path) -> dict[str, Any]:
     gaps = report.setdefault("implementation_gaps", {})
     if isinstance(gaps, dict):
         gaps["candidate_decision_ledger_present"] = bool(ledger)
-        gaps["candidate_discarded_causes_present"] = summary["discarded_count"] > 0 and summary["discard_cause_coverage_rate"] == 1.0
+        gaps["candidate_discarded_causes_present"] = _recall_is_measurable(summary)
     alerts = report.setdefault("alerts", [])
     classifications = report.setdefault("bug_classifications", [])
     if summary["candidate_count"] == 0:
@@ -60,7 +75,9 @@ def append_summary(report_path: Path, ledger_path: Path) -> dict[str, Any]:
             "severity": "inconclusive",
             "reason": "candidate decision ledger is empty or missing",
         })
-    if summary["selected_count"] > 0 and summary["discarded_count"] == 0:
+    if _recall_is_measurable(summary):
+        _remove_recall_unknown(report)
+    elif summary["selected_count"] > 0 and summary["discarded_count"] == 0:
         alerts.append({
             "metric": "candidate_discarded_count",
             "severity": "inconclusive",

@@ -49,6 +49,7 @@ def main() -> int:
     sidecar = TMP / "source.perception.json"
     metadata_path = TMP / "reels_metadata.json"
     trace_path = TMP / "draft_decision_trace.json"
+    upstream_candidates_path = TMP / "selector_candidate_events.json"
     ledger_path = TMP / "candidate_decision_ledger.json"
     fragment_tracks = [detection(30.0 + index, 100 + index) for index in range(10)]
     write_json(
@@ -72,7 +73,7 @@ def main() -> int:
         {
             "exit_code": 0,
             "tmp_dir": str(TMP),
-            "file_count": 6,
+            "file_count": 7,
             "sidecar_count": 1,
             "sidecars": [sidecar.name],
             "files": [
@@ -81,6 +82,7 @@ def main() -> int:
                 {"path": duplicate_draft.name, "size_bytes": 6},
                 {"path": sidecar.name, "size_bytes": sidecar.stat().st_size},
                 {"path": trace_path.name, "size_bytes": 1},
+                {"path": upstream_candidates_path.name, "size_bytes": 1},
                 {"path": ledger_path.name, "size_bytes": 1},
             ],
         },
@@ -112,6 +114,38 @@ def main() -> int:
                 ],
                 "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
             },
+        },
+    )
+    write_json(
+        upstream_candidates_path,
+        {
+            "schema_version": "sportreel.selector_candidate_events.v1",
+            "candidates": [
+                {
+                    "person_id": "person_A",
+                    "person_description": "surfer on source fixture",
+                    "selected": True,
+                    "discarded": False,
+                    "selection_reason": "score_above_threshold",
+                    "event_type": "ride",
+                    "score": 9,
+                    "source_video": "source.mp4",
+                    "source_window": {"start": 12.0, "end": 20.0, "duration": 8.0},
+                    "description": "selected fixture ride",
+                },
+                {
+                    "person_id": "person_A",
+                    "person_description": "surfer on source fixture",
+                    "selected": False,
+                    "discarded": True,
+                    "discard_cause": "score_below_selection_threshold",
+                    "event_type": "paddle",
+                    "score": 4,
+                    "source_video": "source.mp4",
+                    "source_window": {"start": 40.0, "end": 47.0, "duration": 7.0},
+                    "description": "low value paddle",
+                },
+            ],
         },
     )
     try:
@@ -150,12 +184,23 @@ def main() -> int:
             cwd=ROOT,
             check=True,
         )
+        selected_only_ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+        require(selected_only_ledger["candidate_count"] == 2, "selected-only ledger candidate count missing")
+        require(selected_only_ledger["selected_count"] == 2, "selected-only ledger selected count missing")
+        require(selected_only_ledger["discarded_count"] == 0, "selected-only ledger discarded count should be zero")
+        require(selected_only_ledger["recall_status"] == "selected_only", "selected-only ledger must not pretend discarded candidates exist")
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts/build_candidate_decision_ledger.py"), str(trace_path), str(ledger_path), str(upstream_candidates_path)],
+            cwd=ROOT,
+            check=True,
+        )
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
         require(ledger["schema_version"] == "sportreel.candidate_decision_ledger.v1", "ledger schema version missing")
-        require(ledger["candidate_count"] == 2, "ledger candidate count missing")
+        require(ledger["candidate_count"] == 3, "ledger candidate count missing")
         require(ledger["selected_count"] == 2, "ledger selected count missing")
-        require(ledger["discarded_count"] == 0, "ledger discarded count should be explicit zero")
-        require(ledger["recall_status"] == "selected_only", "ledger should not pretend dropped candidates exist")
+        require(ledger["discarded_count"] == 1, "ledger discarded count missing")
+        require(ledger["discard_causes_available"] is True, "ledger discard causes should be complete")
+        require(ledger["recall_status"] == "selected_and_discarded", "ledger should report measurable selected and discarded candidates")
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         require(trace["schema_version"] == "sportreel.draft_decision_trace.v1", "trace schema version missing")
         require(trace["draft_count"] == 2, "trace draft count missing")
@@ -193,12 +238,13 @@ def main() -> int:
         require(report["metrics"]["short_track_rate"] == 1.0, "short track rate missing")
         require(report["track_fragmentation"]["track_count"] == 13, "track fragmentation track count missing")
         require(report["track_fragmentation"]["track_duration_distribution"]["max"] < 2.0, "track duration distribution missing")
-        require(report["metrics"]["candidate_ledger_count"] == 2, "candidate ledger metric missing")
+        require(report["metrics"]["candidate_ledger_count"] == 3, "candidate ledger metric missing")
         require(report["metrics"]["candidate_selected_count"] == 2, "candidate selected metric missing")
-        require(report["metrics"]["candidate_discarded_count"] == 0, "candidate discarded metric missing")
-        require(report["candidate_decision_ledger"]["recall_status"] == "selected_only", "candidate ledger recall status missing")
+        require(report["metrics"]["candidate_discarded_count"] == 1, "candidate discarded metric missing")
+        require(report["metrics"]["candidate_discard_cause_coverage_rate"] == 1.0, "candidate discard cause coverage missing")
+        require(report["candidate_decision_ledger"]["recall_status"] == "selected_and_discarded", "candidate ledger recall status missing")
         require(report["implementation_gaps"]["candidate_decision_ledger_present"] is True, "candidate ledger presence missing")
-        require(report["implementation_gaps"]["candidate_discarded_causes_present"] is False, "candidate discarded cause gap missing")
+        require(report["implementation_gaps"]["candidate_discarded_causes_present"] is True, "candidate discarded cause coverage gap should be closed")
         require(report["metrics"]["qa_critical_defect_count"] == 3, "QA critical defect count missing after trace")
         require(report["implementation_gaps"]["qa_gate_policy_metric_ready"] is True, "QA policy metric readiness missing")
         require(report["implementation_gaps"]["qa_gate_policy_explicit"] is False, "QA policy explicit flag should remain false")
@@ -207,7 +253,7 @@ def main() -> int:
         require("BUG_MIXED_SUBJECT_LIKELY" in codes, "mixed subject classification missing")
         require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification missing")
         require("BUG_QA_GATE_BYPASSED" in codes, "QA gate bypass classification missing after trace")
-        require("BUG_RECALL_UNKNOWN" in codes, "recall unknown must remain until discarded candidates exist")
+        require("BUG_RECALL_UNKNOWN" not in codes, "recall unknown should be cleared when discarded candidates have causes")
         require(report["implementation_gaps"]["mixed_subject_metric_ready"] is True, "mixed-subject metric readiness missing")
         require(report["implementation_gaps"]["track_fragmentation_metric_ready"] is True, "fragmentation metric readiness missing")
         require(report["status"] == "fail", "duplicate/mixed/fragmentation/QA fixture should fail quality report")

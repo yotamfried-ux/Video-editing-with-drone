@@ -7,6 +7,7 @@ DEBUG_DIR="$TMP_ROOT/pipeline-debug"
 LOG_FILE="$DEBUG_DIR/run_tracked.log"
 REEL_METADATA_FILE="${REEL_METADATA_FILE:-reels_metadata.json}"
 DRAFT_TRACE_FILE="$TMP_ROOT/draft_decision_trace.json"
+UPSTREAM_CANDIDATES_FILE="$TMP_ROOT/selector_candidate_events.json"
 CANDIDATE_LEDGER_FILE="$TMP_ROOT/candidate_decision_ledger.json"
 RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
 
@@ -19,7 +20,12 @@ STATUS=${PIPESTATUS[0]}
 python scripts/build_draft_decision_trace.py "$REEL_METADATA_FILE" "$LOG_FILE" "$DRAFT_TRACE_FILE" || true
 if [ -f "$DRAFT_TRACE_FILE" ]; then
   cp "$DRAFT_TRACE_FILE" "$DEBUG_DIR/draft_decision_trace.json" || true
-  python scripts/build_candidate_decision_ledger.py "$DRAFT_TRACE_FILE" "$CANDIDATE_LEDGER_FILE" || true
+  if [ -f "$UPSTREAM_CANDIDATES_FILE" ]; then
+    cp "$UPSTREAM_CANDIDATES_FILE" "$DEBUG_DIR/selector_candidate_events.json" || true
+    python scripts/build_candidate_decision_ledger.py "$DRAFT_TRACE_FILE" "$CANDIDATE_LEDGER_FILE" "$UPSTREAM_CANDIDATES_FILE" || true
+  else
+    python scripts/build_candidate_decision_ledger.py "$DRAFT_TRACE_FILE" "$CANDIDATE_LEDGER_FILE" || true
+  fi
 fi
 if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
   cp "$CANDIDATE_LEDGER_FILE" "$DEBUG_DIR/candidate_decision_ledger.json" || true
