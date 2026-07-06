@@ -1,20 +1,20 @@
-"""Runtime hook that emits selector candidate events from analyzer parsing.
+"""Runtime hook that emits selector candidates and removes duplicate source windows.
 
-The tracked Actions entrypoint installs this before importing the orchestrator.
-It captures Gemini's raw person/events payload before analyzer filtering, mirrors the
-existing selector policy, and writes `/tmp/dtor/selector_candidate_events.json`
-for diagnostics without changing the analyzer return value.
+The tracked Actions entrypoint installs this before importing the orchestrator. It
+captures Gemini's raw person/events payload for diagnostics, then applies a
+small deterministic source-window deduplication pass to the parsed analyzer
+result so two uploaded drafts do not represent the same source moment.
 """
 from __future__ import annotations
 
 import json
 import logging
-import os
 import re
 from pathlib import Path
 from typing import Any
 
 import config
+from pipeline.source_window_dedup import dedupe_session
 from pipeline.stages.selector_candidates import build_selector_candidate_events, write_selector_candidate_events
 
 logger = logging.getLogger(__name__)
@@ -94,7 +94,7 @@ def _append_payload(path: Path, payload: dict[str, Any]) -> None:
 
 
 def install() -> None:
-    """Patch analyzer.analyze_session to emit selector candidate diagnostics."""
+    """Patch analyzer.analyze_session to emit diagnostics and dedupe source moments."""
     import pipeline.stages.analyzer as analyzer
 
     if getattr(analyzer, "_sportreel_selector_candidate_runtime_installed", False):
@@ -126,6 +126,11 @@ def install() -> None:
             result = original_analyze_session(video_path)
         finally:
             analyzer._parse_session = original_parse_session
+
+        result = dedupe_session(result, default_source=source_video)
+        dropped_count = result.get("diagnostics", {}).get("source_window_dedup_dropped_count", 0)
+        if dropped_count:
+            logger.warning("Dropped %d duplicate source-window event(s) before reel selection", dropped_count)
 
         if captured_payloads:
             path = Path(config.TMP_DIR) / _OUTPUT_NAME
