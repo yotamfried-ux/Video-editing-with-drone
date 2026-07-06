@@ -24,8 +24,8 @@ def require(condition: bool, message: str) -> None:
 def main() -> int:
     if TMP.exists():
         shutil.rmtree(TMP)
+    TMP.mkdir(parents=True)
     debug = TMP / "pipeline-debug"
-    sidecars = debug / "sidecars"
     source = TMP / "source.mp4"
     draft = TMP / "DRAFT_surfer.mp4"
     source.write_bytes(b"source")
