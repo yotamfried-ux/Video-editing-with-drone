@@ -1,8 +1,13 @@
 """Runtime perception evidence enrichment for analyzer events.
 
-This module does not run a detector by itself. It connects production detector /
-tracker output into the existing pipeline contract by consuming a JSON sidecar
-next to the source video or inside SPORTREEL_PERCEPTION_SIDECAR_DIR.
+This module connects production detector/tracker output into the existing
+pipeline contract by consuming a JSON sidecar next to the source video or inside
+SPORTREEL_PERCEPTION_SIDECAR_DIR.
+
+It can also run a configured pre-analysis producer command before Gemini
+analysis. The command is intentionally external: this repository owns the
+contract, validation, ordering and fail-safe behavior, while the actual model can
+be swapped without changing downstream crop/identity/QA code.
 
 Expected sidecar shape:
 {
@@ -24,16 +29,33 @@ Expected sidecar shape:
 from __future__ import annotations
 
 import json
+import logging
 import os
-import sys
+import shlex
+import subprocess
 from pathlib import Path
 from typing import Any
 
 from .schema import PerceptionDetection
 
+logger = logging.getLogger(__name__)
+
 _INSTALLED_FLAG = "_sportreel_perception_runtime_installed"
 _SIDECAR_ENV = "SPORTREEL_PERCEPTION_SIDECAR_DIR"
+_COMMAND_ENV = "SPORTREEL_PERCEPTION_COMMAND"
+_REQUIRED_ENV = "SPORTREEL_REQUIRE_PERCEPTION"
+_TIMEOUT_ENV = "SPORTREEL_PERCEPTION_TIMEOUT_SEC"
 _MAX_NEAREST_SEC = 1.0
+_TRUE_VALUES = {"1", "true", "yes", "on", "required"}
+
+
+def _truthy_env(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in _TRUE_VALUES
+
+
+def perception_required() -> bool:
+    """Return whether missing/invalid perception evidence should fail the run."""
+    return _truthy_env(_REQUIRED_ENV)
 
 
 def candidate_sidecar_paths(video_path: str) -> list[Path]:
@@ -57,6 +79,15 @@ def candidate_sidecar_paths(video_path: str) -> list[Path]:
     return out
 
 
+def sidecar_output_path(video_path: str) -> Path:
+    """Return where the producer should write a sidecar for this local video."""
+    video = Path(video_path)
+    sidecar_dir = os.getenv(_SIDECAR_ENV, "").strip()
+    if sidecar_dir:
+        return Path(sidecar_dir) / f"{video.stem}.perception.json"
+    return video.with_suffix(".perception.json")
+
+
 def _sidecar_path(video_path: str) -> Path | None:
     return next((path for path in candidate_sidecar_paths(video_path) if path.exists()), None)
 
@@ -66,6 +97,40 @@ def _num(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+def _timeout_sec() -> int:
+    try:
+        return max(1, int(os.getenv(_TIMEOUT_ENV, "600")))
+    except ValueError:
+        return 600
+
+
+def _render_command(command: str, video_path: str, sidecar_path: Path) -> list[str]:
+    """Render a configured command without using a shell.
+
+    A command may include `{video_path}` and `{sidecar_path}` placeholders. If no
+    placeholders are present, both paths are appended as positional arguments.
+    The environment also receives SPORTREEL_VIDEO_PATH and
+    SPORTREEL_PERCEPTION_OUTPUT.
+    """
+    if "{video_path}" in command or "{sidecar_path}" in command:
+        rendered = command.replace("{video_path}", video_path).replace("{sidecar_path}", str(sidecar_path))
+        return shlex.split(rendered)
+    return [*shlex.split(command), video_path, str(sidecar_path)]
+
+
+def _write_status_sidecar(video_path: str, sidecar_path: Path, status: str, reason: str) -> None:
+    sidecar_path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "source_video": video_path,
+        "status": status,
+        "reason": reason,
+        "detections": [],
+    }
+    tmp = sidecar_path.with_suffix(sidecar_path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(sidecar_path)
 
 
 def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
@@ -97,6 +162,75 @@ def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
             )
         )
     return detections
+
+
+def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[str, Any]:
+    """Validate sidecar parseability and return a compact summary."""
+    path = sidecar_path or _sidecar_path(video_path)
+    if path is None or not path.exists():
+        raise FileNotFoundError("perception sidecar not found")
+    with open(path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    if not isinstance(payload.get("detections", []), list):
+        raise ValueError("perception sidecar detections must be a list")
+    detections = load_sidecar_detections(video_path)
+    return {
+        "path": str(path),
+        "status": str(payload.get("status") or "ok"),
+        "reason": payload.get("reason"),
+        "detection_count": len(detections),
+    }
+
+
+def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
+    """Run the configured pre-analysis producer when a sidecar is missing.
+
+    Without SPORTREEL_PERCEPTION_COMMAND this writes an explicit skipped sidecar
+    unless SPORTREEL_REQUIRE_PERCEPTION is enabled, in which case it fails closed.
+    """
+    existing = _sidecar_path(video_path)
+    if existing is not None:
+        try:
+            summary = validate_sidecar(video_path, existing)
+            return {**summary, "producer_status": "existing"}
+        except Exception as exc:
+            if perception_required():
+                raise RuntimeError(f"Invalid perception sidecar: {exc}") from exc
+            logger.warning("Ignoring invalid perception sidecar for %s: %s", video_path, exc)
+
+    output = sidecar_output_path(video_path)
+    command = os.getenv(_COMMAND_ENV, "").strip()
+    if not command:
+        if perception_required():
+            raise RuntimeError(f"{_COMMAND_ENV} is required when {_REQUIRED_ENV}=1")
+        _write_status_sidecar(video_path, output, "skipped", "perception_command_not_configured")
+        return {"path": str(output), "producer_status": "skipped", "detection_count": 0}
+
+    output.parent.mkdir(parents=True, exist_ok=True)
+    args = _render_command(command, video_path, output)
+    env = {
+        **os.environ,
+        "SPORTREEL_VIDEO_PATH": video_path,
+        "SPORTREEL_PERCEPTION_OUTPUT": str(output),
+    }
+    try:
+        subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
+    except Exception as exc:
+        if perception_required():
+            raise RuntimeError(f"Perception producer failed: {exc}") from exc
+        logger.warning("Perception producer failed for %s: %s", video_path, exc)
+        _write_status_sidecar(video_path, output, "failed", str(exc))
+        return {"path": str(output), "producer_status": "failed", "detection_count": 0}
+
+    try:
+        summary = validate_sidecar(video_path, output)
+    except Exception as exc:
+        if perception_required():
+            raise RuntimeError(f"Perception producer wrote invalid sidecar: {exc}") from exc
+        logger.warning("Perception producer wrote invalid sidecar for %s: %s", video_path, exc)
+        _write_status_sidecar(video_path, output, "failed", f"invalid_sidecar: {exc}")
+        return {"path": str(output), "producer_status": "failed", "detection_count": 0}
+    return {**summary, "producer_status": "created"}
 
 
 def _event_window(event: dict[str, Any]) -> tuple[float, float]:
@@ -165,7 +299,13 @@ def enrich_event(event: dict[str, Any], detections: list[PerceptionDetection]) -
 
 
 def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dict[str, Any]:
-    detections = load_sidecar_detections(video_path)
+    try:
+        detections = load_sidecar_detections(video_path)
+    except Exception as exc:
+        if perception_required():
+            raise
+        logger.warning("Skipping invalid perception sidecar during enrichment for %s: %s", video_path, exc)
+        return {**session, "perception_evidence_source": "tracker_sidecar_error", "perception_evidence_error": str(exc)}
     if not detections:
         return session
     people = []
@@ -176,7 +316,7 @@ def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dic
 
 
 def install() -> None:
-    """Patch analyzer so tracker sidecar evidence lands before crop/identity guards."""
+    """Patch analyzer so sidecar evidence lands before crop/identity guards."""
     import pipeline.stages.analyzer as analyzer
 
     if getattr(analyzer, _INSTALLED_FLAG, False):
@@ -184,6 +324,7 @@ def install() -> None:
     original = analyzer.analyze_session
 
     def analyze_with_perception_sidecar(video_path: str) -> dict:
+        ensure_sidecar_for_video(video_path)
         result = original(video_path)
         if isinstance(result, dict):
             return enrich_session_with_sidecar(result, video_path)
@@ -195,7 +336,10 @@ def install() -> None:
 
 __all__ = [
     "candidate_sidecar_paths",
+    "sidecar_output_path",
     "load_sidecar_detections",
+    "validate_sidecar",
+    "ensure_sidecar_for_video",
     "enrich_event",
     "enrich_session_with_sidecar",
     "install",
