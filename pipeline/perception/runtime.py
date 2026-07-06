@@ -155,13 +155,7 @@ def _producer_status_from_sidecar(summary: dict[str, Any]) -> str:
     return "created" if status in _REUSABLE_SIDECAR_STATUSES else status
 
 
-def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
-    """Load normalized detections from the detector/tracker sidecar if present."""
-    path = _sidecar_path(video_path)
-    if path is None:
-        return []
-    with open(path, encoding="utf-8") as handle:
-        payload = json.load(handle)
+def _detections_from_payload(video_path: str, payload: dict[str, Any]) -> list[PerceptionDetection]:
     source_video = str(payload.get("source_video") or video_path)
     default_w = int(payload.get("frame_width") or 0)
     default_h = int(payload.get("frame_height") or 0)
@@ -186,6 +180,16 @@ def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
     return detections
 
 
+def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
+    """Load normalized detections from the detector/tracker sidecar if present."""
+    path = _sidecar_path(video_path)
+    if path is None:
+        return []
+    with open(path, encoding="utf-8") as handle:
+        payload = json.load(handle)
+    return _detections_from_payload(video_path, payload)
+
+
 def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[str, Any]:
     """Validate sidecar parseability and return a compact summary."""
     path = sidecar_path or _sidecar_path(video_path)
@@ -195,7 +199,7 @@ def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[
         payload = json.load(handle)
     if not isinstance(payload.get("detections", []), list):
         raise ValueError("perception sidecar detections must be a list")
-    detections = load_sidecar_detections(video_path)
+    detections = _detections_from_payload(video_path, payload)
     return {
         "path": str(path),
         "status": str(payload.get("status") or "ok"),
