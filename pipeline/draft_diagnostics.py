@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from pathlib import Path
 from typing import Any
 
 REQUIRED_SECTIONS = ["source_videos", "raw_gemini_events", "perception_tracks", "identity_clusters", "ordered_events", "dropped_events", "qa", "final_upload_key"]
@@ -23,6 +24,36 @@ def _clean(value: Any) -> Any:
     if isinstance(value, (str, int, float, bool)) or value is None:
         return value
     return str(value)
+
+
+def _name_suffix(filename: str, index: int) -> str:
+    path = Path(filename)
+    suffix = path.suffix or ".mp4"
+    return f"{path.stem}_{index:02d}{suffix}"
+
+
+def _unique_draft_name(base_name: str, used: set[str]) -> str:
+    if base_name not in used:
+        used.add(base_name)
+        return base_name
+    index = 2
+    while True:
+        candidate = _name_suffix(base_name, index)
+        if candidate not in used:
+            used.add(candidate)
+            return candidate
+        index += 1
+
+
+def _metadata_names(meta_file: str) -> set[str]:
+    try:
+        with open(meta_file, encoding="utf-8") as handle:
+            metadata = json.load(handle)
+    except (FileNotFoundError, json.JSONDecodeError, OSError):
+        return set()
+    if not isinstance(metadata, dict):
+        return set()
+    return {str(name) for name in metadata.keys()}
 
 
 def build_diagnostic_artifact(draft_name: str, sport: str, events: list[dict[str, Any]], source_quality: dict[str, Any], final_upload_key: str | None = None) -> dict[str, Any]:
@@ -95,13 +126,20 @@ def _patch_orchestrator(orchestrator: Any) -> None:
     import config
     if getattr(orchestrator, _INSTALLED_FLAG, False):
         return
-    original = orchestrator._save_reel_metadata
+    original_save = orchestrator._save_reel_metadata
+    original_safe_name = orchestrator._safe_draft_name
+    used_names: set[str] = set()
+
+    def unique_safe_draft_name(description: str) -> str:
+        used_names.update(_metadata_names(config.REEL_METADATA_FILE))
+        return _unique_draft_name(original_safe_name(description), used_names)
 
     def save_with_diagnostics(draft_name, sport, events, source_quality):
-        original(draft_name, sport, events, source_quality)
+        original_save(draft_name, sport, events, source_quality)
         artifact = build_diagnostic_artifact(draft_name, sport, events, source_quality, final_upload_key=draft_name)
         augment_metadata_entry(config.REEL_METADATA_FILE, draft_name, artifact)
 
+    orchestrator._safe_draft_name = unique_safe_draft_name
     orchestrator._save_reel_metadata = save_with_diagnostics
     setattr(orchestrator, _INSTALLED_FLAG, True)
 
