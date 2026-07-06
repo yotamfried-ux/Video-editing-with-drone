@@ -110,10 +110,27 @@ def _normalized_upstream_candidates(upstream: dict[str, Any]) -> list[dict[str, 
     return out
 
 
+def _unmatched_upstream_selected_to_discarded(candidate: dict[str, Any]) -> dict[str, Any]:
+    converted = dict(candidate)
+    converted["selected"] = False
+    converted["discarded"] = True
+    converted["discard_cause"] = "selected_by_selector_not_emitted_as_draft"
+    converted["selection_reason"] = None
+    converted["unmatched_selector_selection"] = True
+    return converted
+
+
 def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not upstream_candidates:
         return trace_candidates
-    by_key = {_window_key(item): dict(item) for item in upstream_candidates}
+    trace_keys = {_window_key(item) for item in trace_candidates}
+    by_key: dict[tuple[str, float | None, float | None, str], dict[str, Any]] = {}
+    for item in upstream_candidates:
+        key = _window_key(item)
+        candidate = dict(item)
+        if candidate.get("selected") and key not in trace_keys:
+            candidate = _unmatched_upstream_selected_to_discarded(candidate)
+        by_key[key] = candidate
     for trace_candidate in trace_candidates:
         key = _window_key(trace_candidate)
         if key in by_key:
@@ -125,6 +142,7 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
                 "discarded": False,
                 "discard_cause": None,
                 "selection_reason": trace_candidate.get("selection_reason") or "selected_for_uploaded_draft",
+                "unmatched_selector_selection": False,
             })
             by_key[key] = merged
         else:
@@ -140,6 +158,7 @@ def build_ledger(trace_path: Path, upstream_path: Path | None = None) -> dict[st
     candidates = _merge_candidates(trace_candidates, upstream_candidates)
     selected_count = sum(1 for item in candidates if item.get("selected"))
     discarded_count = sum(1 for item in candidates if item.get("discarded"))
+    unmatched_selector_selected_count = sum(1 for item in candidates if item.get("unmatched_selector_selection"))
     discard_causes_available = discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded"))
     return {
         "schema_version": "sportreel.candidate_decision_ledger.v1",
@@ -152,6 +171,7 @@ def build_ledger(trace_path: Path, upstream_path: Path | None = None) -> dict[st
         "candidate_count": len(candidates),
         "selected_count": selected_count,
         "discarded_count": discarded_count,
+        "unmatched_selector_selected_count": unmatched_selector_selected_count,
         "discard_causes_available": discard_causes_available,
         "recall_status": "selected_and_discarded" if selected_count > 0 and discard_causes_available else "selected_only",
         "known_gap": None if selected_count > 0 and discard_causes_available else "discarded candidates are not yet emitted by the upstream selector",
