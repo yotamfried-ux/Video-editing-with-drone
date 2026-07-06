@@ -11,15 +11,14 @@ librosa>=0.11.0
 soundfile>=0.12
 Pillow>=10.0.0
 torch>=2.0.0
+torchvision>=0.15.0
 transformers>=4.35.0
 supervision>=0.29.0,<0.30.0
 ultralytics>=8.3.0
 
-# Face recognition for athlete matching (128-float embeddings).
-# dlib compiles from source — needs cmake + a C++ toolchain (build-essential).
-# CI installs cmake via apt before `pip install -r requirements.txt`.
+# Face recognition for athlete matching.
+# dlib compiles from source and needs cmake plus a C++ toolchain.
+# CI installs cmake before pip install -r requirements.txt.
 face_recognition>=1.3.0
 
-# ffmpeg must be installed separately via system package manager:
-#   Ubuntu/Debian: sudo apt install ffmpeg
-#   macOS:         brew install ffmpeg
+# ffmpeg must be installed separately by the system package manager.

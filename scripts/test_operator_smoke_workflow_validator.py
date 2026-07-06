@@ -17,9 +17,29 @@ def expect_failure(workflow: str, expected: str) -> None:
     raise SystemExit(f'expected validator failure containing {expected!r}')
 
 
+def require_tokens(label: str, text: str, tokens: list[str]) -> None:
+    missing = [token for token in tokens if token not in text]
+    if missing:
+        raise SystemExit(f'{label} missing tokens: {missing}')
+
+
 def main() -> int:
     workflow = Path('.github/workflows/operator-smoke.yml').read_text(encoding='utf-8')
     validator.validate(workflow)
+
+    pipeline_workflow = Path('.github/workflows/pipeline-run.yml').read_text(encoding='utf-8')
+    requirements = Path('requirements.txt').read_text(encoding='utf-8')
+    require_tokens(
+        'pipeline torch/torchvision runtime',
+        pipeline_workflow,
+        [
+            'pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu',
+            'from torchvision.ops import nms',
+            'torchvision.__version__',
+            'nms.__name__',
+        ],
+    )
+    require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'ultralytics>=8.3.0'])
 
     expect_failure(
         workflow.replace('actions/upload-artifact@v4', 'actions/upload-artifact@v3'),
@@ -31,7 +51,7 @@ def main() -> int:
     )
     expect_failure(
         workflow.replace('args=(', 'ARGS=""'),
-        'args=(',
+        'args=',
     )
     expect_failure(
         workflow.replace('operator-smoke-report.md', 'smoke.md', 1),
