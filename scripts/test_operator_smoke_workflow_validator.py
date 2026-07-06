@@ -45,6 +45,7 @@ def main() -> int:
 
     run_tracked = Path('scripts/run_tracked.py').read_text(encoding='utf-8')
     selector_runtime = Path('pipeline/selector_candidate_runtime.py').read_text(encoding='utf-8')
+    draft_diagnostics = Path('pipeline/draft_diagnostics.py').read_text(encoding='utf-8')
     require_tokens(
         'selector candidate runtime install',
         run_tracked,
@@ -65,6 +66,24 @@ def main() -> int:
             'write_selector_candidate_events',
         ],
     )
+    require_tokens(
+        'draft metadata uniqueness runtime',
+        draft_diagnostics,
+        [
+            '_unique_draft_name',
+            '_metadata_names',
+            'orchestrator._safe_draft_name = unique_safe_draft_name',
+            'used_names.update(_metadata_names(config.REEL_METADATA_FILE))',
+        ],
+    )
+
+    from pipeline.draft_diagnostics import _unique_draft_name
+    used: set[str] = set()
+    first = _unique_draft_name('DRAFT_same_20260706.mp4', used)
+    second = _unique_draft_name('DRAFT_same_20260706.mp4', used)
+    third = _unique_draft_name('DRAFT_same_20260706.mp4', used)
+    if first != 'DRAFT_same_20260706.mp4' or second != 'DRAFT_same_20260706_02.mp4' or third != 'DRAFT_same_20260706_03.mp4':
+        raise SystemExit(f'draft name uniqueness failed: {first}, {second}, {third}')
 
     expect_failure(workflow.replace('actions/upload-artifact@v4', 'actions/upload-artifact@v3'), 'actions/upload-artifact@v4')
     expect_failure(workflow.replace('if: always()', 'if: success()'), 'if: always()')
