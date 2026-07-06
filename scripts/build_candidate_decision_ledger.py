@@ -34,8 +34,8 @@ def _candidate_from_window(draft: dict[str, Any], idx: int, window: dict[str, An
         "draft_id": draft_id,
         "draft_name": draft.get("draft_name") or draft_id,
         "selected": True,
-        "dropped": False,
-        "dropped_reason": None,
+        "discarded": False,
+        "discard_cause": None,
         "selection_reason": "selected_for_uploaded_draft",
         "event_type": window.get("event_type", ""),
         "score": window.get("score"),
@@ -60,7 +60,7 @@ def build_ledger(trace_path: Path) -> dict[str, Any]:
         for idx, window in enumerate(windows):
             candidates.append(_candidate_from_window(draft, idx, window))
     selected_count = sum(1 for item in candidates if item.get("selected"))
-    dropped_count = sum(1 for item in candidates if item.get("dropped"))
+    discarded_count = sum(1 for item in candidates if item.get("discarded"))
     return {
         "schema_version": "sportreel.candidate_decision_ledger.v1",
         "source": {
@@ -69,10 +69,10 @@ def build_ledger(trace_path: Path) -> dict[str, Any]:
         },
         "candidate_count": len(candidates),
         "selected_count": selected_count,
-        "dropped_count": dropped_count,
-        "dropped_reasons_present": dropped_count > 0 and all(item.get("dropped_reason") for item in candidates if item.get("dropped")),
-        "recall_status": "selected_only" if selected_count > 0 and dropped_count == 0 else "selected_and_dropped",
-        "known_gap": "dropped candidates are not yet emitted by the upstream selector" if selected_count > 0 and dropped_count == 0 else None,
+        "discarded_count": discarded_count,
+        "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
+        "recall_status": "selected_only" if selected_count > 0 and discarded_count == 0 else "selected_and_discarded",
+        "known_gap": "discarded candidates are not yet emitted by the upstream selector" if selected_count > 0 and discarded_count == 0 else None,
         "candidates": candidates,
     }
 
@@ -87,7 +87,7 @@ def main() -> int:
         "candidate ledger "
         f"candidates={ledger['candidate_count']} "
         f"selected={ledger['selected_count']} "
-        f"dropped={ledger['dropped_count']} "
+        f"discarded={ledger['discarded_count']} "
         f"recall_status={ledger['recall_status']}"
     )
     return 0
