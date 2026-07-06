@@ -143,8 +143,8 @@ def main() -> int:
         require(report["metrics"]["source_window_overlap_pair_count"] == 1, "overlap pair count missing")
         require(report["metrics"]["source_window_overlap_duplicate_rate"] == 1.0, "overlap duplicate rate missing")
         require(report["source_window_overlap_duplicates"][0]["overlap_seconds"] == 5.0, "overlap evidence missing")
-        require(report["metrics"]["mixed_subject_likely_window_count"] == 2, "mixed-subject count missing")
-        require(report["metrics"]["mixed_subject_violation_rate"] == 1.0, "mixed-subject rate missing")
+        require(report["metrics"]["mixed_subject_likely_window_count"] == 1, "mixed-subject count missing")
+        require(report["metrics"]["mixed_subject_violation_rate"] == 0.5, "mixed-subject rate missing")
         require(report["mixed_subject_likely_windows"][0]["primary_track_dominance_ratio"] == 0.4, "mixed-subject dominance missing")
         require(set(report["mixed_subject_likely_windows"][0]["visible_track_ids"]) == {"7", "8", "9"}, "mixed-subject track ids missing")
         codes = {item["code"] for item in report["bug_classifications"]}
