@@ -97,6 +97,7 @@ def main() -> int:
         "PREMATURE_CUT: wave outcome missing\n"
         "DUPLICATE_MOMENT: source window overlaps another draft\n"
         "IDENTITY_MISMATCH: title/person mismatch\n"
+        "✅ 3 draft(s) uploaded to REVIEW folder\n"
         "pipeline ok",
         encoding="utf-8",
     )
@@ -127,6 +128,7 @@ def main() -> int:
                 "events": [
                     {"type": "ride", "score": 9, "start": 12.0, "end": 20.0, "description": "selected fixture ride"},
                     {"type": "ride", "score": 8, "start": 15.0, "end": 22.0, "description": "second selected ride"},
+                    {"type": "ride", "score": 7, "start": 80.0, "end": 90.0, "description": "selected upstream but no draft trace"},
                     {"type": "paddle", "score": 4, "start": 40.0, "end": 47.0, "description": "low value paddle"},
                     {"type": "snap", "score": 8, "start": 50.0, "end": 53.0, "description": "too short fragment"},
                 ],
@@ -136,7 +138,7 @@ def main() -> int:
     )
     write_json(upstream_candidates_path, selector_payload)
     require(selector_payload["schema_version"] == "sportreel.selector_candidate_events.v1", "selector candidate schema missing")
-    require(selector_payload["selected_count"] == 2, "selector selected count missing")
+    require(selector_payload["selected_count"] == 3, "selector selected count missing")
     require(selector_payload["discarded_count"] == 2, "selector discarded count missing")
     discard_causes = {item["discard_cause"] for item in selector_payload["candidates"] if item.get("discarded")}
     require(discard_causes == {"score_below_selection_threshold", "fragment_shorter_than_min_event_sec"}, "selector discard causes missing")
@@ -159,6 +161,10 @@ def main() -> int:
         require(report["metrics"]["track_id_missing_rate"] == 0.0, "track id should be present")
         require(report["metrics"]["bbox_out_of_bounds_rate"] == 0.0, "bbox should be valid")
         require(report["metrics"]["qa_critical_defect_count"] == 3, "QA critical defect count missing")
+        require(report["metrics"]["qa_flagged_draft_count"] == 1, "QA flagged draft count missing")
+        require(report["metrics"]["uploaded_draft_count"] == 3, "uploaded draft count missing")
+        require(report["metrics"]["draft_upload_trace_mismatch_count"] == 1, "draft/upload trace mismatch count missing")
+        require(round(report["metrics"]["draft_upload_trace_mismatch_rate"], 3) == 0.333, "draft/upload trace mismatch rate missing")
         require(report["metrics"]["qa_gate_bypass_rate"] == 1.0, "QA gate bypass rate missing")
         require(report["qa_gate_summary"]["qa_critical_defect_counts"]["IDENTITY_MISMATCH"] == 1, "QA identity mismatch count missing")
         codes = {item["code"] for item in report["bug_classifications"]}
@@ -166,6 +172,7 @@ def main() -> int:
         require("BUG_RECALL_UNKNOWN" in codes, "missing dropped reasons bug classification")
         require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification should be possible without draft trace")
         require("BUG_QA_GATE_BYPASSED" in codes, "QA gate bypass classification missing")
+        require("BUG_DRAFT_TRACE_MISMATCH" in codes, "draft trace mismatch classification missing")
 
         subprocess.run(
             [sys.executable, str(ROOT / "scripts/build_draft_decision_trace.py"), str(metadata_path), str(debug / "run_tracked.log"), str(trace_path)],
@@ -189,11 +196,14 @@ def main() -> int:
         )
         ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
         require(ledger["schema_version"] == "sportreel.candidate_decision_ledger.v1", "ledger schema version missing")
-        require(ledger["candidate_count"] == 4, "ledger candidate count missing")
+        require(ledger["candidate_count"] == 5, "ledger candidate count missing")
         require(ledger["selected_count"] == 2, "ledger selected count missing")
-        require(ledger["discarded_count"] == 2, "ledger discarded count missing")
+        require(ledger["discarded_count"] == 3, "ledger discarded count missing")
+        require(ledger["unmatched_selector_selected_count"] == 1, "unmatched selector selected count missing")
         require(ledger["discard_causes_available"] is True, "ledger discard causes should be complete")
         require(ledger["recall_status"] == "selected_and_discarded", "ledger should report measurable selected and discarded candidates")
+        all_discard_causes = {item["discard_cause"] for item in ledger["candidates"] if item.get("discarded")}
+        require("selected_by_selector_not_emitted_as_draft" in all_discard_causes, "unmatched selector selection discard cause missing")
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
         require(trace["schema_version"] == "sportreel.draft_decision_trace.v1", "trace schema version missing")
         require(trace["draft_count"] == 2, "trace draft count missing")
@@ -231,21 +241,28 @@ def main() -> int:
         require(report["metrics"]["short_track_rate"] == 1.0, "short track rate missing")
         require(report["track_fragmentation"]["track_count"] == 13, "track fragmentation track count missing")
         require(report["track_fragmentation"]["track_duration_distribution"]["max"] < 2.0, "track duration distribution missing")
-        require(report["metrics"]["candidate_ledger_count"] == 4, "candidate ledger metric missing")
+        require(report["metrics"]["candidate_ledger_count"] == 5, "candidate ledger metric missing")
         require(report["metrics"]["candidate_selected_count"] == 2, "candidate selected metric missing")
-        require(report["metrics"]["candidate_discarded_count"] == 2, "candidate discarded metric missing")
+        require(report["metrics"]["candidate_discarded_count"] == 3, "candidate discarded metric missing")
+        require(report["metrics"]["candidate_unmatched_selector_selected_count"] == 1, "unmatched selector selected metric missing")
         require(report["metrics"]["candidate_discard_cause_coverage_rate"] == 1.0, "candidate discard cause coverage missing")
         require(report["candidate_decision_ledger"]["recall_status"] == "selected_and_discarded", "candidate ledger recall status missing")
         require(report["implementation_gaps"]["candidate_decision_ledger_present"] is True, "candidate ledger presence missing")
         require(report["implementation_gaps"]["candidate_discarded_causes_present"] is True, "candidate discarded cause coverage gap should be closed")
+        require(report["implementation_gaps"]["unmatched_selector_selection_metric_ready"] is True, "unmatched selector metric readiness missing")
         require(report["metrics"]["qa_critical_defect_count"] == 3, "QA critical defect count missing after trace")
+        require(report["metrics"]["qa_flagged_draft_count"] == 1, "QA flagged draft count missing after trace")
+        require(report["metrics"]["uploaded_draft_count"] == 3, "uploaded draft count missing after trace")
+        require(report["metrics"]["draft_upload_trace_mismatch_count"] == 1, "draft/upload trace mismatch count missing after trace")
         require(report["implementation_gaps"]["qa_gate_policy_metric_ready"] is True, "QA policy metric readiness missing")
         require(report["implementation_gaps"]["qa_gate_policy_explicit"] is False, "QA policy explicit flag should remain false")
+        require(report["implementation_gaps"]["draft_upload_trace_consistency_ready"] is True, "draft/upload trace consistency readiness missing")
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_DUPLICATE_MOMENT_LIKELY" in codes, "duplicate moment classification missing")
         require("BUG_MIXED_SUBJECT_LIKELY" in codes, "mixed subject classification missing")
         require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification missing")
         require("BUG_QA_GATE_BYPASSED" in codes, "QA gate bypass classification missing after trace")
+        require("BUG_DRAFT_TRACE_MISMATCH" in codes, "draft trace mismatch classification missing after trace")
         require("BUG_RECALL_UNKNOWN" not in codes, "recall unknown should be cleared when discarded candidates have causes")
         require(report["implementation_gaps"]["mixed_subject_metric_ready"] is True, "mixed-subject metric readiness missing")
         require(report["implementation_gaps"]["track_fragmentation_metric_ready"] is True, "fragmentation metric readiness missing")
