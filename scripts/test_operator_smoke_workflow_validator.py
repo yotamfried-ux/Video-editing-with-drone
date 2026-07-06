@@ -30,33 +30,23 @@ def main() -> int:
     pipeline_workflow = Path('.github/workflows/pipeline-run.yml').read_text(encoding='utf-8')
     requirements = Path('requirements.txt').read_text(encoding='utf-8')
     require_tokens(
-        'pipeline torch/torchvision runtime',
+        'pipeline runtime deps',
         pipeline_workflow,
         [
             'pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu',
             'from torchvision.ops import nms',
+            'import lap',
+            'lap.__version__',
             'torchvision.__version__',
             'nms.__name__',
         ],
     )
-    require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'ultralytics>=8.3.0'])
+    require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'lap>=0.5.12', 'ultralytics>=8.3.0'])
 
-    expect_failure(
-        workflow.replace('actions/upload-artifact@v4', 'actions/upload-artifact@v3'),
-        'actions/upload-artifact@v4',
-    )
-    expect_failure(
-        workflow.replace('if: always()', 'if: success()'),
-        'if: always()',
-    )
-    expect_failure(
-        workflow.replace('args=(', 'ARGS=""'),
-        'args=',
-    )
-    expect_failure(
-        workflow.replace('operator-smoke-report.md', 'smoke.md', 1),
-        'write and upload operator-smoke-report.md',
-    )
+    expect_failure(workflow.replace('actions/upload-artifact@v4', 'actions/upload-artifact@v3'), 'actions/upload-artifact@v4')
+    expect_failure(workflow.replace('if: always()', 'if: success()'), 'if: always()')
+    expect_failure(workflow.replace('args=(', 'ARGS=""'), 'args=')
+    expect_failure(workflow.replace('operator-smoke-report.md', 'smoke.md', 1), 'write and upload operator-smoke-report.md')
 
     print('Operator Smoke workflow validator contract checks passed')
     return 0
