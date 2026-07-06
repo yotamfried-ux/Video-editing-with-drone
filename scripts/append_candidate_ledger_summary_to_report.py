@@ -25,11 +25,13 @@ def _summary(ledger: dict[str, Any]) -> dict[str, Any]:
     selected_count = sum(1 for item in candidates if item.get("selected"))
     discarded = [item for item in candidates if item.get("discarded")]
     discarded_with_cause = [item for item in discarded if item.get("discard_cause")]
+    unmatched_selector_selected_count = sum(1 for item in candidates if item.get("unmatched_selector_selection"))
     return {
         "schema_version": ledger.get("schema_version"),
         "candidate_count": len(candidates),
         "selected_count": selected_count,
         "discarded_count": len(discarded),
+        "unmatched_selector_selected_count": unmatched_selector_selected_count,
         "discard_cause_coverage_rate": (len(discarded_with_cause) / len(discarded)) if discarded else 0.0,
         "recall_status": ledger.get("recall_status") or "missing",
         "known_gap": ledger.get("known_gap"),
@@ -60,6 +62,7 @@ def append_summary(report_path: Path, ledger_path: Path) -> dict[str, Any]:
         "candidate_ledger_count": summary["candidate_count"],
         "candidate_selected_count": summary["selected_count"],
         "candidate_discarded_count": summary["discarded_count"],
+        "candidate_unmatched_selector_selected_count": summary["unmatched_selector_selected_count"],
         "candidate_discard_cause_coverage_rate": summary["discard_cause_coverage_rate"],
     })
     report["candidate_decision_ledger"] = summary
@@ -67,6 +70,7 @@ def append_summary(report_path: Path, ledger_path: Path) -> dict[str, Any]:
     if isinstance(gaps, dict):
         gaps["candidate_decision_ledger_present"] = bool(ledger)
         gaps["candidate_discarded_causes_present"] = _recall_is_measurable(summary)
+        gaps["unmatched_selector_selection_metric_ready"] = True
     alerts = report.setdefault("alerts", [])
     classifications = report.setdefault("bug_classifications", [])
     if summary["candidate_count"] == 0:
@@ -105,6 +109,7 @@ def main() -> int:
         f"candidates={summary.get('candidate_count', 0)} "
         f"selected={summary.get('selected_count', 0)} "
         f"discarded={summary.get('discarded_count', 0)} "
+        f"unmatched_selector_selected={summary.get('unmatched_selector_selected_count', 0)} "
         f"recall_status={summary.get('recall_status', 'missing')}"
     )
     return 0
