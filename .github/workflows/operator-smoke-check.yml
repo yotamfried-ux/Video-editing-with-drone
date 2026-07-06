@@ -31,6 +31,7 @@ on:
       - 'scripts/test_operator_smoke_contract.py'
       - 'scripts/test_operator_smoke_workflow_validator.py'
       - 'scripts/test_perception_contract.py'
+      - 'scripts/test_perception_producer_diagnostics_contract.py'
       - 'scripts/test_pipeline_quality_contract.py'
       - 'scripts/test_pipeline_status_stale_contract.py'
       - 'scripts/test_storage_contract.py'
@@ -139,6 +140,8 @@ jobs:
         run: python scripts/test_perception_contract.py
       - name: Validate Explicit sidecar validation contract
         run: python scripts/test_explicit_sidecar_validation_contract.py
+      - name: Validate Producer diagnostics contract
+        run: python scripts/test_perception_producer_diagnostics_contract.py
       - name: Validate Ultralytics tracker contract
         run: python scripts/test_ultralytics_tracker_contract.py
       - name: Validate Cross-source dedup contract
