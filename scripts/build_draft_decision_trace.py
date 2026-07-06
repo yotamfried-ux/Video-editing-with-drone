@@ -47,6 +47,44 @@ def _event_window(event: dict[str, Any], default_source: str | None) -> dict[str
     }
 
 
+def _qa_gate(meta: dict[str, Any]) -> dict[str, Any] | None:
+    qa_gate = meta.get("qa_gate") if isinstance(meta.get("qa_gate"), dict) else None
+    artifact = meta.get("diagnostic_artifact") if isinstance(meta.get("diagnostic_artifact"), dict) else None
+    artifact_qa = artifact.get("qa") if isinstance(artifact, dict) and isinstance(artifact.get("qa"), dict) else None
+    return qa_gate or artifact_qa
+
+
+def _blocking_defect_codes(qa_gate: dict[str, Any] | None) -> list[str]:
+    if not qa_gate:
+        return []
+    reasons = qa_gate.get("review_required_reasons")
+    if isinstance(reasons, list) and reasons:
+        return [str(item) for item in reasons if str(item).strip()]
+    codes: list[str] = []
+    for defect in qa_gate.get("defects", []) or []:
+        if not isinstance(defect, dict):
+            continue
+        if defect.get("blocking") is True or str(defect.get("severity", "")).lower() == "critical":
+            code = str(defect.get("type") or "QA_REVIEW_REQUIRED").upper()
+            if code not in codes:
+                codes.append(code)
+    if qa_gate.get("qa_review_required") and "QA_REVIEW_REQUIRED" not in codes:
+        codes.append("QA_REVIEW_REQUIRED")
+    return codes
+
+
+def _qa_status(draft_name: str, meta: dict[str, Any], qa_gate: dict[str, Any] | None) -> tuple[str, list[str]]:
+    reasons = _blocking_defect_codes(qa_gate)
+    name_requires_review = "QA-FLAGGED" in draft_name or "QA-BLOCKED" in draft_name
+    metadata_requires_review = meta.get("review_required") is True or meta.get("qa_review_required") is True
+    qa_requires_review = bool(qa_gate and (qa_gate.get("qa_review_required") or str(qa_gate.get("final_verdict", "")).upper() == "FAIL" or reasons))
+    if name_requires_review and not reasons:
+        reasons = ["QA-FLAGGED"]
+    if metadata_requires_review or qa_requires_review or name_requires_review:
+        return "review_required", reasons or ["QA_REVIEW_REQUIRED"]
+    return "unknown", []
+
+
 def _draft_trace(draft_name: str, meta: dict[str, Any], default_source: str | None) -> dict[str, Any]:
     events = [e for e in meta.get("events", []) if isinstance(e, dict)]
     windows = [_event_window(event, default_source) for event in events]
@@ -57,13 +95,17 @@ def _draft_trace(draft_name: str, meta: dict[str, Any], default_source: str | No
         "end": max(ends) if ends else None,
         "source_video": next((w.get("source_video") for w in windows if w.get("source_video")), default_source),
     }
+    qa_gate = _qa_gate(meta)
+    qa_status, review_required_reasons = _qa_status(draft_name, meta, qa_gate)
     return {
         "draft_id": draft_name,
         "draft_name": draft_name,
         "title": draft_name,
         "sport": meta.get("sport"),
-        "qa_status": "review_required" if "QA-FLAGGED" in draft_name else "unknown",
-        "review_required_reasons": ["QA-FLAGGED"] if "QA-FLAGGED" in draft_name else [],
+        "qa_status": qa_status,
+        "review_required_reasons": review_required_reasons,
+        "approval_blocked_reasons": meta.get("approval_blocked_reasons") or (qa_gate.get("approval_blocked_reasons") if qa_gate else []),
+        "qa_gate": qa_gate,
         "source_window": source_window,
         "source_windows": windows,
         "events": events,

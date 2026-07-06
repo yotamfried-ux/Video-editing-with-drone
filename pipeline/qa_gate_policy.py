@@ -25,6 +25,30 @@ def critical_defects(qa: dict[str, Any]) -> list[dict[str, Any]]:
     return [defect for defect in qa.get("defects", []) or [] if is_critical_defect(defect)]
 
 
+def review_required_reason_codes(qa: dict[str, Any]) -> list[str]:
+    codes: list[str] = []
+    for defect in critical_defects(qa):
+        code = defect_type(defect) or "QA_REVIEW_REQUIRED"
+        if code not in codes:
+            codes.append(code)
+    if qa.get("qa_review_required") and "QA_REVIEW_REQUIRED" not in codes:
+        codes.append("QA_REVIEW_REQUIRED")
+    return codes or ["QA_REVIEW_REQUIRED"]
+
+
+def approval_blocked_reasons(qa: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    for defect in critical_defects(qa):
+        code = defect_type(defect) or "QA_REVIEW_REQUIRED"
+        note = str(defect.get("note", "")).strip()
+        reason = f"{code}: {note}" if note else code
+        if reason not in reasons:
+            reasons.append(reason)
+    if qa.get("qa_review_required") and not reasons:
+        reasons.append("QA_REVIEW_REQUIRED")
+    return reasons or ["QA_REVIEW_REQUIRED"]
+
+
 def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str, reel_path: str = "") -> dict[str, Any]:
     defects = []
     for defect in qa.get("defects", []) or []:
@@ -45,7 +69,9 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
         "reel_path": os.path.basename(reel_path) if reel_path else "",
         "blocking_defect_types": sorted(BLOCKING_DEFECT_TYPES),
         "critical_defect_count": len([d for d in defects if d.get("blocking")]),
-        "qa_review_required": bool(qa.get("qa_review_required")),
+        "qa_review_required": bool(qa.get("qa_review_required") or decision == "blocked_review_required"),
+        "review_required_reasons": review_required_reason_codes(qa),
+        "approval_blocked_reasons": approval_blocked_reasons(qa),
         "defects": defects,
         "overall": qa.get("overall", ""),
         "engagement_score": qa.get("engagement_score"),
@@ -72,6 +98,9 @@ def _augment_metadata_file(meta_file: str, draft_name: str, qa_gate: dict[str, A
         metadata = {}
     entry = metadata.setdefault(draft_name, {})
     entry["qa_gate"] = qa_gate
+    entry["qa_review_required"] = bool(qa_gate.get("qa_review_required"))
+    entry["review_required"] = bool(qa_gate.get("qa_review_required"))
+    entry["approval_blocked_reasons"] = qa_gate.get("approval_blocked_reasons", [])
     tmp = meta_file + ".qa.tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2, ensure_ascii=False)
@@ -110,7 +139,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         retry_count = max(0, call_count - len([r for r in reels if "_music" not in os.path.basename(r)]))
         for reel in flagged:
             qa = qa_by_reel.get(reel, {"verdict": "FAIL", "defects": [{"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": "missing QA details"}], "overall": "missing QA details", "qa_review_required": True})
-            decision = "flagged_manual_review" if critical_defects(qa) else "flagged_nonblocking_review"
+            decision = "blocked_review_required" if critical_defects(qa) else "flagged_nonblocking_review"
             diagnostics = build_qa_diagnostics(qa, retry_count=retry_count, decision=decision, reel_path=reel)
             events_by_reel[reel] = attach_qa_diagnostics(events_by_reel.get(reel, []), diagnostics)
         return final, events_by_reel, flagged
