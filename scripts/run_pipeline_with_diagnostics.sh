@@ -63,6 +63,9 @@ summary = {
 PY
 
 python scripts/generate_run_quality_report.py "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" || true
+if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
+  python scripts/append_candidate_ledger_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$CANDIDATE_LEDGER_FILE" || true
+fi
 python scripts/append_qa_gate_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$LOG_FILE" || true
 
 exit "$STATUS"
