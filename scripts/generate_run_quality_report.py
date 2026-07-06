@@ -24,6 +24,8 @@ _RUNTIME_BUG_TOKENS = {
     "TimeoutExpired": "BUG_RUNTIME_ENVIRONMENT",
     "timed out": "BUG_RUNTIME_ENVIRONMENT",
 }
+_OVERLAP_MIN_SECONDS = 2.0
+_OVERLAP_MIN_RATIO = 0.5
 
 
 def _safe_div(numerator: float, denominator: float) -> float:
@@ -131,7 +133,7 @@ def _load_draft_trace(tmp_root: Path, debug_dir: Path) -> dict[str, Any]:
             payload = _read_json(path)
         except Exception:
             continue
-        if isinstance(payload, dict) and isinstance(payload.get("drafts"), list):
+        if isinstance(payload, dict) and isinstance(payload.get("drafts", []), list):
             return payload
     return {"drafts": []}
 
@@ -182,6 +184,57 @@ def _drafts_with_source_window(draft_trace: dict[str, Any]) -> int:
     return count
 
 
+def _source_window_records(draft_trace: dict[str, Any]) -> list[dict[str, Any]]:
+    records: list[dict[str, Any]] = []
+    for draft in draft_trace.get("drafts", []) or []:
+        if not isinstance(draft, dict):
+            continue
+        window = draft.get("source_window") or {}
+        if not isinstance(window, dict):
+            continue
+        start = window.get("start")
+        end = window.get("end")
+        source_video = window.get("source_video")
+        if not isinstance(start, (int, float)) or not isinstance(end, (int, float)):
+            continue
+        if not source_video or end <= start:
+            continue
+        records.append({
+            "draft_id": draft.get("draft_id") or draft.get("draft_name"),
+            "draft_name": draft.get("draft_name") or draft.get("draft_id"),
+            "source_video": str(source_video),
+            "start": float(start),
+            "end": float(end),
+            "duration": float(end) - float(start),
+        })
+    return records
+
+
+def _source_window_overlap_duplicates(draft_trace: dict[str, Any]) -> list[dict[str, Any]]:
+    records = _source_window_records(draft_trace)
+    duplicates: list[dict[str, Any]] = []
+    for i, left in enumerate(records):
+        for right in records[i + 1:]:
+            if left["source_video"] != right["source_video"]:
+                continue
+            overlap = min(left["end"], right["end"]) - max(left["start"], right["start"])
+            if overlap <= 0:
+                continue
+            shorter = min(left["duration"], right["duration"])
+            ratio = _safe_div(overlap, shorter)
+            if overlap >= _OVERLAP_MIN_SECONDS and ratio >= _OVERLAP_MIN_RATIO:
+                duplicates.append({
+                    "left_draft": left["draft_name"],
+                    "right_draft": right["draft_name"],
+                    "source_video": left["source_video"],
+                    "left_window": {"start": left["start"], "end": left["end"]},
+                    "right_window": {"start": right["start"], "end": right["end"]},
+                    "overlap_seconds": round(overlap, 3),
+                    "overlap_ratio_of_shorter": round(ratio, 3),
+                })
+    return duplicates
+
+
 def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) -> dict[str, Any]:
     summary = _load_summary(debug_dir)
     files_from_summary = summary.get("files") if isinstance(summary.get("files"), list) else []
@@ -191,6 +244,7 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     draft_trace = _load_draft_trace(tmp_root, debug_dir)
     trace_drafts = [d for d in draft_trace.get("drafts", []) or [] if isinstance(d, dict)]
     drafts_with_source_window = _drafts_with_source_window(draft_trace)
+    overlap_duplicates = _source_window_overlap_duplicates(draft_trace)
     detections: list[dict[str, Any]] = []
     for sidecar in sidecars:
         for item in sidecar.get("detections", []) or []:
@@ -209,6 +263,7 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     has_trace = _contains_trace(all_tmp_json, draft_trace)
     has_dropped_reasons = _contains_dropped_reason(all_tmp_json)
     log = _log_text(debug_dir)
+    possible_pairs = draft_count * (draft_count - 1) / 2
 
     metrics: dict[str, Any] = {
         "exit_code": exit_code if exit_code is not None else summary.get("exit_code"),
@@ -219,6 +274,8 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "unique_track_count": len(unique_tracks),
         "draft_metadata_count": len(trace_drafts),
         "draft_source_window_coverage_rate": _safe_div(drafts_with_source_window, max(draft_count, 1)),
+        "source_window_overlap_pair_count": len(overlap_duplicates),
+        "source_window_overlap_duplicate_rate": _safe_div(len(overlap_duplicates), possible_pairs),
         "sidecar_missing_rate": 1.0 if video_count > 0 and sidecar_count == 0 else 0.0,
         "sidecar_schema_error_rate": _safe_div(len(sidecar_schema_errors), max(sidecar_count + len(sidecar_schema_errors), 1)),
         "track_id_missing_rate": _safe_div(missing_track_count, detection_count),
@@ -249,10 +306,16 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     if metrics["invalid_time_window_rate"] > 0:
         add_alert("invalid_time_window_rate", "hard_block", "one or more detections have invalid frame/time metadata")
     if metrics["draft_without_decision_trace_rate"] > 0:
-        add_alert("draft_without_decision_trace_rate", "hard_block", "drafts exist without decision trace")
+        add_alert("draft_without_decision_trace_rate", "hard_block", "drafts exist without candidate decision trace")
         classifications.append({"code": "BUG_SELECTION_BYPASSED_EVIDENCE", "evidence": "draft exists without candidate decision trace"})
     if draft_count > 0 and metrics["draft_source_window_coverage_rate"] < 1.0:
         add_alert("draft_source_window_coverage_rate", "inconclusive", "one or more drafts lack source-window metadata")
+    if overlap_duplicates:
+        add_alert("source_window_overlap_duplicate_rate", "hard_block", "two or more drafts strongly overlap the same source window")
+        classifications.append({
+            "code": "BUG_DUPLICATE_MOMENT_LIKELY",
+            "evidence": f"{len(overlap_duplicates)} overlapping draft source-window pair(s)",
+        })
     if not has_dropped_reasons:
         add_alert("missing_dropped_reasons", "inconclusive", "dropped candidate reasons are not available")
         classifications.append({"code": "BUG_RECALL_UNKNOWN", "evidence": "missing dropped candidate reasons"})
@@ -285,6 +348,7 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
             "draft_count": len(trace_drafts),
             "drafts_with_source_window": drafts_with_source_window,
         },
+        "source_window_overlap_duplicates": overlap_duplicates,
         "implementation_gaps": {
             "candidate_decision_ledger_present": has_trace,
             "dropped_reasons_present": has_dropped_reasons,
