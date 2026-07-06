@@ -49,6 +49,7 @@ def main() -> int:
     sidecar = TMP / "source.perception.json"
     metadata_path = TMP / "reels_metadata.json"
     trace_path = TMP / "draft_decision_trace.json"
+    fragment_tracks = [detection(30.0 + index, 100 + index) for index in range(10)]
     write_json(
         sidecar,
         {
@@ -61,6 +62,7 @@ def main() -> int:
                 detection(14.5, 8),
                 detection(15.5, 8),
                 detection(16.5, 9),
+                *fragment_tracks,
             ],
         },
     )
@@ -117,6 +119,7 @@ def main() -> int:
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_SELECTION_BYPASSED_EVIDENCE" in codes, "missing decision trace bug classification")
         require("BUG_RECALL_UNKNOWN" in codes, "missing dropped reasons bug classification")
+        require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification should be possible without draft trace")
 
         subprocess.run(
             [sys.executable, str(ROOT / "scripts/build_draft_decision_trace.py"), str(metadata_path), str(debug / "run_tracked.log"), str(trace_path)],
@@ -147,11 +150,17 @@ def main() -> int:
         require(report["metrics"]["mixed_subject_violation_rate"] == 0.5, "mixed-subject rate missing")
         require(report["mixed_subject_likely_windows"][0]["primary_track_dominance_ratio"] == 0.4, "mixed-subject dominance missing")
         require(set(report["mixed_subject_likely_windows"][0]["visible_track_ids"]) == {"7", "8", "9"}, "mixed-subject track ids missing")
+        require(report["metrics"]["short_track_count"] == 13, "short track count missing")
+        require(report["metrics"]["short_track_rate"] == 1.0, "short track rate missing")
+        require(report["track_fragmentation"]["track_count"] == 13, "track fragmentation track count missing")
+        require(report["track_fragmentation"]["track_duration_distribution"]["max"] < 2.0, "track duration distribution missing")
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_DUPLICATE_MOMENT_LIKELY" in codes, "duplicate moment classification missing")
         require("BUG_MIXED_SUBJECT_LIKELY" in codes, "mixed subject classification missing")
+        require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification missing")
         require(report["implementation_gaps"]["mixed_subject_metric_ready"] is True, "mixed-subject metric readiness missing")
-        require(report["status"] == "fail", "duplicate/mixed fixture should fail quality report")
+        require(report["implementation_gaps"]["track_fragmentation_metric_ready"] is True, "fragmentation metric readiness missing")
+        require(report["status"] == "fail", "duplicate/mixed/fragmentation fixture should fail quality report")
         print("Run quality report contract checks passed")
         return 0
     finally:
