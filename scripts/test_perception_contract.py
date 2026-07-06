@@ -101,8 +101,10 @@ def require_sidecar_producer_contract() -> None:
     sidecar_dir = producer_dir / "sidecars"
     writer = producer_dir / "write_sidecar.py"
     writer.write_text(
-        "import json, os\n"
+        "import json, os, sys\n"
         "out = os.environ['SPORTREEL_PERCEPTION_OUTPUT']\n"
+        "if len(sys.argv) > 1 and sys.argv[1:3] != [os.environ['SPORTREEL_VIDEO_PATH'], out]:\n"
+        "    raise SystemExit(f'placeholder argv mismatch: {sys.argv[1:3]!r}')\n"
         "json.dump({'source_video': os.environ['SPORTREEL_VIDEO_PATH'], 'detections': "
         "[{'time_sec': 1.0, 'frame_index': 30, 'bbox_xyxy': [20, 30, 120, 230], "
         "'frame_width': 640, 'frame_height': 480, 'confidence': 0.97, 'track_id': 99}]}, "
@@ -131,6 +133,30 @@ def require_sidecar_producer_contract() -> None:
         skipped_payload = json.loads((producer_dir / "skipped_sample.perception.json").read_text(encoding="utf-8"))
         if skipped_payload.get("status") != "skipped" or skipped_payload.get("detections") != []:
             raise SystemExit("skipped sidecar should be explicit and detection-free")
+
+        _clear_env()
+        stale_video = producer_dir / "stale skipped sample.mp4"
+        stale_summary = ensure_sidecar_for_video(str(stale_video))
+        if stale_summary.get("producer_status") != "skipped":
+            raise SystemExit("stale setup should first create a skipped sidecar")
+        os.environ["SPORTREEL_PERCEPTION_COMMAND"] = f"{sys.executable} {writer} {{video_path}} {{sidecar_path}}"
+        refreshed_summary = ensure_sidecar_for_video(str(stale_video))
+        if refreshed_summary.get("producer_status") != "created" or refreshed_summary.get("detection_count") != 1:
+            raise SystemExit("skipped/failed sidecars must not be reused when a producer command is configured")
+        if validate_sidecar(str(stale_video))["status"] != "ok":
+            raise SystemExit("refreshed producer sidecar should replace the stale skipped marker")
+
+        _clear_env()
+        required_stale_video = producer_dir / "required_skipped_sample.mp4"
+        ensure_sidecar_for_video(str(required_stale_video))
+        os.environ["SPORTREEL_REQUIRE_PERCEPTION"] = "1"
+        try:
+            ensure_sidecar_for_video(str(required_stale_video))
+        except RuntimeError as exc:
+            if "SPORTREEL_PERCEPTION_COMMAND" not in str(exc):
+                raise SystemExit("required perception should not accept an existing skipped sidecar")
+        else:
+            raise SystemExit("required perception mode must reject an existing skipped sidecar")
 
         _clear_env()
         os.environ["SPORTREEL_REQUIRE_PERCEPTION"] = "1"
@@ -273,7 +299,7 @@ def main() -> int:
     require_tokens("requirements", requirements, ["supervision>=0.29.0,<0.30.0"])
     require_tokens("perception schema", schema, ["class PerceptionDetection", "xyxy", "confidence", "class_id", "class_name", "tracker_id", "visible_ratio", "to_event_metadata", "bbox_xyxy"])
     require_tokens("supervision adapter", adapter, ["def supervision_available()", 'find_spec("supervision")', "def detections_from_supervision", "xyxy", "confidence", "class_id", "tracker_id", "min_confidence", "PerceptionDetection("])
-    require_tokens("perception runtime", runtime, ["SPORTREEL_PERCEPTION_SIDECAR_DIR", "SPORTREEL_PERCEPTION_COMMAND", "SPORTREEL_REQUIRE_PERCEPTION", "sidecar_output_path", "ensure_sidecar_for_video", "validate_sidecar", "subprocess.run", "load_sidecar_detections", "enrich_event", "enrich_session_with_sidecar", "source_window_track_ids", "visible_track_ids", "perception_evidence_status", "tracker_sidecar", "ensure_sidecar_for_video(video_path)", "analyzer.analyze_session = analyze_with_perception_sidecar"])
+    require_tokens("perception runtime", runtime, ["SPORTREEL_PERCEPTION_SIDECAR_DIR", "SPORTREEL_PERCEPTION_COMMAND", "SPORTREEL_REQUIRE_PERCEPTION", "sidecar_output_path", "ensure_sidecar_for_video", "validate_sidecar", "subprocess.run", "load_sidecar_detections", "enrich_event", "enrich_session_with_sidecar", "source_window_track_ids", "visible_track_ids", "perception_evidence_status", "tracker_sidecar", "_is_reusable_sidecar", "shlex.split(command)", "ensure_sidecar_for_video(video_path)", "analyzer.analyze_session = analyze_with_perception_sidecar"])
     require_tokens("tracked perception runtime install", run_tracked, ["def _install_perception_runtime()", "from pipeline.perception.runtime import install", "_install_perception_runtime()", "_install_pipeline_quality_runtime()"])
     require_no_tokens("perception foundation", "\n".join([schema, adapter, crop_math]), ["from supervision.tracker", "update_with_detections"])
     require_tokens("operator smoke workflow perception coverage", workflow, ["pipeline/perception/**", "scripts/test_perception_contract.py", "Install perception dependency", "Validate Perception contract"])
