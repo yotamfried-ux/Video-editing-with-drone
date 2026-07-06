@@ -43,6 +43,29 @@ def main() -> int:
     )
     require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'lap>=0.5.12', 'ultralytics>=8.3.0'])
 
+    run_tracked = Path('scripts/run_tracked.py').read_text(encoding='utf-8')
+    selector_runtime = Path('pipeline/selector_candidate_runtime.py').read_text(encoding='utf-8')
+    require_tokens(
+        'selector candidate runtime install',
+        run_tracked,
+        [
+            '_install_selector_candidate_runtime',
+            'from pipeline.selector_candidate_runtime import install',
+            '_install_selector_candidate_runtime()',
+            'import pipeline.orchestrator as _orchestrator',
+        ],
+    )
+    require_tokens(
+        'selector candidate runtime evidence',
+        selector_runtime,
+        [
+            'selector_candidate_events.json',
+            'build_selector_candidate_events',
+            'analyzer._parse_session = parse_and_capture',
+            'write_selector_candidate_events',
+        ],
+    )
+
     expect_failure(workflow.replace('actions/upload-artifact@v4', 'actions/upload-artifact@v3'), 'actions/upload-artifact@v4')
     expect_failure(workflow.replace('if: always()', 'if: success()'), 'if: always()')
     expect_failure(workflow.replace('args=(', 'ARGS=""'), 'args=')
