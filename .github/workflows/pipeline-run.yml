@@ -53,7 +53,10 @@ jobs:
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          if ! pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --retries 5 --timeout 120; then
+            echo "::warning::Falling back to PyPI for torch/torchvision after PyTorch CPU index install failed"
+            pip install torch torchvision --retries 5 --timeout 120
+          fi
           pip install -r requirements.txt
           python - <<'PY'
           import torch

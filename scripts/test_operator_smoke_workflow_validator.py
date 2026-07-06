@@ -38,6 +38,8 @@ def main() -> int:
         pipeline_workflow,
         [
             'pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu',
+            'Falling back to PyPI for torch/torchvision',
+            'pip install torch torchvision --retries 5 --timeout 120',
             'from torchvision.ops import nms',
             'import lap',
             'lap.__version__',
