@@ -151,7 +151,15 @@ jobs:
           TMP_DIR: /tmp/dtor
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
-        run: python scripts/run_tracked.py
+        run: bash scripts/run_pipeline_with_diagnostics.sh
+
+      - name: Upload pipeline diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-diagnostics-${{ github.run_id }}
+          path: /tmp/dtor/pipeline-debug/**
+          if-no-files-found: warn
 
       - name: Clean up credential files
         if: always()
