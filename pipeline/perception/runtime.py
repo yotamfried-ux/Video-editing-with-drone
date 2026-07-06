@@ -137,10 +137,22 @@ def _write_status_sidecar(video_path: str, sidecar_path: Path, status: str, reas
     tmp.replace(sidecar_path)
 
 
+def _sidecar_status(summary: dict[str, Any]) -> str:
+    return str(summary.get("status") or "ok").strip().lower()
+
+
 def _is_reusable_sidecar(summary: dict[str, Any]) -> bool:
     """Return whether an existing sidecar can safely short-circuit the producer."""
-    status = str(summary.get("status") or "ok").strip().lower()
-    return status in _REUSABLE_SIDECAR_STATUSES
+    return _sidecar_status(summary) in _REUSABLE_SIDECAR_STATUSES
+
+
+def _non_reusable_error(summary: dict[str, Any]) -> str:
+    return f"Perception producer did not create a reusable sidecar: status={summary.get('status')} reason={summary.get('reason')}"
+
+
+def _producer_status_from_sidecar(summary: dict[str, Any]) -> str:
+    status = _sidecar_status(summary)
+    return "created" if status in _REUSABLE_SIDECAR_STATUSES else status
 
 
 def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
@@ -247,6 +259,10 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
         logger.warning("Perception producer wrote invalid sidecar for %s: %s", video_path, exc)
         _write_status_sidecar(video_path, output, "failed", f"invalid_sidecar: {exc}")
         return {"path": str(output), "producer_status": "failed", "detection_count": 0}
+    if not _is_reusable_sidecar(summary):
+        if perception_required():
+            raise RuntimeError(_non_reusable_error(summary))
+        return {**summary, "producer_status": _producer_status_from_sidecar(summary)}
     return {**summary, "producer_status": "created"}
 
 
