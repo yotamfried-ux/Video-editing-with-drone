@@ -47,6 +47,7 @@ _REQUIRED_ENV = "SPORTREEL_REQUIRE_PERCEPTION"
 _TIMEOUT_ENV = "SPORTREEL_PERCEPTION_TIMEOUT_SEC"
 _MAX_NEAREST_SEC = 1.0
 _TRUE_VALUES = {"1", "true", "yes", "on", "required"}
+_REUSABLE_SIDECAR_STATUSES = {"ok"}
 
 
 def _truthy_env(name: str) -> bool:
@@ -114,10 +115,13 @@ def _render_command(command: str, video_path: str, sidecar_path: Path) -> list[s
     The environment also receives SPORTREEL_VIDEO_PATH and
     SPORTREEL_PERCEPTION_OUTPUT.
     """
+    args = shlex.split(command)
     if "{video_path}" in command or "{sidecar_path}" in command:
-        rendered = command.replace("{video_path}", video_path).replace("{sidecar_path}", str(sidecar_path))
-        return shlex.split(rendered)
-    return [*shlex.split(command), video_path, str(sidecar_path)]
+        return [
+            arg.replace("{video_path}", video_path).replace("{sidecar_path}", str(sidecar_path))
+            for arg in args
+        ]
+    return [*args, video_path, str(sidecar_path)]
 
 
 def _write_status_sidecar(video_path: str, sidecar_path: Path, status: str, reason: str) -> None:
@@ -131,6 +135,12 @@ def _write_status_sidecar(video_path: str, sidecar_path: Path, status: str, reas
     tmp = sidecar_path.with_suffix(sidecar_path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(sidecar_path)
+
+
+def _is_reusable_sidecar(summary: dict[str, Any]) -> bool:
+    """Return whether an existing sidecar can safely short-circuit the producer."""
+    status = str(summary.get("status") or "ok").strip().lower()
+    return status in _REUSABLE_SIDECAR_STATUSES
 
 
 def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
@@ -192,7 +202,14 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
     if existing is not None:
         try:
             summary = validate_sidecar(video_path, existing)
-            return {**summary, "producer_status": "existing"}
+            if _is_reusable_sidecar(summary):
+                return {**summary, "producer_status": "existing"}
+            logger.info(
+                "Ignoring non-reusable perception sidecar for %s: status=%s reason=%s",
+                video_path,
+                summary.get("status"),
+                summary.get("reason"),
+            )
         except Exception as exc:
             if perception_required():
                 raise RuntimeError(f"Invalid perception sidecar: {exc}") from exc
