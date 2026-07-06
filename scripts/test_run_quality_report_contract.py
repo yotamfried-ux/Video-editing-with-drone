@@ -21,6 +21,20 @@ def require(condition: bool, message: str) -> None:
         raise SystemExit(message)
 
 
+def detection(time_sec: float, track_id: int) -> dict:
+    return {
+        "frame_index": int(time_sec * 10),
+        "time_sec": time_sec,
+        "bbox_xyxy": [10, 10, 50, 80],
+        "frame_width": 100,
+        "frame_height": 100,
+        "confidence": 0.9,
+        "class_id": 0,
+        "class_name": "person",
+        "track_id": track_id,
+    }
+
+
 def main() -> int:
     if TMP.exists():
         shutil.rmtree(TMP)
@@ -42,17 +56,11 @@ def main() -> int:
             "status": "ok",
             "backend": "ultralytics",
             "detections": [
-                {
-                    "frame_index": 10,
-                    "time_sec": 0.5,
-                    "bbox_xyxy": [10, 10, 50, 80],
-                    "frame_width": 100,
-                    "frame_height": 100,
-                    "confidence": 0.9,
-                    "class_id": 0,
-                    "class_name": "person",
-                    "track_id": 7,
-                }
+                detection(12.5, 7),
+                detection(13.5, 7),
+                detection(14.5, 8),
+                detection(15.5, 8),
+                detection(16.5, 9),
             ],
         },
     )
@@ -135,9 +143,15 @@ def main() -> int:
         require(report["metrics"]["source_window_overlap_pair_count"] == 1, "overlap pair count missing")
         require(report["metrics"]["source_window_overlap_duplicate_rate"] == 1.0, "overlap duplicate rate missing")
         require(report["source_window_overlap_duplicates"][0]["overlap_seconds"] == 5.0, "overlap evidence missing")
+        require(report["metrics"]["mixed_subject_likely_window_count"] == 1, "mixed-subject count missing")
+        require(report["metrics"]["mixed_subject_violation_rate"] == 0.5, "mixed-subject rate missing")
+        require(report["mixed_subject_likely_windows"][0]["primary_track_dominance_ratio"] == 0.4, "mixed-subject dominance missing")
+        require(set(report["mixed_subject_likely_windows"][0]["visible_track_ids"]) == {"7", "8", "9"}, "mixed-subject track ids missing")
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_DUPLICATE_MOMENT_LIKELY" in codes, "duplicate moment classification missing")
-        require(report["status"] == "fail", "duplicate overlap fixture should fail quality report")
+        require("BUG_MIXED_SUBJECT_LIKELY" in codes, "mixed subject classification missing")
+        require(report["implementation_gaps"]["mixed_subject_metric_ready"] is True, "mixed-subject metric readiness missing")
+        require(report["status"] == "fail", "duplicate/mixed fixture should fail quality report")
         print("Run quality report contract checks passed")
         return 0
     finally:

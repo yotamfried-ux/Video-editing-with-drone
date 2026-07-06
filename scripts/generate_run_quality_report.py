@@ -26,6 +26,9 @@ _RUNTIME_BUG_TOKENS = {
 }
 _OVERLAP_MIN_SECONDS = 2.0
 _OVERLAP_MIN_RATIO = 0.5
+_MIXED_SUBJECT_MIN_DETECTIONS = 4
+_MIXED_SUBJECT_MIN_TRACKS = 2
+_MIXED_SUBJECT_MAX_PRIMARY_DOMINANCE = 0.7
 
 
 def _safe_div(numerator: float, denominator: float) -> float:
@@ -58,6 +61,18 @@ def _is_sidecar(path: Path) -> bool:
     return path.name.endswith(".perception.json")
 
 
+def _source_name(value: Any) -> str:
+    if value is None:
+        return ""
+    return Path(str(value)).name
+
+
+def _sources_match(left: Any, right: Any) -> bool:
+    if left is None or right is None:
+        return False
+    return str(left) == str(right) or _source_name(left) == _source_name(right)
+
+
 def _bbox_invalid(detection: dict[str, Any]) -> bool:
     bbox = detection.get("bbox_xyxy") or detection.get("xyxy")
     if not isinstance(bbox, list) or len(bbox) != 4:
@@ -84,6 +99,14 @@ def _time_invalid(detection: dict[str, Any]) -> bool:
     except (TypeError, ValueError):
         return True
     return frame_index < 0 or time_sec < 0 or not math.isfinite(time_sec)
+
+
+def _time_sec(detection: dict[str, Any]) -> float | None:
+    try:
+        value = float(detection.get("time_sec"))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
 
 
 def _track_id(detection: dict[str, Any]) -> str | None:
@@ -235,6 +258,45 @@ def _source_window_overlap_duplicates(draft_trace: dict[str, Any]) -> list[dict[
     return duplicates
 
 
+def _detections_in_window(detections: list[dict[str, Any]], record: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for detection in detections:
+        if not _sources_match(detection.get("_source_video"), record.get("source_video")):
+            continue
+        time_sec = _time_sec(detection)
+        if time_sec is None:
+            continue
+        if record["start"] <= time_sec <= record["end"]:
+            out.append(detection)
+    return out
+
+
+def _mixed_subject_windows(draft_trace: dict[str, Any], detections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    mixed: list[dict[str, Any]] = []
+    for record in _source_window_records(draft_trace):
+        window_detections = _detections_in_window(detections, record)
+        track_counts = Counter(_track_id(item) for item in window_detections if _track_id(item) is not None)
+        total = sum(track_counts.values())
+        if total < _MIXED_SUBJECT_MIN_DETECTIONS or len(track_counts) < _MIXED_SUBJECT_MIN_TRACKS:
+            continue
+        primary_track, primary_count = track_counts.most_common(1)[0]
+        dominance = _safe_div(primary_count, total)
+        if dominance <= _MIXED_SUBJECT_MAX_PRIMARY_DOMINANCE:
+            mixed.append({
+                "draft": record["draft_name"],
+                "source_video": record["source_video"],
+                "source_window": {"start": record["start"], "end": record["end"]},
+                "detection_count": total,
+                "visible_track_count": len(track_counts),
+                "visible_track_ids": sorted(track_counts.keys()),
+                "track_detection_counts": dict(sorted(track_counts.items())),
+                "primary_track_id": primary_track,
+                "primary_track_detections": primary_count,
+                "primary_track_dominance_ratio": round(dominance, 3),
+            })
+    return mixed
+
+
 def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) -> dict[str, Any]:
     summary = _load_summary(debug_dir)
     files_from_summary = summary.get("files") if isinstance(summary.get("files"), list) else []
@@ -247,9 +309,11 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     overlap_duplicates = _source_window_overlap_duplicates(draft_trace)
     detections: list[dict[str, Any]] = []
     for sidecar in sidecars:
+        source_video = sidecar.get("source_video")
         for item in sidecar.get("detections", []) or []:
             if isinstance(item, dict):
-                detections.append(item)
+                detections.append({**item, "_source_video": source_video, "_sidecar_path": sidecar.get("_path")})
+    mixed_windows = _mixed_subject_windows(draft_trace, detections)
 
     video_count = sum(1 for path in summary_paths if _is_video_file(path))
     draft_count = max(sum(1 for path in summary_paths if _is_draft_file(path)), len(trace_drafts))
@@ -276,6 +340,8 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "draft_source_window_coverage_rate": _safe_div(drafts_with_source_window, max(draft_count, 1)),
         "source_window_overlap_pair_count": len(overlap_duplicates),
         "source_window_overlap_duplicate_rate": _safe_div(len(overlap_duplicates), possible_pairs),
+        "mixed_subject_likely_window_count": len(mixed_windows),
+        "mixed_subject_violation_rate": _safe_div(len(mixed_windows), max(draft_count, 1)),
         "sidecar_missing_rate": 1.0 if video_count > 0 and sidecar_count == 0 else 0.0,
         "sidecar_schema_error_rate": _safe_div(len(sidecar_schema_errors), max(sidecar_count + len(sidecar_schema_errors), 1)),
         "track_id_missing_rate": _safe_div(missing_track_count, detection_count),
@@ -312,10 +378,10 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         add_alert("draft_source_window_coverage_rate", "inconclusive", "one or more drafts lack source-window metadata")
     if overlap_duplicates:
         add_alert("source_window_overlap_duplicate_rate", "hard_block", "two or more drafts strongly overlap the same source window")
-        classifications.append({
-            "code": "BUG_DUPLICATE_MOMENT_LIKELY",
-            "evidence": f"{len(overlap_duplicates)} overlapping draft source-window pair(s)",
-        })
+        classifications.append({"code": "BUG_DUPLICATE_MOMENT_LIKELY", "evidence": f"{len(overlap_duplicates)} overlapping draft source-window pair(s)"})
+    if mixed_windows:
+        add_alert("mixed_subject_violation_rate", "hard_block", "one or more drafts contain multiple significant visible tracks with low primary-track dominance")
+        classifications.append({"code": "BUG_MIXED_SUBJECT_LIKELY", "evidence": f"{len(mixed_windows)} mixed-subject source-window(s)"})
     if not has_dropped_reasons:
         add_alert("missing_dropped_reasons", "inconclusive", "dropped candidate reasons are not available")
         classifications.append({"code": "BUG_RECALL_UNKNOWN", "evidence": "missing dropped candidate reasons"})
@@ -333,27 +399,19 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     return {
         "schema_version": "sportreel.run_quality_report.v1",
         "status": status,
-        "summary": {
-            "debug_dir": str(debug_dir),
-            "tmp_root": str(tmp_root),
-            "files_observed": len(summary_paths),
-            "json_files_observed": len(all_tmp_json),
-        },
+        "summary": {"debug_dir": str(debug_dir), "tmp_root": str(tmp_root), "files_observed": len(summary_paths), "json_files_observed": len(all_tmp_json)},
         "metrics": metrics,
         "alerts": alerts,
         "bug_classifications": classifications,
         "sidecar_schema_errors": sidecar_schema_errors,
-        "draft_decision_trace": {
-            "schema_version": draft_trace.get("schema_version"),
-            "draft_count": len(trace_drafts),
-            "drafts_with_source_window": drafts_with_source_window,
-        },
+        "draft_decision_trace": {"schema_version": draft_trace.get("schema_version"), "draft_count": len(trace_drafts), "drafts_with_source_window": drafts_with_source_window},
         "source_window_overlap_duplicates": overlap_duplicates,
+        "mixed_subject_likely_windows": mixed_windows,
         "implementation_gaps": {
             "candidate_decision_ledger_present": has_trace,
             "dropped_reasons_present": has_dropped_reasons,
             "draft_source_window_metadata_present": bool(trace_drafts),
-            "mixed_subject_metric_ready": False,
+            "mixed_subject_metric_ready": True,
             "duplicate_athlete_metric_ready": False,
         },
     }
