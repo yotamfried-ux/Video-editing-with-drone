@@ -83,7 +83,16 @@ def main() -> int:
             ],
         },
     )
-    (debug / "run_tracked.log").write_text("Long video: source.mp4\npipeline ok", encoding="utf-8")
+    (debug / "run_tracked.log").write_text(
+        "Long video: source.mp4\n"
+        "QA still failing for DRAFT_surfer.mp4 — uploading FLAGGED for operator review\n"
+        "No actionable fix for QA defects — keeping reel as-is\n"
+        "PREMATURE_CUT: wave outcome missing\n"
+        "DUPLICATE_MOMENT: source window overlaps another draft\n"
+        "IDENTITY_MISMATCH: title/person mismatch\n"
+        "pipeline ok",
+        encoding="utf-8",
+    )
     write_json(
         metadata_path,
         {
@@ -109,17 +118,25 @@ def main() -> int:
             cwd=ROOT,
             check=True,
         )
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts/append_qa_gate_summary_to_report.py"), str(debug / "run_quality_report.json"), str(debug / "run_tracked.log")],
+            cwd=ROOT,
+            check=True,
+        )
         report = json.loads((debug / "run_quality_report.json").read_text(encoding="utf-8"))
         require(report["schema_version"] == "sportreel.run_quality_report.v1", "report schema version missing")
         require(report["metrics"]["draft_count"] == 2, "draft_count metric missing")
         require(report["metrics"]["sidecar_count"] == 1, "sidecar_count metric missing")
         require(report["metrics"]["track_id_missing_rate"] == 0.0, "track id should be present")
         require(report["metrics"]["bbox_out_of_bounds_rate"] == 0.0, "bbox should be valid")
-        require(report["status"] in {"fail", "inconclusive"}, "missing decision trace must not pass")
+        require(report["metrics"]["qa_critical_defect_count"] == 3, "QA critical defect count missing")
+        require(report["metrics"]["qa_gate_bypass_rate"] == 1.0, "QA gate bypass rate missing")
+        require(report["qa_gate_summary"]["qa_critical_defect_counts"]["IDENTITY_MISMATCH"] == 1, "QA identity mismatch count missing")
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_SELECTION_BYPASSED_EVIDENCE" in codes, "missing decision trace bug classification")
         require("BUG_RECALL_UNKNOWN" in codes, "missing dropped reasons bug classification")
         require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification should be possible without draft trace")
+        require("BUG_QA_GATE_BYPASSED" in codes, "QA gate bypass classification missing")
 
         subprocess.run(
             [sys.executable, str(ROOT / "scripts/build_draft_decision_trace.py"), str(metadata_path), str(debug / "run_tracked.log"), str(trace_path)],
@@ -139,6 +156,11 @@ def main() -> int:
             cwd=ROOT,
             check=True,
         )
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts/append_qa_gate_summary_to_report.py"), str(debug / "run_quality_report.json"), str(debug / "run_tracked.log")],
+            cwd=ROOT,
+            check=True,
+        )
         report = json.loads((debug / "run_quality_report.json").read_text(encoding="utf-8"))
         require(report["metrics"]["draft_metadata_count"] == 2, "draft metadata count missing")
         require(report["metrics"]["draft_source_window_coverage_rate"] == 1.0, "source-window coverage missing")
@@ -154,13 +176,17 @@ def main() -> int:
         require(report["metrics"]["short_track_rate"] == 1.0, "short track rate missing")
         require(report["track_fragmentation"]["track_count"] == 13, "track fragmentation track count missing")
         require(report["track_fragmentation"]["track_duration_distribution"]["max"] < 2.0, "track duration distribution missing")
+        require(report["metrics"]["qa_critical_defect_count"] == 3, "QA critical defect count missing after trace")
+        require(report["implementation_gaps"]["qa_gate_policy_metric_ready"] is True, "QA policy metric readiness missing")
+        require(report["implementation_gaps"]["qa_gate_policy_explicit"] is False, "QA policy explicit flag should remain false")
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_DUPLICATE_MOMENT_LIKELY" in codes, "duplicate moment classification missing")
         require("BUG_MIXED_SUBJECT_LIKELY" in codes, "mixed subject classification missing")
         require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification missing")
+        require("BUG_QA_GATE_BYPASSED" in codes, "QA gate bypass classification missing after trace")
         require(report["implementation_gaps"]["mixed_subject_metric_ready"] is True, "mixed-subject metric readiness missing")
         require(report["implementation_gaps"]["track_fragmentation_metric_ready"] is True, "fragmentation metric readiness missing")
-        require(report["status"] == "fail", "duplicate/mixed/fragmentation fixture should fail quality report")
+        require(report["status"] == "fail", "duplicate/mixed/fragmentation/QA fixture should fail quality report")
         print("Run quality report contract checks passed")
         return 0
     finally:
