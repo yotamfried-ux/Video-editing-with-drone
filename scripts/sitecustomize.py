@@ -17,6 +17,15 @@ def _repo_root() -> str:
     return root_text
 
 
+def _install_perception_runtime() -> None:
+    _repo_root()
+    try:
+        from pipeline.perception.runtime import install
+        install()
+    except Exception:
+        pass
+
+
 def _install_analyzer_score_guard() -> None:
     _repo_root()
     try:
@@ -125,6 +134,7 @@ def _install_context_qa_long_video() -> None:
         pass
 
 
+_install_perception_runtime()
 _install_analyzer_score_guard()
 _install_window_policy()
 _install_cut_window_guard()
