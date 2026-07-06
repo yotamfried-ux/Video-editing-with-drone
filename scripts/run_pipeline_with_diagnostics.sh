@@ -7,6 +7,7 @@ DEBUG_DIR="$TMP_ROOT/pipeline-debug"
 LOG_FILE="$DEBUG_DIR/run_tracked.log"
 REEL_METADATA_FILE="${REEL_METADATA_FILE:-reels_metadata.json}"
 DRAFT_TRACE_FILE="$TMP_ROOT/draft_decision_trace.json"
+CANDIDATE_LEDGER_FILE="$TMP_ROOT/candidate_decision_ledger.json"
 RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
 
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
@@ -18,6 +19,10 @@ STATUS=${PIPESTATUS[0]}
 python scripts/build_draft_decision_trace.py "$REEL_METADATA_FILE" "$LOG_FILE" "$DRAFT_TRACE_FILE" || true
 if [ -f "$DRAFT_TRACE_FILE" ]; then
   cp "$DRAFT_TRACE_FILE" "$DEBUG_DIR/draft_decision_trace.json" || true
+  python scripts/build_candidate_decision_ledger.py "$DRAFT_TRACE_FILE" "$CANDIDATE_LEDGER_FILE" || true
+fi
+if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
+  cp "$CANDIDATE_LEDGER_FILE" "$DEBUG_DIR/candidate_decision_ledger.json" || true
 fi
 
 python - "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" <<'PY'
@@ -58,6 +63,9 @@ summary = {
 PY
 
 python scripts/generate_run_quality_report.py "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" || true
+if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
+  python scripts/append_candidate_ledger_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$CANDIDATE_LEDGER_FILE" || true
+fi
 python scripts/append_qa_gate_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$LOG_FILE" || true
 
 exit "$STATUS"
