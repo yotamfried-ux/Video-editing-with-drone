@@ -4,7 +4,7 @@ from __future__ import annotations
 import json
 import math
 import sys
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,9 @@ _OVERLAP_MIN_RATIO = 0.5
 _MIXED_SUBJECT_MIN_DETECTIONS = 4
 _MIXED_SUBJECT_MIN_TRACKS = 2
 _MIXED_SUBJECT_MAX_PRIMARY_DOMINANCE = 0.7
+_SHORT_TRACK_SECONDS = 2.0
+_SHORT_TRACK_RATE_ALERT = 0.5
+_MIN_TRACKS_FOR_FRAGMENTATION = 10
 
 
 def _safe_div(numerator: float, denominator: float) -> float:
@@ -297,6 +300,50 @@ def _mixed_subject_windows(draft_trace: dict[str, Any], detections: list[dict[st
     return mixed
 
 
+def _track_fragmentation_summary(detections: list[dict[str, Any]]) -> dict[str, Any]:
+    track_times: dict[str, list[float]] = defaultdict(list)
+    for detection in detections:
+        track_id = _track_id(detection)
+        time_sec = _time_sec(detection)
+        if track_id is None or time_sec is None:
+            continue
+        track_times[track_id].append(time_sec)
+    durations: list[float] = []
+    counts: list[int] = []
+    short_tracks: list[dict[str, Any]] = []
+    for track_id, times in sorted(track_times.items()):
+        if not times:
+            continue
+        duration = max(times) - min(times)
+        durations.append(duration)
+        counts.append(len(times))
+        if duration < _SHORT_TRACK_SECONDS:
+            short_tracks.append({
+                "track_id": track_id,
+                "first_time_sec": round(min(times), 3),
+                "last_time_sec": round(max(times), 3),
+                "duration_sec": round(duration, 3),
+                "detection_count": len(times),
+            })
+    track_count = len(track_times)
+    return {
+        "track_count": track_count,
+        "short_track_count": len(short_tracks),
+        "short_track_rate": _safe_div(len(short_tracks), track_count),
+        "track_duration_distribution": _distribution_summary(durations),
+        "detections_per_track_distribution": _distribution_summary([float(value) for value in counts]),
+        "short_track_threshold_sec": _SHORT_TRACK_SECONDS,
+        "top_short_tracks": short_tracks[:25],
+    }
+
+
+def _fragmentation_likely(fragmentation: dict[str, Any]) -> bool:
+    return (
+        int(fragmentation.get("track_count") or 0) >= _MIN_TRACKS_FOR_FRAGMENTATION
+        and float(fragmentation.get("short_track_rate") or 0.0) >= _SHORT_TRACK_RATE_ALERT
+    )
+
+
 def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) -> dict[str, Any]:
     summary = _load_summary(debug_dir)
     files_from_summary = summary.get("files") if isinstance(summary.get("files"), list) else []
@@ -314,6 +361,7 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
             if isinstance(item, dict):
                 detections.append({**item, "_source_video": source_video, "_sidecar_path": sidecar.get("_path")})
     mixed_windows = _mixed_subject_windows(draft_trace, detections)
+    fragmentation = _track_fragmentation_summary(detections)
 
     video_count = sum(1 for path in summary_paths if _is_video_file(path))
     draft_count = max(sum(1 for path in summary_paths if _is_draft_file(path)), len(trace_drafts))
@@ -342,6 +390,9 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "source_window_overlap_duplicate_rate": _safe_div(len(overlap_duplicates), possible_pairs),
         "mixed_subject_likely_window_count": len(mixed_windows),
         "mixed_subject_violation_rate": _safe_div(len(mixed_windows), max(draft_count, 1)),
+        "track_fragmentation_rate": fragmentation["short_track_rate"],
+        "short_track_count": fragmentation["short_track_count"],
+        "short_track_rate": fragmentation["short_track_rate"],
         "sidecar_missing_rate": 1.0 if video_count > 0 and sidecar_count == 0 else 0.0,
         "sidecar_schema_error_rate": _safe_div(len(sidecar_schema_errors), max(sidecar_count + len(sidecar_schema_errors), 1)),
         "track_id_missing_rate": _safe_div(missing_track_count, detection_count),
@@ -382,6 +433,9 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     if mixed_windows:
         add_alert("mixed_subject_violation_rate", "hard_block", "one or more drafts contain multiple significant visible tracks with low primary-track dominance")
         classifications.append({"code": "BUG_MIXED_SUBJECT_LIKELY", "evidence": f"{len(mixed_windows)} mixed-subject source-window(s)"})
+    if _fragmentation_likely(fragmentation):
+        add_alert("track_fragmentation_rate", "hard_block", "tracker produced many short-lived track ids")
+        classifications.append({"code": "BUG_TRACKING_FRAGMENTATION_LIKELY", "evidence": f"short_track_rate={fragmentation['short_track_rate']:.3f} track_count={fragmentation['track_count']}"})
     if not has_dropped_reasons:
         add_alert("missing_dropped_reasons", "inconclusive", "dropped candidate reasons are not available")
         classifications.append({"code": "BUG_RECALL_UNKNOWN", "evidence": "missing dropped candidate reasons"})
@@ -407,11 +461,13 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "draft_decision_trace": {"schema_version": draft_trace.get("schema_version"), "draft_count": len(trace_drafts), "drafts_with_source_window": drafts_with_source_window},
         "source_window_overlap_duplicates": overlap_duplicates,
         "mixed_subject_likely_windows": mixed_windows,
+        "track_fragmentation": fragmentation,
         "implementation_gaps": {
             "candidate_decision_ledger_present": has_trace,
             "dropped_reasons_present": has_dropped_reasons,
             "draft_source_window_metadata_present": bool(trace_drafts),
             "mixed_subject_metric_ready": True,
+            "track_fragmentation_metric_ready": True,
             "duplicate_athlete_metric_ready": False,
         },
     }
