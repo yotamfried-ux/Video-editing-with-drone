@@ -49,4 +49,6 @@ summary = {
 (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 PY
 
+python scripts/generate_run_quality_report.py "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" || true
+
 exit "$STATUS"
