@@ -31,6 +31,8 @@ def main() -> int:
     source.write_bytes(b"source")
     draft.write_bytes(b"draft")
     sidecar = TMP / "source.perception.json"
+    metadata_path = TMP / "reels_metadata.json"
+    trace_path = TMP / "draft_decision_trace.json"
     write_json(
         sidecar,
         {
@@ -57,17 +59,30 @@ def main() -> int:
         {
             "exit_code": 0,
             "tmp_dir": str(TMP),
-            "file_count": 3,
+            "file_count": 4,
             "sidecar_count": 1,
             "sidecars": [sidecar.name],
             "files": [
                 {"path": source.name, "size_bytes": 6},
                 {"path": draft.name, "size_bytes": 5},
                 {"path": sidecar.name, "size_bytes": sidecar.stat().st_size},
+                {"path": trace_path.name, "size_bytes": 1},
             ],
         },
     )
-    (debug / "run_tracked.log").write_text("pipeline ok", encoding="utf-8")
+    (debug / "run_tracked.log").write_text("Long video: source.mp4\npipeline ok", encoding="utf-8")
+    write_json(
+        metadata_path,
+        {
+            "DRAFT_surfer.mp4": {
+                "sport": "surfing",
+                "events": [
+                    {"type": "ride", "score": 9, "start": 12.0, "end": 20.0, "description": "clean ride", "edit": {}}
+                ],
+                "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
+            }
+        },
+    )
     try:
         subprocess.run(
             [sys.executable, str(ROOT / "scripts/generate_run_quality_report.py"), str(debug), str(TMP), "0"],
@@ -85,7 +100,18 @@ def main() -> int:
         require("BUG_SELECTION_BYPASSED_EVIDENCE" in codes, "missing decision trace bug classification")
         require("BUG_RECALL_UNKNOWN" in codes, "missing dropped reasons bug classification")
 
-        (TMP / "candidate_decision_ledger.json").write_text("{}", encoding="utf-8")
+        subprocess.run(
+            [sys.executable, str(ROOT / "scripts/build_draft_decision_trace.py"), str(metadata_path), str(debug / "run_tracked.log"), str(trace_path)],
+            cwd=ROOT,
+            check=True,
+        )
+        trace = json.loads(trace_path.read_text(encoding="utf-8"))
+        require(trace["schema_version"] == "sportreel.draft_decision_trace.v1", "trace schema version missing")
+        require(trace["draft_count"] == 1, "trace draft count missing")
+        require(trace["drafts"][0]["source_window"]["start"] == 12.0, "trace source window start missing")
+        require(trace["drafts"][0]["source_window"]["end"] == 20.0, "trace source window end missing")
+        require(trace["drafts"][0]["source_window"]["source_video"] == "source.mp4", "trace source video missing")
+
         (TMP / "dropped_reasons.json").write_text('{"dropped_reason":"fixture"}', encoding="utf-8")
         subprocess.run(
             [sys.executable, str(ROOT / "scripts/generate_run_quality_report.py"), str(debug), str(TMP), "0"],
@@ -93,6 +119,9 @@ def main() -> int:
             check=True,
         )
         report = json.loads((debug / "run_quality_report.json").read_text(encoding="utf-8"))
+        require(report["metrics"]["draft_metadata_count"] == 1, "draft metadata count missing")
+        require(report["metrics"]["draft_source_window_coverage_rate"] == 1.0, "source-window coverage missing")
+        require(report["draft_decision_trace"]["drafts_with_source_window"] == 1, "trace summary missing")
         require(report["status"] == "pass", "complete evidence fixture should pass")
         print("Run quality report contract checks passed")
         return 0

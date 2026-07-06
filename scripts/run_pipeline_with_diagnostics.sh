@@ -5,12 +5,19 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 TMP_ROOT="${TMP_DIR:-/tmp/dtor}"
 DEBUG_DIR="$TMP_ROOT/pipeline-debug"
 LOG_FILE="$DEBUG_DIR/run_tracked.log"
+REEL_METADATA_FILE="${REEL_METADATA_FILE:-reels_metadata.json}"
+DRAFT_TRACE_FILE="$TMP_ROOT/draft_decision_trace.json"
 
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
 cd "$ROOT_DIR" || exit 98
 
 python scripts/run_tracked.py 2>&1 | tee "$LOG_FILE"
 STATUS=${PIPESTATUS[0]}
+
+python scripts/build_draft_decision_trace.py "$REEL_METADATA_FILE" "$LOG_FILE" "$DRAFT_TRACE_FILE" || true
+if [ -f "$DRAFT_TRACE_FILE" ]; then
+  cp "$DRAFT_TRACE_FILE" "$DEBUG_DIR/draft_decision_trace.json" || true
+fi
 
 python - "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" <<'PY'
 from __future__ import annotations

@@ -24,6 +24,7 @@ on:
       - 'scripts/reset_and_rerun.py'
       - 'scripts/run_pipeline_with_diagnostics.sh'
       - 'scripts/run_tracked.py'
+      - 'scripts/build_draft_decision_trace.py'
       - 'scripts/generate_run_quality_report.py'
       - 'scripts/test_cross_source_dedup_contract.py'
       - 'scripts/test_drive_upload_contract.py'
