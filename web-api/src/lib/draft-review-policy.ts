@@ -39,8 +39,8 @@ export function evaluateDraftReviewPolicy(input: DraftReviewPolicyInput): DraftR
   const artifact = asRecord(input.diagnostic_artifact);
   const artifactQa = asRecord(artifact?.qa);
 
-  if (upperName.includes('QA-FLAGGED')) {
-    reasons.push('Draft is QA-FLAGGED and must be sent to re-edit or manually reviewed before approval.');
+  if (upperName.includes('QA-FLAGGED') || upperName.includes('QA-BLOCKED')) {
+    reasons.push('Draft is marked by QA and must be sent to re-edit or manually reviewed before approval.');
   }
   if (input.review_required === true || input.qa_review_required === true) {
     reasons.push('Draft metadata requires operator review before approval.');
