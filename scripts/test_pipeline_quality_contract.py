@@ -43,21 +43,25 @@ def main() -> int:
     runtime = _read("pipeline/runtime_quality.py")
     identity_failsafe = _read("pipeline/identity_failsafe.py")
     cross_source_dedup = _read("pipeline/cross_source_dedup.py")
+    perception_runtime = _read("pipeline/perception/runtime.py")
     event_fingerprint = _read("pipeline/perception/event_fingerprint.py")
     athlete_canonicalization = _read("pipeline/athlete_canonicalization.py")
     multi_person_gate = _read("pipeline/multi_person_clip_gate.py")
     context_qa_long_video = _read("pipeline/context_qa_long_video.py")
     run_tracked = _read("scripts/run_tracked.py")
+    sitecustomize = _read("scripts/sitecustomize.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
     ast.parse(runtime)
     ast.parse(identity_failsafe)
     ast.parse(cross_source_dedup)
+    ast.parse(perception_runtime)
     ast.parse(event_fingerprint)
     ast.parse(athlete_canonicalization)
     ast.parse(multi_person_gate)
     ast.parse(context_qa_long_video)
     ast.parse(run_tracked)
+    ast.parse(sitecustomize)
 
     require_tokens(
         "runtime quality hardening",
@@ -82,6 +86,21 @@ def main() -> int:
             "best_score >= 5",
             "score >= 5",
             "include their top 2",
+        ],
+    )
+
+    require_tokens(
+        "perception runtime enrichment",
+        perception_runtime,
+        [
+            "SPORTREEL_PERCEPTION_SIDECAR_DIR",
+            "load_sidecar_detections",
+            "enrich_session_with_sidecar",
+            "source_window_track_ids",
+            "visible_track_ids",
+            "perception_evidence_status",
+            "tracker_sidecar",
+            "analyzer.analyze_session = analyze_with_perception_sidecar",
         ],
     )
 
@@ -169,6 +188,8 @@ def main() -> int:
         "tracked runner quality install",
         run_tracked,
         [
+            "def _install_perception_runtime()",
+            "from pipeline.perception.runtime import install",
             "def _install_pipeline_quality_runtime()",
             "from pipeline.runtime_quality import install",
             "def _install_identity_failsafe_runtime()",
@@ -181,12 +202,21 @@ def main() -> int:
             "from pipeline.candidate_ledger import install",
             "def _install_athlete_canonicalization_runtime()",
             "from pipeline.athlete_canonicalization import install",
-            "_install_pipeline_quality_runtime()",
+            "_install_perception_runtime()\n_install_pipeline_quality_runtime()",
             "_install_identity_failsafe_runtime()",
             "_install_cross_source_dedup_runtime()",
             "_install_draft_diagnostics_runtime()",
             "_install_candidate_ledger_runtime()",
             "_install_athlete_canonicalization_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
+        ],
+    )
+    require_tokens(
+        "script bootstrap perception install",
+        sitecustomize,
+        [
+            "def _install_perception_runtime()",
+            "from pipeline.perception.runtime import install",
+            "_install_perception_runtime()\n_install_analyzer_score_guard()",
         ],
     )
 
@@ -200,6 +230,7 @@ def main() -> int:
             "pipeline/cross_source_dedup.py",
             "pipeline/multi_person_clip_gate.py",
             "pipeline/context_qa_long_video.py",
+            "pipeline/perception/**",
             "pipeline/perception/event_fingerprint.py",
             "scripts/test_pipeline_quality_contract.py",
             "scripts/test_cross_source_dedup_contract.py",
