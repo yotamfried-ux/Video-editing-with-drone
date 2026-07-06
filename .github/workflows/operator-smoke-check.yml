@@ -75,7 +75,57 @@ jobs:
       - name: Validate Operator Smoke workflow validator contract
         run: python scripts/test_operator_smoke_workflow_validator.py
       - name: Validate Multi-upload batch contract
-        run: python scripts/test_multi_upload_batch_contract.py
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          upload_route = Path('web-api/src/app/api/operator/upload/route.ts').read_text(encoding='utf-8')
+          pipeline_screen = Path('mobile/src/app/(operator)/pipeline.tsx').read_text(encoding='utf-8')
+
+          required_upload = [
+              'files?: UploadFileInput[]',
+              'normalizeUploadFiles',
+              'uploadFilename',
+              'createR2UploadUrl(file.uploadFilename, batchId)',
+              'createUploadSession(file.uploadFilename, rawFolder, file.mimeType)',
+              'source_filename: file.filename',
+              'storage_key: upload.key',
+          ]
+          missing_upload = [token for token in required_upload if token not in upload_route]
+          if missing_upload:
+              raise SystemExit(f'multi-upload route missing: {missing_upload}')
+          forbidden_upload = [
+              'createR2UploadUrl(file.filename, batchId)',
+              'createUploadSession(file.filename, rawFolder, file.mimeType)',
+          ]
+          present_upload = [token for token in forbidden_upload if token in upload_route]
+          if present_upload:
+              raise SystemExit(f'multi-upload route uses unsafe storage names: {present_upload}')
+
+          required_mobile = [
+              'allowsMultipleSelection: true',
+              'UPLOAD_CONCURRENCY_LIMIT',
+              'workerCount',
+              'while (nextIndex < items.length)',
+              'uploadAssetToSession(item, session)',
+              'Upload batch progress',
+              'Retry',
+          ]
+          missing_mobile = [token for token in required_mobile if token not in pipeline_screen]
+          if missing_mobile:
+              raise SystemExit(f'mobile upload missing: {missing_mobile}')
+          forbidden_mobile = [
+              'allowsMultipleSelection: false',
+              'const asset = result.assets[0]',
+              'items.map(async (item, index)',
+              'setUploadProgress',
+              'uploadProgress !== null',
+          ]
+          present_mobile = [token for token in forbidden_mobile if token in pipeline_screen]
+          if present_mobile:
+              raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
+          print('Multi-upload batch contract checks passed')
+          PY
       - name: Validate Operator Smoke contract
         run: python scripts/test_operator_smoke_contract.py
       - name: Validate Perception contract
