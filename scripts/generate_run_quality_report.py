@@ -123,7 +123,22 @@ def _load_summary(debug_dir: Path) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {"files": [], "exit_code": None, "summary_parse_error": True}
 
 
-def _contains_trace(paths: list[Path]) -> bool:
+def _load_draft_trace(tmp_root: Path, debug_dir: Path) -> dict[str, Any]:
+    for path in [tmp_root / "draft_decision_trace.json", debug_dir / "draft_decision_trace.json"]:
+        if not path.exists():
+            continue
+        try:
+            payload = _read_json(path)
+        except Exception:
+            continue
+        if isinstance(payload, dict) and isinstance(payload.get("drafts"), list):
+            return payload
+    return {"drafts": []}
+
+
+def _contains_trace(paths: list[Path], draft_trace: dict[str, Any]) -> bool:
+    if isinstance(draft_trace.get("drafts"), list) and draft_trace.get("drafts"):
+        return True
     return any(path.name in _TRACE_FILENAMES or "decision_trace" in path.name for path in paths)
 
 
@@ -153,12 +168,18 @@ def _log_text(debug_dir: Path) -> str:
 def _distribution_summary(values: list[float]) -> dict[str, float | int | None]:
     if not values:
         return {"count": 0, "min": None, "max": None, "mean": None}
-    return {
-        "count": len(values),
-        "min": min(values),
-        "max": max(values),
-        "mean": sum(values) / len(values),
-    }
+    return {"count": len(values), "min": min(values), "max": max(values), "mean": sum(values) / len(values)}
+
+
+def _drafts_with_source_window(draft_trace: dict[str, Any]) -> int:
+    count = 0
+    for draft in draft_trace.get("drafts", []) or []:
+        if not isinstance(draft, dict):
+            continue
+        window = draft.get("source_window") or {}
+        if isinstance(window, dict) and isinstance(window.get("start"), (int, float)) and isinstance(window.get("end"), (int, float)):
+            count += 1
+    return count
 
 
 def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) -> dict[str, Any]:
@@ -167,6 +188,9 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     summary_paths = [str(item.get("path")) for item in files_from_summary if isinstance(item, dict) and item.get("path")]
     all_tmp_json = _iter_json_files(tmp_root)
     sidecars, sidecar_schema_errors = _load_sidecars(tmp_root, debug_dir)
+    draft_trace = _load_draft_trace(tmp_root, debug_dir)
+    trace_drafts = [d for d in draft_trace.get("drafts", []) or [] if isinstance(d, dict)]
+    drafts_with_source_window = _drafts_with_source_window(draft_trace)
     detections: list[dict[str, Any]] = []
     for sidecar in sidecars:
         for item in sidecar.get("detections", []) or []:
@@ -174,7 +198,7 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
                 detections.append(item)
 
     video_count = sum(1 for path in summary_paths if _is_video_file(path))
-    draft_count = sum(1 for path in summary_paths if _is_draft_file(path))
+    draft_count = max(sum(1 for path in summary_paths if _is_draft_file(path)), len(trace_drafts))
     sidecar_count = len(sidecars)
     detection_count = len(detections)
     missing_track_count = sum(1 for item in detections if _track_id(item) is None)
@@ -182,7 +206,7 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     invalid_time_count = sum(1 for item in detections if _time_invalid(item))
     confidence_values = [float(item["confidence"]) for item in detections if item.get("confidence") is not None]
     unique_tracks = Counter(_track_id(item) for item in detections if _track_id(item) is not None)
-    has_trace = _contains_trace(all_tmp_json)
+    has_trace = _contains_trace(all_tmp_json, draft_trace)
     has_dropped_reasons = _contains_dropped_reason(all_tmp_json)
     log = _log_text(debug_dir)
 
@@ -193,6 +217,8 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "sidecar_count": sidecar_count,
         "detection_count": detection_count,
         "unique_track_count": len(unique_tracks),
+        "draft_metadata_count": len(trace_drafts),
+        "draft_source_window_coverage_rate": _safe_div(drafts_with_source_window, max(draft_count, 1)),
         "sidecar_missing_rate": 1.0 if video_count > 0 and sidecar_count == 0 else 0.0,
         "sidecar_schema_error_rate": _safe_div(len(sidecar_schema_errors), max(sidecar_count + len(sidecar_schema_errors), 1)),
         "track_id_missing_rate": _safe_div(missing_track_count, detection_count),
@@ -225,6 +251,8 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     if metrics["draft_without_decision_trace_rate"] > 0:
         add_alert("draft_without_decision_trace_rate", "hard_block", "drafts exist without decision trace")
         classifications.append({"code": "BUG_SELECTION_BYPASSED_EVIDENCE", "evidence": "draft exists without candidate decision trace"})
+    if draft_count > 0 and metrics["draft_source_window_coverage_rate"] < 1.0:
+        add_alert("draft_source_window_coverage_rate", "inconclusive", "one or more drafts lack source-window metadata")
     if not has_dropped_reasons:
         add_alert("missing_dropped_reasons", "inconclusive", "dropped candidate reasons are not available")
         classifications.append({"code": "BUG_RECALL_UNKNOWN", "evidence": "missing dropped candidate reasons"})
@@ -252,9 +280,15 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "alerts": alerts,
         "bug_classifications": classifications,
         "sidecar_schema_errors": sidecar_schema_errors,
+        "draft_decision_trace": {
+            "schema_version": draft_trace.get("schema_version"),
+            "draft_count": len(trace_drafts),
+            "drafts_with_source_window": drafts_with_source_window,
+        },
         "implementation_gaps": {
             "candidate_decision_ledger_present": has_trace,
             "dropped_reasons_present": has_dropped_reasons,
+            "draft_source_window_metadata_present": bool(trace_drafts),
             "mixed_subject_metric_ready": False,
             "duplicate_athlete_metric_ready": False,
         },
