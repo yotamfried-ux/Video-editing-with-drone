@@ -13,13 +13,26 @@ def _with_src(events_out, local_path: str):
     return [(reel, [{**event, "_src": local_path, "source": event.get("source") or local_path} for event in events]) for reel, events in events_out]
 
 
+def _annotate_subject_gates(events: list[dict[str, Any]], local_path: str, athlete_label: str) -> list[dict[str, Any]]:
+    from pipeline.multi_person_clip_gate import annotate_multi_person_events
+    from pipeline.subject_gate_policy import annotate_subject_events
+    sourced = [{**event, "_src": local_path, "source": event.get("source") or local_path} for event in events]
+    annotated = annotate_subject_events(sourced, source_video=local_path, athlete_label=athlete_label)
+    return annotate_multi_person_events(annotated, athlete_label)
+
+
+def _has_subject_gate_defect(events: list[dict[str, Any]]) -> bool:
+    from pipeline.multi_person_clip_gate import has_multi_person_defect
+    from pipeline.subject_gate_policy import has_subject_isolation_defect
+    return has_multi_person_defect(events) or has_subject_isolation_defect(events)
+
+
 def _patch_orchestrator(orchestrator: Any) -> None:
     if getattr(orchestrator, _INSTALLED_FLAG, False):
         return
 
     def process_long_video_with_context_qa(video_meta: dict) -> int:
         from pipeline.context_qa_gate import filter_duplicate_draft_candidates, _qa_gate_with_edit_context
-        from pipeline.multi_person_clip_gate import annotate_multi_person_events, has_multi_person_defect
         file_id = video_meta["id"]
         filename = video_meta["name"]
         try:
@@ -52,15 +65,18 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         for person in persons:
             if not person.get("events"):
                 continue
+            athlete_label = str(person.get("description", ""))
             events_out: list[tuple[str, list[dict]]] = []
-            reels = orchestrator.create_reel(local_path, person["events"], sport=activity, athlete_label=person.get("description", ""), _events_out=events_out)
-            events_out = _with_src(events_out, local_path)
+            reels = orchestrator.create_reel(local_path, person["events"], sport=activity, athlete_label=athlete_label, _events_out=events_out)
+            events_out = [(reel, _annotate_subject_gates(events, local_path, athlete_label)) for reel, events in _with_src(events_out, local_path)]
+
             def _recompile(evs: list[dict], out: list) -> list[str]:
                 cleaned = [{k: v for k, v in ev.items() if k != "_src"} for ev in evs]
-                result = orchestrator.create_reel(local_path, cleaned, sport=activity, athlete_label=person.get("description", ""), _events_out=out)
-                out[:] = _with_src(out, local_path)
+                result = orchestrator.create_reel(local_path, cleaned, sport=activity, athlete_label=athlete_label, _events_out=out)
+                out[:] = [(reel, _annotate_subject_gates(events, local_path, athlete_label)) for reel, events in _with_src(out, local_path)]
                 return result
-            reels, events_by_reel, flagged = _qa_gate_with_edit_context(orchestrator, reels, events_out, activity, person.get("description", ""), _recompile)
+
+            reels, events_by_reel, flagged = _qa_gate_with_edit_context(orchestrator, reels, events_out, activity, athlete_label, _recompile)
             flagged_set = set(flagged or [])
             clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
             clean_idx = 0
@@ -71,13 +87,9 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 part_label = f" (part {clean_idx})" if clean_count > 1 else ""
                 music_label = " (music)" if is_music else ""
                 raw_events = events_by_reel.get(reel, person["events"])
-                reel_events = [
-                    {**event, "_src": local_path, "source": event.get("source") or local_path}
-                    for event in raw_events
-                ]
-                reel_events = annotate_multi_person_events(reel_events, str(person.get("description", "")))
+                reel_events = _annotate_subject_gates(raw_events, local_path, athlete_label)
                 events_by_reel[reel] = reel_events
-                if has_multi_person_defect(reel_events):
+                if _has_subject_gate_defect(reel_events):
                     flagged_set.add(reel)
                 qa_label = " QA-FLAGGED" if reel in flagged_set else ""
                 name = orchestrator._safe_draft_name(person.get("description", "") + part_label + music_label + qa_label)
@@ -118,9 +130,11 @@ def _wrap_existing_hook() -> bool:
     original = getattr(policy, "_patch_orchestrator", None)
     if original is None:
         return False
+
     def patch_both(orchestrator: Any) -> None:
         original(orchestrator)
         _patch_orchestrator(orchestrator)
+
     policy._patch_orchestrator = patch_both
     setattr(policy, _QA_WRAPPED, True)
     return True
