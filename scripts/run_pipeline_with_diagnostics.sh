@@ -75,5 +75,6 @@ if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
 fi
 python scripts/append_qa_gate_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$LOG_FILE" || true
 python scripts/append_qa_policy_trace_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
+python scripts/append_mixed_subject_policy_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
 
 exit "$STATUS"
