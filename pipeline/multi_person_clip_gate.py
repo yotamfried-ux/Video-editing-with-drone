@@ -1,12 +1,14 @@
 """Same-window multi-person gate for REAL-ID-004.
 
-This gate does not try to detect people by itself. It consumes tracker/perception
-metadata when present and fails safe: if a single-athlete draft window has more
-than one visible subject and the event is not explicitly a social moment, the
-resulting draft must be review-required instead of looking like a normal approve.
+This gate can consume explicit event metadata or derive visible canonical tracks
+from the production perception sidecar. If a single-athlete draft window has no
+primary track dominance and the event is not explicitly a social moment, the
+draft must be review-required instead of looking like a normal approve.
 """
 from __future__ import annotations
 
+from collections import Counter
+from functools import lru_cache
 from typing import Any
 
 MULTI_PERSON_DEFECT = "MULTI_PERSON_CLIP"
@@ -24,6 +26,9 @@ _ID_FIELDS = (
     "all_visible_person_ids",
 )
 _OTHER_FIELDS = ("other_track_ids", "other_person_ids", "secondary_track_ids", "secondary_person_ids")
+_MIXED_SUBJECT_MIN_DETECTIONS = 4
+_MIXED_SUBJECT_MIN_TRACKS = 2
+_MIXED_SUBJECT_MAX_PRIMARY_DOMINANCE = 0.7
 
 
 def _as_list(value: Any) -> list[str]:
@@ -36,8 +41,27 @@ def _as_list(value: Any) -> list[str]:
     return [str(item).strip() for item in raw if str(item).strip()]
 
 
+def _num(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
 def _event_id(event: dict[str, Any], index: int) -> str:
     return str(event.get("event_id") or event.get("id") or f"event_{index:03d}")
+
+
+def _event_source(event: dict[str, Any]) -> str:
+    return str(event.get("_src") or event.get("source") or event.get("source_video") or event.get("video") or "")
+
+
+def _event_window(event: dict[str, Any]) -> tuple[float, float] | None:
+    start = _num(event.get("start"), float("nan"))
+    end = _num(event.get("end"), float("nan"))
+    if start != start or end != end or end <= start:
+        return None
+    return start, end
 
 
 def _primary_subject_id(event: dict[str, Any]) -> str:
@@ -45,6 +69,10 @@ def _primary_subject_id(event: dict[str, Any]) -> str:
         value = str(event.get(key) or "").strip()
         if value:
             return f"{key}:{value}"
+    mixed = event.get("mixed_subject_source_gate") if isinstance(event.get("mixed_subject_source_gate"), dict) else {}
+    primary = str(mixed.get("primary_track_id") or "").strip()
+    if primary:
+        return f"track_id:{primary}"
     return "unknown"
 
 
@@ -82,12 +110,101 @@ def is_intentional_social_moment(event: dict[str, Any]) -> bool:
     return "high five" in description or "high-five" in description
 
 
+@lru_cache(maxsize=16)
+def _sidecar_detection_records(source: str) -> tuple[dict[str, Any], ...]:
+    if not source:
+        return tuple()
+    try:
+        from pipeline.perception.runtime import load_sidecar_detections
+        detections = load_sidecar_detections(source)
+    except Exception:
+        return tuple()
+    records: list[dict[str, Any]] = []
+    for detection in detections:
+        tracker_id = getattr(detection, "tracker_id", None)
+        if tracker_id is None:
+            continue
+        records.append({
+            "time_sec": float(getattr(detection, "time_sec", 0.0)),
+            "track_id": str(tracker_id),
+            "confidence": getattr(detection, "confidence", None),
+        })
+    return tuple(records)
+
+
+def _source_track_counts(event: dict[str, Any]) -> Counter[str]:
+    source = _event_source(event)
+    window = _event_window(event)
+    if not source or not window:
+        return Counter()
+    start, end = window
+    counts: Counter[str] = Counter()
+    for detection in _sidecar_detection_records(source):
+        time_sec = _num(detection.get("time_sec"))
+        if start <= time_sec <= end:
+            counts[str(detection["track_id"])] += 1
+    return counts
+
+
+def build_mixed_subject_source_gate(event: dict[str, Any]) -> dict[str, Any] | None:
+    counts = _source_track_counts(event)
+    total = sum(counts.values())
+    if total < _MIXED_SUBJECT_MIN_DETECTIONS or len(counts) < _MIXED_SUBJECT_MIN_TRACKS:
+        return None
+    primary_track, primary_count = counts.most_common(1)[0]
+    dominance = primary_count / total if total else 0.0
+    decision = "review_required" if dominance <= _MIXED_SUBJECT_MAX_PRIMARY_DOMINANCE else "allowed_primary_dominant"
+    return {
+        "decision": decision,
+        "reason": "low_primary_track_dominance" if decision == "review_required" else "primary_track_dominant",
+        "source_video": _event_source(event),
+        "source_window": {"start": event.get("start"), "end": event.get("end")},
+        "detection_count": total,
+        "visible_track_count": len(counts),
+        "visible_track_ids": sorted(counts.keys()),
+        "track_detection_counts": dict(sorted(counts.items())),
+        "primary_track_id": primary_track,
+        "primary_track_detections": primary_count,
+        "primary_track_dominance_ratio": round(dominance, 3),
+        "thresholds": {
+            "min_detections": _MIXED_SUBJECT_MIN_DETECTIONS,
+            "min_tracks": _MIXED_SUBJECT_MIN_TRACKS,
+            "max_primary_dominance": _MIXED_SUBJECT_MAX_PRIMARY_DOMINANCE,
+        },
+    }
+
+
+def _enrich_event_from_sidecar(event: dict[str, Any]) -> dict[str, Any]:
+    if any(_as_list(event.get(key)) for key in _ID_FIELDS):
+        return event
+    gate = build_mixed_subject_source_gate(event)
+    if not gate:
+        return event
+    enriched = {
+        **event,
+        "mixed_subject_source_gate": gate,
+        "primary_track_id": gate.get("primary_track_id"),
+        "primary_track_dominance_ratio": gate.get("primary_track_dominance_ratio"),
+        "track_detection_counts": gate.get("track_detection_counts", {}),
+    }
+    if gate.get("decision") == "review_required":
+        # Expose only low-dominance mixed windows through the existing visible-id
+        # fields. Dominant-primary windows remain diagnostic only and do not block.
+        enriched.update({
+            "source_window_track_ids": gate.get("visible_track_ids", []),
+            "visible_track_ids": gate.get("visible_track_ids", []),
+            "all_visible_track_ids": gate.get("visible_track_ids", []),
+        })
+    return enriched
+
+
 def build_multi_person_gate(event: dict[str, Any], index: int) -> dict[str, Any]:
     visible_ids = _visible_subject_ids(event)
     primary_id = _primary_subject_id(event)
     social = is_intentional_social_moment(event)
+    mixed_gate = event.get("mixed_subject_source_gate") if isinstance(event.get("mixed_subject_source_gate"), dict) else {}
     decision = "allowed_social_moment" if social else "review_required"
-    reason = "intentional_social_moment" if social else "extra_visible_subject_in_single_athlete_draft"
+    reason = "intentional_social_moment" if social else str(mixed_gate.get("reason") or "extra_visible_subject_in_single_athlete_draft")
     gate = {
         "decision": decision,
         "reason": reason,
@@ -96,16 +213,22 @@ def build_multi_person_gate(event: dict[str, Any], index: int) -> dict[str, Any]
         "visible_subject_ids": visible_ids,
         "visible_subject_count": len(visible_ids),
         "intentional_social_moment": social,
+        "mixed_subject_source_gate": mixed_gate,
     }
     if not social:
+        dominance = mixed_gate.get("primary_track_dominance_ratio")
+        note = "single-athlete draft window contains another visible subject without SOCIAL_MOMENT evidence"
+        if dominance is not None:
+            note = f"single-athlete draft window has low primary-track dominance ({dominance})"
         gate["defect"] = {
             "type": MULTI_PERSON_DEFECT,
             "severity": "critical",
             "blocking": True,
             "event_id": gate["event_id"],
-            "note": "single-athlete draft window contains another visible subject without SOCIAL_MOMENT evidence",
+            "note": note,
             "primary_subject_id": primary_id,
             "visible_subject_ids": visible_ids,
+            "primary_track_dominance_ratio": dominance,
         }
     return gate
 
@@ -134,6 +257,7 @@ def annotate_multi_person_events(events: list[dict[str, Any]], athlete_label: st
         if not isinstance(event, dict):
             annotated.append(event)
             continue
+        event = _enrich_event_from_sidecar(event)
         visible_ids = _visible_subject_ids(event)
         if len(visible_ids) <= 1:
             annotated.append(event)
