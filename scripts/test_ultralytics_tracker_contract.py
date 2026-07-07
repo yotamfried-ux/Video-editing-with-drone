@@ -94,6 +94,7 @@ def main() -> int:
         _det(20, 12.5, [130, 110, 230, 310]),
         _det(30, 13.5, [900, 300, 1010, 520]),
         _det(40, 10.5, [120, 110, 220, 310]),
+        _det(40, 12.8, [140, 115, 240, 315]),
     ]
     stitched = stitch_detection_tracks(raw, source_video="source.mp4")
     by_raw: dict[int, set[int]] = {}
