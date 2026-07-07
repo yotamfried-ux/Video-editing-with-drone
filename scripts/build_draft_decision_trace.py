@@ -32,18 +32,31 @@ def _source_from_log(log_path: Path) -> str | None:
     return None
 
 
+def _window_value(event: dict[str, Any], final_key: str, source_key: str) -> Any:
+    value = event.get(final_key)
+    return value if isinstance(value, (int, float)) else event.get(source_key)
+
+
 def _event_window(event: dict[str, Any], default_source: str | None) -> dict[str, Any]:
-    start = event.get("start")
-    end = event.get("end")
+    original_start = event.get("start")
+    original_end = event.get("end")
+    start = _window_value(event, "final_cut_start", "start")
+    end = _window_value(event, "final_cut_end", "end")
     return {
-        "source_video": event.get("_src") or event.get("source_video") or default_source,
+        "source_video": event.get("_src") or event.get("source_video") or event.get("source") or default_source,
         "event_type": event.get("type", ""),
         "start": start,
         "end": end,
         "duration": (float(end) - float(start)) if isinstance(start, (int, float)) and isinstance(end, (int, float)) else None,
+        "original_start": original_start,
+        "original_end": original_end,
+        "final_cut_start": event.get("final_cut_start"),
+        "final_cut_end": event.get("final_cut_end"),
         "score": event.get("score"),
         "description": event.get("description", ""),
         "edit": event.get("edit", {}),
+        "subject_isolation_gate": event.get("subject_isolation_gate"),
+        "multi_person_clip_gate": event.get("multi_person_clip_gate"),
     }
 
 
