@@ -39,8 +39,6 @@ def _sources_match(left: Any, right: Any) -> bool:
 
 
 def _track_id(detection: Any) -> str | None:
-    if not isinstance(detection, object):
-        return None
     value = getattr(detection, "tracker_id", None)
     if value is None and isinstance(detection, dict):
         value = detection.get("track_id") or detection.get("tracker_id")
@@ -56,6 +54,49 @@ def _time_sec(detection: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return parsed
+
+
+def _event_source(event: dict[str, Any], fallback: str = "") -> str:
+    return str(event.get("_src") or event.get("source") or event.get("source_video") or event.get("video") or fallback or "")
+
+
+def _sources_from_events(events: list[dict[str, Any]], fallback: str = "") -> list[str]:
+    seen: set[str] = set()
+    sources: list[str] = []
+    for event in events or []:
+        if not isinstance(event, dict):
+            continue
+        source = _event_source(event, fallback)
+        if source and source not in seen:
+            seen.add(source)
+            sources.append(source)
+    if fallback and fallback not in seen:
+        sources.append(fallback)
+    return sources
+
+
+def _load_detections_for_sources(events: list[dict[str, Any]], fallback_source: str = "") -> list[Any]:
+    try:
+        from pipeline.perception.runtime import load_sidecar_detections
+    except Exception:
+        return []
+    detections: list[Any] = []
+    seen: set[tuple[str, str, str]] = set()
+    for source in _sources_from_events(events, fallback_source):
+        try:
+            source_detections = load_sidecar_detections(source)
+        except Exception:
+            source_detections = []
+        for detection in source_detections:
+            det_source = getattr(detection, "source_video", None)
+            if det_source is None and isinstance(detection, dict):
+                det_source = detection.get("source_video") or detection.get("_source_video")
+            key = (str(det_source or source), str(_time_sec(detection)), str(_track_id(detection)))
+            if key in seen:
+                continue
+            seen.add(key)
+            detections.append(detection)
+    return detections
 
 
 def effective_cut_window(event: dict[str, Any]) -> tuple[float, float]:
@@ -85,7 +126,7 @@ def with_effective_cut_window(event: dict[str, Any]) -> dict[str, Any]:
 
 def _detections_for_event(event: dict[str, Any], detections: list[Any], source_video: str) -> list[Any]:
     start, end = effective_cut_window(event)
-    source = event.get("_src") or event.get("source") or event.get("source_video") or source_video
+    source = _event_source(event, source_video)
     out: list[Any] = []
     for detection in detections:
         det_source = getattr(detection, "source_video", None)
@@ -117,7 +158,7 @@ def build_subject_gate(event: dict[str, Any], detections: list[Any], index: int,
         "decision": "allowed_social_moment" if social else "review_required",
         "reason": "intentional_social_moment" if social else "low_primary_track_dominance",
         "event_id": str(event.get("event_id") or event.get("id") or f"event_{index:03d}"),
-        "source_video": _source_name(event.get("_src") or event.get("source") or event.get("source_video") or source_video),
+        "source_video": _source_name(_event_source(event, source_video)),
         "source_window": {"start": start, "end": end},
         "detection_count": total,
         "visible_track_count": len(counts),
@@ -171,11 +212,7 @@ def _merge_qa_gate(event: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any
 
 
 def annotate_subject_events(events: list[dict[str, Any]], *, source_video: str = "", athlete_label: str = "") -> list[dict[str, Any]]:
-    try:
-        from pipeline.perception.runtime import load_sidecar_detections
-        detections = load_sidecar_detections(source_video) if source_video else []
-    except Exception:
-        detections = []
+    detections = _load_detections_for_sources([event for event in events or [] if isinstance(event, dict)], source_video)
     if not detections:
         return [with_effective_cut_window(event) if isinstance(event, dict) else event for event in events or []]
     annotated: list[dict[str, Any]] = []
