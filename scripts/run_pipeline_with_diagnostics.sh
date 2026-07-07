@@ -69,6 +69,7 @@ summary = {
 PY
 
 python scripts/generate_run_quality_report.py "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" || true
+python scripts/append_pairwise_source_window_overlap_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
 if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
   python scripts/append_candidate_ledger_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$CANDIDATE_LEDGER_FILE" || true
 fi
