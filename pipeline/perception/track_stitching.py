@@ -59,6 +59,11 @@ def _raw_track_id(item: Mapping[str, Any]) -> str | None:
     return None if value is None else str(value)
 
 
+def _canonical_track_id(item: Mapping[str, Any]) -> str | None:
+    value = item.get("track_id", item.get("canonical_track_id", item.get("tracker_id")))
+    return None if value is None else str(value)
+
+
 def _center_distance(left: tuple[float, float, float, float], right: tuple[float, float, float, float]) -> float:
     lx = (left[0] + left[2]) / 2.0
     ly = (left[1] + left[3]) / 2.0
@@ -202,7 +207,7 @@ def stitch_detection_tracks(
 
 def track_stitching_summary(before: list[dict[str, Any]], after: list[dict[str, Any]]) -> dict[str, Any]:
     raw_ids = {_raw_track_id(item) for item in before if _raw_track_id(item) is not None}
-    canonical_ids = {_raw_track_id(item) for item in after if _raw_track_id(item) is not None}
+    canonical_ids = {_canonical_track_id(item) for item in after if _canonical_track_id(item) is not None}
     return {
         "enabled": True,
         "raw_track_count": len(raw_ids),
