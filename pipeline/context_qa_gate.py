@@ -48,9 +48,11 @@ def event_window_key(event: dict[str, Any], index: int) -> tuple[Any, ...]:
     if fp:
         return ("fp", fp)
     source = _src(event)
+    start = event.get("final_cut_start", event.get("start"))
+    end = event.get("final_cut_end", event.get("end"))
     if source:
-        return ("window", source, _bucket_time(event.get("start")), _bucket_time(event.get("end")), str(event.get("track_id") or ""))
-    return ("event", _event_id(event, index), _bucket_time(event.get("start")), _bucket_time(event.get("end")))
+        return ("window", source, _bucket_time(start), _bucket_time(end), str(event.get("track_id") or ""))
+    return ("event", _event_id(event, index), _bucket_time(start), _bucket_time(end))
 
 
 def draft_fingerprint(events: list[dict[str, Any]]) -> tuple[tuple[Any, ...], ...]:
@@ -69,7 +71,28 @@ def draft_quality(events: list[dict[str, Any]]) -> float:
 
 
 def build_qa_package(reel_path: str, draft_name: str, events: list[dict[str, Any]], source_quality: dict[str, Any]) -> dict[str, Any]:
-    return {"reel_path": reel_path, "draft_name": draft_name, "fingerprint": draft_fingerprint(events), "quality": draft_quality(events), "events": events, "source_quality": source_quality, "source_windows": [{"event_id": _event_id(event, idx), "source": _src(event), "start": event.get("start"), "end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "fingerprint": _fingerprint(event)} for idx, event in enumerate(events) if not event.get("_teaser")]}
+    return {
+        "reel_path": reel_path,
+        "draft_name": draft_name,
+        "fingerprint": draft_fingerprint(events),
+        "quality": draft_quality(events),
+        "events": events,
+        "source_quality": source_quality,
+        "source_windows": [
+            {
+                "event_id": _event_id(event, idx),
+                "source": _src(event),
+                "start": event.get("start"),
+                "end": event.get("end"),
+                "final_cut_start": event.get("final_cut_start"),
+                "final_cut_end": event.get("final_cut_end"),
+                "track_id": event.get("track_id"),
+                "fingerprint": _fingerprint(event),
+            }
+            for idx, event in enumerate(events)
+            if not event.get("_teaser")
+        ],
+    }
 
 
 def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -77,24 +100,39 @@ def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str
     for idx, event in enumerate(events or []):
         if event.get("_teaser"):
             continue
-        windows.append({"event_id": _event_id(event, idx), "source": _src(event), "source_start": event.get("start"), "source_end": event.get("end"), "final_cut_start": event.get("final_cut_start"), "final_cut_end": event.get("final_cut_end"), "track_id": event.get("track_id"), "identity_gate": event.get("identity_gate"), "multi_person_clip_gate": event.get("multi_person_clip_gate"), "cut_window_status": event.get("cut_window_evidence_status"), "duplicate_evidence": event.get("dedup_dropped_duplicates", [])})
+        windows.append({
+            "event_id": _event_id(event, idx),
+            "source": _src(event),
+            "source_start": event.get("start"),
+            "source_end": event.get("end"),
+            "final_cut_start": event.get("final_cut_start"),
+            "final_cut_end": event.get("final_cut_end"),
+            "track_id": event.get("track_id"),
+            "identity_gate": event.get("identity_gate"),
+            "multi_person_clip_gate": event.get("multi_person_clip_gate"),
+            "subject_isolation_gate": event.get("subject_isolation_gate"),
+            "cut_window_status": event.get("cut_window_evidence_status"),
+            "duplicate_evidence": event.get("dedup_dropped_duplicates", []),
+        })
     return {"reel": reel_path, "source_windows": windows}
 
 
 def _context_prompt(context: dict[str, Any]) -> str:
     compact = json.dumps(context, ensure_ascii=False, separators=(",", ":"))
-    return "\nEDIT_SOURCE_CONTEXT_JSON:\n" + compact + "\nJudge the final draft against these source windows: identity continuity, early cuts, and repeated source windows."
+    return "\nEDIT_SOURCE_CONTEXT_JSON:\n" + compact + "\nJudge the final draft against these source windows: identity continuity, early cuts, repeated source windows, and subject isolation."
 
 
 def _qa_gate_with_edit_context(orchestrator: Any, reels, events_out, sport, athlete_label, recompile):
     from pipeline.stages import analyzer
     context_by_reel = {reel: build_edit_context(reel, events) for reel, events in events_out}
     original_check = analyzer.qa_check_reel
+
     def contextual_check(reel, *args, **kwargs):
         ctx = context_by_reel.get(reel)
         if ctx:
             kwargs["athlete_label"] = str(kwargs.get("athlete_label", "")) + _context_prompt(ctx)
         return original_check(reel, *args, **kwargs)
+
     analyzer.qa_check_reel = contextual_check
     try:
         return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile)
@@ -103,7 +141,15 @@ def _qa_gate_with_edit_context(orchestrator: Any, reels, events_out, sport, athl
 
 
 def _duplicate_detail(dropped: dict[str, Any], kept: dict[str, Any]) -> dict[str, Any]:
-    return {"reason": "duplicate_rendered_draft", "defect_type": "DUPLICATE_DRAFT", "blocking": True, "dropped_draft": dropped["draft_name"], "kept_draft": kept["draft_name"], "dropped_source_windows": dropped["source_windows"], "kept_source_windows": kept["source_windows"]}
+    return {
+        "reason": "duplicate_rendered_draft",
+        "defect_type": "DUPLICATE_DRAFT",
+        "blocking": True,
+        "dropped_draft": dropped["draft_name"],
+        "kept_draft": kept["draft_name"],
+        "dropped_source_windows": dropped["source_windows"],
+        "kept_source_windows": kept["source_windows"],
+    }
 
 
 def _attach_duplicate_detail(events: list[dict[str, Any]], detail: dict[str, Any]) -> list[dict[str, Any]]:
@@ -148,34 +194,53 @@ def filter_duplicate_draft_candidates(pending: list[tuple[str, str]], pending_me
     return filtered_pending, filtered_meta, dropped
 
 
+def _annotate_subject_gates(events: list[dict[str, Any]], source_video: str, athlete_label: str) -> list[dict[str, Any]]:
+    from pipeline.multi_person_clip_gate import annotate_multi_person_events
+    from pipeline.subject_gate_policy import annotate_subject_events
+    annotated = annotate_subject_events(events, source_video=source_video, athlete_label=athlete_label)
+    return annotate_multi_person_events(annotated, athlete_label)
+
+
+def _has_subject_gate_defect(events: list[dict[str, Any]]) -> bool:
+    from pipeline.multi_person_clip_gate import has_multi_person_defect
+    from pipeline.subject_gate_policy import has_subject_isolation_defect
+    return has_multi_person_defect(events) or has_subject_isolation_defect(events)
+
+
 def _patch_orchestrator(orchestrator: Any) -> None:
     if getattr(orchestrator, _INSTALLED_FLAG, False):
         return
+
     def compile_clusters_with_context_qa(clusters: list[dict], activity: str, fn_to_id: dict[str, str] | None = None) -> int:
         try:
             from pipeline.real_identity_gate import enforce_identity_gate
             clusters = enforce_identity_gate(clusters)
         except Exception:
             pass
-        from pipeline.multi_person_clip_gate import annotate_multi_person_events, has_multi_person_defect
         pending: list[tuple[str, str]] = []
         pending_meta: list[tuple[str, str, list[dict], dict]] = []
         fn_to_id = fn_to_id or {}
         for ci, cluster in enumerate(clusters):
             orchestrator._write_status("editing", 0.30 + 0.15 * (ci / max(1, len(clusters))), cluster=f"{ci + 1}/{len(clusters)}", athlete=str(cluster.get("description", ""))[:60])
             first_path = cluster["appearances"][0]["path"] if cluster.get("appearances") else None
+            source_video = str(first_path or "")
             source_quality = orchestrator._get_source_info(first_path) if first_path else {}
             all_events = [ev for app in cluster.get("appearances", []) for ev in app.get("events", [])]
             events_out: list[tuple[str, list[dict]]] = []
             reels = orchestrator.compile_multi_source_reel(cluster.get("appearances", []), sport=activity, athlete_label=cluster.get("description", ""), _events_out=events_out)
+            events_out = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in events_out]
+
             def _recompile(evs: list[dict], out: list) -> list[str]:
-                return orchestrator.compile_multi_source_reel(orchestrator._group_appearances(evs), sport=activity, athlete_label=cluster.get("description", ""), _events_out=out)
+                result = orchestrator.compile_multi_source_reel(orchestrator._group_appearances(evs), sport=activity, athlete_label=cluster.get("description", ""), _events_out=out)
+                out[:] = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in out]
+                return result
+
             reels, events_by_reel, flagged = _qa_gate_with_edit_context(orchestrator, reels, events_out, activity, cluster.get("description", ""), _recompile)
             flagged_set = set(flagged or [])
             for reel in reels:
-                reel_events = annotate_multi_person_events(events_by_reel.get(reel, all_events), str(cluster.get("description", "")))
+                reel_events = _annotate_subject_gates(events_by_reel.get(reel, all_events), source_video, str(cluster.get("description", "")))
                 events_by_reel[reel] = reel_events
-                if has_multi_person_defect(reel_events):
+                if _has_subject_gate_defect(reel_events):
                     flagged_set.add(reel)
             flagged = flagged_set
             sources = [{"id": fn_to_id.get(Path(app["path"]).name, ""), "name": Path(app["path"]).name} for app in cluster.get("appearances", [])]
@@ -196,6 +261,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         pending, pending_meta, dropped = filter_duplicate_draft_candidates(pending, pending_meta)
         for detail in dropped:
             print(f"  Context QA blocked duplicate draft {detail['dropped_draft']} -> kept {detail['kept_draft']}")
+
         def _upload_one(args: tuple[str, str]) -> bool:
             reel_path, name = args
             try:
@@ -219,6 +285,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                         os.remove(reel_path)
                 except OSError:
                     pass
+
         if not pending:
             return 0
         workers = min(len(pending), orchestrator._MAX_UL_WORKERS)
@@ -234,6 +301,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 except Exception:
                     pass
         return sum(results)
+
     orchestrator._compile_clusters = compile_clusters_with_context_qa
     setattr(orchestrator, _INSTALLED_FLAG, True)
 
@@ -245,9 +313,11 @@ def _wrap_existing_hook() -> bool:
     original = getattr(policy, "_patch_orchestrator", None)
     if original is None:
         return False
+
     def patch_both(orchestrator: Any) -> None:
         original(orchestrator)
         _patch_orchestrator(orchestrator)
+
     policy._patch_orchestrator = patch_both
     setattr(policy, _QA_WRAPPED, True)
     return True
