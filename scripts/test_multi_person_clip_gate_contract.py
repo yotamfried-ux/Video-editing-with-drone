@@ -6,6 +6,7 @@ from pathlib import Path
 from pipeline.draft_diagnostics import build_diagnostic_artifact
 from pipeline.multi_person_clip_gate import annotate_multi_person_events, has_multi_person_defect
 from pipeline.qa_gate_policy import BLOCKING_DEFECT_TYPES, is_critical_defect
+from pipeline.review_window_policy import event_window
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -17,17 +18,22 @@ def require(ok: bool, msg: str) -> None:
 
 def main() -> int:
     review_events = annotate_multi_person_events([
-        {"event_id": "ride_1", "type": "surf_ride", "track_id": "main", "source_window_track_ids": ["main", "extra"], "start": 1, "end": 9}
+        {"event_id": "ride_1", "type": "surf_ride", "track_id": "main", "source_window_track_ids": ["main", "extra"], "primary_track_dominance_ratio": 0.4, "start": 1, "end": 9}
     ])
     review_event = review_events[0]
     gate = review_event.get("multi_person_clip_gate", {})
-    require(gate.get("decision") == "review_required", "multi-subject ride must require review")
+    require(gate.get("decision") == "review_required", "multi-track ride must require review")
     require(has_multi_person_defect(review_events), "review-required gate was not detected")
     qa_gate = review_event.get("qa_gate", {})
     defects = qa_gate.get("defects", [])
     require(qa_gate.get("qa_review_required") is True, "qa review flag missing")
     require(defects and defects[0].get("type") == "MULTI_PERSON_CLIP", "MULTI_PERSON_CLIP defect missing")
     require(is_critical_defect(defects[0]), "MULTI_PERSON_CLIP must be a critical QA defect")
+
+    dominant_events = annotate_multi_person_events([
+        {"event_id": "ride_dominant", "type": "surf_ride", "track_id": "main", "source_window_track_ids": ["main", "extra"], "primary_track_dominance_ratio": 0.9, "start": 1, "end": 9}
+    ])
+    require(not has_multi_person_defect(dominant_events), "dominant primary track should not require review")
 
     allowed_events = annotate_multi_person_events([
         {"event_id": "social_1", "type": "high_five", "track_id": "main", "source_window_track_ids": ["main", "friend"], "value_labels": ["SOCIAL_MOMENT", "HIGH_FIVE"], "start": 3, "end": 6}
@@ -36,6 +42,11 @@ def main() -> int:
     require(allowed_gate.get("decision") == "allowed_social_moment", "intentional social moment should be allowed")
     require(not has_multi_person_defect(allowed_events), "allowed social moment should not be review-required")
     require("qa_gate" not in allowed_events[0], "allowed social moment should not get QA defect")
+
+    trimmed_start, trimmed_end = event_window({"start": 10.0, "end": 40.0})
+    require((trimmed_start, trimmed_end) == (29.0, 40.0), "long event review window should mirror editor trim")
+    final_start, final_end = event_window({"start": 10.0, "end": 40.0, "final_cut_start": 12.0, "final_cut_end": 18.0})
+    require((final_start, final_end) == (12.0, 18.0), "explicit final cut window should win")
 
     artifact = build_diagnostic_artifact("DRAFT_multi_person.mp4", "surfing", review_events, {}, "review/DRAFT_multi_person.mp4")
     require(artifact["identity_clusters"][0]["members"][0].get("multi_person_clip_gate", {}).get("decision") == "review_required", "diagnostic member gate missing")
@@ -55,6 +66,9 @@ def main() -> int:
     require("has_multi_person_defect" in long_context, "long-video context QA does not mark review-required multi-person reels")
     require("flagged_set.add(reel)" in long_context, "long-video context QA does not add multi-person reels to flagged set")
     require("QA-FLAGGED" in long_context, "long-video multi-person drafts must be visibly QA-FLAGGED")
+
+    wrapper = (ROOT / "scripts/run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
+    require("append_review_window_summary_to_report.py" in wrapper, "diagnostics wrapper must append review window summary")
 
     print("multi-person clip gate contract ok")
     return 0
