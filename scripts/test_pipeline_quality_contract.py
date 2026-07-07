@@ -47,6 +47,7 @@ def main() -> int:
     event_fingerprint = _read("pipeline/perception/event_fingerprint.py")
     athlete_canonicalization = _read("pipeline/athlete_canonicalization.py")
     multi_person_gate = _read("pipeline/multi_person_clip_gate.py")
+    subject_gate = _read("pipeline/subject_gate_policy.py")
     context_qa_long_video = _read("pipeline/context_qa_long_video.py")
     run_tracked = _read("scripts/run_tracked.py")
     sitecustomize = _read("scripts/sitecustomize.py")
@@ -59,6 +60,7 @@ def main() -> int:
     ast.parse(event_fingerprint)
     ast.parse(athlete_canonicalization)
     ast.parse(multi_person_gate)
+    ast.parse(subject_gate)
     ast.parse(context_qa_long_video)
     ast.parse(run_tracked)
     ast.parse(sitecustomize)
@@ -180,12 +182,25 @@ def main() -> int:
         ],
     )
     require_tokens(
-        "long-video multi-person gate coverage",
+        "subject isolation gate",
+        subject_gate,
+        [
+            "def annotate_subject_events",
+            "def has_subject_isolation_defect",
+            "subject_isolation_gate",
+            "primary_track_dominance_ratio",
+            "load_sidecar_detections",
+            "MULTI_PERSON_CLIP",
+        ],
+    )
+    require_tokens(
+        "long-video subject gate coverage",
         context_qa_long_video,
         [
-            "from pipeline.multi_person_clip_gate import annotate_multi_person_events, has_multi_person_defect",
-            "reel_events = annotate_multi_person_events",
-            "if has_multi_person_defect(reel_events):",
+            "annotate_subject_events",
+            "has_subject_isolation_defect",
+            "_annotate_subject_gates",
+            "_has_subject_gate_defect",
             "flagged_set.add(reel)",
             "QA-FLAGGED",
         ],

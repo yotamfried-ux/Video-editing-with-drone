@@ -24,12 +24,12 @@ def main() -> int:
 
     for token in ["blocked_review_required", "review_required_reasons", "approval_blocked_reasons", "qa_review_required"]:
         require(token, qa_policy, "qa policy")
-    for token in ["qa_gate", "review_required_reasons", "approval_blocked_reasons", "qa_status"]:
+    for token in ["qa_gate", "review_required_reasons", "approval_blocked_reasons", "qa_status", "final_cut_start", "subject_isolation_gate"]:
         require(token, trace_builder, "draft trace")
     for token in ["QA-FLAGGED", "QA-BLOCKED", "approval_blocked_reasons"]:
         require(token, review_policy, "review policy")
     require("append_qa_policy_trace_summary_to_report.py", wrapper, "diagnostics wrapper")
-    for token in ["qa_review_required_draft_count", "qa_blocked_draft_count", "BUG_QA_GATE_BYPASSED"]:
+    for token in ["qa_review_required_draft_count", "qa_blocked_draft_count", "BUG_QA_GATE_BYPASSED", "mixed_subject_policy_marked_window_count", "BUG_MIXED_SUBJECT_LIKELY"]:
         require(token, report_step, "qa policy report step")
 
     print("QA policy trace contract ok")
