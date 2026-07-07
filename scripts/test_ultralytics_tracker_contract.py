@@ -46,12 +46,28 @@ def _require_tokens(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} missing tokens: {missing}")
 
 
+def _det(track_id: int, time_sec: float, bbox: list[float]) -> dict:
+    return {
+        "frame_index": int(time_sec * 24),
+        "time_sec": time_sec,
+        "bbox_xyxy": bbox,
+        "frame_width": 1920,
+        "frame_height": 1080,
+        "confidence": 0.8,
+        "class_id": 0,
+        "class_name": "person",
+        "track_id": track_id,
+    }
+
+
 def main() -> int:
     from pipeline.perception.producer import detections_from_ultralytics_result, generate_sidecar
     from pipeline.perception.runtime import validate_sidecar
+    from pipeline.perception.track_stitching import stitch_detection_tracks, stitch_sidecar_payload
 
     cli = (ROOT / "scripts/generate_perception_sidecar.py").read_text(encoding="utf-8")
     runtime = (ROOT / "pipeline/perception/runtime.py").read_text(encoding="utf-8")
+    producer = (ROOT / "pipeline/perception/producer.py").read_text(encoding="utf-8")
     _require_tokens(
         "bounded ultralytics CLI",
         cli,
@@ -66,9 +82,31 @@ def main() -> int:
             "[0]",
             "cv2.VideoCapture",
             "result_index * stride",
+            "stitch_sidecar_payload",
         ],
     )
     _require_tokens("perception timeout", runtime, ['os.getenv(_TIMEOUT_ENV, "1200")', "return 1200"])
+    _require_tokens("perception producer stitching", producer, ["stitch_sidecar_payload", "raw_track_id"])
+
+    raw = [
+        _det(10, 10.0, [100, 100, 200, 300]),
+        _det(10, 11.0, [115, 105, 215, 305]),
+        _det(20, 12.5, [130, 110, 230, 310]),
+        _det(30, 13.5, [900, 300, 1010, 520]),
+        _det(40, 10.5, [120, 110, 220, 310]),
+        _det(40, 12.8, [140, 115, 240, 315]),
+    ]
+    stitched = stitch_detection_tracks(raw, source_video="source.mp4")
+    by_raw: dict[int, set[int]] = {}
+    for item in stitched:
+        by_raw.setdefault(int(item["raw_track_id"]), set()).add(int(item["track_id"]))
+    if by_raw[20] != {10} or by_raw[30] != {30} or by_raw[40] != {40}:
+        raise SystemExit(f"track stitching produced unsafe canonical IDs: {by_raw}")
+    payload = stitch_sidecar_payload({"source_video": "source.mp4", "status": "ok", "detections": raw})
+    if payload["track_stitching"]["raw_track_count"] != 4 or payload["track_stitching"]["canonical_track_count"] != 3:
+        raise SystemExit(f"track stitching summary wrong: {payload['track_stitching']}")
+    if not any(item.get("raw_track_id") != item.get("track_id") for item in payload["detections"]):
+        raise SystemExit("stitched sidecar must preserve raw_track_id and expose canonical track_id")
 
     tmp = ROOT / ".tmp_ultralytics_tracker_contract"
     tmp.mkdir(exist_ok=True)
