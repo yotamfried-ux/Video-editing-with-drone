@@ -39,8 +39,9 @@ def main() -> int:
         det(20, 13.0, [145, 115, 245, 315]),
         # Far away, should not stitch.
         det(30, 13.5, [900, 300, 1010, 520]),
-        # Overlaps in time with canonical 10, should not stitch despite proximity.
+        # Overlaps in time with canonical 10 and 20, should not stitch despite proximity.
         det(40, 10.5, [120, 110, 220, 310]),
+        det(40, 12.8, [140, 115, 240, 315]),
     ]
     stitched = stitch_detection_tracks(raw, source_video="source.mp4")
     by_raw: dict[int, set[int]] = {}
