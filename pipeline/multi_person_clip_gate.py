@@ -24,6 +24,7 @@ _ID_FIELDS = (
     "all_visible_person_ids",
 )
 _OTHER_FIELDS = ("other_track_ids", "other_person_ids", "secondary_track_ids", "secondary_person_ids")
+_MAX_PRIMARY_DOMINANCE = 0.70
 
 
 def _as_list(value: Any) -> list[str]:
@@ -41,10 +42,11 @@ def _event_id(event: dict[str, Any], index: int) -> str:
 
 
 def _primary_subject_id(event: dict[str, Any]) -> str:
-    for key in ("track_id", "athlete_id", "person_id"):
+    for key in ("track_id", "primary_track_id", "athlete_id", "person_id"):
         value = str(event.get(key) or "").strip()
         if value:
-            return f"{key}:{value}"
+            prefix = "track_id" if "track" in key else key
+            return f"{prefix}:{value}"
     return "unknown"
 
 
@@ -67,6 +69,25 @@ def _visible_subject_ids(event: dict[str, Any]) -> list[str]:
 
 def _value_labels(event: dict[str, Any]) -> set[str]:
     return {str(label).upper() for label in _as_list(event.get("value_labels"))}
+
+
+def _primary_dominance(event: dict[str, Any]) -> float | None:
+    value = event.get("primary_track_dominance_ratio")
+    if value is None and isinstance(event.get("review_window_policy"), dict):
+        value = event["review_window_policy"].get("primary_track_dominance_ratio")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _requires_review_for_tracks(event: dict[str, Any], visible_ids: list[str]) -> bool:
+    if len(visible_ids) <= 1:
+        return False
+    dominance = _primary_dominance(event)
+    if dominance is not None:
+        return dominance <= _MAX_PRIMARY_DOMINANCE
+    return True
 
 
 def is_intentional_social_moment(event: dict[str, Any]) -> bool:
@@ -95,6 +116,7 @@ def build_multi_person_gate(event: dict[str, Any], index: int) -> dict[str, Any]
         "primary_subject_id": primary_id,
         "visible_subject_ids": visible_ids,
         "visible_subject_count": len(visible_ids),
+        "primary_track_dominance_ratio": _primary_dominance(event),
         "intentional_social_moment": social,
     }
     if not social:
@@ -106,6 +128,7 @@ def build_multi_person_gate(event: dict[str, Any], index: int) -> dict[str, Any]
             "note": "single-athlete draft window contains another visible subject without SOCIAL_MOMENT evidence",
             "primary_subject_id": primary_id,
             "visible_subject_ids": visible_ids,
+            "primary_track_dominance_ratio": _primary_dominance(event),
         }
     return gate
 
@@ -128,14 +151,25 @@ def _merge_qa_gate(event: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any
     return {**event, "qa_gate": qa_gate}
 
 
+def _annotate_with_sidecar(event: dict[str, Any]) -> dict[str, Any]:
+    if any(event.get(key) for key in _ID_FIELDS):
+        return event
+    try:
+        from pipeline.review_window_policy import annotate_event
+        return annotate_event(event)
+    except Exception:
+        return event
+
+
 def annotate_multi_person_events(events: list[dict[str, Any]], athlete_label: str = "") -> list[dict[str, Any]]:
     annotated: list[dict[str, Any]] = []
     for index, event in enumerate(events or []):
         if not isinstance(event, dict):
             annotated.append(event)
             continue
+        event = _annotate_with_sidecar(event)
         visible_ids = _visible_subject_ids(event)
-        if len(visible_ids) <= 1:
+        if not _requires_review_for_tracks(event, visible_ids):
             annotated.append(event)
             continue
         gate = build_multi_person_gate(event, index)
