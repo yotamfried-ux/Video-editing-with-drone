@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from .schema import PerceptionDetection
+from .track_stitching import stitch_sidecar_payload
 
 _BACKEND_ENV = "SPORTREEL_PERCEPTION_BACKEND"
 _DETECTIONS_JSON_ENV = "SPORTREEL_PERCEPTION_DETECTIONS_JSON"
@@ -124,6 +125,7 @@ def _normalize_detection(source_video: str, item: Mapping[str, Any], *, min_conf
     class_name = item.get("class_name")
     if class_name is None and class_id is None:
         raise ValueError("each detection must include class_id or class_name")
+    tracker_id = _optional_int(item.get("canonical_track_id", item.get("track_id")))
     detection = PerceptionDetection(
         source_video=source_video,
         frame_index=_int(item.get("frame_index"), "frame_index"),
@@ -134,11 +136,11 @@ def _normalize_detection(source_video: str, item: Mapping[str, Any], *, min_conf
         confidence=confidence,
         class_id=class_id,
         class_name=(None if class_name is None else str(class_name)),
-        tracker_id=_optional_int(item.get("track_id")),
+        tracker_id=tracker_id,
     )
     if detection.tracker_id is None:
         raise ValueError("each production detection must include track_id")
-    return {
+    normalized = {
         "frame_index": detection.frame_index,
         "time_sec": detection.time_sec,
         "bbox_xyxy": list(detection.xyxy),
@@ -149,6 +151,9 @@ def _normalize_detection(source_video: str, item: Mapping[str, Any], *, min_conf
         "class_name": detection.class_name,
         "track_id": detection.tracker_id,
     }
+    if item.get("raw_track_id") is not None:
+        normalized["raw_track_id"] = item.get("raw_track_id")
+    return normalized
 
 
 def _tensor_values(value: Any) -> list[Any]:
@@ -224,6 +229,7 @@ def sidecar_from_detection_json(video_path: str, output_path: Path, detections_j
         "backend": backend,
         "detections": detections,
     }
+    sidecar = stitch_sidecar_payload(sidecar, source_video=video_path)
     _write_json_atomic(output_path, sidecar)
     return sidecar
 
@@ -249,6 +255,7 @@ def sidecar_from_ultralytics(video_path: str, output_path: Path, *, model: str |
         "tracker": tracker_name,
         "detections": detections,
     }
+    sidecar = stitch_sidecar_payload(sidecar, source_video=video_path)
     _write_json_atomic(output_path, sidecar)
     return sidecar
 
