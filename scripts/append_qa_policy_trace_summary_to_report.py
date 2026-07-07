@@ -44,18 +44,34 @@ def _review_blocked(draft: dict[str, Any]) -> bool:
     )
 
 
+def _has_multisubject_defect(draft: dict[str, Any]) -> bool:
+    qa_gate = draft.get("qa_gate") if isinstance(draft.get("qa_gate"), dict) else {}
+    for defect in _critical_defects(qa_gate):
+        if str(defect.get("type", "")).upper() == "MULTI_PERSON_CLIP":
+            return True
+    return False
+
+
 def _subject_gate_marked_windows(drafts: list[dict[str, Any]]) -> tuple[int, int, int]:
     marked = 0
     blocked = 0
     open_count = 0
     for draft in drafts:
         draft_blocked = _review_blocked(draft)
+        draft_marked = False
         for window in draft.get("source_windows", []) or []:
             if not isinstance(window, dict):
                 continue
             gate = window.get("subject_isolation_gate")
             if not isinstance(gate, dict) or gate.get("decision") != "review_required":
                 continue
+            draft_marked = True
+            marked += 1
+            if draft_blocked:
+                blocked += 1
+            else:
+                open_count += 1
+        if not draft_marked and _has_multisubject_defect(draft):
             marked += 1
             if draft_blocked:
                 blocked += 1
