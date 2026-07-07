@@ -73,6 +73,12 @@ def _install_selector_candidate_runtime() -> None:
     install()
 
 
+def _install_teaser_policy_runtime() -> None:
+    """Disable cold-open teaser clips so REVIEW drafts do not repeat moments."""
+    from pipeline.teaser_policy_runtime import install
+    install()
+
+
 def _install_identity_failsafe_runtime() -> None:
     """Harden identity clustering before orchestrator imports cluster_clips."""
     from pipeline.identity_failsafe import install
@@ -132,6 +138,7 @@ _install_storage_backend_alias()
 _install_perception_runtime()
 _install_pipeline_quality_runtime()
 _install_selector_candidate_runtime()
+_install_teaser_policy_runtime()
 _install_identity_failsafe_runtime()
 _install_cross_source_dedup_runtime()
 _install_draft_diagnostics_runtime()
