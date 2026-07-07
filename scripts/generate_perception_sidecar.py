@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from pipeline.perception.producer import detections_from_ultralytics_result, generate_sidecar
+from pipeline.perception.track_stitching import stitch_sidecar_payload
 
 _ULTRALYTICS_BACKENDS = {"ultralytics", "yolo", "yolo_track"}
 _DEFAULT_TRACKER = "botsort.yaml"
@@ -94,6 +95,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
         "classes": [0],
         "detections": detections,
     }
+    payload = stitch_sidecar_payload(payload, source_video=args.video_path)
     _write_json(Path(args.output_path), payload)
     return payload
 
@@ -131,7 +133,11 @@ def main() -> int:
         return 1
 
     status = str(summary.get("status") or "ok").lower()
-    print(f"perception sidecar status={status} detections={len(summary.get('detections', []) or [])}")
+    stitching = summary.get("track_stitching") if isinstance(summary.get("track_stitching"), dict) else {}
+    print(
+        f"perception sidecar status={status} detections={len(summary.get('detections', []) or [])} "
+        f"tracks={stitching.get('raw_track_count', '?')}→{stitching.get('canonical_track_count', '?')}"
+    )
     return 0
 
 
