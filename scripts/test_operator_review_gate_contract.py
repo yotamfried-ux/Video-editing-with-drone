@@ -26,7 +26,9 @@ def main() -> int:
     for token in ["QA-FLAGGED", "qa_review_required", "final_verdict", "blocking", "approval_blocked_reasons"]:
         require(token in policy, f"review policy missing {token}")
 
-    require("evaluateDraftReviewPolicy({ name: f.name })" in drafts_route, "R2/Drive drafts must expose policy metadata")
+    require("evaluateDraftReviewPolicy" in drafts_route, "R2/Drive drafts must expose policy metadata")
+    require("withReviewPolicy" in drafts_route, "draft list must include storage policy wrapper")
+    require("reedit_task" in drafts_route, "draft list must expose active re-edit tasks")
     require("...policy" in drafts_route, "draft list must include policy fields")
 
     require("approveDraftPost" in approve_route, "approve route must delegate to the storage-derived policy handler")
@@ -34,6 +36,9 @@ def main() -> int:
     require("file_name" not in approve_handler.split("type ApproveBody", 1)[1].split("};", 1)[0], "ApproveBody must not accept client-provided file_name")
     require("fileName = r2Basename(fileId)" in approve_handler, "R2 policy name must come from storage key")
     require("fileName = (await getFile(fileId)).name" in approve_handler, "Drive policy name must come from Drive lookup")
+    require("activeReeditTask" in approve_handler, "approval must query active re-edit tasks server-side")
+    require("ACTIVE_REEDIT_STATUSES" in approve_handler, "approval must block active qa_blocked/pending/queued tasks")
+    require("Boolean(reeditTask)" in approve_handler, "approval policy must include server-side re-edit task state")
     require("evaluateDraftReviewPolicy" in approve_handler, "approve handler must enforce review policy")
     require("status: 409" in approve_handler, "blocked approval must return 409")
     policy_call = approve_handler.index("const policy = evaluateDraftReviewPolicy")

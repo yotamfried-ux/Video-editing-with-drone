@@ -62,6 +62,12 @@ export type ReprocessRow = {
   draft_name: string | null;
   notes: string;
   status: string;
+  origin?: string | null;
+  qa_defects?: unknown;
+  approval_blocked_reasons?: string[] | null;
+  attempt_count?: number | null;
+  max_attempts?: number | null;
+  last_pipeline_run_id?: string | null;
   created_at: string;
   processed_at?: string | null;
 };
@@ -87,6 +93,7 @@ export type DraftRow = {
   approval_blocked?: boolean;
   approval_blocked_reasons?: string[];
   approval_policy_version?: string;
+  reedit_task?: ReprocessRow | null;
 };
 
 export type DraftsResponse = {

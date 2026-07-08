@@ -101,10 +101,22 @@ def _augment_metadata_file(meta_file: str, draft_name: str, qa_gate: dict[str, A
     entry["qa_review_required"] = bool(qa_gate.get("qa_review_required"))
     entry["review_required"] = bool(qa_gate.get("qa_review_required"))
     entry["approval_blocked_reasons"] = qa_gate.get("approval_blocked_reasons", [])
+    if qa_gate.get("qa_review_required"):
+        entry["qa_reedit_status"] = "task_created"
     tmp = meta_file + ".qa.tmp"
     with open(tmp, "w", encoding="utf-8") as handle:
         json.dump(metadata, handle, indent=2, ensure_ascii=False)
     os.replace(tmp, meta_file)
+
+
+def _persist_qa_reedit_task(draft_name: str, qa_gate: dict[str, Any]) -> None:
+    if not qa_gate.get("qa_review_required"):
+        return
+    try:
+        from integrations.supabase_uploader import upsert_qa_reedit_task
+        upsert_qa_reedit_task(draft_name, qa_gate)
+    except Exception as exc:
+        print(f"  ⚠️  QA re-edit task persistence skipped for {draft_name}: {exc}")
 
 
 def _patch_orchestrator(orchestrator: Any) -> None:
@@ -129,7 +141,6 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             qa = mark_review_required(original_check(reel, *args, **kwargs))
             qa_by_reel[reel] = qa
             return qa
-
         analyzer.qa_check_reel = tracked_qa_check
         try:
             final, events_by_reel, flagged = original_qa_gate(reels, events_out, sport, athlete_label, recompile)
@@ -149,6 +160,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         qa_gate = _extract_qa_gate(events)
         if qa_gate:
             _augment_metadata_file(config.REEL_METADATA_FILE, draft_name, qa_gate)
+            _persist_qa_reedit_task(draft_name, qa_gate)
 
     orchestrator._qa_gate = qa_gate_with_diagnostics
     orchestrator._save_reel_metadata = save_metadata_with_qa
@@ -179,11 +191,11 @@ class _OrchestratorPatchFinder(importlib.abc.MetaPathFinder):
 
 
 def install() -> None:
-    module = sys.modules.get("pipeline.orchestrator")
-    if module is not None:
-        _patch_orchestrator(module)
+    existing = sys.modules.get("pipeline.orchestrator")
+    if existing is not None:
+        _patch_orchestrator(existing)
         return
-    if getattr(sys, _FINDER_FLAG, False):
-        return
-    sys.meta_path.insert(0, _OrchestratorPatchFinder())
-    setattr(sys, _FINDER_FLAG, True)
+    if not any(getattr(finder, _FINDER_FLAG, False) for finder in sys.meta_path):
+        finder = _OrchestratorPatchFinder()
+        setattr(finder, _FINDER_FLAG, True)
+        sys.meta_path.insert(0, finder)

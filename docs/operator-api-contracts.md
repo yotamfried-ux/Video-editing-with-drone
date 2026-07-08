@@ -132,7 +132,13 @@ type ReprocessRow = {
   id: string;
   draft_name: string | null;
   notes: string;
-  status: string;
+  status: 'qa_blocked' | 'pending' | 'queued' | 'done' | 'source_not_found' | 'failed_max_attempts' | string;
+  origin?: 'operator' | 'qa_gate' | string | null;
+  qa_defects?: unknown;
+  approval_blocked_reasons?: string[] | null;
+  attempt_count?: number | null;
+  max_attempts?: number | null;
+  last_pipeline_run_id?: string | null;
   created_at: string;
   processed_at?: string | null;
 };
@@ -142,9 +148,22 @@ type ReprocessListResponse = {
 };
 ```
 
+QA-blocked drafts are persisted as `reprocess_requests.status='qa_blocked'` by the pipeline. The operator app must show them on the Review screen and let the operator promote them to a runnable re-edit request.
+
 ### `POST /api/operator/reprocess`
 
-Creates a reprocess request and immediately dispatches a tracked pipeline run.
+Creates a reprocess request or promotes an existing QA-blocked task, then immediately dispatches a tracked pipeline run.
+
+Accepted body:
+
+```ts
+{
+  reel_id?: string;
+  draft_name?: string;
+  reprocess_request_id?: string;
+  notes?: string;
+}
+```
 
 Success:
 
@@ -180,12 +199,19 @@ type DraftRow = {
   created_at: string;
   size: number | null;
   watch_url: string | null;
+  review_required?: boolean;
+  approval_blocked?: boolean;
+  approval_blocked_reasons?: string[];
+  approval_policy_version?: string;
+  reedit_task?: ReprocessRow | null;
 };
 
 type DraftsResponse = {
   drafts: DraftRow[];
 };
 ```
+
+When `reedit_task` is present, the Review screen must alert the operator, block approval, prefill QA notes, and let the operator send the draft back through `POST /api/operator/reprocess`.
 
 ### `POST /api/operator/drafts/approve`
 

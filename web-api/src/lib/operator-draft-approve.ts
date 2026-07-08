@@ -7,6 +7,19 @@ import { githubDispatchError } from '@/lib/github-dispatch-error';
 import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/deliver.yml`;
+const ACTIVE_REEDIT_STATUSES = ['qa_blocked', 'pending', 'queued'];
+
+async function activeReeditTask(draftName: string) {
+  const { data, error } = await supabaseAdmin
+    .from('reprocess_requests')
+    .select('id, draft_name, notes, status, origin, approval_blocked_reasons, attempt_count, max_attempts, last_pipeline_run_id')
+    .eq('draft_name', draftName)
+    .in('status', ACTIVE_REEDIT_STATUSES)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  if (error) throw error;
+  return data?.[0] ?? null;
+}
 
 type DeliveryRunPatch = { status?: string; stage?: string; error?: string; finished_at?: string };
 
@@ -37,16 +50,25 @@ export async function approveDraftPost(req: NextRequest) {
     catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'Drive file lookup failed' }, { status: 502 }); }
   }
 
+  let reeditTask: any = null;
+  try {
+    reeditTask = await activeReeditTask(fileName);
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not verify QA re-edit status' }, { status: 500 });
+  }
+
+  const taskReasons = Array.isArray(reeditTask?.approval_blocked_reasons) ? reeditTask.approval_blocked_reasons : [];
   const policy = evaluateDraftReviewPolicy({
     name: fileName,
-    review_required: body.review_required,
-    qa_review_required: body.qa_review_required,
-    approval_blocked_reasons: body.approval_blocked_reasons,
+    review_required: body.review_required || Boolean(reeditTask),
+    qa_review_required: body.qa_review_required || Boolean(reeditTask),
+    approval_blocked_reasons: taskReasons.length ? taskReasons : body.approval_blocked_reasons,
   });
   if (policy.approval_blocked) {
     return NextResponse.json({
       error: 'Draft requires review before approval. Send it to re-edit or clear the QA block first.',
       ...policy,
+      reedit_task: reeditTask,
       storage_move_completed: false,
       delivery_started: false,
     }, { status: 409 });
