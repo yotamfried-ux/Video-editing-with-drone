@@ -91,6 +91,11 @@ def _install_cross_source_dedup_runtime() -> None:
     install()
 
 
+def _install_context_runtime() -> None:
+    from pipeline.context_qa_long_video import install
+    install()
+
+
 def _install_draft_diagnostics_runtime() -> None:
     """Ensure draft diagnostics are installed in the tracked pipeline entrypoint."""
     from pipeline.draft_diagnostics import install
@@ -141,6 +146,7 @@ _install_selector_candidate_runtime()
 _install_teaser_policy_runtime()
 _install_identity_failsafe_runtime()
 _install_cross_source_dedup_runtime()
+_install_context_runtime()
 _install_draft_diagnostics_runtime()
 _install_candidate_ledger_runtime()
 _install_athlete_canonicalization_runtime()
