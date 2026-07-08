@@ -132,7 +132,13 @@ type ReprocessRow = {
   id: string;
   draft_name: string | null;
   notes: string;
-  status: string;
+  status: 'qa_blocked' | 'pending' | 'queued' | 'done' | 'source_not_found' | 'failed_max_attempts' | string;
+  origin?: 'operator' | 'qa_gate' | string | null;
+  qa_defects?: unknown;
+  approval_blocked_reasons?: string[] | null;
+  attempt_count?: number | null;
+  max_attempts?: number | null;
+  last_pipeline_run_id?: string | null;
   created_at: string;
   processed_at?: string | null;
 };
@@ -142,9 +148,22 @@ type ReprocessListResponse = {
 };
 ```
 
+QA-blocked drafts are persisted as `reprocess_requests.status='qa_blocked'` by the pipeline. The operator app must show them on the Review screen and let the operator promote them to a runnable re-edit request.
+
 ### `POST /api/operator/reprocess`
 
-Creates a reprocess request and immediately dispatches a tracked pipeline run.
+Creates a reprocess request or promotes an existing QA-blocked task, then immediately dispatches a tracked pipeline run.
+
+Accepted body:
+
+```ts
+{
+  reel_id?: string;
+  draft_name?: string;
+  reprocess_request_id?: string;
+  notes?: string;
+}
+```
 
 Success:
 
@@ -180,12 +199,19 @@ type DraftRow = {
   created_at: string;
   size: number | null;
   watch_url: string | null;
+  review_required?: boolean;
+  approval_blocked?: boolean;
+  approval_blocked_reasons?: string[];
+  approval_policy_version?: string;
+  reedit_task?: ReprocessRow | null;
 };
 
 type DraftsResponse = {
   drafts: DraftRow[];
 };
 ```
+
+When `reedit_task` is present, the Review screen must alert the operator, block approval, prefill QA notes, and let the operator send the draft back through `POST /api/operator/reprocess`.
 
 ### `POST /api/operator/drafts/approve`
 
@@ -228,116 +254,4 @@ type DeliveryRun = {
   finished_at?: string | null;
   updated_at: string | null;
 };
-
-type DeliveryStatusResponse = {
-  runs: DeliveryRun[];
-};
 ```
-
-## Reels and Discover
-
-### `GET /api/operator/reels`
-
-```ts
-type OperatorReelRow = {
-  id: string;
-  token: string;
-  sport: string | null;
-  athlete_desc: string | null;
-  status: string;
-  expires_at: string;
-  recording_date: string | null;
-};
-
-type OperatorReelsResponse = {
-  reels: OperatorReelRow[];
-};
-```
-
-### `GET /api/operator/discover-diagnostics`
-
-```ts
-type DiscoverDiagnosticReel = {
-  id: string;
-  token: string | null;
-  sport: string | null;
-  recording_date: string | null;
-  stream_uid: string | null;
-  status: string | null;
-  expires_at: string | null;
-  created_at: string | null;
-  source_video?: string | null;
-  storage_path?: string | null;
-};
-
-type DiscoverDiagnosticsResponse = {
-  ok: true;
-  eligibleStatuses: string[];
-  activeStatuses: string[];
-  reelCount: number;
-  activeReelCount: number;
-  missingExpiryCount: number;
-  expiredActiveCount: number;
-  sessions: { recording_date: string | null; sport: string; reels: DiscoverDiagnosticReel[] }[];
-  reels: DiscoverDiagnosticReel[];
-};
-```
-
-## Support and analytics
-
-### `GET /api/operator/support`
-
-```ts
-type OperatorSupportResponse = {
-  tickets: {
-    id: string;
-    message: string;
-    status: string;
-    operator_reply: string | null;
-    created_at: string;
-  }[];
-  suggestions: {
-    id: string;
-    message: string;
-    created_at: string;
-  }[];
-};
-```
-
-### `PATCH /api/support/[id]`
-
-This route is not under `/api/operator`, but it is operator-only and still uses `requireOperator(req)`.
-
-```ts
-type SupportReplyResponse = {
-  ok: true;
-};
-```
-
-### `GET /api/analytics`
-
-This route is operator-only and returns a server-computed summary.
-
-```ts
-type OperatorAnalyticsSummary = {
-  todayRevenue: number;
-  weekRevenue: number;
-  monthRevenue: number;
-  totalReels: number;
-  soldReels: number;
-  expiredReels: number;
-  funnelViewed: number;
-  funnelCheckout: number;
-  funnelPaid: number;
-};
-```
-
-## Review checklist for future PRs
-
-Before merging any operator API or mobile operator change:
-
-1. Search for `operatorFetch<` and confirm each call imports a named contract type from `mobile/src/features/operator/types/contracts.ts`.
-2. Check the matching web-api route response shape against this document.
-3. For partial success routes, verify the mobile UI uses explicit fields instead of optimistic copy.
-4. Run Mobile Check when `mobile/**` changes.
-5. Check Vercel preview before merge and the main deployment status after merge.
