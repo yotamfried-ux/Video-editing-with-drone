@@ -55,6 +55,36 @@ Repair loop:
 4. Attach `DUPLICATE_DRAFT` evidence to the kept draft's events so `diagnostic_artifact.dropped_events` explains what was removed.
 5. Add a focused contract proving same source/time windows under different draft names produce one upload candidate only.
 
+## REAL-UPLOAD-003 — Long-video delayed uploads can reference overwritten render paths
+
+Severity: high.
+
+Evidence:
+
+- Real pipeline run `28938769332` succeeded and uploaded one final REVIEW draft, but `run_tracked.log` contained repeated `Draft upload failed` / `FileNotFoundError` messages for earlier long-video QA candidates.
+- The missing path was the deterministic editor output, for example `/tmp/dtor/REEL_2026-07-04T18-34-54_1000270686_surfing.mp4`.
+
+Problem:
+
+- `context_qa_long_video.py` delays upload until all person drafts have passed context QA and duplicate filtering.
+- Long-video persons and QA re-edit attempts can reuse the same deterministic `REEL_<source>_<sport>.mp4` path.
+- Later renders can overwrite or remove earlier accepted candidates before the delayed upload loop reaches them.
+- The final run can still pass when one later draft uploads successfully, but the failed stale uploads pollute diagnostics and can hide a real loss of intended REVIEW drafts.
+
+Target invariant:
+
+```text
+Every long-video draft candidate kept for delayed upload must point at a stable rendered file that cannot be overwritten by later person/QA renders.
+```
+
+Repair loop:
+
+1. Snapshot each long-video candidate to a unique `draft-candidate` staging file immediately after the candidate name/events are decided.
+2. Run duplicate filtering over the staged candidates.
+3. Remove staged files for dropped duplicates.
+4. Upload only staged files, then remove the staged file after upload attempt.
+5. Add a contract test proving two renders from the same deterministic reel path preserve different bytes in different staged files.
+
 ## REAL-QA-002 — QA must fail closed
 
 Severity: high.
