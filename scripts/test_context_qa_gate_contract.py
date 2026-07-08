@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -14,6 +15,7 @@ def ev(event_id, source, start, end, score=8, **extra):
 
 def main() -> int:
     from pipeline.context_qa_gate import build_qa_package, draft_fingerprint, filter_duplicate_draft_candidates
+    from pipeline.context_qa_long_video import _stage_reel_candidate
     from pipeline.draft_diagnostics import build_diagnostic_artifact
 
     first_events = [ev("gemini_person_a_event_1", "raw/source.mp4", 10.0, 18.0, 7, track_id="t1")]
@@ -46,15 +48,34 @@ def main() -> int:
     if len(out_pending) != 2 or out_dropped:
         raise SystemExit("distinct source windows must not be dropped")
 
+    with tempfile.TemporaryDirectory() as tmp:
+        reel = Path(tmp) / "REEL_same_source_surfing.mp4"
+        reel.write_bytes(b"first-render")
+        first_stage = _stage_reel_candidate(str(reel), tmp, 0, "DRAFT_first.mp4")
+        reel.write_bytes(b"second-render")
+        second_stage = _stage_reel_candidate(str(reel), tmp, 1, "DRAFT_second.mp4")
+        if not first_stage or not second_stage:
+            raise SystemExit("long-video staging must return staged paths for existing renders")
+        if first_stage == second_stage:
+            raise SystemExit("long-video staging must create unique paths per candidate")
+        if Path(first_stage).read_bytes() != b"first-render":
+            raise SystemExit("first staged candidate must preserve the first render before overwrite")
+        if Path(second_stage).read_bytes() != b"second-render":
+            raise SystemExit("second staged candidate must preserve the second render")
+
     text = (ROOT / "pipeline/context_qa_gate.py").read_text(encoding="utf-8")
+    long_video = (ROOT / "pipeline/context_qa_long_video.py").read_text(encoding="utf-8")
     boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
     audit = (ROOT / "docs/pipeline-context-qa-audit-20260705.md").read_text(encoding="utf-8")
     for token in ["build_qa_package", "filter_duplicate_draft_candidates", "DUPLICATE_DRAFT", "compile_clusters_with_context_qa"]:
         if token not in text:
             raise SystemExit(f"missing context QA token: {token}")
+    for token in ["_stage_reel_candidate", "draft-candidate", "produced_reels", "staged_reels"]:
+        if token not in long_video:
+            raise SystemExit(f"missing long-video staging token: {token}")
     if "from pipeline.context_qa_gate import install" not in boot:
         raise SystemExit("context QA gate is not bootstrapped")
-    if "REAL-QA-001" not in audit or "REAL-DUP-002" not in audit:
+    if "REAL-QA-001" not in audit or "REAL-DUP-002" not in audit or "REAL-UPLOAD-003" not in audit:
         raise SystemExit("context QA audit missing required gaps")
 
     print("Context QA gate contract checks passed")
