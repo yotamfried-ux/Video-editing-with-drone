@@ -26,7 +26,9 @@ def main() -> int:
     for token in ["QA-FLAGGED", "qa_review_required", "final_verdict", "blocking", "approval_blocked_reasons"]:
         require(token in policy, f"review policy missing {token}")
 
-    require("evaluateDraftReviewPolicy({ name: f.name })" in drafts_route, "R2/Drive drafts must expose policy metadata")
+    require("evaluateDraftReviewPolicy" in drafts_route, "R2/Drive drafts must expose policy metadata")
+    require("withReviewPolicy" in drafts_route, "draft list must include storage policy wrapper")
+    require("reedit_task" in drafts_route, "draft list must expose active re-edit tasks")
     require("...policy" in drafts_route, "draft list must include policy fields")
 
     require("approveDraftPost" in approve_route, "approve route must delegate to the storage-derived policy handler")
