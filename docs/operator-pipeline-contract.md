@@ -59,7 +59,7 @@ Rules:
 
 ## Drive state contract
 
-Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the move from `RAW_FOLDER_ID` to `PROCESSED` has been verified.
+Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the move from `RAW_FOLDER_ID` to `PROCESSED_FOLDER_ID` has been verified.
 
 See `docs/drive-move-contract.md` for the RAW -> PROCESSED invariant and the required verification loop for Drive transitions.
 
