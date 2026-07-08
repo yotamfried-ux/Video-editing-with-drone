@@ -254,4 +254,116 @@ type DeliveryRun = {
   finished_at?: string | null;
   updated_at: string | null;
 };
+
+type DeliveryStatusResponse = {
+  runs: DeliveryRun[];
+};
 ```
+
+## Reels and Discover
+
+### `GET /api/operator/reels`
+
+```ts
+type OperatorReelRow = {
+  id: string;
+  token: string;
+  sport: string | null;
+  athlete_desc: string | null;
+  status: string;
+  expires_at: string;
+  recording_date: string | null;
+};
+
+type OperatorReelsResponse = {
+  reels: OperatorReelRow[];
+};
+```
+
+### `GET /api/operator/discover-diagnostics`
+
+```ts
+type DiscoverDiagnosticReel = {
+  id: string;
+  token: string | null;
+  sport: string | null;
+  recording_date: string | null;
+  stream_uid: string | null;
+  status: string | null;
+  expires_at: string | null;
+  created_at: string | null;
+  source_video?: string | null;
+  storage_path?: string | null;
+};
+
+type DiscoverDiagnosticsResponse = {
+  ok: true;
+  eligibleStatuses: string[];
+  activeStatuses: string[];
+  reelCount: number;
+  activeReelCount: number;
+  missingExpiryCount: number;
+  expiredActiveCount: number;
+  sessions: { recording_date: string | null; sport: string; reels: DiscoverDiagnosticReel[] }[];
+  reels: DiscoverDiagnosticReel[];
+};
+```
+
+## Support and analytics
+
+### `GET /api/operator/support`
+
+```ts
+type OperatorSupportResponse = {
+  tickets: {
+    id: string;
+    message: string;
+    status: string;
+    operator_reply: string | null;
+    created_at: string;
+  }[];
+  suggestions: {
+    id: string;
+    message: string;
+    created_at: string;
+  }[];
+};
+```
+
+### `PATCH /api/support/[id]`
+
+This route is not under `/api/operator`, but it is operator-only and still uses `requireOperator(req)`.
+
+```ts
+type SupportReplyResponse = {
+  ok: true;
+};
+```
+
+### `GET /api/analytics`
+
+This route is operator-only and returns a server-computed summary.
+
+```ts
+type OperatorAnalyticsSummary = {
+  todayRevenue: number;
+  weekRevenue: number;
+  monthRevenue: number;
+  totalReels: number;
+  soldReels: number;
+  expiredReels: number;
+  funnelViewed: number;
+  funnelCheckout: number;
+  funnelPaid: number;
+};
+```
+
+## Review checklist for future PRs
+
+Before merging any operator API or mobile operator change:
+
+1. Search for `operatorFetch<` and confirm each call imports a named contract type from `mobile/src/features/operator/types/contracts.ts`.
+2. Check the matching web-api route response shape against this document.
+3. For partial success routes, verify the mobile UI uses explicit fields instead of optimistic copy.
+4. Run Mobile Check when `mobile/**` changes.
+5. Check Vercel preview before merge and the main deployment status after merge.
