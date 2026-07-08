@@ -39,8 +39,8 @@ def main() -> int:
 
     for token in [
         "upsert_qa_reedit_task",
-        "status": "qa_blocked",
-        "origin": "qa_gate",
+        '"status": "qa_blocked"',
+        '"origin": "qa_gate"',
         "qa_defects",
         "approval_blocked_reasons",
         "Regenerate this draft using the QA notes below",
