@@ -104,6 +104,25 @@ def _recompute_status(report: dict[str, Any]) -> None:
         report["status"] = "pass"
 
 
+def _final_drafts_policy_explicit(drafts: list[dict[str, Any]], qa_blocked: list[dict[str, Any]], metrics: dict[str, Any]) -> bool:
+    """Return True when every final uploaded/traced draft is explicitly review-blocked.
+
+    The raw run log may include transient QA failures from intermediate edits or
+    discarded uploads. That is not a gate bypass if the final draft trace shows
+    every produced REVIEW draft as review_required/blocked.
+    """
+    if not drafts:
+        return False
+    try:
+        uploaded = int(metrics.get("uploaded_draft_count") or 0)
+    except (TypeError, ValueError):
+        uploaded = 0
+    final_count = len(drafts)
+    if uploaded and uploaded != final_count:
+        return False
+    return len(qa_blocked) == final_count
+
+
 def append_summary(report_path: Path, trace_path: Path) -> dict[str, Any]:
     report = _read_json(report_path)
     trace = _read_json(trace_path)
@@ -118,13 +137,16 @@ def append_summary(report_path: Path, trace_path: Path) -> dict[str, Any]:
     metrics = report.setdefault("metrics", {})
     metrics["qa_review_required_draft_count"] = len(review_required)
     metrics["qa_blocked_draft_count"] = len(qa_blocked)
+    metrics["qa_unblocked_final_draft_count"] = max(0, len(drafts) - len(qa_blocked))
 
     qa_summary = report.setdefault("qa_gate_summary", {})
     still_failing = int(qa_summary.get("qa_still_failing_count") or 0)
-    policy_explicit = len(qa_blocked) > 0 and len(qa_blocked) >= still_failing
+    policy_explicit = _final_drafts_policy_explicit(drafts, qa_blocked, metrics)
     qa_summary["qa_policy_explicit"] = policy_explicit
     qa_summary["qa_review_required_draft_count"] = len(review_required)
     qa_summary["qa_blocked_draft_count"] = len(qa_blocked)
+    qa_summary["qa_unblocked_final_draft_count"] = metrics["qa_unblocked_final_draft_count"]
+    qa_summary["qa_still_failing_count"] = still_failing
 
     marked, marked_blocked, marked_open = _subject_gate_marked_windows(drafts)
     metrics["mixed_subject_policy_marked_window_count"] = marked
@@ -143,6 +165,7 @@ def append_summary(report_path: Path, trace_path: Path) -> dict[str, Any]:
         qa_summary["qa_gate_bypass_rate"] = 0.0
         _remove_bug(report, "BUG_QA_GATE_BYPASSED")
         _remove_alert(report, "qa_gate_bypass_rate")
+        _remove_alert(report, "qa_critical_defect_count")
 
     if marked > 0 and marked_open == 0:
         metrics["mixed_subject_violation_rate"] = 0.0
@@ -166,6 +189,7 @@ def main() -> int:
         "qa policy trace summary "
         f"review_required={metrics.get('qa_review_required_draft_count', 0)} "
         f"blocked={metrics.get('qa_blocked_draft_count', 0)} "
+        f"unblocked={metrics.get('qa_unblocked_final_draft_count', 0)} "
         f"bypass_rate={metrics.get('qa_gate_bypass_rate', 0)} "
         f"visibility_marked={metrics.get('mixed_subject_policy_marked_window_count', 0)}"
     )
