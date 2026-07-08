@@ -11,6 +11,7 @@ import config
 logger = logging.getLogger(__name__)
 
 _client: Client | None = None
+_ACTIVE_REEDIT_STATUSES = ("qa_blocked", "pending", "queued")
 
 
 def _supabase() -> Client:
@@ -152,6 +153,19 @@ def _qa_reedit_notes(draft_name: str, qa_gate: dict) -> str:
     return "\n".join(lines)[:2000]
 
 
+def _active_reedit_task(draft_name: str) -> dict | None:
+    for status in _ACTIVE_REEDIT_STATUSES:
+        res = (_supabase().table("reprocess_requests")
+               .select("id,status")
+               .eq("draft_name", draft_name)
+               .eq("status", status)
+               .limit(1)
+               .execute())
+        if res.data:
+            return res.data[0]
+    return None
+
+
 def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int = 3) -> None:
     """Create or refresh an operator-visible QA re-edit task for a blocked draft.
 
@@ -163,7 +177,7 @@ def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int =
         return
     defects = _qa_defects(qa_gate)
     reasons = qa_gate.get("approval_blocked_reasons") or qa_gate.get("review_required_reasons") or []
-    _supabase().table("reprocess_requests").upsert({
+    payload = {
         "draft_name": draft_name,
         "notes": _qa_reedit_notes(draft_name, qa_gate),
         "status": "qa_blocked",
@@ -171,7 +185,13 @@ def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int =
         "qa_defects": defects,
         "approval_blocked_reasons": [str(item) for item in reasons if str(item).strip()],
         "max_attempts": max_attempts,
-    }, on_conflict="draft_name").execute()
+    }
+    existing = _active_reedit_task(draft_name)
+    if existing:
+        if existing.get("status") == "qa_blocked":
+            _supabase().table("reprocess_requests").update(payload).eq("id", existing["id"]).execute()
+        return
+    _supabase().table("reprocess_requests").insert(payload).execute()
 
 
 def fetch_pending_reprocess() -> list[dict]:
