@@ -124,6 +124,56 @@ def lookup_draft_sources(draft_name: str) -> list[dict]:
     return []
 
 
+def _qa_defects(qa_gate: dict) -> list[dict]:
+    defects = qa_gate.get("defects") or []
+    return [item for item in defects if isinstance(item, dict)]
+
+
+def _qa_reedit_notes(draft_name: str, qa_gate: dict) -> str:
+    reasons = qa_gate.get("approval_blocked_reasons") or qa_gate.get("review_required_reasons") or []
+    lines = [
+        f"QA blocked draft: {draft_name}",
+        "Regenerate this draft using the QA notes below and run QA again before approval.",
+    ]
+    if qa_gate.get("overall"):
+        lines.append(f"Overall: {qa_gate.get('overall')}")
+    for reason in reasons:
+        text = str(reason).strip()
+        if text:
+            lines.append(f"- {text}")
+    for defect in _qa_defects(qa_gate):
+        dtype = str(defect.get("type") or "QA_REVIEW_REQUIRED")
+        note = str(defect.get("note") or "").strip()
+        at_seconds = defect.get("at_seconds")
+        prefix = f"- {dtype}"
+        if at_seconds is not None:
+            prefix += f" at {at_seconds}s"
+        lines.append(f"{prefix}: {note}" if note else prefix)
+    return "\n".join(lines)[:2000]
+
+
+def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int = 3) -> None:
+    """Create or refresh an operator-visible QA re-edit task for a blocked draft.
+
+    The task starts as status='qa_blocked'. It is intentionally not consumed by
+    the pipeline until the operator presses Send to re-edit in the app, which
+    promotes it to status='pending' through the operator API.
+    """
+    if not draft_name or not qa_gate.get("qa_review_required"):
+        return
+    defects = _qa_defects(qa_gate)
+    reasons = qa_gate.get("approval_blocked_reasons") or qa_gate.get("review_required_reasons") or []
+    _supabase().table("reprocess_requests").upsert({
+        "draft_name": draft_name,
+        "notes": _qa_reedit_notes(draft_name, qa_gate),
+        "status": "qa_blocked",
+        "origin": "qa_gate",
+        "qa_defects": defects,
+        "approval_blocked_reasons": [str(item) for item in reasons if str(item).strip()],
+        "max_attempts": max_attempts,
+    }, on_conflict="draft_name").execute()
+
+
 def fetch_pending_reprocess() -> list[dict]:
     """Operator reprocess requests not yet acted on."""
     res = (_supabase().table("reprocess_requests").select("*")
