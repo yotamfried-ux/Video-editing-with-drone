@@ -6,10 +6,14 @@ on:
       - '.github/workflows/operator-smoke.yml'
       - '.github/workflows/operator-smoke-check.yml'
       - '.github/workflows/pipeline-run.yml'
+      - 'docs/app-pipeline-audit.md'
+      - 'docs/operator-api-contracts.md'
+      - 'docs/operator-pipeline-contract.md'
       - 'integrations/drive.py'
       - 'integrations/r2_storage.py'
       - 'integrations/run_status.py'
       - 'integrations/storage.py'
+      - 'integrations/supabase_uploader.py'
       - 'pipeline/context_qa_gate.py'
       - 'pipeline/context_qa_long_video.py'
       - 'pipeline/cross_source_dedup.py'
@@ -44,12 +48,16 @@ on:
       - 'scripts/test_pipeline_quality_contract.py'
       - 'scripts/test_pipeline_status_stale_contract.py'
       - 'scripts/test_qa_policy_trace_contract.py'
+      - 'scripts/test_qa_reedit_loop_contract.py'
       - 'scripts/test_run_quality_report_contract.py'
       - 'scripts/test_source_window_dedup_contract.py'
       - 'scripts/test_storage_contract.py'
       - 'scripts/test_teaser_policy_contract.py'
       - 'scripts/test_ultralytics_tracker_contract.py'
       - 'scripts/validate_operator_smoke_workflow.py'
+      - 'supabase/migrations/**'
+      - 'web-api/src/app/api/operator/drafts/route.ts'
+      - 'web-api/src/app/api/operator/reprocess/route.ts'
       - 'web-api/src/app/api/operator/pipeline/start/route.ts'
       - 'web-api/src/app/api/operator/pipeline/status/route.ts'
       - 'web-api/src/app/api/operator/upload/route.ts'
@@ -146,6 +154,8 @@ jobs:
               raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
           print('Multi-upload batch contract checks passed')
           PY
+      - name: Validate QA re-edit loop contract
+        run: python scripts/test_qa_reedit_loop_contract.py
       - name: Validate Multi-person clip gate contract
         run: PYTHONPATH=scripts:. python scripts/test_multi_person_clip_gate_contract.py
       - name: Validate Operator Smoke contract
