@@ -65,7 +65,7 @@ def main() -> int:
 
     for token in [
         "qa_reedit_task_verification.json",
-        "Verify QA re-edit task persistence",
+        "scripts/verify_qa_reedit_tasks.py",
         "status='qa_blocked'",
         "origin='qa_gate'",
     ]:
