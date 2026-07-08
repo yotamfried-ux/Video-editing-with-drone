@@ -261,6 +261,13 @@ Target invariant:
 - The pipeline consumes `pending` requests, re-queues the original sources, injects the QA/operator notes, and runs QA again.
 - If the regenerated draft passes QA it becomes approvable; if it fails, a new `qa_blocked` task is created; after `max_attempts`, the API returns a manual review/reject error instead of silently retrying forever.
 
+Real validation evidence:
+
+- Run `28915165774` ran on `main` at commit `8023a539b493cebb14fdcdbea34330e7f5701abe` after PR #161.
+- The run produced one uploaded draft and the quality report showed no QA bypass: `qa_gate_bypass_rate = 0.0`, `uploaded_draft_count = draft_metadata_count`, `source_window_overlap_pair_count = 0`, and one QA-blocked draft.
+- The end-to-end persistent task did not pass. Supabase returned `PGRST204` / `Could not find the 'approval_blocked_reasons' column of 'reprocess_requests' in the schema cache` while persisting the QA re-edit task.
+- Conclusion: PR #161 implementation is on `main`, but GAP-012 remains open until the real Supabase environment has `supabase/migrations/20260708_qa_reedit_tasks.sql` applied, the schema cache is refreshed, and a blocked draft writes `status='qa_blocked'` with `origin='qa_gate'`.
+
 Repair loop:
 
 1. Add durable QA task fields to `reprocess_requests`.
@@ -270,6 +277,9 @@ Repair loop:
 5. Promote existing `qa_blocked` tasks through `POST /api/operator/reprocess`.
 6. Add contract tests covering persistence, API contract, mobile alert/action, docs, and audit registration.
 7. Validate web-api/mobile type checks and operator smoke before merge.
+8. Apply and verify the real Supabase migration; see `docs/qa-reedit-migration-smoke.md`.
+9. Keep `scripts/check_qa_reedit_schema.py` in `.github/workflows/pipeline-run.yml` so missing QA re-edit schema fails early instead of silently skipping task persistence.
+10. Re-run a real QA-blocking pipeline and verify the Review alert/action plus `POST /api/operator/reprocess` promotion path.
 
 ### GAP-009 — Operator API response contracts are duplicated manually in mobile
 
@@ -347,7 +357,7 @@ Repair loop:
 
 ## Next recommended repair order
 
-1. GAP-012 — QA-blocked persistent re-edit loop.
+1. GAP-012 — QA-blocked persistent re-edit loop real-environment validation.
 2. GAP-009 — operator API response contract consolidation.
 3. GAP-010 — legacy route alias removal policy.
 4. GAP-011 — real end-to-end validation.
