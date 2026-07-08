@@ -140,10 +140,29 @@ A future real pipeline run can close the QA re-edit persistence part only if all
 
 1. `scripts/check_qa_reedit_schema.py` passes in the GitHub Actions environment. ✅ confirmed in run `28938769332`.
 2. A QA-blocked draft writes a `reprocess_requests` row with `status='qa_blocked'` and `origin='qa_gate'`. ✅ confirmed in run `28938769332` (via manual SQL; not yet via the artifact-based verifier below).
-3. `scripts/verify_qa_reedit_tasks.py` passes and `qa_reedit_task_verification.json` reports `status = pass`. ⏳ not yet exercised against a real QA-blocked run (added after run `28938769332`).
-4. The row includes non-empty `approval_blocked_reasons` when the QA gate reports reasons. ⚠️ failed in run `28938769332` (empty array); root-caused and fixed — see "Migration applied and re-validated" above. Needs re-confirmation on the next real QA-blocked run.
-5. `GET /api/operator/drafts` returns `reedit_task` for that draft. ⏳ not yet verified.
-6. The Review screen surfaces the QA re-edit alert/action. ⏳ not yet verified.
-7. `POST /api/operator/reprocess` promotes the same task to `pending`, increments `attempt_count`, stores `last_pipeline_run_id`, and dispatches `pipeline-run.yml`. ⏳ not yet verified.
+3. `scripts/verify_qa_reedit_tasks.py` passes and `qa_reedit_task_verification.json` reports `status = pass`. ✅ passed in run `28976345305`, but only because that run had zero QA-blocked drafts (`pass_no_qa_blocked_drafts`) — still needs a positive confirmation against a run that actually produces and persists a QA-blocked task.
+4. The row includes non-empty `approval_blocked_reasons` when the QA gate reports reasons. ⚠️ failed in run `28938769332` (empty array); root-caused and fixed. Needs re-confirmation on the next real QA-blocked run.
+5. `GET /api/operator/drafts` returns `reedit_task` for that draft. ✅ confirmed via operator app screenshot: alert banner "1 draft require QA re-edit" for this exact draft.
+6. The Review screen surfaces the QA re-edit alert/action. ✅ confirmed via the same screenshot: "Approval blocked" (disabled) next to an active "Send QA notes to..." button.
+7. `POST /api/operator/reprocess` promotes the same task to `pending`, increments `attempt_count`, stores `last_pipeline_run_id`, and dispatches `pipeline-run.yml`. ✅ confirmed: `reprocess_requests` row `5c0a765e-...` flipped `qa_blocked`→`pending` (then `source_not_found`, see below), `attempt_count` `0`→`1`, `last_pipeline_run_id` set to `pipeline_runs.id = 34380090-b8fc-45be-9034-ed6e4eb0c835`; that `pipeline_runs` row's `github_run_url`/timing match GitHub Actions run `28976345305`, dispatched within 1 second of the app action.
+8. The dispatched pipeline run actually re-queues the original source video, injects the QA/operator notes, and re-runs QA to a terminal verdict (approvable or a new `qa_blocked` task). ❌ **failed** in run `28976345305` — see "Bug found: R2 requeue_video used a stale source location" below. Fixed in `integrations/r2_storage.py`; needs re-confirmation on the next real re-edit run.
 
-GAP-012 remains open until 3–7 are all confirmed with real evidence from a single pipeline run.
+GAP-012 remains open. Criteria 1, 2, 5, 6, 7 are confirmed with real evidence; 3 needs a positive (not just vacuous) pass; 4 and 8 were both real bugs found in this validation pass, fixed, and awaiting re-confirmation on a fresh real run.
+
+## Bug found: R2 requeue_video used a stale source location (run 28976345305)
+
+After the operator tapped "Send QA notes to re-edit" in the app (confirmed via screenshot: "Sent for re-edit — Pipeline run: 34380090..."), GitHub Actions run `28976345305` was dispatched and completed `success`, but its log showed:
+
+```text
+🔁 1 operator reprocess request(s) found
+  ⚠️  'DRAFT_surfer in black patterned shorts on a dark grey lo_20260708.mp4': source videos not found — cannot reprocess
+✅ No new videos — exiting
+```
+
+The `reprocess_requests` row correctly moved to a real terminal status, `status='source_not_found'` (not stuck in silent limbo — `pipeline/orchestrator.py::_handle_reprocess_requests` calls `mark_reprocess(req_id, "source_not_found")` in this branch), but the actual re-edit never happened: the pipeline exited with zero drafts and the QA gate never re-ran.
+
+Root cause: the `drafts` table records each source's `id` as its `raw/`-prefixed R2 key at draft-creation time (before the original run's `mark_as_processed` moved it to `processed/`). `integrations/r2_storage.py::requeue_video(file_id_or_key)` treated that stale `raw/...` key as the object's *current* location and tried to copy from it — but the object was actually sitting untouched at `processed/...`. The copy failed (`NoSuchKey`), the exception was swallowed, and `requeue_video` returned `False`. Unlike Drive file ids (stable across folder moves), R2 keys encode location, so this pattern only breaks the R2 backend — the same code path works correctly against Drive, where `requeue_video` hardcodes the move as `PROCESSED_FOLDER_ID -> RAW_FOLDER_ID` regardless of the passed-in id.
+
+Fixed in `integrations/r2_storage.py::requeue_video` by always sourcing from `processed/<basename>` (mirroring the Drive adapter's fixed `PROCESSED -> RAW` direction) instead of trusting the caller's key prefix. Covered by `scripts/test_r2_requeue_video_contract.py`.
+
+This is a production-blocking bug for the actual configured storage backend (`STORAGE_BACKEND=r2`, confirmed by this same run's R2 preflight step) — every real "send to re-edit" action would have silently failed to requeue the source video and landed at `source_not_found` instead of actually regenerating the draft.
