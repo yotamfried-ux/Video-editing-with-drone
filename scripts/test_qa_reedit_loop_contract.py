@@ -44,6 +44,7 @@ def main() -> int:
         "qa_defects",
         "approval_blocked_reasons",
         "Regenerate this draft using the QA notes below",
+        "_active_reedit_task",
     ]:
         require(token, uploader, "qa re-edit persistence")
 
@@ -74,7 +75,7 @@ def main() -> int:
         require(token, drafts_route, "drafts route")
 
     for token in [
-        "drafts require QA re-edit",
+        "require QA re-edit",
         "QA blocked — re-edit required",
         "Send QA notes to re-edit",
         "reprocess_request_id: reeditTarget.reedit_task?.id",
