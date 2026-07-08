@@ -63,6 +63,18 @@ def main() -> int:
         ],
     )
     require_tokens(
+        'long video context runtime install',
+        run_tracked,
+        [
+            '_install_context_runtime',
+            'from pipeline.context_qa_long_video import install',
+            '_install_context_runtime()',
+            'import pipeline.orchestrator as _orchestrator',
+        ],
+    )
+    if run_tracked.index('_install_context_runtime()') > run_tracked.index('import pipeline.orchestrator as _orchestrator'):
+        raise SystemExit('context runtime must be installed before orchestrator import')
+    require_tokens(
         'selector candidate runtime evidence',
         selector_runtime,
         [
