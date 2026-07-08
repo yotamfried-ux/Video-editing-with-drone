@@ -18,6 +18,20 @@ Operator mobile app -> API operator routes -> GitHub Actions workflows -> Python
 | Send draft or reel for re-edit | `POST /api/operator/reprocess` | `workflow_dispatch` -> `.github/workflows/pipeline-run.yml` | `pipeline_runs`, `reprocess_requests` |
 | Approve draft | `POST /api/operator/drafts/approve` | `repository_dispatch: reel-approved` -> `.github/workflows/deliver.yml` | `delivery_runs` |
 
+## QA-blocked draft re-edit loop
+
+QA-blocked drafts are not terminal. The required loop is:
+
+1. Pipeline QA marks a draft `review_required` / approval-blocked.
+2. The pipeline writes a persistent `reprocess_requests` row with `status='qa_blocked'`, `origin='qa_gate'`, QA defects, blocked reasons, and the generated notes.
+3. `GET /api/operator/drafts` includes the active `reedit_task` next to the draft.
+4. The Review screen alerts the operator, blocks approval, pre-fills QA notes, and shows a Send QA notes to re-edit action.
+5. `POST /api/operator/reprocess` promotes the existing task to `pending`, increments `attempt_count`, creates a durable `pipeline_runs` row, and dispatches `.github/workflows/pipeline-run.yml`.
+6. The pipeline consumes `pending` requests, re-queues the original source videos, injects the QA/operator notes into the next analysis run, and runs QA again.
+7. If the regenerated draft passes QA, it appears as a normal approvable draft. If it fails, the pipeline creates a new `qa_blocked` task. After `max_attempts`, the API returns a manual-review/reject error instead of silently retrying forever.
+
+The app must never allow approval while `approval_blocked` or `reedit_task` is present.
+
 ## Compatibility aliases
 
 Compatibility aliases are allowed only to protect already-installed app builds or external integrations during a controlled migration window. New app code must call the canonical route.
@@ -45,7 +59,7 @@ Rules:
 
 ## Drive state contract
 
-Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the move from `RAW_FOLDER_ID` to `PROCESSED_FOLDER_ID` has been verified.
+Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the move from `RAW_FOLDER_ID` to `PROCESSED` has been verified.
 
 See `docs/drive-move-contract.md` for the RAW -> PROCESSED invariant and the required verification loop for Drive transitions.
 
