@@ -6,6 +6,7 @@ import { githubDispatchError } from '@/lib/github-dispatch-error';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 const ACTIVE_QA_STATUSES = ['qa_blocked', 'pending', 'queued'];
+const IN_FLIGHT_QA_STATUSES = ['pending', 'queued'];
 
 function mergeNotes(existing: string | null | undefined, submitted: string): string {
   const current = (existing ?? '').trim();
@@ -15,16 +16,28 @@ function mergeNotes(existing: string | null | undefined, submitted: string): str
   return `${current}\n\nOperator notes:\n${next}`.slice(0, 2000);
 }
 
-async function findQaBlockedTask(draftName: string) {
+async function findActiveQaTask(draftName: string) {
   const { data, error } = await supabaseAdmin
     .from('reprocess_requests')
-    .select('id, draft_name, notes, status, attempt_count, max_attempts')
+    .select('id, draft_name, notes, status, attempt_count, max_attempts, last_pipeline_run_id')
     .eq('draft_name', draftName)
-    .eq('status', 'qa_blocked')
+    .in('status', ACTIVE_QA_STATUSES)
     .order('created_at', { ascending: false })
     .limit(1);
   if (error) throw error;
   return data?.[0] ?? null;
+}
+
+function inFlightResponse(task: any, draftName: string) {
+  return NextResponse.json(
+    {
+      error: `A re-edit is already ${task.status} for ${draftName}. Wait for the current pipeline run to finish before sending it again.`,
+      request_id: task.id,
+      pipeline_run_id: task.last_pipeline_run_id ?? null,
+      reedit_status: task.status,
+    },
+    { status: 409 },
+  );
 }
 
 // GET /api/operator/reprocess — recent reprocess requests (operator app shows
@@ -81,7 +94,7 @@ export async function POST(req: NextRequest) {
   if (reprocessRequestId) {
     const { data, error } = await supabaseAdmin
       .from('reprocess_requests')
-      .select('id, draft_name, notes, status, attempt_count, max_attempts')
+      .select('id, draft_name, notes, status, attempt_count, max_attempts, last_pipeline_run_id')
       .eq('id', reprocessRequestId)
       .single();
     if (error || !data) {
@@ -112,13 +125,17 @@ export async function POST(req: NextRequest) {
 
   if (!existingTask) {
     try {
-      existingTask = await findQaBlockedTask(draftName);
+      existingTask = await findActiveQaTask(draftName);
     } catch (error) {
       return NextResponse.json(
         { error: error instanceof Error ? error.message : 'Could not read re-edit task' },
         { status: 500 },
       );
     }
+  }
+
+  if (existingTask && IN_FLIGHT_QA_STATUSES.includes(existingTask.status)) {
+    return inFlightResponse(existingTask, draftName);
   }
 
   const currentAttempts = Number(existingTask?.attempt_count ?? 0);
@@ -146,6 +163,7 @@ export async function POST(req: NextRequest) {
         processed_at: null,
       })
       .eq('id', existingTask.id)
+      .eq('status', 'qa_blocked')
       .select('id')
       .single();
     if (updateError || !updated) {
