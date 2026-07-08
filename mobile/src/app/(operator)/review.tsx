@@ -26,20 +26,36 @@ function formatSize(bytes: number | null): string {
   return mb >= 1024 ? `${(mb / 1024).toFixed(1)} GB` : `${Math.round(mb)} MB`;
 }
 
-function shortId(id?: string): string {
+function shortId(id?: string | null): string {
   return id ? id.slice(0, 8) : 'unknown';
 }
 
 function draftIsApprovalBlocked(draft: DraftRow): boolean {
-  return Boolean(draft.approval_blocked || draft.review_required || draft.name.toUpperCase().includes('QA-FLAGGED'));
+  return Boolean(draft.approval_blocked || draft.review_required || draft.reedit_task || draft.name.toUpperCase().includes('QA-FLAGGED'));
 }
 
 function approvalReasons(draft: DraftRow): string[] {
+  const taskReasons = Array.isArray(draft.reedit_task?.approval_blocked_reasons) ? draft.reedit_task.approval_blocked_reasons.filter(Boolean) : [];
   const reasons = Array.isArray(draft.approval_blocked_reasons) ? draft.approval_blocked_reasons.filter(Boolean) : [];
+  if (taskReasons.length) return taskReasons;
   if (!reasons.length && draft.name.toUpperCase().includes('QA-FLAGGED')) {
     return ['Draft is QA-FLAGGED and must be sent to re-edit or manually reviewed before approval.'];
   }
   return reasons;
+}
+
+function reeditNotesForDraft(draft: DraftRow): string {
+  const taskNotes = draft.reedit_task?.notes?.trim();
+  if (taskNotes) return taskNotes;
+  return approvalReasons(draft).join('\n');
+}
+
+function reeditAttemptLabel(draft: DraftRow): string | null {
+  const task = draft.reedit_task;
+  if (!task) return null;
+  const attempts = Number(task.attempt_count ?? 0);
+  const max = Number(task.max_attempts ?? 3);
+  return `Re-edit task ${task.status} · attempt ${attempts}/${max}`;
 }
 
 function showApprovalResult(result: ApproveDraftResponse) {
@@ -103,6 +119,11 @@ export default function OperatorReviewScreen() {
     setRefreshing(false);
   };
 
+  const openReedit = (draft: DraftRow) => {
+    setReeditNotes(reeditNotesForDraft(draft));
+    setReeditTarget(draft);
+  };
+
   const approve = (draft: DraftRow) => {
     const blocked = draftIsApprovalBlocked(draft);
     if (blocked) {
@@ -153,12 +174,14 @@ export default function OperatorReviewScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          reprocess_request_id: reeditTarget.reedit_task?.id,
           draft_name: reeditTarget.name,
           notes: reeditNotes.trim(),
         }),
       });
       setReeditTarget(null);
       setReeditNotes('');
+      await load();
       Alert.alert(
         'Sent for re-edit',
         `Pipeline run: ${shortId(pipelineRunId)}. Check Pipeline status for progress.`
@@ -170,6 +193,8 @@ export default function OperatorReviewScreen() {
     }
   };
 
+  const blockedCount = drafts.filter(draftIsApprovalBlocked).length;
+
   return (
     <SafeArea>
       <View style={styles.container}>
@@ -179,11 +204,19 @@ export default function OperatorReviewScreen() {
           keyExtractor={(d) => d.id}
           refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />}
           ListHeaderComponent={
-            <View style={{ marginBottom: Spacing.md }}>
+            <View style={{ marginBottom: Spacing.md, gap: Spacing.sm }}>
               <Text variant="display">Review</Text>
               <Text variant="caption" color={Colors.textSecondary}>
                 Drafts waiting for your approval · pull to refresh
               </Text>
+              {blockedCount > 0 && (
+                <Card bordered style={styles.operatorAlert}>
+                  <Text variant="title">{blockedCount} draft{blockedCount === 1 ? '' : 's'} require QA re-edit</Text>
+                  <Text variant="caption" color={Colors.textSecondary}>
+                    Approval is blocked. Open each draft and send the QA notes to re-edit before approving.
+                  </Text>
+                </Card>
+              )}
             </View>
           }
           ListEmptyComponent={
@@ -204,6 +237,7 @@ export default function OperatorReviewScreen() {
           renderItem={({ item }) => {
             const blocked = draftIsApprovalBlocked(item);
             const reasons = approvalReasons(item);
+            const attemptLabel = reeditAttemptLabel(item);
             return (
               <Card bordered style={{ gap: Spacing.sm, borderColor: blocked ? Colors.danger : Colors.cardBorder }}>
                 <Text variant="title" numberOfLines={2}>{item.name}</Text>
@@ -213,10 +247,11 @@ export default function OperatorReviewScreen() {
                 </Text>
                 {blocked && (
                   <View style={styles.qaBlock}>
-                    <Text variant="title">Approval blocked</Text>
+                    <Text variant="title">QA blocked — re-edit required</Text>
                     <Text variant="caption" color={Colors.textSecondary}>
-                      This draft must be sent to re-edit or manually reviewed before approval.
+                      This draft has a persistent QA task. Send it to re-edit with the QA notes, then review the regenerated draft.
                     </Text>
+                    {attemptLabel && <Text variant="caption" color={Colors.textSecondary}>{attemptLabel}</Text>}
                     {reasons.slice(0, 3).map((r) => (
                       <Text key={r} variant="caption" color={Colors.textSecondary}>• {r}</Text>
                     ))}
@@ -232,12 +267,9 @@ export default function OperatorReviewScreen() {
                 )}
                 <View style={styles.actions}>
                   <Button
-                    label="Send to re-edit"
-                    onPress={() => {
-                      setReeditNotes(blocked ? reasons.join('\n') : '');
-                      setReeditTarget(item);
-                    }}
-                    variant="secondary"
+                    label={blocked ? 'Send QA notes to re-edit' : 'Send to re-edit'}
+                    onPress={() => openReedit(item)}
+                    variant={blocked ? 'primary' : 'secondary'}
                     style={{ flex: 1, height: 44 }}
                   />
                   <Button
@@ -266,7 +298,7 @@ export default function OperatorReviewScreen() {
               {reeditTarget?.name}
             </Text>
             <Text variant="body" color={Colors.textSecondary}>
-              Describe what to change. Your notes go straight to the editing AI.
+              QA notes are prefilled when this draft is blocked. These notes go straight to the editing AI.
             </Text>
             <TextInput
               style={styles.notesInput}
@@ -303,6 +335,10 @@ export default function OperatorReviewScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.lg },
   actions: { flexDirection: 'row', gap: Spacing.sm },
+  operatorAlert: {
+    borderColor: Colors.danger,
+    gap: Spacing.xs,
+  },
   qaBlock: {
     borderWidth: 1,
     borderColor: Colors.danger,
