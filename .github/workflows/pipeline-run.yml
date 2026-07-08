@@ -162,6 +162,13 @@ jobs:
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
         run: bash scripts/run_pipeline_with_diagnostics.sh
 
+      - name: Verify QA re-edit task persistence
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TMP_DIR: /tmp/dtor
+        run: python scripts/verify_qa_reedit_tasks.py
+
       - name: Upload pipeline diagnostics
         if: always()
         uses: actions/upload-artifact@v4

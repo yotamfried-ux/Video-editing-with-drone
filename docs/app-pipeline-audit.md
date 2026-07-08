@@ -79,7 +79,7 @@ Fixed:
 
 - Draft PR #45 was closed as superseded and replaced with a fresh PR based on current `main`.
 - Added `GET /api/operator/discover-diagnostics` behind `requireOperator(req)`, rate limiting, and server-side `supabaseAdmin`.
-- Added a reel expiry migration that sets a 7-day default for future Discover reels and backfills only active `published` / `viewed` rows with missing `expires_at`.
+- Added a reel expiry migration that sets a 7-day default for future Discover reels and backfills only active `published` / `viewed` rows with missing expiry.
 - Added non-destructive Discover smoke SQL for creating a `stripe_test` reel without deleting existing rows.
 - Added diagnostics for expiry default checks and previewing active rows with missing expiry.
 - Added `docs/discover-reels-smoke-loop.md` with scope, safety invariants, migration verification, smoke procedure, and rollback notes.
@@ -266,7 +266,10 @@ Real validation evidence:
 - Run `28915165774` ran on `main` at commit `8023a539b493cebb14fdcdbea34330e7f5701abe` after PR #161.
 - The run produced one uploaded draft and the quality report showed no QA bypass: `qa_gate_bypass_rate = 0.0`, `uploaded_draft_count = draft_metadata_count`, `source_window_overlap_pair_count = 0`, and one QA-blocked draft.
 - The end-to-end persistent task did not pass. Supabase returned `PGRST204` / `Could not find the 'approval_blocked_reasons' column of 'reprocess_requests' in the schema cache` while persisting the QA re-edit task.
-- Conclusion: PR #161 implementation is on `main`, but GAP-012 remains open until the real Supabase environment has `supabase/migrations/20260708_qa_reedit_tasks.sql` applied, the schema cache is refreshed, and a blocked draft writes `status='qa_blocked'` with `origin='qa_gate'`.
+- Run `28938769332` ran on `main` at commit `d0c2459941d995532b91fc95c54edff0ec854ca7` after PR #162.
+- The `Preflight QA re-edit Supabase schema` step passed, proving the real Supabase REST/PostgREST schema cache can see the QA re-edit columns.
+- Run `28938769332` again produced one QA-blocked draft with no QA bypass and no `PGRST204` / `QA re-edit task persistence skipped` log entry, but its artifact still did not include a direct `reprocess_requests` row snapshot.
+- Conclusion: schema/preflight is validated in the real environment, but GAP-012 remains open until the next QA-blocking run contains `qa_reedit_task_verification.json` with `status = pass` and a task row showing `status='qa_blocked'` and `origin='qa_gate'`.
 
 Repair loop:
 
@@ -279,7 +282,8 @@ Repair loop:
 7. Validate web-api/mobile type checks and operator smoke before merge.
 8. Apply and verify the real Supabase migration; see `docs/qa-reedit-migration-smoke.md`.
 9. Keep `scripts/check_qa_reedit_schema.py` in `.github/workflows/pipeline-run.yml` so missing QA re-edit schema fails early instead of silently skipping task persistence.
-10. Re-run a real QA-blocking pipeline and verify the Review alert/action plus `POST /api/operator/reprocess` promotion path.
+10. Keep `scripts/verify_qa_reedit_tasks.py` in `.github/workflows/pipeline-run.yml` so QA-blocked draft persistence is proven from the GitHub Actions artifact instead of manual SQL.
+11. Re-run a real QA-blocking pipeline and verify the Review alert/action plus `POST /api/operator/reprocess` promotion path.
 
 ### GAP-009 — Operator API response contracts are duplicated manually in mobile
 
