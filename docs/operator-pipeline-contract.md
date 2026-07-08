@@ -44,7 +44,17 @@ python scripts/check_qa_reedit_schema.py
 
 The preflight must fail when `reprocess_requests` is missing any required QA re-edit columns, including `approval_blocked_reasons`, `qa_defects`, `attempt_count`, `max_attempts`, `origin`, or `last_pipeline_run_id`. A missing migration or stale schema cache must be reported as an actionable environment failure, not hidden behind a green pipeline run with skipped task persistence.
 
-Real migration evidence and validation steps are tracked in `docs/qa-reedit-migration-smoke.md`.
+## QA-blocked draft task persistence verification
+
+`.github/workflows/pipeline-run.yml` must run this after the pipeline and before uploading diagnostics:
+
+```bash
+python scripts/verify_qa_reedit_tasks.py
+```
+
+The verifier reads `draft_decision_trace.json`, finds QA-blocked drafts, queries `reprocess_requests`, and writes `qa_reedit_task_verification.json` into the diagnostics artifact. If any QA-blocked draft lacks an active `status='qa_blocked'`, `status='pending'`, or `status='queued'` task with `origin='qa_gate'`, the workflow must fail instead of relying on manual Supabase SQL inspection.
+
+Real migration and verifier evidence are tracked in `docs/qa-reedit-migration-smoke.md`.
 
 ## Compatibility aliases
 
