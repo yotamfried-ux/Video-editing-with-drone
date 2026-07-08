@@ -21,6 +21,7 @@ def main() -> int:
     qa_policy = read("pipeline/qa_gate_policy.py")
     reprocess_route = read("web-api/src/app/api/operator/reprocess/route.ts")
     drafts_route = read("web-api/src/app/api/operator/drafts/route.ts")
+    approve_handler = read("web-api/src/lib/operator-draft-approve.ts")
     review_screen = read("mobile/src/app/(operator)/review.tsx")
     contracts = read("mobile/src/features/operator/types/contracts.ts")
     api_docs = read("docs/operator-api-contracts.md")
@@ -58,7 +59,9 @@ def main() -> int:
 
     for token in [
         "reprocess_request_id",
-        "findQaBlockedTask",
+        "findActiveQaTask",
+        "IN_FLIGHT_QA_STATUSES",
+        "inFlightResponse",
         "status: 'pending'",
         "attempt_count: currentAttempts + 1",
         "failed_max_attempts",
@@ -73,6 +76,14 @@ def main() -> int:
         "review_required: Boolean(task)",
     ]:
         require(token, drafts_route, "drafts route")
+
+    for token in [
+        "activeReeditTask",
+        "ACTIVE_REEDIT_STATUSES",
+        "Boolean(reeditTask)",
+        "Could not verify QA re-edit status",
+    ]:
+        require(token, approve_handler, "approval route")
 
     for token in [
         "require QA re-edit",
