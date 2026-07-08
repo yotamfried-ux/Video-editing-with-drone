@@ -32,6 +32,20 @@ QA-blocked drafts are not terminal. The required loop is:
 
 The app must never allow approval while `approval_blocked` or `reedit_task` is present.
 
+## QA-blocked draft re-edit loop preflight
+
+The persistent repair loop depends on the real Supabase project having `supabase/migrations/20260708_qa_reedit_tasks.sql` applied and visible through Supabase REST/PostgREST.
+
+`.github/workflows/pipeline-run.yml` must run this before expensive video processing:
+
+```bash
+python scripts/check_qa_reedit_schema.py
+```
+
+The preflight must fail when `reprocess_requests` is missing any required QA re-edit columns, including `approval_blocked_reasons`, `qa_defects`, `attempt_count`, `max_attempts`, `origin`, or `last_pipeline_run_id`. A missing migration or stale schema cache must be reported as an actionable environment failure, not hidden behind a green pipeline run with skipped task persistence.
+
+Real migration evidence and validation steps are tracked in `docs/qa-reedit-migration-smoke.md`.
+
 ## Compatibility aliases
 
 Compatibility aliases are allowed only to protect already-installed app builds or external integrations during a controlled migration window. New app code must call the canonical route.
@@ -59,7 +73,7 @@ Rules:
 
 ## Drive state contract
 
-Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the move from `RAW_FOLDER_ID` to `PROCESSED_FOLDER_ID` has been verified.
+Drive folder membership is part of the pipeline state contract. A source video must not be written to `processed.json` until the Drive move from `RAW_FOLDER_ID` to `PROCESSED_FOLDER_ID` has been verified.
 
 See `docs/drive-move-contract.md` for the RAW -> PROCESSED invariant and the required verification loop for Drive transitions.
 

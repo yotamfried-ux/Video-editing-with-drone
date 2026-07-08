@@ -9,6 +9,7 @@ on:
       - 'docs/app-pipeline-audit.md'
       - 'docs/operator-api-contracts.md'
       - 'docs/operator-pipeline-contract.md'
+      - 'docs/qa-reedit-migration-smoke.md'
       - 'integrations/drive.py'
       - 'integrations/r2_storage.py'
       - 'integrations/run_status.py'
@@ -27,6 +28,7 @@ on:
       - 'pipeline/stages/analyzer.py'
       - 'pipeline/stages/identity.py'
       - 'requirements.txt'
+      - 'scripts/check_qa_reedit_schema.py'
       - 'scripts/operator_smoke.py'
       - 'scripts/reset_and_rerun.py'
       - 'scripts/run_pipeline_with_diagnostics.sh'
@@ -40,6 +42,7 @@ on:
       - 'scripts/test_explicit_sidecar_validation_contract.py'
       - 'scripts/test_multi_person_clip_gate_contract.py'
       - 'scripts/test_multi_upload_batch_contract.py'
+      - 'scripts/test_operator_review_gate_contract.py'
       - 'scripts/test_operator_smoke_contract.py'
       - 'scripts/test_operator_smoke_workflow_validator.py'
       - 'scripts/test_pairwise_source_window_overlap_contract.py'
@@ -49,6 +52,7 @@ on:
       - 'scripts/test_pipeline_status_stale_contract.py'
       - 'scripts/test_qa_policy_trace_contract.py'
       - 'scripts/test_qa_reedit_loop_contract.py'
+      - 'scripts/test_qa_reedit_schema_preflight_contract.py'
       - 'scripts/test_run_quality_report_contract.py'
       - 'scripts/test_source_window_dedup_contract.py'
       - 'scripts/test_storage_contract.py'
@@ -156,6 +160,8 @@ jobs:
           PY
       - name: Validate QA re-edit loop contract
         run: python scripts/test_qa_reedit_loop_contract.py
+      - name: Validate QA re-edit schema preflight contract
+        run: python scripts/test_qa_reedit_schema_preflight_contract.py
       - name: Validate Multi-person clip gate contract
         run: PYTHONPATH=scripts:. python scripts/test_multi_person_clip_gate_contract.py
       - name: Validate Operator Smoke contract

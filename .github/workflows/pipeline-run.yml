@@ -97,6 +97,12 @@ jobs:
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
         run: python scripts/check_storage_access.py
 
+      - name: Preflight QA re-edit Supabase schema
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python scripts/check_qa_reedit_schema.py
+
       - name: Reset (optional — manual runs only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset }}
         env:
