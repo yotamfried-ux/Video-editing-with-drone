@@ -239,6 +239,38 @@ Follow-up:
 
 ## Open gaps
 
+### GAP-012 — QA-blocked drafts need a persistent operator re-edit loop
+
+Severity: high.
+
+Area: QA gate, operator Review screen, reprocess queue, app/API/pipeline contract.
+
+Problem:
+
+- The pipeline can mark a draft as `review_required` / approval-blocked and preserve QA notes in metadata.
+- The existing QA loop attempts automatic re-edit only up to `QA_MAX_RETRIES` inside a single run.
+- If a final draft is still blocked, the operator needs an explicit app alert and a durable task that can be sent back to re-edit with the QA notes.
+- Without a persistent task, a blocked draft can sit in REVIEW as a manual state rather than a traceable repair loop.
+
+Target invariant:
+
+- A QA-blocked draft creates a persistent `reprocess_requests` task with `status='qa_blocked'`, QA notes, defects, blocked reasons, `attempt_count`, and `max_attempts`.
+- `GET /api/operator/drafts` returns the active `reedit_task` next to the draft.
+- The Review screen shows an operator alert, blocks approval, pre-fills QA notes, and exposes a `Send QA notes to re-edit` action.
+- `POST /api/operator/reprocess` promotes the existing QA task to `pending`, increments `attempt_count`, dispatches a tracked pipeline run, and returns `pipeline_run_id`.
+- The pipeline consumes `pending` requests, re-queues the original sources, injects the QA/operator notes, and runs QA again.
+- If the regenerated draft passes QA it becomes approvable; if it fails, a new `qa_blocked` task is created; after `max_attempts`, the API returns a manual review/reject error instead of silently retrying forever.
+
+Repair loop:
+
+1. Add durable QA task fields to `reprocess_requests`.
+2. Persist a QA task when final draft metadata contains a blocking `qa_gate`.
+3. Surface the active task through `GET /api/operator/drafts`.
+4. Update Review UI copy/action so blocked drafts visibly require re-edit and cannot be approved.
+5. Promote existing `qa_blocked` tasks through `POST /api/operator/reprocess`.
+6. Add contract tests covering persistence, API contract, mobile alert/action, docs, and audit registration.
+7. Validate web-api/mobile type checks and operator smoke before merge.
+
 ### GAP-009 — Operator API response contracts are duplicated manually in mobile
 
 Severity: medium.
@@ -311,12 +343,14 @@ Repair loop:
 2. Consolidate operator API response contracts so mobile screens do not invent local meanings.
 3. Keep future privileged/operator reads behind the operator API boundary.
 4. Re-run the Discover smoke loop when validating GAP-011.
+5. Keep QA-blocked drafts on the persistent re-edit loop until they pass QA or reach manual reject/review after `max_attempts`.
 
 ## Next recommended repair order
 
-1. GAP-009 — operator API response contract consolidation.
-2. GAP-010 — legacy route alias removal policy.
-3. GAP-011 — real end-to-end validation.
+1. GAP-012 — QA-blocked persistent re-edit loop.
+2. GAP-009 — operator API response contract consolidation.
+3. GAP-010 — legacy route alias removal policy.
+4. GAP-011 — real end-to-end validation.
 
 ## Audit maintenance rule
 
