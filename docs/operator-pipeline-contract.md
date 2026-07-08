@@ -23,7 +23,7 @@ Operator mobile app -> API operator routes -> GitHub Actions workflows -> Python
 QA-blocked drafts are not terminal. The required loop is:
 
 1. Pipeline QA marks a draft `review_required` / approval-blocked.
-2. The pipeline writes a persistent `reprocess_requests` row with `status='qa_blocked'`, `origin='qa_gate'`, QA defects, blocked reasons, and the generated notes.
+2. The pipeline writes a persistent `reprocess_requests` row with `status='qa_blocked'`, `origin='qa_gate'`, QA defects, blocked reasons, and the generated notes. `approval_blocked_reasons` must be non-empty whenever blocking defects exist, regardless of which gate produced them (general QA analyzer, multi-person-clip gate, subject isolation gate, etc.) — see `docs/qa-reedit-migration-smoke.md` for a real bug where a gate-specific `qa_gate` dict without explicit reason fields silently persisted an empty reasons array.
 3. `GET /api/operator/drafts` includes the active `reedit_task` next to the draft.
 4. The Review screen alerts the operator, blocks approval, pre-fills QA notes, and shows a Send QA notes to re-edit action.
 5. `POST /api/operator/reprocess` promotes the existing task to `pending`, increments `attempt_count`, creates a durable `pipeline_runs` row, and dispatches `.github/workflows/pipeline-run.yml`.

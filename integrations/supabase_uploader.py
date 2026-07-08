@@ -130,8 +130,32 @@ def _qa_defects(qa_gate: dict) -> list[dict]:
     return [item for item in defects if isinstance(item, dict)]
 
 
+def _reasons_from_defects(defects: list[dict]) -> list[str]:
+    """Derive human-readable block reasons straight from defects.
+
+    Some QA gates (e.g. pipeline/multi_person_clip_gate.py) attach `defects`
+    to the qa_gate dict without also setting `approval_blocked_reasons` or
+    `review_required_reasons`. Without this fallback those blocks persist
+    with an empty approval_blocked_reasons, even though real blocking
+    defects exist.
+    """
+    reasons: list[str] = []
+    for defect in defects:
+        dtype = str(defect.get("type") or "QA_REVIEW_REQUIRED")
+        note = str(defect.get("note") or "").strip()
+        reason = f"{dtype}: {note}" if note else dtype
+        if reason not in reasons:
+            reasons.append(reason)
+    return reasons
+
+
 def _qa_reedit_notes(draft_name: str, qa_gate: dict) -> str:
-    reasons = qa_gate.get("approval_blocked_reasons") or qa_gate.get("review_required_reasons") or []
+    defects = _qa_defects(qa_gate)
+    reasons = (
+        qa_gate.get("approval_blocked_reasons")
+        or qa_gate.get("review_required_reasons")
+        or _reasons_from_defects(defects)
+    )
     lines = [
         f"QA blocked draft: {draft_name}",
         "Regenerate this draft using the QA notes below and run QA again before approval.",
@@ -142,7 +166,7 @@ def _qa_reedit_notes(draft_name: str, qa_gate: dict) -> str:
         text = str(reason).strip()
         if text:
             lines.append(f"- {text}")
-    for defect in _qa_defects(qa_gate):
+    for defect in defects:
         dtype = str(defect.get("type") or "QA_REVIEW_REQUIRED")
         note = str(defect.get("note") or "").strip()
         at_seconds = defect.get("at_seconds")
@@ -176,7 +200,11 @@ def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int =
     if not draft_name or not qa_gate.get("qa_review_required"):
         return
     defects = _qa_defects(qa_gate)
-    reasons = qa_gate.get("approval_blocked_reasons") or qa_gate.get("review_required_reasons") or []
+    reasons = (
+        qa_gate.get("approval_blocked_reasons")
+        or qa_gate.get("review_required_reasons")
+        or _reasons_from_defects(defects)
+    )
     payload = {
         "draft_name": draft_name,
         "notes": _qa_reedit_notes(draft_name, qa_gate),

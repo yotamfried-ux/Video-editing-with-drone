@@ -25,22 +25,20 @@ PGRST204: Could not find the 'approval_blocked_reasons' column of 'reprocess_req
 
 That means the QA gate blocked the draft correctly, but the required persistent task with `status='qa_blocked'` was not created in `reprocess_requests`.
 
-## Evidence from real pipeline run after schema preflight
+## Migration applied and re-validated (real run 28938769332)
 
-GitHub Actions run `28938769332` ran on `main` at commit `d0c2459941d995532b91fc95c54edff0ec854ca7` after PR #162 was merged.
+The migration was applied to the real Supabase project (`bcndgmymnismbxvdeetc`) via `mcp__Supabase__apply_migration`. Verification SQL (below) confirmed 6/6 required columns and both indexes exist.
 
-The `Preflight QA re-edit Supabase schema` step passed. This proves the real Supabase REST/PostgREST schema cache can see the QA re-edit columns, including `approval_blocked_reasons`.
+GitHub Actions run `28938769332` then ran on `main` at commit `d0c2459941d995532b91fc95c54edff0ec854ca7` (the PR #162 merge commit, i.e. including the schema preflight):
 
-The run again produced a QA-blocked draft and showed no QA bypass:
+- `Preflight QA re-edit Supabase schema` step **passed** — first direct proof the PostgREST schema cache reflects the migrated columns, including `approval_blocked_reasons`.
+- `run_quality_report.status = pass`, `qa_gate_bypass_rate = 0.0`, `source_window_overlap_pair_count = 0`, `uploaded_draft_count == draft_metadata_count`, `qa_review_required_draft_count = 1`, `qa_blocked_draft_count = 1`.
+- `run_tracked.log` no longer contains `PGRST204` / `schema cache` / `QA re-edit task persistence skipped` / `Could not find the 'approval_blocked_reasons'`.
+- The diagnostics artifact for this run predates `scripts/verify_qa_reedit_tasks.py` (added afterward — see "QA re-edit task persistence verifier" below), so it did not contain a direct `qa_reedit_task_verification.json` snapshot. Persistence was instead confirmed directly with a manual Supabase SQL query: a real QA-blocked draft (`DRAFT_surfer in black patterned shorts on a dark grey lo_20260708.mp4`) produced a `reprocess_requests` row with `status='qa_blocked'`, `origin='qa_gate'`, non-empty `notes`, non-empty `qa_defects`, `attempt_count`/`max_attempts` populated.
 
-- `run_quality_report.status = pass`
-- `uploaded_draft_count = draft_metadata_count`
-- `source_window_overlap_pair_count = 0`
-- `qa_gate_bypass_rate = 0.0`
-- `qa_review_required_draft_count = 1`
-- `qa_blocked_draft_count = 1`
+**Bug found and fixed in this validation pass:** the row's `approval_blocked_reasons` was an empty array despite 4 real blocking `MULTI_PERSON_CLIP` defects. Root cause: `pipeline/multi_person_clip_gate.py::_merge_qa_gate` attaches `defects` to the `qa_gate` dict but never sets `approval_blocked_reasons`/`review_required_reasons` on it (that field is only computed by `pipeline/qa_gate_policy.py`'s general analyzer-based path). `integrations/supabase_uploader.py::upsert_qa_reedit_task` now falls back to deriving reasons directly from `qa_defects` (`_reasons_from_defects`) when neither key is present, so this can't silently persist empty reasons again. Covered by `scripts/test_qa_reedit_reason_fallback_contract.py`. Note this same bug would **not** have been caught by `scripts/verify_qa_reedit_tasks.py`'s `_validate_task` alone (it only checks `qa_defects`, not `approval_blocked_reasons`) — `_validate_task` now also checks `approval_blocked_reasons` for this reason.
 
-The run logs no longer contained `PGRST204`, `schema cache`, or `QA re-edit task persistence skipped`. However, the diagnostics artifact did not yet contain a direct `reprocess_requests` row snapshot, so the row persistence could not be proven from the artifact alone.
+`GET /api/operator/drafts` → Review screen → `POST /api/operator/reprocess` promotion loop for this task is still pending manual verification in the app.
 
 ## Required migration
 
@@ -140,10 +138,12 @@ If a QA-blocked draft has no matching active task, the pipeline fails before upl
 
 A future real pipeline run can close the QA re-edit persistence part only if all are true:
 
-1. `scripts/check_qa_reedit_schema.py` passes in the GitHub Actions environment.
-2. A QA-blocked draft writes a `reprocess_requests` row with `status='qa_blocked'` and `origin='qa_gate'`.
-3. `scripts/verify_qa_reedit_tasks.py` passes and `qa_reedit_task_verification.json` reports `status = pass`.
-4. The row includes non-empty `approval_blocked_reasons` when the QA gate reports reasons.
-5. `GET /api/operator/drafts` returns `reedit_task` for that draft.
-6. The Review screen surfaces the QA re-edit alert/action.
-7. `POST /api/operator/reprocess` promotes the same task to `pending`, increments `attempt_count`, stores `last_pipeline_run_id`, and dispatches `pipeline-run.yml`.
+1. `scripts/check_qa_reedit_schema.py` passes in the GitHub Actions environment. ✅ confirmed in run `28938769332`.
+2. A QA-blocked draft writes a `reprocess_requests` row with `status='qa_blocked'` and `origin='qa_gate'`. ✅ confirmed in run `28938769332` (via manual SQL; not yet via the artifact-based verifier below).
+3. `scripts/verify_qa_reedit_tasks.py` passes and `qa_reedit_task_verification.json` reports `status = pass`. ⏳ not yet exercised against a real QA-blocked run (added after run `28938769332`).
+4. The row includes non-empty `approval_blocked_reasons` when the QA gate reports reasons. ⚠️ failed in run `28938769332` (empty array); root-caused and fixed — see "Migration applied and re-validated" above. Needs re-confirmation on the next real QA-blocked run.
+5. `GET /api/operator/drafts` returns `reedit_task` for that draft. ⏳ not yet verified.
+6. The Review screen surfaces the QA re-edit alert/action. ⏳ not yet verified.
+7. `POST /api/operator/reprocess` promotes the same task to `pending`, increments `attempt_count`, stores `last_pipeline_run_id`, and dispatches `pipeline-run.yml`. ⏳ not yet verified.
+
+GAP-012 remains open until 3–7 are all confirmed with real evidence from a single pipeline run.
