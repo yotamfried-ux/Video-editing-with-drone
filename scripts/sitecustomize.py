@@ -35,6 +35,15 @@ def _install_analyzer_score_guard() -> None:
         pass
 
 
+def _install_single_athlete_selection_policy() -> None:
+    _repo_root()
+    try:
+        from pipeline.single_athlete_selection_policy import install
+        install()
+    except Exception:
+        pass
+
+
 def _install_window_policy() -> None:
     _repo_root()
     try:
@@ -136,6 +145,7 @@ def _install_context_qa_long_video() -> None:
 
 _install_perception_runtime()
 _install_analyzer_score_guard()
+_install_single_athlete_selection_policy()
 _install_window_policy()
 _install_cut_window_guard()
 _install_narrative_policy()
