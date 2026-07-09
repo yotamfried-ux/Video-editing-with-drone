@@ -9,6 +9,15 @@ from typing import Any
 
 _INSTALLED_FLAG = "_sportreel_context_qa_long_video_installed"
 _QA_WRAPPED = "_sportreel_context_qa_long_video_wrapped_qa"
+_RUNTIME_EVENT_KEYS = {
+    "_src",
+    "source",
+    "qa_gate",
+    "multi_person_clip_gate",
+    "subject_isolation_gate",
+    "identity_gate",
+    "dedup_dropped_duplicates",
+}
 
 
 def _with_src(events_out, local_path: str):
@@ -60,6 +69,67 @@ def _has_subject_gate_defect(events: list[dict[str, Any]]) -> bool:
     return has_multi_person_defect(events) or has_subject_isolation_defect(events)
 
 
+def _strip_runtime_event_keys(event: dict[str, Any]) -> dict[str, Any]:
+    """Remove QA/runtime-only annotations before handing an event back to editor.
+
+    The editor ignores unknown keys today, but keeping render inputs clean prevents
+    future code from accidentally treating a QA verdict as an editing instruction.
+    """
+    return {key: value for key, value in event.items() if key not in _RUNTIME_EVENT_KEYS}
+
+
+def _overlap_ratio(a: dict[str, Any], b: dict[str, Any]) -> float:
+    try:
+        a_start, a_end = float(a.get("start", 0.0)), float(a.get("end", 0.0))
+        b_start, b_end = float(b.get("start", 0.0)), float(b.get("end", 0.0))
+    except (TypeError, ValueError):
+        return 0.0
+    overlap = min(a_end, b_end) - max(a_start, b_start)
+    if overlap <= 0:
+        return 0.0
+    shortest = max(0.1, min(a_end - a_start, b_end - b_start))
+    return overlap / shortest
+
+
+def _dedupe_render_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Keep one source window per physical moment before rendering.
+
+    QA has repeatedly flagged duplicate moments after the editor was handed two
+    long-video windows covering the same ride. Run-level duplicate-draft filtering
+    happens too late for this: the reel is already built and QA has already seen
+    the repeated action. Prefer the highest-score event and keep ordering stable
+    for the renderer.
+    """
+    scored = sorted(
+        enumerate(events),
+        key=lambda item: (float(item[1].get("score", 0) or 0), float(item[1].get("end", 0) or 0) - float(item[1].get("start", 0) or 0)),
+        reverse=True,
+    )
+    keep: list[tuple[int, dict[str, Any]]] = []
+    for original_index, event in scored:
+        if any(_overlap_ratio(event, kept) > 0.35 for _, kept in keep):
+            continue
+        keep.append((original_index, event))
+    return [event for _, event in sorted(keep, key=lambda item: item[0])]
+
+
+def _prepare_events_for_render(events: list[dict[str, Any]], local_path: str, athlete_label: str) -> tuple[list[dict[str, Any]], int, int]:
+    """Reject known QA-blocking windows before render/upload.
+
+    The previous long-video path rendered every Gemini-selected event and only
+    surfaced multi-person/subject-isolation failures after upload. Real runs then
+    produced only QA-blocked drafts. For production, a draft that is already known
+    to violate the single-athlete subject gates should not be uploaded as a normal
+    candidate; it should be skipped or replaced by a clean event.
+    """
+    annotated = _annotate_subject_gates(events or [], local_path, athlete_label)
+    clean = [event for event in annotated if not _has_subject_gate_defect([event])]
+    blocked_count = len(annotated) - len(clean)
+    deduped = _dedupe_render_events(clean)
+    duplicate_count = len(clean) - len(deduped)
+    return [_strip_runtime_event_keys(event) for event in deduped], blocked_count, duplicate_count
+
+
 def _patch_orchestrator(orchestrator: Any) -> None:
     if getattr(orchestrator, _INSTALLED_FLAG, False):
         return
@@ -101,13 +171,21 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             if not person.get("events"):
                 continue
             athlete_label = str(person.get("description", ""))
+            render_events, blocked_count, duplicate_count = _prepare_events_for_render(person.get("events", []), local_path, athlete_label)
+            if blocked_count:
+                print(f"  🧹 Pre-QA skipped {blocked_count} subject-gated event(s) for {athlete_label[:60]}")
+            if duplicate_count:
+                print(f"  🧹 Pre-QA skipped {duplicate_count} duplicate source-window event(s) for {athlete_label[:60]}")
+            if not render_events:
+                print(f"  ⏭️  No clean single-athlete events for {athlete_label[:60]} — no draft uploaded")
+                continue
             events_out: list[tuple[str, list[dict]]] = []
-            reels = orchestrator.create_reel(local_path, person["events"], sport=activity, athlete_label=athlete_label, _events_out=events_out)
+            reels = orchestrator.create_reel(local_path, render_events, sport=activity, athlete_label=athlete_label, _events_out=events_out)
             produced_reels.update(reels or [])
             events_out = [(reel, _annotate_subject_gates(events, local_path, athlete_label)) for reel, events in _with_src(events_out, local_path)]
 
             def _recompile(evs: list[dict], out: list) -> list[str]:
-                cleaned = [{k: v for k, v in ev.items() if k != "_src"} for ev in evs]
+                cleaned = [_strip_runtime_event_keys(event) for event in evs]
                 result = orchestrator.create_reel(local_path, cleaned, sport=activity, athlete_label=athlete_label, _events_out=out)
                 produced_reels.update(result or [])
                 out[:] = [(reel, _annotate_subject_gates(events, local_path, athlete_label)) for reel, events in _with_src(out, local_path)]
@@ -125,7 +203,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                     clean_idx += 1
                 part_label = f" (part {clean_idx})" if clean_count > 1 else ""
                 music_label = " (music)" if is_music else ""
-                raw_events = events_by_reel.get(reel, person["events"])
+                raw_events = events_by_reel.get(reel, render_events)
                 reel_events = _annotate_subject_gates(raw_events, local_path, athlete_label)
                 events_by_reel[reel] = reel_events
                 if _has_subject_gate_defect(reel_events):
