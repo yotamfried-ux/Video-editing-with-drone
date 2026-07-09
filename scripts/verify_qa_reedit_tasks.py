@@ -141,6 +141,9 @@ def _validate_task(blocked_draft: dict[str, Any], task: dict[str, Any] | None) -
     defects = task.get("qa_defects")
     if blocked_draft.get("blocking_defect_count", 0) > 0 and not defects:
         failures.append(f"task for {draft_name!r} has no qa_defects despite blocking QA defects")
+    reasons = task.get("approval_blocked_reasons")
+    if blocked_draft.get("blocking_defect_count", 0) > 0 and not reasons:
+        failures.append(f"task for {draft_name!r} has empty approval_blocked_reasons despite blocking QA defects")
     if task.get("attempt_count") is None:
         failures.append(f"task for {draft_name!r} has null attempt_count")
     if task.get("max_attempts") is None:

@@ -210,9 +210,21 @@ def mark_as_processed(file_id_or_key: str) -> None:
 
 
 def requeue_video(file_id_or_key: str) -> bool:
+    """Reverse of mark_as_processed: move a video processed/ -> raw/.
+
+    The caller (operator "reprocess this reel" flow) passes back the source
+    id recorded in the `drafts` table at draft-creation time, which reflects
+    the object's raw/ key *before* the original run's mark_as_processed moved
+    it to processed/. Unlike Drive file ids, R2 keys encode location, so this
+    must always source from processed/ (mirroring the Drive adapter, which
+    hardcodes PROCESSED_FOLDER_ID -> RAW_FOLDER_ID) rather than trusting
+    whatever prefix happens to be on the passed-in id.
+    """
     try:
-        dest_key = _join(RAW_PREFIX, _basename(file_id_or_key))
-        move_object(file_id_or_key, dest_key)
+        basename = _basename(file_id_or_key)
+        source_key = _join(PROCESSED_PREFIX, basename)
+        dest_key = _join(RAW_PREFIX, basename)
+        move_object(source_key, dest_key)
         return True
     except Exception:
         return False

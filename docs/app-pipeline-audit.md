@@ -271,6 +271,23 @@ Real validation evidence:
 - Run `28938769332` again produced one QA-blocked draft with no QA bypass and no `PGRST204` / `QA re-edit task persistence skipped` log entry, but its artifact still did not include a direct `reprocess_requests` row snapshot.
 - Conclusion: schema/preflight is validated in the real environment, but GAP-012 remains open until the next QA-blocking run contains `qa_reedit_task_verification.json` with `status = pass` and a task row showing `status='qa_blocked'` and `origin='qa_gate'`.
 
+Real validation evidence, round 2 (migration applied):
+
+- `supabase/migrations/20260708_qa_reedit_tasks.sql` was applied to the real Supabase project (`bcndgmymnismbxvdeetc`). Verification SQL confirmed all 6 required columns and both indexes exist.
+- Run `28938769332` ran on `main` at commit `d0c2459941d995532b91fc95c54edff0ec854ca7` (PR #162 merge commit). `Preflight QA re-edit Supabase schema` passed, `run_quality_report.status = pass`, `qa_gate_bypass_rate = 0.0`, one QA-blocked draft, and `run_tracked.log` no longer shows `PGRST204` / schema-cache errors.
+- The blocked draft (`DRAFT_surfer in black patterned shorts on a dark grey lo_20260708.mp4`) got a real `reprocess_requests` row: `status='qa_blocked'`, `origin='qa_gate'`, non-empty `notes`/`qa_defects`, `attempt_count`/`max_attempts` populated — but `approval_blocked_reasons` was an empty array despite 4 real blocking `MULTI_PERSON_CLIP` defects.
+- Root cause: `pipeline/multi_person_clip_gate.py::_merge_qa_gate` builds its own `qa_gate` dict from `defects` without ever setting `approval_blocked_reasons`/`review_required_reasons`, so `upsert_qa_reedit_task` fell back to `[]`. Fixed by deriving reasons from `qa_defects` in `integrations/supabase_uploader.py` (`_reasons_from_defects`) when those keys are absent; covered by `scripts/test_qa_reedit_reason_fallback_contract.py`.
+- Still open: `GET /api/operator/drafts` → Review screen → `POST /api/operator/reprocess` promotion loop has not yet been exercised against a real `qa_blocked` task in the app. GAP-012 stays open until that's confirmed. See `docs/qa-reedit-migration-smoke.md` for the full pass-criteria checklist.
+
+Real validation evidence, round 3 (operator app loop exercised end-to-end):
+
+- Operator app screenshot confirmed the Review screen alert/action for the same draft: "1 draft require QA re-edit" banner, disabled "Approval blocked" button, active "Send QA notes to..." button — `GET /api/operator/drafts` → `reedit_task` → Review UI path confirmed live.
+- Tapping "Send QA notes to re-edit" showed "Sent for re-edit — Pipeline run: 34380090...". Supabase confirmed `POST /api/operator/reprocess` worked exactly as designed: the same `reprocess_requests` row promoted `qa_blocked`→`pending`, `attempt_count` `0`→`1`, `last_pipeline_run_id` set to the new `pipeline_runs.id`, which dispatched GitHub Actions run `28976345305` within 1 second.
+- That run completed `success`, including the new `Verify QA re-edit task persistence` step (from a separate, concurrent session's work merged to `main` in between — see note below) — but its log showed the reprocess request failed to actually requeue the source video: `'DRAFT_surfer in black patterned shorts...': source videos not found — cannot reprocess`, and the run exited with zero drafts processed. The `reprocess_requests` row correctly reached a real terminal state, `status='source_not_found'` (not silent limbo), but the QA gate never re-ran.
+- Root cause: `integrations/r2_storage.py::requeue_video` treated the caller's stale `raw/`-prefixed source id (recorded in the `drafts` table before the original run moved the file to `processed/`) as the object's current location, so its `copy_object` call failed against a key that no longer existed. Unlike Drive file ids, R2 keys encode location, so this bug is specific to `STORAGE_BACKEND=r2` (the project's actual configured backend). Fixed by always sourcing from `processed/<basename>`, mirroring the Drive adapter's fixed `PROCESSED_FOLDER_ID -> RAW_FOLDER_ID` direction. Covered by `scripts/test_r2_requeue_video_contract.py`.
+- Note on concurrent work: while this validation was in progress, a separate session/PR independently landed `scripts/verify_qa_reedit_tasks.py` (an artifact-based verifier for QA-blocked task persistence) on `main`. Its `_validate_task` only checked `qa_defects`, not `approval_blocked_reasons`, so it would not have caught the round-2 bug above; it was extended to also check `approval_blocked_reasons` as part of this validation pass.
+- GAP-012 remains open: criteria 1, 2, 5, 6, 7 in `docs/qa-reedit-migration-smoke.md` are now confirmed with real evidence; criterion 8 (pipeline actually re-queues sources and re-runs QA to a terminal verdict) failed and is fixed but unconfirmed pending a fresh real re-edit run.
+
 Repair loop:
 
 1. Add durable QA task fields to `reprocess_requests`.
@@ -284,6 +301,8 @@ Repair loop:
 9. Keep `scripts/check_qa_reedit_schema.py` in `.github/workflows/pipeline-run.yml` so missing QA re-edit schema fails early instead of silently skipping task persistence.
 10. Keep `scripts/verify_qa_reedit_tasks.py` in `.github/workflows/pipeline-run.yml` so QA-blocked draft persistence is proven from the GitHub Actions artifact instead of manual SQL.
 11. Re-run a real QA-blocking pipeline and verify the Review alert/action plus `POST /api/operator/reprocess` promotion path.
+12. Ensure `requeue_video` (both storage backends) sources from the video's actual current location rather than trusting a possibly-stale caller-supplied id, so a promoted `pending` re-edit request can actually find and reprocess its source video.
+13. Re-run a real re-edit request end-to-end after the `requeue_video` fix and confirm the dispatched pipeline run consumes the `pending` request, re-queues the source, injects notes, and reaches a terminal QA verdict.
 
 ### GAP-009 — Operator API response contracts are duplicated manually in mobile
 
@@ -358,6 +377,7 @@ Repair loop:
 3. Keep future privileged/operator reads behind the operator API boundary.
 4. Re-run the Discover smoke loop when validating GAP-011.
 5. Keep QA-blocked drafts on the persistent re-edit loop until they pass QA or reach manual reject/review after `max_attempts`.
+6. Investigate `Draft upload failed` / `FileNotFoundError` entries seen in real run `28938769332`'s `run_tracked.log`. One draft still uploaded successfully and the run passed quality checks, so this did not block GAP-012 validation, but the underlying upload-path flakiness is unexplained and worth a follow-up look.
 
 ## Next recommended repair order
 

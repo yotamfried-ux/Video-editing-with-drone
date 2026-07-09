@@ -53,6 +53,7 @@ on:
       - 'scripts/test_pipeline_status_stale_contract.py'
       - 'scripts/test_qa_policy_trace_contract.py'
       - 'scripts/test_qa_reedit_loop_contract.py'
+      - 'scripts/test_qa_reedit_reason_fallback_contract.py'
       - 'scripts/test_qa_reedit_schema_preflight_contract.py'
       - 'scripts/test_qa_reedit_task_verifier_contract.py'
       - 'scripts/test_run_quality_report_contract.py'
@@ -162,6 +163,8 @@ jobs:
           PY
       - name: Validate QA re-edit loop contract
         run: python scripts/test_qa_reedit_loop_contract.py
+      - name: Validate QA re-edit reason fallback contract
+        run: python scripts/test_qa_reedit_reason_fallback_contract.py
       - name: Validate QA re-edit schema preflight contract
         run: python scripts/test_qa_reedit_schema_preflight_contract.py
       - name: Validate QA re-edit task verifier contract
