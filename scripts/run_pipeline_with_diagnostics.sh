@@ -8,6 +8,7 @@ LOG_FILE="$DEBUG_DIR/run_tracked.log"
 REEL_METADATA_FILE="${REEL_METADATA_FILE:-reels_metadata.json}"
 DRAFT_TRACE_FILE="$TMP_ROOT/draft_decision_trace.json"
 UPSTREAM_CANDIDATES_FILE="$TMP_ROOT/selector_candidate_events.json"
+SELECTION_FILTER_EVENTS_FILE="$TMP_ROOT/selection_filter_events.json"
 CANDIDATE_LEDGER_FILE="$TMP_ROOT/candidate_decision_ledger.json"
 SELECTION_AUDIT_FILE="$TMP_ROOT/selection_decision_audit.json"
 RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
@@ -28,9 +29,16 @@ if [ -f "$DRAFT_TRACE_FILE" ]; then
     python scripts/build_candidate_decision_ledger.py "$DRAFT_TRACE_FILE" "$CANDIDATE_LEDGER_FILE" || true
   fi
 fi
+if [ -f "$SELECTION_FILTER_EVENTS_FILE" ]; then
+  cp "$SELECTION_FILTER_EVENTS_FILE" "$DEBUG_DIR/selection_filter_events.json" || true
+fi
 if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
   cp "$CANDIDATE_LEDGER_FILE" "$DEBUG_DIR/candidate_decision_ledger.json" || true
-  python scripts/build_selection_decision_audit.py "$CANDIDATE_LEDGER_FILE" "$DRAFT_TRACE_FILE" "$SELECTION_AUDIT_FILE" "$LOG_FILE" || true
+  if [ -f "$SELECTION_FILTER_EVENTS_FILE" ]; then
+    python scripts/build_selection_decision_audit.py "$CANDIDATE_LEDGER_FILE" "$DRAFT_TRACE_FILE" "$SELECTION_AUDIT_FILE" "$LOG_FILE" "$SELECTION_FILTER_EVENTS_FILE" || true
+  else
+    python scripts/build_selection_decision_audit.py "$CANDIDATE_LEDGER_FILE" "$DRAFT_TRACE_FILE" "$SELECTION_AUDIT_FILE" "$LOG_FILE" || true
+  fi
 fi
 if [ -f "$SELECTION_AUDIT_FILE" ]; then
   cp "$SELECTION_AUDIT_FILE" "$DEBUG_DIR/selection_decision_audit.json" || true
