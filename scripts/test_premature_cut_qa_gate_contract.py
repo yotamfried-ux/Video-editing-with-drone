@@ -80,9 +80,19 @@ def validate_runtime_predicate() -> None:
     fake = _fake_orchestrator(captured)
     policy._patch_orchestrator(fake)
     require(fake._qa_blocking(_qa_fail()), "patched orchestrator must block minor PREMATURE_CUT")
+    print("premature-cut runtime predicate ok")
+
+
+def validate_repair_routing() -> None:
+    from pipeline import qa_gate_policy as policy
+
+    captured: dict = {}
+    fake = _fake_orchestrator(captured)
+    policy._patch_orchestrator(fake)
     fake._apply_qa_fixes([{"start": 0.0, "end": 8.0}], [_minor_cut()])
-    require(captured["normalized_defects"][0]["severity"] == "critical", "PREMATURE_CUT must reach the existing repair path")
-    print("premature-cut runtime predicate and repair routing ok")
+    require("normalized_defects" in captured, "patched repair function did not invoke original repair path")
+    require(captured["normalized_defects"][0]["severity"] == "critical", "PREMATURE_CUT must reach the existing repair path as critical")
+    print("premature-cut repair routing ok")
 
 
 def validate_runtime_final_block() -> None:
@@ -243,6 +253,7 @@ def validate_workflow() -> None:
     required_steps = [
         "Validate Premature-cut policy classification",
         "Validate Premature-cut runtime predicate",
+        "Validate Premature-cut repair routing",
         "Validate Premature-cut final block diagnostics",
         "Validate Final nonblocking QA telemetry",
         "Validate QA flagged-upload classification",
@@ -257,6 +268,7 @@ def validate_workflow() -> None:
 VALIDATORS = {
     "policy": validate_policy,
     "runtime-predicate": validate_runtime_predicate,
+    "repair-routing": validate_repair_routing,
     "runtime-final-block": validate_runtime_final_block,
     "runtime-nonblocking": validate_runtime_nonblocking,
     "log-summary": validate_log_summary,
