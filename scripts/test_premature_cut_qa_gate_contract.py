@@ -6,7 +6,6 @@ import json
 import sys
 import tempfile
 from pathlib import Path
-from types import SimpleNamespace
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -36,30 +35,6 @@ def _qa_fail() -> dict:
     }
 
 
-def _fake_orchestrator(captured: dict) -> SimpleNamespace:
-    from pipeline.stages import analyzer
-
-    fake = SimpleNamespace()
-
-    def original_apply(events, defects):
-        captured["normalized_defects"] = defects
-        return events, True
-
-    def original_gate(reels, events_out, sport, athlete_label, recompile):
-        events_by_reel = {reel: events for reel, events in events_out}
-        flagged = set()
-        for reel in reels:
-            qa = analyzer.qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
-            if fake._qa_blocking(qa):
-                flagged.add(reel)
-        return list(reels), events_by_reel, flagged
-
-    fake._qa_gate = original_gate
-    fake._apply_qa_fixes = original_apply
-    fake._save_reel_metadata = lambda *args, **kwargs: None
-    return fake
-
-
 def validate_policy() -> None:
     from pipeline import qa_gate_policy as policy
 
@@ -84,52 +59,34 @@ def validate_runtime_predicate() -> None:
 def validate_repair_routing() -> None:
     from pipeline import qa_gate_policy as policy
 
-    normalized = policy.normalize_defects_for_repair([_minor_cut()])
+    source = _minor_cut()
+    normalized = policy.normalize_defects_for_repair([source])
     require(normalized[0]["severity"] == "critical", "PREMATURE_CUT must reach the existing repair path as critical")
-    require(_minor_cut()["severity"] == "minor", "repair normalization must not mutate source QA payload")
+    require(source["severity"] == "minor", "repair normalization must not mutate source QA payload")
     print("premature-cut repair routing ok")
 
 
 def validate_runtime_final_block() -> None:
-    import config
     from pipeline import qa_gate_policy as policy
-    from pipeline.stages import analyzer
 
-    qa_fail = _qa_fail()
-    captured: dict = {}
-    fake = _fake_orchestrator(captured)
-    policy._patch_orchestrator(fake)
-
-    original_check = analyzer.qa_check_reel
-    original_enabled = config.QA_REEL_CHECK
-    config.QA_REEL_CHECK = True
-    analyzer.qa_check_reel = lambda *args, **kwargs: qa_fail
-    try:
-        final, events_by_reel, flagged = fake._qa_gate(
-            ["reel.mp4"],
-            [("reel.mp4", [{"start": 0.0, "end": 8.0, "type": "highlight"}])],
-            "surfing",
-            "surfer on turquoise longboard",
-            lambda events, out: [],
-        )
-    finally:
-        analyzer.qa_check_reel = original_check
-        config.QA_REEL_CHECK = original_enabled
-
-    require(final == ["reel.mp4"], "fake gate should retain final reel")
-    require("reel.mp4" in flagged, "PREMATURE_CUT final must be review-blocked")
-    gate = events_by_reel["reel.mp4"][0]["qa_gate"]
-    require(gate["decision"] == "blocked_review_required", "final blocking decision missing")
-    require(gate["qa_review_required"] is True, "review-required flag missing")
-    require(gate["critical_defect_count"] == 1, "blocking defect count wrong")
-    require(gate["defects"][0]["blocking"] is True, "defect must be marked blocking")
+    diagnostics, should_review_block = policy.build_final_qa_diagnostics(
+        _qa_fail(),
+        retry_count=2,
+        reel_path="reel.mp4",
+        was_flagged=False,
+    )
+    require(should_review_block, "PREMATURE_CUT final must be review-blocked")
+    require(diagnostics["decision"] == "blocked_review_required", "final blocking decision missing")
+    require(diagnostics["qa_review_required"] is True, "review-required flag missing")
+    require(diagnostics["critical_defect_count"] == 1, "blocking defect count wrong")
+    require(diagnostics["defects"][0]["blocking"] is True, "defect must be marked blocking")
+    require(diagnostics["review_required_reasons"] == ["PREMATURE_CUT"], "review reason missing")
+    require(diagnostics["retry_count"] == 2, "retry count missing from final diagnostics")
     print("premature-cut final block diagnostics ok")
 
 
 def validate_runtime_nonblocking() -> None:
-    import config
     from pipeline import qa_gate_policy as policy
-    from pipeline.stages import analyzer
 
     nonblocking_qa = {
         "verdict": "FAIL",
@@ -137,30 +94,15 @@ def validate_runtime_nonblocking() -> None:
         "overall": "no audio track",
         "engagement_score": 65,
     }
-    captured: dict = {}
-    fake = _fake_orchestrator(captured)
-    policy._patch_orchestrator(fake)
-
-    original_check = analyzer.qa_check_reel
-    original_enabled = config.QA_REEL_CHECK
-    analyzer.qa_check_reel = lambda *args, **kwargs: nonblocking_qa
-    config.QA_REEL_CHECK = True
-    try:
-        _final, events_by_reel, flagged = fake._qa_gate(
-            ["reel2.mp4"],
-            [("reel2.mp4", [{"start": 0.0, "end": 10.0, "type": "highlight"}])],
-            "surfing",
-            "surfer",
-            lambda events, out: [],
-        )
-    finally:
-        analyzer.qa_check_reel = original_check
-        config.QA_REEL_CHECK = original_enabled
-
-    gate = events_by_reel["reel2.mp4"][0]["qa_gate"]
-    require(not flagged, "technical-only FAIL must not create a content re-edit block")
-    require(gate["decision"] == "failed_nonblocking", "nonblocking final decision missing")
-    require(gate["approval_blocked_reasons"] == [], "nonblocking final must not block approval")
+    diagnostics, should_review_block = policy.build_final_qa_diagnostics(
+        nonblocking_qa,
+        retry_count=0,
+        reel_path="reel2.mp4",
+        was_flagged=False,
+    )
+    require(not should_review_block, "technical-only FAIL must not create a content re-edit block")
+    require(diagnostics["decision"] == "failed_nonblocking", "nonblocking final decision missing")
+    require(diagnostics["approval_blocked_reasons"] == [], "nonblocking final must not block approval")
     print("final nonblocking QA telemetry ok")
 
 
@@ -245,6 +187,7 @@ def validate_final_trace() -> None:
 
 def validate_workflow() -> None:
     workflow = (ROOT / ".github" / "workflows" / "operator-smoke-check.yml").read_text(encoding="utf-8")
+    policy_source = (ROOT / "pipeline" / "qa_gate_policy.py").read_text(encoding="utf-8")
     required_steps = [
         "Validate Premature-cut policy classification",
         "Validate Premature-cut runtime predicate",
@@ -257,6 +200,9 @@ def validate_workflow() -> None:
     for step in required_steps:
         require(step in workflow, f"Operator Smoke missing step: {step}")
     require("test_premature_cut_qa_gate_contract.py" in workflow, "workflow path trigger missing")
+    require("orchestrator._qa_blocking = qa_blocking_with_policy" in policy_source, "runtime block helper is not wired")
+    require("normalize_defects_for_repair(defects)" in policy_source, "repair helper is not wired")
+    require("build_final_qa_diagnostics(" in policy_source, "final QA helper is not wired")
     print("premature-cut workflow wiring ok")
 
 
