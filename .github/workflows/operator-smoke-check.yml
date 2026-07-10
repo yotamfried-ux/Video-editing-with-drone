@@ -206,8 +206,12 @@ jobs:
         run: python scripts/test_premature_cut_qa_gate_contract.py repair-routing
       - name: Validate Premature-cut final block diagnostics
         run: python scripts/test_premature_cut_qa_gate_contract.py runtime-final-block
+      - name: Validate Visual-family QA propagation
+        run: python scripts/test_premature_cut_qa_gate_contract.py visual-family
       - name: Validate Final nonblocking QA telemetry
         run: python scripts/test_premature_cut_qa_gate_contract.py runtime-nonblocking
+      - name: Validate Draft trace decision precedence
+        run: python scripts/test_premature_cut_qa_gate_contract.py trace-precedence
       - name: Validate QA flagged-upload classification
         run: python scripts/test_premature_cut_qa_gate_contract.py log-summary
       - name: Validate Final QA trace reconciliation
