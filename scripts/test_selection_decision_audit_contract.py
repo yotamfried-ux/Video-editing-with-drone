@@ -2,11 +2,19 @@
 """Contract for selection decision telemetry."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import tempfile
 from pathlib import Path
 
-from scripts.build_selection_decision_audit import build_audit
+ROOT = Path(__file__).resolve().parents[1]
+BUILDER_PATH = ROOT / "scripts" / "build_selection_decision_audit.py"
+spec = importlib.util.spec_from_file_location("build_selection_decision_audit", BUILDER_PATH)
+if spec is None or spec.loader is None:
+    raise RuntimeError(f"Could not load {BUILDER_PATH}")
+module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(module)
+build_audit = module.build_audit
 
 
 def assert_true(condition: bool, message: str) -> None:
@@ -115,7 +123,8 @@ def main() -> None:
         assert_true(draft["related_unselected_candidate_count"] >= 1, "draft should show related unselected candidates")
         assert_true(draft["possible_identity_fragmentation_count"] >= 1, "similar same-board candidate should be flagged")
 
-    pipeline_script = Path("scripts/run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
+    pipeline_script = (ROOT / "scripts" / "run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
+    workflow = (ROOT / ".github" / "workflows" / "operator-smoke-check.yml").read_text(encoding="utf-8")
     for token in [
         "SELECTION_AUDIT_FILE",
         "build_selection_decision_audit.py",
@@ -123,6 +132,7 @@ def main() -> None:
         "append_selection_decision_audit_summary_to_report.py",
     ]:
         assert_true(token in pipeline_script, f"diagnostics runner missing {token}")
+    assert_true("Validate Selection decision audit contract" in workflow, "workflow must run selection audit contract")
 
     print("selection decision audit contract ok")
 
