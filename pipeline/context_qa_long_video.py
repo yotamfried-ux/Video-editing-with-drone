@@ -1,6 +1,8 @@
 """Context QA for long-video person drafts."""
 from __future__ import annotations
 
+from collections import Counter
+import json
 import os
 import shutil
 import sys
@@ -9,6 +11,7 @@ from typing import Any
 
 _INSTALLED_FLAG = "_sportreel_context_qa_long_video_installed"
 _QA_WRAPPED = "_sportreel_context_qa_long_video_wrapped_qa"
+_FILTER_TRACE_FILE = "selection_filter_events.json"
 _RUNTIME_EVENT_KEYS = {
     "_src",
     "source",
@@ -78,6 +81,143 @@ def _strip_runtime_event_keys(event: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in event.items() if key not in _RUNTIME_EVENT_KEYS}
 
 
+def _event_key(event: dict[str, Any]) -> tuple[float | None, float | None, str, str]:
+    def _num(value: Any) -> float | None:
+        try:
+            return round(float(value), 2)
+        except (TypeError, ValueError):
+            return None
+
+    return (
+        _num(event.get("start")),
+        _num(event.get("end")),
+        str(event.get("type") or event.get("event_type") or ""),
+        str(event.get("description") or "")[:160],
+    )
+
+
+def _event_window(event: dict[str, Any]) -> dict[str, Any]:
+    start = event.get("start")
+    end = event.get("end")
+    try:
+        duration = round(float(end) - float(start), 2)
+    except (TypeError, ValueError):
+        duration = event.get("duration")
+    return {"start": start, "end": end, "duration": duration}
+
+
+def _gate_reason_codes(event: dict[str, Any]) -> list[str]:
+    codes: list[str] = []
+    multi_gate = event.get("multi_person_clip_gate")
+    subject_gate = event.get("subject_isolation_gate")
+    if isinstance(multi_gate, dict):
+        defects = multi_gate.get("defects")
+        if defects:
+            codes.append("MULTI_PERSON_CLIP")
+        decision = str(multi_gate.get("decision") or "").lower()
+        if decision in {"blocked", "fail", "failed"} and "MULTI_PERSON_CLIP" not in codes:
+            codes.append("MULTI_PERSON_CLIP")
+    if isinstance(subject_gate, dict):
+        defects = subject_gate.get("defects")
+        if defects:
+            codes.append("SUBJECT_ISOLATION")
+        decision = str(subject_gate.get("decision") or "").lower()
+        if decision in {"blocked", "fail", "failed"} and "SUBJECT_ISOLATION" not in codes:
+            codes.append("SUBJECT_ISOLATION")
+    if not codes and _has_subject_gate_defect([event]):
+        codes.append("SUBJECT_GATE")
+    return codes
+
+
+def _read_filter_trace(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"schema_version": "sportreel.selection_filter_events.v1", "records": []}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {"schema_version": "sportreel.selection_filter_events.v1", "records": []}
+    if not isinstance(payload, dict):
+        return {"schema_version": "sportreel.selection_filter_events.v1", "records": []}
+    records = payload.get("records")
+    if not isinstance(records, list):
+        payload["records"] = []
+    payload.setdefault("schema_version", "sportreel.selection_filter_events.v1")
+    return payload
+
+
+def _append_filter_trace(
+    *,
+    local_path: str,
+    athlete_label: str,
+    annotated: list[dict[str, Any]],
+    deduped: list[dict[str, Any]],
+) -> None:
+    """Persist event-level pre-render decisions for later selection audit.
+
+    Logs alone only say that N events were skipped for a person, which is not
+    enough to explain why a particular wave at 11.5–38.0 was not used. This trace
+    records every annotated event before render and the exact pre-render decision
+    that happened to it.
+    """
+    try:
+        import config
+    except Exception:
+        return
+
+    path = Path(config.TMP_DIR) / _FILTER_TRACE_FILE
+    payload = _read_filter_trace(path)
+    records = [item for item in payload.get("records", []) if isinstance(item, dict)]
+
+    remaining_passes = Counter(_event_key(event) for event in deduped)
+    for event in annotated:
+        key = _event_key(event)
+        subject_blocked = _has_subject_gate_defect([event])
+        gate_codes = _gate_reason_codes(event) if subject_blocked else []
+        if subject_blocked:
+            selected_for_render = False
+            discarded = True
+            discard_stage = "long_video_pre_qa_prefilter"
+            discard_cause = "subject_gated_by_pre_qa_prefilter"
+        elif remaining_passes[key] > 0:
+            remaining_passes[key] -= 1
+            selected_for_render = True
+            discarded = False
+            discard_stage = None
+            discard_cause = None
+        else:
+            selected_for_render = False
+            discarded = True
+            discard_stage = "long_video_pre_qa_prefilter"
+            discard_cause = "duplicate_source_window_before_render"
+            gate_codes = ["DUPLICATE_SOURCE_WINDOW"]
+
+        records.append({
+            "source_video": Path(local_path).name,
+            "source_path": local_path,
+            "person_description": athlete_label,
+            "event_type": str(event.get("type") or event.get("event_type") or ""),
+            "score": event.get("score"),
+            "source_window": _event_window(event),
+            "description": event.get("description", ""),
+            "selected_for_render": selected_for_render,
+            "discarded": discarded,
+            "discard_stage": discard_stage,
+            "discard_cause": discard_cause,
+            "reason_codes": gate_codes,
+            "subject_isolation_gate": event.get("subject_isolation_gate"),
+            "multi_person_clip_gate": event.get("multi_person_clip_gate"),
+        })
+
+    payload["records"] = records
+    payload["record_count"] = len(records)
+    payload["selected_for_render_count"] = sum(1 for item in records if item.get("selected_for_render"))
+    payload["discarded_count"] = sum(1 for item in records if item.get("discarded"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
 def _overlap_ratio(a: dict[str, Any], b: dict[str, Any]) -> float:
     try:
         a_start, a_end = float(a.get("start", 0.0)), float(a.get("end", 0.0))
@@ -127,6 +267,7 @@ def _prepare_events_for_render(events: list[dict[str, Any]], local_path: str, at
     blocked_count = len(annotated) - len(clean)
     deduped = _dedupe_render_events(clean)
     duplicate_count = len(clean) - len(deduped)
+    _append_filter_trace(local_path=local_path, athlete_label=athlete_label, annotated=annotated, deduped=deduped)
     return [_strip_runtime_event_keys(event) for event in deduped], blocked_count, duplicate_count
 
 
