@@ -43,6 +43,8 @@ def main() -> int:
     report["selection_audit_discard_stage_counts"] = summary.get("discard_stage_counts", {})
     report["selection_audit_discard_cause_counts"] = summary.get("discard_cause_counts", {})
     report["selection_audit_possible_identity_fragmentation_count"] = summary.get("possible_identity_fragmentation_count", 0)
+    report["selection_filter_record_count"] = summary.get("selection_filter_record_count", 0)
+    report["selection_audit_event_level_reason_count"] = summary.get("event_level_reason_count", 0)
     report["selection_reason_coverage"] = summary.get("selection_reason_coverage")
     _write(report_path, report)
     print("selection audit summary appended")
