@@ -104,6 +104,18 @@ def _window(candidate: dict[str, Any]) -> dict[str, Any]:
     return {"start": start, "end": end, "duration": duration}
 
 
+def _window_match(a: dict[str, Any], b: dict[str, Any], tolerance: float = 0.35) -> bool:
+    wa = _window(a)
+    wb = _window(b)
+    if wa["start"] is None or wa["end"] is None or wb["start"] is None or wb["end"] is None:
+        return False
+    if abs(wa["start"] - wb["start"]) > tolerance or abs(wa["end"] - wb["end"]) > tolerance:
+        return False
+    a_type = str(a.get("event_type") or "")
+    b_type = str(b.get("event_type") or "")
+    return not a_type or not b_type or a_type == b_type
+
+
 def _time_gap_seconds(a: dict[str, Any], b: dict[str, Any]) -> float | None:
     wa = _window(a)
     wb = _window(b)
@@ -144,6 +156,38 @@ def _parse_pre_qa_log(log_path: Path | None) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _filter_records(filter_trace_path: Path | None) -> list[dict[str, Any]]:
+    payload = _read_json(filter_trace_path)
+    return [record for record in payload.get("records", []) if isinstance(record, dict)]
+
+
+def _find_filter_record(candidate: dict[str, Any], filter_records: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find event-level pre-render decision for a candidate.
+
+    Prefer exact person/window matches, then window-only matches. Window-only is
+    important for the uploaded draft row, which can lose person/source metadata in
+    draft_decision_trace while still having the same physical source window.
+    """
+    best: tuple[float, dict[str, Any]] | None = None
+    candidate_desc = candidate.get("person_description") or ""
+    candidate_source = str(candidate.get("source_video") or "")
+    for record in filter_records:
+        if not _window_match(candidate, record):
+            continue
+        record_source = str(record.get("source_video") or "")
+        if candidate_source and record_source and candidate_source != record_source:
+            continue
+        score = 1.0
+        record_desc = record.get("person_description") or ""
+        if candidate_desc and record_desc:
+            score += _similarity(candidate_desc, record_desc)
+        if str(candidate.get("description") or "") and str(record.get("description") or ""):
+            score += _similarity(candidate.get("description"), record.get("description")) * 0.5
+        if best is None or score > best[0]:
+            best = (score, record)
+    return best[1] if best else None
+
+
 def _find_prefilter_evidence(candidate: dict[str, Any], preqa: dict[str, dict[str, Any]]) -> dict[str, Any] | None:
     desc = str(candidate.get("person_description") or "").strip()
     if desc in preqa:
@@ -151,11 +195,11 @@ def _find_prefilter_evidence(candidate: dict[str, Any], preqa: dict[str, dict[st
     best_desc = ""
     best_score = 0.0
     for logged_desc in preqa:
-        score = _similarity(desc, logged_desc)
+        score = max(_similarity(desc, logged_desc), _prefix_similarity(desc, logged_desc))
         if score > best_score:
             best_score = score
             best_desc = logged_desc
-    if best_score >= 0.72:
+    if best_score >= 0.60:
         evidence = dict(preqa[best_desc])
         evidence["matched_logged_person_description"] = best_desc
         evidence["person_description_similarity"] = best_score
@@ -163,9 +207,31 @@ def _find_prefilter_evidence(candidate: dict[str, Any], preqa: dict[str, dict[st
     return None
 
 
-def _candidate_stage_and_reason(candidate: dict[str, Any], preqa: dict[str, dict[str, Any]]) -> tuple[str, str, dict[str, Any]]:
+def _prefix_similarity(a: Any, b: Any) -> float:
+    """Similarity tolerant of log labels truncated at 60 chars."""
+    a_text = str(a or "").lower().strip()
+    b_text = str(b or "").lower().strip()
+    if not a_text or not b_text:
+        return 0.0
+    shorter, longer = sorted([a_text, b_text], key=len)
+    if longer.startswith(shorter):
+        return round(len(shorter) / max(len(longer), 1), 3)
+    return 0.0
+
+
+def _candidate_stage_and_reason(
+    candidate: dict[str, Any],
+    preqa: dict[str, dict[str, Any]],
+    filter_records: list[dict[str, Any]],
+) -> tuple[str, str, dict[str, Any]]:
     evidence: dict[str, Any] = {}
+    filter_record = _find_filter_record(candidate, filter_records)
+    if filter_record:
+        evidence["selection_filter_event"] = filter_record
+
     if candidate.get("selected"):
+        if filter_record and filter_record.get("selected_for_render"):
+            return "uploaded_draft", "prefilter_passed_and_uploaded", evidence
         return "uploaded_draft", "selected_for_uploaded_draft", evidence
 
     raw_cause = str(candidate.get("discard_cause") or "")
@@ -174,10 +240,18 @@ def _candidate_stage_and_reason(candidate: dict[str, Any], preqa: dict[str, dict
         evidence["description_shared_window_terms"] = shared_flags
 
     if raw_cause == "selected_by_selector_not_emitted_as_draft":
+        if filter_record and filter_record.get("discarded"):
+            return (
+                str(filter_record.get("discard_stage") or "long_video_pre_qa_prefilter"),
+                str(filter_record.get("discard_cause") or "prefilter_discarded"),
+                evidence,
+            )
+        if filter_record and filter_record.get("selected_for_render"):
+            return "render_or_upload_not_emitted_after_prefilter", "prefilter_passed_but_no_uploaded_draft", evidence
         preqa_evidence = _find_prefilter_evidence(candidate, preqa)
         if preqa_evidence:
-            evidence["pre_qa_prefilter"] = preqa_evidence
-            return "long_video_pre_qa_prefilter", "subject_gated_by_pre_qa_prefilter", evidence
+            evidence["pre_qa_prefilter_log_fallback"] = preqa_evidence
+            return "long_video_pre_qa_prefilter", "subject_gated_by_pre_qa_prefilter_log_fallback", evidence
         if shared_flags:
             return "single_athlete_selection_policy", "shared_or_obstructed_window", evidence
         return "post_selector_not_emitted", "selected_by_selector_not_emitted_as_draft", evidence
@@ -188,6 +262,32 @@ def _candidate_stage_and_reason(candidate: dict[str, Any], preqa: dict[str, dict
     if raw_cause:
         return "unknown_pipeline_stage", raw_cause, evidence
     return "unknown_pipeline_stage", "missing_discard_cause", evidence
+
+
+def _decision_path(row: dict[str, Any]) -> list[str]:
+    if row.get("selected"):
+        path = ["analyzer_selected"]
+        if row.get("evidence", {}).get("selection_filter_event"):
+            path.append("prefilter_passed")
+        path.append("draft_uploaded")
+        return path
+
+    stage = row.get("discard_stage")
+    cause = row.get("discard_cause_detailed")
+    path = ["analyzer_selected"]
+    if stage == "selector":
+        return ["selector", str(cause)]
+    if stage == "long_video_pre_qa_prefilter":
+        path.extend(["prefilter_failed", str(cause)])
+    elif stage == "single_athlete_selection_policy":
+        path.extend(["selection_policy_rejected", str(cause)])
+    elif stage == "render_or_upload_not_emitted_after_prefilter":
+        path.extend(["prefilter_passed", "render_or_upload_not_emitted", str(cause)])
+    elif stage == "post_selector_not_emitted":
+        path.extend(["prefilter_unknown", "not_emitted", str(cause)])
+    else:
+        path.extend(["stage_unknown", str(cause)])
+    return path
 
 
 def _candidate_ref(candidate: dict[str, Any]) -> dict[str, Any]:
@@ -206,10 +306,14 @@ def _candidate_ref(candidate: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _enrich_candidates(candidates: list[dict[str, Any]], preqa: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _enrich_candidates(
+    candidates: list[dict[str, Any]],
+    preqa: dict[str, dict[str, Any]],
+    filter_records: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
     enriched: list[dict[str, Any]] = []
     for candidate in candidates:
-        stage, reason, evidence = _candidate_stage_and_reason(candidate, preqa)
+        stage, reason, evidence = _candidate_stage_and_reason(candidate, preqa, filter_records)
         row = _candidate_ref(candidate)
         row.update({
             "discard_stage": stage if row["discarded"] else None,
@@ -218,6 +322,7 @@ def _enrich_candidates(candidates: list[dict[str, Any]], preqa: dict[str, dict[s
             "selection_reason_detailed": reason if row["selected"] else None,
             "evidence": evidence,
         })
+        row["decision_path"] = _decision_path(row)
         enriched.append(row)
     return enriched
 
@@ -311,17 +416,29 @@ def _draft_audits(trace: dict[str, Any], enriched: list[dict[str, Any]]) -> list
     return out
 
 
-def build_audit(ledger_path: Path, trace_path: Path, log_path: Path | None = None) -> dict[str, Any]:
+def build_audit(
+    ledger_path: Path,
+    trace_path: Path,
+    log_path: Path | None = None,
+    filter_trace_path: Path | None = None,
+) -> dict[str, Any]:
     ledger = _read_json(ledger_path)
     trace = _read_json(trace_path)
+    filter_trace = _read_json(filter_trace_path)
+    filter_records = _filter_records(filter_trace_path)
     preqa = _parse_pre_qa_log(log_path)
     raw_candidates = [item for item in ledger.get("candidates", []) if isinstance(item, dict)]
-    enriched = _enrich_candidates(raw_candidates, preqa)
+    enriched = _enrich_candidates(raw_candidates, preqa, filter_records)
     draft_audits = _draft_audits(trace, enriched)
     discard_stage_counts = Counter(row.get("discard_stage") for row in enriched if row.get("discarded"))
     discard_cause_counts = Counter(row.get("discard_cause_detailed") for row in enriched if row.get("discarded"))
     possible_identity_fragmentation_count = sum(
         draft.get("possible_identity_fragmentation_count", 0) for draft in draft_audits
+    )
+    event_level_reason_count = sum(
+        1
+        for row in enriched
+        if row.get("evidence", {}).get("selection_filter_event")
     )
     return {
         "schema_version": SCHEMA_VERSION,
@@ -331,6 +448,8 @@ def build_audit(ledger_path: Path, trace_path: Path, log_path: Path | None = Non
             "draft_decision_trace_path": str(trace_path),
             "draft_decision_trace_schema_version": trace.get("schema_version"),
             "log_path": str(log_path) if log_path else None,
+            "selection_filter_events_path": str(filter_trace_path) if filter_trace_path else None,
+            "selection_filter_events_schema_version": filter_trace.get("schema_version"),
         },
         "summary": {
             "candidate_count": len(enriched),
@@ -340,7 +459,9 @@ def build_audit(ledger_path: Path, trace_path: Path, log_path: Path | None = Non
             "discard_cause_counts": dict(discard_cause_counts),
             "draft_count": len(draft_audits),
             "possible_identity_fragmentation_count": possible_identity_fragmentation_count,
-            "selection_reason_coverage": "stage_and_reason_per_candidate" if enriched else "no_candidates",
+            "selection_filter_record_count": len(filter_records),
+            "event_level_reason_count": event_level_reason_count,
+            "selection_reason_coverage": "event_level_stage_and_reason_per_candidate" if event_level_reason_count else ("stage_and_reason_per_candidate" if enriched else "no_candidates"),
         },
         "drafts": draft_audits,
         "persons": _person_summary(enriched),
@@ -349,14 +470,18 @@ def build_audit(ledger_path: Path, trace_path: Path, log_path: Path | None = Non
 
 
 def main() -> int:
-    if len(sys.argv) not in {4, 5}:
-        print("usage: build_selection_decision_audit.py CANDIDATE_LEDGER_JSON DRAFT_DECISION_TRACE_JSON OUTPUT_JSON [RUN_LOG]", file=sys.stderr)
+    if len(sys.argv) not in {4, 5, 6}:
+        print(
+            "usage: build_selection_decision_audit.py CANDIDATE_LEDGER_JSON DRAFT_DECISION_TRACE_JSON OUTPUT_JSON [RUN_LOG] [SELECTION_FILTER_EVENTS_JSON]",
+            file=sys.stderr,
+        )
         return 2
     ledger_path = Path(sys.argv[1])
     trace_path = Path(sys.argv[2])
     output_path = Path(sys.argv[3])
-    log_path = Path(sys.argv[4]) if len(sys.argv) == 5 else None
-    audit = build_audit(ledger_path, trace_path, log_path)
+    log_path = Path(sys.argv[4]) if len(sys.argv) >= 5 else None
+    filter_trace_path = Path(sys.argv[5]) if len(sys.argv) == 6 else None
+    audit = build_audit(ledger_path, trace_path, log_path, filter_trace_path)
     _write_json(output_path, audit)
     summary = audit["summary"]
     print(
@@ -364,6 +489,7 @@ def main() -> int:
         f"candidates={summary['candidate_count']} "
         f"selected={summary['selected_count']} "
         f"discarded={summary['discarded_count']} "
+        f"event_level_reasons={summary['event_level_reason_count']} "
         f"identity_fragmentation={summary['possible_identity_fragmentation_count']}"
     )
     return 0
