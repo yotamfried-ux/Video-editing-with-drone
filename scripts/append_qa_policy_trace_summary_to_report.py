@@ -135,8 +135,14 @@ def _final_drafts_policy_explicit(drafts: list[dict[str, Any]], metrics: dict[st
         return False
     for draft in drafts:
         qa_gate = _qa_gate(draft)
-        if str(qa_gate.get("decision") or "") not in _EXPLICIT_FINAL_DECISIONS:
-            return False
+        decision = str(qa_gate.get("decision") or "")
+        if decision in _EXPLICIT_FINAL_DECISIONS:
+            continue
+        # Backward-compatible explicit block: older traces predate the decision
+        # field but still contain a durable qa_review_required/critical gate.
+        if qa_gate and _review_blocked(draft) and (qa_gate.get("qa_review_required") or _critical_defects(qa_gate)):
+            continue
+        return False
     return True
 
 
