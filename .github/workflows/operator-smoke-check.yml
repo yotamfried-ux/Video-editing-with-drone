@@ -200,8 +200,10 @@ jobs:
         run: python scripts/test_qa_policy_trace_contract.py
       - name: Validate Premature-cut policy classification
         run: python scripts/test_premature_cut_qa_gate_contract.py policy
-      - name: Validate Premature-cut runtime blocking
-        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-blocking
+      - name: Validate Premature-cut runtime predicate
+        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-predicate
+      - name: Validate Premature-cut final block diagnostics
+        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-final-block
       - name: Validate Final nonblocking QA telemetry
         run: python scripts/test_premature_cut_qa_gate_contract.py runtime-nonblocking
       - name: Validate QA flagged-upload classification
