@@ -9,6 +9,7 @@ REEL_METADATA_FILE="${REEL_METADATA_FILE:-reels_metadata.json}"
 DRAFT_TRACE_FILE="$TMP_ROOT/draft_decision_trace.json"
 UPSTREAM_CANDIDATES_FILE="$TMP_ROOT/selector_candidate_events.json"
 CANDIDATE_LEDGER_FILE="$TMP_ROOT/candidate_decision_ledger.json"
+SELECTION_AUDIT_FILE="$TMP_ROOT/selection_decision_audit.json"
 RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
 
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
@@ -29,6 +30,10 @@ if [ -f "$DRAFT_TRACE_FILE" ]; then
 fi
 if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
   cp "$CANDIDATE_LEDGER_FILE" "$DEBUG_DIR/candidate_decision_ledger.json" || true
+  python scripts/build_selection_decision_audit.py "$CANDIDATE_LEDGER_FILE" "$DRAFT_TRACE_FILE" "$SELECTION_AUDIT_FILE" "$LOG_FILE" || true
+fi
+if [ -f "$SELECTION_AUDIT_FILE" ]; then
+  cp "$SELECTION_AUDIT_FILE" "$DEBUG_DIR/selection_decision_audit.json" || true
 fi
 
 python - "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" <<'PY'
@@ -72,6 +77,9 @@ python scripts/generate_run_quality_report.py "$DEBUG_DIR" "$TMP_ROOT" "$STATUS"
 python scripts/append_pairwise_source_window_overlap_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
 if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
   python scripts/append_candidate_ledger_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$CANDIDATE_LEDGER_FILE" || true
+fi
+if [ -f "$SELECTION_AUDIT_FILE" ]; then
+  python scripts/append_selection_decision_audit_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$SELECTION_AUDIT_FILE" || true
 fi
 python scripts/append_qa_gate_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$LOG_FILE" || true
 python scripts/append_qa_policy_trace_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
