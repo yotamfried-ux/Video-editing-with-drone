@@ -43,6 +43,29 @@ def critical_defects(qa: dict[str, Any]) -> list[dict[str, Any]]:
     return [defect for defect in qa.get("defects", []) or [] if is_critical_defect(defect)]
 
 
+def qa_blocking_with_policy(qa: dict[str, Any]) -> bool:
+    """Execution gate shared by runtime wiring and deterministic tests."""
+    if qa.get("verdict") != "FAIL":
+        return False
+    return bool(critical_defects(qa))
+
+
+def normalize_defects_for_repair(defects: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Promote always-blocking cut defects into the existing repair path.
+
+    The orchestrator historically ignored non-critical defects before reaching its
+    PREMATURE_CUT handler. The LLM may label an abrupt cut as minor, but product
+    policy requires a repair attempt or an explicit review block.
+    """
+    normalized: list[dict[str, Any]] = []
+    for defect in defects or []:
+        item = dict(defect)
+        if defect_type(item) in ALWAYS_BLOCKING_DEFECT_TYPES:
+            item["severity"] = "critical"
+        normalized.append(item)
+    return normalized
+
+
 def review_required_reason_codes(qa: dict[str, Any]) -> list[str]:
     codes: list[str] = []
     for defect in critical_defects(qa):
@@ -148,22 +171,8 @@ def _patch_orchestrator(orchestrator: Any) -> None:
     original_apply_qa_fixes = orchestrator._apply_qa_fixes
     original_save_metadata = orchestrator._save_reel_metadata
 
-    def qa_blocking_with_policy(qa: dict[str, Any]) -> bool:
-        if qa.get("verdict") != "FAIL":
-            return False
-        return bool(critical_defects(qa))
-
     def apply_qa_fixes_with_policy(ordered_events: list[dict], defects: list[dict]):
-        # orchestrator._apply_qa_fixes historically ignored every non-critical
-        # defect before reaching the PREMATURE_CUT handler. Normalize defects that
-        # are always blocking so the existing +3s repair path actually runs.
-        normalized: list[dict] = []
-        for defect in defects or []:
-            item = dict(defect)
-            if defect_type(item) in ALWAYS_BLOCKING_DEFECT_TYPES:
-                item["severity"] = "critical"
-            normalized.append(item)
-        return original_apply_qa_fixes(ordered_events, normalized)
+        return original_apply_qa_fixes(ordered_events, normalize_defects_for_repair(defects))
 
     # original_qa_gate resolves these names from the orchestrator module at call
     # time, so replacing the module globals aligns execution with report policy.
@@ -213,8 +222,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 }
                 flagged_set.add(reel)
 
-            blocking = bool(critical_defects(qa))
-            if blocking:
+            if critical_defects(qa):
                 flagged_set.add(reel)
 
             if reel in flagged_set:
