@@ -85,6 +85,48 @@ def validate_runtime_final_block() -> None:
     print("premature-cut final block diagnostics ok")
 
 
+def validate_visual_family() -> None:
+    from pipeline import qa_gate_policy as policy
+
+    clean = "/tmp/REEL_wave.mp4"
+    music = "/tmp/REEL_wave_music.mp4"
+    other = "/tmp/REEL_other.mp4"
+    final_reels = [clean, music, other]
+    events_by_reel = {
+        clean: [{"event_id": "clean", "start": 0.0, "end": 8.0}],
+        music: [{"event_id": "music", "start": 0.0, "end": 8.0}],
+        other: [{"event_id": "other", "start": 20.0, "end": 30.0}],
+    }
+    flagged: set[str] = set()
+
+    diagnostics, blocked = policy.apply_final_qa_to_visual_family(
+        final_reels,
+        events_by_reel,
+        flagged,
+        clean,
+        _qa_fail(),
+        retry_count=2,
+    )
+    require(blocked, "blocking clean reel must block its visual family")
+    require(clean in flagged, "clean reel must be flagged")
+    require(music in flagged, "music sibling with identical visuals must be flagged")
+    require(other not in flagged, "unrelated reel must not inherit the QA block")
+    require(events_by_reel[clean][0]["qa_gate"]["decision"] == "blocked_review_required", "clean diagnostics missing")
+    require(events_by_reel[music][0]["qa_gate"]["decision"] == "blocked_review_required", "music sibling diagnostics missing")
+    require(events_by_reel[music][0]["event_id"] == "music", "music sibling events must be preserved")
+    require(diagnostics["retry_count"] == 2, "family diagnostics must preserve per-reel retry count")
+
+    counts = {
+        policy.visual_family_key(clean): 3,
+        policy.visual_family_key(other): 1,
+    }
+    require(policy.visual_family_key(clean) == policy.visual_family_key(music), "clean/music siblings must share a visual family key")
+    require(policy.retry_count_for_reel(counts, clean) == 2, "clean reel retry count should be local to its family")
+    require(policy.retry_count_for_reel(counts, music) == 2, "music sibling should inherit its visual family's retry count")
+    require(policy.retry_count_for_reel(counts, other) == 0, "one reel's retries must not contaminate another reel")
+    print("visual-family QA propagation and per-reel retry accounting ok")
+
+
 def validate_runtime_nonblocking() -> None:
     from pipeline import qa_gate_policy as policy
 
@@ -104,6 +146,34 @@ def validate_runtime_nonblocking() -> None:
     require(diagnostics["decision"] == "failed_nonblocking", "nonblocking final decision missing")
     require(diagnostics["approval_blocked_reasons"] == [], "nonblocking final must not block approval")
     print("final nonblocking QA telemetry ok")
+
+
+def validate_trace_precedence() -> None:
+    from scripts.build_draft_decision_trace import _qa_status
+
+    failed_nonblocking = {
+        "decision": "failed_nonblocking",
+        "final_verdict": "FAIL",
+        "qa_review_required": False,
+        "review_required_reasons": [],
+        "approval_blocked_reasons": [],
+        "defects": [],
+    }
+    status, reasons = _qa_status("DRAFT_clean.mp4", {}, failed_nonblocking)
+    require(status == "not_required", "failed_nonblocking must not be converted back to review_required")
+    require(reasons == [], "failed_nonblocking must not emit review reasons")
+
+    blocked = {
+        "decision": "blocked_review_required",
+        "final_verdict": "FAIL",
+        "qa_review_required": True,
+        "review_required_reasons": ["PREMATURE_CUT"],
+        "defects": [{"type": "PREMATURE_CUT", "severity": "minor", "blocking": True}],
+    }
+    status, reasons = _qa_status("DRAFT_blocked.mp4", {}, blocked)
+    require(status == "review_required", "explicit blocked decision must remain review_required")
+    require(reasons == ["PREMATURE_CUT"], "explicit blocked reason must be retained")
+    print("draft trace final-decision precedence ok")
 
 
 def validate_log_summary() -> None:
@@ -188,12 +258,15 @@ def validate_final_trace() -> None:
 def validate_workflow() -> None:
     workflow = (ROOT / ".github" / "workflows" / "operator-smoke-check.yml").read_text(encoding="utf-8")
     policy_source = (ROOT / "pipeline" / "qa_gate_policy.py").read_text(encoding="utf-8")
+    trace_source = (ROOT / "scripts" / "build_draft_decision_trace.py").read_text(encoding="utf-8")
     required_steps = [
         "Validate Premature-cut policy classification",
         "Validate Premature-cut runtime predicate",
         "Validate Premature-cut repair routing",
         "Validate Premature-cut final block diagnostics",
+        "Validate Visual-family QA propagation",
         "Validate Final nonblocking QA telemetry",
+        "Validate Draft trace decision precedence",
         "Validate QA flagged-upload classification",
         "Validate Final QA trace reconciliation",
     ]
@@ -202,7 +275,9 @@ def validate_workflow() -> None:
     require("test_premature_cut_qa_gate_contract.py" in workflow, "workflow path trigger missing")
     require("orchestrator._qa_blocking = qa_blocking_with_policy" in policy_source, "runtime block helper is not wired")
     require("normalize_defects_for_repair(defects)" in policy_source, "repair helper is not wired")
-    require("build_final_qa_diagnostics(" in policy_source, "final QA helper is not wired")
+    require("apply_final_qa_to_visual_family(" in policy_source, "visual-family final QA helper is not wired")
+    require("retry_count_for_reel(qa_call_counts, reel)" in policy_source, "per-reel retry helper is not wired")
+    require("decision in _NONBLOCKING_FINAL_DECISIONS" in trace_source, "draft trace does not honor nonblocking final decisions")
     print("premature-cut workflow wiring ok")
 
 
@@ -211,7 +286,9 @@ VALIDATORS = {
     "runtime-predicate": validate_runtime_predicate,
     "repair-routing": validate_repair_routing,
     "runtime-final-block": validate_runtime_final_block,
+    "visual-family": validate_visual_family,
     "runtime-nonblocking": validate_runtime_nonblocking,
+    "trace-precedence": validate_trace_precedence,
     "log-summary": validate_log_summary,
     "final-trace": validate_final_trace,
     "workflow": validate_workflow,
