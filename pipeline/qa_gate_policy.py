@@ -51,12 +51,7 @@ def qa_blocking_with_policy(qa: dict[str, Any]) -> bool:
 
 
 def normalize_defects_for_repair(defects: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
-    """Promote always-blocking cut defects into the existing repair path.
-
-    The orchestrator historically ignored non-critical defects before reaching its
-    PREMATURE_CUT handler. The LLM may label an abrupt cut as minor, but product
-    policy requires a repair attempt or an explicit review block.
-    """
+    """Promote always-blocking cut defects into the existing repair path."""
     normalized: list[dict[str, Any]] = []
     for defect in defects or []:
         item = dict(defect)
@@ -120,6 +115,32 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
     }
 
 
+def build_final_qa_diagnostics(
+    qa: dict[str, Any],
+    *,
+    retry_count: int,
+    reel_path: str = "",
+    was_flagged: bool = False,
+) -> tuple[dict[str, Any], bool]:
+    """Classify a final reel and return diagnostics plus review-block state."""
+    should_review_block = bool(was_flagged or critical_defects(qa))
+    if should_review_block:
+        decision = "blocked_review_required"
+    elif qa.get("verdict") == "PASS":
+        decision = "passed_after_reedit" if retry_count else "passed"
+    else:
+        decision = "failed_nonblocking"
+    return (
+        build_qa_diagnostics(
+            qa,
+            retry_count=retry_count,
+            decision=decision,
+            reel_path=reel_path,
+        ),
+        should_review_block,
+    )
+
+
 def attach_qa_diagnostics(events: list[dict[str, Any]], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
     return [{**event, "qa_gate": diagnostics} for event in events]
 
@@ -174,8 +195,6 @@ def _patch_orchestrator(orchestrator: Any) -> None:
     def apply_qa_fixes_with_policy(ordered_events: list[dict], defects: list[dict]):
         return original_apply_qa_fixes(ordered_events, normalize_defects_for_repair(defects))
 
-    # original_qa_gate resolves these names from the orchestrator module at call
-    # time, so replacing the module globals aligns execution with report policy.
     orchestrator._qa_blocking = qa_blocking_with_policy
     orchestrator._apply_qa_fixes = apply_qa_fixes_with_policy
 
@@ -222,24 +241,14 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 }
                 flagged_set.add(reel)
 
-            if critical_defects(qa):
-                flagged_set.add(reel)
-
-            if reel in flagged_set:
-                decision = "blocked_review_required"
-            elif qa.get("verdict") == "PASS":
-                decision = "passed_after_reedit" if retry_count else "passed"
-            else:
-                # Technical or engagement-only FAILs remain visible in telemetry
-                # but do not masquerade as content defects requiring re-edit.
-                decision = "failed_nonblocking"
-
-            diagnostics = build_qa_diagnostics(
+            diagnostics, should_review_block = build_final_qa_diagnostics(
                 qa,
                 retry_count=retry_count,
-                decision=decision,
                 reel_path=reel,
+                was_flagged=reel in flagged_set,
             )
+            if should_review_block:
+                flagged_set.add(reel)
             events_by_reel[reel] = attach_qa_diagnostics(events_by_reel.get(reel, []), diagnostics)
         return final, events_by_reel, flagged_set
 
