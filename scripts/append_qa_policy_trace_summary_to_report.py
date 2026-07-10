@@ -3,8 +3,18 @@ from __future__ import annotations
 
 import json
 import sys
+from collections import Counter
 from pathlib import Path
 from typing import Any
+
+
+_EXPLICIT_FINAL_DECISIONS = {
+    "passed",
+    "passed_after_reedit",
+    "failed_nonblocking",
+    "blocked_review_required",
+    "flagged_nonblocking_review",
+}
 
 
 def _read_json(path: Path) -> dict[str, Any]:
@@ -104,12 +114,16 @@ def _recompute_status(report: dict[str, Any]) -> None:
         report["status"] = "pass"
 
 
-def _final_drafts_policy_explicit(drafts: list[dict[str, Any]], qa_blocked: list[dict[str, Any]], metrics: dict[str, Any]) -> bool:
-    """Return True when every final uploaded/traced draft is explicitly review-blocked.
+def _qa_gate(draft: dict[str, Any]) -> dict[str, Any]:
+    return draft.get("qa_gate") if isinstance(draft.get("qa_gate"), dict) else {}
 
-    The raw run log may include transient QA failures from intermediate edits or
-    discarded uploads. That is not a gate bypass if the final draft trace shows
-    every produced REVIEW draft as review_required/blocked.
+
+def _final_drafts_policy_explicit(drafts: list[dict[str, Any]], metrics: dict[str, Any]) -> bool:
+    """Return True when every final uploaded/traced draft carries a final QA decision.
+
+    The run log contains transient failures from pre-repair drafts. Those are not a
+    gate bypass when the final draft trace records, for every uploaded draft, either
+    a passing/nonblocking final decision or an explicit review block.
     """
     if not drafts:
         return False
@@ -117,36 +131,51 @@ def _final_drafts_policy_explicit(drafts: list[dict[str, Any]], qa_blocked: list
         uploaded = int(metrics.get("uploaded_draft_count") or 0)
     except (TypeError, ValueError):
         uploaded = 0
-    final_count = len(drafts)
-    if uploaded and uploaded != final_count:
+    if uploaded and uploaded != len(drafts):
         return False
-    return len(qa_blocked) == final_count
+    for draft in drafts:
+        qa_gate = _qa_gate(draft)
+        if str(qa_gate.get("decision") or "") not in _EXPLICIT_FINAL_DECISIONS:
+            return False
+    return True
 
 
 def append_summary(report_path: Path, trace_path: Path) -> dict[str, Any]:
     report = _read_json(report_path)
     trace = _read_json(trace_path)
     drafts = [draft for draft in trace.get("drafts", []) if isinstance(draft, dict)]
-    review_required = [draft for draft in drafts if draft.get("qa_status") == "review_required"]
-    qa_blocked = []
-    for draft in review_required:
-        qa_gate = draft.get("qa_gate") if isinstance(draft.get("qa_gate"), dict) else {}
-        if qa_gate.get("qa_review_required") or _critical_defects(qa_gate):
-            qa_blocked.append(draft)
+    qa_blocked = [draft for draft in drafts if _review_blocked(draft)]
+    review_required = list(qa_blocked)
 
     metrics = report.setdefault("metrics", {})
     metrics["qa_review_required_draft_count"] = len(review_required)
     metrics["qa_blocked_draft_count"] = len(qa_blocked)
     metrics["qa_unblocked_final_draft_count"] = max(0, len(drafts) - len(qa_blocked))
 
+    decision_counts = Counter(str(_qa_gate(draft).get("decision") or "missing") for draft in drafts)
+    metrics["qa_final_decision_counts"] = dict(decision_counts)
+    metrics["qa_final_explicit_draft_count"] = sum(
+        1 for draft in drafts if str(_qa_gate(draft).get("decision") or "") in _EXPLICIT_FINAL_DECISIONS
+    )
+    metrics["qa_final_blocking_defect_count"] = sum(
+        len(_critical_defects(_qa_gate(draft))) for draft in drafts
+    )
+    metrics["qa_retry_count_total"] = sum(
+        int(_qa_gate(draft).get("retry_count") or 0) for draft in drafts
+    )
+
     qa_summary = report.setdefault("qa_gate_summary", {})
     still_failing = int(qa_summary.get("qa_still_failing_count") or 0)
-    policy_explicit = _final_drafts_policy_explicit(drafts, qa_blocked, metrics)
+    policy_explicit = _final_drafts_policy_explicit(drafts, metrics)
     qa_summary["qa_policy_explicit"] = policy_explicit
     qa_summary["qa_review_required_draft_count"] = len(review_required)
     qa_summary["qa_blocked_draft_count"] = len(qa_blocked)
     qa_summary["qa_unblocked_final_draft_count"] = metrics["qa_unblocked_final_draft_count"]
     qa_summary["qa_still_failing_count"] = still_failing
+    qa_summary["qa_final_decision_counts"] = dict(decision_counts)
+    qa_summary["qa_final_explicit_draft_count"] = metrics["qa_final_explicit_draft_count"]
+    qa_summary["qa_final_blocking_defect_count"] = metrics["qa_final_blocking_defect_count"]
+    qa_summary["qa_retry_count_total"] = metrics["qa_retry_count_total"]
 
     marked, marked_blocked, marked_open = _subject_gate_marked_windows(drafts)
     metrics["mixed_subject_policy_marked_window_count"] = marked
@@ -160,12 +189,20 @@ def append_summary(report_path: Path, trace_path: Path) -> dict[str, Any]:
         gaps["mixed_subject_policy_explicit"] = marked > 0 and marked_open == 0
         gaps["mixed_subject_uses_final_cut_windows"] = marked > 0
 
+    # Once every final draft has an explicit final QA state, transient defects in
+    # the log are no longer enough to claim a bypass. Blocking final drafts must be
+    # review-blocked; repaired/nonblocking final drafts may remain unblocked.
     if policy_explicit:
-        metrics["qa_gate_bypass_rate"] = 0.0
-        qa_summary["qa_gate_bypass_rate"] = 0.0
-        _remove_bug(report, "BUG_QA_GATE_BYPASSED")
-        _remove_alert(report, "qa_gate_bypass_rate")
-        _remove_alert(report, "qa_critical_defect_count")
+        unsafe_unblocked = [
+            draft for draft in drafts
+            if _critical_defects(_qa_gate(draft)) and not _review_blocked(draft)
+        ]
+        if not unsafe_unblocked:
+            metrics["qa_gate_bypass_rate"] = 0.0
+            qa_summary["qa_gate_bypass_rate"] = 0.0
+            _remove_bug(report, "BUG_QA_GATE_BYPASSED")
+            _remove_alert(report, "qa_gate_bypass_rate")
+            _remove_alert(report, "qa_critical_defect_count")
 
     if marked > 0 and marked_open == 0:
         metrics["mixed_subject_violation_rate"] = 0.0
@@ -190,6 +227,8 @@ def main() -> int:
         f"review_required={metrics.get('qa_review_required_draft_count', 0)} "
         f"blocked={metrics.get('qa_blocked_draft_count', 0)} "
         f"unblocked={metrics.get('qa_unblocked_final_draft_count', 0)} "
+        f"explicit={metrics.get('qa_final_explicit_draft_count', 0)} "
+        f"retries={metrics.get('qa_retry_count_total', 0)} "
         f"bypass_rate={metrics.get('qa_gate_bypass_rate', 0)} "
         f"visibility_marked={metrics.get('mixed_subject_policy_marked_window_count', 0)}"
     )
