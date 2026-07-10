@@ -76,22 +76,17 @@ def validate_policy() -> None:
 def validate_runtime_predicate() -> None:
     from pipeline import qa_gate_policy as policy
 
-    captured: dict = {}
-    fake = _fake_orchestrator(captured)
-    policy._patch_orchestrator(fake)
-    require(fake._qa_blocking(_qa_fail()), "patched orchestrator must block minor PREMATURE_CUT")
+    require(policy.qa_blocking_with_policy(_qa_fail()), "runtime policy must block minor PREMATURE_CUT")
+    require(not policy.qa_blocking_with_policy({"verdict": "PASS", "defects": [_minor_cut()]}), "PASS verdict must not be blocked")
     print("premature-cut runtime predicate ok")
 
 
 def validate_repair_routing() -> None:
     from pipeline import qa_gate_policy as policy
 
-    captured: dict = {}
-    fake = _fake_orchestrator(captured)
-    policy._patch_orchestrator(fake)
-    fake._apply_qa_fixes([{"start": 0.0, "end": 8.0}], [_minor_cut()])
-    require("normalized_defects" in captured, "patched repair function did not invoke original repair path")
-    require(captured["normalized_defects"][0]["severity"] == "critical", "PREMATURE_CUT must reach the existing repair path as critical")
+    normalized = policy.normalize_defects_for_repair([_minor_cut()])
+    require(normalized[0]["severity"] == "critical", "PREMATURE_CUT must reach the existing repair path as critical")
+    require(_minor_cut()["severity"] == "minor", "repair normalization must not mutate source QA payload")
     print("premature-cut repair routing ok")
 
 
