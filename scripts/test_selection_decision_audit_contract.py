@@ -122,6 +122,7 @@ def main() -> None:
                     "discard_stage": None,
                     "discard_cause": None,
                     "reason_codes": [],
+                    "selection_rescue": {"attempted": True, "status": "clean_subwindow_rescued", "rescue_stage": "clean_subwindow_rescue"},
                 },
                 {
                     "source_video": "source.mp4",
@@ -133,10 +134,11 @@ def main() -> None:
                     "selected_for_render": False,
                     "discarded": True,
                     "discard_stage": "long_video_pre_qa_prefilter",
-                    "discard_cause": "subject_gated_by_pre_qa_prefilter",
-                    "reason_codes": ["MULTI_PERSON_CLIP"],
+                    "discard_cause": "no_clean_subwindow_found",
+                    "reason_codes": ["MULTI_PERSON_CLIP", "NO_CLEAN_SUBWINDOW_FOUND"],
                 },
             ],
+            "clean_subwindow_rescue_count": 1,
         }
         log_text = "\n".join([
             "  🧹 Pre-QA skipped 1 subject-gated event(s) for surfer in dark swim trunks on a turquoise longboard",
@@ -167,10 +169,11 @@ def main() -> None:
         assert_true(selected["selection_reason_detailed"] == "prefilter_passed_and_uploaded", "selected draft should show prefilter pass")
         assert_true(selected["decision_path"] == ["analyzer_selected", "prefilter_passed", "draft_uploaded"], "selected decision path should be explicit")
         assert_true(selected["evidence"]["selection_filter_event"]["selected_for_render"] is True, "selected filter evidence should be preserved")
+        assert_true(selected["evidence"]["selection_filter_event"]["selection_rescue"]["status"] == "clean_subwindow_rescued", "rescued selected window should preserve rescue metadata")
 
         assert_true(by_id["discarded-480"]["discard_stage"] == "long_video_pre_qa_prefilter", "event trace should identify subject-gated stage")
-        assert_true(by_id["discarded-480"]["discard_cause_detailed"] == "subject_gated_by_pre_qa_prefilter", "subject-gated reason should be explicit")
-        assert_true(by_id["discarded-480"]["decision_path"] == ["analyzer_selected", "prefilter_failed", "subject_gated_by_pre_qa_prefilter"], "discarded decision path should be explicit")
+        assert_true(by_id["discarded-480"]["discard_cause_detailed"] == "no_clean_subwindow_found", "no-clean-subwindow reason should be explicit")
+        assert_true(by_id["discarded-480"]["decision_path"] == ["analyzer_selected", "prefilter_failed", "no_clean_subwindow_found"], "discarded decision path should be explicit")
         assert_true("selection_filter_event" in by_id["discarded-480"]["evidence"], "event-level prefilter evidence should be preserved")
         assert_true(by_id["discarded-515"]["discard_cause_detailed"] == "shared_or_obstructed_window", "shared-wave descriptions should be classified")
 
@@ -193,12 +196,26 @@ def main() -> None:
     context_long = (ROOT / "pipeline" / "context_qa_long_video.py").read_text(encoding="utf-8")
     for token in [
         "_append_filter_trace",
+        "_best_clean_subwindow",
+        "clean_subwindow_rescued",
+        "no_clean_subwindow_found",
+        "NO_CLEAN_SUBWINDOW_FOUND",
+        "MULTI_PERSON_CLIP",
         "sportreel.selection_filter_events.v1",
         "selected_for_render",
-        "subject_gated_by_pre_qa_prefilter",
         "duplicate_source_window_before_render",
     ]:
         assert_true(token in context_long, f"context QA long-video missing event-level trace token {token}")
+
+    run_tracked = (ROOT / "scripts" / "run_tracked.py").read_text(encoding="utf-8")
+    for token in [
+        "_no_reviewable_drafts_meta",
+        "no_reviewable_drafts",
+        "all_candidates_rejected_before_render",
+        "selection_filter_events.json",
+        "sys.exit(1)",
+    ]:
+        assert_true(token in run_tracked, f"run_tracked missing no-reviewable-drafts contract token {token}")
 
     print("selection decision audit contract ok")
 
