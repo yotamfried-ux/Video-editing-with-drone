@@ -141,8 +141,57 @@ def build_final_qa_diagnostics(
     )
 
 
+def visual_family_key(reel_path: str) -> str:
+    """Return the shared visual identity for clean and music reel siblings."""
+    path = os.path.normcase(os.path.abspath(str(reel_path)))
+    root, ext = os.path.splitext(path)
+    if root.endswith("_music"):
+        root = root[:-6]
+    return root + ext.lower()
+
+
+def retry_count_for_reel(qa_call_counts: dict[str, int], reel_path: str) -> int:
+    """Count retries for this visual family only; one QA call is the initial check."""
+    return max(0, int(qa_call_counts.get(visual_family_key(reel_path), 0)) - 1)
+
+
 def attach_qa_diagnostics(events: list[dict[str, Any]], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
     return [{**event, "qa_gate": diagnostics} for event in events]
+
+
+def apply_final_qa_to_visual_family(
+    final_reels: list[str],
+    events_by_reel: dict[str, list[dict[str, Any]]],
+    flagged_paths: set[str],
+    clean_reel: str,
+    qa: dict[str, Any],
+    *,
+    retry_count: int,
+) -> tuple[dict[str, Any], bool]:
+    """Attach one visual QA verdict to the clean reel and every music sibling.
+
+    Music variants contain the same visual timeline. A blocking visual defect on
+    the clean reel therefore must block every sibling, not only the exact path that
+    was sent to the QA model.
+    """
+    family_key = visual_family_key(clean_reel)
+    family = [path for path in final_reels if visual_family_key(path) == family_key]
+    if clean_reel not in family:
+        family.insert(0, clean_reel)
+    was_flagged = any(path in flagged_paths for path in family)
+    diagnostics, should_review_block = build_final_qa_diagnostics(
+        qa,
+        retry_count=retry_count,
+        reel_path=clean_reel,
+        was_flagged=was_flagged,
+    )
+    clean_events = events_by_reel.get(clean_reel, [])
+    for member in family:
+        member_events = events_by_reel.get(member, clean_events)
+        events_by_reel[member] = attach_qa_diagnostics(member_events, diagnostics)
+        if should_review_block:
+            flagged_paths.add(member)
+    return diagnostics, should_review_block
 
 
 def _extract_qa_gate(events: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -202,14 +251,14 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         from pipeline.stages import analyzer
         from pipeline.qa_state import mark_review_required
         original_check = analyzer.qa_check_reel
-        qa_by_reel: dict[str, dict[str, Any]] = {}
-        call_count = 0
+        qa_by_family: dict[str, dict[str, Any]] = {}
+        qa_call_counts: dict[str, int] = {}
 
         def tracked_qa_check(reel, *args, **kwargs):
-            nonlocal call_count
-            call_count += 1
+            family_key = visual_family_key(reel)
+            qa_call_counts[family_key] = qa_call_counts.get(family_key, 0) + 1
             qa = mark_review_required(original_check(reel, *args, **kwargs))
-            qa_by_reel[reel] = qa
+            qa_by_family[family_key] = qa
             return qa
 
         analyzer.qa_check_reel = tracked_qa_check
@@ -221,12 +270,11 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         if not config.QA_REEL_CHECK:
             return final, events_by_reel, flagged
 
-        initial_clean_count = len([r for r in reels if "_music" not in os.path.basename(r)])
-        retry_count = max(0, call_count - initial_clean_count)
         flagged_set = set(flagged or [])
         final_clean = [r for r in final if "_music" not in os.path.basename(r)]
         for reel in final_clean:
-            qa = qa_by_reel.get(reel)
+            family_key = visual_family_key(reel)
+            qa = qa_by_family.get(family_key)
             if qa is None:
                 qa = {
                     "verdict": "FAIL",
@@ -241,15 +289,14 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 }
                 flagged_set.add(reel)
 
-            diagnostics, should_review_block = build_final_qa_diagnostics(
+            apply_final_qa_to_visual_family(
+                final,
+                events_by_reel,
+                flagged_set,
+                reel,
                 qa,
-                retry_count=retry_count,
-                reel_path=reel,
-                was_flagged=reel in flagged_set,
+                retry_count=retry_count_for_reel(qa_call_counts, reel),
             )
-            if should_review_block:
-                flagged_set.add(reel)
-            events_by_reel[reel] = attach_qa_diagnostics(events_by_reel.get(reel, []), diagnostics)
         return final, events_by_reel, flagged_set
 
     def save_metadata_with_qa(draft_name, sport, events, source_quality):
