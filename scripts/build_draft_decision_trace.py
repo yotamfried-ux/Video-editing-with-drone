@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 LONG_VIDEO_RE = re.compile(r"Long video:\s*(?P<name>.+)$")
+_NONBLOCKING_FINAL_DECISIONS = {"passed", "passed_after_reedit", "failed_nonblocking"}
+_BLOCKING_FINAL_DECISIONS = {"blocked_review_required", "flagged_nonblocking_review"}
 
 
 def _read_json(path: Path) -> Any:
@@ -87,10 +89,26 @@ def _blocking_defect_codes(qa_gate: dict[str, Any] | None) -> list[str]:
 
 
 def _qa_status(draft_name: str, meta: dict[str, Any], qa_gate: dict[str, Any] | None) -> tuple[str, list[str]]:
+    decision = str((qa_gate or {}).get("decision") or "")
+    # A first-class final decision outranks the raw LLM verdict. In particular,
+    # failed_nonblocking remains visible in telemetry but must not be converted
+    # back into review_required merely because final_verdict is FAIL.
+    if decision in _NONBLOCKING_FINAL_DECISIONS:
+        return "not_required", []
+
     reasons = _blocking_defect_codes(qa_gate)
     name_requires_review = "QA-FLAGGED" in draft_name or "QA-BLOCKED" in draft_name
     metadata_requires_review = meta.get("review_required") is True or meta.get("qa_review_required") is True
-    qa_requires_review = bool(qa_gate and (qa_gate.get("qa_review_required") or str(qa_gate.get("final_verdict", "")).upper() == "FAIL" or reasons))
+    decision_requires_review = decision in _BLOCKING_FINAL_DECISIONS
+    qa_requires_review = bool(
+        qa_gate
+        and (
+            decision_requires_review
+            or qa_gate.get("qa_review_required")
+            or (not decision and str(qa_gate.get("final_verdict", "")).upper() == "FAIL")
+            or reasons
+        )
+    )
     if name_requires_review and not reasons:
         reasons = ["QA-FLAGGED"]
     if metadata_requires_review or qa_requires_review or name_requires_review:

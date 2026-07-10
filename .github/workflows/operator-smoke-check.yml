@@ -57,6 +57,7 @@ on:
       - 'scripts/test_perception_producer_diagnostics_contract.py'
       - 'scripts/test_pipeline_quality_contract.py'
       - 'scripts/test_pipeline_status_stale_contract.py'
+      - 'scripts/test_premature_cut_qa_gate_contract.py'
       - 'scripts/test_qa_policy_trace_contract.py'
       - 'scripts/test_qa_reedit_loop_contract.py'
       - 'scripts/test_qa_reedit_reason_fallback_contract.py'
@@ -197,6 +198,26 @@ jobs:
         run: python scripts/test_ultralytics_tracker_contract.py
       - name: Validate QA policy trace contract
         run: python scripts/test_qa_policy_trace_contract.py
+      - name: Validate Premature-cut policy classification
+        run: python scripts/test_premature_cut_qa_gate_contract.py policy
+      - name: Validate Premature-cut runtime predicate
+        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-predicate
+      - name: Validate Premature-cut repair routing
+        run: python scripts/test_premature_cut_qa_gate_contract.py repair-routing
+      - name: Validate Premature-cut final block diagnostics
+        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-final-block
+      - name: Validate Visual-family QA propagation
+        run: python scripts/test_premature_cut_qa_gate_contract.py visual-family
+      - name: Validate Final nonblocking QA telemetry
+        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-nonblocking
+      - name: Validate Draft trace decision precedence
+        run: python scripts/test_premature_cut_qa_gate_contract.py trace-precedence
+      - name: Validate QA flagged-upload classification
+        run: python scripts/test_premature_cut_qa_gate_contract.py log-summary
+      - name: Validate Final QA trace reconciliation
+        run: python scripts/test_premature_cut_qa_gate_contract.py final-trace
+      - name: Validate Premature-cut workflow wiring
+        run: python scripts/test_premature_cut_qa_gate_contract.py workflow
       - name: Validate Source window dedup contract
         run: python scripts/test_source_window_dedup_contract.py
       - name: Validate Pairwise source-window overlap contract

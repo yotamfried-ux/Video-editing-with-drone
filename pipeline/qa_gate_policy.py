@@ -8,7 +8,22 @@ import os
 import sys
 from typing import Any
 
-BLOCKING_DEFECT_TYPES = {"IDENTITY_MISMATCH", "NO_VISIBLE_ACTION", "BAD_FRAMING", "DUPLICATE_MOMENT", "DUPLICATE_DRAFT", "QA_REVIEW_REQUIRED", "MULTI_PERSON_CLIP", "IDENTITY_UNCERTAIN"}
+BLOCKING_DEFECT_TYPES = {
+    "IDENTITY_MISMATCH",
+    "NO_VISIBLE_ACTION",
+    "BAD_FRAMING",
+    "DUPLICATE_MOMENT",
+    "DUPLICATE_DRAFT",
+    "QA_REVIEW_REQUIRED",
+    "MULTI_PERSON_CLIP",
+    "IDENTITY_UNCERTAIN",
+    "PREMATURE_CUT",
+    "CUT_TOO_EARLY",
+}
+# These defects are product-blocking even when the LLM labels them "minor".
+# The quality report already treats them as hard blocks; the execution gate must
+# use the same policy so they cannot bypass re-edit and upload as normal drafts.
+ALWAYS_BLOCKING_DEFECT_TYPES = {"PREMATURE_CUT", "CUT_TOO_EARLY"}
 _INSTALLED_FLAG = "_sportreel_qa_gate_policy_installed"
 _FINDER_FLAG = "_sportreel_qa_gate_import_hook_installed"
 
@@ -18,11 +33,32 @@ def defect_type(defect: dict[str, Any]) -> str:
 
 
 def is_critical_defect(defect: dict[str, Any]) -> bool:
-    return str(defect.get("severity", "")).lower() == "critical" and defect_type(defect) in BLOCKING_DEFECT_TYPES
+    dtype = defect_type(defect)
+    if dtype in ALWAYS_BLOCKING_DEFECT_TYPES:
+        return True
+    return str(defect.get("severity", "")).lower() == "critical" and dtype in BLOCKING_DEFECT_TYPES
 
 
 def critical_defects(qa: dict[str, Any]) -> list[dict[str, Any]]:
     return [defect for defect in qa.get("defects", []) or [] if is_critical_defect(defect)]
+
+
+def qa_blocking_with_policy(qa: dict[str, Any]) -> bool:
+    """Execution gate shared by runtime wiring and deterministic tests."""
+    if qa.get("verdict") != "FAIL":
+        return False
+    return bool(critical_defects(qa))
+
+
+def normalize_defects_for_repair(defects: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """Promote always-blocking cut defects into the existing repair path."""
+    normalized: list[dict[str, Any]] = []
+    for defect in defects or []:
+        item = dict(defect)
+        if defect_type(item) in ALWAYS_BLOCKING_DEFECT_TYPES:
+            item["severity"] = "critical"
+        normalized.append(item)
+    return normalized
 
 
 def review_required_reason_codes(qa: dict[str, Any]) -> list[str]:
@@ -33,7 +69,7 @@ def review_required_reason_codes(qa: dict[str, Any]) -> list[str]:
             codes.append(code)
     if qa.get("qa_review_required") and "QA_REVIEW_REQUIRED" not in codes:
         codes.append("QA_REVIEW_REQUIRED")
-    return codes or ["QA_REVIEW_REQUIRED"]
+    return codes
 
 
 def approval_blocked_reasons(qa: dict[str, Any]) -> list[str]:
@@ -46,7 +82,7 @@ def approval_blocked_reasons(qa: dict[str, Any]) -> list[str]:
             reasons.append(reason)
     if qa.get("qa_review_required") and not reasons:
         reasons.append("QA_REVIEW_REQUIRED")
-    return reasons or ["QA_REVIEW_REQUIRED"]
+    return reasons
 
 
 def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str, reel_path: str = "") -> dict[str, Any]:
@@ -68,6 +104,7 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
         "retry_count": int(retry_count),
         "reel_path": os.path.basename(reel_path) if reel_path else "",
         "blocking_defect_types": sorted(BLOCKING_DEFECT_TYPES),
+        "always_blocking_defect_types": sorted(ALWAYS_BLOCKING_DEFECT_TYPES),
         "critical_defect_count": len([d for d in defects if d.get("blocking")]),
         "qa_review_required": bool(qa.get("qa_review_required") or decision == "blocked_review_required"),
         "review_required_reasons": review_required_reason_codes(qa),
@@ -78,8 +115,83 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
     }
 
 
+def build_final_qa_diagnostics(
+    qa: dict[str, Any],
+    *,
+    retry_count: int,
+    reel_path: str = "",
+    was_flagged: bool = False,
+) -> tuple[dict[str, Any], bool]:
+    """Classify a final reel and return diagnostics plus review-block state."""
+    should_review_block = bool(was_flagged or critical_defects(qa))
+    if should_review_block:
+        decision = "blocked_review_required"
+    elif qa.get("verdict") == "PASS":
+        decision = "passed_after_reedit" if retry_count else "passed"
+    else:
+        decision = "failed_nonblocking"
+    return (
+        build_qa_diagnostics(
+            qa,
+            retry_count=retry_count,
+            decision=decision,
+            reel_path=reel_path,
+        ),
+        should_review_block,
+    )
+
+
+def visual_family_key(reel_path: str) -> str:
+    """Return the shared visual identity for clean and music reel siblings."""
+    path = os.path.normcase(os.path.abspath(str(reel_path)))
+    root, ext = os.path.splitext(path)
+    if root.endswith("_music"):
+        root = root[:-6]
+    return root + ext.lower()
+
+
+def retry_count_for_reel(qa_call_counts: dict[str, int], reel_path: str) -> int:
+    """Count retries for this visual family only; one QA call is the initial check."""
+    return max(0, int(qa_call_counts.get(visual_family_key(reel_path), 0)) - 1)
+
+
 def attach_qa_diagnostics(events: list[dict[str, Any]], diagnostics: dict[str, Any]) -> list[dict[str, Any]]:
     return [{**event, "qa_gate": diagnostics} for event in events]
+
+
+def apply_final_qa_to_visual_family(
+    final_reels: list[str],
+    events_by_reel: dict[str, list[dict[str, Any]]],
+    flagged_paths: set[str],
+    clean_reel: str,
+    qa: dict[str, Any],
+    *,
+    retry_count: int,
+) -> tuple[dict[str, Any], bool]:
+    """Attach one visual QA verdict to the clean reel and every music sibling.
+
+    Music variants contain the same visual timeline. A blocking visual defect on
+    the clean reel therefore must block every sibling, not only the exact path that
+    was sent to the QA model.
+    """
+    family_key = visual_family_key(clean_reel)
+    family = [path for path in final_reels if visual_family_key(path) == family_key]
+    if clean_reel not in family:
+        family.insert(0, clean_reel)
+    was_flagged = any(path in flagged_paths for path in family)
+    diagnostics, should_review_block = build_final_qa_diagnostics(
+        qa,
+        retry_count=retry_count,
+        reel_path=clean_reel,
+        was_flagged=was_flagged,
+    )
+    clean_events = events_by_reel.get(clean_reel, [])
+    for member in family:
+        member_events = events_by_reel.get(member, clean_events)
+        events_by_reel[member] = attach_qa_diagnostics(member_events, diagnostics)
+        if should_review_block:
+            flagged_paths.add(member)
+    return diagnostics, should_review_block
 
 
 def _extract_qa_gate(events: list[dict[str, Any]]) -> dict[str, Any] | None:
@@ -126,34 +238,66 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         return
 
     original_qa_gate = orchestrator._qa_gate
+    original_apply_qa_fixes = orchestrator._apply_qa_fixes
     original_save_metadata = orchestrator._save_reel_metadata
+
+    def apply_qa_fixes_with_policy(ordered_events: list[dict], defects: list[dict]):
+        return original_apply_qa_fixes(ordered_events, normalize_defects_for_repair(defects))
+
+    orchestrator._qa_blocking = qa_blocking_with_policy
+    orchestrator._apply_qa_fixes = apply_qa_fixes_with_policy
 
     def qa_gate_with_diagnostics(reels, events_out, sport, athlete_label, recompile):
         from pipeline.stages import analyzer
         from pipeline.qa_state import mark_review_required
         original_check = analyzer.qa_check_reel
-        qa_by_reel: dict[str, dict[str, Any]] = {}
-        call_count = 0
+        qa_by_family: dict[str, dict[str, Any]] = {}
+        qa_call_counts: dict[str, int] = {}
 
         def tracked_qa_check(reel, *args, **kwargs):
-            nonlocal call_count
-            call_count += 1
+            family_key = visual_family_key(reel)
+            qa_call_counts[family_key] = qa_call_counts.get(family_key, 0) + 1
             qa = mark_review_required(original_check(reel, *args, **kwargs))
-            qa_by_reel[reel] = qa
+            qa_by_family[family_key] = qa
             return qa
+
         analyzer.qa_check_reel = tracked_qa_check
         try:
             final, events_by_reel, flagged = original_qa_gate(reels, events_out, sport, athlete_label, recompile)
         finally:
             analyzer.qa_check_reel = original_check
 
-        retry_count = max(0, call_count - len([r for r in reels if "_music" not in os.path.basename(r)]))
-        for reel in flagged:
-            qa = qa_by_reel.get(reel, {"verdict": "FAIL", "defects": [{"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": "missing QA details"}], "overall": "missing QA details", "qa_review_required": True})
-            decision = "blocked_review_required" if critical_defects(qa) else "flagged_nonblocking_review"
-            diagnostics = build_qa_diagnostics(qa, retry_count=retry_count, decision=decision, reel_path=reel)
-            events_by_reel[reel] = attach_qa_diagnostics(events_by_reel.get(reel, []), diagnostics)
-        return final, events_by_reel, flagged
+        if not config.QA_REEL_CHECK:
+            return final, events_by_reel, flagged
+
+        flagged_set = set(flagged or [])
+        final_clean = [r for r in final if "_music" not in os.path.basename(r)]
+        for reel in final_clean:
+            family_key = visual_family_key(reel)
+            qa = qa_by_family.get(family_key)
+            if qa is None:
+                qa = {
+                    "verdict": "FAIL",
+                    "defects": [{
+                        "type": "QA_REVIEW_REQUIRED",
+                        "severity": "critical",
+                        "note": "missing final QA details",
+                    }],
+                    "overall": "missing final QA details",
+                    "qa_review_required": True,
+                    "engagement_score": 0,
+                }
+                flagged_set.add(reel)
+
+            apply_final_qa_to_visual_family(
+                final,
+                events_by_reel,
+                flagged_set,
+                reel,
+                qa,
+                retry_count=retry_count_for_reel(qa_call_counts, reel),
+            )
+        return final, events_by_reel, flagged_set
 
     def save_metadata_with_qa(draft_name, sport, events, source_quality):
         original_save_metadata(draft_name, sport, events, source_quality)
