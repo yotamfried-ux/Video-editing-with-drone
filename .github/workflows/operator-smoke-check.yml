@@ -202,6 +202,8 @@ jobs:
         run: python scripts/test_premature_cut_qa_gate_contract.py policy
       - name: Validate Premature-cut runtime predicate
         run: python scripts/test_premature_cut_qa_gate_contract.py runtime-predicate
+      - name: Validate Premature-cut repair routing
+        run: python scripts/test_premature_cut_qa_gate_contract.py repair-routing
       - name: Validate Premature-cut final block diagnostics
         run: python scripts/test_premature_cut_qa_gate_contract.py runtime-final-block
       - name: Validate Final nonblocking QA telemetry
