@@ -198,8 +198,18 @@ jobs:
         run: python scripts/test_ultralytics_tracker_contract.py
       - name: Validate QA policy trace contract
         run: python scripts/test_qa_policy_trace_contract.py
-      - name: Validate Premature-cut QA gate contract
-        run: python scripts/test_premature_cut_qa_gate_contract.py
+      - name: Validate Premature-cut policy classification
+        run: python scripts/test_premature_cut_qa_gate_contract.py policy
+      - name: Validate Premature-cut runtime blocking
+        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-blocking
+      - name: Validate Final nonblocking QA telemetry
+        run: python scripts/test_premature_cut_qa_gate_contract.py runtime-nonblocking
+      - name: Validate QA flagged-upload classification
+        run: python scripts/test_premature_cut_qa_gate_contract.py log-summary
+      - name: Validate Final QA trace reconciliation
+        run: python scripts/test_premature_cut_qa_gate_contract.py final-trace
+      - name: Validate Premature-cut workflow wiring
+        run: python scripts/test_premature_cut_qa_gate_contract.py workflow
       - name: Validate Source window dedup contract
         run: python scripts/test_source_window_dedup_contract.py
       - name: Validate Pairwise source-window overlap contract
