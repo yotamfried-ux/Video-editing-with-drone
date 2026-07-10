@@ -8,7 +8,22 @@ import os
 import sys
 from typing import Any
 
-BLOCKING_DEFECT_TYPES = {"IDENTITY_MISMATCH", "NO_VISIBLE_ACTION", "BAD_FRAMING", "DUPLICATE_MOMENT", "DUPLICATE_DRAFT", "QA_REVIEW_REQUIRED", "MULTI_PERSON_CLIP", "IDENTITY_UNCERTAIN"}
+BLOCKING_DEFECT_TYPES = {
+    "IDENTITY_MISMATCH",
+    "NO_VISIBLE_ACTION",
+    "BAD_FRAMING",
+    "DUPLICATE_MOMENT",
+    "DUPLICATE_DRAFT",
+    "QA_REVIEW_REQUIRED",
+    "MULTI_PERSON_CLIP",
+    "IDENTITY_UNCERTAIN",
+    "PREMATURE_CUT",
+    "CUT_TOO_EARLY",
+}
+# These defects are product-blocking even when the LLM labels them "minor".
+# The quality report already treats them as hard blocks; the execution gate must
+# use the same policy so they cannot bypass re-edit and upload as normal drafts.
+ALWAYS_BLOCKING_DEFECT_TYPES = {"PREMATURE_CUT", "CUT_TOO_EARLY"}
 _INSTALLED_FLAG = "_sportreel_qa_gate_policy_installed"
 _FINDER_FLAG = "_sportreel_qa_gate_import_hook_installed"
 
@@ -18,7 +33,10 @@ def defect_type(defect: dict[str, Any]) -> str:
 
 
 def is_critical_defect(defect: dict[str, Any]) -> bool:
-    return str(defect.get("severity", "")).lower() == "critical" and defect_type(defect) in BLOCKING_DEFECT_TYPES
+    dtype = defect_type(defect)
+    if dtype in ALWAYS_BLOCKING_DEFECT_TYPES:
+        return True
+    return str(defect.get("severity", "")).lower() == "critical" and dtype in BLOCKING_DEFECT_TYPES
 
 
 def critical_defects(qa: dict[str, Any]) -> list[dict[str, Any]]:
@@ -33,7 +51,7 @@ def review_required_reason_codes(qa: dict[str, Any]) -> list[str]:
             codes.append(code)
     if qa.get("qa_review_required") and "QA_REVIEW_REQUIRED" not in codes:
         codes.append("QA_REVIEW_REQUIRED")
-    return codes or ["QA_REVIEW_REQUIRED"]
+    return codes
 
 
 def approval_blocked_reasons(qa: dict[str, Any]) -> list[str]:
@@ -46,7 +64,7 @@ def approval_blocked_reasons(qa: dict[str, Any]) -> list[str]:
             reasons.append(reason)
     if qa.get("qa_review_required") and not reasons:
         reasons.append("QA_REVIEW_REQUIRED")
-    return reasons or ["QA_REVIEW_REQUIRED"]
+    return reasons
 
 
 def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str, reel_path: str = "") -> dict[str, Any]:
@@ -68,6 +86,7 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
         "retry_count": int(retry_count),
         "reel_path": os.path.basename(reel_path) if reel_path else "",
         "blocking_defect_types": sorted(BLOCKING_DEFECT_TYPES),
+        "always_blocking_defect_types": sorted(ALWAYS_BLOCKING_DEFECT_TYPES),
         "critical_defect_count": len([d for d in defects if d.get("blocking")]),
         "qa_review_required": bool(qa.get("qa_review_required") or decision == "blocked_review_required"),
         "review_required_reasons": review_required_reason_codes(qa),
@@ -126,7 +145,30 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         return
 
     original_qa_gate = orchestrator._qa_gate
+    original_apply_qa_fixes = orchestrator._apply_qa_fixes
     original_save_metadata = orchestrator._save_reel_metadata
+
+    def qa_blocking_with_policy(qa: dict[str, Any]) -> bool:
+        if qa.get("verdict") != "FAIL":
+            return False
+        return bool(critical_defects(qa))
+
+    def apply_qa_fixes_with_policy(ordered_events: list[dict], defects: list[dict]):
+        # orchestrator._apply_qa_fixes historically ignored every non-critical
+        # defect before reaching the PREMATURE_CUT handler. Normalize defects that
+        # are always blocking so the existing +3s repair path actually runs.
+        normalized: list[dict] = []
+        for defect in defects or []:
+            item = dict(defect)
+            if defect_type(item) in ALWAYS_BLOCKING_DEFECT_TYPES:
+                item["severity"] = "critical"
+            normalized.append(item)
+        return original_apply_qa_fixes(ordered_events, normalized)
+
+    # original_qa_gate resolves these names from the orchestrator module at call
+    # time, so replacing the module globals aligns execution with report policy.
+    orchestrator._qa_blocking = qa_blocking_with_policy
+    orchestrator._apply_qa_fixes = apply_qa_fixes_with_policy
 
     def qa_gate_with_diagnostics(reels, events_out, sport, athlete_label, recompile):
         from pipeline.stages import analyzer
@@ -141,19 +183,57 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             qa = mark_review_required(original_check(reel, *args, **kwargs))
             qa_by_reel[reel] = qa
             return qa
+
         analyzer.qa_check_reel = tracked_qa_check
         try:
             final, events_by_reel, flagged = original_qa_gate(reels, events_out, sport, athlete_label, recompile)
         finally:
             analyzer.qa_check_reel = original_check
 
-        retry_count = max(0, call_count - len([r for r in reels if "_music" not in os.path.basename(r)]))
-        for reel in flagged:
-            qa = qa_by_reel.get(reel, {"verdict": "FAIL", "defects": [{"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": "missing QA details"}], "overall": "missing QA details", "qa_review_required": True})
-            decision = "blocked_review_required" if critical_defects(qa) else "flagged_nonblocking_review"
-            diagnostics = build_qa_diagnostics(qa, retry_count=retry_count, decision=decision, reel_path=reel)
+        if not config.QA_REEL_CHECK:
+            return final, events_by_reel, flagged
+
+        initial_clean_count = len([r for r in reels if "_music" not in os.path.basename(r)])
+        retry_count = max(0, call_count - initial_clean_count)
+        flagged_set = set(flagged or [])
+        final_clean = [r for r in final if "_music" not in os.path.basename(r)]
+        for reel in final_clean:
+            qa = qa_by_reel.get(reel)
+            if qa is None:
+                qa = {
+                    "verdict": "FAIL",
+                    "defects": [{
+                        "type": "QA_REVIEW_REQUIRED",
+                        "severity": "critical",
+                        "note": "missing final QA details",
+                    }],
+                    "overall": "missing final QA details",
+                    "qa_review_required": True,
+                    "engagement_score": 0,
+                }
+                flagged_set.add(reel)
+
+            blocking = bool(critical_defects(qa))
+            if blocking:
+                flagged_set.add(reel)
+
+            if reel in flagged_set:
+                decision = "blocked_review_required"
+            elif qa.get("verdict") == "PASS":
+                decision = "passed_after_reedit" if retry_count else "passed"
+            else:
+                # Technical or engagement-only FAILs remain visible in telemetry
+                # but do not masquerade as content defects requiring re-edit.
+                decision = "failed_nonblocking"
+
+            diagnostics = build_qa_diagnostics(
+                qa,
+                retry_count=retry_count,
+                decision=decision,
+                reel_path=reel,
+            )
             events_by_reel[reel] = attach_qa_diagnostics(events_by_reel.get(reel, []), diagnostics)
-        return final, events_by_reel, flagged
+        return final, events_by_reel, flagged_set
 
     def save_metadata_with_qa(draft_name, sport, events, source_quality):
         original_save_metadata(draft_name, sport, events, source_quality)
