@@ -73,7 +73,19 @@ def validate_policy() -> None:
     print("premature-cut policy classification ok")
 
 
-def validate_runtime_blocking() -> None:
+def validate_runtime_predicate() -> None:
+    from pipeline import qa_gate_policy as policy
+
+    captured: dict = {}
+    fake = _fake_orchestrator(captured)
+    policy._patch_orchestrator(fake)
+    require(fake._qa_blocking(_qa_fail()), "patched orchestrator must block minor PREMATURE_CUT")
+    fake._apply_qa_fixes([{"start": 0.0, "end": 8.0}], [_minor_cut()])
+    require(captured["normalized_defects"][0]["severity"] == "critical", "PREMATURE_CUT must reach the existing repair path")
+    print("premature-cut runtime predicate and repair routing ok")
+
+
+def validate_runtime_final_block() -> None:
     import config
     from pipeline import qa_gate_policy as policy
     from pipeline.stages import analyzer
@@ -82,9 +94,6 @@ def validate_runtime_blocking() -> None:
     captured: dict = {}
     fake = _fake_orchestrator(captured)
     policy._patch_orchestrator(fake)
-    require(fake._qa_blocking(qa_fail), "patched orchestrator must block minor PREMATURE_CUT")
-    fake._apply_qa_fixes([{"start": 0.0, "end": 8.0}], [_minor_cut()])
-    require(captured["normalized_defects"][0]["severity"] == "critical", "PREMATURE_CUT must reach the existing repair path")
 
     original_check = analyzer.qa_check_reel
     original_enabled = config.QA_REEL_CHECK
@@ -109,7 +118,7 @@ def validate_runtime_blocking() -> None:
     require(gate["qa_review_required"] is True, "review-required flag missing")
     require(gate["critical_defect_count"] == 1, "blocking defect count wrong")
     require(gate["defects"][0]["blocking"] is True, "defect must be marked blocking")
-    print("premature-cut runtime blocking ok")
+    print("premature-cut final block diagnostics ok")
 
 
 def validate_runtime_nonblocking() -> None:
@@ -233,7 +242,8 @@ def validate_workflow() -> None:
     workflow = (ROOT / ".github" / "workflows" / "operator-smoke-check.yml").read_text(encoding="utf-8")
     required_steps = [
         "Validate Premature-cut policy classification",
-        "Validate Premature-cut runtime blocking",
+        "Validate Premature-cut runtime predicate",
+        "Validate Premature-cut final block diagnostics",
         "Validate Final nonblocking QA telemetry",
         "Validate QA flagged-upload classification",
         "Validate Final QA trace reconciliation",
@@ -246,7 +256,8 @@ def validate_workflow() -> None:
 
 VALIDATORS = {
     "policy": validate_policy,
-    "runtime-blocking": validate_runtime_blocking,
+    "runtime-predicate": validate_runtime_predicate,
+    "runtime-final-block": validate_runtime_final_block,
     "runtime-nonblocking": validate_runtime_nonblocking,
     "log-summary": validate_log_summary,
     "final-trace": validate_final_trace,
