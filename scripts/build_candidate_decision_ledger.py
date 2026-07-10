@@ -27,19 +27,59 @@ def _candidate_id(draft_id: str, idx: int, window: dict[str, Any]) -> str:
     return hashlib.sha1(seed.encode("utf-8")).hexdigest()[:16]
 
 
+def _float_or_none(value: Any) -> float | None:
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
+
+
 def _window_key(candidate: dict[str, Any]) -> tuple[str, float | None, float | None, str]:
     window = candidate.get("source_window") if isinstance(candidate.get("source_window"), dict) else {}
-    start = window.get("start")
-    end = window.get("end")
-    try:
-        start_f = round(float(start), 2)
-    except (TypeError, ValueError):
-        start_f = None
-    try:
-        end_f = round(float(end), 2)
-    except (TypeError, ValueError):
-        end_f = None
-    return (str(candidate.get("source_video") or ""), start_f, end_f, str(candidate.get("event_type") or ""))
+    return (
+        str(candidate.get("source_video") or ""),
+        _float_or_none(window.get("start")),
+        _float_or_none(window.get("end")),
+        str(candidate.get("event_type") or ""),
+    )
+
+
+def _window_key_without_source(candidate: dict[str, Any]) -> tuple[float | None, float | None, str]:
+    _source, start, end, event_type = _window_key(candidate)
+    return (start, end, event_type)
+
+
+def _find_matching_key(
+    candidate: dict[str, Any],
+    by_key: dict[tuple[str, float | None, float | None, str], dict[str, Any]],
+) -> tuple[str, float | None, float | None, str] | None:
+    """Return an existing key for the same physical source window.
+
+    Draft traces can miss source_video because metadata is saved after upload and
+    some older paths do not persist the source filename. Treat source-less trace
+    windows as a wildcard so an uploaded draft does not appear again as
+    ``selected_by_selector_not_emitted_as_draft`` in the same window.
+    """
+    exact_key = _window_key(candidate)
+    if exact_key in by_key:
+        return exact_key
+    no_source = _window_key_without_source(candidate)
+    for key in by_key:
+        if (key[1], key[2], key[3]) == no_source:
+            return key
+    return None
+
+
+def _matches_any_trace(candidate: dict[str, Any], trace_candidates: list[dict[str, Any]]) -> bool:
+    candidate_key = _window_key(candidate)
+    candidate_no_source = _window_key_without_source(candidate)
+    for trace_candidate in trace_candidates:
+        trace_key = _window_key(trace_candidate)
+        if trace_key == candidate_key:
+            return True
+        if (trace_key[1], trace_key[2], trace_key[3]) == candidate_no_source:
+            return True
+    return False
 
 
 def _candidate_from_window(draft: dict[str, Any], idx: int, window: dict[str, Any]) -> dict[str, Any]:
@@ -123,18 +163,20 @@ def _unmatched_upstream_selected_to_discarded(candidate: dict[str, Any]) -> dict
 def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
     if not upstream_candidates:
         return trace_candidates
-    trace_keys = {_window_key(item) for item in trace_candidates}
+
     by_key: dict[tuple[str, float | None, float | None, str], dict[str, Any]] = {}
     for item in upstream_candidates:
         key = _window_key(item)
         candidate = dict(item)
-        if candidate.get("selected") and key not in trace_keys:
+        if candidate.get("selected") and not _matches_any_trace(candidate, trace_candidates):
             candidate = _unmatched_upstream_selected_to_discarded(candidate)
         by_key[key] = candidate
+
     for trace_candidate in trace_candidates:
-        key = _window_key(trace_candidate)
-        if key in by_key:
-            merged = {**by_key[key]}
+        trace_key = _window_key(trace_candidate)
+        existing_key = _find_matching_key(trace_candidate, by_key)
+        if existing_key is not None:
+            merged = {**by_key.pop(existing_key)}
             merged.update({
                 "draft_id": trace_candidate.get("draft_id"),
                 "draft_name": trace_candidate.get("draft_name"),
@@ -143,10 +185,14 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
                 "discard_cause": None,
                 "selection_reason": trace_candidate.get("selection_reason") or "selected_for_uploaded_draft",
                 "unmatched_selector_selection": False,
+                "matched_trace_source_missing": not bool(trace_candidate.get("source_video")) and bool(merged.get("source_video")),
             })
-            by_key[key] = merged
+            # Keep the richer upstream key when it has a source filename; otherwise
+            # store under the trace key.
+            store_key = existing_key if existing_key[0] else trace_key
+            by_key[store_key] = merged
         else:
-            by_key[key] = trace_candidate
+            by_key[trace_key] = trace_candidate
     return list(by_key.values())
 
 
