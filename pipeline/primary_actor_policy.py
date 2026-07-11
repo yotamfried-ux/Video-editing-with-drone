@@ -234,3 +234,42 @@ def classify_primary_actor(
         "background_people_allowed": False,
         "ambiguity_reasons": ["primary_actor_unknown"],
     }
+
+
+def merge_gate_defect_into_qa(
+    event: dict[str, Any],
+    gate: dict[str, Any],
+    *,
+    default_defect_type: str,
+    overall_fallback: str,
+) -> dict[str, Any]:
+    """Merge one blocking actor-gate defect into the event QA payload.
+
+    Both native-video and sidecar continuity gates use this path so their persisted
+    block reasons and QA state cannot drift apart.
+    """
+    defect = gate.get("defect")
+    if not isinstance(defect, dict):
+        return event
+    qa_gate = dict(event.get("qa_gate") or {})
+    defects = [*qa_gate.get("defects", []), defect]
+    reason_code = str(defect.get("type") or default_defect_type)
+    reasons = [*qa_gate.get("review_required_reasons", [])]
+    if reason_code not in reasons:
+        reasons.append(reason_code)
+    blocked = [*qa_gate.get("approval_blocked_reasons", [])]
+    note = str(defect.get("note") or "").strip()
+    block_reason = f"{reason_code}: {note}" if note else reason_code
+    if block_reason not in blocked:
+        blocked.append(block_reason)
+    qa_gate.update({
+        "decision": "blocked_review_required",
+        "final_verdict": "FAIL",
+        "qa_review_required": True,
+        "critical_defect_count": max(1, int(qa_gate.get("critical_defect_count") or 0) + 1),
+        "review_required_reasons": reasons,
+        "approval_blocked_reasons": blocked,
+        "defects": defects,
+        "overall": qa_gate.get("overall") or overall_fallback,
+    })
+    return {**event, "qa_gate": qa_gate}
