@@ -2,12 +2,15 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 from pathlib import Path
 
-from scripts.build_athlete_coverage_report import build_report
-
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from scripts.build_athlete_coverage_report import build_report
 
 
 def require(ok: bool, msg: str) -> None:
@@ -73,18 +76,18 @@ def main() -> None:
 
         report = build_report(ledger_path, audit_path)
         summary = report["summary"]
-        require(summary["confirmed_athlete_cluster_count"] == 3, "cluster count wrong")
-        require(summary["represented_athlete_cluster_count"] == 1, "represented count wrong")
-        require(summary["covered_or_explicitly_explained_cluster_count"] == 2, "accountability count wrong")
-        require(summary["coverage_gap_cluster_count"] == 1, "unresolved coverage gap missing")
-        require(summary["candidate_action_seconds"] == 45.0, "candidate seconds wrong")
-        require(summary["selected_action_seconds"] == 10.0, "selected seconds wrong")
+        require(summary["confirmed_athlete_cluster_count"] == 3, f"cluster count wrong: {summary}")
+        require(summary["represented_athlete_cluster_count"] == 1, f"represented count wrong: {summary}")
+        require(summary["covered_or_explicitly_explained_cluster_count"] == 2, f"accountability count wrong: {summary}")
+        require(summary["coverage_gap_cluster_count"] == 1, f"unresolved coverage gap missing: {summary}")
+        require(summary["candidate_action_seconds"] == 45.0, f"candidate seconds wrong: {summary}")
+        require(summary["selected_action_seconds"] == 10.0, f"selected seconds wrong: {summary}")
 
         by_id = {item["athlete_cluster_id"]: item for item in report["athletes"]}
-        require(by_id["player_7"]["final_outcome"] == "draft_created", "selected athlete outcome wrong")
-        require(by_id["surfer_B"]["final_outcome"] == "target_not_trackable", "explicit no-output reason wrong")
+        require(by_id["player_7"]["final_outcome"] == "draft_created", f"selected athlete outcome wrong: {by_id}")
+        require(by_id["surfer_B"]["final_outcome"] == "target_not_trackable", f"explicit no-output reason wrong: {by_id}")
         require(by_id["surfer_B"]["coverage_requirement_met"] is True, "explicit no-output should satisfy accountability")
-        require(by_id["player_10"]["final_outcome"] == "unresolved_selection_path", "generic reason should remain a gap")
+        require(by_id["player_10"]["final_outcome"] == "unresolved_selection_path", f"generic reason should remain a gap: {by_id}")
         require(by_id["player_10"]["coverage_requirement_met"] is False, "generic reason must not satisfy accountability")
 
     runner = (ROOT / "scripts" / "run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
