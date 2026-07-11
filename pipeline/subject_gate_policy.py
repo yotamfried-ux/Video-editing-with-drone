@@ -1,9 +1,8 @@
-"""Canonical-track subject isolation gate for draft source windows.
+"""Canonical-track primary-actor continuity gate for source windows.
 
-This gate consumes the production perception sidecar and marks a draft window as
-review-required when one athlete is not clearly dominant inside the actual cut
-window. It does not invent detections: it only uses canonical track IDs already
-written into the sidecar, while raw IDs remain preserved there for audit.
+The sidecar may contain many people, especially in team sports. Additional tracks
+are not defects. This gate blocks only when the athlete performing the action is
+lost, switched, critically occluded, or cannot be identified among the tracks.
 """
 from __future__ import annotations
 
@@ -12,11 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from pipeline.multi_person_clip_gate import is_intentional_social_moment
+from pipeline.primary_actor_policy import classify_primary_actor
 
-DEFECT_TYPE = "MULTI_PERSON_CLIP"
+DEFECT_TYPE = "PRIMARY_ACTOR_UNCLEAR"
 MIN_DETECTIONS = 4
 MIN_TRACKS = 2
-MAX_PRIMARY_DOMINANCE = 0.70
+MIN_PRIMARY_CONTINUITY = 0.50
 NONCLIMAX_CAP_SEC = 11.0
 SINGLE_CLIP_CAP_SEC = 15.0
 
@@ -50,10 +50,9 @@ def _time_sec(detection: Any) -> float | None:
     if value is None and isinstance(detection, dict):
         value = detection.get("time_sec")
     try:
-        parsed = float(value)
+        return float(value)
     except (TypeError, ValueError):
         return None
-    return parsed
 
 
 def _event_source(event: dict[str, Any], fallback: str = "") -> str:
@@ -135,28 +134,61 @@ def _detections_for_event(event: dict[str, Any], detections: list[Any], source_v
         if det_source and source and not _sources_match(det_source, source):
             continue
         time_sec = _time_sec(detection)
-        if time_sec is None:
-            continue
-        if start <= time_sec <= end:
+        if time_sec is not None and start <= time_sec <= end:
             out.append(detection)
     return out
 
 
+def _requested_track(event: dict[str, Any], counts: Counter[str]) -> str | None:
+    for key in ("target_track_id", "primary_track_id", "athlete_track_id", "track_id"):
+        value = event.get(key)
+        if value is not None and str(value) in counts:
+            return str(value)
+    return None
+
+
+def _continuity_ratio(track_id: str, detections: list[Any]) -> float:
+    all_times = {round(t, 3) for item in detections if (t := _time_sec(item)) is not None}
+    primary_times = {
+        round(t, 3)
+        for item in detections
+        if _track_id(item) == track_id and (t := _time_sec(item)) is not None
+    }
+    return len(primary_times) / len(all_times) if all_times else 0.0
+
+
 def build_subject_gate(event: dict[str, Any], detections: list[Any], index: int, *, source_video: str = "") -> dict[str, Any] | None:
     window_detections = _detections_for_event(event, detections, source_video)
-    counts = Counter(_track_id(item) for item in window_detections if _track_id(item) is not None)
+    counts: Counter[str] = Counter(
+        track_id for item in window_detections if (track_id := _track_id(item)) is not None
+    )
     total = sum(counts.values())
     if total < MIN_DETECTIONS or len(counts) < MIN_TRACKS:
         return None
-    primary_track, primary_count = counts.most_common(1)[0]
+
+    primary_track = _requested_track(event, counts) or counts.most_common(1)[0][0]
+    primary_count = counts[primary_track]
     dominance = primary_count / total if total else 0.0
-    if dominance > MAX_PRIMARY_DOMINANCE:
-        return None
+    continuity = _continuity_ratio(primary_track, window_detections)
     social = is_intentional_social_moment(event)
     start, end = effective_cut_window(event)
+
+    if social:
+        classification = {
+            "decision": "allowed_social_moment",
+            "reason": "intentional_social_moment",
+            "ambiguity_reasons": [],
+            "background_people_allowed": True,
+        }
+    else:
+        classification = classify_primary_actor(
+            event,
+            visible_subject_count=len(counts),
+            primary_continuity_ratio=continuity,
+        )
+
     gate = {
-        "decision": "allowed_social_moment" if social else "review_required",
-        "reason": "intentional_social_moment" if social else "low_primary_track_dominance",
+        **classification,
         "event_id": str(event.get("event_id") or event.get("id") or f"event_{index:03d}"),
         "source_video": _source_name(_event_source(event, source_video)),
         "source_window": {"start": start, "end": end},
@@ -167,19 +199,23 @@ def build_subject_gate(event: dict[str, Any], detections: list[Any], index: int,
         "primary_track_id": primary_track,
         "primary_track_detections": primary_count,
         "primary_track_dominance_ratio": round(dominance, 3),
-        "dominance_threshold": MAX_PRIMARY_DOMINANCE,
+        "primary_track_continuity_ratio": round(continuity, 3),
+        "continuity_threshold": MIN_PRIMARY_CONTINUITY,
+        "background_people_allowed": classification.get("decision") != "review_required" and len(counts) > 1,
     }
-    if not social:
+    if classification.get("decision") == "review_required":
+        defect_type = str(classification.get("defect_type") or DEFECT_TYPE)
         gate["defect"] = {
-            "type": DEFECT_TYPE,
+            "type": defect_type,
             "severity": "critical",
             "blocking": True,
             "event_id": gate["event_id"],
             "source_video": gate["source_video"],
-            "note": "source window contains multiple significant canonical tracks; operator review required before approval",
+            "note": "primary athlete cannot be followed reliably through the action",
             "primary_track_id": primary_track,
             "visible_track_ids": sorted(counts.keys()),
-            "primary_track_dominance_ratio": round(dominance, 3),
+            "primary_track_continuity_ratio": round(continuity, 3),
+            "ambiguity_reasons": classification.get("ambiguity_reasons", []),
         }
     return gate
 
@@ -189,13 +225,13 @@ def _merge_qa_gate(event: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any
     if not defect:
         return event
     qa_gate = dict(event.get("qa_gate") or {})
-    defects = [*qa_gate.get("defects", [])]
-    defects.append(defect)
+    defects = [*qa_gate.get("defects", []), defect]
+    reason_code = str(defect.get("type") or DEFECT_TYPE)
     reasons = [*qa_gate.get("review_required_reasons", [])]
-    if DEFECT_TYPE not in reasons:
-        reasons.append(DEFECT_TYPE)
+    if reason_code not in reasons:
+        reasons.append(reason_code)
     blocked = [*qa_gate.get("approval_blocked_reasons", [])]
-    block_reason = f"{DEFECT_TYPE}: {defect.get('note')}"
+    block_reason = f"{reason_code}: {defect.get('note')}"
     if block_reason not in blocked:
         blocked.append(block_reason)
     qa_gate.update({
@@ -206,7 +242,7 @@ def _merge_qa_gate(event: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any
         "review_required_reasons": reasons,
         "approval_blocked_reasons": blocked,
         "defects": defects,
-        "overall": qa_gate.get("overall") or "source window contains multiple significant canonical tracks",
+        "overall": qa_gate.get("overall") or "primary athlete continuity is uncertain",
     })
     return {**event, "qa_gate": qa_gate}
 
