@@ -102,7 +102,7 @@ def main() -> int:
     switch_defect = switched_events[0].get("qa_gate", {}).get("defects", [])[0]
     require(switch_defect.get("type") == "IDENTITY_SWITCH", "identity switch must be explicit")
 
-    # Sidecar gate: multiple persistent tracks are allowed when the native-video
+    # Sidecar gate: multiple persistent tracks are allowed when native-video
     # analysis says the action attribution is stable.
     subject_event = {
         "event_id": "play_2",
@@ -116,16 +116,37 @@ def main() -> int:
         "identity_continuity": "stable",
         "competing_active_subjects": False,
     }
-    subject_gate = build_subject_gate(
-        subject_event,
-        [det(1, 20.0), det(2, 20.0), det(1, 21.0), det(2, 21.0), det(1, 22.0), det(2, 22.0)],
-        0,
-        source_video="source.mp4",
-    )
+    crowded_detections = [
+        det(1, 20.0), det(2, 20.0),
+        det(1, 21.0), det(2, 21.0),
+        det(1, 22.0), det(2, 22.0),
+    ]
+    subject_gate = build_subject_gate(subject_event, crowded_detections, 0, source_video="source.mp4")
     require(subject_gate is not None, "subject gate telemetry should be emitted")
     require(subject_gate.get("decision") == "allowed_primary_actor_clear", "stable actor should survive crowded frame")
     require(subject_gate.get("background_people_allowed") is True, "sidecar gate must allow background people")
     require("defect" not in subject_gate, "allowed sidecar gate must not create defect")
+
+    # A declared target may never be silently replaced by the most common opponent
+    # or background track when that target disappeared from the window.
+    missing_target_gate = build_subject_gate(
+        {
+            **subject_event,
+            "target_track_id": "99",
+            "primary_actor_clear": True,
+            "identity_continuity": "stable",
+        },
+        crowded_detections,
+        0,
+        source_video="source.mp4",
+    )
+    require(missing_target_gate is not None, "missing target should emit blocking telemetry")
+    require(missing_target_gate.get("decision") == "review_required", "missing declared target must be blocked")
+    require(missing_target_gate.get("declared_target_track_id") == "99", "declared target evidence missing")
+    require(missing_target_gate.get("declared_target_track_present") is False, "missing target incorrectly marked present")
+    require(missing_target_gate.get("primary_track_id") == "99", "opponent track must not replace declared target")
+    require("declared_target_track_absent" in missing_target_gate.get("ambiguity_reasons", []), "missing-target reason absent")
+    require(missing_target_gate.get("defect", {}).get("blocking") is True, "missing target defect must block")
 
     blocked_subject_gate = build_subject_gate(
         {**subject_event, "primary_actor_clear": False, "identity_continuity": "uncertain"},
