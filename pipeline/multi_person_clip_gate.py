@@ -151,7 +151,7 @@ def annotate_multi_person_events(events: list[dict[str, Any]], athlete_label: st
             annotated.append(event)
             continue
         visible_ids = _visible_subject_ids(event)
-        if len(visible_ids) <= 1 and not event.get("primary_actor_clear") is False:
+        if len(visible_ids) <= 1 and event.get("primary_actor_clear") is not False:
             annotated.append(event)
             continue
         gate = build_multi_person_gate(event, index)
