@@ -12,7 +12,7 @@ import json
 import re
 from typing import Any
 
-from pipeline.primary_actor_policy import ambiguity_reasons
+from pipeline.primary_actor_policy import ambiguity_reasons, normalize_focused_subwindow_evidence
 
 _INSTALLED_FLAG = "_sportreel_single_athlete_selection_policy_installed"
 _PARSE_WRAPPED_FLAG = "_sportreel_single_athlete_parse_wrapped"
@@ -77,6 +77,8 @@ _EVENT_EVIDENCE_KEYS = (
     "primary_actor_reason",
     "primary_actor_start",
     "primary_actor_end",
+    "primary_actor_evidence_scope",
+    "broad_window_ambiguity_reasons",
     "target_track_id",
     "primary_track_id",
     "athlete_track_id",
@@ -110,13 +112,9 @@ def _rewrite_to_focused_subwindow(event: dict[str, Any]) -> dict[str, Any] | Non
     end = _first_number(event, _FOCUSED_END_KEYS)
     if start is None or end is None or end - start < 6.0:
         return None
-    rewritten = dict(event)
+    rewritten = normalize_focused_subwindow_evidence(event)
     rewritten["start"] = start
     rewritten["end"] = end
-    rewritten["primary_actor_clear"] = True
-    rewritten["identity_continuity"] = "stable"
-    rewritten["competing_active_subjects"] = False
-    rewritten["target_occluded_at_key_moment"] = False
     rewritten["primary_actor_reason"] = str(
         event.get("primary_actor_reason") or "Focused sub-window preserves one attributable action."
     )
