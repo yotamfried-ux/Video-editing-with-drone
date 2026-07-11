@@ -29,8 +29,6 @@ def det(track_id: int, time_sec: float) -> dict:
 
 
 def main() -> int:
-    # Surfing: another surfer in the lineup/background is not a defect when the
-    # target remains the clear actor throughout the ride.
     surf_events = annotate_multi_person_events([{
         "event_id": "ride_1",
         "type": "surf_ride",
@@ -50,8 +48,6 @@ def main() -> int:
     require(not has_multi_person_defect(surf_events), "clear surf actor must not be blocked")
     require("qa_gate" not in surf_events[0], "allowed surf event must not get QA defect")
 
-    # Football: teammates and opponents are expected around the player executing
-    # the play. Attribution, not people count, decides validity.
     football_events = annotate_multi_person_events([{
         "event_id": "goal_1",
         "type": "goal",
@@ -70,7 +66,6 @@ def main() -> int:
     require(football_gate.get("decision") == "allowed_primary_actor_clear", "football play should follow primary actor")
     require(not has_multi_person_defect(football_events), "normal football context must not be blocked")
 
-    # Genuine ambiguity remains a hard block.
     ambiguous_events = annotate_multi_person_events([{
         "event_id": "duel_1",
         "type": "tackle",
@@ -85,10 +80,27 @@ def main() -> int:
     ambiguous = ambiguous_events[0]
     ambiguous_gate = ambiguous.get("multi_person_clip_gate", {})
     require(ambiguous_gate.get("decision") == "review_required", "ambiguous primary actor must require review")
+    require(ambiguous_gate.get("background_people_allowed") is False, "blocked gate must explicitly disallow background interpretation")
     require(has_multi_person_defect(ambiguous_events), "ambiguous gate was not detected")
     defects = ambiguous.get("qa_gate", {}).get("defects", [])
     require(defects and defects[0].get("type") == "PRIMARY_ACTOR_UNCLEAR", "primary actor defect missing")
     require(is_critical_defect(defects[0]), "primary actor ambiguity must be critical")
+
+    occluded_events = annotate_multi_person_events([{
+        "event_id": "occluded_1",
+        "type": "shot",
+        "person_id": "player_9",
+        "primary_actor_clear": True,
+        "critical_occlusion": True,
+        "source_window_person_ids": ["player_9", "defender_2"],
+        "start": 45,
+        "end": 52,
+    }])
+    occluded_gate = occluded_events[0].get("multi_person_clip_gate", {})
+    occluded_defect = occluded_events[0].get("qa_gate", {}).get("defects", [])[0]
+    require(occluded_gate.get("decision") == "review_required", "critical occlusion must require review")
+    require(occluded_gate.get("background_people_allowed") is False, "occluded gate shape is inconsistent")
+    require(occluded_defect.get("type") == "PRIMARY_ACTOR_OCCLUDED", "critical_occlusion must map to PRIMARY_ACTOR_OCCLUDED")
 
     switched_events = annotate_multi_person_events([{
         "event_id": "switch_1",
@@ -102,8 +114,6 @@ def main() -> int:
     switch_defect = switched_events[0].get("qa_gate", {}).get("defects", [])[0]
     require(switch_defect.get("type") == "IDENTITY_SWITCH", "identity switch must be explicit")
 
-    # Sidecar gate: multiple persistent tracks are allowed when native-video
-    # analysis says the action attribution is stable.
     subject_event = {
         "event_id": "play_2",
         "type": "dribble",
@@ -127,8 +137,6 @@ def main() -> int:
     require(subject_gate.get("background_people_allowed") is True, "sidecar gate must allow background people")
     require("defect" not in subject_gate, "allowed sidecar gate must not create defect")
 
-    # A declared target may never be silently replaced by the most common opponent
-    # or background track when that target disappeared from the window.
     missing_target_gate = build_subject_gate(
         {
             **subject_event,
