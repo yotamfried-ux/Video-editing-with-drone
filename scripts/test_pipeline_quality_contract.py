@@ -178,6 +178,10 @@ def main() -> int:
         [
             "def classify_primary_actor",
             "def ambiguity_reasons",
+            "def merge_gate_defect_into_qa",
+            "blocked_review_required",
+            "qa_review_required",
+            "approval_blocked_reasons",
             "PRIMARY_ACTOR_UNCLEAR",
             "PRIMARY_ACTOR_OCCLUDED",
             "IDENTITY_SWITCH",
@@ -192,16 +196,17 @@ def main() -> int:
             "def annotate_multi_person_events",
             "def has_multi_person_defect",
             "classify_primary_actor",
+            "merge_gate_defect_into_qa",
+            "default_defect_type=IDENTITY_UNCERTAIN_DEFECT",
             "allowed_primary_actor_clear",
             "background_people_allowed",
             "allowed_social_moment",
-            "qa_review_required",
         ],
     )
     require_no_tokens(
         "multi-person primary actor gate",
         multi_person_gate,
-        ["extra_visible_subject_in_single_athlete_draft"],
+        ["extra_visible_subject_in_single_athlete_draft", "def _merge_qa_gate"],
     )
     require_tokens(
         "subject continuity gate",
@@ -214,6 +219,8 @@ def main() -> int:
             "primary_track_continuity_ratio",
             "load_sidecar_detections",
             "classify_primary_actor",
+            "merge_gate_defect_into_qa",
+            "default_defect_type=DEFECT_TYPE",
             "background_people_allowed",
             "PRIMARY_ACTOR_UNCLEAR",
         ],
@@ -221,7 +228,11 @@ def main() -> int:
     require_no_tokens(
         "subject continuity gate",
         subject_gate,
-        ["low_primary_track_dominance", "source window contains multiple significant canonical tracks"],
+        [
+            "low_primary_track_dominance",
+            "source window contains multiple significant canonical tracks",
+            "def _merge_qa_gate",
+        ],
     )
     require_tokens(
         "long-video subject gate coverage",
