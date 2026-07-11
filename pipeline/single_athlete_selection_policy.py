@@ -28,6 +28,8 @@ PRIMARY-ACTOR CONTINUITY POLICY — REQUIRED FOR PERSONAL REELS:
 - Block or trim an event only when the primary actor becomes ambiguous, identity switches,
   the camera starts following another athlete, the target is lost, or the target is
   materially obscured at the key moment.
+- Classify the top-level source_profile as one of:
+    raw_continuous_footage | edited_sports_compilation | single_athlete_session | multi_athlete_event
 - For every event return:
     primary_actor_clear: true|false
     primary_actor_confidence: 0.0-1.0
@@ -47,6 +49,8 @@ PRIMARY-ACTOR CONTINUITY POLICY — REQUIRED FOR PERSONAL REELS:
 - Coverage requirement: every distinct athlete with at least one complete score>=6 action
   must retain at least one selected event. Do not create athlete entries for background-only
   people who never perform a meaningful action.
+- When an athlete has no retained event, return person-level no_output_reason as one of:
+    no_complete_action | quality_below_threshold | identity_uncertain | target_not_trackable
 """
 
 _FOCUSED_START_KEYS = (
@@ -63,6 +67,27 @@ _FOCUSED_END_KEYS = (
     "clean_window_end",
     "single_athlete_end",
 )
+_EVENT_EVIDENCE_KEYS = (
+    "primary_actor_clear",
+    "primary_actor_confidence",
+    "identity_continuity",
+    "background_people_present",
+    "competing_active_subjects",
+    "target_occluded_at_key_moment",
+    "primary_actor_reason",
+    "primary_actor_start",
+    "primary_actor_end",
+    "target_track_id",
+    "primary_track_id",
+    "athlete_track_id",
+    "track_id",
+)
+_SOURCE_PROFILES = {
+    "raw_continuous_footage",
+    "edited_sports_compilation",
+    "single_athlete_session",
+    "multi_athlete_event",
+}
 
 
 def _num(value: Any) -> float | None:
@@ -104,12 +129,17 @@ def _event_allowed(event: dict[str, Any]) -> dict[str, Any] | None:
     return event
 
 
-def rewrite_raw_selection_json(raw_text: str) -> str:
-    """Remove only events with unresolved primary-actor ambiguity."""
+def _load_json(raw_text: str) -> dict[str, Any]:
     text = raw_text.strip()
     text = re.sub(r"^```(?:json)?\s*", "", text)
     text = re.sub(r"\s*```$", "", text)
-    data = json.loads(text)
+    payload = json.loads(text)
+    return payload if isinstance(payload, dict) else {}
+
+
+def rewrite_raw_selection_json(raw_text: str) -> str:
+    """Remove only events with unresolved primary-actor ambiguity."""
+    data = _load_json(raw_text)
     for person in data.get("persons", []) or []:
         retained: list[dict[str, Any]] = []
         for event in person.get("events", []) or []:
@@ -120,6 +150,42 @@ def rewrite_raw_selection_json(raw_text: str) -> str:
                 retained.append(allowed)
         person["events"] = retained
     return json.dumps(data, ensure_ascii=False)
+
+
+def _event_match(parsed_event: dict[str, Any], raw_event: dict[str, Any]) -> bool:
+    p_start = _num(parsed_event.get("start"))
+    p_end = _num(parsed_event.get("end"))
+    r_start = _num(raw_event.get("start"))
+    r_end = _num(raw_event.get("end"))
+    if None in (p_start, p_end, r_start, r_end):
+        return False
+    same_type = str(parsed_event.get("type") or "") == str(raw_event.get("type") or "")
+    return same_type and abs(p_start - r_start) <= 0.05 and abs(p_end - r_end) <= 0.05
+
+
+def _enrich_parsed_session(parsed: dict[str, Any], raw: dict[str, Any]) -> dict[str, Any]:
+    raw_people = {
+        str(person.get("id") or ""): person
+        for person in raw.get("persons", []) or []
+        if isinstance(person, dict)
+    }
+    for person in parsed.get("persons", []) or []:
+        person_id = str(person.get("id") or "")
+        raw_person = raw_people.get(person_id, {})
+        person["no_output_reason"] = raw_person.get("no_output_reason")
+        person["identity_confidence"] = raw_person.get("identity_confidence")
+        raw_events = [event for event in raw_person.get("events", []) or [] if isinstance(event, dict)]
+        for event in person.get("events", []) or []:
+            event["person_id"] = person_id
+            event["person_description"] = str(person.get("description") or "")
+            match = next((candidate for candidate in raw_events if _event_match(event, candidate)), None)
+            if match:
+                for key in _EVENT_EVIDENCE_KEYS:
+                    if key in match:
+                        event[key] = match[key]
+    profile = str(raw.get("source_profile") or "").strip().lower()
+    parsed["source_profile"] = profile if profile in _SOURCE_PROFILES else "raw_continuous_footage"
+    return parsed
 
 
 def install() -> None:
@@ -140,7 +206,9 @@ def install() -> None:
         original_parse = analyzer._parse_session
 
         def parse_with_primary_actor_policy(raw_text: str) -> dict:
-            return original_parse(rewrite_raw_selection_json(raw_text))
+            rewritten = rewrite_raw_selection_json(raw_text)
+            raw = _load_json(rewritten)
+            return _enrich_parsed_session(original_parse(rewritten), raw)
 
         analyzer._parse_session = parse_with_primary_actor_policy
         setattr(analyzer, _PARSE_WRAPPED_FLAG, True)
