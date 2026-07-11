@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from pipeline.multi_person_clip_gate import is_intentional_social_moment
-from pipeline.primary_actor_policy import classify_primary_actor
+from pipeline.primary_actor_policy import classify_primary_actor, merge_gate_defect_into_qa
 
 DEFECT_TYPE = "PRIMARY_ACTOR_UNCLEAR"
 MIN_DETECTIONS = 4
@@ -264,33 +264,6 @@ def build_subject_gate(event: dict[str, Any], detections: list[Any], index: int,
     return gate
 
 
-def _merge_qa_gate(event: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any]:
-    defect = gate.get("defect")
-    if not defect:
-        return event
-    qa_gate = dict(event.get("qa_gate") or {})
-    defects = [*qa_gate.get("defects", []), defect]
-    reason_code = str(defect.get("type") or DEFECT_TYPE)
-    reasons = [*qa_gate.get("review_required_reasons", [])]
-    if reason_code not in reasons:
-        reasons.append(reason_code)
-    blocked = [*qa_gate.get("approval_blocked_reasons", [])]
-    block_reason = f"{reason_code}: {defect.get('note')}"
-    if block_reason not in blocked:
-        blocked.append(block_reason)
-    qa_gate.update({
-        "decision": "blocked_review_required",
-        "final_verdict": "FAIL",
-        "qa_review_required": True,
-        "critical_defect_count": max(1, int(qa_gate.get("critical_defect_count") or 0) + 1),
-        "review_required_reasons": reasons,
-        "approval_blocked_reasons": blocked,
-        "defects": defects,
-        "overall": qa_gate.get("overall") or "primary athlete continuity is uncertain",
-    })
-    return {**event, "qa_gate": qa_gate}
-
-
 def annotate_subject_events(events: list[dict[str, Any]], *, source_video: str = "", athlete_label: str = "") -> list[dict[str, Any]]:
     detections = _load_detections_for_sources([event for event in events or [] if isinstance(event, dict)], source_video)
     if not detections:
@@ -304,7 +277,12 @@ def annotate_subject_events(events: list[dict[str, Any]], *, source_video: str =
         gate = build_subject_gate(next_event, detections, index, source_video=source_video)
         if gate is not None:
             next_event = {**next_event, "subject_isolation_gate": gate}
-            next_event = _merge_qa_gate(next_event, gate)
+            next_event = merge_gate_defect_into_qa(
+                next_event,
+                gate,
+                default_defect_type=DEFECT_TYPE,
+                overall_fallback="primary athlete continuity is uncertain",
+            )
         annotated.append(next_event)
     return annotated
 
