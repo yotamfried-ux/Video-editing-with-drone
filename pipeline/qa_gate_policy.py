@@ -17,6 +17,9 @@ BLOCKING_DEFECT_TYPES = {
     "QA_REVIEW_REQUIRED",
     "MULTI_PERSON_CLIP",
     "IDENTITY_UNCERTAIN",
+    "PRIMARY_ACTOR_UNCLEAR",
+    "PRIMARY_ACTOR_OCCLUDED",
+    "IDENTITY_SWITCH",
     "PREMATURE_CUT",
     "CUT_TOO_EARLY",
 }
@@ -168,12 +171,7 @@ def apply_final_qa_to_visual_family(
     *,
     retry_count: int,
 ) -> tuple[dict[str, Any], bool]:
-    """Attach one visual QA verdict to the clean reel and every music sibling.
-
-    Music variants contain the same visual timeline. A blocking visual defect on
-    the clean reel therefore must block every sibling, not only the exact path that
-    was sent to the QA model.
-    """
+    """Attach one visual QA verdict to the clean reel and every music sibling."""
     family_key = visual_family_key(clean_reel)
     family = [path for path in final_reels if visual_family_key(path) == family_key]
     if clean_reel not in family:

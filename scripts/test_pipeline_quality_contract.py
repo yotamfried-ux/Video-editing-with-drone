@@ -46,6 +46,7 @@ def main() -> int:
     perception_runtime = _read("pipeline/perception/runtime.py")
     event_fingerprint = _read("pipeline/perception/event_fingerprint.py")
     athlete_canonicalization = _read("pipeline/athlete_canonicalization.py")
+    primary_actor_policy = _read("pipeline/primary_actor_policy.py")
     multi_person_gate = _read("pipeline/multi_person_clip_gate.py")
     subject_gate = _read("pipeline/subject_gate_policy.py")
     context_qa_long_video = _read("pipeline/context_qa_long_video.py")
@@ -53,17 +54,21 @@ def main() -> int:
     sitecustomize = _read("scripts/sitecustomize.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
-    ast.parse(runtime)
-    ast.parse(identity_failsafe)
-    ast.parse(cross_source_dedup)
-    ast.parse(perception_runtime)
-    ast.parse(event_fingerprint)
-    ast.parse(athlete_canonicalization)
-    ast.parse(multi_person_gate)
-    ast.parse(subject_gate)
-    ast.parse(context_qa_long_video)
-    ast.parse(run_tracked)
-    ast.parse(sitecustomize)
+    for source in (
+        runtime,
+        identity_failsafe,
+        cross_source_dedup,
+        perception_runtime,
+        event_fingerprint,
+        athlete_canonicalization,
+        primary_actor_policy,
+        multi_person_gate,
+        subject_gate,
+        context_qa_long_video,
+        run_tracked,
+        sitecustomize,
+    ):
+        ast.parse(source)
 
     require_tokens(
         "runtime quality hardening",
@@ -84,11 +89,7 @@ def main() -> int:
     require_no_tokens(
         "runtime quality hardening",
         runtime,
-        [
-            "best_score >= 5",
-            "score >= 5",
-            "include their top 2",
-        ],
+        ["best_score >= 5", "score >= 5", "include their top 2"],
     )
 
     require_tokens(
@@ -170,27 +171,67 @@ def main() -> int:
             "analyzer.analyze_session = analyze_with_athlete_ids",
         ],
     )
+
     require_tokens(
-        "multi-person clip gate",
+        "primary actor policy",
+        primary_actor_policy,
+        [
+            "def classify_primary_actor",
+            "def ambiguity_reasons",
+            "def merge_gate_defect_into_qa",
+            "blocked_review_required",
+            "qa_review_required",
+            "approval_blocked_reasons",
+            "PRIMARY_ACTOR_UNCLEAR",
+            "PRIMARY_ACTOR_OCCLUDED",
+            "IDENTITY_SWITCH",
+            "background_people_allowed",
+            "primary_actor_not_reliably_followable",
+        ],
+    )
+    require_tokens(
+        "multi-person primary actor gate",
         multi_person_gate,
         [
             "def annotate_multi_person_events",
             "def has_multi_person_defect",
-            "MULTI_PERSON_CLIP",
+            "classify_primary_actor",
+            "merge_gate_defect_into_qa",
+            "default_defect_type=IDENTITY_UNCERTAIN_DEFECT",
+            "allowed_primary_actor_clear",
+            "background_people_allowed",
             "allowed_social_moment",
-            "qa_review_required",
         ],
     )
+    require_no_tokens(
+        "multi-person primary actor gate",
+        multi_person_gate,
+        ["extra_visible_subject_in_single_athlete_draft", "def _merge_qa_gate"],
+    )
     require_tokens(
-        "subject isolation gate",
+        "subject continuity gate",
         subject_gate,
         [
             "def annotate_subject_events",
             "def has_subject_isolation_defect",
             "subject_isolation_gate",
             "primary_track_dominance_ratio",
+            "primary_track_continuity_ratio",
             "load_sidecar_detections",
-            "MULTI_PERSON_CLIP",
+            "classify_primary_actor",
+            "merge_gate_defect_into_qa",
+            "default_defect_type=DEFECT_TYPE",
+            "background_people_allowed",
+            "PRIMARY_ACTOR_UNCLEAR",
+        ],
+    )
+    require_no_tokens(
+        "subject continuity gate",
+        subject_gate,
+        [
+            "low_primary_track_dominance",
+            "source window contains multiple significant canonical tracks",
+            "def _merge_qa_gate",
         ],
     )
     require_tokens(
@@ -250,16 +291,20 @@ def main() -> int:
             "pipeline/stages/analyzer.py",
             "pipeline/stages/identity.py",
             "pipeline/cross_source_dedup.py",
+            "pipeline/primary_actor_policy.py",
             "pipeline/multi_person_clip_gate.py",
             "pipeline/context_qa_long_video.py",
             "pipeline/perception/**",
             "pipeline/perception/event_fingerprint.py",
+            "scripts/build_athlete_coverage_report.py",
+            "scripts/test_athlete_coverage_report_contract.py",
             "scripts/test_pipeline_quality_contract.py",
             "scripts/test_cross_source_dedup_contract.py",
             "scripts/test_multi_person_clip_gate_contract.py",
             "Validate Pipeline quality contract",
             "Validate Cross-source dedup contract",
-            "Validate Multi-person clip gate contract",
+            "Validate Primary actor continuity gate contract",
+            "Validate Athlete coverage report contract",
         ],
     )
 

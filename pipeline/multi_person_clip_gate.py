@@ -1,16 +1,18 @@
-"""Same-window multi-person gate for REAL-ID-004.
+"""Primary-actor gate for events containing multiple visible people.
 
-This gate does not try to detect people by itself. It consumes tracker/perception
-metadata when present and fails safe: if a single-athlete draft window has more
-than one visible subject and the event is not explicitly a social moment, the
-resulting draft must be review-required instead of looking like a normal approve.
+Extra people are normal in most sports. This gate blocks only when the athlete
+performing the highlighted action cannot be followed reliably, identity switches,
+or the key action is materially obscured.
 """
 from __future__ import annotations
 
 from typing import Any
 
+from pipeline.primary_actor_policy import classify_primary_actor, merge_gate_defect_into_qa
+
 MULTI_PERSON_DEFECT = "MULTI_PERSON_CLIP"
 IDENTITY_UNCERTAIN_DEFECT = "IDENTITY_UNCERTAIN"
+ALLOWED_PRIMARY_ACTOR_DECISION = "allowed_primary_actor_clear"
 _SOCIAL_LABELS = {"SOCIAL_MOMENT", "HIGH_FIVE"}
 _SOCIAL_TYPES = {"high_five", "celebration", "team_interaction"}
 _ID_FIELDS = (
@@ -29,10 +31,7 @@ _OTHER_FIELDS = ("other_track_ids", "other_person_ids", "secondary_track_ids", "
 def _as_list(value: Any) -> list[str]:
     if value is None:
         return []
-    if isinstance(value, (list, tuple, set)):
-        raw = value
-    else:
-        raw = [value]
+    raw = value if isinstance(value, (list, tuple, set)) else [value]
     return [str(item).strip() for item in raw if str(item).strip()]
 
 
@@ -41,7 +40,7 @@ def _event_id(event: dict[str, Any], index: int) -> str:
 
 
 def _primary_subject_id(event: dict[str, Any]) -> str:
-    for key in ("track_id", "athlete_id", "person_id"):
+    for key in ("target_track_id", "primary_track_id", "athlete_track_id", "track_id", "athlete_id", "person_id"):
         value = str(event.get(key) or "").strip()
         if value:
             return f"{key}:{value}"
@@ -58,10 +57,7 @@ def _visible_subject_ids(event: dict[str, Any]) -> list[str]:
         ids.update(f"{prefix}:{value}" for value in _as_list(event.get(key)))
     for key in _OTHER_FIELDS:
         prefix = "track_id" if "track" in key else "person_id"
-        values = _as_list(event.get(key))
-        if values and primary != "unknown":
-            ids.add(primary)
-        ids.update(f"{prefix}:{value}" for value in values)
+        ids.update(f"{prefix}:{value}" for value in _as_list(event.get(key)))
     return sorted(ids)
 
 
@@ -72,8 +68,7 @@ def _value_labels(event: dict[str, Any]) -> set[str]:
 def is_intentional_social_moment(event: dict[str, Any]) -> bool:
     if bool(event.get("allow_multi_person") or event.get("intentional_multi_person")):
         return True
-    labels = _value_labels(event)
-    if labels & _SOCIAL_LABELS:
+    if _value_labels(event) & _SOCIAL_LABELS:
         return True
     event_type = str(event.get("type") or "").lower().replace("-", "_").replace(" ", "_")
     if event_type in _SOCIAL_TYPES:
@@ -84,48 +79,42 @@ def is_intentional_social_moment(event: dict[str, Any]) -> bool:
 
 def build_multi_person_gate(event: dict[str, Any], index: int) -> dict[str, Any]:
     visible_ids = _visible_subject_ids(event)
-    primary_id = _primary_subject_id(event)
     social = is_intentional_social_moment(event)
-    decision = "allowed_social_moment" if social else "review_required"
-    reason = "intentional_social_moment" if social else "extra_visible_subject_in_single_athlete_draft"
+    if social:
+        return {
+            "decision": "allowed_social_moment",
+            "reason": "intentional_social_moment",
+            "event_id": _event_id(event, index),
+            "primary_subject_id": _primary_subject_id(event),
+            "visible_subject_ids": visible_ids,
+            "visible_subject_count": len(visible_ids),
+            "intentional_social_moment": True,
+            "background_people_allowed": True,
+        }
+
+    classification = classify_primary_actor(event, visible_subject_count=len(visible_ids))
     gate = {
-        "decision": decision,
-        "reason": reason,
+        **classification,
         "event_id": _event_id(event, index),
-        "primary_subject_id": primary_id,
+        "primary_subject_id": _primary_subject_id(event),
         "visible_subject_ids": visible_ids,
-        "visible_subject_count": len(visible_ids),
-        "intentional_social_moment": social,
+        "intentional_social_moment": False,
     }
-    if not social:
+    if classification.get("decision") == ALLOWED_PRIMARY_ACTOR_DECISION:
+        gate["background_people_allowed"] = len(visible_ids) > 1
+    if classification.get("decision") == "review_required":
+        defect_type = str(classification.get("defect_type") or IDENTITY_UNCERTAIN_DEFECT)
         gate["defect"] = {
-            "type": MULTI_PERSON_DEFECT,
+            "type": defect_type,
             "severity": "critical",
             "blocking": True,
             "event_id": gate["event_id"],
-            "note": "single-athlete draft window contains another visible subject without SOCIAL_MOMENT evidence",
-            "primary_subject_id": primary_id,
+            "note": "primary athlete cannot be followed reliably through the highlighted action",
+            "primary_subject_id": gate["primary_subject_id"],
             "visible_subject_ids": visible_ids,
+            "ambiguity_reasons": classification.get("ambiguity_reasons", []),
         }
     return gate
-
-
-def _merge_qa_gate(event: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any]:
-    defect = gate.get("defect")
-    if not defect:
-        return event
-    qa_gate = dict(event.get("qa_gate") or {})
-    defects = [*qa_gate.get("defects", [])]
-    defects.append(defect)
-    qa_gate.update({
-        "decision": qa_gate.get("decision") or "review_required_multi_person",
-        "final_verdict": "FAIL",
-        "qa_review_required": True,
-        "critical_defect_count": max(1, int(qa_gate.get("critical_defect_count") or 0) + 1),
-        "defects": defects,
-        "overall": qa_gate.get("overall") or "multi-person source window requires operator review",
-    })
-    return {**event, "qa_gate": qa_gate}
 
 
 def annotate_multi_person_events(events: list[dict[str, Any]], athlete_label: str = "") -> list[dict[str, Any]]:
@@ -135,13 +124,19 @@ def annotate_multi_person_events(events: list[dict[str, Any]], athlete_label: st
             annotated.append(event)
             continue
         visible_ids = _visible_subject_ids(event)
-        if len(visible_ids) <= 1:
+        if len(visible_ids) <= 1 and event.get("primary_actor_clear") is not False:
             annotated.append(event)
             continue
         gate = build_multi_person_gate(event, index)
         next_event = {**event, "multi_person_clip_gate": gate}
-        next_event = _merge_qa_gate(next_event, gate)
-        annotated.append(next_event)
+        annotated.append(
+            merge_gate_defect_into_qa(
+                next_event,
+                gate,
+                default_defect_type=IDENTITY_UNCERTAIN_DEFECT,
+                overall_fallback="primary athlete is not reliably attributable",
+            )
+        )
     return annotated
 
 

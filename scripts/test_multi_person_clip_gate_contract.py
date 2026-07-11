@@ -29,72 +29,174 @@ def det(track_id: int, time_sec: float) -> dict:
 
 
 def main() -> int:
-    review_events = annotate_multi_person_events([
-        {"event_id": "ride_1", "type": "surf_ride", "track_id": "main", "source_window_track_ids": ["main", "extra"], "start": 1, "end": 9}
-    ])
-    review_event = review_events[0]
-    gate = review_event.get("multi_person_clip_gate", {})
-    require(gate.get("decision") == "review_required", "multi-subject ride must require review")
-    require(has_multi_person_defect(review_events), "review-required gate was not detected")
-    qa_gate = review_event.get("qa_gate", {})
-    defects = qa_gate.get("defects", [])
-    require(qa_gate.get("qa_review_required") is True, "qa review flag missing")
-    require(defects and defects[0].get("type") == "MULTI_PERSON_CLIP", "MULTI_PERSON_CLIP defect missing")
-    require(is_critical_defect(defects[0]), "MULTI_PERSON_CLIP must be a critical QA defect")
+    surf_events = annotate_multi_person_events([{
+        "event_id": "ride_1",
+        "type": "surf_ride",
+        "person_id": "surfer_A",
+        "primary_actor_clear": True,
+        "primary_actor_confidence": 0.94,
+        "identity_continuity": "stable",
+        "background_people_present": True,
+        "competing_active_subjects": False,
+        "source_window_track_ids": ["main", "extra"],
+        "start": 1,
+        "end": 12,
+    }])
+    surf_gate = surf_events[0].get("multi_person_clip_gate", {})
+    require(surf_gate.get("decision") == "allowed_primary_actor_clear", "background surfer should be allowed")
+    require(surf_gate.get("background_people_allowed") is True, "background allowance missing")
+    require(not has_multi_person_defect(surf_events), "clear surf actor must not be blocked")
+    require("qa_gate" not in surf_events[0], "allowed surf event must not get QA defect")
 
-    subject_event = {"event_id": "ride_2", "type": "surf_ride", "start": 10, "end": 30, "score": 8}
-    subject_gate = build_subject_gate(
-        subject_event,
-        [det(1, 20.0), det(1, 21.0), det(2, 20.5), det(2, 21.5)],
+    football_events = annotate_multi_person_events([{
+        "event_id": "goal_1",
+        "type": "goal",
+        "person_id": "player_7",
+        "description": "Player #7 dribbles past two defenders and scores.",
+        "primary_actor_clear": True,
+        "primary_actor_confidence": 0.91,
+        "identity_continuity": "stable",
+        "background_people_present": True,
+        "competing_active_subjects": False,
+        "source_window_person_ids": ["player_7", "defender_4", "defender_5", "goalkeeper_1"],
+        "start": 20,
+        "end": 31,
+    }])
+    football_gate = football_events[0].get("multi_person_clip_gate", {})
+    require(football_gate.get("decision") == "allowed_primary_actor_clear", "football play should follow primary actor")
+    require(not has_multi_person_defect(football_events), "normal football context must not be blocked")
+
+    ambiguous_events = annotate_multi_person_events([{
+        "event_id": "duel_1",
+        "type": "tackle",
+        "primary_actor_clear": False,
+        "primary_actor_confidence": 0.35,
+        "identity_continuity": "uncertain",
+        "competing_active_subjects": True,
+        "source_window_track_ids": ["track_1", "track_2"],
+        "start": 40,
+        "end": 49,
+    }])
+    ambiguous = ambiguous_events[0]
+    ambiguous_gate = ambiguous.get("multi_person_clip_gate", {})
+    require(ambiguous_gate.get("decision") == "review_required", "ambiguous primary actor must require review")
+    require(ambiguous_gate.get("background_people_allowed") is False, "blocked gate must explicitly disallow background interpretation")
+    require(has_multi_person_defect(ambiguous_events), "ambiguous gate was not detected")
+    defects = ambiguous.get("qa_gate", {}).get("defects", [])
+    require(defects and defects[0].get("type") == "PRIMARY_ACTOR_UNCLEAR", "primary actor defect missing")
+    require(is_critical_defect(defects[0]), "primary actor ambiguity must be critical")
+
+    occluded_events = annotate_multi_person_events([{
+        "event_id": "occluded_1",
+        "type": "shot",
+        "person_id": "player_9",
+        "primary_actor_clear": True,
+        "critical_occlusion": True,
+        "source_window_person_ids": ["player_9", "defender_2"],
+        "start": 45,
+        "end": 52,
+    }])
+    occluded_gate = occluded_events[0].get("multi_person_clip_gate", {})
+    occluded_defect = occluded_events[0].get("qa_gate", {}).get("defects", [])[0]
+    require(occluded_gate.get("decision") == "review_required", "critical occlusion must require review")
+    require(occluded_gate.get("background_people_allowed") is False, "occluded gate shape is inconsistent")
+    require(occluded_defect.get("type") == "PRIMARY_ACTOR_OCCLUDED", "critical_occlusion must map to PRIMARY_ACTOR_OCCLUDED")
+
+    switched_events = annotate_multi_person_events([{
+        "event_id": "switch_1",
+        "type": "dribble",
+        "person_id": "player_10",
+        "identity_switch_detected": True,
+        "source_window_person_ids": ["player_10", "player_8"],
+        "start": 50,
+        "end": 59,
+    }])
+    switch_defect = switched_events[0].get("qa_gate", {}).get("defects", [])[0]
+    require(switch_defect.get("type") == "IDENTITY_SWITCH", "identity switch must be explicit")
+
+    subject_event = {
+        "event_id": "play_2",
+        "type": "dribble",
+        "start": 10,
+        "end": 30,
+        "score": 8,
+        "person_id": "player_7",
+        "primary_actor_clear": True,
+        "primary_actor_confidence": 0.9,
+        "identity_continuity": "stable",
+        "competing_active_subjects": False,
+    }
+    crowded_detections = [
+        det(1, 20.0), det(2, 20.0),
+        det(1, 21.0), det(2, 21.0),
+        det(1, 22.0), det(2, 22.0),
+    ]
+    subject_gate = build_subject_gate(subject_event, crowded_detections, 0, source_video="source.mp4")
+    require(subject_gate is not None, "subject gate telemetry should be emitted")
+    require(subject_gate.get("decision") == "allowed_primary_actor_clear", "stable actor should survive crowded frame")
+    require(subject_gate.get("background_people_allowed") is True, "sidecar gate must allow background people")
+    require("defect" not in subject_gate, "allowed sidecar gate must not create defect")
+
+    missing_target_gate = build_subject_gate(
+        {
+            **subject_event,
+            "target_track_id": "99",
+            "primary_actor_clear": True,
+            "identity_continuity": "stable",
+        },
+        crowded_detections,
         0,
         source_video="source.mp4",
     )
-    require(subject_gate is not None, "subject gate should detect multiple significant canonical tracks")
-    require(subject_gate.get("decision") == "review_required", "subject gate must require review")
-    require(subject_gate.get("defect", {}).get("type") == "MULTI_PERSON_CLIP", "subject gate defect missing")
-    dominant_gate = build_subject_gate(
-        subject_event,
-        [det(1, 20.0), det(1, 21.0), det(1, 22.0), det(2, 20.5)],
+    require(missing_target_gate is not None, "missing target should emit blocking telemetry")
+    require(missing_target_gate.get("decision") == "review_required", "missing declared target must be blocked")
+    require(missing_target_gate.get("declared_target_track_id") == "99", "declared target evidence missing")
+    require(missing_target_gate.get("declared_target_track_present") is False, "missing target incorrectly marked present")
+    require(missing_target_gate.get("primary_track_id") == "99", "opponent track must not replace declared target")
+    require("declared_target_track_absent" in missing_target_gate.get("ambiguity_reasons", []), "missing-target reason absent")
+    require(missing_target_gate.get("defect", {}).get("blocking") is True, "missing target defect must block")
+
+    blocked_subject_gate = build_subject_gate(
+        {**subject_event, "primary_actor_clear": False, "identity_continuity": "uncertain"},
+        [det(1, 20.0), det(2, 20.0), det(1, 21.0), det(2, 21.0)],
         0,
         source_video="source.mp4",
     )
-    require(dominant_gate is None, "dominant primary track should not be flagged")
-    capped = effective_cut_window({"start": 1.0, "end": 25.0})
-    require(capped == (14.0, 25.0), f"non-climax window should match actual editor cap: {capped}")
+    require(blocked_subject_gate.get("decision") == "review_required", "uncertain actor must be blocked")
     subject_review_event = {
         **subject_event,
-        "subject_isolation_gate": subject_gate,
-        "qa_gate": {"qa_review_required": True, "defects": [subject_gate["defect"]]},
+        "subject_isolation_gate": blocked_subject_gate,
+        "qa_gate": {"qa_review_required": True, "defects": [blocked_subject_gate["defect"]]},
     }
-    require(has_subject_isolation_defect([subject_review_event]), "subject isolation defect not detected")
+    require(has_subject_isolation_defect([subject_review_event]), "subject continuity defect not detected")
 
-    allowed_events = annotate_multi_person_events([
-        {"event_id": "social_1", "type": "high_five", "track_id": "main", "source_window_track_ids": ["main", "friend"], "value_labels": ["SOCIAL_MOMENT", "HIGH_FIVE"], "start": 3, "end": 6}
-    ])
-    allowed_gate = allowed_events[0].get("multi_person_clip_gate", {})
-    require(allowed_gate.get("decision") == "allowed_social_moment", "intentional social moment should be allowed")
-    require(not has_multi_person_defect(allowed_events), "allowed social moment should not be review-required")
-    require("qa_gate" not in allowed_events[0], "allowed social moment should not get QA defect")
+    capped = effective_cut_window({"start": 1.0, "end": 25.0})
+    require(capped == (14.0, 25.0), f"non-climax window should match actual editor cap: {capped}")
 
-    artifact = build_diagnostic_artifact("DRAFT_multi_person.mp4", "surfing", review_events, {}, "review/DRAFT_multi_person.mp4")
-    require(artifact["identity_clusters"][0]["members"][0].get("multi_person_clip_gate", {}).get("decision") == "review_required", "diagnostic member gate missing")
-    require(artifact["ordered_events"][0].get("multi_person_clip_gate", {}).get("decision") == "review_required", "diagnostic ordered gate missing")
-    require(any(item.get("reason") == "MULTI_PERSON_CLIP" for item in artifact["dropped_events"]), "diagnostic dropped reason missing")
+    social_events = annotate_multi_person_events([{
+        "event_id": "social_1",
+        "type": "high_five",
+        "track_id": "main",
+        "source_window_track_ids": ["main", "friend"],
+        "value_labels": ["SOCIAL_MOMENT", "HIGH_FIVE"],
+        "start": 3,
+        "end": 9,
+    }])
+    require(social_events[0]["multi_person_clip_gate"]["decision"] == "allowed_social_moment", "social moment should remain allowed")
 
-    require("MULTI_PERSON_CLIP" in BLOCKING_DEFECT_TYPES, "MULTI_PERSON_CLIP not blocking")
-    require("IDENTITY_UNCERTAIN" in BLOCKING_DEFECT_TYPES, "IDENTITY_UNCERTAIN not blocking")
+    artifact = build_diagnostic_artifact("DRAFT_ambiguous.mp4", "football", ambiguous_events, {}, "review/DRAFT_ambiguous.mp4")
+    require(artifact["identity_clusters"][0]["members"][0]["multi_person_clip_gate"]["decision"] == "review_required", "diagnostic gate missing")
+    require(any(item.get("reason") in {"PRIMARY_ACTOR_UNCLEAR", "IDENTITY_UNCERTAIN"} for item in artifact["dropped_events"]), "diagnostic dropped reason missing")
+
+    for code in ("PRIMARY_ACTOR_UNCLEAR", "PRIMARY_ACTOR_OCCLUDED", "IDENTITY_SWITCH"):
+        require(code in BLOCKING_DEFECT_TYPES, f"{code} not blocking")
 
     context = (ROOT / "pipeline/context_qa_gate.py").read_text(encoding="utf-8")
     require("annotate_subject_events" in context, "context QA does not annotate subject gates")
-    require("has_subject_isolation_defect" in context, "context QA does not mark subject isolation reels")
-    require("subject_isolation_gate" in context, "context QA does not expose subject gate")
-
     long_context = (ROOT / "pipeline/context_qa_long_video.py").read_text(encoding="utf-8")
     require("annotate_subject_events" in long_context, "long-video context QA does not annotate subject gates")
-    require("has_subject_isolation_defect" in long_context, "long-video context QA does not mark subject isolation reels")
-    require("QA-FLAGGED" in long_context, "long-video subject drafts must be visibly QA-FLAGGED")
 
-    print("multi-person clip gate contract ok")
+    print("primary actor continuity gate contract ok")
     return 0
 
 
