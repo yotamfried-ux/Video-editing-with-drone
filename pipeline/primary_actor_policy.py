@@ -163,7 +163,7 @@ def blocking_defect_type(reasons: list[str]) -> str:
     joined = " ".join(reasons)
     if "switch" in joined:
         return IDENTITY_SWITCH
-    if "occlud" in joined:
+    if "occlu" in joined:
         return PRIMARY_ACTOR_OCCLUDED
     return PRIMARY_ACTOR_UNCLEAR
 
@@ -198,6 +198,7 @@ def classify_primary_actor(
             "primary_actor_confidence": confidence,
             "primary_continuity_ratio": primary_continuity_ratio,
             "visible_subject_count": visible_subject_count,
+            "background_people_allowed": False,
             "ambiguity_reasons": list(dict.fromkeys(reasons)),
         }
 
@@ -230,5 +231,6 @@ def classify_primary_actor(
         "defect_type": PRIMARY_ACTOR_UNCLEAR,
         "primary_actor_id": None,
         "visible_subject_count": visible_subject_count,
+        "background_people_allowed": False,
         "ambiguity_reasons": ["primary_actor_unknown"],
     }
