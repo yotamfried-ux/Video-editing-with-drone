@@ -34,6 +34,8 @@ def validate_tokens() -> None:
         "_enrich_parsed_session",
         "person_id",
         "source_profile",
+        "normalize_focused_subwindow_evidence",
+        "broad_window_ambiguity_reasons",
     ]
     missing = [token for token in required_tokens if token not in policy]
     require(not missing, f"primary actor selection policy missing tokens: {missing}")
@@ -43,12 +45,15 @@ def validate_tokens() -> None:
         "IDENTITY_SWITCH",
         "PRIMARY_ACTOR_OCCLUDED",
         "PRIMARY_ACTOR_UNCLEAR",
+        "normalize_focused_subwindow_evidence",
+        "FOCUSED_SUBWINDOW_SCOPE",
     ]:
         require(token in actor_policy, f"primary actor policy missing {token}")
     print("primary actor policy tokens ok")
 
 
 def validate_football() -> None:
+    from pipeline.primary_actor_policy import ambiguity_reasons
     from pipeline.single_athlete_selection_policy import rewrite_raw_selection_json
 
     payload = {
@@ -86,9 +91,14 @@ def validate_football() -> None:
                     "start": 40.0,
                     "end": 52.0,
                     "score": 8,
-                    "description": "Wide play becomes ambiguous, but focused section shows the pass.",
+                    "description": "Camera switches to another player in the wide view, but the focused pass is clear.",
                     "primary_actor_clear": False,
+                    "primary_actor_confidence": 0.2,
                     "identity_continuity": "uncertain",
+                    "identity_switch_detected": True,
+                    "critical_occlusion": True,
+                    "competing_active_subjects": True,
+                    "target_occluded_at_key_moment": True,
                     "primary_actor_start": 43.0,
                     "primary_actor_end": 50.0,
                 },
@@ -100,8 +110,18 @@ def validate_football() -> None:
     require(len(events) == 2, f"expected 2 retained football events, got {events}")
     require(events[0]["type"] == "goal", "crowded football goal should not be removed")
     require(events[0]["background_people_present"] is True, "background context should be preserved")
-    require(events[1]["start"] == 43.0 and events[1]["end"] == 50.0, "ambiguous event should use focused sub-window")
-    require(events[1]["primary_actor_clear"] is True, "focused rescue should become clear")
+
+    rescued = events[1]
+    require(rescued["start"] == 43.0 and rescued["end"] == 50.0, "ambiguous event should use focused sub-window")
+    require(rescued["primary_actor_clear"] is True, "focused rescue should become clear")
+    require(rescued["identity_continuity"] == "stable", "focused rescue continuity should be stable")
+    require(rescued["identity_switch_detected"] is False, "stale identity switch evidence was not cleared")
+    require(rescued["critical_occlusion"] is False, "stale occlusion evidence was not cleared")
+    require(rescued["competing_active_subjects"] is False, "stale competing-subject evidence was not cleared")
+    require(rescued["primary_actor_confidence"] >= 0.75, "focused rescue confidence was not scoped")
+    require(rescued["primary_actor_evidence_scope"] == "focused_subwindow", "focused evidence scope missing")
+    require(rescued["broad_window_ambiguity_reasons"], "broad-window audit evidence should be retained")
+    require(ambiguity_reasons(rescued) == [], f"focused sub-window still carries stale ambiguity: {rescued}")
     print("football primary actor selection ok")
 
 
