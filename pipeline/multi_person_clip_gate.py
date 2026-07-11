@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pipeline.primary_actor_policy import classify_primary_actor
+from pipeline.primary_actor_policy import classify_primary_actor, merge_gate_defect_into_qa
 
 MULTI_PERSON_DEFECT = "MULTI_PERSON_CLIP"
 IDENTITY_UNCERTAIN_DEFECT = "IDENTITY_UNCERTAIN"
@@ -117,33 +117,6 @@ def build_multi_person_gate(event: dict[str, Any], index: int) -> dict[str, Any]
     return gate
 
 
-def _merge_qa_gate(event: dict[str, Any], gate: dict[str, Any]) -> dict[str, Any]:
-    defect = gate.get("defect")
-    if not defect:
-        return event
-    qa_gate = dict(event.get("qa_gate") or {})
-    defects = [*qa_gate.get("defects", []), defect]
-    reason_code = str(defect.get("type") or IDENTITY_UNCERTAIN_DEFECT)
-    reasons = [*qa_gate.get("review_required_reasons", [])]
-    if reason_code not in reasons:
-        reasons.append(reason_code)
-    blocked = [*qa_gate.get("approval_blocked_reasons", [])]
-    block_reason = f"{reason_code}: {defect.get('note')}"
-    if block_reason not in blocked:
-        blocked.append(block_reason)
-    qa_gate.update({
-        "decision": "blocked_review_required",
-        "final_verdict": "FAIL",
-        "qa_review_required": True,
-        "critical_defect_count": max(1, int(qa_gate.get("critical_defect_count") or 0) + 1),
-        "review_required_reasons": reasons,
-        "approval_blocked_reasons": blocked,
-        "defects": defects,
-        "overall": qa_gate.get("overall") or "primary athlete is not reliably attributable",
-    })
-    return {**event, "qa_gate": qa_gate}
-
-
 def annotate_multi_person_events(events: list[dict[str, Any]], athlete_label: str = "") -> list[dict[str, Any]]:
     annotated: list[dict[str, Any]] = []
     for index, event in enumerate(events or []):
@@ -156,7 +129,14 @@ def annotate_multi_person_events(events: list[dict[str, Any]], athlete_label: st
             continue
         gate = build_multi_person_gate(event, index)
         next_event = {**event, "multi_person_clip_gate": gate}
-        annotated.append(_merge_qa_gate(next_event, gate))
+        annotated.append(
+            merge_gate_defect_into_qa(
+                next_event,
+                gate,
+                default_defect_type=IDENTITY_UNCERTAIN_DEFECT,
+                overall_fallback="primary athlete is not reliably attributable",
+            )
+        )
     return annotated
 
 
