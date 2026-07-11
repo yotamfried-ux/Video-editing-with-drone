@@ -11,6 +11,7 @@ UPSTREAM_CANDIDATES_FILE="$TMP_ROOT/selector_candidate_events.json"
 SELECTION_FILTER_EVENTS_FILE="$TMP_ROOT/selection_filter_events.json"
 CANDIDATE_LEDGER_FILE="$TMP_ROOT/candidate_decision_ledger.json"
 SELECTION_AUDIT_FILE="$TMP_ROOT/selection_decision_audit.json"
+ATHLETE_COVERAGE_FILE="$TMP_ROOT/athlete_coverage_report.json"
 RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
 
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
@@ -42,6 +43,16 @@ if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
 fi
 if [ -f "$SELECTION_AUDIT_FILE" ]; then
   cp "$SELECTION_AUDIT_FILE" "$DEBUG_DIR/selection_decision_audit.json" || true
+fi
+if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
+  if [ -f "$SELECTION_AUDIT_FILE" ]; then
+    python scripts/build_athlete_coverage_report.py "$CANDIDATE_LEDGER_FILE" "$ATHLETE_COVERAGE_FILE" "$SELECTION_AUDIT_FILE" || true
+  else
+    python scripts/build_athlete_coverage_report.py "$CANDIDATE_LEDGER_FILE" "$ATHLETE_COVERAGE_FILE" || true
+  fi
+fi
+if [ -f "$ATHLETE_COVERAGE_FILE" ]; then
+  cp "$ATHLETE_COVERAGE_FILE" "$DEBUG_DIR/athlete_coverage_report.json" || true
 fi
 
 python - "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" <<'PY'
@@ -88,6 +99,9 @@ if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
 fi
 if [ -f "$SELECTION_AUDIT_FILE" ]; then
   python scripts/append_selection_decision_audit_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$SELECTION_AUDIT_FILE" || true
+fi
+if [ -f "$ATHLETE_COVERAGE_FILE" ]; then
+  python scripts/append_athlete_coverage_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$ATHLETE_COVERAGE_FILE" || true
 fi
 python scripts/append_qa_gate_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$LOG_FILE" || true
 python scripts/append_qa_policy_trace_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
