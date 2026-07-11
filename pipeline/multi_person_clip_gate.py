@@ -12,6 +12,7 @@ from pipeline.primary_actor_policy import classify_primary_actor
 
 MULTI_PERSON_DEFECT = "MULTI_PERSON_CLIP"
 IDENTITY_UNCERTAIN_DEFECT = "IDENTITY_UNCERTAIN"
+ALLOWED_PRIMARY_ACTOR_DECISION = "allowed_primary_actor_clear"
 _SOCIAL_LABELS = {"SOCIAL_MOMENT", "HIGH_FIVE"}
 _SOCIAL_TYPES = {"high_five", "celebration", "team_interaction"}
 _ID_FIELDS = (
@@ -99,6 +100,8 @@ def build_multi_person_gate(event: dict[str, Any], index: int) -> dict[str, Any]
         "visible_subject_ids": visible_ids,
         "intentional_social_moment": False,
     }
+    if classification.get("decision") == ALLOWED_PRIMARY_ACTOR_DECISION:
+        gate["background_people_allowed"] = len(visible_ids) > 1
     if classification.get("decision") == "review_required":
         defect_type = str(classification.get("defect_type") or IDENTITY_UNCERTAIN_DEFECT)
         gate["defect"] = {
