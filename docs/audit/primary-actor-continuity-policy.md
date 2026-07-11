@@ -76,8 +76,13 @@ Every confirmed athlete cluster must have one of these outcomes:
 - `quality_below_threshold`;
 - `target_not_trackable`;
 - `primary_actor_uncertain`;
+- `duplicate_action_window`;
 - `duplicate_identity_cluster`;
 - an explicit unresolved coverage gap requiring further correction.
+
+`duplicate_action_window` means the athlete was represented by another selected
+window covering the same physical action. `duplicate_identity_cluster` means two
+identity clusters were reconciled as the same athlete.
 
 The diagnostics artifact `athlete_coverage_report.json` reports:
 
