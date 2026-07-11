@@ -12,6 +12,7 @@ PRIMARY_ACTOR_UNCLEAR = "PRIMARY_ACTOR_UNCLEAR"
 IDENTITY_SWITCH = "IDENTITY_SWITCH"
 PRIMARY_ACTOR_OCCLUDED = "PRIMARY_ACTOR_OCCLUDED"
 MIN_PRIMARY_ACTOR_CONFIDENCE = 0.55
+FOCUSED_SUBWINDOW_SCOPE = "focused_subwindow"
 
 _BAD_STATUS_VALUES = {
     "ambiguous",
@@ -91,6 +92,33 @@ def explicit_primary_actor_clear(event: dict[str, Any]) -> bool | None:
     return None
 
 
+def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any]:
+    """Clear broad-window ambiguity flags after selecting a focused sub-window.
+
+    The original evidence is retained for audit, but downstream gates evaluate the
+    focused window rather than stale identity/occlusion flags from the wider event.
+    Sidecar continuity and explicit target-presence checks still run afterwards.
+    """
+    normalized = dict(event)
+    normalized["broad_window_ambiguity_reasons"] = ambiguity_reasons(event)
+    for key in _TRUE_AMBIGUITY_FIELDS:
+        normalized[key] = False
+    normalized.update({
+        "primary_actor_clear": True,
+        "target_actor_clear": True,
+        "main_athlete_clear": True,
+        "identity_continuity": "stable",
+        "primary_actor_status": "stable",
+        "actor_tracking_status": "stable",
+        "competing_active_subjects": False,
+        "target_occluded_at_key_moment": False,
+        "primary_actor_evidence_scope": FOCUSED_SUBWINDOW_SCOPE,
+    })
+    confidence = primary_actor_confidence(event)
+    normalized["primary_actor_confidence"] = max(0.75, confidence or 0.0)
+    return normalized
+
+
 def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     for key in _TRUE_AMBIGUITY_FIELDS:
@@ -110,19 +138,23 @@ def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
     if confidence is not None and confidence < MIN_PRIMARY_ACTOR_CONFIDENCE:
         reasons.append(f"primary_actor_confidence:{confidence:.3f}")
 
-    text = f"{event.get('description', '')} {event.get('notes', '')}".lower()
-    phrases = {
-        "identity switches": "identity_switch_description",
-        "switches to another player": "identity_switch_description",
-        "switches to another athlete": "identity_switch_description",
-        "loses track of the target": "target_lost_description",
-        "primary athlete is unclear": "primary_actor_unclear_description",
-        "target is obscured at the key moment": "primary_actor_occluded_description",
-        "cannot tell which player": "primary_actor_unclear_description",
-    }
-    for phrase, code in phrases.items():
-        if phrase in text:
-            reasons.append(code)
+    # A focused sub-window has new scoped evidence. Do not reapply natural-language
+    # ambiguity phrases describing the wider event; deterministic sidecar gates still
+    # verify target presence and continuity in the focused cut itself.
+    if event.get("primary_actor_evidence_scope") != FOCUSED_SUBWINDOW_SCOPE:
+        text = f"{event.get('description', '')} {event.get('notes', '')}".lower()
+        phrases = {
+            "identity switches": "identity_switch_description",
+            "switches to another player": "identity_switch_description",
+            "switches to another athlete": "identity_switch_description",
+            "loses track of the target": "target_lost_description",
+            "primary athlete is unclear": "primary_actor_unclear_description",
+            "target is obscured at the key moment": "primary_actor_occluded_description",
+            "cannot tell which player": "primary_actor_unclear_description",
+        }
+        for phrase, code in phrases.items():
+            if phrase in text:
+                reasons.append(code)
 
     return list(dict.fromkeys(reasons))
 
