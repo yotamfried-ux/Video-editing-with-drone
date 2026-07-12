@@ -104,6 +104,7 @@ def recover_raw_session_payload(raw_text: str, min_event_sec: float) -> dict[str
 
 
 def _event_key(event: dict[str, Any]) -> tuple[str, float | None, float | None, str]:
+    """Exact physical-window key used before the core parser mutates duration."""
     return (
         str(event.get("type") or "highlight"),
         _num(event.get("start")),
@@ -112,18 +113,37 @@ def _event_key(event: dict[str, Any]) -> tuple[str, float | None, float | None, 
     )
 
 
+def _annotation_key(event: dict[str, Any]) -> tuple[str, float | None, str]:
+    """Stable parser-reconciliation key that tolerates minimum-duration padding."""
+    start = _num(event.get("start"))
+    return (
+        str(event.get("type") or "highlight"),
+        round(start, 3) if start is not None else None,
+        str(event.get("description") or "")[:160],
+    )
+
+
 def annotate_parsed_session(parsed: dict[str, Any], recovered_payload: dict[str, Any]) -> dict[str, Any]:
-    """Reattach recovery evidence after the core parser filters/sorts events."""
-    evidence_by_person: dict[str, dict[tuple[str, float | None, float | None, str], dict[str, Any]]] = {}
+    """Reattach recovery evidence after the core parser filters/sorts/pads events.
+
+    The core parser can keep a recovered five-second event but pad its end to the
+    six-second editor minimum. Matching by exact end would then drop the evidence.
+    Match by person/type/start/description and choose the closest recovered end.
+    """
+    evidence_by_person: dict[
+        str,
+        dict[tuple[str, float | None, str], list[dict[str, Any]]],
+    ] = {}
     for person in recovered_payload.get("persons", []) or []:
         if not isinstance(person, dict):
             continue
         person_id = str(person.get("id") or "person_?")
-        evidence_by_person[person_id] = {
-            _event_key(event): event
-            for event in person.get("events", []) or []
-            if isinstance(event, dict)
-        }
+        grouped: dict[tuple[str, float | None, str], list[dict[str, Any]]] = {}
+        for event in person.get("events", []) or []:
+            if not isinstance(event, dict):
+                continue
+            grouped.setdefault(_annotation_key(event), []).append(event)
+        evidence_by_person[person_id] = grouped
 
     out = copy.deepcopy(parsed)
     for person in out.get("persons", []) or []:
@@ -133,11 +153,20 @@ def annotate_parsed_session(parsed: dict[str, Any], recovered_payload: dict[str,
         for event in person.get("events", []) or []:
             if not isinstance(event, dict):
                 continue
-            source = lookup.get(_event_key(event))
-            if source:
-                for field in _TIMESTAMP_FIELDS:
-                    if source.get(field) is not None:
-                        event[field] = source[field]
+            candidates = lookup.get(_annotation_key(event), [])
+            if not candidates:
+                continue
+            parsed_end = _num(event.get("end"))
+            source = min(
+                candidates,
+                key=lambda candidate: abs(
+                    (_num(candidate.get("end")) or 0.0) - (parsed_end or 0.0)
+                ),
+            )
+            candidates.remove(source)
+            for field in _TIMESTAMP_FIELDS:
+                if source.get(field) is not None:
+                    event[field] = source[field]
     return out
 
 
