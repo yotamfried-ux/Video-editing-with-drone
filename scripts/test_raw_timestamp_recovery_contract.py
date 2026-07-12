@@ -58,9 +58,7 @@ def main() -> int:
             "id": "person_A",
             "description": "surfer in dark shorts on turquoise board",
             "events": [raw_event(*item) for item in production_windows] + [
-                # A genuinely usable decimal-seconds event must not be converted.
                 raw_event(16.0, 32.0, 8, "valid decimal event"),
-                # Invalid MM.SS seconds (.75) cannot be recovered.
                 raw_event(2.75, 2.90, 8, "invalid compact time"),
             ],
         }],
@@ -96,8 +94,6 @@ def main() -> int:
     require((invalid["start"], invalid["end"]) == (2.75, 2.9), "invalid MM.SS seconds should remain raw for normal filtering")
     require(invalid["timestamp_recovered"] is False, "invalid MM.SS value was marked recovered")
 
-    # This is the point that failed in production: selector/analyzer fragment
-    # filtering must receive recovered 120-172 and 459-475 windows, not 0.52s and 0.16s fragments.
     selector = build_selector_candidate_events(
         recovered["persons"],
         source_video="edited_surf.mp4",
@@ -118,8 +114,6 @@ def main() -> int:
     invalid_candidate = next(item for item in selector["candidates"] if item["description"] == "invalid compact time")
     require(invalid_candidate["discard_cause"] == "fragment_shorter_than_min_event_sec", "invalid compact value bypassed normal fragment filtering")
 
-    # The core parser rebuilds event dictionaries. Reattach evidence by the
-    # recovered physical window so downstream chunk normalization retains it.
     parsed_stub = {
         "activity": "surfing",
         "persons": [{
@@ -143,8 +137,8 @@ def main() -> int:
     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
     sitecustomize = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
     selector_runtime = (ROOT / "pipeline/selector_candidate_runtime.py").read_text(encoding="utf-8")
-    require(run_tracked.index("_install_raw_timestamp_recovery()") < run_tracked.index("_install_chunk_timeline_runtime()"), "tracked runtime installs recovery after chunk filtering")
-    require(run_tracked.index("_install_raw_timestamp_recovery()") < run_tracked.index("_install_selector_candidate_runtime()"), "tracked runtime installs recovery after selector capture")
+    require(run_tracked.rindex("_install_raw_timestamp_recovery()") < run_tracked.rindex("_install_chunk_timeline_runtime()"), "tracked runtime installs recovery after chunk filtering")
+    require(run_tracked.rindex("_install_raw_timestamp_recovery()") < run_tracked.rindex("_install_selector_candidate_runtime()"), "tracked runtime installs recovery after selector capture")
     require(sitecustomize.rindex("_install_raw_timestamp_recovery()") < sitecustomize.rindex("_install_chunk_timeline_runtime()"), "sitecustomize installs recovery too late")
     require("recover_raw_session_payload(raw_text" in selector_runtime, "selector telemetry still reads unrecovered raw timestamps")
     require("return original_parse_session(raw_text)" in selector_runtime, "selector runtime bypasses recovery-aware analyzer parser")
