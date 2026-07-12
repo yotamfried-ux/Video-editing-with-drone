@@ -229,6 +229,7 @@ def evaluate(trace: dict[str, Any], detections: list[dict[str, Any]]) -> dict[st
 def append_summary(report_path: Path, trace_path: Path, sidecar_dir: Path) -> dict[str, Any]:
     report = _read(report_path)
     trace = _read(trace_path)
+    trace_usable = bool(trace) and isinstance(trace.get("drafts"), list)
     result = evaluate(trace, _load_detections(sidecar_dir))
     evaluations = result["evaluations"]
     violations = result["violations"]
@@ -236,11 +237,13 @@ def append_summary(report_path: Path, trace_path: Path, sidecar_dir: Path) -> di
     report_metrics = report.get("metrics") if isinstance(report.get("metrics"), dict) else {}
     # The quality report is produced independently from draft trace. If metadata
     # or trace generation fails while drafts were observed, use draft_count as a
-    # lower bound so missing actor evidence cannot become a false 100% pass.
+    # lower bound. A missing/unreadable trace is itself one evidence gap so the
+    # old coarse alert can never be stripped into a false pass.
     expected_windows = max(
         _expected_window_count(trace),
         _nonnegative_int(trace.get("draft_count")),
         _nonnegative_int(report_metrics.get("draft_count")),
+        0 if trace_usable else 1,
     )
     unevaluated_windows = max(0, expected_windows - len(evaluations))
 
