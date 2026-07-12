@@ -61,6 +61,11 @@ def _install_pipeline_quality_runtime() -> None:
     install()
 
 
+def _install_chunk_timeline_runtime() -> None:
+    from pipeline.chunk_timeline_runtime import install
+    install()
+
+
 def _install_selector_candidate_runtime() -> None:
     from pipeline.selector_candidate_runtime import install
     install()
@@ -101,6 +106,16 @@ def _install_athlete_canonicalization_runtime() -> None:
     install()
 
 
+def _install_qa_reedit_window_contract() -> None:
+    from pipeline.qa_reedit_window_contract import install
+    install()
+
+
+def _install_draft_identity_metadata() -> None:
+    from pipeline.draft_identity_metadata import install
+    install()
+
+
 def _selection_filter_path() -> Path:
     try:
         import config
@@ -110,13 +125,7 @@ def _selection_filter_path() -> Path:
 
 
 def _no_reviewable_drafts_meta() -> dict | None:
-    """Return metadata when zero drafts is a valid diagnostic outcome.
-
-    A run with candidates where every candidate was rejected by pre-render gates
-    should not fail the GitHub workflow. It should complete successfully with a
-    terminal status that tells the operator there were no reviewable drafts and
-    points to the diagnostics artifact for the exact reasons.
-    """
+    """Return metadata when zero drafts is a valid diagnostic outcome."""
     path = _selection_filter_path()
     if not path.exists():
         return None
@@ -133,8 +142,6 @@ def _no_reviewable_drafts_meta() -> dict | None:
     discarded = sum(1 for item in records if item.get("discarded"))
     clean_subwindow_rescue_count = int(payload.get("clean_subwindow_rescue_count") or 0)
     if selected_for_render > 0:
-        # If candidates reached render but no drafts were uploaded, keep failing:
-        # that is likely a render/upload bug, not a no-clean-window result.
         return None
     return {
         "error_code": "no_reviewable_drafts",
@@ -178,6 +185,7 @@ _install_status_mirror()
 _install_storage_backend_alias()
 _install_perception_runtime()
 _install_pipeline_quality_runtime()
+_install_chunk_timeline_runtime()
 _install_selector_candidate_runtime()
 _install_teaser_policy_runtime()
 _install_identity_failsafe_runtime()
@@ -188,6 +196,12 @@ _install_candidate_ledger_runtime()
 _install_athlete_canonicalization_runtime()
 
 import pipeline.orchestrator as _orchestrator
+
+# These contracts wrap the final orchestrator/editor chains, after QA/context
+# import hooks have installed their behavior.
+_install_qa_reedit_window_contract()
+_install_draft_identity_metadata()
+
 from pipeline.orchestrator import main
 
 if __name__ == "__main__":
