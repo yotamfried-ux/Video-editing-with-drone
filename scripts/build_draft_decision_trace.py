@@ -39,13 +39,22 @@ def _window_value(event: dict[str, Any], final_key: str, source_key: str) -> Any
     return value if isinstance(value, (int, float)) else event.get(source_key)
 
 
+def _event_source(event: dict[str, Any], default_source: str | None) -> tuple[str | None, str | None]:
+    raw = event.get("source_path") or event.get("_src") or event.get("source_video") or event.get("source") or default_source
+    if not raw:
+        return None, None
+    return Path(str(raw)).name, str(raw)
+
+
 def _event_window(event: dict[str, Any], default_source: str | None) -> dict[str, Any]:
-    original_start = event.get("start")
-    original_end = event.get("end")
+    original_start = event.get("original_start", event.get("start"))
+    original_end = event.get("original_end", event.get("end"))
     start = _window_value(event, "final_cut_start", "start")
     end = _window_value(event, "final_cut_end", "end")
+    source_video, source_path = _event_source(event, default_source)
     return {
-        "source_video": event.get("_src") or event.get("source_video") or event.get("source") or default_source,
+        "source_video": source_video,
+        "source_path": source_path,
         "event_type": event.get("type", ""),
         "start": start,
         "end": end,
@@ -57,6 +66,31 @@ def _event_window(event: dict[str, Any], default_source: str | None) -> dict[str
         "score": event.get("score"),
         "description": event.get("description", ""),
         "edit": event.get("edit", {}),
+        "person_id": event.get("person_id"),
+        "source_person_id": event.get("source_person_id"),
+        "chunk_person_id": event.get("chunk_person_id"),
+        "athlete_id": event.get("athlete_id"),
+        "athlete_canonical_key": event.get("athlete_canonical_key"),
+        "athlete_canonical_evidence_status": event.get("athlete_canonical_evidence_status"),
+        "athlete_duplicate_group": event.get("athlete_duplicate_group"),
+        "track_id": event.get("track_id") or event.get("target_track_id") or event.get("primary_track_id"),
+        "chunk_index": event.get("chunk_index"),
+        "chunk_source_start": event.get("chunk_source_start"),
+        "chunk_source_end": event.get("chunk_source_end"),
+        "chunk_local_start": event.get("chunk_local_start"),
+        "chunk_local_end": event.get("chunk_local_end"),
+        "timestamp_basis": event.get("timestamp_basis"),
+        "timestamp_clamped": event.get("timestamp_clamped"),
+        "raw_chunk_start": event.get("raw_chunk_start"),
+        "raw_chunk_end": event.get("raw_chunk_end"),
+        "cut_adjustment_reason": event.get("cut_adjustment_reason"),
+        "window_validation_status": event.get("window_validation_status"),
+        "window_validation_reason": event.get("window_validation_reason"),
+        "selection_rescue": event.get("selection_rescue"),
+        "qa_reedit_allow_long_cut": bool(event.get("_qa_reedit_allow_long_cut")),
+        "qa_reedit_original_end": event.get("_qa_reedit_original_end"),
+        "qa_reedit_requested_end": event.get("_qa_reedit_requested_end"),
+        "qa_reedit_max_window_sec": event.get("_qa_reedit_max_window_sec"),
         "subject_isolation_gate": event.get("subject_isolation_gate"),
         "multi_person_clip_gate": event.get("multi_person_clip_gate"),
     }
@@ -90,9 +124,6 @@ def _blocking_defect_codes(qa_gate: dict[str, Any] | None) -> list[str]:
 
 def _qa_status(draft_name: str, meta: dict[str, Any], qa_gate: dict[str, Any] | None) -> tuple[str, list[str]]:
     decision = str((qa_gate or {}).get("decision") or "")
-    # A first-class final decision outranks the raw LLM verdict. In particular,
-    # failed_nonblocking remains visible in telemetry but must not be converted
-    # back into review_required merely because final_verdict is FAIL.
     if decision in _NONBLOCKING_FINAL_DECISIONS:
         return "not_required", []
 
@@ -116,23 +147,49 @@ def _qa_status(draft_name: str, meta: dict[str, Any], qa_gate: dict[str, Any] | 
     return "unknown", []
 
 
+def _unique(values: list[Any]) -> list[str]:
+    out: list[str] = []
+    for value in values:
+        if value is None or not str(value).strip():
+            continue
+        text = str(value).strip()
+        if text not in out:
+            out.append(text)
+    return out
+
+
 def _draft_trace(draft_name: str, meta: dict[str, Any], default_source: str | None) -> dict[str, Any]:
-    events = [e for e in meta.get("events", []) if isinstance(e, dict)]
+    events = [event for event in meta.get("events", []) if isinstance(event, dict)]
     windows = [_event_window(event, default_source) for event in events]
-    starts = [w["start"] for w in windows if isinstance(w.get("start"), (int, float))]
-    ends = [w["end"] for w in windows if isinstance(w.get("end"), (int, float))]
+    starts = [window["start"] for window in windows if isinstance(window.get("start"), (int, float))]
+    ends = [window["end"] for window in windows if isinstance(window.get("end"), (int, float))]
+    source_videos = _unique([window.get("source_video") for window in windows] + list(meta.get("source_videos") or []))
+    person_ids = _unique([window.get("person_id") for window in windows] + list(meta.get("person_ids") or []))
+    athlete_ids = _unique([window.get("athlete_id") for window in windows] + list(meta.get("athlete_ids") or []))
+    chunk_person_ids = _unique([window.get("chunk_person_id") for window in windows] + list(meta.get("chunk_person_ids") or []))
     source_window = {
         "start": min(starts) if starts else None,
         "end": max(ends) if ends else None,
-        "source_video": next((w.get("source_video") for w in windows if w.get("source_video")), default_source),
+        "source_video": source_videos[0] if len(source_videos) == 1 else None,
     }
     qa_gate = _qa_gate(meta)
     qa_status, review_required_reasons = _qa_status(draft_name, meta, qa_gate)
+    lineage_complete = bool(windows) and all(
+        window.get("person_id") and window.get("athlete_id") and window.get("source_video")
+        for window in windows
+    )
     return {
         "draft_id": draft_name,
         "draft_name": draft_name,
         "title": draft_name,
         "sport": meta.get("sport"),
+        "person_id": person_ids[0] if len(person_ids) == 1 else None,
+        "person_ids": person_ids,
+        "athlete_id": athlete_ids[0] if len(athlete_ids) == 1 else None,
+        "athlete_ids": athlete_ids,
+        "chunk_person_ids": chunk_person_ids,
+        "source_videos": source_videos,
+        "identity_lineage_status": "complete" if lineage_complete else "incomplete",
         "qa_status": qa_status,
         "review_required_reasons": review_required_reasons,
         "approval_blocked_reasons": meta.get("approval_blocked_reasons") or (qa_gate.get("approval_blocked_reasons") if qa_gate else []),
@@ -162,6 +219,8 @@ def build_trace(metadata_path: Path, log_path: Path) -> dict[str, Any]:
             "default_source_video": default_source,
         },
         "draft_count": len(drafts),
+        "identity_lineage_complete_draft_count": sum(1 for draft in drafts if draft.get("identity_lineage_status") == "complete"),
+        "identity_lineage_incomplete_draft_count": sum(1 for draft in drafts if draft.get("identity_lineage_status") != "complete"),
         "drafts": drafts,
     }
 
@@ -172,7 +231,10 @@ def main() -> int:
         return 2
     report = build_trace(Path(sys.argv[1]), Path(sys.argv[2]))
     _write_json(Path(sys.argv[3]), report)
-    print(f"draft decision trace drafts={report['draft_count']}")
+    print(
+        f"draft decision trace drafts={report['draft_count']} "
+        f"lineage_complete={report['identity_lineage_complete_draft_count']}"
+    )
     return 0
 
 
