@@ -82,6 +82,14 @@ def trace(subject_gate: dict | None, multi_gate: dict | None = None) -> dict:
     }
 
 
+def assert_missing_trace_is_inconclusive(report: dict, label: str) -> None:
+    require(report["status"] == "inconclusive", f"{label} was treated as pass")
+    require(report["metrics"]["mixed_subject_expected_window_count"] == 1, f"{label} did not preserve the report draft lower bound")
+    require(report["metrics"]["mixed_subject_unevaluated_window_count"] == 1, f"{label} evidence gap was not counted")
+    require(report["metrics"]["mixed_subject_policy_evidence_rate"] == 0.0, f"{label} incorrectly reported complete policy evidence")
+    require(report["implementation_gaps"]["mixed_subject_policy_explicit"] is False, f"{label} was marked policy-explicit")
+
+
 def main() -> int:
     module = load_module()
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -144,8 +152,7 @@ def main() -> int:
         require(missing["implementation_gaps"]["mixed_subject_policy_explicit"] is False, "missing policy was marked explicit")
 
         # Exact fail-safe case from review: the quality report observed one draft,
-        # but trace generation returned an empty draft list. Report count is the
-        # lower bound and must prevent a false 100% policy-evidence pass.
+        # but trace generation returned an empty draft list.
         empty_trace = {
             "schema_version": "sportreel.draft_decision_trace.v1",
             "draft_count": 0,
@@ -154,10 +161,24 @@ def main() -> int:
         report_path.write_text(json.dumps(base_report()), encoding="utf-8")
         trace_path.write_text(json.dumps(empty_trace), encoding="utf-8")
         empty = module.append_summary(report_path, trace_path, sidecars)
-        require(empty["status"] == "inconclusive", "empty trace with an observed draft was treated as pass")
-        require(empty["metrics"]["mixed_subject_expected_window_count"] == 1, "report draft count was not used as the evidence lower bound")
-        require(empty["metrics"]["mixed_subject_unevaluated_window_count"] == 1, "empty trace evidence gap was not counted")
-        require(empty["metrics"]["mixed_subject_policy_evidence_rate"] == 0.0, "empty trace incorrectly reported complete policy evidence")
+        assert_missing_trace_is_inconclusive(empty, "empty trace with an observed draft")
+
+        # A missing or unreadable trace must also fail safe. _read() returns {},
+        # so this verifies that no prior hard-block evidence is stripped into pass.
+        report_path.write_text(json.dumps(base_report()), encoding="utf-8")
+        trace_path.write_text("{not valid json", encoding="utf-8")
+        unreadable = module.append_summary(report_path, trace_path, sidecars)
+        assert_missing_trace_is_inconclusive(unreadable, "unreadable actor trace")
+        require(any(
+            item.get("metric") == "mixed_subject_policy_evidence_rate"
+            and item.get("severity") == "inconclusive"
+            for item in unreadable["alerts"]
+        ), "unreadable trace did not emit an explicit inconclusive alert")
+
+        report_path.write_text(json.dumps(base_report()), encoding="utf-8")
+        trace_path.unlink()
+        absent = module.append_summary(report_path, trace_path, sidecars)
+        assert_missing_trace_is_inconclusive(absent, "absent actor trace")
 
     runner = (ROOT / "scripts/run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
     require("append_primary_actor_subject_summary_to_report.py" in runner, "diagnostics runner does not apply subject reconciliation")
