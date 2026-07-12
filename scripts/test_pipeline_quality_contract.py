@@ -50,6 +50,7 @@ def main() -> int:
     multi_person_gate = _read("pipeline/multi_person_clip_gate.py")
     subject_gate = _read("pipeline/subject_gate_policy.py")
     context_qa_long_video = _read("pipeline/context_qa_long_video.py")
+    raw_timestamp_recovery = _read("pipeline/raw_timestamp_recovery.py")
     run_tracked = _read("scripts/run_tracked.py")
     sitecustomize = _read("scripts/sitecustomize.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
@@ -65,6 +66,7 @@ def main() -> int:
         multi_person_gate,
         subject_gate,
         context_qa_long_video,
+        raw_timestamp_recovery,
         run_tracked,
         sitecustomize,
     ):
@@ -248,6 +250,19 @@ def main() -> int:
     )
 
     require_tokens(
+        "raw timestamp recovery",
+        raw_timestamp_recovery,
+        [
+            "def recover_event_timestamp",
+            "def recover_raw_session_payload",
+            "def annotate_parsed_session",
+            "def enrich_selector_payload",
+            "minute_second",
+            "analyzer._parse_session = parse_with_timestamp_recovery",
+        ],
+    )
+
+    require_tokens(
         "tracked runner quality install",
         run_tracked,
         [
@@ -255,6 +270,8 @@ def main() -> int:
             "from pipeline.perception.runtime import install",
             "def _install_pipeline_quality_runtime()",
             "from pipeline.runtime_quality import install",
+            "def _install_raw_timestamp_recovery()",
+            "from pipeline.raw_timestamp_recovery import install",
             "def _install_identity_failsafe_runtime()",
             "from pipeline.identity_failsafe import install",
             "def _install_cross_source_dedup_runtime()",
@@ -265,7 +282,7 @@ def main() -> int:
             "from pipeline.candidate_ledger import install",
             "def _install_athlete_canonicalization_runtime()",
             "from pipeline.athlete_canonicalization import install",
-            "_install_perception_runtime()\n_install_pipeline_quality_runtime()",
+            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_raw_timestamp_recovery()\n_install_chunk_timeline_runtime()\n_install_selector_candidate_runtime()",
             "_install_identity_failsafe_runtime()",
             "_install_cross_source_dedup_runtime()",
             "_install_draft_diagnostics_runtime()",
@@ -274,12 +291,14 @@ def main() -> int:
         ],
     )
     require_tokens(
-        "script bootstrap perception install",
+        "script bootstrap timestamp install",
         sitecustomize,
         [
             "def _install_perception_runtime()",
             "from pipeline.perception.runtime import install",
-            "_install_perception_runtime()\n_install_analyzer_score_guard()",
+            "def _install_raw_timestamp_recovery()",
+            "from pipeline.raw_timestamp_recovery import install",
+            "_install_perception_runtime()\n_install_raw_timestamp_recovery()\n_install_analyzer_score_guard()\n_install_chunk_timeline_runtime()",
         ],
     )
 
