@@ -1,9 +1,7 @@
 """Runtime hook that emits selector candidates and removes duplicate source windows.
 
-The tracked Actions entrypoint installs this before importing the orchestrator. It
-captures Gemini's raw person/events payload for diagnostics, then applies a
-small deterministic source-window deduplication pass to the parsed analyzer
-result so two uploaded drafts do not represent the same source moment.
+Chunk-local person labels and timestamps are normalized through the same contract
+used by the parsed analyzer result, so diagnostics cannot disagree with rendering.
 """
 from __future__ import annotations
 
@@ -14,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 import config
+from pipeline.chunk_timeline_runtime import merge_selector_payloads, source_duration
 from pipeline.source_window_dedup import dedupe_session
 from pipeline.stages.selector_candidates import build_selector_candidate_events, write_selector_candidate_events
 
@@ -27,42 +26,6 @@ def _parse_raw_session(raw_text: str) -> dict[str, Any]:
     text = re.sub(r"\s*```$", "", text)
     data = json.loads(text)
     return data if isinstance(data, dict) else {}
-
-
-def _shift_candidate(candidate: dict[str, Any], offset: float) -> dict[str, Any]:
-    if offset <= 0:
-        return dict(candidate)
-    shifted = dict(candidate)
-    window = dict(shifted.get("source_window") or {})
-    for key in ("start", "end"):
-        if isinstance(window.get(key), (int, float)):
-            window[key] = round(float(window[key]) + offset, 2)
-    if isinstance(window.get("start"), (int, float)) and isinstance(window.get("end"), (int, float)):
-        window["duration"] = round(float(window["end"]) - float(window["start"]), 2)
-    shifted["source_window"] = window
-    return shifted
-
-
-def _merge_payloads(payloads: list[dict[str, Any]], source_video: str, seg_secs: float) -> dict[str, Any]:
-    candidates: list[dict[str, Any]] = []
-    for idx, payload in enumerate(payloads):
-        offset = idx * seg_secs if len(payloads) > 1 else 0.0
-        for raw in payload.get("candidates", []) or []:
-            if isinstance(raw, dict):
-                candidate = _shift_candidate(raw, offset)
-                candidate["source_video"] = source_video
-                candidates.append(candidate)
-    selected_count = sum(1 for item in candidates if item.get("selected"))
-    discarded_count = sum(1 for item in candidates if item.get("discarded"))
-    return {
-        "schema_version": "sportreel.selector_candidate_events.v1",
-        "source_video": source_video,
-        "candidate_count": len(candidates),
-        "selected_count": selected_count,
-        "discarded_count": discarded_count,
-        "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
-        "candidates": candidates,
-    }
 
 
 def _read_existing(path: Path) -> dict[str, Any]:
@@ -81,6 +44,16 @@ def _append_payload(path: Path, payload: dict[str, Any]) -> None:
     candidates.extend(item for item in payload.get("candidates", []) if isinstance(item, dict))
     selected_count = sum(1 for item in candidates if item.get("selected"))
     discarded_count = sum(1 for item in candidates if item.get("discarded"))
+    summaries = [
+        item for item in [existing.get("chunk_timeline_summary"), payload.get("chunk_timeline_summary")]
+        if isinstance(item, dict)
+    ]
+    merged_summary = {
+        "source_duration_sec": next((item.get("source_duration_sec") for item in reversed(summaries) if item.get("source_duration_sec") is not None), None),
+        "chunk_count": sum(int(item.get("chunk_count") or 0) for item in summaries),
+        "invalid_timestamp_candidate_count": sum(int(item.get("invalid_timestamp_candidate_count") or 0) for item in summaries),
+        "clamped_timestamp_candidate_count": sum(int(item.get("clamped_timestamp_candidate_count") or 0) for item in summaries),
+    }
     merged = {
         "schema_version": "sportreel.selector_candidate_events.v1",
         "source_video": payload.get("source_video") or existing.get("source_video"),
@@ -88,13 +61,14 @@ def _append_payload(path: Path, payload: dict[str, Any]) -> None:
         "selected_count": selected_count,
         "discarded_count": discarded_count,
         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
+        "chunk_timeline_summary": merged_summary,
         "candidates": candidates,
     }
     write_selector_candidate_events(path, merged)
 
 
 def install() -> None:
-    """Patch analyzer.analyze_session to emit diagnostics and dedupe source moments."""
+    """Patch analyzer.analyze_session to emit normalized selector diagnostics."""
     import pipeline.stages.analyzer as analyzer
 
     if getattr(analyzer, "_sportreel_selector_candidate_runtime_installed", False):
@@ -133,13 +107,23 @@ def install() -> None:
             logger.warning("Dropped %d duplicate source-window event(s) before reel selection", dropped_count)
 
         if captured_payloads:
+            try:
+                duration = source_duration(video_path)
+            except Exception:
+                duration = float(len(captured_payloads)) * float(getattr(analyzer, "_CHUNK_MAX_MINUTES", 8)) * 60.0
             path = Path(config.TMP_DIR) / _OUTPUT_NAME
-            payload = _merge_payloads(captured_payloads, source_video, float(getattr(analyzer, "_CHUNK_MAX_MINUTES", 8)) * 60.0)
+            payload = merge_selector_payloads(
+                captured_payloads,
+                source_video=source_video,
+                segment_sec=float(getattr(analyzer, "_CHUNK_MAX_MINUTES", 8)) * 60.0,
+                source_duration_sec=duration,
+            )
             _append_payload(path, payload)
             logger.info(
-                "Wrote selector candidate events: %d selected, %d discarded -> %s",
+                "Wrote selector candidate events: %d selected, %d discarded, %d invalid timestamps -> %s",
                 payload.get("selected_count", 0),
                 payload.get("discarded_count", 0),
+                payload.get("chunk_timeline_summary", {}).get("invalid_timestamp_candidate_count", 0),
                 path,
             )
         return result

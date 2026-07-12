@@ -27,6 +27,9 @@ _EXPLICIT_REASON_MAP = {
     "no_clean_subwindow_found": "target_not_trackable",
     "shared_or_obstructed_window": "primary_actor_uncertain",
     "identity_fragmentation": "duplicate_identity_cluster",
+    "timestamp_outside_chunk_bounds": "invalid_source_timestamp",
+    "insufficient_time_inside_chunk": "no_complete_action",
+    "invalid_numeric_window": "invalid_source_timestamp",
 }
 
 
@@ -52,24 +55,39 @@ def _norm(value: Any) -> str:
 
 
 def _cluster_key(candidate: dict[str, Any]) -> str:
-    person_id = str(candidate.get("person_id") or "").strip()
+    person_id = str(candidate.get("person_id") or candidate.get("chunk_person_id") or "").strip()
+    source_video = str(candidate.get("source_video") or "").strip()
     description = str(candidate.get("person_description") or "").strip()
+    if person_id and source_video:
+        return f"{source_video}::{person_id}"
     return person_id or _norm(description) or "unknown_cluster"
 
 
-def _window(candidate: dict[str, Any]) -> dict[str, float | None]:
-    raw = candidate.get("source_window") if isinstance(candidate.get("source_window"), dict) else {}
+def _window_from_field(candidate: dict[str, Any], field: str) -> dict[str, float | None]:
+    raw = candidate.get(field) if isinstance(candidate.get(field), dict) else {}
+
     def num(value: Any) -> float | None:
         try:
             return float(value)
         except (TypeError, ValueError):
             return None
+
     start = num(raw.get("start"))
     end = num(raw.get("end"))
     duration = num(raw.get("duration"))
     if duration is None and start is not None and end is not None:
         duration = max(0.0, end - start)
     return {"start": start, "end": end, "duration": duration}
+
+
+def _candidate_window(candidate: dict[str, Any]) -> dict[str, float | None]:
+    return _window_from_field(candidate, "source_window")
+
+
+def _selected_window(candidate: dict[str, Any]) -> dict[str, float | None]:
+    if isinstance(candidate.get("final_source_window"), dict):
+        return _window_from_field(candidate, "final_source_window")
+    return _candidate_window(candidate)
 
 
 def _detailed_reason(candidate: dict[str, Any]) -> str:
@@ -121,13 +139,22 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
         no_output_reason, explicit = _no_output_reason(rows)
         descriptions = [str(row.get("person_description") or "").strip() for row in rows]
         descriptions = [description for description in descriptions if description]
-        candidate_seconds = sum((_window(row).get("duration") or 0.0) for row in rows)
-        selected_seconds = sum((_window(row).get("duration") or 0.0) for row in selected)
+        person_ids = sorted({str(row.get("person_id")) for row in rows if row.get("person_id")})
+        athlete_ids = sorted({str(row.get("athlete_id")) for row in rows if row.get("athlete_id")})
+        source_videos = sorted({str(row.get("source_video")) for row in rows if row.get("source_video")})
+        candidate_seconds = sum((_candidate_window(row).get("duration") or 0.0) for row in rows)
+        selected_seconds = sum((_selected_window(row).get("duration") or 0.0) for row in selected)
         outcome = "draft_created" if selected else (no_output_reason or "coverage_gap")
         coverage_met = bool(selected) or explicit
+        selected_lineage_complete = all(
+            row.get("person_id") and row.get("athlete_id") and row.get("source_video")
+            for row in selected
+        ) if selected else True
         athletes.append({
             "athlete_cluster_id": cluster_id,
-            "person_ids": sorted({str(row.get("person_id")) for row in rows if row.get("person_id")}),
+            "person_ids": person_ids,
+            "athlete_ids": athlete_ids,
+            "source_videos": source_videos,
             "descriptions": sorted(set(descriptions)),
             "candidate_action_count": len(rows),
             "selected_action_count": len(selected),
@@ -140,17 +167,28 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
             "final_outcome": outcome,
             "no_output_reason_explicit": explicit,
             "coverage_requirement_met": coverage_met,
+            "selected_identity_lineage_complete": selected_lineage_complete,
             "selected_windows": [
-                {"candidate_id": row.get("candidate_id"), "source_window": _window(row), "score": row.get("score")}
+                {
+                    "candidate_id": row.get("candidate_id"),
+                    "candidate_source_window": _candidate_window(row),
+                    "final_source_window": _selected_window(row),
+                    "score": row.get("score"),
+                    "person_id": row.get("person_id"),
+                    "athlete_id": row.get("athlete_id"),
+                    "source_video": row.get("source_video"),
+                }
                 for row in selected
             ],
             "unselected_windows": [
                 {
                     "candidate_id": row.get("candidate_id"),
-                    "source_window": _window(row),
+                    "source_window": _candidate_window(row),
                     "score": row.get("score"),
                     "reason": _detailed_reason(row) or "missing_reason",
                     "decision_path": row.get("decision_path"),
+                    "person_id": row.get("person_id"),
+                    "source_video": row.get("source_video"),
                 }
                 for row in discarded
             ],
@@ -161,6 +199,12 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
     covered_or_explained = sum(1 for athlete in athletes if athlete["coverage_requirement_met"])
     candidate_seconds = sum(athlete["candidate_seconds"] for athlete in athletes)
     selected_seconds = sum(athlete["selected_seconds"] for athlete in athletes)
+    selected_candidates = [row for row in candidates if row.get("selected")]
+    selected_lineage_complete_count = sum(
+        1
+        for row in selected_candidates
+        if row.get("person_id") and row.get("athlete_id") and row.get("source_video")
+    )
     return {
         "schema_version": SCHEMA_VERSION,
         "source": {
@@ -174,7 +218,9 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
             "athlete_draft_coverage_rate": round(represented / confirmed, 3) if confirmed else 1.0,
             "athlete_accountability_rate": round(covered_or_explained / confirmed, 3) if confirmed else 1.0,
             "candidate_action_count": len(candidates),
-            "selected_action_count": sum(1 for row in candidates if row.get("selected")),
+            "selected_action_count": len(selected_candidates),
+            "selected_identity_lineage_complete_count": selected_lineage_complete_count,
+            "selected_identity_lineage_completeness_rate": round(selected_lineage_complete_count / len(selected_candidates), 3) if selected_candidates else 1.0,
             "candidate_action_seconds": round(candidate_seconds, 2),
             "selected_action_seconds": round(selected_seconds, 2),
             "action_source_utilization_rate": round(selected_seconds / candidate_seconds, 3) if candidate_seconds else 0.0,
@@ -199,6 +245,7 @@ def main() -> int:
         f"clusters={summary['confirmed_athlete_cluster_count']} "
         f"represented={summary['represented_athlete_cluster_count']} "
         f"accountability={summary['athlete_accountability_rate']} "
+        f"lineage={summary['selected_identity_lineage_completeness_rate']} "
         f"utilization={summary['action_source_utilization_rate']}"
     )
     return 0
