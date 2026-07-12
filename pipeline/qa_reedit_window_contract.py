@@ -24,7 +24,11 @@ def _num(value: Any, default: float = 0.0) -> float:
 
 
 def has_premature_cut(defects: list[dict[str, Any]] | None) -> bool:
-    return any(str(item.get("type") or "").upper() in {"PREMATURE_CUT", "CUT_TOO_EARLY"} for item in defects or [] if isinstance(item, dict))
+    return any(
+        str(item.get("type") or "").upper() in {"PREMATURE_CUT", "CUT_TOO_EARLY"}
+        for item in defects or []
+        if isinstance(item, dict)
+    )
 
 
 def _event_identity(event: dict[str, Any]) -> tuple[str, float, str]:
@@ -33,6 +37,17 @@ def _event_identity(event: dict[str, Any]) -> tuple[str, float, str]:
         round(_num(event.get("start")), 2),
         str(event.get("description") or "")[:120],
     )
+
+
+def _requested_bounds(event: dict[str, Any]) -> tuple[float, float, float]:
+    original_start = _num(event.get("start"))
+    requested_end = max(_num(event.get("end")), _num(event.get("_qa_reedit_requested_end")))
+    max_window = min(
+        QA_REEDIT_MAX_WINDOW_SEC,
+        max(4.0, _num(event.get("_qa_reedit_max_window_sec"), QA_REEDIT_MAX_WINDOW_SEC)),
+    )
+    effective_start = max(original_start, requested_end - max_window)
+    return effective_start, requested_end, min(max_window, requested_end - effective_start)
 
 
 def mark_reedit_extensions(
@@ -61,39 +76,45 @@ def mark_reedit_extensions(
         if requested_end <= old_end + 0.001 or requested_end <= start:
             out.append(current)
             continue
-        requested_duration = requested_end - start
-        allowed_duration = min(QA_REEDIT_MAX_WINDOW_SEC, requested_duration)
         current.update({
             "_qa_reedit_allow_long_cut": True,
+            "_qa_reedit_original_start": round(start, 2),
             "_qa_reedit_original_end": round(old_end, 2),
             "_qa_reedit_requested_end": round(requested_end, 2),
             "_qa_reedit_max_window_sec": QA_REEDIT_MAX_WINDOW_SEC,
-            "_cap_dur": round(allowed_duration, 2),
             "_is_climax": True,
             "cut_adjustment_reason": "qa_premature_cut_extension",
+        })
+        effective_start, effective_end, effective_duration = _requested_bounds(current)
+        current.update({
+            "_cap_dur": round(effective_duration, 2),
+            "final_cut_start": round(effective_start, 2),
+            "final_cut_end": round(effective_end, 2),
         })
         out.append(current)
     return out
 
 
 def prepare_reedit_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Return an editor-ready event whose cap reflects the QA repair request."""
+    """Return an editor-ready event whose cap reflects the QA repair request.
+
+    When the requested source window is longer than the safety cap, preserve the
+    tail of the action. PREMATURE_CUT is specifically about a missing outcome, so
+    keeping the start and dropping the repaired ending would repeat the defect.
+    """
     if not event.get("_qa_reedit_allow_long_cut"):
         return event
     prepared = dict(event)
-    start = _num(prepared.get("start"))
-    requested_end = max(_num(prepared.get("end")), _num(prepared.get("_qa_reedit_requested_end")))
-    max_window = min(
-        QA_REEDIT_MAX_WINDOW_SEC,
-        max(4.0, _num(prepared.get("_qa_reedit_max_window_sec"), QA_REEDIT_MAX_WINDOW_SEC)),
-    )
-    requested_duration = max(4.0, requested_end - start)
-    prepared["end"] = round(requested_end, 2)
-    prepared["_is_climax"] = True
-    prepared["_cap_dur"] = round(min(max_window, requested_duration), 2)
-    prepared["final_cut_start"] = round(start, 2)
-    prepared["final_cut_end"] = round(min(requested_end, start + prepared["_cap_dur"]), 2)
-    prepared["cut_adjustment_reason"] = "qa_premature_cut_extension"
+    effective_start, effective_end, effective_duration = _requested_bounds(prepared)
+    prepared.update({
+        "start": round(effective_start, 2),
+        "end": round(effective_end, 2),
+        "_is_climax": True,
+        "_cap_dur": round(effective_duration, 2),
+        "final_cut_start": round(effective_start, 2),
+        "final_cut_end": round(effective_end, 2),
+        "cut_adjustment_reason": "qa_premature_cut_extension",
+    })
     return prepared
 
 
@@ -101,8 +122,8 @@ def reedit_effective_window(event: dict[str, Any]) -> tuple[float, float] | None
     if not event.get("_qa_reedit_allow_long_cut"):
         return None
     prepared = prepare_reedit_event(event)
-    start = _num(prepared.get("start"))
-    end = min(_num(prepared.get("end")), start + _num(prepared.get("_cap_dur"), QA_REEDIT_MAX_WINDOW_SEC))
+    start = _num(prepared.get("final_cut_start"), _num(prepared.get("start")))
+    end = _num(prepared.get("final_cut_end"), _num(prepared.get("end")))
     if end <= start:
         return None
     return round(start, 3), round(end, 3)
