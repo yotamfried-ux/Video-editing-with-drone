@@ -1,0 +1,36 @@
+name: Run 29194242123 Regression
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/run-29194242123-regression.yml'
+      - 'docs/audit/run-29194242123-repair-plan.md'
+      - 'integrations/ffmpeg.py'
+      - 'pipeline/chunk_timeline_runtime.py'
+      - 'pipeline/draft_identity_metadata.py'
+      - 'pipeline/qa_reedit_window_contract.py'
+      - 'scripts/append_primary_actor_subject_summary_to_report.py'
+      - 'scripts/build_draft_decision_trace.py'
+      - 'scripts/run_pipeline_with_diagnostics.sh'
+      - 'scripts/test_chunk_identity_timeline_contract.py'
+      - 'scripts/test_mutable_duration_cache_contract.py'
+      - 'scripts/test_primary_actor_subject_report_contract.py'
+      - 'scripts/test_qa_reedit_window_contract.py'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate minute-second timestamp recovery
+        run: python scripts/test_chunk_identity_timeline_contract.py
+      - name: Validate mutable clip duration cache
+        run: python scripts/test_mutable_duration_cache_contract.py
+      - name: Validate immutable QA selector provenance
+        run: python scripts/test_qa_reedit_window_contract.py
+      - name: Validate primary-actor subject reporting
+        run: python scripts/test_primary_actor_subject_report_contract.py
