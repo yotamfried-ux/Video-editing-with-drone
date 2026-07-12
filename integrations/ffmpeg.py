@@ -21,18 +21,21 @@ _REEL_720_W = 720
 _REEL_720_H = 1280
 
 
-def _file_revision(path: str) -> tuple[int | None, int | None, int | None]:
-    """Return a cache key that changes whenever a local media file is rewritten."""
+def _file_revision(path: str) -> tuple[int | None, int | None, int | None, int | None]:
+    """Return a cache key that changes for in-place and atomic file replacement."""
     try:
         stat = os.stat(path)
     except OSError:
-        return None, None, None
-    return stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
+        return None, None, None, None
+    # inode catches atomic os.replace publication even when a filesystem assigns
+    # identical timestamp values and the replacement has the same byte size.
+    return stat.st_ino, stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
 
 
 @lru_cache(maxsize=512)
 def _get_duration_cached(
     path: str,
+    inode: int | None,
     mtime_ns: int | None,
     ctime_ns: int | None,
     size_bytes: int | None,
@@ -40,7 +43,7 @@ def _get_duration_cached(
     # Revision fields are deliberately part of the cache key. QA re-edit writes a
     # longer clip back to the same path; path-only caching returned the old duration
     # and caused compile_reel to fade the replacement clip to black too early.
-    del mtime_ns, ctime_ns, size_bytes
+    del inode, mtime_ns, ctime_ns, size_bytes
     cmd = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
