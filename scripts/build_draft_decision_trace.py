@@ -39,6 +39,14 @@ def _window_value(event: dict[str, Any], final_key: str, source_key: str) -> Any
     return value if isinstance(value, (int, float)) else event.get(source_key)
 
 
+def _first_numeric(event: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        value = event.get(key)
+        if isinstance(value, (int, float)):
+            return value
+    return None
+
+
 def _event_source(event: dict[str, Any], default_source: str | None) -> tuple[str | None, str | None]:
     raw = event.get("source_path") or event.get("_src") or event.get("source_video") or event.get("source") or default_source
     if not raw:
@@ -47,8 +55,14 @@ def _event_source(event: dict[str, Any], default_source: str | None) -> tuple[st
 
 
 def _event_window(event: dict[str, Any], default_source: str | None) -> dict[str, Any]:
-    original_start = event.get("original_start", event.get("start"))
-    original_end = event.get("original_end", event.get("end"))
+    selector_start = _first_numeric(event, (
+        "selector_original_start", "_qa_reedit_selector_start",
+        "_qa_reedit_original_start", "original_start", "start",
+    ))
+    selector_end = _first_numeric(event, (
+        "selector_original_end", "_qa_reedit_selector_end",
+        "_qa_reedit_original_end", "original_end", "end",
+    ))
     start = _window_value(event, "final_cut_start", "start")
     end = _window_value(event, "final_cut_end", "end")
     source_video, source_path = _event_source(event, default_source)
@@ -59,8 +73,10 @@ def _event_window(event: dict[str, Any], default_source: str | None) -> dict[str
         "start": start,
         "end": end,
         "duration": (float(end) - float(start)) if isinstance(start, (int, float)) and isinstance(end, (int, float)) else None,
-        "original_start": original_start,
-        "original_end": original_end,
+        "original_start": selector_start,
+        "original_end": selector_end,
+        "selector_original_start": selector_start,
+        "selector_original_end": selector_end,
         "final_cut_start": event.get("final_cut_start"),
         "final_cut_end": event.get("final_cut_end"),
         "score": event.get("score"),
@@ -79,16 +95,23 @@ def _event_window(event: dict[str, Any], default_source: str | None) -> dict[str
         "chunk_source_end": event.get("chunk_source_end"),
         "chunk_local_start": event.get("chunk_local_start"),
         "chunk_local_end": event.get("chunk_local_end"),
+        "timestamp_encoding": event.get("timestamp_encoding"),
         "timestamp_basis": event.get("timestamp_basis"),
+        "timestamp_recovered": event.get("timestamp_recovered"),
         "timestamp_clamped": event.get("timestamp_clamped"),
         "raw_chunk_start": event.get("raw_chunk_start"),
         "raw_chunk_end": event.get("raw_chunk_end"),
+        "interpreted_chunk_start": event.get("interpreted_chunk_start"),
+        "interpreted_chunk_end": event.get("interpreted_chunk_end"),
         "cut_adjustment_reason": event.get("cut_adjustment_reason"),
         "window_validation_status": event.get("window_validation_status"),
         "window_validation_reason": event.get("window_validation_reason"),
         "selection_rescue": event.get("selection_rescue"),
         "qa_reedit_allow_long_cut": bool(event.get("_qa_reedit_allow_long_cut")),
-        "qa_reedit_original_end": event.get("_qa_reedit_original_end"),
+        "qa_reedit_selector_start": event.get("_qa_reedit_selector_start"),
+        "qa_reedit_selector_end": event.get("_qa_reedit_selector_end"),
+        "qa_reedit_previous_start": event.get("_qa_reedit_previous_start"),
+        "qa_reedit_previous_end": event.get("_qa_reedit_previous_end"),
         "qa_reedit_requested_end": event.get("_qa_reedit_requested_end"),
         "qa_reedit_max_window_sec": event.get("_qa_reedit_max_window_sec"),
         "subject_isolation_gate": event.get("subject_isolation_gate"),
@@ -126,14 +149,12 @@ def _qa_status(draft_name: str, meta: dict[str, Any], qa_gate: dict[str, Any] | 
     decision = str((qa_gate or {}).get("decision") or "")
     if decision in _NONBLOCKING_FINAL_DECISIONS:
         return "not_required", []
-
     reasons = _blocking_defect_codes(qa_gate)
     name_requires_review = "QA-FLAGGED" in draft_name or "QA-BLOCKED" in draft_name
     metadata_requires_review = meta.get("review_required") is True or meta.get("qa_review_required") is True
     decision_requires_review = decision in _BLOCKING_FINAL_DECISIONS
     qa_requires_review = bool(
-        qa_gate
-        and (
+        qa_gate and (
             decision_requires_review
             or qa_gate.get("qa_review_required")
             or (not decision and str(qa_gate.get("final_verdict", "")).upper() == "FAIL")
@@ -231,10 +252,7 @@ def main() -> int:
         return 2
     report = build_trace(Path(sys.argv[1]), Path(sys.argv[2]))
     _write_json(Path(sys.argv[3]), report)
-    print(
-        f"draft decision trace drafts={report['draft_count']} "
-        f"lineage_complete={report['identity_lineage_complete_draft_count']}"
-    )
+    print(f"draft decision trace drafts={report['draft_count']} lineage_complete={report['identity_lineage_complete_draft_count']}")
     return 0
 
 
