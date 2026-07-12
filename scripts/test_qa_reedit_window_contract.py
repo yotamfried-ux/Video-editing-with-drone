@@ -42,6 +42,7 @@ def main() -> int:
     require(len(marked) == 1, "repair should retain the event")
     repaired = marked[0]
     require(repaired["_qa_reedit_allow_long_cut"] is True, "repair override flag missing")
+    require(repaired["_qa_reedit_original_start"] == 332.0, "original start evidence missing")
     require(repaired["_qa_reedit_original_end"] == 400.0, "original end evidence missing")
     require(repaired["_qa_reedit_requested_end"] == 403.0, "requested end evidence missing")
     require(repaired["_cap_dur"] == QA_REEDIT_MAX_WINDOW_SEC, "long repair was not bounded to safety max")
@@ -54,6 +55,7 @@ def main() -> int:
     resolved = resolve_reedit_window(repaired, 548.9)
     require(resolved is not None, "window policy rejected the valid repaired window")
     require((resolved["start"], resolved["end"]) == (373.0, 403.0), "window policy re-capped or shifted the repaired window")
+    require((resolved["original_start"], resolved["original_end"]) == (332.0, 400.0), "QA resolution overwrote the selector source window")
     require(resolved["window_validation_reason"] == "qa_premature_cut_extension", "repair validation reason missing")
 
     short_original = {**original, "start": 480.0, "end": 495.0, "setup_start": 480.0, "peak_time": 488.0, "outcome_end": 495.0, "_cap_dur": 15.0}
@@ -64,6 +66,7 @@ def main() -> int:
 
     near_end = resolve_reedit_window({**short_repaired, "end": 552.0, "_qa_reedit_requested_end": 552.0}, 548.9)
     require(near_end is not None and near_end["end"] == 548.9, "repair window was not clamped to source duration")
+    require((near_end["original_start"], near_end["original_end"]) == (480.0, 495.0), "source-end clamp lost the original selector window")
 
     unchanged = mark_reedit_extensions([original], [fixed], [{"type": "IDENTITY_MISMATCH", "severity": "critical"}])[0]
     require("_qa_reedit_allow_long_cut" not in unchanged, "non-cut QA defects must not override pacing caps")
