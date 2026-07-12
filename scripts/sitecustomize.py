@@ -153,8 +153,8 @@ def _install_context_qa_long_video() -> None:
 
 
 _install_perception_runtime()
-_install_chunk_timeline_runtime()
 _install_analyzer_score_guard()
+_install_chunk_timeline_runtime()
 _install_single_athlete_selection_policy()
 _install_window_policy()
 _install_cut_window_guard()
