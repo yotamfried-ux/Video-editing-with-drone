@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import types
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,10 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# integrations.ffmpeg imports config for render-quality helpers, but this focused
+# contract exercises only get_duration. Avoid requiring production secrets and
+# python-dotenv in the lightweight regression workflow.
+sys.modules["config"] = types.SimpleNamespace()
 import integrations.ffmpeg as ffmpeg
 
 
@@ -26,9 +31,9 @@ def main() -> int:
     durations = iter(["11.0", "25.5", "19.5"])
     revisions = iter([
         (10, 100, 100, 4),
-        (10, 100, 100, 4),  # unchanged file: same cache key
-        (10, 200, 200, 4),  # in-place longer replacement at the same path
-        (11, 200, 200, 4),  # atomic same-size replacement: inode alone changes
+        (10, 100, 100, 4),
+        (10, 200, 200, 4),
+        (11, 200, 200, 4),
     ])
 
     def fake_ffprobe(cmd, text=True, timeout=30):
@@ -43,10 +48,8 @@ def main() -> int:
         require(ffmpeg.get_duration(path) == 11.0, "initial clip duration is wrong")
         require(ffmpeg.get_duration(path) == 11.0, "stable cache lookup changed the duration")
         require(len(calls) == 1, "unchanged revision should use the cache")
-
         require(ffmpeg.get_duration(path) == 25.5, "rewritten QA clip reused stale 11-second duration")
         require(len(calls) == 2, "new timestamp revision did not force a fresh ffprobe")
-
         require(ffmpeg.get_duration(path) == 19.5, "same-size atomic replacement remained stale")
         require(len(calls) == 3, "new inode did not force a fresh ffprobe")
 
