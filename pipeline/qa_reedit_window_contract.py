@@ -40,7 +40,7 @@ def _event_identity(event: dict[str, Any]) -> tuple[str, float, str]:
 
 
 def _requested_bounds(event: dict[str, Any]) -> tuple[float, float, float]:
-    original_start = _num(event.get("start"))
+    original_start = _num(event.get("_qa_reedit_original_start"), _num(event.get("start")))
     requested_end = max(_num(event.get("end")), _num(event.get("_qa_reedit_requested_end")))
     max_window = min(
         QA_REEDIT_MAX_WINDOW_SEC,
@@ -96,12 +96,7 @@ def mark_reedit_extensions(
 
 
 def prepare_reedit_event(event: dict[str, Any]) -> dict[str, Any]:
-    """Return an editor-ready event whose cap reflects the QA repair request.
-
-    When the requested source window is longer than the safety cap, preserve the
-    tail of the action. PREMATURE_CUT is specifically about a missing outcome, so
-    keeping the start and dropping the repaired ending would repeat the defect.
-    """
+    """Return an editor-ready event whose cap reflects the QA repair request."""
     if not event.get("_qa_reedit_allow_long_cut"):
         return event
     prepared = dict(event)
@@ -129,6 +124,34 @@ def reedit_effective_window(event: dict[str, Any]) -> tuple[float, float] | None
     return round(start, 3), round(end, 3)
 
 
+def resolve_reedit_window(event: dict[str, Any], source_duration: float) -> dict[str, Any] | None:
+    """Clamp the explicit QA repair window without reapplying normal pacing policy."""
+    repaired = reedit_effective_window(event)
+    if repaired is None:
+        return None
+    requested_start, requested_end = repaired
+    total = max(0.0, float(source_duration))
+    if total < 4.0 or requested_start >= total - 2.0:
+        return None
+    start = max(0.0, min(requested_start, total - 4.0))
+    end = min(requested_end, total)
+    if end - start < 4.0:
+        return None
+    prepared = prepare_reedit_event(event)
+    prepared.update({
+        "start": round(start, 2),
+        "end": round(end, 2),
+        "final_cut_start": round(start, 2),
+        "final_cut_end": round(end, 2),
+        "original_start": event.get("start"),
+        "original_end": event.get("end"),
+        "window_validation_status": "adjusted",
+        "window_validation_reason": "qa_premature_cut_extension",
+        "cut_adjustment_reason": "qa_premature_cut_extension",
+    })
+    return prepared
+
+
 def install() -> None:
     import pipeline.orchestrator as orchestrator
     import pipeline.stages.editor as editor
@@ -142,8 +165,7 @@ def install() -> None:
             fixed, changed = original_apply(ordered_events, defects)
             if not changed:
                 return fixed, changed
-            marked = mark_reedit_extensions(ordered_events, fixed, defects)
-            return marked, changed
+            return mark_reedit_extensions(ordered_events, fixed, defects), changed
 
         orchestrator._apply_qa_fixes = apply_with_renderable_extension
         setattr(orchestrator, _INSTALL_FLAG, True)
@@ -152,16 +174,7 @@ def install() -> None:
         original_cut = editor.cut_clip
 
         def cut_with_reedit_window(video_path, event, index, slowmo=False, sport="", source_info=None, session_peak=10, target_fps=None):
-            return original_cut(
-                video_path,
-                prepare_reedit_event(event),
-                index,
-                slowmo,
-                sport,
-                source_info,
-                session_peak,
-                target_fps,
-            )
+            return original_cut(video_path, prepare_reedit_event(event), index, slowmo, sport, source_info, session_peak, target_fps)
 
         editor.cut_clip = cut_with_reedit_window
         setattr(editor, _EDITOR_FLAG, True)
@@ -170,7 +183,9 @@ def install() -> None:
         original_resolve = window_policy.resolve_window
 
         def resolve_with_reedit_window(event, source_duration):
-            return original_resolve(prepare_reedit_event(event), source_duration)
+            if event.get("_qa_reedit_allow_long_cut"):
+                return resolve_reedit_window(event, source_duration)
+            return original_resolve(event, source_duration)
 
         window_policy.resolve_window = resolve_with_reedit_window
         setattr(window_policy, _WINDOW_FLAG, True)
