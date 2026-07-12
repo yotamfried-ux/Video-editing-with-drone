@@ -1,31 +1,24 @@
 """Runtime hook that emits selector candidates and removes duplicate source windows.
 
-Chunk-local person labels and timestamps are normalized through the same contract
-used by the parsed analyzer result, so diagnostics cannot disagree with rendering.
+Raw model timestamps are recovered before both analyzer filtering and selector
+classification, so rendered actions and diagnostic candidates share one event set.
 """
 from __future__ import annotations
 
 import json
 import logging
-import re
+from collections import Counter
 from pathlib import Path
 from typing import Any
 
 import config
 from pipeline.chunk_timeline_runtime import merge_selector_payloads, source_duration
+from pipeline.raw_timestamp_recovery import enrich_selector_payload, recover_raw_session_payload
 from pipeline.source_window_dedup import dedupe_session
 from pipeline.stages.selector_candidates import build_selector_candidate_events, write_selector_candidate_events
 
 logger = logging.getLogger(__name__)
 _OUTPUT_NAME = "selector_candidate_events.json"
-
-
-def _parse_raw_session(raw_text: str) -> dict[str, Any]:
-    text = raw_text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
-    data = json.loads(text)
-    return data if isinstance(data, dict) else {}
 
 
 def _read_existing(path: Path) -> dict[str, Any]:
@@ -36,6 +29,20 @@ def _read_existing(path: Path) -> dict[str, Any]:
     except Exception:
         return {"schema_version": "sportreel.selector_candidate_events.v1", "candidates": []}
     return payload if isinstance(payload, dict) else {"schema_version": "sportreel.selector_candidate_events.v1", "candidates": []}
+
+
+def _merge_counter_summaries(summaries: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counter: Counter[str] = Counter()
+    for summary in summaries:
+        values = summary.get(key)
+        if not isinstance(values, dict):
+            continue
+        for name, count in values.items():
+            try:
+                counter[str(name)] += int(count)
+            except (TypeError, ValueError):
+                continue
+    return dict(counter)
 
 
 def _append_payload(path: Path, payload: dict[str, Any]) -> None:
@@ -51,8 +58,12 @@ def _append_payload(path: Path, payload: dict[str, Any]) -> None:
     merged_summary = {
         "source_duration_sec": next((item.get("source_duration_sec") for item in reversed(summaries) if item.get("source_duration_sec") is not None), None),
         "chunk_count": sum(int(item.get("chunk_count") or 0) for item in summaries),
+        "person_ids_namespaced": any(bool(item.get("person_ids_namespaced")) for item in summaries),
         "invalid_timestamp_candidate_count": sum(int(item.get("invalid_timestamp_candidate_count") or 0) for item in summaries),
         "clamped_timestamp_candidate_count": sum(int(item.get("clamped_timestamp_candidate_count") or 0) for item in summaries),
+        "minute_second_recovered_candidate_count": sum(int(item.get("minute_second_recovered_candidate_count") or 0) for item in summaries),
+        "timestamp_basis_counts": _merge_counter_summaries(summaries, "timestamp_basis_counts"),
+        "timestamp_encoding_counts": _merge_counter_summaries(summaries, "timestamp_encoding_counts"),
     }
     merged = {
         "schema_version": "sportreel.selector_candidate_events.v1",
@@ -75,6 +86,8 @@ def install() -> None:
         return
 
     original_analyze_session = analyzer.analyze_session
+    # raw_timestamp_recovery.install() must run first; this captured parser is the
+    # recovery-aware wrapper and therefore feeds the same events to the pipeline.
     original_parse_session = analyzer._parse_session
 
     def analyze_session_with_selector_candidates(video_path: str) -> dict:
@@ -83,14 +96,15 @@ def install() -> None:
 
         def parse_and_capture(raw_text: str) -> dict:
             try:
-                raw = _parse_raw_session(raw_text)
-                captured_payloads.append(build_selector_candidate_events(
-                    [person for person in raw.get("persons", []) if isinstance(person, dict)],
+                recovered = recover_raw_session_payload(raw_text, float(config.MIN_EVENT_SEC))
+                candidate_payload = build_selector_candidate_events(
+                    [person for person in recovered.get("persons", []) if isinstance(person, dict)],
                     source_video=source_video,
                     min_event_sec=float(config.MIN_EVENT_SEC),
                     score_threshold=6,
                     dedup_start_seconds=2.0,
-                ))
+                )
+                captured_payloads.append(enrich_selector_payload(candidate_payload, recovered))
             except Exception as exc:
                 logger.warning("Selector candidate capture failed: %s", exc)
             return original_parse_session(raw_text)
@@ -120,9 +134,10 @@ def install() -> None:
             )
             _append_payload(path, payload)
             logger.info(
-                "Wrote selector candidate events: %d selected, %d discarded, %d invalid timestamps -> %s",
+                "Wrote selector candidate events: %d selected, %d discarded, %d recovered MM.SS, %d invalid timestamps -> %s",
                 payload.get("selected_count", 0),
                 payload.get("discarded_count", 0),
+                payload.get("chunk_timeline_summary", {}).get("minute_second_recovered_candidate_count", 0),
                 payload.get("chunk_timeline_summary", {}).get("invalid_timestamp_candidate_count", 0),
                 path,
             )
