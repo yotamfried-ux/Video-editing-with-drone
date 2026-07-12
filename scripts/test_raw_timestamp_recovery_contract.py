@@ -49,6 +49,9 @@ def main() -> int:
         (1.07, 1.21, 7, "one minute ride"),
         (2.08, 2.23, 7, "second two minute ride"),
         (7.39, 7.55, 9, "known 459 to 475 ride"),
+        # Exactly five recovered seconds: core parser keeps it but pads its end
+        # to the six-second editor minimum before annotation.
+        (2.00, 2.05, 7, "padded five second ride"),
     ]
     payload = {
         "activity": "surfing",
@@ -80,6 +83,7 @@ def main() -> int:
         "one minute ride": (67.0, 81.0),
         "second two minute ride": (128.0, 143.0),
         "known 459 to 475 ride": (459.0, 475.0),
+        "padded five second ride": (120.0, 125.0),
     }
     for description, window in expected.items():
         event = by_description[description]
@@ -119,20 +123,31 @@ def main() -> int:
         "persons": [{
             "id": "person_A",
             "description": payload["persons"][0]["description"],
-            "events": [{
-                "type": "wave_catch",
-                "start": 459.0,
-                "end": 475.0,
-                "score": 9,
-                "description": "known 459 to 475 ride",
-                "edit": {},
-            }],
+            "events": [
+                {
+                    "type": "wave_catch", "start": 459.0, "end": 475.0,
+                    "score": 9, "description": "known 459 to 475 ride", "edit": {},
+                },
+                {
+                    # Parser padded recovered 120-125 to 120-126.
+                    "type": "wave_catch", "start": 120.0, "end": 126.0,
+                    "score": 7, "description": "padded five second ride", "edit": {},
+                },
+            ],
         }],
     }
     annotated = annotate_parsed_session(parsed_stub, recovered)
-    parsed_event = annotated["persons"][0]["events"][0]
+    parsed_by_description = {
+        event["description"]: event for event in annotated["persons"][0]["events"]
+    }
+    parsed_event = parsed_by_description["known 459 to 475 ride"]
     require(parsed_event["timestamp_encoding"] == "minute_second", "parsed analyzer event lost encoding evidence")
     require((parsed_event["raw_chunk_start"], parsed_event["raw_chunk_end"]) == (7.39, 7.55), "parsed analyzer event lost raw evidence")
+    padded_event = parsed_by_description["padded five second ride"]
+    require((padded_event["start"], padded_event["end"]) == (120.0, 126.0), "parser padding fixture is wrong")
+    require(padded_event["timestamp_recovered"] is True, "parser padding dropped recovery flag")
+    require((padded_event["raw_chunk_start"], padded_event["raw_chunk_end"]) == (2.0, 2.05), "parser padding dropped raw MM.SS evidence")
+    require((padded_event["interpreted_chunk_start"], padded_event["interpreted_chunk_end"]) == (120.0, 125.0), "parser padding overwrote interpreted evidence")
 
     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
     sitecustomize = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
