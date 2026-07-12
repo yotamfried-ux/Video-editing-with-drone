@@ -28,6 +28,7 @@ def _num(value: Any) -> float | None:
 
 def source_duration(path: str) -> float:
     from integrations.ffmpeg import get_duration
+
     return float(get_duration(path))
 
 
@@ -51,6 +52,12 @@ def namespace_person_id(chunk_index: int, person_id: Any) -> str:
     return f"chunk_{chunk_index:02d}:{local}"
 
 
+def runtime_person_id(chunk_count: int, chunk_index: int, person_id: Any) -> str:
+    """Namespace only when local model labels can collide across real chunks."""
+    local = str(person_id or "person_?").strip() or "person_?"
+    return namespace_person_id(chunk_index, local) if chunk_count > 1 else local
+
+
 def _usable_overlap(start: float, end: float, duration: float) -> float:
     return max(0.0, min(duration, end) - max(0.0, start))
 
@@ -65,14 +72,13 @@ def _choose_timestamp_basis(
 ) -> tuple[str, float, float] | None:
     candidates: list[tuple[float, int, str, float, float]] = []
     if -_BOUNDARY_TOLERANCE_SEC <= raw_start < duration + _BOUNDARY_TOLERANCE_SEC:
-        local_start, local_end = raw_start, raw_end
-        candidates.append((_usable_overlap(local_start, local_end, duration), 1, "chunk_local", local_start, local_end))
+        candidates.append((_usable_overlap(raw_start, raw_end, duration), 1, "chunk_local", raw_start, raw_end))
     if offset > 0 and offset - _BOUNDARY_TOLERANCE_SEC <= raw_start < source_end + _BOUNDARY_TOLERANCE_SEC:
         local_start, local_end = raw_start - offset, raw_end - offset
         candidates.append((_usable_overlap(local_start, local_end, duration), 0, "source_global", local_start, local_end))
     if not candidates:
         return None
-    # Choose the interpretation with the most usable time inside the real chunk.
+    # Prefer the interpretation with the most usable time inside the real chunk.
     # A tie prefers chunk-local values because Gemini is prompted on the chunk file.
     _overlap, _local_preference, basis, start, end = max(candidates, key=lambda item: (item[0], item[1]))
     return basis, start, end
@@ -104,6 +110,7 @@ def normalize_chunk_window(
             "chunk_start": offset,
             "chunk_duration": duration,
         }
+
     basis, local_start, local_end = chosen
     clamped_start = max(0.0, local_start)
     clamped_end = min(duration, local_end)
@@ -142,20 +149,20 @@ def _normalize_event(
     *,
     spec: dict[str, Any],
     source_video: str,
-    namespaced_person_id: str,
+    person_id: str,
     source_person_id: str,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     window = normalize_chunk_window(event.get("start"), event.get("end"), spec)
     if not window.get("valid"):
         return None, window
-    normalized = {
+    return ({
         **event,
         "start": window["source_start"],
         "end": window["source_end"],
         "duration": window["duration"],
         "source_video": source_video,
-        "person_id": namespaced_person_id,
-        "chunk_person_id": namespaced_person_id,
+        "person_id": person_id,
+        "chunk_person_id": person_id,
         "source_person_id": source_person_id,
         "chunk_index": spec["chunk_index"],
         "chunk_source_start": spec["source_start"],
@@ -166,8 +173,7 @@ def _normalize_event(
         "timestamp_clamped": window["timestamp_clamped"],
         "raw_chunk_start": window["raw_start"],
         "raw_chunk_end": window["raw_end"],
-    }
-    return normalized, window
+    }, window)
 
 
 def merge_chunk_sessions(
@@ -178,7 +184,8 @@ def merge_chunk_sessions(
     source_video: str,
 ) -> dict[str, Any]:
     """Merge chunks without conflating local person labels or double-shifting time."""
-    specs = build_chunk_specs(source_duration_sec, segment_sec, len(chunk_results))
+    chunk_count = len(chunk_results)
+    specs = build_chunk_specs(source_duration_sec, segment_sec, chunk_count)
     activities = [
         result.get("activity", "unknown")
         for result in chunk_results
@@ -196,7 +203,7 @@ def merge_chunk_sessions(
             if not isinstance(person, dict):
                 continue
             source_person_id = str(person.get("id") or "person_?")
-            person_id = namespace_person_id(chunk_index, source_person_id)
+            person_id = runtime_person_id(chunk_count, chunk_index, source_person_id)
             events: list[dict[str, Any]] = []
             for event_index, event in enumerate(person.get("events", []) or []):
                 if not isinstance(event, dict):
@@ -205,7 +212,7 @@ def merge_chunk_sessions(
                     event,
                     spec=spec,
                     source_video=source_video,
-                    namespaced_person_id=person_id,
+                    person_id=person_id,
                     source_person_id=source_person_id,
                 )
                 if normalized is None:
@@ -247,8 +254,8 @@ def merge_chunk_sessions(
             "chunk_timeline_contract": {
                 "source_video": source_video,
                 "source_duration_sec": round(source_duration_sec, 3),
-                "chunk_count": len(chunk_results),
-                "namespaced_person_count": len(persons),
+                "chunk_count": chunk_count,
+                "namespaced_person_count": sum(1 for person in persons if str(person.get("id", "")).startswith("chunk_")),
                 "invalid_timestamp_event_count": len(invalid_events),
                 "clamped_timestamp_event_count": clamped_count,
                 "timestamp_basis_counts": dict(basis_counts),
@@ -265,11 +272,13 @@ def merge_selector_payloads(
     segment_sec: float,
     source_duration_sec: float,
 ) -> dict[str, Any]:
-    specs = build_chunk_specs(source_duration_sec, segment_sec, len(payloads))
+    chunk_count = len(payloads)
+    specs = build_chunk_specs(source_duration_sec, segment_sec, chunk_count)
     candidates: list[dict[str, Any]] = []
     invalid_count = 0
     clamped_count = 0
     basis_counts: Counter[str] = Counter()
+
     for chunk_index, payload in enumerate(payloads):
         spec = specs[chunk_index]
         for raw in payload.get("candidates", []) or []:
@@ -277,7 +286,7 @@ def merge_selector_payloads(
                 continue
             candidate = dict(raw)
             source_person_id = str(candidate.get("person_id") or "person_?")
-            person_id = namespace_person_id(chunk_index, source_person_id)
+            person_id = runtime_person_id(chunk_count, chunk_index, source_person_id)
             window = candidate.get("source_window") if isinstance(candidate.get("source_window"), dict) else {}
             normalized = normalize_chunk_window(window.get("start"), window.get("end"), spec)
             candidate.update({
@@ -334,7 +343,8 @@ def merge_selector_payloads(
         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
         "chunk_timeline_summary": {
             "source_duration_sec": round(source_duration_sec, 3),
-            "chunk_count": len(payloads),
+            "chunk_count": chunk_count,
+            "person_ids_namespaced": chunk_count > 1,
             "invalid_timestamp_candidate_count": invalid_count,
             "clamped_timestamp_candidate_count": clamped_count,
             "timestamp_basis_counts": dict(basis_counts),
