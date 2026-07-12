@@ -105,5 +105,8 @@ if [ -f "$ATHLETE_COVERAGE_FILE" ]; then
 fi
 python scripts/append_qa_gate_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$LOG_FILE" || true
 python scripts/append_qa_policy_trace_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
+# Run last so the old coarse track-count alert cannot overwrite the explicit
+# primary-actor decision after other report appenders have finished.
+python scripts/append_primary_actor_subject_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" "$DEBUG_DIR/sidecars" || true
 
 exit "$STATUS"
