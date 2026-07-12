@@ -26,6 +26,15 @@ def _install_perception_runtime() -> None:
         pass
 
 
+def _install_raw_timestamp_recovery() -> None:
+    _repo_root()
+    try:
+        from pipeline.raw_timestamp_recovery import install
+        install()
+    except Exception:
+        pass
+
+
 def _install_chunk_timeline_runtime() -> None:
     _repo_root()
     try:
@@ -153,6 +162,7 @@ def _install_context_qa_long_video() -> None:
 
 
 _install_perception_runtime()
+_install_raw_timestamp_recovery()
 _install_analyzer_score_guard()
 _install_chunk_timeline_runtime()
 _install_single_athlete_selection_policy()
