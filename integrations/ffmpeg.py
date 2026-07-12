@@ -5,6 +5,7 @@ Provides reusable functions for querying video metadata via ffprobe.
 
 import json
 import logging
+import os
 import subprocess
 from functools import lru_cache
 
@@ -20,9 +21,26 @@ _REEL_720_W = 720
 _REEL_720_H = 1280
 
 
-@lru_cache(maxsize=256)
-def get_duration(path: str) -> float:
-    """Return video duration in seconds via ffprobe. Returns inf on error."""
+def _file_revision(path: str) -> tuple[int | None, int | None, int | None]:
+    """Return a cache key that changes whenever a local media file is rewritten."""
+    try:
+        stat = os.stat(path)
+    except OSError:
+        return None, None, None
+    return stat.st_mtime_ns, stat.st_ctime_ns, stat.st_size
+
+
+@lru_cache(maxsize=512)
+def _get_duration_cached(
+    path: str,
+    mtime_ns: int | None,
+    ctime_ns: int | None,
+    size_bytes: int | None,
+) -> float:
+    # Revision fields are deliberately part of the cache key. QA re-edit writes a
+    # longer clip back to the same path; path-only caching returned the old duration
+    # and caused compile_reel to fade the replacement clip to black too early.
+    del mtime_ns, ctime_ns, size_bytes
     cmd = [
         "ffprobe", "-v", "error",
         "-show_entries", "format=duration",
@@ -33,6 +51,23 @@ def get_duration(path: str) -> float:
         return float(subprocess.check_output(cmd, text=True, timeout=30).strip())
     except Exception:
         return float("inf")
+
+
+def get_duration(path: str) -> float:
+    """Return video duration, invalidating cached values after file rewrites."""
+    normalized = os.fspath(path)
+    return _get_duration_cached(normalized, *_file_revision(normalized))
+
+
+def clear_duration_cache() -> None:
+    """Clear all cached FFprobe durations, primarily for tests and explicit resets."""
+    _get_duration_cached.cache_clear()
+
+
+# Preserve the cache-control surface callers may expect from the previous
+# @lru_cache-decorated public function.
+get_duration.cache_clear = clear_duration_cache  # type: ignore[attr-defined]
+get_duration.cache_info = _get_duration_cached.cache_info  # type: ignore[attr-defined]
 
 
 @lru_cache(maxsize=256)
@@ -119,15 +154,13 @@ def get_source_info(video_path: str) -> dict:
             capture_output=True, text=True, timeout=15,
         )
         data = json.loads(r.stdout)
-        s    = data["streams"][0]
+        s = data["streams"][0]
         w, h = int(s["width"]), int(s["height"])
         num, den = s["r_frame_rate"].split("/")
         fps = float(num) / float(den)
         profile = _render_profile(w, h)
         return {
             "width": w, "height": h, "fps": round(fps, 1),
-            # Used by editor.cut_clip() to cap zoom. This is now the safe 9:16
-            # no-upscale ceiling, not width-only headroom.
             "zoom_headroom": profile["safe_zoom_headroom"],
             "can_slowmo": fps >= _SLOWMO_FPS_MIN,
             **profile,
@@ -141,12 +174,9 @@ def get_source_info(video_path: str) -> dict:
 
 
 def get_reel_specs(path: str) -> dict:
-    """Technical specs for social-media compliance checks. Best-effort; never raises.
-
-    Returns: width, height, aspect (w/h), duration (None on error), has_audio.
-    """
-    info = get_source_info(path)          # width, height, fps (with safe fallbacks)
-    dur  = get_duration(path)             # seconds (inf on error)
+    """Technical specs for social-media compliance checks. Best-effort; never raises."""
+    info = get_source_info(path)
+    dur = get_duration(path)
     has_audio = False
     try:
         r = subprocess.run(
