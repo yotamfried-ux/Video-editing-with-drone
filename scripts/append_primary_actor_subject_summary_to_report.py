@@ -46,6 +46,13 @@ def _num(value: Any) -> float | None:
     return parsed if math.isfinite(parsed) else None
 
 
+def _nonnegative_int(value: Any) -> int:
+    try:
+        return max(0, int(value))
+    except (TypeError, ValueError):
+        return 0
+
+
 def _track_id(item: dict[str, Any]) -> str | None:
     value = item.get("track_id", item.get("tracker_id"))
     return None if value is None else str(value)
@@ -226,7 +233,15 @@ def append_summary(report_path: Path, trace_path: Path, sidecar_dir: Path) -> di
     evaluations = result["evaluations"]
     violations = result["violations"]
     missing_policy = result["missing_policy"]
-    expected_windows = _expected_window_count(trace)
+    report_metrics = report.get("metrics") if isinstance(report.get("metrics"), dict) else {}
+    # The quality report is produced independently from draft trace. If metadata
+    # or trace generation fails while drafts were observed, use draft_count as a
+    # lower bound so missing actor evidence cannot become a false 100% pass.
+    expected_windows = max(
+        _expected_window_count(trace),
+        _nonnegative_int(trace.get("draft_count")),
+        _nonnegative_int(report_metrics.get("draft_count")),
+    )
     unevaluated_windows = max(0, expected_windows - len(evaluations))
 
     alerts = [
