@@ -25,10 +25,10 @@ def main() -> int:
     calls: list[str] = []
     durations = iter(["11.0", "25.5", "19.5"])
     revisions = iter([
-        (100, 100, 4),
-        (100, 100, 4),  # unchanged file: same cache key
-        (200, 200, 4),  # longer replacement at the same path
-        (300, 300, 4),  # same-size replacement, still a new revision
+        (10, 100, 100, 4),
+        (10, 100, 100, 4),  # unchanged file: same cache key
+        (10, 200, 200, 4),  # in-place longer replacement at the same path
+        (11, 200, 200, 4),  # atomic same-size replacement: inode alone changes
     ])
 
     def fake_ffprobe(cmd, text=True, timeout=30):
@@ -45,13 +45,11 @@ def main() -> int:
         require(len(calls) == 1, "unchanged revision should use the cache")
 
         require(ffmpeg.get_duration(path) == 25.5, "rewritten QA clip reused stale 11-second duration")
-        require(len(calls) == 2, "new file revision did not force a fresh ffprobe")
+        require(len(calls) == 2, "new timestamp revision did not force a fresh ffprobe")
 
-        require(ffmpeg.get_duration(path) == 19.5, "same-size replacement remained stale")
-        require(len(calls) == 3, "same-size new revision did not force a fresh ffprobe")
+        require(ffmpeg.get_duration(path) == 19.5, "same-size atomic replacement remained stale")
+        require(len(calls) == 3, "new inode did not force a fresh ffprobe")
 
-    # Verify the real revision helper observes an atomic replacement, which is how
-    # the media pipeline commonly publishes completed output files.
     with tempfile.TemporaryDirectory() as tmpdir:
         clip = Path(tmpdir) / "source_clip02.mp4"
         replacement = Path(tmpdir) / "replacement.mp4"
@@ -61,6 +59,7 @@ def main() -> int:
         os.replace(replacement, clip)
         after = ffmpeg._file_revision(str(clip))
         require(before != after, "atomic same-path replacement did not change the cache revision")
+        require(before[0] != after[0], "atomic replacement did not change inode evidence")
 
     require(callable(getattr(ffmpeg.get_duration, "cache_clear", None)), "cache_clear compatibility surface missing")
     print("mutable duration cache contract ok")
