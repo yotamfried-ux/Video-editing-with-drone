@@ -138,13 +138,15 @@ def resolve_reedit_window(event: dict[str, Any], source_duration: float) -> dict
     if end - start < 4.0:
         return None
     prepared = prepare_reedit_event(event)
+    original_start = event.get("original_start", event.get("_qa_reedit_original_start", event.get("start")))
+    original_end = event.get("original_end", event.get("_qa_reedit_original_end", event.get("end")))
     prepared.update({
         "start": round(start, 2),
         "end": round(end, 2),
         "final_cut_start": round(start, 2),
         "final_cut_end": round(end, 2),
-        "original_start": event.get("start"),
-        "original_end": event.get("end"),
+        "original_start": original_start,
+        "original_end": original_end,
         "window_validation_status": "adjusted",
         "window_validation_reason": "qa_premature_cut_extension",
         "cut_adjustment_reason": "qa_premature_cut_extension",
