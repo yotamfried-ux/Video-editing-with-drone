@@ -68,6 +68,22 @@ def main() -> int:
     require((production_resolved["selector_original_start"], production_resolved["selector_original_end"]) == (496.0, 512.5), "resolved production window lost selector provenance")
     require((production_resolved["start"], production_resolved["end"]) == (496.0, 521.5), "resolved production final cut is wrong")
 
+    # A policy/source clamp can shift only final_cut_start while raw start remains
+    # the selector start. The next retry must report the previous rendered start.
+    clamped_previous = {
+        **retry_one,
+        "start": 496.0,
+        "end": 515.5,
+        "final_cut_start": 499.0,
+        "final_cut_end": 515.5,
+    }
+    after_clamped = mark_reedit_extensions(
+        [clamped_previous], [{**clamped_previous, "end": 518.5}], defects,
+    )[0]
+    require(after_clamped["_qa_reedit_previous_start"] == 499.0, "retry recorded stale raw start instead of previous rendered start")
+    require(after_clamped["_qa_reedit_previous_end"] == 515.5, "retry lost previous raw end")
+    require((after_clamped["_qa_reedit_selector_start"], after_clamped["_qa_reedit_selector_end"]) == (496.0, 512.5), "clamped retry changed selector provenance")
+
     short_original = {**original, "start": 480.0, "end": 495.0, "setup_start": 480.0, "peak_time": 488.0, "outcome_end": 495.0}
     short_repaired = mark_reedit_extensions([short_original], [{**short_original, "end": 498.0}], defects)[0]
     require((short_repaired["final_cut_start"], short_repaired["final_cut_end"]) == (480.0, 498.0), "18s repair should retain the full window")
