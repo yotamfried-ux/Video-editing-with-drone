@@ -82,7 +82,10 @@ def mark_reedit_extensions(
         if previous is None:
             out.append(current)
             continue
-        previous_start = _num(previous.get("start"))
+        # A prior round may have clamped/shifted the rendered start while keeping
+        # the raw action start for selector identity. Record what viewers actually
+        # saw in the previous retry, without changing immutable selector provenance.
+        previous_start = _num(previous.get("final_cut_start"), _num(previous.get("start")))
         previous_end = _num(previous.get("end"))
         requested_end = _num(current.get("end"))
         if requested_end <= previous_end + 0.001 or requested_end <= previous_start:
