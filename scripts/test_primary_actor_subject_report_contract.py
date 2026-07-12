@@ -73,6 +73,7 @@ def trace(subject_gate: dict | None, multi_gate: dict | None = None) -> dict:
         window["multi_person_clip_gate"] = multi_gate
     return {
         "schema_version": "sportreel.draft_decision_trace.v1",
+        "draft_count": 1,
         "drafts": [{
             "draft_name": "DRAFT_pink_longboard.mp4",
             "person_id": "chunk_01:person_A", "athlete_id": "ath_66f922a23a",
@@ -132,6 +133,7 @@ def main() -> int:
         # Missing final-window evidence must be inconclusive, never silently pass.
         missing_trace = {
             "schema_version": "sportreel.draft_decision_trace.v1",
+            "draft_count": 1,
             "drafts": [{"draft_name": "DRAFT_missing_window.mp4", "source_windows": []}],
         }
         report_path.write_text(json.dumps(base_report()), encoding="utf-8")
@@ -140,6 +142,22 @@ def main() -> int:
         require(missing["status"] == "inconclusive", "missing actor evidence was treated as pass")
         require(missing["metrics"]["mixed_subject_unevaluated_window_count"] == 1, "missing final window was not counted")
         require(missing["implementation_gaps"]["mixed_subject_policy_explicit"] is False, "missing policy was marked explicit")
+
+        # Exact fail-safe case from review: the quality report observed one draft,
+        # but trace generation returned an empty draft list. Report count is the
+        # lower bound and must prevent a false 100% policy-evidence pass.
+        empty_trace = {
+            "schema_version": "sportreel.draft_decision_trace.v1",
+            "draft_count": 0,
+            "drafts": [],
+        }
+        report_path.write_text(json.dumps(base_report()), encoding="utf-8")
+        trace_path.write_text(json.dumps(empty_trace), encoding="utf-8")
+        empty = module.append_summary(report_path, trace_path, sidecars)
+        require(empty["status"] == "inconclusive", "empty trace with an observed draft was treated as pass")
+        require(empty["metrics"]["mixed_subject_expected_window_count"] == 1, "report draft count was not used as the evidence lower bound")
+        require(empty["metrics"]["mixed_subject_unevaluated_window_count"] == 1, "empty trace evidence gap was not counted")
+        require(empty["metrics"]["mixed_subject_policy_evidence_rate"] == 0.0, "empty trace incorrectly reported complete policy evidence")
 
     runner = (ROOT / "scripts/run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
     require("append_primary_actor_subject_summary_to_report.py" in runner, "diagnostics runner does not apply subject reconciliation")
