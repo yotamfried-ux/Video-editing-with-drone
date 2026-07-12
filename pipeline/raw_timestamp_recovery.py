@@ -18,6 +18,7 @@ _CHUNK_BRIDGE_FLAG = "_sportreel_raw_timestamp_chunk_bridge_installed"
 _TIMESTAMP_FIELDS = (
     "timestamp_encoding",
     "timestamp_recovered",
+    "timestamp_clamped",
     "raw_chunk_start",
     "raw_chunk_end",
     "interpreted_chunk_start",
@@ -36,8 +37,8 @@ def _num(value: Any) -> float | None:
 def _minute_second_value(value: float) -> float | None:
     if value < 0:
         return None
-    minutes = int(math.floor(value + 1e-9))
-    seconds = int(round((value - minutes) * 100))
+    minutes = math.floor(value + 1e-9)
+    seconds = round((value - minutes) * 100)
     if seconds < 0 or seconds >= 60:
         return None
     return float(minutes * 60 + seconds)
@@ -213,17 +214,44 @@ def enrich_selector_payload(payload: dict[str, Any], recovered_payload: dict[str
     return enriched
 
 
+def _derive_timestamp_clamped(evidence: dict[str, Any]) -> bool:
+    """Derive clamp evidence for invalid windows emitted before final coordinates."""
+    interpreted_start = _num(evidence.get("interpreted_start"))
+    interpreted_end = _num(evidence.get("interpreted_end"))
+    chunk_start = _num(evidence.get("chunk_start")) or 0.0
+    chunk_duration = _num(evidence.get("chunk_duration"))
+    if interpreted_start is None or interpreted_end is None or chunk_duration is None:
+        return False
+    if evidence.get("timestamp_basis") == "source_global":
+        interpreted_start -= chunk_start
+        interpreted_end -= chunk_start
+    return interpreted_start < -0.001 or interpreted_end > chunk_duration + 0.001
+
+
+def _with_clamp_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
+    if "timestamp_clamped" in evidence:
+        return evidence
+    if evidence.get("reason") != "insufficient_time_inside_chunk":
+        return evidence
+    return {**evidence, "timestamp_clamped": _derive_timestamp_clamped(evidence)}
+
+
 def _install_chunk_evidence_bridge() -> None:
     import pipeline.chunk_timeline_runtime as chunk_runtime
 
     if getattr(chunk_runtime, _CHUNK_BRIDGE_FLAG, False):
         return
 
+    original_normalize_window = chunk_runtime.normalize_chunk_window
     original_normalize = chunk_runtime._normalize_event
     original_merge_selector = chunk_runtime.merge_selector_payloads
 
+    def normalize_window_with_clamp_evidence(*args, **kwargs):
+        return _with_clamp_evidence(original_normalize_window(*args, **kwargs))
+
     def normalize_with_recovery_evidence(event, **kwargs):
         normalized, evidence = original_normalize(event, **kwargs)
+        evidence = _with_clamp_evidence(evidence)
         if normalized is not None:
             for field in _TIMESTAMP_FIELDS:
                 if event.get(field) is not None:
@@ -258,6 +286,7 @@ def _install_chunk_evidence_bridge() -> None:
         summary["timestamp_encoding_counts"] = encoding_counts
         return result
 
+    chunk_runtime.normalize_chunk_window = normalize_window_with_clamp_evidence
     chunk_runtime._normalize_event = normalize_with_recovery_evidence
     chunk_runtime.merge_selector_payloads = merge_selector_with_recovery_evidence
     setattr(chunk_runtime, _CHUNK_BRIDGE_FLAG, True)
