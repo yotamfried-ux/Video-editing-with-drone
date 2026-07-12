@@ -9,6 +9,14 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+# The focused regression workflow intentionally does not install production
+# dependencies/secrets, so sitecustomize may skip fail-safe runtime bootstrap.
+# Install the exact evidence bridge under test explicitly before importing the
+# patched timeline functions.
+from pipeline.raw_timestamp_recovery import _install_chunk_evidence_bridge
+
+_install_chunk_evidence_bridge()
+
 from pipeline.chunk_timeline_runtime import (
     merge_chunk_sessions,
     merge_selector_payloads,
