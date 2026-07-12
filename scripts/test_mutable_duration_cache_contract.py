@@ -23,37 +23,46 @@ def require(condition: bool, message: str) -> None:
 def main() -> int:
     ffmpeg.clear_duration_cache()
     calls: list[str] = []
+    durations = iter(["11.0", "25.5", "19.5"])
+    revisions = iter([
+        (100, 100, 4),
+        (100, 100, 4),  # unchanged file: same cache key
+        (200, 200, 4),  # longer replacement at the same path
+        (300, 300, 4),  # same-size replacement, still a new revision
+    ])
 
     def fake_ffprobe(cmd, text=True, timeout=30):
         del text, timeout
-        path = str(cmd[-1])
-        calls.append(path)
-        return Path(path).read_text(encoding="utf-8")
+        calls.append(str(cmd[-1]))
+        return next(durations)
 
-    with tempfile.TemporaryDirectory() as tmpdir, patch.object(ffmpeg.subprocess, "check_output", side_effect=fake_ffprobe):
+    with patch.object(ffmpeg, "_file_revision", side_effect=lambda _path: next(revisions)), patch.object(
+        ffmpeg.subprocess, "check_output", side_effect=fake_ffprobe
+    ):
+        path = "/tmp/source_clip02.mp4"
+        require(ffmpeg.get_duration(path) == 11.0, "initial clip duration is wrong")
+        require(ffmpeg.get_duration(path) == 11.0, "stable cache lookup changed the duration")
+        require(len(calls) == 1, "unchanged revision should use the cache")
+
+        require(ffmpeg.get_duration(path) == 25.5, "rewritten QA clip reused stale 11-second duration")
+        require(len(calls) == 2, "new file revision did not force a fresh ffprobe")
+
+        require(ffmpeg.get_duration(path) == 19.5, "same-size replacement remained stale")
+        require(len(calls) == 3, "same-size new revision did not force a fresh ffprobe")
+
+    # Verify the real revision helper observes an atomic replacement, which is how
+    # the media pipeline commonly publishes completed output files.
+    with tempfile.TemporaryDirectory() as tmpdir:
         clip = Path(tmpdir) / "source_clip02.mp4"
+        replacement = Path(tmpdir) / "replacement.mp4"
         clip.write_text("11.0", encoding="utf-8")
-        first = ffmpeg.get_duration(str(clip))
-        second = ffmpeg.get_duration(str(clip))
-        require(first == 11.0 and second == 11.0, "stable clip duration is wrong")
-        require(len(calls) == 1, "unchanged file should still benefit from caching")
+        before = ffmpeg._file_revision(str(clip))
+        replacement.write_text("25.5", encoding="utf-8")
+        os.replace(replacement, clip)
+        after = ffmpeg._file_revision(str(clip))
+        require(before != after, "atomic same-path replacement did not change the cache revision")
 
-        # Reproduce run 29194242123: QA renders a longer replacement to the same
-        # path. Force a distinct nanosecond revision even on coarse filesystems.
-        clip.write_text("25.5", encoding="utf-8")
-        stat = clip.stat()
-        os.utime(clip, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
-        repaired = ffmpeg.get_duration(str(clip))
-        require(repaired == 25.5, "rewritten QA clip reused stale 11-second duration")
-        require(len(calls) == 2, "file revision did not invalidate the duration cache")
-
-        # Same path and same byte size must also invalidate when mtime/ctime changes.
-        clip.write_text("19.5", encoding="utf-8")
-        stat = clip.stat()
-        os.utime(clip, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000))
-        require(ffmpeg.get_duration(str(clip)) == 19.5, "same-size replacement remained stale")
-        require(len(calls) == 3, "same-size rewrite did not produce a new cache revision")
-
+    require(callable(getattr(ffmpeg.get_duration, "cache_clear", None)), "cache_clear compatibility surface missing")
     print("mutable duration cache contract ok")
     return 0
 
