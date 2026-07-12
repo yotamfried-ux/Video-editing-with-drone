@@ -1,9 +1,8 @@
 """Make PREMATURE_CUT re-edits reach the actual editor source window.
 
-Normal reels intentionally cap a single clip at 15 seconds. A QA repair that asks
-for more follow-through must temporarily override that pacing cap; otherwise the
-re-edit loop changes ``event.end`` while the renderer keeps producing the same
-15-second clip. The override is explicit, bounded, and visible in diagnostics.
+Normal reels cap a single clip for pacing. A QA repair that asks for more
+follow-through must override that cap for the affected event while preserving the
+original selector window across every retry.
 """
 from __future__ import annotations
 
@@ -39,14 +38,27 @@ def _event_identity(event: dict[str, Any]) -> tuple[str, float, str]:
     )
 
 
+def _selector_window(event: dict[str, Any]) -> tuple[float, float]:
+    """Return the immutable source window selected before the first QA retry."""
+    start = _num(
+        event.get("_qa_reedit_selector_start"),
+        _num(event.get("selector_original_start"), _num(event.get("original_start"), _num(event.get("start")))),
+    )
+    end = _num(
+        event.get("_qa_reedit_selector_end"),
+        _num(event.get("selector_original_end"), _num(event.get("original_end"), _num(event.get("end")))),
+    )
+    return start, end
+
+
 def _requested_bounds(event: dict[str, Any]) -> tuple[float, float, float]:
-    original_start = _num(event.get("_qa_reedit_original_start"), _num(event.get("start")))
+    selector_start, _selector_end = _selector_window(event)
     requested_end = max(_num(event.get("end")), _num(event.get("_qa_reedit_requested_end")))
     max_window = min(
         QA_REEDIT_MAX_WINDOW_SEC,
         max(4.0, _num(event.get("_qa_reedit_max_window_sec"), QA_REEDIT_MAX_WINDOW_SEC)),
     )
-    effective_start = max(original_start, requested_end - max_window)
+    effective_start = max(selector_start, requested_end - max_window)
     return effective_start, requested_end, min(max_window, requested_end - effective_start)
 
 
@@ -55,7 +67,7 @@ def mark_reedit_extensions(
     fixed_events: list[dict[str, Any]],
     defects: list[dict[str, Any]] | None,
 ) -> list[dict[str, Any]]:
-    """Mark only events whose tail was extended by a premature-cut repair."""
+    """Mark events extended by QA without moving their selector provenance."""
     if not has_premature_cut(defects):
         return [dict(event) for event in fixed_events]
     before = {
@@ -66,20 +78,28 @@ def mark_reedit_extensions(
     out: list[dict[str, Any]] = []
     for event in fixed_events or []:
         current = dict(event)
-        original = before.get(_event_identity(current))
-        if original is None:
+        previous = before.get(_event_identity(current))
+        if previous is None:
             out.append(current)
             continue
-        old_end = _num(original.get("end"))
+        previous_start = _num(previous.get("start"))
+        previous_end = _num(previous.get("end"))
         requested_end = _num(current.get("end"))
-        start = _num(current.get("start"))
-        if requested_end <= old_end + 0.001 or requested_end <= start:
+        if requested_end <= previous_end + 0.001 or requested_end <= previous_start:
             out.append(current)
             continue
+
+        selector_start, selector_end = _selector_window(previous)
         current.update({
             "_qa_reedit_allow_long_cut": True,
-            "_qa_reedit_original_start": round(start, 2),
-            "_qa_reedit_original_end": round(old_end, 2),
+            "_qa_reedit_selector_start": round(selector_start, 2),
+            "_qa_reedit_selector_end": round(selector_end, 2),
+            # Backward-compatible aliases now always mean selector provenance,
+            # never the immediately preceding retry.
+            "_qa_reedit_original_start": round(selector_start, 2),
+            "_qa_reedit_original_end": round(selector_end, 2),
+            "_qa_reedit_previous_start": round(previous_start, 2),
+            "_qa_reedit_previous_end": round(previous_end, 2),
             "_qa_reedit_requested_end": round(requested_end, 2),
             "_qa_reedit_max_window_sec": QA_REEDIT_MAX_WINDOW_SEC,
             "_is_climax": True,
@@ -125,7 +145,7 @@ def reedit_effective_window(event: dict[str, Any]) -> tuple[float, float] | None
 
 
 def resolve_reedit_window(event: dict[str, Any], source_duration: float) -> dict[str, Any] | None:
-    """Clamp the explicit QA repair window without reapplying normal pacing policy."""
+    """Clamp the explicit QA repair window without reapplying normal pacing."""
     repaired = reedit_effective_window(event)
     if repaired is None:
         return None
@@ -138,15 +158,16 @@ def resolve_reedit_window(event: dict[str, Any], source_duration: float) -> dict
     if end - start < 4.0:
         return None
     prepared = prepare_reedit_event(event)
-    original_start = event.get("original_start", event.get("_qa_reedit_original_start", event.get("start")))
-    original_end = event.get("original_end", event.get("_qa_reedit_original_end", event.get("end")))
+    selector_start, selector_end = _selector_window(event)
     prepared.update({
         "start": round(start, 2),
         "end": round(end, 2),
         "final_cut_start": round(start, 2),
         "final_cut_end": round(end, 2),
-        "original_start": original_start,
-        "original_end": original_end,
+        "original_start": round(selector_start, 2),
+        "original_end": round(selector_end, 2),
+        "selector_original_start": round(selector_start, 2),
+        "selector_original_end": round(selector_end, 2),
         "window_validation_status": "adjusted",
         "window_validation_reason": "qa_premature_cut_extension",
         "cut_adjustment_reason": "qa_premature_cut_extension",
