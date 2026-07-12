@@ -43,6 +43,8 @@ def main() -> int:
         "athlete_accountability_rate",
         "candidate_action_count",
         "selected_action_count",
+        "selected_identity_lineage_complete_count",
+        "selected_identity_lineage_completeness_rate",
         "candidate_action_seconds",
         "selected_action_seconds",
         "action_source_utilization_rate",
@@ -55,11 +57,13 @@ def main() -> int:
     if isinstance(gaps, dict):
         gaps["athlete_coverage_metric_ready"] = True
         gaps["athlete_coverage_complete"] = summary.get("coverage_gap_cluster_count", 0) == 0
+        gaps["selected_identity_lineage_complete"] = summary.get("selected_identity_lineage_completeness_rate", 0) == 1.0
     _write(report_path, report)
     print(
         "athlete coverage summary appended "
         f"coverage={summary.get('athlete_draft_coverage_rate', 0)} "
         f"accountability={summary.get('athlete_accountability_rate', 0)} "
+        f"lineage={summary.get('selected_identity_lineage_completeness_rate', 0)} "
         f"utilization={summary.get('action_source_utilization_rate', 0)}"
     )
     return 0
