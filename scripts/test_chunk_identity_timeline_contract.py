@@ -9,7 +9,11 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from pipeline.chunk_timeline_runtime import merge_chunk_sessions, merge_selector_payloads
+from pipeline.chunk_timeline_runtime import (
+    merge_chunk_sessions,
+    merge_selector_payloads,
+    normalize_chunk_window,
+)
 
 
 def require(condition: bool, message: str) -> None:
@@ -131,9 +135,22 @@ def main() -> int:
     require(diagnostics["minute_second_recovered_event_count"] == 3, "MM.SS recovery count is wrong")
     require(diagnostics["timestamp_encoding_counts"]["minute_second"] == 3, "MM.SS encoding summary missing")
 
+    # This window crosses the chunk boundary but leaves fewer than four usable
+    # seconds after clamp. It is invalid, yet diagnostics must retain that clamp.
+    rejected_after_clamp = normalize_chunk_window(
+        478.5,
+        482.0,
+        {"chunk_index": 0, "source_start": 0.0, "duration": 480.0, "source_end": 480.0},
+        min_duration_sec=4.0,
+    )
+    require(rejected_after_clamp["valid"] is False, "short clamped window should be rejected")
+    require(rejected_after_clamp["reason"] == "insufficient_time_inside_chunk", "short clamped rejection reason is wrong")
+    require(rejected_after_clamp["timestamp_clamped"] is True, "rejected window lost clamp evidence")
+
     payloads = [
         {"candidates": [
             candidate("person_A", 546.0, 619.0, "invalid selector event"),
+            candidate("person_F", 478.5, 482.0, "clamped invalid selector event"),
             candidate("person_E", 7.39, 7.55, "recovered selector wave"),
         ]},
         {"candidates": [candidate("person_A", 16.0, 32.0, "valid selector event")]},
@@ -146,6 +163,9 @@ def main() -> int:
     )
     invalid = next(item for item in selector["candidates"] if item["description"] == "invalid selector event")
     require(invalid["discarded"] is True and invalid["discard_cause"] == "timestamp_outside_chunk_bounds", "invalid selected candidate was not explicitly discarded")
+    clamped_invalid = next(item for item in selector["candidates"] if item["description"] == "clamped invalid selector event")
+    require(clamped_invalid["discarded"] is True, "clamped invalid selector candidate was not discarded")
+    require(clamped_invalid["timestamp_validation"]["timestamp_clamped"] is True, "selector discard lost clamp evidence")
     recovered = next(item for item in selector["candidates"] if item["description"] == "recovered selector wave")
     require(recovered["selected"] is True and recovered["source_window"] == {"start": 459.0, "end": 475.0, "duration": 16.0}, "MM.SS selector candidate was not recovered")
     require(recovered["raw_timestamp_window"] == {"start": 7.39, "end": 7.55}, "raw MM.SS evidence missing")
