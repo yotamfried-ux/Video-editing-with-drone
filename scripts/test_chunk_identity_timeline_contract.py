@@ -58,6 +58,11 @@ def main() -> int:
                     "description": "black shorts on turquoise board",
                     "events": [event(520.0, 527.0, "source-global timestamp returned by model")],
                 },
+                {
+                    "id": "person_C",
+                    "description": "white shirt near chunk boundary",
+                    "events": [event(480.5, 490.5, "global event at the exact chunk boundary")],
+                },
             ],
             "style": {},
             "session_peak": 9,
@@ -86,12 +91,16 @@ def main() -> int:
     global_event = people["chunk_01:person_B"]["events"][0]
     require((global_event["start"], global_event["end"]) == (520.0, 527.0), "source-global timestamps were shifted twice")
     require(global_event["timestamp_basis"] == "source_global", "global timestamp basis missing")
+    boundary_event = people["chunk_01:person_C"]["events"][0]
+    require((boundary_event["start"], boundary_event["end"]) == (480.5, 490.5), "ambiguous boundary timestamp chose the unusable local interpretation")
+    require(boundary_event["timestamp_basis"] == "source_global", "boundary timestamp basis should be global")
 
     all_events = [item for person in session["persons"] for item in person["events"]]
     require(all(float(item["end"]) <= source_duration for item in all_events), "event remained beyond source duration")
     diagnostics = session["diagnostics"]["chunk_timeline_contract"]
     require(diagnostics["invalid_timestamp_event_count"] == 1, "invalid timestamp count is wrong")
     require(diagnostics["clamped_timestamp_event_count"] == 1, "clamped timestamp count is wrong")
+    require(diagnostics["timestamp_basis_counts"]["source_global"] == 2, "global timestamp basis count is wrong")
 
     payloads = [
         {"candidates": [{
