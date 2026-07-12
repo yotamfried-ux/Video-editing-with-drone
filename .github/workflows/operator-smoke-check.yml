@@ -10,20 +10,26 @@ on:
       - 'docs/operator-api-contracts.md'
       - 'docs/operator-pipeline-contract.md'
       - 'docs/qa-reedit-migration-smoke.md'
+      - 'docs/audit/run-29165422772-four-gap-repair-plan.md'
       - 'integrations/drive.py'
       - 'integrations/r2_storage.py'
       - 'integrations/run_status.py'
       - 'integrations/storage.py'
       - 'integrations/supabase_uploader.py'
+      - 'pipeline/athlete_canonicalization.py'
+      - 'pipeline/chunk_timeline_runtime.py'
       - 'pipeline/context_qa_gate.py'
       - 'pipeline/context_qa_long_video.py'
       - 'pipeline/cross_source_dedup.py'
+      - 'pipeline/draft_identity_metadata.py'
       - 'pipeline/multi_person_clip_gate.py'
       - 'pipeline/primary_actor_policy.py'
       - 'pipeline/perception/event_fingerprint.py'
       - 'pipeline/perception/**'
       - 'pipeline/qa_gate_policy.py'
+      - 'pipeline/qa_reedit_window_contract.py'
       - 'pipeline/runtime_quality.py'
+      - 'pipeline/selector_candidate_runtime.py'
       - 'pipeline/single_athlete_selection_policy.py'
       - 'pipeline/source_window_dedup.py'
       - 'pipeline/teaser_policy_runtime.py'
@@ -47,7 +53,9 @@ on:
       - 'scripts/build_selection_decision_audit.py'
       - 'scripts/generate_run_quality_report.py'
       - 'scripts/test_athlete_coverage_report_contract.py'
+      - 'scripts/test_chunk_identity_timeline_contract.py'
       - 'scripts/test_cross_source_dedup_contract.py'
+      - 'scripts/test_draft_identity_lineage_contract.py'
       - 'scripts/test_drive_upload_contract.py'
       - 'scripts/test_explicit_sidecar_validation_contract.py'
       - 'scripts/test_long_video_subject_prefilter_contract.py'
@@ -67,6 +75,7 @@ on:
       - 'scripts/test_qa_reedit_reason_fallback_contract.py'
       - 'scripts/test_qa_reedit_schema_preflight_contract.py'
       - 'scripts/test_qa_reedit_task_verifier_contract.py'
+      - 'scripts/test_qa_reedit_window_contract.py'
       - 'scripts/test_run_quality_report_contract.py'
       - 'scripts/test_selection_decision_audit_contract.py'
       - 'scripts/test_single_athlete_selection_policy_contract.py'
@@ -182,8 +191,14 @@ jobs:
         run: python scripts/test_qa_reedit_schema_preflight_contract.py
       - name: Validate QA re-edit task verifier contract
         run: python scripts/test_qa_reedit_task_verifier_contract.py
+      - name: Validate QA re-edit window contract
+        run: python scripts/test_qa_reedit_window_contract.py
       - name: Validate Long-video subject prefilter contract
         run: python scripts/test_long_video_subject_prefilter_contract.py
+      - name: Validate Chunk identity and timeline contract
+        run: python scripts/test_chunk_identity_timeline_contract.py
+      - name: Validate Draft identity lineage contract
+        run: python scripts/test_draft_identity_lineage_contract.py
       - name: Validate Primary actor selection policy contract
         run: python scripts/test_single_athlete_selection_policy_contract.py
       - name: Validate Athlete coverage report contract
