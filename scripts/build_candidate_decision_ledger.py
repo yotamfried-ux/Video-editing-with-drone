@@ -53,13 +53,6 @@ def _find_matching_key(
     candidate: dict[str, Any],
     by_key: dict[tuple[str, float | None, float | None, str], dict[str, Any]],
 ) -> tuple[str, float | None, float | None, str] | None:
-    """Return an existing key for the same physical source window.
-
-    Draft traces can miss source_video because metadata is saved after upload and
-    some older paths do not persist the source filename. Treat source-less trace
-    windows as a wildcard so an uploaded draft does not appear again as
-    ``selected_by_selector_not_emitted_as_draft`` in the same window.
-    """
     exact_key = _window_key(candidate)
     if exact_key in by_key:
         return exact_key
@@ -82,12 +75,32 @@ def _matches_any_trace(candidate: dict[str, Any], trace_candidates: list[dict[st
     return False
 
 
+def _lineage_value(window: dict[str, Any], draft: dict[str, Any], key: str) -> Any:
+    value = window.get(key)
+    if value is not None and str(value).strip():
+        return value
+    value = draft.get(key)
+    if value is not None and str(value).strip():
+        return value
+    values = draft.get(f"{key}s")
+    if isinstance(values, list) and len(values) == 1:
+        return values[0]
+    return None
+
+
 def _candidate_from_window(draft: dict[str, Any], idx: int, window: dict[str, Any]) -> dict[str, Any]:
     draft_id = str(draft.get("draft_id") or draft.get("draft_name") or "unknown_draft")
     return {
         "candidate_id": _candidate_id(draft_id, idx, window),
         "draft_id": draft_id,
         "draft_name": draft.get("draft_name") or draft_id,
+        "person_id": _lineage_value(window, draft, "person_id"),
+        "source_person_id": _lineage_value(window, draft, "source_person_id"),
+        "chunk_person_id": _lineage_value(window, draft, "chunk_person_id"),
+        "athlete_id": _lineage_value(window, draft, "athlete_id"),
+        "athlete_canonical_key": window.get("athlete_canonical_key"),
+        "athlete_canonical_evidence_status": window.get("athlete_canonical_evidence_status"),
+        "identity_lineage_status": draft.get("identity_lineage_status"),
         "selected": True,
         "discarded": False,
         "discard_cause": None,
@@ -100,6 +113,10 @@ def _candidate_from_window(draft: dict[str, Any], idx: int, window: dict[str, An
             "end": window.get("end"),
             "duration": window.get("duration"),
         },
+        "chunk_index": window.get("chunk_index"),
+        "chunk_local_start": window.get("chunk_local_start"),
+        "chunk_local_end": window.get("chunk_local_end"),
+        "timestamp_basis": window.get("timestamp_basis"),
         "description": window.get("description", ""),
     }
 
@@ -131,6 +148,9 @@ def _normalized_upstream_candidates(upstream: dict[str, Any]) -> list[dict[str, 
             "draft_id": raw.get("draft_id"),
             "draft_name": raw.get("draft_name"),
             "person_id": raw.get("person_id"),
+            "source_person_id": raw.get("source_person_id"),
+            "chunk_person_id": raw.get("chunk_person_id"),
+            "athlete_id": raw.get("athlete_id"),
             "person_description": raw.get("person_description"),
             "selected": selected,
             "discarded": discarded,
@@ -144,6 +164,10 @@ def _normalized_upstream_candidates(upstream: dict[str, Any]) -> list[dict[str, 
                 "end": window.get("end"),
                 "duration": window.get("duration"),
             },
+            "chunk_index": raw.get("chunk_index"),
+            "chunk_local_start": (raw.get("chunk_local_window") or {}).get("start") if isinstance(raw.get("chunk_local_window"), dict) else raw.get("chunk_local_start"),
+            "chunk_local_end": (raw.get("chunk_local_window") or {}).get("end") if isinstance(raw.get("chunk_local_window"), dict) else raw.get("chunk_local_end"),
+            "timestamp_basis": raw.get("timestamp_basis"),
             "description": raw.get("description", ""),
         }
         out.append(candidate)
@@ -172,6 +196,19 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
             candidate = _unmatched_upstream_selected_to_discarded(candidate)
         by_key[key] = candidate
 
+    lineage_keys = (
+        "person_id",
+        "source_person_id",
+        "chunk_person_id",
+        "athlete_id",
+        "athlete_canonical_key",
+        "athlete_canonical_evidence_status",
+        "identity_lineage_status",
+        "chunk_index",
+        "chunk_local_start",
+        "chunk_local_end",
+        "timestamp_basis",
+    )
     for trace_candidate in trace_candidates:
         trace_key = _window_key(trace_candidate)
         existing_key = _find_matching_key(trace_candidate, by_key)
@@ -187,10 +224,12 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
                 "unmatched_selector_selection": False,
                 "matched_trace_source_missing": not bool(trace_candidate.get("source_video")) and bool(merged.get("source_video")),
             })
-            # Keep the richer upstream key when it has a source filename; otherwise
-            # store under the trace key.
-            store_key = existing_key if existing_key[0] else trace_key
-            by_key[store_key] = merged
+            for key in lineage_keys:
+                if trace_candidate.get(key) is not None:
+                    merged[key] = trace_candidate.get(key)
+            if trace_candidate.get("source_video"):
+                merged["source_video"] = trace_candidate.get("source_video")
+            by_key[existing_key if existing_key[0] else trace_key] = merged
         else:
             by_key[trace_key] = trace_candidate
     return list(by_key.values())
@@ -205,6 +244,11 @@ def build_ledger(trace_path: Path, upstream_path: Path | None = None) -> dict[st
     selected_count = sum(1 for item in candidates if item.get("selected"))
     discarded_count = sum(1 for item in candidates if item.get("discarded"))
     unmatched_selector_selected_count = sum(1 for item in candidates if item.get("unmatched_selector_selection"))
+    selected_lineage_complete_count = sum(
+        1
+        for item in candidates
+        if item.get("selected") and item.get("person_id") and item.get("athlete_id") and item.get("source_video")
+    )
     discard_causes_available = discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded"))
     return {
         "schema_version": "sportreel.candidate_decision_ledger.v1",
@@ -217,6 +261,8 @@ def build_ledger(trace_path: Path, upstream_path: Path | None = None) -> dict[st
         "candidate_count": len(candidates),
         "selected_count": selected_count,
         "discarded_count": discarded_count,
+        "selected_lineage_complete_count": selected_lineage_complete_count,
+        "selected_lineage_incomplete_count": max(0, selected_count - selected_lineage_complete_count),
         "unmatched_selector_selected_count": unmatched_selector_selected_count,
         "discard_causes_available": discard_causes_available,
         "recall_status": "selected_and_discarded" if selected_count > 0 and discard_causes_available else "selected_only",
@@ -237,6 +283,7 @@ def main() -> int:
         f"candidates={ledger['candidate_count']} "
         f"selected={ledger['selected_count']} "
         f"discarded={ledger['discarded_count']} "
+        f"lineage_complete={ledger['selected_lineage_complete_count']} "
         f"recall_status={ledger['recall_status']}"
     )
     return 0
