@@ -28,7 +28,6 @@ def _num(value: Any) -> float | None:
 
 def source_duration(path: str) -> float:
     from integrations.ffmpeg import get_duration
-
     return float(get_duration(path))
 
 
@@ -52,6 +51,33 @@ def namespace_person_id(chunk_index: int, person_id: Any) -> str:
     return f"chunk_{chunk_index:02d}:{local}"
 
 
+def _usable_overlap(start: float, end: float, duration: float) -> float:
+    return max(0.0, min(duration, end) - max(0.0, start))
+
+
+def _choose_timestamp_basis(
+    raw_start: float,
+    raw_end: float,
+    *,
+    offset: float,
+    duration: float,
+    source_end: float,
+) -> tuple[str, float, float] | None:
+    candidates: list[tuple[float, int, str, float, float]] = []
+    if -_BOUNDARY_TOLERANCE_SEC <= raw_start < duration + _BOUNDARY_TOLERANCE_SEC:
+        local_start, local_end = raw_start, raw_end
+        candidates.append((_usable_overlap(local_start, local_end, duration), 1, "chunk_local", local_start, local_end))
+    if offset > 0 and offset - _BOUNDARY_TOLERANCE_SEC <= raw_start < source_end + _BOUNDARY_TOLERANCE_SEC:
+        local_start, local_end = raw_start - offset, raw_end - offset
+        candidates.append((_usable_overlap(local_start, local_end, duration), 0, "source_global", local_start, local_end))
+    if not candidates:
+        return None
+    # Choose the interpretation with the most usable time inside the real chunk.
+    # A tie prefers chunk-local values because Gemini is prompted on the chunk file.
+    _overlap, _local_preference, basis, start, end = max(candidates, key=lambda item: (item[0], item[1]))
+    return basis, start, end
+
+
 def normalize_chunk_window(
     start_value: Any,
     end_value: Any,
@@ -68,18 +94,8 @@ def normalize_chunk_window(
     if raw_start is None or raw_end is None or raw_end <= raw_start or duration <= 0:
         return {"valid": False, "reason": "invalid_numeric_window", "raw_start": raw_start, "raw_end": raw_end}
 
-    local_candidate = -_BOUNDARY_TOLERANCE_SEC <= raw_start < duration + _BOUNDARY_TOLERANCE_SEC
-    global_candidate = (
-        offset > 0
-        and offset - _BOUNDARY_TOLERANCE_SEC <= raw_start < source_end + _BOUNDARY_TOLERANCE_SEC
-    )
-    if local_candidate:
-        basis = "chunk_local"
-        local_start, local_end = raw_start, raw_end
-    elif global_candidate:
-        basis = "source_global"
-        local_start, local_end = raw_start - offset, raw_end - offset
-    else:
+    chosen = _choose_timestamp_basis(raw_start, raw_end, offset=offset, duration=duration, source_end=source_end)
+    if chosen is None:
         return {
             "valid": False,
             "reason": "timestamp_outside_chunk_bounds",
@@ -88,7 +104,7 @@ def normalize_chunk_window(
             "chunk_start": offset,
             "chunk_duration": duration,
         }
-
+    basis, local_start, local_end = chosen
     clamped_start = max(0.0, local_start)
     clamped_end = min(duration, local_end)
     was_clamped = abs(clamped_start - local_start) > 0.001 or abs(clamped_end - local_end) > 0.001
