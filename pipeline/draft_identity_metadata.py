@@ -53,6 +53,7 @@ _EVENT_KEYS = (
     "subject_isolation_gate",
     "multi_person_clip_gate",
     "_qa_reedit_allow_long_cut",
+    "_qa_reedit_original_start",
     "_qa_reedit_original_end",
     "_qa_reedit_requested_end",
     "_qa_reedit_max_window_sec",
