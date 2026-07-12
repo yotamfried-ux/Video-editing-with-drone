@@ -14,8 +14,8 @@ from pipeline.qa_reedit_window_contract import (
     mark_reedit_extensions,
     prepare_reedit_event,
     reedit_effective_window,
+    resolve_reedit_window,
 )
-from pipeline.window_policy import resolve_window
 
 
 def require(condition: bool, message: str) -> None:
@@ -30,10 +30,13 @@ def main() -> int:
         "end": 400.0,
         "score": 9,
         "description": "long ride with the outcome missing from the prior cut",
+        "setup_start": 332.0,
+        "peak_time": 350.0,
+        "outcome_end": 400.0,
         "_is_climax": True,
         "_cap_dur": 15.0,
     }
-    fixed = {**original, "end": 403.0}
+    fixed = {**original, "end": 403.0, "outcome_end": 403.0}
     defects = [{"type": "PREMATURE_CUT", "severity": "minor", "at_seconds": 14.0}]
     marked = mark_reedit_extensions([original], [fixed], defects)
     require(len(marked) == 1, "repair should retain the event")
@@ -48,15 +51,19 @@ def main() -> int:
     require((prepared["start"], prepared["end"]) == (373.0, 403.0), "editor input does not match telemetry final cut")
     require(prepared["end"] - prepared["start"] == 30.0, "repair window should exceed the old 15s cap")
     require(reedit_effective_window(repaired) == (373.0, 403.0), "subject gate and editor windows disagree")
-    resolved = resolve_window(prepared, 548.9)
+    resolved = resolve_reedit_window(repaired, 548.9)
     require(resolved is not None, "window policy rejected the valid repaired window")
     require((resolved["start"], resolved["end"]) == (373.0, 403.0), "window policy re-capped or shifted the repaired window")
+    require(resolved["window_validation_reason"] == "qa_premature_cut_extension", "repair validation reason missing")
 
-    short_original = {**original, "start": 480.0, "end": 495.0, "_cap_dur": 15.0}
-    short_fixed = {**short_original, "end": 498.0}
+    short_original = {**original, "start": 480.0, "end": 495.0, "setup_start": 480.0, "peak_time": 488.0, "outcome_end": 495.0, "_cap_dur": 15.0}
+    short_fixed = {**short_original, "end": 498.0, "outcome_end": 498.0}
     short_repaired = mark_reedit_extensions([short_original], [short_fixed], defects)[0]
     require((short_repaired["final_cut_start"], short_repaired["final_cut_end"]) == (480.0, 498.0), "18s repair should retain its full source window")
     require(short_repaired["_cap_dur"] == 18.0, "18s repair should not expand to the 30s maximum")
+
+    near_end = resolve_reedit_window({**short_repaired, "end": 552.0, "_qa_reedit_requested_end": 552.0}, 548.9)
+    require(near_end is not None and near_end["end"] == 548.9, "repair window was not clamped to source duration")
 
     unchanged = mark_reedit_extensions([original], [fixed], [{"type": "IDENTITY_MISMATCH", "severity": "critical"}])[0]
     require("_qa_reedit_allow_long_cut" not in unchanged, "non-cut QA defects must not override pacing caps")
