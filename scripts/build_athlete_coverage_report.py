@@ -55,16 +55,16 @@ def _norm(value: Any) -> str:
 
 
 def _cluster_key(candidate: dict[str, Any]) -> str:
-    # Namespaced person IDs are the shared key between raw selector rows and final
-    # draft rows. athlete_id is retained as canonical evidence but may only become
-    # available after selection, so it cannot replace the person key here.
     person_id = str(candidate.get("person_id") or candidate.get("chunk_person_id") or "").strip()
+    source_video = str(candidate.get("source_video") or "").strip()
     description = str(candidate.get("person_description") or "").strip()
+    if person_id and source_video:
+        return f"{source_video}::{person_id}"
     return person_id or _norm(description) or "unknown_cluster"
 
 
-def _window(candidate: dict[str, Any]) -> dict[str, float | None]:
-    raw = candidate.get("source_window") if isinstance(candidate.get("source_window"), dict) else {}
+def _window_from_field(candidate: dict[str, Any], field: str) -> dict[str, float | None]:
+    raw = candidate.get(field) if isinstance(candidate.get(field), dict) else {}
 
     def num(value: Any) -> float | None:
         try:
@@ -78,6 +78,16 @@ def _window(candidate: dict[str, Any]) -> dict[str, float | None]:
     if duration is None and start is not None and end is not None:
         duration = max(0.0, end - start)
     return {"start": start, "end": end, "duration": duration}
+
+
+def _candidate_window(candidate: dict[str, Any]) -> dict[str, float | None]:
+    return _window_from_field(candidate, "source_window")
+
+
+def _selected_window(candidate: dict[str, Any]) -> dict[str, float | None]:
+    if isinstance(candidate.get("final_source_window"), dict):
+        return _window_from_field(candidate, "final_source_window")
+    return _candidate_window(candidate)
 
 
 def _detailed_reason(candidate: dict[str, Any]) -> str:
@@ -132,8 +142,8 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
         person_ids = sorted({str(row.get("person_id")) for row in rows if row.get("person_id")})
         athlete_ids = sorted({str(row.get("athlete_id")) for row in rows if row.get("athlete_id")})
         source_videos = sorted({str(row.get("source_video")) for row in rows if row.get("source_video")})
-        candidate_seconds = sum((_window(row).get("duration") or 0.0) for row in rows)
-        selected_seconds = sum((_window(row).get("duration") or 0.0) for row in selected)
+        candidate_seconds = sum((_candidate_window(row).get("duration") or 0.0) for row in rows)
+        selected_seconds = sum((_selected_window(row).get("duration") or 0.0) for row in selected)
         outcome = "draft_created" if selected else (no_output_reason or "coverage_gap")
         coverage_met = bool(selected) or explicit
         selected_lineage_complete = all(
@@ -161,7 +171,8 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
             "selected_windows": [
                 {
                     "candidate_id": row.get("candidate_id"),
-                    "source_window": _window(row),
+                    "candidate_source_window": _candidate_window(row),
+                    "final_source_window": _selected_window(row),
                     "score": row.get("score"),
                     "person_id": row.get("person_id"),
                     "athlete_id": row.get("athlete_id"),
@@ -172,7 +183,7 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
             "unselected_windows": [
                 {
                     "candidate_id": row.get("candidate_id"),
-                    "source_window": _window(row),
+                    "source_window": _candidate_window(row),
                     "score": row.get("score"),
                     "reason": _detailed_reason(row) or "missing_reason",
                     "decision_path": row.get("decision_path"),
