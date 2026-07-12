@@ -1,10 +1,5 @@
 #!/usr/bin/env python3
-"""Replace coarse track-count mixed-subject alerts with primary-actor evidence.
-
-Extra people are normal in sport. A final cut is a mixed-subject violation only
-when its explicit actor gate requires review. Frame-level statistics remain in the
-report as evidence, but sequential/background tracks do not create a hard block.
-"""
+"""Reconcile mixed-subject reporting with final-cut primary-actor evidence."""
 from __future__ import annotations
 
 import json
@@ -69,23 +64,36 @@ def _load_detections(sidecar_dir: Path) -> list[dict[str, Any]]:
     return detections
 
 
+def _trace_windows(draft: dict[str, Any]) -> list[dict[str, Any]]:
+    windows = [item for item in draft.get("source_windows", []) or [] if isinstance(item, dict)]
+    if not windows and isinstance(draft.get("source_window"), dict):
+        windows = [draft["source_window"]]
+    return windows
+
+
+def _expected_window_count(trace: dict[str, Any]) -> int:
+    return sum(
+        max(1, len(_trace_windows(draft)))
+        for draft in trace.get("drafts", []) or []
+        if isinstance(draft, dict)
+    )
+
+
 def _window_records(trace: dict[str, Any]) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for draft in trace.get("drafts", []) or []:
         if not isinstance(draft, dict):
             continue
         draft_name = str(draft.get("draft_name") or draft.get("draft_id") or "unknown_draft")
-        windows = [item for item in draft.get("source_windows", []) or [] if isinstance(item, dict)]
-        if not windows and isinstance(draft.get("source_window"), dict):
-            windows = [draft["source_window"]]
-        for index, window in enumerate(windows):
+        for index, window in enumerate(_trace_windows(draft)):
             start = _num(window.get("final_cut_start"))
             end = _num(window.get("final_cut_end"))
             if start is None:
                 start = _num(window.get("start"))
             if end is None:
                 end = _num(window.get("end"))
-            source = window.get("source_video") or (draft.get("source_videos") or [None])[0]
+            source_videos = draft.get("source_videos") if isinstance(draft.get("source_videos"), list) else []
+            source = window.get("source_video") or (source_videos[0] if source_videos else None)
             if start is None or end is None or end <= start or not source:
                 continue
             records.append({
@@ -103,18 +111,24 @@ def _window_records(trace: dict[str, Any]) -> list[dict[str, Any]]:
     return records
 
 
-def _gate_for(record: dict[str, Any]) -> dict[str, Any] | None:
-    subject = record.get("subject_isolation_gate")
-    if isinstance(subject, dict) and subject.get("decision"):
-        return subject
-    multi = record.get("multi_person_clip_gate")
-    if isinstance(multi, dict) and multi.get("decision"):
-        return multi
-    return None
+def _gates_for(record: dict[str, Any]) -> list[dict[str, Any]]:
+    gates: list[dict[str, Any]] = []
+    for key in ("subject_isolation_gate", "multi_person_clip_gate"):
+        gate = record.get(key)
+        if isinstance(gate, dict) and (gate.get("decision") or gate.get("defect")):
+            gates.append(gate)
+    return gates
 
 
-def _primary_track(record: dict[str, Any], gate: dict[str, Any] | None) -> str | None:
-    if gate:
+def _blocking_gate(gate: dict[str, Any]) -> bool:
+    if str(gate.get("decision") or "") in _BLOCKING_DECISIONS:
+        return True
+    defect = gate.get("defect")
+    return isinstance(defect, dict) and defect.get("blocking") is True
+
+
+def _primary_track(record: dict[str, Any], gates: list[dict[str, Any]]) -> str | None:
+    for gate in gates:
         for key in ("declared_target_track_id", "primary_track_id", "primary_actor_id"):
             value = gate.get(key)
             if value is not None and str(value).strip():
@@ -165,24 +179,24 @@ def _frame_stats(record: dict[str, Any], detections: list[dict[str, Any]], prima
     }
 
 
-def _blocking_gate(gate: dict[str, Any] | None) -> bool:
-    if not gate:
-        return False
-    if str(gate.get("decision") or "") in _BLOCKING_DECISIONS:
-        return True
-    defect = gate.get("defect")
-    return isinstance(defect, dict) and defect.get("blocking") is True
-
-
 def evaluate(trace: dict[str, Any], detections: list[dict[str, Any]]) -> dict[str, Any]:
     evaluations: list[dict[str, Any]] = []
     for record in _window_records(trace):
-        gate = _gate_for(record)
-        decision = str((gate or {}).get("decision") or "")
-        policy_explicit = bool(decision)
-        violation = _blocking_gate(gate)
-        primary = _primary_track(record, gate)
-        stats = _frame_stats(record, detections, primary)
+        gates = _gates_for(record)
+        decisions = [str(gate.get("decision")) for gate in gates if gate.get("decision")]
+        blocking_gates = [gate for gate in gates if _blocking_gate(gate)]
+        violation = bool(blocking_gates)
+        primary = _primary_track(record, blocking_gates or gates)
+        allowed = bool(decisions) and not violation and any(
+            gate.get("background_people_allowed") or str(gate.get("decision")) in _ALLOWED_DECISIONS
+            for gate in gates
+        )
+        ambiguity = sorted({
+            str(reason)
+            for gate in gates
+            for reason in gate.get("ambiguity_reasons", []) or []
+            if str(reason).strip()
+        })
         evaluations.append({
             "draft": record["draft"],
             "window_index": record["window_index"],
@@ -190,21 +204,19 @@ def evaluate(trace: dict[str, Any], detections: list[dict[str, Any]]) -> dict[st
             "final_cut_window": {"start": record["start"], "end": record["end"]},
             "person_id": record.get("person_id"),
             "athlete_id": record.get("athlete_id"),
-            "policy_explicit": policy_explicit,
-            "policy_decision": decision or "missing",
-            "background_people_allowed": bool((gate or {}).get("background_people_allowed")) or decision in _ALLOWED_DECISIONS,
+            "policy_explicit": bool(decisions),
+            "policy_decision": decisions[0] if len(decisions) == 1 else ("missing" if not decisions else "conflicting_or_multiple"),
+            "policy_decisions": decisions,
+            "blocking_gate_count": len(blocking_gates),
+            "background_people_allowed": allowed,
             "mixed_subject_violation": violation,
-            "violation_reason": (gate or {}).get("reason") if violation else None,
-            "ambiguity_reasons": list((gate or {}).get("ambiguity_reasons") or []),
-            **stats,
+            "violation_reason": (blocking_gates[0].get("reason") if blocking_gates else None),
+            "ambiguity_reasons": ambiguity,
+            **_frame_stats(record, detections, primary),
         })
     violations = [item for item in evaluations if item["mixed_subject_violation"]]
     missing_policy = [item for item in evaluations if not item["policy_explicit"]]
-    return {
-        "evaluations": evaluations,
-        "violations": violations,
-        "missing_policy": missing_policy,
-    }
+    return {"evaluations": evaluations, "violations": violations, "missing_policy": missing_policy}
 
 
 def append_summary(report_path: Path, trace_path: Path, sidecar_dir: Path) -> dict[str, Any]:
@@ -214,6 +226,8 @@ def append_summary(report_path: Path, trace_path: Path, sidecar_dir: Path) -> di
     evaluations = result["evaluations"]
     violations = result["violations"]
     missing_policy = result["missing_policy"]
+    expected_windows = _expected_window_count(trace)
+    unevaluated_windows = max(0, expected_windows - len(evaluations))
 
     alerts = [
         item for item in report.get("alerts", []) or []
@@ -233,20 +247,25 @@ def append_summary(report_path: Path, trace_path: Path, sidecar_dir: Path) -> di
             "code": "BUG_MIXED_SUBJECT_LIKELY",
             "evidence": f"{len(violations)} final action window(s) blocked by primary-actor policy",
         })
-    elif missing_policy:
+    elif missing_policy or unevaluated_windows:
         alerts.append({
             "metric": "mixed_subject_policy_evidence_rate",
             "severity": "inconclusive",
-            "reason": "one or more final action windows lack an explicit primary-actor gate decision",
+            "reason": "one or more final action windows lack a valid final-cut window or explicit primary-actor decision",
         })
 
+    explicit_count = len(evaluations) - len(missing_policy)
+    evidence_denominator = max(expected_windows, len(evaluations))
+    evidence_rate = round(explicit_count / evidence_denominator, 3) if evidence_denominator else 1.0
     metrics = report.setdefault("metrics", {})
     metrics.update({
         "mixed_subject_likely_window_count": len(violations),
         "mixed_subject_violation_rate": round(len(violations) / len(evaluations), 3) if evaluations else 0.0,
+        "mixed_subject_expected_window_count": expected_windows,
         "mixed_subject_evaluated_window_count": len(evaluations),
-        "mixed_subject_policy_explicit_window_count": len(evaluations) - len(missing_policy),
-        "mixed_subject_policy_evidence_rate": round((len(evaluations) - len(missing_policy)) / len(evaluations), 3) if evaluations else 1.0,
+        "mixed_subject_unevaluated_window_count": unevaluated_windows,
+        "mixed_subject_policy_explicit_window_count": explicit_count,
+        "mixed_subject_policy_evidence_rate": evidence_rate,
         "background_people_allowed_window_count": sum(1 for item in evaluations if item["background_people_allowed"]),
     })
     report["alerts"] = alerts
@@ -256,8 +275,8 @@ def append_summary(report_path: Path, trace_path: Path, sidecar_dir: Path) -> di
     gaps = report.setdefault("implementation_gaps", {})
     gaps.update({
         "mixed_subject_metric_ready": True,
-        "mixed_subject_policy_explicit": not missing_policy,
-        "mixed_subject_uses_final_cut_windows": True,
+        "mixed_subject_policy_explicit": not missing_policy and unevaluated_windows == 0,
+        "mixed_subject_uses_final_cut_windows": unevaluated_windows == 0,
         "mixed_subject_uses_frame_level_concurrency": True,
     })
     report["status"] = (
