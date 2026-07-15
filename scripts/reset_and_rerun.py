@@ -40,13 +40,6 @@ def _storage_backend_name() -> str:
     return os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
 
 
-def _install_storage_backend_alias_for_inline_pipeline() -> None:
-    if _storage_backend_name() == "drive":
-        return
-    import integrations.storage as storage
-    sys.modules["integrations.drive"] = storage
-
-
 def _get_service():
     creds = service_account.Credentials.from_service_account_file(
         config.GOOGLE_SERVICE_ACCOUNT_JSON, scopes=_SCOPES
@@ -318,8 +311,10 @@ def _run_pipeline_inline() -> None:
     )
     from integrations.observability import init_sentry
     init_sentry()
-    _install_storage_backend_alias_for_inline_pipeline()
+    from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches
+    install_pre_orchestrator_patches()
     from pipeline.orchestrator import main as pipeline_main
+    install_post_orchestrator_patches()
     pipeline_main()
 
 

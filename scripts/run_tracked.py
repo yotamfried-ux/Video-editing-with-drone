@@ -20,15 +20,6 @@ _last_observed_progress = 0.01
 _last_observed_meta: dict = {}
 
 
-def _install_storage_backend_alias() -> None:
-    """Route legacy integrations.drive imports through storage.py for non-Drive backends."""
-    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
-    if backend == "drive":
-        return
-    import integrations.storage as storage
-    sys.modules["integrations.drive"] = storage
-
-
 def _install_status_mirror() -> None:
     """Mirror singleton live progress into the active durable run row."""
     try:
@@ -49,6 +40,32 @@ def _install_status_mirror() -> None:
             _produced_review_drafts = True
 
     status_writer.write_pipeline_status = tracked_write_pipeline_status
+
+
+def _install_storage_backend_alias() -> None:
+    """Route legacy integrations.drive imports through storage.py for non-Drive backends."""
+    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
+    if backend == "drive":
+        return
+    import integrations.storage as storage
+    sys.modules["integrations.drive"] = storage
+
+
+def _install_r2_batch_scope() -> None:
+    """Scope R2 raw-video listing to a batch prefix when a batch id is set.
+
+    Previously only installed by the root ``sitecustomize.py``, which never
+    actually runs for ``python scripts/run_tracked.py`` -- Python's automatic
+    ``sitecustomize`` import only sees the script's own directory
+    (``scripts/``), not the repository root -- so batch scoping was silently
+    inactive in the real GitHub Actions production run.
+    """
+    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
+    batch_id = (os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
+    if backend != "r2" or not batch_id:
+        return
+    from pipeline.r2_batch_scope import install
+    install()
 
 
 def _install_perception_runtime() -> None:
@@ -190,6 +207,7 @@ def _no_drafts_failure() -> tuple[str, str, dict]:
 mark_run(status="running", stage="starting", progress=0.01)
 _install_status_mirror()
 _install_storage_backend_alias()
+_install_r2_batch_scope()
 _install_perception_runtime()
 _install_pipeline_quality_runtime()
 _install_raw_timestamp_recovery()
