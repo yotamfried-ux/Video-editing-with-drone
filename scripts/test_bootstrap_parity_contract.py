@@ -51,6 +51,20 @@ def forbid(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} must not reintroduce duplicated bootstrap tokens: {present}")
 
 
+def require_order(label: str, text: str, tokens: list[str]) -> None:
+    """Assert each token's first occurrence appears strictly after the previous one's.
+
+    Presence-only checks (``require``) would still pass if a future edit swapped
+    two install calls -- exactly the class of silent regression this module's
+    docstring warns about (whichever patch installs last becomes the outermost
+    wrapper around a shared target function).
+    """
+    positions = [(token, text.index(token)) for token in tokens]
+    for (first, first_pos), (second, second_pos) in zip(positions, positions[1:]):
+        if first_pos > second_pos:
+            raise SystemExit(f"{label}: {first!r} must precede {second!r}, but does not")
+
+
 def fake_r2() -> types.SimpleNamespace:
     moves: list[tuple[str, str]] = []
     listed: list[str] = []
@@ -113,6 +127,40 @@ def main() -> int:
     for text in [bootstrap, run_tracked, run_py, run_surf, reset_and_rerun, read("scripts/test_bootstrap_parity_contract.py")]:
         ast.parse(text)
 
+    # Order matters here: whichever patch installs last becomes the outermost
+    # wrapper around any target function it shares with an earlier patch (see
+    # pipeline/bootstrap.py's module docstring). Keep this as one list so the
+    # presence check and the order check can never drift apart.
+    canonical_pre_orchestrator_patches = [
+        "pipeline.perception.runtime",
+        "pipeline.raw_timestamp_recovery",
+        "pipeline.analyzer_score_guard",
+        "pipeline.chunk_timeline_runtime",
+        "pipeline.single_athlete_selection_policy",
+        "pipeline.window_policy",
+        "pipeline.cut_window_guard",
+        "pipeline.narrative_policy",
+        "pipeline.qa_gate_policy",
+        "pipeline.draft_diagnostics",
+        "pipeline.candidate_ledger",
+        "pipeline.athlete_canonicalization",
+        "pipeline.real_identity_gate",
+        "pipeline.final_duplicate_guard",
+        "pipeline.context_qa_gate",
+        "pipeline.context_qa_long_video",
+        "pipeline.source_evidence_patch",
+        "pipeline.surf_ride_gate",
+        "pipeline.runtime_quality",
+        "pipeline.selector_candidate_runtime",
+        "pipeline.teaser_policy_runtime",
+        "pipeline.identity_failsafe",
+        "pipeline.cross_source_dedup",
+    ]
+    canonical_post_orchestrator_patches = [
+        "pipeline.qa_reedit_window_contract",
+        "pipeline.draft_identity_metadata",
+    ]
+
     require(
         "pipeline/bootstrap.py canonical patch list",
         bootstrap,
@@ -121,32 +169,40 @@ def main() -> int:
             "def install_post_orchestrator_patches",
             "_install_storage_backend_alias",
             "_install_r2_batch_scope",
-            "pipeline.perception.runtime",
-            "pipeline.raw_timestamp_recovery",
-            "pipeline.analyzer_score_guard",
-            "pipeline.chunk_timeline_runtime",
-            "pipeline.single_athlete_selection_policy",
-            "pipeline.window_policy",
-            "pipeline.cut_window_guard",
-            "pipeline.narrative_policy",
-            "pipeline.qa_gate_policy",
-            "pipeline.draft_diagnostics",
-            "pipeline.candidate_ledger",
-            "pipeline.athlete_canonicalization",
-            "pipeline.real_identity_gate",
-            "pipeline.final_duplicate_guard",
-            "pipeline.context_qa_gate",
-            "pipeline.context_qa_long_video",
-            "pipeline.source_evidence_patch",
-            "pipeline.surf_ride_gate",
-            "pipeline.runtime_quality",
-            "pipeline.selector_candidate_runtime",
-            "pipeline.teaser_policy_runtime",
-            "pipeline.identity_failsafe",
-            "pipeline.cross_source_dedup",
-            "pipeline.qa_reedit_window_contract",
-            "pipeline.draft_identity_metadata",
+            *canonical_pre_orchestrator_patches,
+            *canonical_post_orchestrator_patches,
         ],
+    )
+
+    # Scope the order checks to each function's own body -- the module
+    # docstring above them names several patch modules as prose examples
+    # (e.g. "pipeline.identity_failsafe"), which would otherwise be mistaken
+    # for the real (later) install call and produce false-positive ordering
+    # violations.
+    pre_patches_start = bootstrap.index("def install_pre_orchestrator_patches")
+    post_patches_start = bootstrap.index("def install_post_orchestrator_patches")
+    if not pre_patches_start < post_patches_start:
+        raise SystemExit("pipeline/bootstrap.py: install_pre_orchestrator_patches must be defined before install_post_orchestrator_patches")
+    pre_patches_body = bootstrap[pre_patches_start:post_patches_start]
+    post_patches_body = bootstrap[post_patches_start:]
+
+    require_order(
+        "pipeline/bootstrap.py pre-orchestrator patch order",
+        pre_patches_body,
+        canonical_pre_orchestrator_patches,
+    )
+    require_order(
+        "pipeline/bootstrap.py post-orchestrator patch order",
+        post_patches_body,
+        canonical_post_orchestrator_patches,
+    )
+    # raw_timestamp_recovery must wrap analyzer._parse_session before the
+    # chunk/selector runtimes capture it (see pipeline/raw_timestamp_recovery.py
+    # and pipeline/selector_candidate_runtime.py's own comments to this effect).
+    require_order(
+        "pipeline/bootstrap.py timestamp recovery must precede chunk/selector capture",
+        pre_patches_body,
+        ["pipeline.raw_timestamp_recovery", "pipeline.chunk_timeline_runtime", "pipeline.selector_candidate_runtime"],
     )
 
     require(
