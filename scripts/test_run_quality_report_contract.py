@@ -107,14 +107,20 @@ def main() -> int:
             "DRAFT_surfer.mp4": {
                 "sport": "surfing",
                 "events": [
-                    {"type": "ride", "score": 9, "start": 12.0, "end": 20.0, "description": "clean ride", "edit": {}}
+                    {
+                        "type": "ride", "score": 9, "start": 12.0, "end": 20.0, "description": "clean ride", "edit": {},
+                        "athlete_id": "ath_dup_fixture", "athlete_canonical_evidence_status": "strong",
+                    }
                 ],
                 "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
             },
             "DRAFT_surfer_part_2.mp4": {
                 "sport": "surfing",
                 "events": [
-                    {"type": "ride", "score": 8, "start": 15.0, "end": 22.0, "description": "overlapping ride", "edit": {}}
+                    {
+                        "type": "ride", "score": 8, "start": 15.0, "end": 22.0, "description": "overlapping ride", "edit": {},
+                        "athlete_id": "ath_dup_fixture", "athlete_canonical_evidence_status": "strong",
+                    }
                 ],
                 "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
             },
@@ -237,6 +243,13 @@ def main() -> int:
         require(report["metrics"]["mixed_subject_violation_rate"] == 0.5, "mixed-subject rate missing")
         require(report["mixed_subject_likely_windows"][0]["primary_track_dominance_ratio"] == 0.4, "mixed-subject dominance missing")
         require(set(report["mixed_subject_likely_windows"][0]["visible_track_ids"]) == {"7", "8", "9"}, "mixed-subject track ids missing")
+        require(report["metrics"]["duplicate_athlete_likely_draft_count"] == 1, "duplicate-athlete count missing")
+        require(report["metrics"]["duplicate_athlete_violation_rate"] == 0.5, "duplicate-athlete rate missing")
+        require(report["duplicate_athlete_likely_drafts"][0]["athlete_id"] == "ath_dup_fixture", "duplicate-athlete id missing")
+        require(
+            set(report["duplicate_athlete_likely_drafts"][0]["draft_ids"]) == {"DRAFT_surfer.mp4", "DRAFT_surfer_part_2.mp4"},
+            "duplicate-athlete draft ids missing",
+        )
         require(report["metrics"]["short_track_count"] == 13, "short track count missing")
         require(report["metrics"]["short_track_rate"] == 1.0, "short track rate missing")
         require(report["track_fragmentation"]["track_count"] == 13, "track fragmentation track count missing")
@@ -259,6 +272,7 @@ def main() -> int:
         require(report["implementation_gaps"]["draft_upload_trace_consistency_ready"] is True, "draft/upload trace consistency readiness missing")
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_DUPLICATE_MOMENT_LIKELY" in codes, "duplicate moment classification missing")
+        require("BUG_DUPLICATE_ATHLETE_LIKELY" in codes, "duplicate athlete classification missing")
         require("BUG_MIXED_SUBJECT_LIKELY" in codes, "mixed subject classification missing")
         require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification missing")
         require("BUG_QA_GATE_BYPASSED" in codes, "QA gate bypass classification missing after trace")
@@ -266,6 +280,7 @@ def main() -> int:
         require("BUG_RECALL_UNKNOWN" not in codes, "recall unknown should be cleared when discarded candidates have causes")
         require(report["implementation_gaps"]["mixed_subject_metric_ready"] is True, "mixed-subject metric readiness missing")
         require(report["implementation_gaps"]["track_fragmentation_metric_ready"] is True, "fragmentation metric readiness missing")
+        require(report["implementation_gaps"]["duplicate_athlete_metric_ready"] is True, "duplicate-athlete metric readiness missing")
         require(report["status"] == "fail", "duplicate/mixed/fragmentation/QA fixture should fail quality report")
         print("Run quality report contract checks passed")
         return 0
