@@ -59,6 +59,7 @@ on:
       - 'scripts/build_candidate_decision_ledger.py'
       - 'scripts/build_draft_decision_trace.py'
       - 'scripts/build_selection_decision_audit.py'
+      - 'scripts/generate_missed_moment_report.py'
       - 'scripts/generate_run_quality_report.py'
       - 'scripts/test_analyzer_phase_time_contract.py'
       - 'scripts/test_athlete_coverage_report_contract.py'
@@ -71,6 +72,7 @@ on:
       - 'scripts/test_event_window_contract.py'
       - 'scripts/test_explicit_sidecar_validation_contract.py'
       - 'scripts/test_long_video_subject_prefilter_contract.py'
+      - 'scripts/test_missed_moment_report_contract.py'
       - 'scripts/test_multi_person_clip_gate_contract.py'
       - 'scripts/test_multi_upload_batch_contract.py'
       - 'scripts/test_operator_review_gate_contract.py'
@@ -93,16 +95,24 @@ on:
       - 'scripts/test_single_athlete_selection_policy_contract.py'
       - 'scripts/test_source_window_dedup_contract.py'
       - 'scripts/test_storage_contract.py'
+      - 'scripts/test_structured_feedback_contract.py'
       - 'scripts/test_teaser_policy_contract.py'
       - 'scripts/test_ultralytics_tracker_contract.py'
       - 'scripts/validate_operator_smoke_workflow.py'
       - 'supabase/migrations/**'
       - 'web-api/src/app/api/operator/drafts/route.ts'
+      - 'web-api/src/app/api/operator/drafts/feedback/route.ts'
       - 'web-api/src/app/api/operator/reprocess/route.ts'
       - 'web-api/src/app/api/operator/pipeline/start/route.ts'
       - 'web-api/src/app/api/operator/pipeline/status/route.ts'
       - 'web-api/src/app/api/operator/upload/route.ts'
       - 'web-api/src/lib/draft-review-policy.ts'
+      - 'web-api/src/types/operator-contracts.ts'
+      - 'pipeline/candidate_ledger.py'
+      - 'pipeline/editorial_value_ranker.py'
+      - 'pipeline/stages/feedback.py'
+      - 'integrations/supabase_uploader.py'
+      - 'scripts/test_editorial_value_ranker_contract.py'
       - 'mobile/src/app/(operator)/pipeline.tsx'
       - 'mobile/src/app/(operator)/review.tsx'
       - 'mobile/src/features/operator/hooks/usePipelineStatus.ts'
@@ -229,6 +239,12 @@ jobs:
         run: python scripts/test_event_window_contract.py
       - name: Validate Analyzer phase-time contract
         run: python scripts/test_analyzer_phase_time_contract.py
+      - name: Validate Structured feedback contract
+        run: python scripts/test_structured_feedback_contract.py
+      - name: Validate Missed-moment report contract
+        run: PYTHONPATH=scripts:. python scripts/test_missed_moment_report_contract.py
+      - name: Validate Editorial value ranker contract
+        run: python scripts/test_editorial_value_ranker_contract.py
       - name: Validate Perception contract
         run: python scripts/test_perception_contract.py
       - name: Validate Explicit sidecar validation contract

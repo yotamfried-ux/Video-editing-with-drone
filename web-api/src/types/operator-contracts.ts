@@ -225,6 +225,65 @@ export type OperatorReelsResponse = {
   reels: OperatorReelRow[];
 };
 
+// POST /api/operator/drafts/feedback
+//
+// Vocabulary mirrors pipeline/candidate_ledger.py's OPERATOR_FEEDBACK_EVENTS /
+// VALUE_LABELS — that module is the source of truth. Keep this list in sync
+// with it by hand (no shared package links web-api and the Python pipeline).
+export const OPERATOR_FEEDBACK_EVENTS = [
+  'APPROVE',
+  'REJECT',
+  'SEND_TO_REEDIT',
+  'MISSING_GOOD_MOMENT',
+  'WRONG_ATHLETE',
+  'DUPLICATE_ATHLETE',
+  'MULTI_PERSON_CLIP',
+  'CUT_TOO_EARLY',
+  'BAD_CROP',
+  'BORING',
+  'FALSE_NEGATIVE',
+] as const;
+export type OperatorFeedbackEvent = (typeof OPERATOR_FEEDBACK_EVENTS)[number];
+
+export const VALUE_LABELS = [
+  'FULL_RIDE',
+  'SOCIAL_MOMENT',
+  'HIGH_FIVE',
+  'BIG_TURN',
+  'FALL',
+  'GOOD_STYLE',
+  'CLEAR_ATHLETE',
+  'BAD_CROP',
+  'WRONG_ATHLETE',
+  'DUPLICATE_ATHLETE',
+  'DUPLICATE_MOMENT',
+  'CUT_TOO_EARLY',
+  'BORING',
+  'FALSE_NEGATIVE',
+] as const;
+export type ValueLabel = (typeof VALUE_LABELS)[number];
+
+export type DraftFeedbackRequest = {
+  draft_name: string;
+  feedback_event: OperatorFeedbackEvent;
+  value_labels?: ValueLabel[];
+  note?: string;
+};
+
+export type DraftFeedbackRow = {
+  id: string;
+  draft_name: string;
+  feedback_event: string;
+  value_labels: string[];
+  note: string;
+  created_at: string;
+};
+
+export type DraftFeedbackResponse = {
+  ok: true;
+  feedback: DraftFeedbackRow;
+};
+
 // GET /api/operator/support
 export type OperatorSupportTicket = {
   id: string;

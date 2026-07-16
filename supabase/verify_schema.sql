@@ -21,6 +21,8 @@ union all
 select 'reprocess_requests', count(*) > 0 from information_schema.tables where table_schema='public' and table_name='reprocess_requests'
 union all
 select 'pipeline_status',    count(*) > 0 from information_schema.tables where table_schema='public' and table_name='pipeline_status'
+union all
+select 'draft_feedback',     count(*) > 0 from information_schema.tables where table_schema='public' and table_name='draft_feedback'
 
 union all
 

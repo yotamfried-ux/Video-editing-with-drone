@@ -26,8 +26,8 @@ The default run is read-only and checks:
 - operator delivery history endpoint responds
 - operator discover diagnostics endpoint responds
 - public sessions endpoint responds
-- upload footage, send-to-re-edit, approve draft, and reset-and-rerun each
-  reject an unauthenticated request (auth-only checks — see below)
+- upload footage, send-to-re-edit, approve draft, reset-and-rerun, and draft
+  feedback each reject an unauthenticated request (auth-only checks — see below)
 
 ## Why Upload/Reset/Send-to-re-edit/Approve stay functionally manual
 

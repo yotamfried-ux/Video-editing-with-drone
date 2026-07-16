@@ -76,6 +76,7 @@ def smoke(args: argparse.Namespace) -> List[Dict[str, str]]:
         ('send-to-re-edit auth', '/api/operator/reprocess'),
         ('approve draft auth', '/api/operator/drafts/approve'),
         ('reset and rerun auth', '/api/operator/pipeline/reset'),
+        ('draft feedback auth', '/api/operator/drafts/feedback'),
     ):
         status, data, _ = req(args.api_base_url, path, method='POST')
         out.append(check(f'{name} rejects missing header', status in (401, 403), f'status={status}; keys={sorted(data.keys())}'))

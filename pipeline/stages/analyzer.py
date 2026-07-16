@@ -760,10 +760,11 @@ def analyze_session(video_path: str) -> dict:
 
     # Build prompt — inject feedback + operator notes AFTER SELECTION RULES so
     # Gemini sees them just before the detailed field instructions.
-    from pipeline.stages.feedback import get_all_label_injections, get_operator_notes
+    from pipeline.stages.feedback import get_all_label_injections, get_negative_feedback_hint, get_operator_notes
     feedback_block = get_all_label_injections()
     notes_block    = get_operator_notes()   # all pending notes (global context)
-    injection      = (feedback_block or "") + (notes_block or "")
+    negative_block = get_negative_feedback_hint()  # structured operator complaints (draft_feedback)
+    injection      = (feedback_block or "") + (notes_block or "") + (negative_block or "")
     if feedback_block:
         sport_count = feedback_block.count("\n  ")
         logger.info("Injecting editing feedback for %d sport(s) into prompt", sport_count)
@@ -771,6 +772,9 @@ def analyze_session(video_path: str) -> dict:
     if notes_block:
         logger.info("Injecting operator notes into prompt")
         print(f"📝 Injecting operator editing notes into analysis prompt")
+    if negative_block:
+        logger.info("Injecting structured operator feedback into prompt")
+        print(f"🚩 Injecting recent operator problem-feedback into analysis prompt")
     if injection:
         _split_marker = "\nEVENT COUNT:"
         if _split_marker in _IDENTITY_PROMPT:

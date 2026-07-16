@@ -205,6 +205,45 @@ export type DiscoverDiagnosticsResponse = {
   reels: DiscoverDiagnosticReel[];
 };
 
+// Vocabulary mirrors pipeline/candidate_ledger.py's OPERATOR_FEEDBACK_EVENTS /
+// VALUE_LABELS (that module is the source of truth) via
+// web-api/src/types/operator-contracts.ts.
+export const OPERATOR_FEEDBACK_EVENTS = [
+  'APPROVE',
+  'REJECT',
+  'SEND_TO_REEDIT',
+  'MISSING_GOOD_MOMENT',
+  'WRONG_ATHLETE',
+  'DUPLICATE_ATHLETE',
+  'MULTI_PERSON_CLIP',
+  'CUT_TOO_EARLY',
+  'BAD_CROP',
+  'BORING',
+  'FALSE_NEGATIVE',
+] as const;
+export type OperatorFeedbackEvent = (typeof OPERATOR_FEEDBACK_EVENTS)[number];
+
+export type DraftFeedbackRequest = {
+  draft_name: string;
+  feedback_event: OperatorFeedbackEvent;
+  value_labels?: string[];
+  note?: string;
+};
+
+export type DraftFeedbackRow = {
+  id: string;
+  draft_name: string;
+  feedback_event: string;
+  value_labels: string[];
+  note: string;
+  created_at: string;
+};
+
+export type DraftFeedbackResponse = {
+  ok: true;
+  feedback: DraftFeedbackRow;
+};
+
 export type OperatorAnalyticsSummary = {
   todayRevenue: number;
   weekRevenue: number;

@@ -36,6 +36,7 @@ def fake_req(root: str, path: str, token: str = '', method: str = 'GET') -> Tupl
         '/api/operator/reprocess',
         '/api/operator/drafts/approve',
         '/api/operator/pipeline/reset',
+        '/api/operator/drafts/feedback',
     ) and method == 'POST' and not token:
         return 401, {'error': 'Unauthorized'}, root + path
     return 404, {'error': 'not found'}, root + path
@@ -101,6 +102,7 @@ def validate_full_smoke_contract() -> None:
         'send-to-re-edit auth rejects missing header',
         'approve draft auth rejects missing header',
         'reset and rerun auth rejects missing header',
+        'draft feedback auth rejects missing header',
         'trigger pipeline run',
         'checkout creation',
     }
