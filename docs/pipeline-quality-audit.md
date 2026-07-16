@@ -413,6 +413,30 @@ Verification required:
 - Dead-time-only window is dropped.
 - Editor metadata explains every time adjustment.
 
+Status update, 2026-07-16:
+
+- `pipeline/window_policy.py::resolve_window()` already implements nearly all of this
+  gap's target invariant: `original_start/end`, `final_cut_start/end`,
+  `cut_adjustment_reason`, `peak_time`, `outcome_end`, `window_validation_status/reason`.
+  `scripts/test_event_window_contract.py` already existed (though never wired into CI —
+  now fixed) covering late-start/early-end/dead-time/duration-cap cases.
+- Closed in this pass: (1) `pipeline/stages/analyzer.py`'s Gemini prompt and
+  `_parse_session`/`_parse_analysis` now request and extract `setup_start`/`peak_time`/
+  `outcome_end` generically (previously only surf events got phase evidence, via
+  keyword-gated modules) — see `scripts/test_analyzer_phase_time_contract.py`; (2) added
+  true `raw_start`/`raw_end` capture in `resolve_window()` so original (pre-clamp) vs.
+  clamped vs. final are three genuinely distinct values; (3) `pipeline/stages/editor.py`'s
+  `cut_clip()` now references `window_policy.MAX_NORMAL_WINDOW` instead of a second
+  hardcoded `11.0` literal, so the two caps cannot drift apart; (4) added an
+  `outcome_trim` behavior + test proving a window is trimmed back when it extends well
+  past a known `outcome_end` (e.g. analyzer padding a short real event out to its minimum
+  clip duration), so a teaser/preview sampled near the tail lands on real content, not
+  padding.
+- Real-run validation of the analyzer prompt/parser change is still pending — only
+  unit/contract-tested against synthetic fixtures in this environment (no GEMINI_API_KEY
+  or real footage here), per this repo's standing rule against claiming success from
+  execution alone.
+
 ### PQ-008 — Editor chooses opener/climax from Gemini score alone
 
 Severity: high.
@@ -452,6 +476,27 @@ Verification required:
 - Highest-score low-visibility event cannot be climax.
 - No qualified climax means no teaser.
 - Teaser is never generated from a weak or uncertain event.
+
+Status update, 2026-07-16:
+
+- `pipeline/narrative_policy.py` already implements this gap's target invariant at the
+  actual final-selection point: a real composite `quality_score()` (score + visible_ratio
+  + perception_confidence + track/action/window/identity bonuses), `has_quality_evidence()`
+  gating, and `choose_climax()` that returns `None` (no teaser) when nothing qualifies.
+  Already wired into `pipeline/bootstrap.py::install_pre_orchestrator_patches()`,
+  monkey-patching `editor._narrative_order` directly.
+- One gap remains open, deliberately: `_partition_events()` (which groups events into
+  output reels before narrative ordering runs) still sorts by raw score alone.
+  Investigated fixing this and found it requires reimplementing core partitioning/
+  duration-estimation logic, not a simple wrap — `_partition_events`'s internal sort
+  always re-resolves by raw `e["score"]` regardless of input order, and that same raw
+  1-10 score also drives an internal slowmo-tier threshold (`sc >= 9` / `sc >= 7`) that a
+  differently-scaled composite score can't drop into without its own recalibration. This
+  is real reel-length/pacing behavior for every sport that can only be validated with a
+  real pipeline run. Decision: left as-is for this pass — the actual risk this gap targets
+  (a low-quality event becoming the final climax or teaser) is already closed by
+  `narrative_policy.py` downstream of partitioning, so this is a smaller residual risk
+  than an unvalidated core-logic rewrite. Revisit alongside a real pipeline run.
 
 ### PQ-009 — QA is late and can upload flagged outputs instead of preventing normal bad drafts
 

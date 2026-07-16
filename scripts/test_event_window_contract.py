@@ -51,6 +51,36 @@ def main() -> int:
         if key not in out:
             raise SystemExit(f"missing metadata field: {key}")
 
+    # Teaser windows must not be taken from empty padding: analyzer.py pads a
+    # short real event out to its minimum clip duration by pushing `end`
+    # forward, which can leave dead time between the real outcome and the
+    # padded end. A teaser/preview sampled near the tail of the resolved
+    # window must land on real content, not that padding.
+    padded_short_event = {"type": "snap", "start": 20, "end": 32, "score": 8, "outcome_end": 24}
+    out = resolve_window(padded_short_event, 60)
+    if not out:
+        raise SystemExit("padded short event should still resolve to a window")
+    if out["end"] > 24 + 1.51:
+        raise SystemExit("teaser window was not trimmed back from empty padding after outcome_end")
+    if "outcome_trim" not in out["cut_adjustment_reason"]:
+        raise SystemExit("outcome_trim adjustment reason missing for a padded window")
+
+    # A window whose real content already runs right up to end (no padding
+    # to trim) must not be shortened just because outcome_end is present.
+    no_padding_event = {"type": "snap", "start": 20, "end": 28, "score": 8, "outcome_end": 27}
+    out = resolve_window(no_padding_event, 60)
+    if not out or out["end"] < 27:
+        raise SystemExit("window without meaningful padding must not be trimmed past outcome_end")
+
+    # Raw timestamps (pre-clamp) must be tracked distinctly from the
+    # pre-existing original_start/original_end (post-clamp, pre-phase-adjust).
+    near_boundary = {"type": "wave_catch", "start": -3, "end": 5, "score": 7}
+    out = resolve_window(near_boundary, 60)
+    if not out or out.get("raw_start") != -3.0:
+        raise SystemExit("raw_start must preserve the pre-clamp timestamp")
+    if out["original_start"] == out["raw_start"]:
+        raise SystemExit("original_start should reflect the post-clamp value, distinct from raw_start here")
+
     print("Event window contract checks passed")
     return 0
 

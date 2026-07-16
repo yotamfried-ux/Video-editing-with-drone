@@ -3,6 +3,11 @@ from __future__ import annotations
 
 MIN_WINDOW = 4.0
 MAX_NORMAL_WINDOW = 11.0
+# Trailing buffer kept past a known outcome_end when trimming excess tail —
+# enough for natural follow-through, not enough to leave a teaser/preview
+# sampling from empty padding (e.g. analyzer.py padding a short real event
+# out to its minimum clip duration).
+OUTCOME_TAIL_BUFFER = 1.5
 
 
 def _num(value, default=0.0):
@@ -24,6 +29,12 @@ def resolve_window(event, source_duration):
         return None
     start = _num(event.get("start"))
     end = _num(event.get("end"), start)
+    # True original: the raw analyzer/Gemini timestamps, before any clamp below.
+    # Kept distinct from `original_start`/`original_end` (see below), which is a
+    # pre-existing field name that already means "post-clamp, pre-phase-adjustment"
+    # and is depended on by existing callers/tests — its meaning is not changed here.
+    raw_start = start
+    raw_end = end
     if start >= source_duration - 2.0:
         return None
     start = max(0.0, min(start, max(0.0, source_duration - MIN_WINDOW)))
@@ -48,6 +59,16 @@ def resolve_window(event, source_duration):
     if outcome is not None and outcome > end:
         end = min(source_duration, outcome)
         reasons.append("outcome")
+    elif outcome is not None and end - outcome > OUTCOME_TAIL_BUFFER:
+        # The window extends well past the known resolution point — likely
+        # trailing padding (e.g. a short real event padded out to the minimum
+        # clip duration upstream) rather than genuine follow-through. Trim
+        # back so a teaser/preview sampled near the tail of this window lands
+        # on real content, not empty padding.
+        trimmed_end = max(outcome + OUTCOME_TAIL_BUFFER, start + MIN_WINDOW)
+        if trimmed_end < end:
+            end = trimmed_end
+            reasons.append("outcome_trim")
 
     cap = _num(event.get("_cap_dur"), 0.0) if event.get("_is_climax") else MAX_NORMAL_WINDOW
     if cap > 0 and end - start > cap:
@@ -75,7 +96,7 @@ def resolve_window(event, source_duration):
     if end - start < MIN_WINDOW:
         return None
     reason = "+".join(reasons) if reasons else "valid"
-    return {**event, "start": start, "end": end, "original_start": round(original_start, 2), "original_end": round(original_end, 2), "final_cut_start": start, "final_cut_end": end, "cut_adjustment_reason": reason, "peak_time": peak, "outcome_end": outcome, "window_validation_status": "adjusted" if reasons else "valid", "window_validation_reason": reason}
+    return {**event, "start": start, "end": end, "raw_start": round(raw_start, 2), "raw_end": round(raw_end, 2), "original_start": round(original_start, 2), "original_end": round(original_end, 2), "final_cut_start": start, "final_cut_end": end, "cut_adjustment_reason": reason, "peak_time": peak, "outcome_end": outcome, "window_validation_status": "adjusted" if reasons else "valid", "window_validation_reason": reason}
 
 
 def install():
