@@ -26,6 +26,33 @@ The default run is read-only and checks:
 - operator delivery history endpoint responds
 - operator discover diagnostics endpoint responds
 - public sessions endpoint responds
+- upload footage, send-to-re-edit, approve draft, and reset-and-rerun each
+  reject an unauthenticated request (auth-only checks — see below)
+
+## Why Upload/Reset/Send-to-re-edit/Approve stay functionally manual
+
+GAP-011 originally listed six critical operator actions needing smoke
+coverage: Run pipeline, Upload footage, Reset and rerun, Send to re-edit,
+Approve draft, and Delivery to Discover. Run pipeline and Delivery/discover
+diagnostics are covered above (Run pipeline behind `--run-pipeline`). The
+remaining four are **not** functionally automated by default, and this is a
+deliberate decision, not an oversight: every one of them dispatches a real,
+mutating GitHub Actions run or moves real files/state against whatever
+environment `--api-base-url` points at (uploading real footage costs real
+Gemini/Actions usage; reset deletes REVIEW drafts and restores
+PROCESSED→RAW; send-to-re-edit and approve mutate real draft/delivery state).
+There is no safe dry-run mode for any of them in the web-api routes today, so
+a scheduled or frequently-run smoke check must not call their real behavior.
+
+What the harness *does* check for all four, safely and by default: each
+route's `requireOperator(req)` auth check runs before any rate-limiting or
+mutation, so an unauthenticated request is rejected with zero side effects.
+This is real regression coverage — it catches an accidentally-unprotected
+route — without exercising the destructive path. Full functional smoke
+testing of these four remains a manual procedure:
+`docs/upload-to-run-smoke.md`, `docs/qa-reedit-migration-smoke.md`. Follow
+those during a controlled verification window, on an environment where the
+destructive side effects are acceptable.
 
 ## Optional checks
 

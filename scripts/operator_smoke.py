@@ -65,6 +65,21 @@ def smoke(args: argparse.Namespace) -> List[Dict[str, str]]:
     status, data, _ = req(args.api_base_url, f'/api/sessions?{sport}')
     out.append(check('public discover sessions', status == 200, f'status={status}; sport={args.sessions_sport}; keys={sorted(data.keys())}'))
 
+    # Upload footage, Reset/rerun, Send-to-re-edit, and Approve draft each dispatch a
+    # real, mutating GitHub Actions run or move real files/state, so there is no safe
+    # way to smoke-test their actual behavior against a live environment by default
+    # (see docs/operator-smoke.md). Every one of these routes checks operator auth
+    # before doing anything mutating, so an unauthenticated request is a safe,
+    # zero-side-effect regression check that the route is not accidentally left open.
+    for name, path in (
+        ('upload footage auth', '/api/operator/upload'),
+        ('send-to-re-edit auth', '/api/operator/reprocess'),
+        ('approve draft auth', '/api/operator/drafts/approve'),
+        ('reset and rerun auth', '/api/operator/pipeline/reset'),
+    ):
+        status, data, _ = req(args.api_base_url, path, method='POST')
+        out.append(check(f'{name} rejects missing header', status in (401, 403), f'status={status}; keys={sorted(data.keys())}'))
+
     if args.run_pipeline:
         status, data, _ = req(args.api_base_url, '/api/operator/pipeline/start', args.operator_secret, 'POST')
         out.append(check('trigger pipeline run', status == 200 and isinstance(data.get('pipeline_run_id'), str), f"status={status}; pipeline_run_id={data.get('pipeline_run_id')}"))
