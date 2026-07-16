@@ -547,6 +547,17 @@ For each EVENT:
     (use "highlight" only when nothing else fits)
 - start: exact start in seconds — include 1-2s buildup before the action peak
 - end: exact end in seconds — include followthrough; minimum 6s after start
+- setup_start: OPTIONAL — seconds where the athlete visibly begins setting up for the
+    action (stance change, takeoff run-up, paddle into position). Omit if there is no
+    distinct setup phase or you are not confident of the exact second.
+- peak_time: OPTIONAL — seconds at the single moment the action peaks (trick apex, ball
+    contact, wave lip hit, jump apex). Omit if you are not confident of the exact second.
+- outcome_end: OPTIONAL — seconds where the outcome fully resolves (landing complete,
+    play dead, wave ridden out or athlete falls). Omit if there is no clear resolution
+    moment distinct from "end".
+    Only report these three fields when you can point to the actual second with
+    confidence — a wrong guess is worse than omitting the field, since editing logic
+    treats a missing field as "use start/end as-is" and a present field as a firm claim.
 - score: 1-10 relative to this video
 - description: one sentence — what specifically happens
 - crop_x: horizontal position of athlete's center in frame (0.0=far left, 0.5=center, 1.0=far right)
@@ -596,6 +607,7 @@ Return ONLY valid JSON, no markdown:
       "events": [
         {"type": "aerial", "start": 12.0, "end": 21.5, "score": 9,
          "description": "Launches off the lip into a full rotation above the wave.",
+         "setup_start": 13.0, "peak_time": 16.5, "outcome_end": 20.0,
          "crop_x": 0.4, "crop_y": 0.35,
          "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak", "transition_out": "fade"}},
         {"type": "wave_catch", "start": 35.0, "end": 44.0, "score": 7,
@@ -620,6 +632,22 @@ Return ONLY valid JSON, no markdown:
 If only one person is visible, use the persons array with one entry.
 If no action moments exist at all: {"activity": "unknown", "persons": []}
 """
+
+
+def _optional_phase_time(value) -> float | None:
+    """Parse an optional setup_start/peak_time/outcome_end field.
+
+    Gemini is told to omit these rather than guess, so a missing/invalid value
+    must stay None (meaning "no phase evidence") rather than default to 0 —
+    pipeline.window_policy.resolve_window() treats None as "not provided" and
+    None is a materially different signal from a real timestamp of 0.0.
+    """
+    if value is None:
+        return None
+    try:
+        return round(float(value), 2)
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_session(raw_text: str) -> dict:
@@ -685,6 +713,9 @@ def _parse_session(raw_text: str) -> dict:
                 "crop_x":      round(crop_x, 3),
                 "crop_y":      round(crop_y, 3),
                 "edit":        edit,
+                "setup_start": _optional_phase_time(ev.get("setup_start")),
+                "peak_time":   _optional_phase_time(ev.get("peak_time")),
+                "outcome_end": _optional_phase_time(ev.get("outcome_end")),
             })
 
         # Keep only score >= 6. Safety net for beginner/mixed-ability sessions:
@@ -868,6 +899,9 @@ def _parse_analysis(raw_text: str) -> dict:
                 "focus":          str(raw_edit.get("focus", "full")),
                 "transition_out": transition_out,
             },
+            "setup_start": _optional_phase_time(ev.get("setup_start")),
+            "peak_time":   _optional_phase_time(ev.get("peak_time")),
+            "outcome_end": _optional_phase_time(ev.get("outcome_end")),
         })
 
     # Keep only score >= 6. Safety net for beginner/mixed-ability sessions:

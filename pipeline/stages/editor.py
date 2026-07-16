@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+from pipeline.window_policy import MAX_NORMAL_WINDOW
 from integrations.ffmpeg import (
     get_duration as _get_duration,
     get_source_fps as _get_source_fps,
@@ -804,7 +805,11 @@ def cut_clip(
     # Pacing: cap non-climax clips so the reel stays tight — but trim from the
     # FRONT (excess buildup), never the back: cutting the tail ends waves/rides
     # before their outcome, which reads as "the software cut my wave short".
-    _NONCLIMAX_CAP = 11.0
+    # This is a fallback safety net for callers that reach cut_clip without going
+    # through pipeline.window_policy's phase-aware cap (which already applies the
+    # same MAX_NORMAL_WINDOW before this function runs in the normal install path).
+    # Shares the constant with window_policy so the two caps cannot drift apart.
+    _NONCLIMAX_CAP = MAX_NORMAL_WINDOW
     _is_climax = bool(event.get("_is_climax", False))
     if not _is_climax and input_dur > _NONCLIMAX_CAP:
         start     = round(end - _NONCLIMAX_CAP, 2)

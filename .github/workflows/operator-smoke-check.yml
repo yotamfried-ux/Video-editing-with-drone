@@ -40,7 +40,9 @@ on:
       - 'pipeline/source_window_dedup.py'
       - 'pipeline/teaser_policy_runtime.py'
       - 'pipeline/stages/analyzer.py'
+      - 'pipeline/stages/editor.py'
       - 'pipeline/stages/identity.py'
+      - 'pipeline/window_policy.py'
       - 'requirements.txt'
       - 'scripts/check_qa_reedit_schema.py'
       - 'scripts/verify_qa_reedit_tasks.py'
@@ -58,6 +60,7 @@ on:
       - 'scripts/build_draft_decision_trace.py'
       - 'scripts/build_selection_decision_audit.py'
       - 'scripts/generate_run_quality_report.py'
+      - 'scripts/test_analyzer_phase_time_contract.py'
       - 'scripts/test_athlete_coverage_report_contract.py'
       - 'scripts/test_batch_scope_contract.py'
       - 'scripts/test_bootstrap_parity_contract.py'
@@ -65,6 +68,7 @@ on:
       - 'scripts/test_cross_source_dedup_contract.py'
       - 'scripts/test_draft_identity_lineage_contract.py'
       - 'scripts/test_drive_upload_contract.py'
+      - 'scripts/test_event_window_contract.py'
       - 'scripts/test_explicit_sidecar_validation_contract.py'
       - 'scripts/test_long_video_subject_prefilter_contract.py'
       - 'scripts/test_multi_person_clip_gate_contract.py'
@@ -221,6 +225,10 @@ jobs:
         run: PYTHONPATH=scripts:. python scripts/test_multi_person_clip_gate_contract.py
       - name: Validate Operator Smoke contract
         run: python scripts/test_operator_smoke_contract.py
+      - name: Validate Event window contract
+        run: python scripts/test_event_window_contract.py
+      - name: Validate Analyzer phase-time contract
+        run: python scripts/test_analyzer_phase_time_contract.py
       - name: Validate Perception contract
         run: python scripts/test_perception_contract.py
       - name: Validate Explicit sidecar validation contract
