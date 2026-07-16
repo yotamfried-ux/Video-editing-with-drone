@@ -31,6 +31,13 @@ def fake_req(root: str, path: str, token: str = '', method: str = 'GET') -> Tupl
         return 200, {'pipeline_run_id': 'run_123'}, root + path
     if path.startswith('/api/checkout/') and method == 'POST':
         return 200, {'checkout_url': 'https://checkout.example'}, root + path
+    if path in (
+        '/api/operator/upload',
+        '/api/operator/reprocess',
+        '/api/operator/drafts/approve',
+        '/api/operator/pipeline/reset',
+    ) and method == 'POST' and not token:
+        return 401, {'error': 'Unauthorized'}, root + path
     return 404, {'error': 'not found'}, root + path
 
 
@@ -90,6 +97,10 @@ def validate_full_smoke_contract() -> None:
         'delivery run history',
         'discover diagnostics',
         'public discover sessions',
+        'upload footage auth rejects missing header',
+        'send-to-re-edit auth rejects missing header',
+        'approve draft auth rejects missing header',
+        'reset and rerun auth rejects missing header',
         'trigger pipeline run',
         'checkout creation',
     }

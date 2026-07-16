@@ -370,6 +370,28 @@ Repair loop:
 3. Add diagnostics for external-service failures.
 4. Store smoke results in docs or PR checklists before merging future changes.
 
+Status update, 2026-07-16:
+
+- Automated, safe-by-default coverage now extends to all six listed actions'
+  operator-auth boundary: `scripts/operator_smoke.py` checks that Upload
+  footage, Reset and rerun, Send to re-edit, and Approve draft (in addition
+  to the already-covered Run pipeline, and Delivery/Discover diagnostics)
+  each reject an unauthenticated request. Every one of those routes checks
+  `requireOperator(req)` before any rate-limiting or mutation, so this check
+  has zero real side effects.
+- Full functional smoke testing of Upload/Reset/Send-to-re-edit/Approve
+  remains manual-only, by deliberate decision, not oversight: each dispatches
+  a real, mutating GitHub Actions run or moves real files/state, and none of
+  those routes has a safe dry-run mode today. See `docs/operator-smoke.md`
+  for the reasoning and the manual procedures
+  (`docs/upload-to-run-smoke.md`, `docs/qa-reedit-migration-smoke.md`) that
+  still apply.
+- GAP-012's remaining criterion (a real QA-blocked → re-edit →
+  terminal-verdict run through the operator app) is unchanged by this update
+  — it still requires a human operator with real Drive/Supabase/R2
+  credentials and the real mobile app, which cannot be exercised from a
+  code-only session.
+
 ## Cleanup opportunities
 
 1. Keep `/api/operator/pipeline/run` only as a documented compatibility alias.

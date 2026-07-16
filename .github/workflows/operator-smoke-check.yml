@@ -9,6 +9,7 @@ on:
       - 'docs/app-pipeline-audit.md'
       - 'docs/operator-api-contracts.md'
       - 'docs/operator-pipeline-contract.md'
+      - 'docs/operator-smoke.md'
       - 'docs/qa-reedit-migration-smoke.md'
       - 'docs/audit/run-29165422772-four-gap-repair-plan.md'
       - 'integrations/drive.py'
