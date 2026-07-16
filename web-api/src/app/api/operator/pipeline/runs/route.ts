@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import type { PipelineRunRow, PipelineRunsResponse } from '@/types/operator-contracts';
 
 // GET /api/operator/pipeline/runs — recent durable pipeline run records.
 // The mobile app should read run history through this operator-authenticated API
@@ -26,5 +27,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  return NextResponse.json({ runs: data ?? [] });
+  return NextResponse.json<PipelineRunsResponse>({ runs: (data ?? []) as PipelineRunRow[] });
 }

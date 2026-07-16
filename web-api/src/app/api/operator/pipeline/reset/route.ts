@@ -4,6 +4,7 @@ import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
 import { safeBatchId } from '@/lib/r2-storage';
+import type { PipelineResetResponse } from '@/types/operator-contracts';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 
@@ -69,5 +70,5 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message, pipeline_run_id: run.id }, { status: 502 });
   }
 
-  return NextResponse.json({ ok: true, pipeline_run_id: run.id, batch_id: batchId || null, full_clean: fullClean, github_actions_url: actionsUrl(repo) });
+  return NextResponse.json<PipelineResetResponse>({ ok: true, pipeline_run_id: run.id, batch_id: batchId || null, full_clean: fullClean, github_actions_url: actionsUrl(repo) });
 }

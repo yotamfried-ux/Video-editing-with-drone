@@ -4,6 +4,7 @@ import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
 import { safeBatchId } from '@/lib/r2-storage';
+import type { PipelineDispatchResponse } from '@/types/operator-contracts';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 
@@ -42,5 +43,5 @@ export async function POST(req: NextRequest) {
   }
 
   await supabaseAdmin.from('pipeline_runs').update({ status: 'queued', stage: 'workflow_dispatched', github_run_url: actionsUrl(repo) }).eq('id', run.id);
-  return NextResponse.json({ ok: true, pipeline_run_id: run.id, batch_id: batchId || null, github_actions_url: actionsUrl(repo) });
+  return NextResponse.json<PipelineDispatchResponse>({ ok: true, pipeline_run_id: run.id, batch_id: batchId || null, github_actions_url: actionsUrl(repo) });
 }

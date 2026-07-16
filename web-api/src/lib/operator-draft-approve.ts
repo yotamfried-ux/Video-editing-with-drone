@@ -5,6 +5,7 @@ import { moveR2Object, r2Basename, shouldUseR2Storage } from '@/lib/r2-storage';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
 import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
+import type { ApproveDraftResponse } from '@/types/operator-contracts';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/deliver.yml`;
 const ACTIVE_REEDIT_STATUSES = ['qa_blocked', 'pending', 'queued'];
@@ -137,5 +138,5 @@ export async function approveDraftPost(req: NextRequest) {
   if (res.status !== 204) return failDispatch(githubDispatchError(res.status, await res.text()));
   const updateError = await updateDeliveryRun({ status: 'queued', stage: 'delivery_workflow_dispatched' });
   if (updateError) return NextResponse.json({ error: 'Delivery started, but status update failed.', storage_move_completed: true, delivery_started: true, delivery_run_id: runId }, { status: 202 });
-  return NextResponse.json({ ok: true, storage_move_completed: true, delivery_started: true, delivery_run_id: runId, github_actions_url: actionsUrl(repo), storage_backend: storageBackend });
+  return NextResponse.json<ApproveDraftResponse>({ ok: true, storage_move_completed: true, delivery_started: true, delivery_run_id: runId, github_actions_url: actionsUrl(repo), storage_backend: storageBackend });
 }

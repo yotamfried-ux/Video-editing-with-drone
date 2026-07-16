@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { shouldUseR2Storage, verifyR2Object } from '@/lib/r2-storage';
+import type { UploadVerifyResponse } from '@/types/operator-contracts';
 
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -16,12 +17,12 @@ export async function POST(req: NextRequest) {
   if (!key) return NextResponse.json({ error: 'storage_key required' }, { status: 400 });
 
   if (!shouldUseR2Storage()) {
-    return NextResponse.json({ ok: true, exists: true, storage_backend: 'drive' });
+    return NextResponse.json<UploadVerifyResponse>({ ok: true, exists: true, storage_backend: 'drive' });
   }
 
   try {
     const result = await verifyR2Object(key);
-    return NextResponse.json({
+    return NextResponse.json<UploadVerifyResponse>({
       ok: result.exists,
       exists: result.exists,
       storage_backend: 'r2',

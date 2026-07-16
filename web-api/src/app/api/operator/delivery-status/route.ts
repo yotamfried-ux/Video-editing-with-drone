@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import type { DeliveryRunRow, DeliveryStatusResponse } from '@/types/operator-contracts';
 
 export const dynamic = 'force-dynamic';
 
@@ -28,5 +29,5 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Could not load delivery status' }, { status: 500 });
   }
 
-  return NextResponse.json({ runs: data ?? [] });
+  return NextResponse.json<DeliveryStatusResponse>({ runs: (data ?? []) as DeliveryRunRow[] });
 }

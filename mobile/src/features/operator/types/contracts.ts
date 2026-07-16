@@ -1,3 +1,8 @@
+// Hand-maintained mirror of web-api/src/types/operator-contracts.ts.
+// There is no shared package/workspace linking this app and web-api, so these
+// types cannot be imported directly — when a route's response shape changes
+// in web-api/src/types/operator-contracts.ts, update the matching type here.
+
 export type OperatorErrorResponse = {
   error: string;
 };

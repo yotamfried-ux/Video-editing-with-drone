@@ -1,32 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import type { PipelineRunRow, PipelineStatusResponse, PipelineStatusRow } from '@/types/operator-contracts';
 
 export const dynamic = 'force-dynamic';
-
-type PipelineStatusRow = {
-  stage: string;
-  progress: number;
-  meta: Record<string, unknown> | null;
-  updated_at: string | null;
-};
-
-type PipelineRunRow = {
-  id: string;
-  source: string;
-  status: string;
-  stage: string | null;
-  progress: number | null;
-  github_run_url: string | null;
-  input_files?: unknown;
-  output_drafts?: unknown;
-  error: string | null;
-  meta: Record<string, unknown> | null;
-  queued_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  updated_at: string | null;
-};
 
 const STALE_GLOBAL_AFTER_MS = 15 * 60 * 1000;
 const TERMINAL_DRIFT_MS = 30 * 1000;
@@ -115,7 +92,7 @@ export async function GET(req: NextRequest) {
   const latestRun = (latestRuns?.[0] ?? null) as PipelineRunRow | null;
   const globalLiveStale = isGlobalLiveStale((status ?? null) as PipelineStatusRow | null, latestRun);
 
-  return NextResponse.json({
+  return NextResponse.json<PipelineStatusResponse>({
     status: status ?? null,
     latest_run: latestRun,
     global_live_stale: globalLiveStale,
