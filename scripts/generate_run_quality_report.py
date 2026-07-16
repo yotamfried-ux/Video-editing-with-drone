@@ -32,6 +32,12 @@ _MIXED_SUBJECT_MAX_PRIMARY_DOMINANCE = 0.7
 _SHORT_TRACK_SECONDS = 2.0
 _SHORT_TRACK_RATE_ALERT = 0.5
 _MIN_TRACKS_FOR_FRAGMENTATION = 10
+# Only "strong" evidence (cross-source track_id or an explicit, non-generated
+# athlete_id match — see pipeline/athlete_canonicalization.py) is deterministic
+# enough to flag a cross-draft duplicate here. Weak/single_source ids are
+# per-source fallback hashes and are excluded so tracker fragmentation cannot
+# produce a false positive.
+_DUPLICATE_ATHLETE_STRONG_STATUSES = {"strong"}
 
 
 def _safe_div(numerator: float, denominator: float) -> float:
@@ -344,6 +350,48 @@ def _fragmentation_likely(fragmentation: dict[str, Any]) -> bool:
     )
 
 
+def _duplicate_athlete_likely_drafts(draft_trace: dict[str, Any]) -> list[dict[str, Any]]:
+    """Flag a strong-evidence athlete_id that spans drafts built from genuinely
+    different source-video pools.
+
+    One cluster (one real athlete) legitimately produces multiple output drafts
+    sharing the same athlete_id — see the "(part N)" splitting in
+    pipeline/orchestrator.py::_compile_clusters, where a single cluster's
+    highlights are intentionally split across several reels. Those drafts all
+    share the same `source_videos` (the cluster's appearance list), so requiring
+    *different* source-video sets before flagging excludes that common,
+    legitimate case and targets the actual risk: the same athlete's content
+    ending up in separate, unreconciled draft collections.
+    """
+    athlete_draft_sources: dict[str, dict[str, frozenset[str]]] = defaultdict(dict)
+    for draft in draft_trace.get("drafts", []) or []:
+        if not isinstance(draft, dict):
+            continue
+        draft_id = draft.get("draft_id") or draft.get("draft_name")
+        if not draft_id:
+            continue
+        draft_sources = frozenset(str(item) for item in (draft.get("source_videos") or []) if item)
+        strong_athlete_ids: set[str] = set()
+        for window in draft.get("source_windows", []) or []:
+            if not isinstance(window, dict):
+                continue
+            athlete_id = window.get("athlete_id")
+            status = window.get("athlete_canonical_evidence_status")
+            if athlete_id and status in _DUPLICATE_ATHLETE_STRONG_STATUSES:
+                strong_athlete_ids.add(str(athlete_id))
+        for athlete_id in strong_athlete_ids:
+            athlete_draft_sources[athlete_id][str(draft_id)] = draft_sources
+
+    duplicates: list[dict[str, Any]] = []
+    for athlete_id, draft_sources in sorted(athlete_draft_sources.items()):
+        if len(draft_sources) < 2:
+            continue
+        distinct_source_sets = {sources for sources in draft_sources.values() if sources}
+        if len(distinct_source_sets) > 1:
+            duplicates.append({"athlete_id": athlete_id, "draft_ids": sorted(draft_sources.keys())})
+    return duplicates
+
+
 def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) -> dict[str, Any]:
     summary = _load_summary(debug_dir)
     files_from_summary = summary.get("files") if isinstance(summary.get("files"), list) else []
@@ -362,6 +410,7 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
                 detections.append({**item, "_source_video": source_video, "_sidecar_path": sidecar.get("_path")})
     mixed_windows = _mixed_subject_windows(draft_trace, detections)
     fragmentation = _track_fragmentation_summary(detections)
+    duplicate_athlete_drafts = _duplicate_athlete_likely_drafts(draft_trace)
 
     video_count = sum(1 for path in summary_paths if _is_video_file(path))
     draft_count = max(sum(1 for path in summary_paths if _is_draft_file(path)), len(trace_drafts))
@@ -390,6 +439,8 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "source_window_overlap_duplicate_rate": _safe_div(len(overlap_duplicates), possible_pairs),
         "mixed_subject_likely_window_count": len(mixed_windows),
         "mixed_subject_violation_rate": _safe_div(len(mixed_windows), max(draft_count, 1)),
+        "duplicate_athlete_likely_draft_count": len(duplicate_athlete_drafts),
+        "duplicate_athlete_violation_rate": _safe_div(len(duplicate_athlete_drafts), max(draft_count, 1)),
         "track_fragmentation_rate": fragmentation["short_track_rate"],
         "short_track_count": fragmentation["short_track_count"],
         "short_track_rate": fragmentation["short_track_rate"],
@@ -433,6 +484,9 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
     if mixed_windows:
         add_alert("mixed_subject_violation_rate", "hard_block", "one or more drafts contain multiple significant visible tracks with low primary-track dominance")
         classifications.append({"code": "BUG_MIXED_SUBJECT_LIKELY", "evidence": f"{len(mixed_windows)} mixed-subject source-window(s)"})
+    if duplicate_athlete_drafts:
+        add_alert("duplicate_athlete_violation_rate", "hard_block", "the same athlete, identified by deterministic cross-source evidence, is the subject of multiple separate drafts")
+        classifications.append({"code": "BUG_DUPLICATE_ATHLETE_LIKELY", "evidence": f"{len(duplicate_athlete_drafts)} athlete id(s) spanning multiple drafts"})
     if _fragmentation_likely(fragmentation):
         add_alert("track_fragmentation_rate", "hard_block", "tracker produced many short-lived track ids")
         classifications.append({"code": "BUG_TRACKING_FRAGMENTATION_LIKELY", "evidence": f"short_track_rate={fragmentation['short_track_rate']:.3f} track_count={fragmentation['track_count']}"})
@@ -462,13 +516,14 @@ def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) 
         "source_window_overlap_duplicates": overlap_duplicates,
         "mixed_subject_likely_windows": mixed_windows,
         "track_fragmentation": fragmentation,
+        "duplicate_athlete_likely_drafts": duplicate_athlete_drafts,
         "implementation_gaps": {
             "candidate_decision_ledger_present": has_trace,
             "dropped_reasons_present": has_dropped_reasons,
             "draft_source_window_metadata_present": bool(trace_drafts),
             "mixed_subject_metric_ready": True,
             "track_fragmentation_metric_ready": True,
-            "duplicate_athlete_metric_ready": False,
+            "duplicate_athlete_metric_ready": True,
         },
     }
 

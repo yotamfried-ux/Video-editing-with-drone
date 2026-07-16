@@ -35,7 +35,53 @@ def detection(time_sec: float, track_id: int) -> dict:
     }
 
 
+def _draft(draft_id: str, source_videos: list[str], athlete_id: str, evidence_status: str) -> dict:
+    return {
+        "draft_id": draft_id,
+        "source_videos": source_videos,
+        "source_windows": [{"athlete_id": athlete_id, "athlete_canonical_evidence_status": evidence_status}],
+    }
+
+
+def _check_duplicate_athlete_unit_cases() -> None:
+    """Direct unit tests for _duplicate_athlete_likely_drafts, isolated from the
+    end-to-end fixture below so they don't have to fight its interlocking
+    draft-count/mismatch/overlap arithmetic."""
+    sys.path.insert(0, str(ROOT))
+    from scripts.generate_run_quality_report import _duplicate_athlete_likely_drafts
+
+    # Same strong athlete_id, same source-video pool: this is the ordinary
+    # "(part N)" multi-reel split of one cluster (see
+    # pipeline/orchestrator.py::_compile_clusters) and must NOT be flagged.
+    same_source_trace = {"drafts": [
+        _draft("DRAFT_a_part_1.mp4", ["session.mp4"], "ath_x", "strong"),
+        _draft("DRAFT_a_part_2.mp4", ["session.mp4"], "ath_x", "strong"),
+    ]}
+    require(_duplicate_athlete_likely_drafts(same_source_trace) == [], "same-source multi-part split must not be flagged as duplicate athlete")
+
+    # Same strong athlete_id, genuinely different source-video pools: the
+    # athlete's content landed in two unreconciled draft collections.
+    different_source_trace = {"drafts": [
+        _draft("DRAFT_a.mp4", ["session_one.mp4"], "ath_x", "strong"),
+        _draft("DRAFT_b.mp4", ["session_two.mp4"], "ath_x", "strong"),
+    ]}
+    flagged = _duplicate_athlete_likely_drafts(different_source_trace)
+    require(len(flagged) == 1 and flagged[0]["athlete_id"] == "ath_x", "cross-source duplicate athlete must be flagged")
+    require(set(flagged[0]["draft_ids"]) == {"DRAFT_a.mp4", "DRAFT_b.mp4"}, "cross-source duplicate athlete draft ids missing")
+
+    # Weak/single_source evidence must never trigger this, even across
+    # different sources — those ids are per-source fallback hashes, not
+    # cross-source identity evidence.
+    weak_trace = {"drafts": [
+        _draft("DRAFT_c.mp4", ["session_three.mp4"], "ath_y", "weak"),
+        _draft("DRAFT_d.mp4", ["session_four.mp4"], "ath_y", "single_source"),
+    ]}
+    require(_duplicate_athlete_likely_drafts(weak_trace) == [], "weak/single_source evidence must not trigger duplicate-athlete detection")
+    print("Duplicate-athlete unit cases passed")
+
+
 def main() -> int:
+    _check_duplicate_athlete_unit_cases()
     if TMP.exists():
         shutil.rmtree(TMP)
     TMP.mkdir(parents=True)
@@ -107,14 +153,20 @@ def main() -> int:
             "DRAFT_surfer.mp4": {
                 "sport": "surfing",
                 "events": [
-                    {"type": "ride", "score": 9, "start": 12.0, "end": 20.0, "description": "clean ride", "edit": {}}
+                    {
+                        "type": "ride", "score": 9, "start": 12.0, "end": 20.0, "description": "clean ride", "edit": {},
+                        "athlete_id": "ath_dup_fixture", "athlete_canonical_evidence_status": "strong",
+                    }
                 ],
                 "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
             },
             "DRAFT_surfer_part_2.mp4": {
                 "sport": "surfing",
                 "events": [
-                    {"type": "ride", "score": 8, "start": 15.0, "end": 22.0, "description": "overlapping ride", "edit": {}}
+                    {
+                        "type": "ride", "score": 8, "start": 15.0, "end": 22.0, "description": "overlapping ride", "edit": {},
+                        "athlete_id": "ath_dup_fixture", "athlete_canonical_evidence_status": "strong",
+                    }
                 ],
                 "source_quality": {"width": 1920, "height": 1080, "fps": 30.0},
             },
@@ -237,6 +289,13 @@ def main() -> int:
         require(report["metrics"]["mixed_subject_violation_rate"] == 0.5, "mixed-subject rate missing")
         require(report["mixed_subject_likely_windows"][0]["primary_track_dominance_ratio"] == 0.4, "mixed-subject dominance missing")
         require(set(report["mixed_subject_likely_windows"][0]["visible_track_ids"]) == {"7", "8", "9"}, "mixed-subject track ids missing")
+        # Both fixture drafts share athlete_id "ath_dup_fixture" with "strong"
+        # evidence, but also share the same (default/log-derived) source video —
+        # the ordinary shape of a legitimate "(part N)" multi-reel split of one
+        # cluster. This must not be flagged; see the unit cases above for the
+        # actual cross-source duplicate-athlete signal.
+        require(report["metrics"]["duplicate_athlete_likely_draft_count"] == 0, "same-source athlete pair should not be flagged as duplicate")
+        require(report["duplicate_athlete_likely_drafts"] == [], "same-source athlete pair should not appear in duplicate-athlete evidence")
         require(report["metrics"]["short_track_count"] == 13, "short track count missing")
         require(report["metrics"]["short_track_rate"] == 1.0, "short track rate missing")
         require(report["track_fragmentation"]["track_count"] == 13, "track fragmentation track count missing")
@@ -259,6 +318,7 @@ def main() -> int:
         require(report["implementation_gaps"]["draft_upload_trace_consistency_ready"] is True, "draft/upload trace consistency readiness missing")
         codes = {item["code"] for item in report["bug_classifications"]}
         require("BUG_DUPLICATE_MOMENT_LIKELY" in codes, "duplicate moment classification missing")
+        require("BUG_DUPLICATE_ATHLETE_LIKELY" not in codes, "same-source athlete pair must not raise a false duplicate-athlete classification")
         require("BUG_MIXED_SUBJECT_LIKELY" in codes, "mixed subject classification missing")
         require("BUG_TRACKING_FRAGMENTATION_LIKELY" in codes, "fragmentation classification missing")
         require("BUG_QA_GATE_BYPASSED" in codes, "QA gate bypass classification missing after trace")
@@ -266,6 +326,7 @@ def main() -> int:
         require("BUG_RECALL_UNKNOWN" not in codes, "recall unknown should be cleared when discarded candidates have causes")
         require(report["implementation_gaps"]["mixed_subject_metric_ready"] is True, "mixed-subject metric readiness missing")
         require(report["implementation_gaps"]["track_fragmentation_metric_ready"] is True, "fragmentation metric readiness missing")
+        require(report["implementation_gaps"]["duplicate_athlete_metric_ready"] is True, "duplicate-athlete metric readiness missing")
         require(report["status"] == "fail", "duplicate/mixed/fragmentation/QA fixture should fail quality report")
         print("Run quality report contract checks passed")
         return 0

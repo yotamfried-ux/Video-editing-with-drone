@@ -107,7 +107,7 @@ These let the system say: “this looks wrong” even with no human label.
   - Normal drafts where a non-primary track is visible for more than threshold duration or bbox-area ratio.
   - Alert: above 0.
 
-- [ ] `duplicate_athlete_violation_rate`
+- [x] `duplicate_athlete_violation_rate` — implemented 2026-07-16, see `docs/audit/self-detection-metrics-completion-20260716.md`.
   - Multiple normal drafts share strong athlete/track/source evidence.
   - Alert: above 0.
 
