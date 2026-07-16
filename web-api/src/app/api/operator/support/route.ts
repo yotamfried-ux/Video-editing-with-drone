@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
+import type { OperatorSuggestion, OperatorSupportResponse, OperatorSupportTicket } from '@/types/operator-contracts';
 
 // GET /api/operator/support — operator-only list of all support tickets +
 // suggestions. RLS restricts these tables to each user's own rows (and
@@ -21,8 +22,8 @@ export async function GET(req: NextRequest) {
       .order('created_at', { ascending: false }),
   ]);
 
-  return NextResponse.json({
-    tickets: tickets.data ?? [],
-    suggestions: suggestions.data ?? [],
+  return NextResponse.json<OperatorSupportResponse>({
+    tickets: (tickets.data ?? []) as OperatorSupportTicket[],
+    suggestions: (suggestions.data ?? []) as OperatorSuggestion[],
   });
 }

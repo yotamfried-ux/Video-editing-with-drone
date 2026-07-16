@@ -2,24 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import type { DiscoverDiagnosticReel as ReelRow, DiscoverDiagnosticsResponse } from '@/types/operator-contracts';
 
 export const dynamic = 'force-dynamic';
 
 const DISCOVER_STATUSES = ['published', 'viewed', 'sold'];
 const ACTIVE_DISCOVER_STATUSES = ['published', 'viewed'];
-
-type ReelRow = {
-  id: string;
-  token: string | null;
-  sport: string | null;
-  recording_date: string | null;
-  stream_uid: string | null;
-  status: string | null;
-  expires_at: string | null;
-  created_at: string | null;
-  source_video?: string | null;
-  storage_path?: string | null;
-};
 
 function groupSessions(reels: ReelRow[]) {
   const grouped = new Map<string, { recording_date: string | null; sport: string; reels: ReelRow[] }>();
@@ -69,7 +57,7 @@ export async function GET(req: NextRequest) {
     return Number.isFinite(expiresAt) && expiresAt <= now;
   }).length;
 
-  return NextResponse.json({
+  return NextResponse.json<DiscoverDiagnosticsResponse>({
     ok: true,
     eligibleStatuses: DISCOVER_STATUSES,
     activeStatuses: ACTIVE_DISCOVER_STATUSES,

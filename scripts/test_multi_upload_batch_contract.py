@@ -48,7 +48,7 @@ def main() -> int:
             "String(index + 1).padStart(3, '0')",
             "operator-upload-batch",
             "safeBatchId(requestedBatchId) || newBatchId()",
-            "const uploads = files.map",
+            "const uploads: UploadFileResult[] = files.map",
             "createR2UploadUrl(file.uploadFilename, batchId)",
             "await Promise.all(",
             "createUploadSession(file.uploadFilename, rawFolder, file.mimeType)",

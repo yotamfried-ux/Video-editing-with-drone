@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
+import type { ReprocessListResponse, ReprocessRow, ReprocessSubmitResponse } from '@/types/operator-contracts';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/pipeline-run.yml`;
 const ACTIVE_QA_STATUSES = ['qa_blocked', 'pending', 'queued'];
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false })
     .limit(20);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ requests: data ?? [] });
+  return NextResponse.json<ReprocessListResponse>({ requests: (data ?? []) as ReprocessRow[] });
 }
 
 // POST /api/operator/reprocess — operator sends a reel back for re-editing.
@@ -254,9 +255,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: message, request_id: requestId, pipeline_run_id: run.id }, { status: 502 });
   }
 
-  return NextResponse.json({
+  return NextResponse.json<ReprocessSubmitResponse>({
     ok: true,
-    request_id: requestId,
+    request_id: requestId as string,
     pipeline_run_id: run.id,
     github_actions_url: actionsUrl(repo),
   });

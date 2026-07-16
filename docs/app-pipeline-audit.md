@@ -327,6 +327,26 @@ Repair loop:
 4. Update mobile consumers to use the contract consistently.
 5. Add type-check coverage so drift is caught.
 
+Status update, 2026-07-16:
+
+- Confirmed there is no monorepo/workspace tooling linking `web-api` and
+  `mobile` (no root `package.json`, no `workspaces` field in either), so a
+  literal shared-types package isn't possible without a larger structural
+  change out of scope here.
+- Added `web-api/src/types/operator-contracts.ts`: typed response shapes for
+  all 14 operator API routes. Every route's success `NextResponse.json(...)`
+  call is now generic-typed against these (`NextResponse.json<T>(...)`), so
+  `npm run type-check` in `web-api` fails if a route's actual response object
+  drifts from its declared shape.
+- `mobile/src/features/operator/types/contracts.ts` now carries a header
+  comment pointing at the web-api file as the source of truth, since it must
+  still be hand-mirrored (no cross-package import is possible today).
+- This closes the "response fields explicit" and "type-check coverage"
+  repair-loop steps within web-api itself. It does not achieve automatic
+  drift detection *between* web-api and mobile — that would need real
+  monorepo tooling (e.g. npm workspaces + a shared package), which is a
+  larger change than this pass.
+
 ### GAP-010 — Legacy route aliases need a removal policy
 
 Severity: low-medium.

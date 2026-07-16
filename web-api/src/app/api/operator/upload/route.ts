@@ -3,6 +3,7 @@ import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { createUploadSession } from '@/lib/google-drive';
 import { createR2UploadUrl, newBatchId, safeBatchId, shouldUseR2Storage } from '@/lib/r2-storage';
+import type { UploadFileResult, UploadInitResponse } from '@/types/operator-contracts';
 
 const MAX_BATCH_FILES = 20;
 
@@ -71,7 +72,7 @@ export async function POST(req: NextRequest) {
 
   try {
     if (shouldUseR2Storage()) {
-      const uploads = files.map((file) => {
+      const uploads: UploadFileResult[] = files.map((file) => {
         const upload = createR2UploadUrl(file.uploadFilename, batchId);
         return {
           uploadUrl: upload.uploadUrl,
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest) {
         };
       });
 
-      return NextResponse.json({
+      return NextResponse.json<UploadInitResponse>({
         ...uploads[0],
         uploads,
         batch_id: batchId,
@@ -95,18 +96,18 @@ export async function POST(req: NextRequest) {
     const rawFolder = process.env.RAW_FOLDER_ID;
     if (!rawFolder) return NextResponse.json({ error: 'RAW_FOLDER_ID not configured' }, { status: 503 });
 
-    const uploads = await Promise.all(
+    const uploads: UploadFileResult[] = await Promise.all(
       files.map(async (file) => ({
         uploadUrl: await createUploadSession(file.uploadFilename, rawFolder, file.mimeType),
         filename: file.uploadFilename,
         source_filename: file.filename,
         mimeType: file.mimeType,
         batch_id: batchId,
-        storage_backend: 'drive',
+        storage_backend: 'drive' as const,
       })),
     );
 
-    return NextResponse.json({
+    return NextResponse.json<UploadInitResponse>({
       ...uploads[0],
       uploads,
       batch_id: batchId,

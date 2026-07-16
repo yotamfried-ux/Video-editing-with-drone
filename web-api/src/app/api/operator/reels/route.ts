@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
+import type { OperatorReelRow, OperatorReelsResponse } from '@/types/operator-contracts';
 
 // GET /api/operator/reels — operator-only full reel list (all statuses,
 // including expired, with athlete_desc). The reels RLS policy no longer
@@ -16,5 +17,5 @@ export async function GET(req: NextRequest) {
     .order('created_at', { ascending: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json({ reels: data ?? [] });
+  return NextResponse.json<OperatorReelsResponse>({ reels: (data ?? []) as OperatorReelRow[] });
 }

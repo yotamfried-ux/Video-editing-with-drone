@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { listFolder } from '@/lib/google-drive';
 import { createR2SignedGetUrl, listR2Prefix, shouldUseR2Storage } from '@/lib/r2-storage';
 import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
+import type { DraftRow, DraftsResponse, ReprocessRow } from '@/types/operator-contracts';
 
 const ACTIVE_REEDIT_STATUSES = ['qa_blocked', 'pending', 'queued'];
 
@@ -18,7 +19,7 @@ type StorageDraft = {
 };
 
 async function activeReeditTasks(draftNames: string[]) {
-  if (!draftNames.length) return new Map<string, any>();
+  if (!draftNames.length) return new Map<string, ReprocessRow>();
   const { data, error } = await supabaseAdmin
     .from('reprocess_requests')
     .select('id, draft_name, notes, status, origin, qa_defects, approval_blocked_reasons, attempt_count, max_attempts, last_pipeline_run_id, created_at, processed_at')
@@ -26,8 +27,8 @@ async function activeReeditTasks(draftNames: string[]) {
     .in('status', ACTIVE_REEDIT_STATUSES)
     .order('created_at', { ascending: false });
   if (error) throw error;
-  const map = new Map<string, any>();
-  for (const task of data ?? []) {
+  const map = new Map<string, ReprocessRow>();
+  for (const task of (data ?? []) as ReprocessRow[]) {
     if (task.draft_name && !map.has(task.draft_name)) {
       map.set(task.draft_name, task);
     }
@@ -35,7 +36,7 @@ async function activeReeditTasks(draftNames: string[]) {
   return map;
 }
 
-function withReviewPolicy(draft: StorageDraft, task: any | undefined) {
+function withReviewPolicy(draft: StorageDraft, task: ReprocessRow | undefined): DraftRow {
   const taskReasons = Array.isArray(task?.approval_blocked_reasons) ? task.approval_blocked_reasons : [];
   const policy = evaluateDraftReviewPolicy({
     name: draft.name,
@@ -69,7 +70,7 @@ export async function GET(req: NextRequest) {
         storage_key: f.key,
       }));
       const tasks = await activeReeditTasks(drafts.map((draft) => draft.name));
-      return NextResponse.json({
+      return NextResponse.json<DraftsResponse>({
         drafts: drafts.map((draft) => withReviewPolicy(draft, tasks.get(draft.name))),
       });
     }
@@ -91,7 +92,7 @@ export async function GET(req: NextRequest) {
       storage_backend: 'drive',
     }));
     const tasks = await activeReeditTasks(drafts.map((draft) => draft.name));
-    return NextResponse.json({
+    return NextResponse.json<DraftsResponse>({
       drafts: drafts.map((draft) => withReviewPolicy(draft, tasks.get(draft.name))),
     });
   } catch (e) {
