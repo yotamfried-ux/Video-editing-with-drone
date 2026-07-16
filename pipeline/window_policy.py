@@ -65,7 +65,12 @@ def resolve_window(event, source_duration):
         # clip duration upstream) rather than genuine follow-through. Trim
         # back so a teaser/preview sampled near the tail of this window lands
         # on real content, not empty padding.
+        # Never trim below what the peak adjustment above just required: an
+        # outcome_end that is inconsistent with (earlier than) peak_time must
+        # not be allowed to cut the peak moment back out of the window.
         trimmed_end = max(outcome + OUTCOME_TAIL_BUFFER, start + MIN_WINDOW)
+        if peak is not None:
+            trimmed_end = max(trimmed_end, peak + OUTCOME_TAIL_BUFFER)
         if trimmed_end < end:
             end = trimmed_end
             reasons.append("outcome_trim")
@@ -75,7 +80,11 @@ def resolve_window(event, source_duration):
         if setup is not None or peak is not None or outcome is not None:
             req_start = setup if setup is not None else start
             req_peak = peak if peak is not None else req_start
-            req_end = outcome if outcome is not None else max(req_peak, end)
+            # max(..., req_peak): an outcome_end that is inconsistent with (earlier
+            # than) peak_time must never make req_end < req_peak -- every branch
+            # below assumes req_start <= req_peak <= req_end, and a violated
+            # assumption here can produce a final window that excludes the peak.
+            req_end = max(outcome, req_peak) if outcome is not None else max(req_peak, end)
             if req_end - req_start > cap:
                 return None
             start = max(0.0, req_peak - cap * 0.45)

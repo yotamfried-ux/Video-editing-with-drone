@@ -81,6 +81,17 @@ def main() -> int:
     if out["original_start"] == out["raw_start"]:
         raise SystemExit("original_start should reflect the post-clamp value, distinct from raw_start here")
 
+    # An outcome_end that is inconsistent with (earlier than) peak_time must
+    # never produce a window that excludes the peak moment -- either the
+    # event is rejected outright (None) or, if resolved, peak stays inside
+    # [final_cut_start, final_cut_end]. This is a real bug the outcome_trim
+    # addition above exposed: trimming the tail toward a stale/wrong
+    # outcome_end previously could cut the peak itself out of frame.
+    conflicting_evidence = {"type": "aerial", "start": 0, "end": 5, "score": 8, "peak_time": 20, "outcome_end": 10}
+    out = resolve_window(conflicting_evidence, 60)
+    if out is not None and not (out["final_cut_start"] <= 20 <= out["final_cut_end"]):
+        raise SystemExit("conflicting peak/outcome evidence produced a window that excludes the peak")
+
     print("Event window contract checks passed")
     return 0
 
