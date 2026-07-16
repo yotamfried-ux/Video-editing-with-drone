@@ -16,7 +16,12 @@ on:
       - 'integrations/run_status.py'
       - 'integrations/storage.py'
       - 'integrations/supabase_uploader.py'
+      - 'run.py'
+      - 'run_surf.py'
+      - 'sitecustomize.py'
       - 'pipeline/athlete_canonicalization.py'
+      - 'pipeline/bootstrap.py'
+      - 'pipeline/r2_batch_scope.py'
       - 'pipeline/chunk_timeline_runtime.py'
       - 'pipeline/context_qa_gate.py'
       - 'pipeline/context_qa_long_video.py'
@@ -53,6 +58,8 @@ on:
       - 'scripts/build_selection_decision_audit.py'
       - 'scripts/generate_run_quality_report.py'
       - 'scripts/test_athlete_coverage_report_contract.py'
+      - 'scripts/test_batch_scope_contract.py'
+      - 'scripts/test_bootstrap_parity_contract.py'
       - 'scripts/test_chunk_identity_timeline_contract.py'
       - 'scripts/test_cross_source_dedup_contract.py'
       - 'scripts/test_draft_identity_lineage_contract.py'
@@ -183,6 +190,10 @@ jobs:
               raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
           print('Multi-upload batch contract checks passed')
           PY
+      - name: Validate Bootstrap parity contract
+        run: PYTHONPATH=scripts:. python scripts/test_bootstrap_parity_contract.py
+      - name: Validate Batch scope contract
+        run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
       - name: Validate QA re-edit loop contract
         run: python scripts/test_qa_reedit_loop_contract.py
       - name: Validate QA re-edit reason fallback contract
