@@ -151,6 +151,20 @@ Verification required:
 - Operator Smoke Check runs the new perception contract.
 - No production pipeline behavior changes in the foundation PR.
 
+Status update, 2026-07-16:
+
+- The perception foundation described above is built and merged:
+  `pipeline/perception/schema.py`, `supervision_adapter.py`, `crop_math.py`,
+  `producer.py` (real Ultralytics YOLO + BoT-SORT backend), and
+  `scripts/test_perception_contract.py` all exist and are wired into
+  Operator Smoke Check.
+- Whether perception should be required by default (vs. opt-in, silently
+  skipped) was an open, undecided default. This is now resolved: see
+  `docs/audit/perception-default-activation-decision-20260716.md`. Decision:
+  stay opt-in until real-run track-fragmentation and per-video cost/runtime
+  evidence justify flipping `SPORTREEL_REQUIRE_PERCEPTION` on by default.
+  That doc records the concrete revisit condition.
+
 ### PQ-002 — Athlete identity can merge two people or split one person
 
 Severity: critical.
