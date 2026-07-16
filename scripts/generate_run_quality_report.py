@@ -351,25 +351,45 @@ def _fragmentation_likely(fragmentation: dict[str, Any]) -> bool:
 
 
 def _duplicate_athlete_likely_drafts(draft_trace: dict[str, Any]) -> list[dict[str, Any]]:
-    athlete_to_drafts: dict[str, set[str]] = defaultdict(set)
+    """Flag a strong-evidence athlete_id that spans drafts built from genuinely
+    different source-video pools.
+
+    One cluster (one real athlete) legitimately produces multiple output drafts
+    sharing the same athlete_id — see the "(part N)" splitting in
+    pipeline/orchestrator.py::_compile_clusters, where a single cluster's
+    highlights are intentionally split across several reels. Those drafts all
+    share the same `source_videos` (the cluster's appearance list), so requiring
+    *different* source-video sets before flagging excludes that common,
+    legitimate case and targets the actual risk: the same athlete's content
+    ending up in separate, unreconciled draft collections.
+    """
+    athlete_draft_sources: dict[str, dict[str, frozenset[str]]] = defaultdict(dict)
     for draft in draft_trace.get("drafts", []) or []:
         if not isinstance(draft, dict):
             continue
         draft_id = draft.get("draft_id") or draft.get("draft_name")
         if not draft_id:
             continue
+        draft_sources = frozenset(str(item) for item in (draft.get("source_videos") or []) if item)
+        strong_athlete_ids: set[str] = set()
         for window in draft.get("source_windows", []) or []:
             if not isinstance(window, dict):
                 continue
             athlete_id = window.get("athlete_id")
             status = window.get("athlete_canonical_evidence_status")
             if athlete_id and status in _DUPLICATE_ATHLETE_STRONG_STATUSES:
-                athlete_to_drafts[str(athlete_id)].add(str(draft_id))
-    return [
-        {"athlete_id": athlete_id, "draft_ids": sorted(draft_ids)}
-        for athlete_id, draft_ids in sorted(athlete_to_drafts.items())
-        if len(draft_ids) > 1
-    ]
+                strong_athlete_ids.add(str(athlete_id))
+        for athlete_id in strong_athlete_ids:
+            athlete_draft_sources[athlete_id][str(draft_id)] = draft_sources
+
+    duplicates: list[dict[str, Any]] = []
+    for athlete_id, draft_sources in sorted(athlete_draft_sources.items()):
+        if len(draft_sources) < 2:
+            continue
+        distinct_source_sets = {sources for sources in draft_sources.values() if sources}
+        if len(distinct_source_sets) > 1:
+            duplicates.append({"athlete_id": athlete_id, "draft_ids": sorted(draft_sources.keys())})
+    return duplicates
 
 
 def build_report(debug_dir: Path, tmp_root: Path, exit_code: int | None = None) -> dict[str, Any]:

@@ -35,12 +35,41 @@ Added to `scripts/generate_run_quality_report.py`:
   ids are deliberately excluded — those are per-source hash fallbacks, not cross-source
   identity evidence, and would produce false positives under the track fragmentation already
   documented in `docs/audit/run-28768826828-roi-repair-plan-20260706.md` (205 track ids from
-  one video). Flags an athlete id only when it spans 2+ distinct draft ids.
+  one video).
 - New metrics: `duplicate_athlete_likely_draft_count`, `duplicate_athlete_violation_rate`
   (matches the name specified in the self-detection-metrics audit).
 - New report field: `duplicate_athlete_likely_drafts` (athlete id + the draft ids involved).
 - New hard-block alert + `BUG_QA_GATE_BYPASSED`-style classification: `BUG_DUPLICATE_ATHLETE_LIKELY`.
 - `implementation_gaps.duplicate_athlete_metric_ready` flipped to `True`.
+
+### Self-review finding: naive "same athlete_id across drafts" would have false-positived on ordinary output
+
+The first version of this change flagged any strong athlete_id spanning 2+ draft ids. Before
+merging, re-reading `pipeline/orchestrator.py::_compile_clusters` showed this was wrong: one
+cluster (one real athlete) routinely produces multiple output drafts on purpose — the
+`"(part N)"` naming there splits one cluster's highlights across several reels — and every
+resulting draft shares the same `athlete_id`. The naive version would have hard-blocked every
+normal run where an athlete got more than one reel, which is likely the single most common
+multi-draft-per-athlete case in this app — not a rare edge case.
+
+Fixed by additionally requiring that the flagged drafts come from *different* source-video
+pools (`draft.source_videos`, already computed per draft by
+`scripts/build_draft_decision_trace.py`). Drafts split from one cluster all draw from that
+cluster's shared appearance list and so share a source-video set; genuinely separate,
+unreconciled draft collections for the same athlete do not. `scripts/test_run_quality_report_contract.py`
+now asserts both directions directly against `_duplicate_athlete_likely_drafts()` (same-source
+pair not flagged; cross-source pair flagged; weak/single_source evidence never flagged), plus
+an end-to-end negative check in the existing fixture (which uses a same-source, strong-evidence
+pair and must not raise `BUG_DUPLICATE_ATHLETE_LIKELY`).
+
+Residual known gap: a single cluster whose appearances span multiple source videos could, in
+principle, still have its parts allocated across different source-video subsets, which would
+false-positive under this refined check too. There is currently no persisted `cluster_id`/
+`reel_group_id` on draft metadata to close this precisely — closing it fully would mean adding
+that identifier in `orchestrator.py`'s reel-compilation path and threading it through
+`draft_identity_metadata.py` and `build_draft_decision_trace.py`, which is real production-code
+surgery beyond this report-generator-scoped pass. Documented here rather than silently
+implemented as if fully solved.
 
 ## Deliberately not done in this pass
 
