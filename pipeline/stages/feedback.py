@@ -258,6 +258,77 @@ def suggest_qa_threshold() -> dict:
             "sample": len(scores), "current": current}
 
 
+# ── Structured operator feedback (draft_feedback table) ─────────────────────
+#
+# Complements the binary approve-only loop above with the negative/problem
+# labels operators can attach on the Review screen (see
+# web-api POST /api/operator/drafts/feedback and
+# pipeline/candidate_ledger.py's OPERATOR_FEEDBACK_EVENTS, the source of truth
+# for this vocabulary). Read-only from the pipeline's perspective: this module
+# never writes draft_feedback rows, only folds them into the same
+# recency-weighted prompt-injection mechanism used for approvals.
+
+_STRUCTURED_MIN_FEEDBACK = 3   # avoid over-fitting to a single complaint
+_STRUCTURED_TOP_N = 5
+
+# Problem-type feedback events worth surfacing as a "watch out for" hint.
+# APPROVE/REJECT/SEND_TO_REEDIT are actions, not problem labels, and are
+# already reflected in the approval-based loop above.
+_PROBLEM_EVENTS = (
+    "WRONG_ATHLETE", "DUPLICATE_ATHLETE", "MULTI_PERSON_CLIP",
+    "CUT_TOO_EARLY", "BAD_CROP", "BORING", "MISSING_GOOD_MOMENT",
+)
+
+_PROBLEM_EVENT_HINTS = {
+    "WRONG_ATHLETE": "selecting the wrong athlete",
+    "DUPLICATE_ATHLETE": "the same athlete appearing across separate drafts",
+    "MULTI_PERSON_CLIP": "another visible person leaking into a single-athlete clip",
+    "CUT_TOO_EARLY": "cutting a ride/moment before its natural finish",
+    "BAD_CROP": "unacceptable framing/crop",
+    "BORING": "low-action or dead-time moments",
+    "MISSING_GOOD_MOMENT": "missing a moment the operator considered valuable",
+}
+
+
+def _fetch_structured_feedback() -> list[dict]:
+    try:
+        from integrations.supabase_uploader import fetch_recent_draft_feedback
+        return fetch_recent_draft_feedback()
+    except Exception:
+        logger.warning("Could not fetch structured draft feedback; skipping prompt injection", exc_info=True)
+        return []
+
+
+def get_negative_feedback_hint() -> str:
+    """Recency-weighted summary of recent structured operator complaints.
+
+    Returns "" until there is enough signal (_STRUCTURED_MIN_FEEDBACK rows) or
+    if Supabase is unreachable — never blocks or fails the analysis prompt.
+    """
+    rows = _fetch_structured_feedback()
+    if len(rows) < _STRUCTURED_MIN_FEEDBACK:
+        return ""
+
+    scores: dict[str, float] = {}
+    for row in rows:
+        event = str(row.get("feedback_event") or "")
+        if event not in _PROBLEM_EVENTS:
+            continue
+        w = _decay_weight(str(row.get("created_at") or ""))
+        scores[event] = scores.get(event, 0.0) + w
+
+    if not scores:
+        return ""
+
+    top = sorted(scores.items(), key=lambda x: x[1], reverse=True)[:_STRUCTURED_TOP_N]
+    lines = [f"  - Avoid {_PROBLEM_EVENT_HINTS.get(event, event.lower())} (flagged ×{score:.1f}pts recently)" for event, score in top]
+    return (
+        "\nRECENT OPERATOR FEEDBACK — avoid repeating these flagged problems:\n"
+        + "\n".join(lines)
+        + "\nScores are recency-weighted (30-day half-life); higher means more recent/frequent.\n"
+    )
+
+
 def record_operator_note(draft_name: str, note: str) -> None:
     """
     Attach a free-text operator note to a specific draft reel.

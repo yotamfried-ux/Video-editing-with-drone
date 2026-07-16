@@ -125,6 +125,11 @@ def _install_candidate_ledger_runtime() -> None:
     install()
 
 
+def _install_editorial_value_ranker_runtime() -> None:
+    from pipeline.editorial_value_ranker import install
+    install()
+
+
 def _install_athlete_canonicalization_runtime() -> None:
     from pipeline.athlete_canonicalization import install
     install()
@@ -219,6 +224,7 @@ _install_cross_source_dedup_runtime()
 _install_context_runtime()
 _install_draft_diagnostics_runtime()
 _install_candidate_ledger_runtime()
+_install_editorial_value_ranker_runtime()
 _install_athlete_canonicalization_runtime()
 
 import pipeline.orchestrator as _orchestrator

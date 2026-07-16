@@ -110,6 +110,10 @@ def install_pre_orchestrator_patches() -> None:
 
     install_candidate_ledger()
 
+    from pipeline.editorial_value_ranker import install as install_editorial_value_ranker
+
+    install_editorial_value_ranker()
+
     from pipeline.athlete_canonicalization import install as install_athlete_canonicalization
 
     install_athlete_canonicalization()

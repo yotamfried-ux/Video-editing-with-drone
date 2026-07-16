@@ -50,6 +50,17 @@ Status terms:
 
 ## Phase 2 — Turn human review into labels
 
+**Status update, 2026-07-16** (see `docs/audit/operator-feedback-loop-completion-20260716.md`
+for full detail): a structured feedback schema now exists and is submittable end-to-end
+(Supabase `draft_feedback` table → `POST /api/operator/drafts/feedback` → Review screen
+buttons), but it reuses `pipeline/candidate_ledger.py`'s pre-existing
+`OPERATOR_FEEDBACK_EVENTS`/`VALUE_LABELS` vocabulary rather than this doc's literal field
+list below — narrower on some fields (no `run_id`/`source_video`/`severity` captured yet),
+close but not identical on problem types (no dedicated `bad_title` or
+`missing_source_evidence` events; `mixed_subject`/`duplicate_moment` exist as value labels,
+not as their own submittable feedback events). Not re-checking the sub-bullets below since
+they don't map 1:1; treat this note as the authoritative status instead.
+
 - [ ] Create structured draft feedback schema.
   - Fields: draft id, run id, source video, approve/reject/re-edit, problem types, severity, human note, timestamp.
 - [ ] Required problem types:
@@ -66,8 +77,8 @@ Status terms:
 - [ ] Label the two confirmed failures from the latest real run.
   - [ ] Same surfer duplicated across drafts.
   - [ ] Different surfer visible inside another surfer draft.
-- [ ] Add false-negative feedback action.
-  - Operator can mark approximate time range, moment type, why good, optional screenshot/note.
+- [x] Add false-negative feedback action.
+  - `MISSING_GOOD_MOMENT` feedback event exists and is submittable; no time-range/screenshot capture (schema doesn't carry a time window at all, see completion doc's documented limitation).
 - [ ] Separate labels by purpose.
   - Safety labels feed gates: mixed subject, wrong person, duplicate athlete, cut too early, missing evidence.
   - Taste labels feed ranker: boring, weak moment, missed high-value moment, bad pacing.
@@ -132,17 +143,23 @@ Status terms:
 
 ## Phase 6 — Improve ranking/editorial value
 
+**Status update, 2026-07-16**: `pipeline/editorial_value_ranker.py` now exists
+(see `docs/audit/operator-feedback-loop-completion-20260716.md`), but deliberately scoped
+additive/reporting-only — it does not feed `_partition_events`/`_group_dur` or change any
+live selection/partitioning behavior, same "only safe fixes" reasoning already recorded for
+PQ-008's `_partition_events` in `docs/pipeline-quality-audit.md`.
+
 - [ ] Build value ranker separate from safety gates.
   - Inputs: wave length, peak action, outcome, social moment, camera quality, track stability, crop quality, operator labels.
 - [ ] Required high-value categories:
-  - [ ] long ride
-  - [ ] clean takeoff
-  - [ ] turn/cutback
-  - [ ] fall/recovery
-  - [ ] high-five/social moment
+  - [x] long ride (maps to existing `FULL_RIDE`)
+  - [ ] clean takeoff (no reliable existing signal — not faked, see completion doc)
+  - [x] turn/cutback (maps to existing `BIG_TURN`)
+  - [x] fall/recovery (maps to existing `FALL`)
+  - [x] high-five/social moment (maps to existing `SOCIAL_MOMENT`/`HIGH_FIVE`)
   - [ ] crowd/friend interaction
   - [ ] unique camera motion
-  - [ ] strong ending
+  - [ ] strong ending (no reliable existing signal — not faked, see completion doc)
 - [ ] Track false negatives.
   - For every missed moment: detected yes/no, candidate yes/no, rank score, dropped reason, fix recommendation.
 - [ ] Ranking must combine perception, temporal evidence, source evidence, QA, and feedback; not Gemini score alone.
@@ -163,22 +180,30 @@ Status terms:
 
 ## Phase 8 — UI/operator review improvements
 
+**Status update, 2026-07-16**: 7 of the 10 structured feedback buttons now exist on the
+Review screen (`mobile/src/app/(operator)/review.tsx`); see
+`docs/audit/operator-feedback-loop-completion-20260716.md`. Evidence-summary-on-card is
+explicitly not done — it needs the drafts list route extended with data the report
+generator already computes but no operator API currently exposes; scoped out as a
+stretch item in this pass, not silently dropped.
+
 - [ ] Show evidence summary on draft card.
   - Primary athlete/track, visible tracks, mixed-subject risk, duplicate risk, wave completion, source window, selected reason, review-required reason.
 - [ ] Show why draft was selected.
 - [ ] Show why draft is blocked/review-required.
 - [ ] Add structured feedback buttons:
-  - [ ] approve
-  - [ ] reject
-  - [ ] send to re-edit
-  - [ ] wrong person
-  - [ ] duplicate
-  - [ ] mixed people
-  - [ ] cut too early
-  - [ ] missed good moment
-  - [ ] bad crop
-  - [ ] boring
-- [ ] Preserve structured labels; free text is optional, not enough.
+  - [ ] approve (pre-existing app feature, not part of this workstream)
+  - [ ] reject (not added — no dedicated "drop this draft" action exists to attach it to; adding one is a new product behavior beyond a feedback label, out of scope here)
+  - [ ] send to re-edit (pre-existing app feature, not part of this workstream)
+  - [x] wrong person
+  - [x] duplicate
+  - [x] mixed people
+  - [x] cut too early
+  - [x] missed good moment
+  - [x] bad crop
+  - [x] boring
+- [x] Preserve structured labels; free text is optional, not enough.
+  - The new buttons submit a structured `feedback_event` distinct from the existing freeform re-edit notes field; neither replaces the other.
 
 ## Phase 9 — Data retention and safety boundaries
 

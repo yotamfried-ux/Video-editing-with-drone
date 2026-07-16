@@ -222,6 +222,18 @@ def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int =
     _supabase().table("reprocess_requests").insert(payload).execute()
 
 
+def fetch_recent_draft_feedback(limit: int = 500) -> list[dict]:
+    """Structured operator feedback rows (draft_feedback table), most recent first.
+
+    Consumed by pipeline/stages/feedback.py to fold negative labels (BORING,
+    CUT_TOO_EARLY, WRONG_ATHLETE, etc.) into the existing prompt-injection
+    learning loop, and by the missed-good-moment recall report.
+    """
+    res = (_supabase().table("draft_feedback").select("*")
+           .order("created_at", desc=True).limit(limit).execute())
+    return res.data or []
+
+
 def fetch_pending_reprocess() -> list[dict]:
     """Operator reprocess requests not yet acted on."""
     res = (_supabase().table("reprocess_requests").select("*")

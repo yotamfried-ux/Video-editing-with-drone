@@ -143,6 +143,7 @@ def main() -> int:
         "pipeline.qa_gate_policy",
         "pipeline.draft_diagnostics",
         "pipeline.candidate_ledger",
+        "pipeline.editorial_value_ranker",
         "pipeline.athlete_canonicalization",
         "pipeline.real_identity_gate",
         "pipeline.final_duplicate_guard",

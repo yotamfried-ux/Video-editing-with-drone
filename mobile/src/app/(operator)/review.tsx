@@ -17,8 +17,28 @@ import { Card } from '@/shared/components/Card';
 import { Button } from '@/shared/components/Button';
 import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
-import type { ApproveDraftResponse, DraftRow, DraftsResponse, ReprocessSubmitResponse } from '@/features/operator/types/contracts';
+import type {
+  ApproveDraftResponse,
+  DraftFeedbackResponse,
+  DraftRow,
+  DraftsResponse,
+  OperatorFeedbackEvent,
+  ReprocessSubmitResponse,
+} from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
+
+// Structured feedback the operator can attach to a draft beyond Approve/Send
+// to re-edit — per docs/audit/self-learning-loop-audit-20260706.md Phase 8.
+// Event names mirror pipeline/candidate_ledger.py's OPERATOR_FEEDBACK_EVENTS.
+const FEEDBACK_FLAGS: { event: OperatorFeedbackEvent; label: string }[] = [
+  { event: 'WRONG_ATHLETE', label: 'Wrong athlete' },
+  { event: 'DUPLICATE_ATHLETE', label: 'Duplicate athlete' },
+  { event: 'MULTI_PERSON_CLIP', label: 'Mixed people' },
+  { event: 'CUT_TOO_EARLY', label: 'Cut too early' },
+  { event: 'BAD_CROP', label: 'Bad crop' },
+  { event: 'BORING', label: 'Boring' },
+  { event: 'MISSING_GOOD_MOMENT', label: 'Missed good moment' },
+];
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -83,6 +103,7 @@ export default function OperatorReviewScreen() {
   const [reeditTarget, setReeditTarget] = useState<DraftRow | null>(null);
   const [reeditNotes, setReeditNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [submittingFlag, setSubmittingFlag] = useState<string | null>(null);
 
   const handleOperatorError = (e: unknown) => {
     const msg = e instanceof Error ? e.message : 'Unknown error';
@@ -193,6 +214,23 @@ export default function OperatorReviewScreen() {
     }
   };
 
+  const submitFlag = async (draft: DraftRow, event: OperatorFeedbackEvent, label: string) => {
+    const flagKey = `${draft.id}:${event}`;
+    setSubmittingFlag(flagKey);
+    try {
+      await operatorFetch<DraftFeedbackResponse>('/api/operator/drafts/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ draft_name: draft.name, feedback_event: event }),
+      });
+      Alert.alert('Feedback recorded', `"${label}" noted for ${draft.name}.`);
+    } catch (e) {
+      handleOperatorError(e);
+    } finally {
+      setSubmittingFlag(null);
+    }
+  };
+
   const blockedCount = drafts.filter(draftIsApprovalBlocked).length;
 
   return (
@@ -279,6 +317,18 @@ export default function OperatorReviewScreen() {
                     style={{ flex: 1, height: 44 }}
                   />
                 </View>
+                <View style={styles.flagRow}>
+                  {FEEDBACK_FLAGS.map(({ event, label }) => (
+                    <Button
+                      key={event}
+                      label={label}
+                      onPress={() => submitFlag(item, event, label)}
+                      variant="ghost"
+                      disabled={submittingFlag !== null}
+                      style={styles.flagButton}
+                    />
+                  ))}
+                </View>
               </Card>
             );
           }}
@@ -335,6 +385,8 @@ export default function OperatorReviewScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.lg },
   actions: { flexDirection: 'row', gap: Spacing.sm },
+  flagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
+  flagButton: { height: 32, paddingHorizontal: Spacing.sm },
   operatorAlert: {
     borderColor: Colors.danger,
     gap: Spacing.xs,
