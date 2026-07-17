@@ -90,7 +90,10 @@ def main() -> None:
 
     with open("scripts/run_tracked.py", encoding="utf-8") as handle:
         runner = handle.read()
-    assert_true("_install_athlete_canonicalization_runtime()\n\nimport pipeline.orchestrator" in runner, "tracked runner must install athlete canonicalization before orchestrator import")
+    with open("pipeline/bootstrap.py", encoding="utf-8") as handle:
+        bootstrap = handle.read()
+    assert_true("install_pre_orchestrator_patches()" in runner, "tracked runner must use canonical bootstrap")
+    assert_true("pipeline.athlete_canonicalization" in bootstrap, "canonical bootstrap must install athlete canonicalization")
 
     print("athlete canonicalization contract ok")
 

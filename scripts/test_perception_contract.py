@@ -413,6 +413,7 @@ def main() -> int:
     runtime = _read("pipeline/perception/runtime.py")
     generator_cli = _read("scripts/generate_perception_sidecar.py")
     run_tracked = _read("scripts/run_tracked.py")
+    bootstrap = _read("pipeline/bootstrap.py")
 
     for label, text in {
         "perception schema": schema,
@@ -431,7 +432,8 @@ def main() -> int:
     require_tokens("perception producer", producer, ["SPORTREEL_PERCEPTION_BACKEND", "SPORTREEL_PERCEPTION_DETECTIONS_JSON", "SPORTREEL_PERCEPTION_MIN_CONFIDENCE", "def generate_sidecar", "def sidecar_from_detection_json", "perception_backend_not_configured", "each production detection must include track_id", "status", "ok"])
     require_tokens("perception generator cli", generator_cli, ["generate_sidecar", "--backend", "--detections-json", "perception sidecar status="])
     require_tokens("perception runtime", runtime, ["SPORTREEL_PERCEPTION_SIDECAR_DIR", "SPORTREEL_PERCEPTION_COMMAND", "SPORTREEL_REQUIRE_PERCEPTION", "sidecar_output_path", "ensure_sidecar_for_video", "validate_sidecar", "subprocess.run", "load_sidecar_detections", "enrich_event", "enrich_session_with_sidecar", "source_window_track_ids", "visible_track_ids", "perception_evidence_status", "tracker_sidecar", "_is_reusable_sidecar", "_producer_status_from_sidecar", "Perception producer did not create a reusable sidecar", "shlex.split(command)", "ensure_sidecar_for_video(video_path)", "analyzer.analyze_session = analyze_with_perception_sidecar"])
-    require_tokens("tracked perception runtime install", run_tracked, ["def _install_perception_runtime()", "from pipeline.perception.runtime import install", "_install_perception_runtime()", "_install_pipeline_quality_runtime()"])
+    require_tokens("tracked canonical bootstrap", run_tracked, ["install_pre_orchestrator_patches()", "install_post_orchestrator_patches()"] )
+    require_tokens("canonical perception runtime install", bootstrap, ["pipeline.perception.runtime", "pipeline.runtime_quality"])
     require_no_tokens("perception foundation", "\n".join([schema, adapter, crop_math]), ["from supervision.tracker", "update_with_detections"])
     require_tokens("operator smoke workflow perception coverage", workflow, ["pipeline/perception/**", "scripts/test_perception_contract.py", "Install perception dependency", "Validate Perception contract"])
 

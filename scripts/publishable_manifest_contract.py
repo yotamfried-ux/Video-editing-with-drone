@@ -248,6 +248,15 @@ def validate_manifest(
             else:
                 publishable_parts.append(part)
 
+            if not str(part.get("storage_object_id") or "").strip():
+                errors.append(f"{label}: Part {part_pos} lacks immutable REVIEW storage identity")
+            if part.get("authoritative_publishability_required") is not True:
+                errors.append(f"{label}: Part {part_pos} did not require server-side publishability authority")
+            if part.get("authoritative_publishability_persisted") is not True:
+                errors.append(f"{label}: Part {part_pos} publishability authority was not persisted")
+            if not str(part.get("authoritative_manifest_revision") or "").strip():
+                errors.append(f"{label}: Part {part_pos} lacks authoritative manifest revision")
+
             if part.get("qa_evidence_recorded") is not True:
                 errors.append(f"{label}: Part {part_pos} lacks explicit final QA evidence")
             if str(part.get("qa_verdict") or "").upper() != "PASS":

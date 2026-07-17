@@ -65,7 +65,7 @@ def main() -> int:
 
     text = (ROOT / "pipeline/context_qa_gate.py").read_text(encoding="utf-8")
     long_video = (ROOT / "pipeline/context_qa_long_video.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     audit = (ROOT / "docs/pipeline-context-qa-audit-20260705.md").read_text(encoding="utf-8")
     for token in ["build_qa_package", "filter_duplicate_draft_candidates", "DUPLICATE_DRAFT", "compile_clusters_with_context_qa"]:
         if token not in text:
@@ -73,7 +73,7 @@ def main() -> int:
     for token in ["_stage_reel_candidate", "draft-candidate", "produced_reels", "staged_reels"]:
         if token not in long_video:
             raise SystemExit(f"missing long-video staging token: {token}")
-    if "from pipeline.context_qa_gate import install" not in boot:
+    if "pipeline.context_qa_gate" not in boot:
         raise SystemExit("context QA gate is not bootstrapped")
     if "REAL-QA-001" not in audit or "REAL-DUP-002" not in audit or "REAL-UPLOAD-003" not in audit:
         raise SystemExit("context QA audit missing required gaps")

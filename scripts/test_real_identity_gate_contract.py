@@ -55,7 +55,7 @@ def main() -> int:
 
     text = (ROOT / "pipeline/real_identity_gate.py").read_text(encoding="utf-8")
     diag = (ROOT / "pipeline/draft_diagnostics.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     audit = (ROOT / "docs/pipeline-quality-audit-real-run-20260705.md").read_text(encoding="utf-8")
     for token in ["enforce_identity_gate", "_wrap_existing_hook", "_patch_orchestrator"]:
         if token not in text:
@@ -64,7 +64,7 @@ def main() -> int:
         raise SystemExit("draft diagnostics must include identity gate metadata")
     if "MetaPathFinder" in text or "importlib.abc" in text:
         raise SystemExit("real identity gate must compose with QA hook, not install a competing import hook")
-    if "from pipeline.real_identity_gate import install" not in boot:
+    if "pipeline.real_identity_gate" not in boot:
         raise SystemExit("real identity gate is not bootstrapped")
     if "REAL-ID-001" not in audit or "Google Cloud Video Intelligence object tracking" not in audit:
         raise SystemExit("real-run audit addendum missing REAL-ID-001 or official references")

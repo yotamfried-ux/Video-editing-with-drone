@@ -33,6 +33,7 @@ def main() -> int:
         },
         result_path="/tmp/pipeline-debug/publishable_reel_gate_result.json",
         marker=lambda **fields: calls.append(fields),
+        reader=lambda: {"status": "failed", "stage": "publishable_business_gate_failed"},
     )
     if not changed or len(calls) != 1:
         raise SystemExit(f"failed business gate did not emit one terminal status update: {calls}")
@@ -73,10 +74,12 @@ def main() -> int:
 
     source = SCRIPT_PATH.read_text(encoding="utf-8")
     required_source = [
-        "from integrations.run_status import mark_terminal_run",
-        'stage="publishable_business_gate_failed"',
-        'status="failed"',
-        'failure_source="publishable_reel_business_gate"',
+        "from integrations.run_status import mark_terminal_run_strict, read_terminal_state",
+        "write_status_outbox",
+        "verify_terminal_state",
+        '"stage": "publishable_business_gate_failed"',
+        '"status": "failed"',
+        '"failure_source": "publishable_reel_business_gate"',
     ]
     missing = [token for token in required_source if token not in source]
     if missing:

@@ -84,7 +84,7 @@ def main() -> None:
         require(summary["selected_action_seconds"] == 10.0, f"selected seconds wrong: {summary}")
 
         by_id = {item["athlete_cluster_id"]: item for item in report["athletes"]}
-        require(by_id["player_7"]["final_outcome"] == "draft_created", f"selected athlete outcome wrong: {by_id}")
+        require(by_id["player_7"]["final_outcome"] == "selected_for_render", f"selected athlete outcome wrong: {by_id}")
         require(by_id["surfer_B"]["final_outcome"] == "target_not_trackable", f"explicit no-output reason wrong: {by_id}")
         require(by_id["surfer_B"]["coverage_requirement_met"] is True, "explicit no-output should satisfy accountability")
         require(by_id["player_10"]["final_outcome"] == "unresolved_selection_path", f"generic reason should remain a gap: {by_id}")

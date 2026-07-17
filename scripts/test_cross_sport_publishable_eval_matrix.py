@@ -27,6 +27,10 @@ def strict_part(index: int, name: str, duration: float) -> dict[str, Any]:
     return {
         "part_index": index,
         "file_name": name,
+        "storage_object_id": f"review/{name}",
+        "authoritative_publishability_required": True,
+        "authoritative_publishability_persisted": True,
+        "authoritative_manifest_revision": f"manifest-{index}",
         "uploaded_to_review": True,
         "upload_error": None,
         "publishable": True,

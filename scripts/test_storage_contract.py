@@ -56,6 +56,7 @@ def main() -> int:
     storage = _read("integrations/storage.py")
     r2 = _read("integrations/r2_storage.py")
     run_tracked = _read("scripts/run_tracked.py")
+    bootstrap = _read("pipeline/bootstrap.py")
     deliver = _read("deliver.py")
     pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
     review_screen = _read("mobile/src/app/(operator)/review.tsx")
@@ -130,8 +131,17 @@ def main() -> int:
     )
 
     require_tokens(
-        "tracked pipeline storage routing",
+        "tracked pipeline canonical storage routing",
         run_tracked,
+        [
+            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+            "install_pre_orchestrator_patches()",
+            "import pipeline.orchestrator as _orchestrator",
+        ],
+    )
+    require_tokens(
+        "canonical storage backend alias",
+        bootstrap,
         [
             "def _install_storage_backend_alias()",
             'os.getenv("STORAGE_BACKEND", "drive")',
@@ -139,9 +149,9 @@ def main() -> int:
             "import integrations.storage as storage",
             'sys.modules["integrations.drive"] = storage',
             "_install_storage_backend_alias()",
-            "import pipeline.orchestrator as _orchestrator",
         ],
     )
+
 
     require_tokens(
         "delivery storage routing",

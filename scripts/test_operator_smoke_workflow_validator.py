@@ -50,30 +50,27 @@ def main() -> int:
     require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'lap>=0.5.12', 'ultralytics>=8.3.0'])
 
     run_tracked = Path('scripts/run_tracked.py').read_text(encoding='utf-8')
+    bootstrap = Path('pipeline/bootstrap.py').read_text(encoding='utf-8')
     selector_runtime = Path('pipeline/selector_candidate_runtime.py').read_text(encoding='utf-8')
     draft_diagnostics = Path('pipeline/draft_diagnostics.py').read_text(encoding='utf-8')
     require_tokens(
-        'selector candidate runtime install',
+        'production canonical bootstrap',
         run_tracked,
         [
-            '_install_selector_candidate_runtime',
-            'from pipeline.selector_candidate_runtime import install',
-            '_install_selector_candidate_runtime()',
+            'from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches',
+            'install_pre_orchestrator_patches()',
             'import pipeline.orchestrator as _orchestrator',
+            'install_post_orchestrator_patches()',
         ],
     )
     require_tokens(
-        'long video context runtime install',
-        run_tracked,
+        'canonical selector and context runtime install',
+        bootstrap,
         [
-            '_install_context_runtime',
-            'from pipeline.context_qa_long_video import install',
-            '_install_context_runtime()',
-            'import pipeline.orchestrator as _orchestrator',
+            'pipeline.selector_candidate_runtime',
+            'pipeline.context_qa_long_video',
         ],
     )
-    if run_tracked.index('_install_context_runtime()') > run_tracked.index('import pipeline.orchestrator as _orchestrator'):
-        raise SystemExit('context runtime must be installed before orchestrator import')
     require_tokens(
         'selector candidate runtime evidence',
         selector_runtime,

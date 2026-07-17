@@ -32,6 +32,10 @@ def manifest(athlete_ids: list[str]) -> dict:
                     {
                         "part_index": 1,
                         "file_name": "DRAFT_black_wetsuit.mp4",
+                        "storage_object_id": "review/DRAFT_black_wetsuit.mp4",
+                        "authoritative_publishability_required": True,
+                        "authoritative_publishability_persisted": True,
+                        "authoritative_manifest_revision": "manifest-revision",
                         "uploaded_to_review": True,
                         "upload_error": None,
                         "publishable": True,

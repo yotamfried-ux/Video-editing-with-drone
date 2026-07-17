@@ -7,6 +7,7 @@ production business gate must fail with explicit evidence.
 """
 from __future__ import annotations
 
+import copy
 import hashlib
 import json
 import logging
@@ -344,7 +345,11 @@ def _refresh_row_publishability(row: dict[str, Any]) -> None:
     for part in parts:
         ready = bool(part.get("render_ready"))
         uploaded = bool(part.get("uploaded_to_review"))
-        publishable = ready and uploaded and not part.get("upload_error")
+        authority_ok = (
+            not part.get("authoritative_publishability_required")
+            or part.get("authoritative_publishability_persisted") is True
+        )
+        publishable = ready and uploaded and not part.get("upload_error") and authority_ok
         part["publishable"] = publishable
         if publishable and part.get("review_draft_name"):
             publishable_names.append(str(part["review_draft_name"]))
@@ -374,6 +379,112 @@ def _recompute_summary(payload: dict[str, Any]) -> None:
     }
 
 
+def _manifest_revision(row: dict[str, Any], part: dict[str, Any]) -> str:
+    snapshot = {
+        "athlete_key": row.get("athlete_key"),
+        "athlete_ids": row.get("athlete_ids"),
+        "part_index": part.get("part_index"),
+        "storage_object_id": part.get("storage_object_id"),
+        "qa_evidence_recorded": part.get("qa_evidence_recorded"),
+        "qa_verdict": part.get("qa_verdict"),
+        "qa_passed": part.get("qa_passed"),
+        "technical_issues": part.get("technical_issues"),
+        "media_specs_revision": part.get("media_specs_revision"),
+        "render_ready": part.get("render_ready"),
+        "uploaded_to_review": part.get("uploaded_to_review"),
+    }
+    encoded = json.dumps(snapshot, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _draft_publishability_record(
+    row: dict[str, Any],
+    part: dict[str, Any],
+    *,
+    storage_object_id: str,
+    draft_name: str,
+) -> dict[str, Any]:
+    technical_issues = [str(item) for item in part.get("technical_issues", []) or []]
+    intended_publishable = bool(
+        part.get("render_ready")
+        and part.get("uploaded_to_review")
+        and not part.get("upload_error")
+        and not technical_issues
+        and part.get("qa_evidence_recorded") is True
+        and str(part.get("qa_verdict") or "").upper() == "PASS"
+        and part.get("qa_passed") is True
+    )
+    reasons = [str(item) for item in row.get("blocking_reasons", []) or []]
+    if not intended_publishable and not reasons:
+        reasons.append("authoritative_publishability_contract_not_satisfied")
+    return {
+        "storage_object_id": storage_object_id,
+        "draft_name": draft_name,
+        "pipeline_run_id": os.getenv("PIPELINE_RUN_ID") or None,
+        "athlete_key": row.get("athlete_key"),
+        "part_index": int(part.get("part_index") or 0),
+        "publishable": intended_publishable,
+        "qa_evidence_recorded": part.get("qa_evidence_recorded") is True,
+        "qa_verdict": str(part.get("qa_verdict") or "").upper() or None,
+        "qa_passed": part.get("qa_passed") is True,
+        "technical_issues": technical_issues,
+        "approval_blocked_reasons": sorted(set(reasons)),
+        "media_specs_revision": part.get("media_specs_revision"),
+        "manifest_revision": _manifest_revision(row, part),
+    }
+
+
+def _persist_draft_publishability(record: dict[str, Any]) -> None:
+    from integrations.supabase_uploader import upsert_draft_publishability
+
+    upsert_draft_publishability(record)
+
+
+def _find_upload_part(
+    payload: dict[str, Any],
+    draft_path: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    target = os.path.abspath(str(draft_path))
+    for row in payload.get("athletes", []) or []:
+        if not isinstance(row, dict):
+            continue
+        for part in row.get("parts", []) or []:
+            if not isinstance(part, dict):
+                continue
+            paths = {os.path.abspath(str(part.get("local_path") or ""))}
+            paths.update(
+                os.path.abspath(str(alias))
+                for alias in part.get("upload_path_aliases", []) or []
+            )
+            if target in paths:
+                return row, part
+    return None
+
+
+def _specs_key(path: str) -> str:
+    return os.path.abspath(str(path))
+
+
+def _media_specs_revision(specs: dict[str, Any]) -> str:
+    payload = json.dumps(specs, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+
+
+def _resolve_specs_snapshot(
+    paths: list[str],
+    inspect: Callable[[str], dict[str, Any]],
+    specs_by_path: dict[str, dict[str, Any]] | None,
+) -> dict[str, dict[str, Any]]:
+    provided = specs_by_path or {}
+    snapshot: dict[str, dict[str, Any]] = {}
+    for path in paths:
+        value = provided.get(path) or provided.get(_specs_key(path))
+        if value is None:
+            value = inspect(path)
+        snapshot[_specs_key(path)] = dict(value) if isinstance(value, dict) else {}
+    return snapshot
+
+
 def record_athlete_outcome(
     *,
     sport: str,
@@ -383,14 +494,16 @@ def record_athlete_outcome(
     flagged_paths: set[str],
     variant_failures: list[str] | None = None,
     specs_getter: Callable[[str], dict[str, Any]] | None = None,
+    specs_by_path: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Persist one eligible athlete's rendered output before upload confirmation."""
     inspect = specs_getter or _default_specs
+    specs_snapshot = _resolve_specs_snapshot(list(final_reels or []), inspect, specs_by_path)
     parts: list[dict[str, Any]] = []
     blocking_reasons = list(variant_failures or [])
 
     for index, path in enumerate(final_reels or [], start=1):
-        specs = inspect(path)
+        specs = specs_snapshot.get(_specs_key(path), {})
         issues = social_ready_issues(specs)
         qa_passed = path not in set(flagged_paths or set())
         if not qa_passed:
@@ -417,7 +530,8 @@ def record_athlete_outcome(
             "width": specs.get("width"),
             "height": specs.get("height"),
             "aspect": specs.get("aspect"),
-            "has_audio": bool(specs.get("has_audio")),
+            "has_audio": specs.get("has_audio") if isinstance(specs.get("has_audio"), bool) else None,
+            "media_specs_revision": _media_specs_revision(specs),
         })
 
     row = {
@@ -445,35 +559,87 @@ def record_athlete_outcome(
     return row
 
 
-def mark_upload_result(draft_path: str, draft_name: str, error: str | None = None) -> bool:
-    """Attach the real REVIEW upload result to the matching rendered manifest part."""
+def mark_upload_result(
+    draft_path: str,
+    draft_name: str,
+    error: str | None = None,
+    *,
+    storage_object_id: str | None = None,
+) -> bool:
+    """Attach REVIEW upload and persist authoritative server-side publishability.
+
+    The storage upload can succeed before the database authority write. In that
+    case the object remains visible but is fail-closed by the API, and the manifest
+    receives an explicit blocking issue so the business gate fails.
+    """
+    authority_record: dict[str, Any] | None = None
     with _MANIFEST_LOCK:
         payload = _read_manifest()
-        matched = False
-        for row in payload.get("athletes", []) or []:
-            if not isinstance(row, dict):
-                continue
-            for part in row.get("parts", []) or []:
-                if not isinstance(part, dict) or str(part.get("local_path") or "") != str(draft_path):
-                    continue
-                matched = True
-                part["upload_error"] = str(error) if error else None
-                part["uploaded_to_review"] = error is None
-                if error is None:
-                    part["review_draft_name"] = draft_name
-                    part["file_name"] = draft_name
-                else:
-                    reasons = list(row.get("blocking_reasons") or [])
-                    reasons.append(f"review_upload_failed:{Path(draft_path).name}:{error}")
-                    row["blocking_reasons"] = sorted(set(reasons))
+        matched_pair = _find_upload_part(payload, draft_path)
+        if matched_pair is None:
+            logger.warning("Publishable manifest could not match uploaded draft path %s", draft_path)
+            return False
+        row, part = matched_pair
+        part["upload_error"] = str(error) if error else None
+        part["uploaded_to_review"] = error is None
+        if error is None:
+            part["review_draft_name"] = draft_name
+            part["file_name"] = draft_name
+            part["uploaded_local_path"] = os.path.abspath(str(draft_path))
+            if storage_object_id:
+                part["storage_object_id"] = str(storage_object_id)
+                part["authoritative_publishability_required"] = True
+                part["authoritative_publishability_persisted"] = False
+                authority_record = _draft_publishability_record(
+                    row,
+                    part,
+                    storage_object_id=str(storage_object_id),
+                    draft_name=draft_name,
+                )
+        else:
+            reasons = list(row.get("blocking_reasons") or [])
+            reasons.append(f"review_upload_failed:{Path(draft_path).name}:{error}")
+            row["blocking_reasons"] = sorted(set(reasons))
+        _refresh_row_publishability(row)
+        _recompute_summary(payload)
+        _atomic_write(_manifest_path(), payload)
+
+    if authority_record is None:
+        return True
+
+    try:
+        _persist_draft_publishability(authority_record)
+    except Exception as exc:
+        logger.exception("Authoritative draft publishability persistence failed for %s", draft_name)
+        with _MANIFEST_LOCK:
+            payload = _read_manifest()
+            matched_pair = _find_upload_part(payload, draft_path)
+            if matched_pair is not None:
+                row, part = matched_pair
+                issues = [str(item) for item in part.get("technical_issues", []) or []]
+                if "publishability_authority_persistence_failed" not in issues:
+                    issues.append("publishability_authority_persistence_failed")
+                part["technical_issues"] = sorted(set(issues))
+                part["authoritative_publishability_persisted"] = False
+                reasons = list(row.get("blocking_reasons") or [])
+                reasons.append(f"publishability_authority_persistence_failed:{draft_name}:{exc}")
+                row["blocking_reasons"] = sorted(set(reasons))
                 _refresh_row_publishability(row)
-                break
-        if matched:
+                _recompute_summary(payload)
+                _atomic_write(_manifest_path(), payload)
+        return True
+
+    with _MANIFEST_LOCK:
+        payload = _read_manifest()
+        matched_pair = _find_upload_part(payload, draft_path)
+        if matched_pair is not None:
+            row, part = matched_pair
+            part["authoritative_publishability_persisted"] = True
+            part["authoritative_manifest_revision"] = authority_record["manifest_revision"]
+            _refresh_row_publishability(row)
             _recompute_summary(payload)
             _atomic_write(_manifest_path(), payload)
-        else:
-            logger.warning("Publishable manifest could not match uploaded draft path %s", draft_path)
-        return matched
+    return True
 
 
 def _patch_analyzer_contract() -> None:
@@ -604,7 +770,11 @@ def _patch_orchestrator_contract() -> None:
                 except Exception as exc:
                     mark_upload_result(draft_path, draft_name, error=str(exc))
                     raise
-                mark_upload_result(draft_path, draft_name)
+                mark_upload_result(
+                    draft_path,
+                    draft_name,
+                    storage_object_id=str(result or draft_name),
+                )
                 return result
 
             orchestrator.upload_draft = upload_with_manifest

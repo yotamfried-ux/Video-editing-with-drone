@@ -288,6 +288,10 @@ def build_ledger(trace_path: Path, upstream_path: Path | None = None) -> dict[st
         "discard_causes_available": discard_causes_available,
         "recall_status": "selected_and_discarded" if selected_count > 0 and discard_causes_available else "selected_only",
         "known_gap": None if selected_count > 0 and discard_causes_available else "discarded candidates are not yet emitted by the upstream selector",
+        "detected_athlete_registry": [
+            dict(row) for row in upstream.get("detected_athlete_registry", []) or []
+            if isinstance(row, dict)
+        ],
         "candidates": candidates,
     }
 

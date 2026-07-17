@@ -141,6 +141,20 @@ def build_selector_candidate_events(
 
     selected_count = sum(1 for item in candidates if item.get("selected"))
     discarded_count = sum(1 for item in candidates if item.get("discarded"))
+    detected_athlete_registry = [
+        {
+            "person_id": str(person.get("id") or "person_?"),
+            "source_person_id": str(person.get("id") or "person_?"),
+            "person_description": str(person.get("description") or "unknown"),
+            "source_video": source_video,
+            "detected_event_count": len([
+                event for event in person.get("events", []) or [] if isinstance(event, dict)
+            ]),
+            "no_output_reason": person.get("no_output_reason"),
+        }
+        for person in persons
+        if isinstance(person, dict)
+    ]
     return {
         "schema_version": SCHEMA_VERSION,
         "source_video": source_video,
@@ -148,6 +162,7 @@ def build_selector_candidate_events(
         "selected_count": selected_count,
         "discarded_count": discarded_count,
         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
+        "detected_athlete_registry": detected_athlete_registry,
         "candidates": candidates,
     }
 

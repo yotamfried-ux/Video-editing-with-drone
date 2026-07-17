@@ -70,10 +70,8 @@ def assert_fail_closed_and_staged_alias() -> None:
             flagged_paths=set(),
             specs_getter=inspect,
         )
-        # The original recorder needs one inspection and the integrity layer needs
-        # one independent final inspection. The integrity layer must not call its
-        # own inspection twice through a conditional expression.
-        if inspect_calls != 2:
+        # One immutable media snapshot is shared by the recorder and integrity layer.
+        if inspect_calls != 1:
             raise SystemExit(f"unexpected final media inspection count: {inspect_calls}")
 
         part = row["parts"][0]

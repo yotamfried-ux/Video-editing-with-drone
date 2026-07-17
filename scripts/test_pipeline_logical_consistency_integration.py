@@ -208,6 +208,26 @@ def assert_detected_athlete_accountability() -> None:
     if not isinstance(registry, list) or {row.get("person_id") for row in registry} != set(people):
         raise AssertionError("detected-athlete registry is incomplete")
 
+    from scripts.build_athlete_coverage_report import build_report
+    with tempfile.TemporaryDirectory() as td:
+        ledger = Path(td) / "ledger.json"
+        ledger.write_text(json.dumps({
+            "detected_athlete_registry": [{
+                "person_id": "person_missing",
+                "person_description": "detected surfer",
+                "source_video": "source.mp4",
+                "detected_event_count": 1,
+                "no_output_reason": None,
+            }],
+            "candidates": [],
+        }), encoding="utf-8")
+        coverage = build_report(ledger)
+        if coverage["summary"]["confirmed_athlete_cluster_count"] != 1:
+            raise AssertionError("registry-only athlete disappeared from the coverage denominator")
+        athlete = coverage["athletes"][0]
+        if athlete["coverage_requirement_met"] or athlete["final_outcome"] != "detected_without_candidate_evidence":
+            raise AssertionError(f"registry-only athlete did not become an explicit coverage gap: {athlete}")
+
 
 def _wave(event_id: str, start: float, end: float) -> dict[str, Any]:
     return {
@@ -246,18 +266,15 @@ def assert_rendered_duration_budget_and_no_hidden_duplicate() -> None:
 
 
 def assert_qa_maps_actual_rendered_timeline() -> None:
-    import pipeline.orchestrator as orchestrator
+    from pipeline.rendered_timeline import event_index_for_qa_defect
 
-    mapper = getattr(orchestrator, "_event_index_for_qa_defect", None)
-    if not callable(mapper):
-        raise AssertionError("QA repair has no rendered-timeline/event-id mapper")
     events = [
         {**_wave("wave_1", 0, 30), "rendered_timeline_start": 0.0, "rendered_timeline_end": 20.0},
         {**_wave("wave_2", 40, 70), "rendered_timeline_start": 19.75, "rendered_timeline_end": 42.0},
     ]
-    if mapper(events, {"event_id": "wave_2", "at_seconds": 4.0}) != 1:
+    if event_index_for_qa_defect(events, {"event_id": "wave_2", "at_seconds": 4.0}) != 1:
         raise AssertionError("event_id did not take precedence over an approximate timestamp")
-    if mapper(events, {"at_seconds": 30.0}) != 1:
+    if event_index_for_qa_defect(events, {"at_seconds": 30.0}) != 1:
         raise AssertionError("QA timestamp was not mapped through actual rendered offsets")
 
 
@@ -337,6 +354,62 @@ def assert_selection_is_not_mislabeled_as_draft() -> None:
 
 
 def assert_operator_uses_authoritative_publishability() -> None:
+    import pipeline.publishable_reel_policy as policy
+
+    captured: list[dict[str, Any]] = []
+    original_persist = policy._persist_draft_publishability
+    with tempfile.TemporaryDirectory() as td:
+        manifest = Path(td) / "manifest.json"
+        reel = str(Path(td) / "part.mp4")
+        old_manifest = os.environ.get("PUBLISHABLE_REEL_MANIFEST_FILE")
+        os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(manifest)
+        try:
+            policy.reset_manifest()
+            policy.record_athlete_outcome(
+                sport="surfing",
+                athlete_label="target surfer",
+                final_reels=[reel],
+                events_by_reel={reel: [_wave("wave_1", 0, 20)]},
+                flagged_paths=set(),
+                specs_by_path={reel: {
+                    "duration": 20.0,
+                    "width": 1080,
+                    "height": 1920,
+                    "aspect": 1080 / 1920,
+                    "has_audio": False,
+                }},
+            )
+            payload = json.loads(manifest.read_text(encoding="utf-8"))
+            part = payload["athletes"][0]["parts"][0]
+            part.update({
+                "qa_evidence_recorded": True,
+                "qa_verdict": "PASS",
+                "qa_passed": True,
+                "technical_issues": [],
+                "render_ready": True,
+            })
+            payload["athletes"][0]["blocking_reasons"] = []
+            policy._refresh_row_publishability(payload["athletes"][0])
+            policy._atomic_write(manifest, payload)
+            policy._persist_draft_publishability = lambda record: captured.append(dict(record))
+            if not policy.mark_upload_result(
+                reel,
+                "DRAFT_target.mp4",
+                storage_object_id="review/DRAFT_target.mp4",
+            ):
+                raise AssertionError("manifest did not reconcile the real REVIEW upload")
+            if len(captured) != 1 or captured[0].get("publishable") is not True:
+                raise AssertionError(f"pipeline did not persist positive authoritative publishability: {captured}")
+            stored = json.loads(manifest.read_text(encoding="utf-8"))["athletes"][0]["parts"][0]
+            if stored.get("authoritative_publishability_persisted") is not True:
+                raise AssertionError("manifest did not confirm authoritative publishability persistence")
+        finally:
+            policy._persist_draft_publishability = original_persist
+            if old_manifest is None:
+                os.environ.pop("PUBLISHABLE_REEL_MANIFEST_FILE", None)
+            else:
+                os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = old_manifest
+
     helper_path = ROOT / "web-api/src/lib/draft-publishability.ts"
     if not helper_path.exists():
         raise AssertionError("server-side draft publishability authority is missing")

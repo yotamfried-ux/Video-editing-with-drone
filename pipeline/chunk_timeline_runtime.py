@@ -362,6 +362,7 @@ def merge_selector_payloads(
     chunk_count = len(payloads)
     specs = build_chunk_specs(source_duration_sec, segment_sec, chunk_count)
     candidates: list[dict[str, Any]] = []
+    detected_registry: list[dict[str, Any]] = []
     invalid_count = 0
     clamped_count = 0
     recovered_count = 0
@@ -370,6 +371,18 @@ def merge_selector_payloads(
 
     for chunk_index, payload in enumerate(payloads):
         spec = specs[chunk_index]
+        for raw_person in payload.get("detected_athlete_registry", []) or []:
+            if not isinstance(raw_person, dict):
+                continue
+            source_person_id = str(raw_person.get("source_person_id") or raw_person.get("person_id") or "person_?")
+            detected_registry.append({
+                **raw_person,
+                "source_video": source_video,
+                "source_person_id": source_person_id,
+                "person_id": runtime_person_id(chunk_count, chunk_index, source_person_id),
+                "chunk_person_id": runtime_person_id(chunk_count, chunk_index, source_person_id),
+                "chunk_index": chunk_index,
+            })
         for raw in payload.get("candidates", []) or []:
             if not isinstance(raw, dict):
                 continue
@@ -441,6 +454,7 @@ def merge_selector_payloads(
         "selected_count": selected_count,
         "discarded_count": discarded_count,
         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
+        "detected_athlete_registry": detected_registry,
         "chunk_timeline_summary": {
             "source_duration_sec": round(source_duration_sec, 3),
             "chunk_count": chunk_count,

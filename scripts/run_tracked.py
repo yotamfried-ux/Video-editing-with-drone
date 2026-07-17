@@ -42,132 +42,8 @@ def _install_status_mirror() -> None:
     status_writer.write_pipeline_status = tracked_write_pipeline_status
 
 
-def _install_storage_backend_alias() -> None:
-    """Route legacy integrations.drive imports through storage.py for non-Drive backends."""
-    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
-    if backend == "drive":
-        return
-    import integrations.storage as storage
-    sys.modules["integrations.drive"] = storage
 
-
-def _install_r2_batch_scope() -> None:
-    """Scope R2 raw-video listing to a batch prefix when a batch id is set.
-
-    Previously only installed by the root ``sitecustomize.py``, which never
-    actually runs for ``python scripts/run_tracked.py`` -- Python's automatic
-    ``sitecustomize`` import only sees the script's own directory
-    (``scripts/``), not the repository root -- so batch scoping was silently
-    inactive in the real GitHub Actions production run.
-    """
-    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
-    batch_id = (os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
-    if backend != "r2" or not batch_id:
-        return
-    from pipeline.r2_batch_scope import install
-    install()
-
-
-def _install_perception_runtime() -> None:
-    from pipeline.perception.runtime import install
-    install()
-
-
-def _install_pipeline_quality_runtime() -> None:
-    from pipeline.runtime_quality import install
-    install()
-
-
-def _install_performance_reel_policy_runtime() -> None:
-    """Install the coverage-first sport-action contract; failures are fatal."""
-    from pipeline.performance_reel_policy import install
-    install()
-
-
-def _install_publishable_reel_policy_runtime() -> None:
-    """Install the canonical social-ready output and athlete business contract."""
-    from pipeline.publishable_reel_policy import install
-    install()
-
-
-def _install_silent_output_policy_runtime() -> None:
-    """Disable music/audio output and require one silent video per publishable Part."""
-    from pipeline.silent_output_policy import install
-    install()
-
-
-def _install_publishable_qa_evidence_runtime() -> None:
-    """Require a recorded final QA PASS before a rendered Part can be uploaded."""
-    from pipeline.publishable_qa_evidence import install
-    install()
-
-
-def _install_raw_timestamp_recovery() -> None:
-    # Must wrap analyzer._parse_session before chunk/selector runtimes capture it.
-    # Otherwise MM.SS values are discarded as sub-second fragments first.
-    from pipeline.raw_timestamp_recovery import install
-    install()
-
-
-def _install_chunk_timeline_runtime() -> None:
-    from pipeline.chunk_timeline_runtime import install
-    install()
-
-
-def _install_selector_candidate_runtime() -> None:
-    from pipeline.selector_candidate_runtime import install
-    install()
-
-
-def _install_teaser_policy_runtime() -> None:
-    from pipeline.teaser_policy_runtime import install
-    install()
-
-
-def _install_identity_failsafe_runtime() -> None:
-    from pipeline.identity_failsafe import install
-    install()
-
-
-def _install_cross_source_dedup_runtime() -> None:
-    from pipeline.cross_source_dedup import install
-    install()
-
-
-def _install_context_runtime() -> None:
-    from pipeline.context_qa_long_video import install
-    install()
-
-
-def _install_draft_diagnostics_runtime() -> None:
-    from pipeline.draft_diagnostics import install
-    install()
-
-
-def _install_candidate_ledger_runtime() -> None:
-    from pipeline.candidate_ledger import install
-    install()
-
-
-def _install_editorial_value_ranker_runtime() -> None:
-    from pipeline.editorial_value_ranker import install
-    install()
-
-
-def _install_athlete_canonicalization_runtime() -> None:
-    from pipeline.athlete_canonicalization import install
-    install()
-
-
-def _install_qa_reedit_window_contract() -> None:
-    from pipeline.qa_reedit_window_contract import install
-    install()
-
-
-def _install_draft_identity_metadata() -> None:
-    from pipeline.draft_identity_metadata import install
-    install()
-
+from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches
 
 def _selection_filter_path() -> Path:
     try:
@@ -235,32 +111,11 @@ def _no_drafts_failure() -> tuple[str, str, dict]:
 
 mark_run(status="running", stage="starting", progress=0.01)
 _install_status_mirror()
-_install_storage_backend_alias()
-_install_r2_batch_scope()
-_install_perception_runtime()
-_install_pipeline_quality_runtime()
-_install_performance_reel_policy_runtime()
-_install_publishable_reel_policy_runtime()
-_install_silent_output_policy_runtime()
-_install_publishable_qa_evidence_runtime()
-_install_raw_timestamp_recovery()
-_install_chunk_timeline_runtime()
-_install_selector_candidate_runtime()
-_install_teaser_policy_runtime()
-_install_identity_failsafe_runtime()
-_install_cross_source_dedup_runtime()
-_install_context_runtime()
-_install_draft_diagnostics_runtime()
-_install_candidate_ledger_runtime()
-_install_editorial_value_ranker_runtime()
-_install_athlete_canonicalization_runtime()
+install_pre_orchestrator_patches()
 
 import pipeline.orchestrator as _orchestrator
 
-# These contracts wrap the final orchestrator/editor chains, after QA/context
-# import hooks have installed their behavior.
-_install_qa_reedit_window_contract()
-_install_draft_identity_metadata()
+install_post_orchestrator_patches()
 
 from pipeline.orchestrator import main
 

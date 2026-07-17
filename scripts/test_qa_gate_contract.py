@@ -62,13 +62,13 @@ def main() -> int:
             raise SystemExit("QA gate metadata was not persisted")
 
     text = (ROOT / "pipeline/qa_gate_policy.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     for token in ["_OrchestratorPatchFinder", "_OrchestratorPatchLoader", "_patch_orchestrator", "original_qa_gate", "original_save_metadata", "qa_gate_with_diagnostics", "save_metadata_with_qa"]:
         if token not in text:
             raise SystemExit(f"missing install token: {token}")
     if "import pipeline.orchestrator" in text:
         raise SystemExit("QA gate policy must not import orchestrator during bootstrap")
-    if "from pipeline.qa_gate_policy import install" not in boot:
+    if "pipeline.qa_gate_policy" not in boot:
         raise SystemExit("QA gate policy is not bootstrapped")
 
     print("QA gate diagnostics contract checks passed")

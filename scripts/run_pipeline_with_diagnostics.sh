@@ -186,7 +186,7 @@ fi
 # durable run row and the global operator signal so the app cannot show success.
 if [ "$STATUS" -eq 0 ] && [ "$BUSINESS_GATE_STATUS" -ne 0 ]; then
   if ! python scripts/record_publishable_business_gate_status.py "$PUBLISHABLE_GATE_RESULT_FILE"; then
-    echo "::warning::could not propagate publishable business-gate failure to operator status"
+    echo "::error::could not verify publishable business-gate failure in durable/operator status; terminal_status_outbox.json was retained for retry"
   fi
 fi
 

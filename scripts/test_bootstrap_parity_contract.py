@@ -194,22 +194,36 @@ def main() -> int:
     )
 
     require(
-        "scripts/run_tracked.py installs required production policies",
+        "scripts/run_tracked.py uses shared bootstrap",
+        run_tracked,
+        [
+            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+            "install_pre_orchestrator_patches()",
+            "install_post_orchestrator_patches()",
+        ],
+    )
+    forbid(
+        "scripts/run_tracked.py must not keep a divergent manual patch stack",
         run_tracked,
         [
             "def _install_r2_batch_scope() -> None:",
-            "from pipeline.r2_batch_scope import install",
             "def _install_performance_reel_policy_runtime() -> None:",
-            "from pipeline.performance_reel_policy import install",
             "def _install_publishable_reel_policy_runtime() -> None:",
-            "from pipeline.publishable_reel_policy import install",
             "def _install_silent_output_policy_runtime() -> None:",
-            "from pipeline.silent_output_policy import install",
             "def _install_publishable_qa_evidence_runtime() -> None:",
-            "from pipeline.publishable_qa_evidence import install",
-            "_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_silent_output_policy_runtime()\n_install_publishable_qa_evidence_runtime()\n_install_raw_timestamp_recovery()",
-            "_install_storage_backend_alias()\n_install_r2_batch_scope()\n_install_perception_runtime()",
         ],
+    )
+    sitecustomize = read("scripts/sitecustomize.py")
+    usercustomize = read("scripts/usercustomize.py")
+    forbid(
+        "scripts/sitecustomize.py must remain path-only",
+        sitecustomize,
+        ["from pipeline.", "except Exception"],
+    )
+    forbid(
+        "scripts/usercustomize.py must remain empty of policy installs",
+        usercustomize,
+        ["from pipeline.", "__import__", "except Exception"],
     )
 
     require(

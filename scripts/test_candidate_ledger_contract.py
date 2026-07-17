@@ -78,9 +78,9 @@ def main() -> None:
     install()
     assert_true(getattr(draft_diagnostics, "_sportreel_candidate_ledger_installed", False), "install must patch diagnostics module")
 
-    with open("scripts/sitecustomize.py", encoding="utf-8") as handle:
+    with open("pipeline/bootstrap.py", encoding="utf-8") as handle:
         bootstrap = handle.read()
-    assert_true("pipeline.candidate_ledger" in bootstrap, "sitecustomize must bootstrap candidate ledger")
+    assert_true("pipeline.candidate_ledger" in bootstrap, "canonical bootstrap must install candidate ledger")
 
     print("candidate ledger contract ok")
 

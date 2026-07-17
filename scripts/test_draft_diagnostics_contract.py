@@ -76,13 +76,13 @@ def main() -> int:
             raise SystemExit("diagnostic artifact was not persisted")
 
     text = (ROOT / "pipeline/draft_diagnostics.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     for token in ["build_diagnostic_artifact", "augment_metadata_entry", "_wrap_qa_hook", "save_with_diagnostics"]:
         if token not in text:
             raise SystemExit(f"missing install token: {token}")
     if "importlib.abc" in text or "MetaPathFinder" in text:
         raise SystemExit("draft diagnostics must compose with QA hook, not install a competing import hook")
-    if "from pipeline.draft_diagnostics import install" not in boot:
+    if "pipeline.draft_diagnostics" not in boot:
         raise SystemExit("draft diagnostics is not bootstrapped")
 
     print("Draft diagnostics contract checks passed")

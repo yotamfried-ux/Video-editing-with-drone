@@ -114,6 +114,23 @@ export type ReprocessRow = {
 };
 
 // GET /api/operator/drafts
+export type DraftPublishabilityAuthority = {
+  storage_object_id: string;
+  draft_name: string;
+  pipeline_run_id: string | null;
+  athlete_key: string | null;
+  part_index: number;
+  publishable: boolean;
+  qa_evidence_recorded: boolean;
+  qa_verdict: string | null;
+  qa_passed: boolean;
+  technical_issues: string[];
+  approval_blocked_reasons: string[];
+  media_specs_revision: string | null;
+  manifest_revision: string;
+  updated_at: string;
+};
+
 export type DraftRow = {
   id: string;
   name: string;
@@ -126,6 +143,7 @@ export type DraftRow = {
   approval_blocked: boolean;
   approval_blocked_reasons: string[];
   approval_policy_version: string;
+  authoritative_publishability: DraftPublishabilityAuthority | null;
   reedit_task: ReprocessRow | null;
 };
 
