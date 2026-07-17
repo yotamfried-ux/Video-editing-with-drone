@@ -90,6 +90,12 @@ def _install_publishable_reel_policy_runtime() -> None:
     install()
 
 
+def _install_silent_output_policy_runtime() -> None:
+    """Disable music/audio output and require one silent video per publishable Part."""
+    from pipeline.silent_output_policy import install
+    install()
+
+
 def _install_publishable_qa_evidence_runtime() -> None:
     """Require a recorded final QA PASS before a rendered Part can be uploaded."""
     from pipeline.publishable_qa_evidence import install
@@ -235,6 +241,7 @@ _install_perception_runtime()
 _install_pipeline_quality_runtime()
 _install_performance_reel_policy_runtime()
 _install_publishable_reel_policy_runtime()
+_install_silent_output_policy_runtime()
 _install_publishable_qa_evidence_runtime()
 _install_raw_timestamp_recovery()
 _install_chunk_timeline_runtime()
