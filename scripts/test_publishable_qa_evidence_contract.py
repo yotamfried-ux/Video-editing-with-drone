@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: no reel is publishable without a recorded final QA PASS."""
+"""Regression: no silent reel is publishable without a recorded final QA PASS."""
 from __future__ import annotations
 
 import importlib.util
@@ -13,6 +13,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 POLICY_PATH = ROOT / "pipeline/publishable_reel_policy.py"
+SILENT_POLICY_PATH = ROOT / "pipeline/silent_output_policy.py"
 EVIDENCE_PATH = ROOT / "pipeline/publishable_qa_evidence.py"
 
 
@@ -27,7 +28,7 @@ def load_module(name: str, path: Path):
 
 def specs() -> dict[str, Any]:
     return {
-        "has_audio": True,
+        "has_audio": False,
         "duration": 36.0,
         "width": 1080,
         "height": 1920,
@@ -54,7 +55,9 @@ def read_athlete(manifest: Path) -> dict[str, Any]:
 
 def main() -> int:
     policy = load_module("publishable_qa_policy_test", POLICY_PATH)
+    silent = load_module("silent_output_policy_qa_test", SILENT_POLICY_PATH)
     evidence = load_module("publishable_qa_evidence_test", EVIDENCE_PATH)
+    policy.social_ready_issues = silent.silent_social_ready_issues
 
     with tempfile.TemporaryDirectory(prefix="sportreel-qa-evidence-") as directory:
         tmp = Path(directory)
@@ -88,6 +91,8 @@ def main() -> int:
             raise SystemExit("ungraded part remained render-ready")
         if "missing_final_qa_evidence" not in part.get("technical_issues", []):
             raise SystemExit("missing QA evidence reason was not persisted")
+        if part.get("has_audio") is not False:
+            raise SystemExit("QA fixture did not preserve the silent output contract")
 
         evidence.record_qa_result(
             reel,
@@ -150,10 +155,14 @@ def main() -> int:
         raise SystemExit(f"QA evidence runtime missing contract tokens: {missing}")
     if "pipeline.publishable_qa_evidence" not in bootstrap:
         raise SystemExit("shared bootstrap does not install explicit QA evidence")
+    if "pipeline.silent_output_policy" not in bootstrap:
+        raise SystemExit("shared bootstrap does not install the silent output policy")
     if "_install_publishable_qa_evidence_runtime()" not in run_tracked:
         raise SystemExit("production runner does not install explicit QA evidence")
+    if "_install_silent_output_policy_runtime()" not in run_tracked:
+        raise SystemExit("production runner does not install silent output policy")
 
-    print("Publishable final QA evidence contract checks passed")
+    print("Silent publishable final QA evidence contract checks passed")
     return 0
 
 
