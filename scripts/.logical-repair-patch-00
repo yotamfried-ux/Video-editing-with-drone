@@ -1,0 +1,162 @@
+--- a/.github/workflows/operator-smoke-check.yml
++++ b/.github/workflows/operator-smoke-check.yml
+@@ -13,6 +13,13 @@
+       - 'docs/operator-smoke.md'
+       - 'docs/qa-reedit-migration-smoke.md'
+       - 'docs/audit/personal-publishable-reel-completion-plan-20260717.md'
++      - 'web-api/src/lib/operator-draft-approve.ts'
++      - 'web-api/src/lib/draft-publishability.ts'
++      - 'scripts/test_pipeline_logical_consistency_integration.py'
++      - 'pipeline/stages/selector_candidates.py'
++      - 'pipeline/subject_gate_policy.py'
++      - 'pipeline/rendered_timeline.py'
++      - 'docs/audit/cross-layer-logical-consistency-test-basis-20260717.md'
+       - 'docs/audit/run-29165422772-four-gap-repair-plan.md'
+       - 'integrations/drive.py'
+       - 'integrations/r2_storage.py'
+@@ -214,6 +221,8 @@
+             raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
+           print('Multi-upload batch contract checks passed')
+           PY
++      - name: Validate cross-layer logical consistency
++        run: python scripts/test_pipeline_logical_consistency_integration.py
+       - name: Validate Bootstrap parity contract
+         run: PYTHONPATH=scripts:. python scripts/test_bootstrap_parity_contract.py
+       - name: Validate Batch scope contract
+--- a/.github/workflows/performance-reel-contract.yml
++++ b/.github/workflows/performance-reel-contract.yml
+@@ -29,6 +29,23 @@
+       - 'pipeline/stages/editor.py'
+       - 'pipeline/stages/feedback.py'
+       - 'pipeline/bootstrap.py'
++      - 'mobile/src/features/operator/types/contracts.ts'
++      - 'web-api/src/types/operator-contracts.ts'
++      - 'supabase/migrations/20260717_draft_publishability_authority.sql'
++      - 'scripts/test_qa_reedit_schema_preflight_contract.py'
++      - 'scripts/test_pipeline_quality_contract.py'
++      - 'scripts/test_candidate_ledger_contract.py'
++      - 'scripts/test_athlete_coverage_report_contract.py'
++      - 'scripts/check_qa_reedit_schema.py'
++      - 'scripts/build_candidate_decision_ledger.py'
++      - 'integrations/supabase_uploader.py'
++      - 'integrations/drive.py'
++      - 'pipeline/stages/selector_candidates.py'
++      - 'pipeline/selector_candidate_runtime.py'
++      - 'pipeline/chunk_timeline_runtime.py'
++      - 'pipeline/subject_gate_policy.py'
++      - 'pipeline/rendered_timeline.py'
++      - 'sitecustomize.py'
+       - 'integrations/run_status.py'
+       - 'scripts/run_tracked.py'
+       - 'scripts/run_pipeline_with_diagnostics.sh'
+@@ -69,10 +86,7 @@
+     steps:
+       - uses: actions/checkout@v4
+         with:
+-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+           persist-credentials: false
+-      - name: Persist exact Git tree
+-        run: git rev-parse HEAD^{tree} > /tmp/head-tree-sha.txt
+       - uses: actions/setup-python@v5
+         with:
+           python-version: '3.11'
+@@ -102,21 +116,24 @@
+         run: python scripts/test_publishable_gate_status_contract.py
+       - name: Validate bootstrap parity
+         run: python scripts/test_bootstrap_parity_contract.py
++      - name: Validate athlete coverage lifecycle contract
++        run: python scripts/test_athlete_coverage_report_contract.py
++      - name: Validate candidate-ledger accountability contract
++        run: PYTHONPATH=scripts:. python scripts/test_candidate_ledger_contract.py
++      - name: Validate Supabase authority schema contract
++        run: python scripts/test_qa_reedit_schema_preflight_contract.py
++      - name: Validate full pipeline quality contract
++        run: python scripts/test_pipeline_quality_contract.py
+       - name: Validate cross-layer logical consistency
+         run: python scripts/test_pipeline_logical_consistency_integration.py
+-      - name: Package exact PR source snapshot
+-        if: always()
+-        run: tar --exclude=.git -czf /tmp/sportreel-pr-source.tgz .
+-      - name: Upload exact PR source snapshot
+-        if: always()
+-        uses: actions/upload-artifact@v4
++      - uses: actions/setup-node@v4
+         with:
+-          name: sportreel-pr-source-${{ github.event.pull_request.head.sha || github.sha }}
+-          path: |
+-            /tmp/sportreel-pr-source.tgz
+-            /tmp/head-tree-sha.txt
+-          if-no-files-found: error
+-          retention-days: 1
++          node-version: '20'
++      - name: Validate web API TypeScript
++        working-directory: web-api
++        run: |
++          npm ci
++          npm run type-check
+       - name: Validate mobile review TypeScript
+         working-directory: mobile
+         run: |
+--- a/integrations/drive.py
++++ b/integrations/drive.py
+@@ -356,7 +356,7 @@
+ 
+ 
+ def upload_draft(draft_path: str, draft_name: str) -> str:
+-    """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
++    """Upload a draft reel to REVIEW_FOLDER_ID. Returns immutable Drive file id."""
+     print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
+     try:
+         service       = _get_upload_service()
+@@ -381,7 +381,9 @@
+             logger.warning("⚠️ Could not set public permission on draft %s: %s", draft_name, perm_err)
+         print(f"✅ Draft ready for review: {link}")
+         logger.info("Draft uploaded %s → %s", draft_name, link)
+-        return link
++        if not file_id:
++            raise RuntimeError(f"Drive upload returned no immutable file id for {draft_name}")
++        return file_id
+     except Exception as e:
+         logger.error("❌ Failed to upload draft %s: %s", draft_name, e)
+         print(f"❌ Draft upload failed for '{draft_name}': {e}")
+--- a/integrations/run_status.py
++++ b/integrations/run_status.py
+@@ -1,4 +1,4 @@
+-"""Best-effort helpers for durable pipeline run rows."""
++"""Helpers for durable pipeline run rows and terminal-state convergence."""
+ 
+ from __future__ import annotations
+ 
+@@ -17,17 +17,37 @@
+     return value or None
+ 
+ 
+-def mark_run(**fields) -> None:
++def _normalized_run_fields(fields: dict[str, Any]) -> dict[str, Any]:
++    normalized = dict(fields)
++    if normalized.get("progress") is not None:
++        normalized["progress"] = round(float(normalized["progress"]), 4)
++    if normalized.get("status") in TERMINAL_RUN_STATUSES:
++        normalized["finished_at"] = datetime.now(timezone.utc).isoformat()
++    return normalized
++
++
++def mark_run_strict(**fields: Any) -> None:
++    """Write one run-scoped update and surface persistence failures."""
+     run_id = get_run_id()
+     if not run_id or not fields:
+         return
+-    if fields.get("progress") is not None:
+-        fields["progress"] = round(float(fields["progress"]), 4)
+-    if fields.get("status") in TERMINAL_RUN_STATUSES:
+-        fields["finished_at"] = datetime.now(timezone.utc).isoformat()
++    from integrations.supabase_uploader import _supabase
++
++    response = (
++        _supabase()
++        .table("pipeline_runs")
++        .update(_normalized_run_fields(fields))
++        .eq("id", run_id)
++        .execute()
++    )
++    if getattr(response, "data", None)
