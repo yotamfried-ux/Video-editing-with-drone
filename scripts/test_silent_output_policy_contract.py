@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
-import os
+import math
 import sys
 import tempfile
 import types
@@ -106,10 +106,16 @@ def main() -> int:
                 "aspect": 1080 / 1920,
             },
         }
+        calls: dict[str, int] = {}
+
+        def inspect(path: str) -> dict:
+            calls[path] = calls.get(path, 0) + 1
+            return specs[path]
+
         selected, events, failures = silent.canonicalize_silent_variants(
             [str(clean), str(music)],
             [(str(clean), [{"event_id": "wave-1"}]), (str(music), [{"event_id": "wave-1"}])],
-            specs_getter=lambda path: specs[path],
+            specs_getter=inspect,
         )
         if selected != [str(clean)] or failures:
             raise SystemExit(f"silent canonical output was not selected: {selected}, {failures}")
@@ -117,6 +123,8 @@ def main() -> int:
             raise SystemExit("legacy music variant remained on disk")
         if events != [(str(clean), [{"event_id": "wave-1"}])]:
             raise SystemExit("silent selection lost event evidence")
+        if calls != {str(clean): 1, str(music): 1}:
+            raise SystemExit(f"media variants were inspected more than once: {calls}")
 
     valid = {
         "has_audio": False,
@@ -131,9 +139,17 @@ def main() -> int:
         raise SystemExit("audio-bearing output was not rejected")
     if "audio_state_unknown" not in silent.silent_social_ready_issues(valid | {"has_audio": None}):
         raise SystemExit("unknown audio state did not fail closed")
+    if "invalid_duration" not in silent.silent_social_ready_issues(valid | {"duration": math.nan}):
+        raise SystemExit("NaN duration was not rejected by the runtime policy")
+    if "invalid_duration" not in silent.silent_social_ready_issues(valid | {"duration": math.inf}):
+        raise SystemExit("infinite duration was not rejected by the runtime policy")
+    if "aspect_not_9_16" not in silent.silent_social_ready_issues(valid | {"aspect": math.nan}):
+        raise SystemExit("NaN aspect was not rejected by the runtime policy")
 
     source = POLICY_PATH.read_text(encoding="utf-8")
     required = [
+        "math.isfinite",
+        "specs_by_path",
         "editor._pick_music = no_music_picker",
         "editor.compile_reel = compile_silent",
         "editor._add_loop_bookend = silent_bookend",
