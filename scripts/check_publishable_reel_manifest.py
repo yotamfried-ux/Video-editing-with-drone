@@ -7,11 +7,18 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from publishable_manifest_contract import (
-    SCHEMA_VERSION,
-    validate_athlete_coverage,
-    validate_manifest,
-)
+try:
+    from scripts.publishable_manifest_contract import (
+        SCHEMA_VERSION,
+        validate_athlete_coverage,
+        validate_manifest,
+    )
+except ModuleNotFoundError:
+    from publishable_manifest_contract import (
+        SCHEMA_VERSION,
+        validate_athlete_coverage,
+        validate_manifest,
+    )
 
 
 def _load(path: Path, label: str) -> dict[str, Any]:
