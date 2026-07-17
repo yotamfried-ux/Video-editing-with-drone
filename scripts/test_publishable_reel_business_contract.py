@@ -35,9 +35,10 @@ def specs(*, audio: bool = True, duration: float = 30.0, width: int = 1080, heig
     }
 
 
-def event(index: int, source: str = "session.mp4") -> dict[str, Any]:
+def event(index: int, source: str = "session.mp4", athlete_id: str = "athlete_7") -> dict[str, Any]:
     return {
         "event_id": f"action-{index}",
+        "athlete_id": athlete_id,
         "type": "goal" if index == 1 else "save",
         "sport": "football",
         "start": float(index * 10),
@@ -117,6 +118,26 @@ def assert_canonical_variant_selection(policy: Any, tmp: Path) -> None:
         raise SystemExit("part canonicalization selected the wrong render variants")
 
 
+def coverage_payload(*, athlete_id: str = "athlete_7", description: str = "player #7 in red") -> dict[str, Any]:
+    return {
+        "summary": {
+            "coverage_gap_cluster_count": 0,
+            "athlete_accountability_rate": 1.0,
+        },
+        "athletes": [
+            {
+                "athlete_cluster_id": "session.mp4::person_A",
+                "athlete_ids": [athlete_id],
+                "descriptions": [description],
+                "candidate_action_count": 2,
+                "selected_action_count": 2,
+                "no_output_reason_explicit": False,
+                "coverage_requirement_met": True,
+            }
+        ],
+    }
+
+
 def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
     manifest = tmp / "publishable_reel_manifest.json"
     os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(manifest)
@@ -136,15 +157,43 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
         flagged_paths=set(),
         specs_getter=lambda path: spec_map[path],
     )
-    if row["primary_publishable_reel"] != "athlete_p1.mp4":
-        raise SystemExit("Part 1 was not selected as the primary publishable reel")
-    if row["supplemental_publishable_reels"] != ["athlete_p2.mp4"]:
-        raise SystemExit("supplemental publishable parts are not ordered")
+    if row["primary_publishable_reel"] is not None:
+        raise SystemExit("rendered output became publishable before REVIEW upload confirmation")
+    pre_upload = json.loads(manifest.read_text(encoding="utf-8"))
+    if not any("was not uploaded to REVIEW" in error for error in checker.validate_manifest(pre_upload)):
+        raise SystemExit("unuploaded rendered output did not fail the business gate")
+
+    if not policy.mark_upload_result(p1, "DRAFT_player_7_part_1.mp4"):
+        raise SystemExit("Part 1 upload could not be attached to the manifest")
+    if not policy.mark_upload_result(p2, "DRAFT_player_7_part_2.mp4"):
+        raise SystemExit("Part 2 upload could not be attached to the manifest")
 
     payload = json.loads(manifest.read_text(encoding="utf-8"))
-    errors = checker.validate_manifest(payload)
+    row = payload["athletes"][0]
+    if row["primary_publishable_reel"] != "DRAFT_player_7_part_1.mp4":
+        raise SystemExit("uploaded Part 1 was not selected as the primary publishable reel")
+    if row["supplemental_publishable_reels"] != ["DRAFT_player_7_part_2.mp4"]:
+        raise SystemExit("uploaded supplemental publishable parts are not ordered")
+    if row["athlete_ids"] != ["athlete_7"]:
+        raise SystemExit("canonical athlete identity was not preserved in the manifest")
+
+    coverage = coverage_payload()
+    errors = checker.validate_manifest(payload, coverage)
     if errors:
         raise SystemExit(f"valid publishable athlete manifest failed: {errors}")
+
+    unmatched_coverage = coverage_payload(athlete_id="athlete_missing", description="player #99 in green")
+    errors = checker.validate_manifest(payload, unmatched_coverage)
+    if not any("absent from the publishable manifest" in error for error in errors):
+        raise SystemExit("upstream selected athlete missing from the manifest was not detected")
+
+    unresolved_coverage = coverage_payload()
+    unresolved_coverage["athletes"][0]["coverage_requirement_met"] = False
+    unresolved_coverage["summary"]["coverage_gap_cluster_count"] = 1
+    unresolved_coverage["summary"]["athlete_accountability_rate"] = 0.0
+    errors = checker.validate_manifest(payload, unresolved_coverage)
+    if not any("unresolved coverage gap" in error for error in errors):
+        raise SystemExit("unresolved athlete coverage was not blocked")
 
     missing_output = copy.deepcopy(payload)
     missing_output["athletes"][0]["primary_publishable_reel"] = None
@@ -153,7 +202,7 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
     missing_output["summary"]["primary_publishable_reel_count"] = 0
     missing_output["summary"]["supplemental_publishable_reel_count"] = 0
     missing_output["summary"]["coverage_gap_count"] = 1
-    errors = checker.validate_manifest(missing_output)
+    errors = checker.validate_manifest(missing_output, coverage)
     if not any("no primary publishable reel" in error for error in errors):
         raise SystemExit("missing athlete output did not fail the business gate")
 
@@ -161,7 +210,7 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
     silent["athletes"][0]["parts"][0]["has_audio"] = False
     silent["athletes"][0]["parts"][0]["technical_issues"] = ["missing_audio"]
     silent["athletes"][0]["parts"][0]["publishable"] = False
-    errors = checker.validate_manifest(silent)
+    errors = checker.validate_manifest(silent, coverage)
     if not any("has no audio" in error for error in errors):
         raise SystemExit("silent primary output did not fail the business gate")
 
@@ -169,7 +218,7 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
     qa_failed["athletes"][0]["parts"][0]["qa_passed"] = False
     qa_failed["athletes"][0]["parts"][0]["technical_issues"] = ["final_qa_failed"]
     qa_failed["athletes"][0]["parts"][0]["publishable"] = False
-    errors = checker.validate_manifest(qa_failed)
+    errors = checker.validate_manifest(qa_failed, coverage)
     if not any("did not pass final QA" in error for error in errors):
         raise SystemExit("QA-failed output was incorrectly accepted as publishable")
 
@@ -183,13 +232,67 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
     duplicate["summary"]["primary_publishable_reel_count"] = 2
     duplicate["summary"]["supplemental_publishable_reel_count"] = 2
     errors = checker.validate_manifest(duplicate)
+    if not any("canonical athlete_id" in error for error in errors):
+        raise SystemExit("duplicate canonical athlete ownership did not fail the business gate")
     if not any("duplicated across athletes/parts" in error for error in errors):
         raise SystemExit("duplicate output ownership did not fail the business gate")
 
     policy.reset_manifest()
     empty = json.loads(manifest.read_text(encoding="utf-8"))
-    if checker.validate_manifest(empty):
+    empty_coverage = {
+        "summary": {"coverage_gap_cluster_count": 0, "athlete_accountability_rate": 1.0},
+        "athletes": [],
+    }
+    if checker.validate_manifest(empty, empty_coverage):
         raise SystemExit("empty no-input manifest should remain a valid zero-athlete result")
+
+
+def assert_semantic_and_qa_validation(policy: Any) -> None:
+    valid = {
+        "activity": "football",
+        "persons": [
+            {
+                "id": "person_A",
+                "description": "player #7 in red",
+                "events": [event(1)],
+            }
+        ],
+    }
+    parsed = policy.validate_session_semantics(valid)
+    if parsed["persons"][0]["id"] != "person_A":
+        raise SystemExit("valid session semantics were not preserved")
+
+    duplicate_person = copy.deepcopy(valid)
+    duplicate_person["persons"].append(copy.deepcopy(valid["persons"][0]))
+    try:
+        policy.validate_session_semantics(duplicate_person)
+    except ValueError as exc:
+        if "duplicate person id" not in str(exc):
+            raise
+    else:
+        raise SystemExit("duplicate model person IDs were not rejected")
+
+    invalid_window = copy.deepcopy(valid)
+    invalid_window["persons"][0]["events"][0]["end"] = invalid_window["persons"][0]["events"][0]["start"]
+    try:
+        policy.validate_session_semantics(invalid_window)
+    except ValueError as exc:
+        if "invalid time window" not in str(exc):
+            raise
+    else:
+        raise SystemExit("invalid model event window was not rejected")
+
+    unavailable = policy.require_real_qa_result({
+        "verdict": "PASS",
+        "technical": {"pass": True},
+        "defects": [],
+        "engagement_score": 100,
+        "overall": "QA skipped",
+    })
+    if unavailable.get("verdict") != "FAIL":
+        raise SystemExit("unavailable final QA did not fail closed")
+    if not any(defect.get("type") == "QA_UNAVAILABLE" for defect in unavailable.get("defects", [])):
+        raise SystemExit("QA outage did not produce explicit blocking evidence")
 
 
 def assert_source_contract(policy: Any) -> None:
@@ -210,7 +313,11 @@ def assert_source_contract(policy: Any) -> None:
         "one_primary_publishable_reel_per_eligible_athlete_v1",
         "canonicalize_publishable_variants",
         "record_athlete_outcome",
+        "mark_upload_result",
+        "validate_session_semantics",
+        "require_real_qa_result",
         "all_final_failures_block",
+        "uploaded_to_review",
     ]
     missing = [token for token in required_policy if token not in policy_source]
     if missing:
@@ -244,6 +351,8 @@ def assert_source_contract(policy: Any) -> None:
         raise SystemExit("publishable policy is not installed by all production entrypoints")
     if "check_publishable_reel_manifest.py" not in diagnostics:
         raise SystemExit("production diagnostics do not enforce the publishable manifest")
+    if '"$ATHLETE_COVERAGE_FILE"' not in diagnostics:
+        raise SystemExit("production business gate is not reconciled with athlete coverage evidence")
     if 'exit "$BUSINESS_GATE_STATUS"' not in diagnostics:
         raise SystemExit("business gate result is not the final successful-process exit code")
 
@@ -265,6 +374,7 @@ def main() -> int:
         tmp = Path(directory)
         assert_canonical_variant_selection(policy, tmp)
         assert_manifest_and_gate(policy, checker, tmp)
+    assert_semantic_and_qa_validation(policy)
     assert_source_contract(policy)
     print("Publishable reel business contract checks passed")
     return 0
