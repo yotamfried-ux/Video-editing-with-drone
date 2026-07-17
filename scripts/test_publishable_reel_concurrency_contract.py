@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: concurrent REVIEW uploads must not overwrite silent manifest parts."""
+"""Regression: concurrent REVIEW uploads must not overwrite silent manifest Parts."""
 from __future__ import annotations
 
 import importlib.util
@@ -47,6 +47,17 @@ def event(index: int) -> dict[str, Any]:
     }
 
 
+def attach_final_qa_pass(manifest: Path) -> None:
+    payload = json.loads(manifest.read_text(encoding="utf-8"))
+    for part in payload["athletes"][0]["parts"]:
+        part["qa_evidence_recorded"] = True
+        part["qa_verdict"] = "PASS"
+        part["qa_passed"] = True
+        part["technical_issues"] = []
+        part["render_ready"] = True
+    manifest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+
+
 def main() -> int:
     policy = load_module("publishable_reel_policy_concurrency", POLICY_PATH)
     silent = load_module("silent_output_policy_concurrency", SILENT_POLICY_PATH)
@@ -70,6 +81,7 @@ def main() -> int:
             flagged_paths=set(),
             specs_getter=lambda path: spec_map[path],
         )
+        attach_final_qa_pass(manifest)
 
         uploads = [
             (part1, "DRAFT_orange_board_part_1.mp4"),
@@ -83,9 +95,9 @@ def main() -> int:
         payload = json.loads(manifest.read_text(encoding="utf-8"))
         athlete = payload["athletes"][0]
         if athlete["primary_publishable_reel"] != "DRAFT_orange_board_part_1.mp4":
-            raise SystemExit("parallel upload lost or reordered the primary part")
+            raise SystemExit("parallel upload lost or reordered the primary Part")
         if athlete["supplemental_publishable_reels"] != ["DRAFT_orange_board_part_2.mp4"]:
-            raise SystemExit("parallel upload lost the supplemental part")
+            raise SystemExit("parallel upload lost the supplemental Part")
         if payload["summary"]["primary_publishable_reel_count"] != 1:
             raise SystemExit("parallel updates corrupted the manifest summary")
         if any(part.get("has_audio") is not False for part in athlete["parts"]):
@@ -95,12 +107,12 @@ def main() -> int:
             "summary": {
                 "coverage_gap_cluster_count": 0,
                 "athlete_accountability_rate": 1.0,
+                "selected_identity_lineage_completeness_rate": 1.0,
             },
             "athletes": [
                 {
                     "athlete_cluster_id": "parallel-session.mp4::person_A",
                     "athlete_ids": ["athlete_parallel"],
-                    "descriptions": ["surfer on orange board"],
                     "candidate_action_count": 2,
                     "selected_action_count": 2,
                     "no_output_reason_explicit": False,
@@ -110,7 +122,7 @@ def main() -> int:
         }
         errors = checker.validate_manifest(payload, coverage)
         if errors:
-            raise SystemExit(f"thread-safe silent manifest failed the business gate: {errors}")
+            raise SystemExit(f"thread-safe silent manifest failed the strict business gate: {errors}")
 
     source = POLICY_PATH.read_text(encoding="utf-8")
     required = ["threading.RLock()", "with _MANIFEST_LOCK:"]
