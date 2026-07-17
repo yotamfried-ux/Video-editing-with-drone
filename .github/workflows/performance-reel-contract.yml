@@ -7,6 +7,7 @@ on:
       - 'README.md'
       - 'docs/audit/personal-publishable-reel-completion-plan-20260717.md'
       - 'docs/audit/run-29516256449-performance-reel-repair-plan.md'
+      - 'docs/audit/cross-layer-logical-consistency-test-basis-20260717.md'
       - 'pipeline/performance_reel_policy.py'
       - 'pipeline/publishable_reel_policy.py'
       - 'pipeline/silent_output_policy.py'
@@ -17,6 +18,7 @@ on:
       - 'pipeline/primary_actor_policy.py'
       - 'pipeline/primary_actor_parent_identity.py'
       - 'pipeline/single_athlete_selection_policy.py'
+      - 'pipeline/context_qa_gate.py'
       - 'pipeline/context_qa_long_video.py'
       - 'pipeline/analyzer_score_guard.py'
       - 'pipeline/runtime_quality.py'
@@ -27,6 +29,7 @@ on:
       - 'pipeline/stages/editor.py'
       - 'pipeline/stages/feedback.py'
       - 'pipeline/bootstrap.py'
+      - 'integrations/run_status.py'
       - 'scripts/run_tracked.py'
       - 'scripts/run_pipeline_with_diagnostics.sh'
       - 'scripts/check_publishable_manifest_empty.py'
@@ -34,9 +37,12 @@ on:
       - 'scripts/publishable_manifest_contract.py'
       - 'scripts/record_publishable_business_gate_status.py'
       - 'scripts/sitecustomize.py'
+      - 'scripts/usercustomize.py'
+      - 'scripts/build_athlete_coverage_report.py'
       - 'scripts/test_bootstrap_parity_contract.py'
       - 'scripts/test_cross_sport_publishable_eval_matrix.py'
       - 'scripts/test_performance_reel_policy_contract.py'
+      - 'scripts/test_pipeline_logical_consistency_integration.py'
       - 'scripts/test_publishable_coverage_fail_closed_contract.py'
       - 'scripts/test_publishable_gate_status_contract.py'
       - 'scripts/test_publishable_identity_lineage_contract.py'
@@ -47,6 +53,9 @@ on:
       - 'scripts/test_review_finding_hardening_contract.py'
       - 'scripts/test_silent_output_policy_contract.py'
       - 'scripts/test_single_athlete_selection_policy_contract.py'
+      - 'web-api/src/app/api/operator/drafts/route.ts'
+      - 'web-api/src/lib/draft-publishability.ts'
+      - 'web-api/src/lib/operator-draft-approve.ts'
       - 'mobile/src/app/(operator)/review.tsx'
       - 'mobile/src/shared/components/Card.tsx'
   workflow_dispatch:
@@ -90,6 +99,8 @@ jobs:
         run: python scripts/test_publishable_gate_status_contract.py
       - name: Validate bootstrap parity
         run: python scripts/test_bootstrap_parity_contract.py
+      - name: Validate cross-layer logical consistency
+        run: python scripts/test_pipeline_logical_consistency_integration.py
       - name: Validate mobile review TypeScript
         working-directory: mobile
         run: |
