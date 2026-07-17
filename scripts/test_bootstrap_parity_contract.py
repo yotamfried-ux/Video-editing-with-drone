@@ -129,6 +129,7 @@ def main() -> int:
         "pipeline.runtime_quality",
         "pipeline.performance_reel_policy",
         "pipeline.publishable_reel_policy",
+        "pipeline.publishable_qa_evidence",
         "pipeline.selector_candidate_runtime",
         "pipeline.teaser_policy_runtime",
         "pipeline.identity_failsafe",
@@ -185,6 +186,7 @@ def main() -> int:
         [
             "pipeline.performance_reel_policy",
             "pipeline.publishable_reel_policy",
+            "pipeline.publishable_qa_evidence",
             "pipeline.selector_candidate_runtime",
         ],
     )
@@ -199,7 +201,9 @@ def main() -> int:
             "from pipeline.performance_reel_policy import install",
             "def _install_publishable_reel_policy_runtime() -> None:",
             "from pipeline.publishable_reel_policy import install",
-            "_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_raw_timestamp_recovery()",
+            "def _install_publishable_qa_evidence_runtime() -> None:",
+            "from pipeline.publishable_qa_evidence import install",
+            "_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_publishable_qa_evidence_runtime()\n_install_raw_timestamp_recovery()",
             "_install_storage_backend_alias()\n_install_r2_batch_scope()\n_install_perception_runtime()",
         ],
     )
