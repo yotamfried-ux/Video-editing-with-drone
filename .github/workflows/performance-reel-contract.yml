@@ -71,8 +71,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
-      - name: Print exact Git tree
-        run: echo "HEAD_TREE=$(git rev-parse HEAD^{tree})"
+      - name: Persist exact Git tree
+        run: git rev-parse HEAD^{tree} > /tmp/head-tree-sha.txt
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -112,7 +112,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: sportreel-pr-source-${{ github.event.pull_request.head.sha || github.sha }}
-          path: /tmp/sportreel-pr-source.tgz
+          path: |
+            /tmp/sportreel-pr-source.tgz
+            /tmp/head-tree-sha.txt
           if-no-files-found: error
           retention-days: 1
       - name: Validate mobile review TypeScript
