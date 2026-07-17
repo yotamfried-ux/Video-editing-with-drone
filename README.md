@@ -1,31 +1,32 @@
 # SportReel — personal sports reels from shared footage
 
-SportReel turns raw or edited sports footage into a personal, publishable social-media reel for every athlete who performs at least one usable action in the footage. The system is an app-controlled production platform with a mobile operator surface, a Next.js API boundary, GitHub Actions orchestration, Python video processing, storage, Supabase tracking, delivery approval, payments, and Discover.
+SportReel turns raw or edited sports footage into a personal, publishable social-media video for every athlete who performs at least one usable action in the footage. The system is an app-controlled production platform with a mobile operator surface, a Next.js API boundary, GitHub Actions orchestration, Python video processing, storage, Supabase tracking, delivery approval, payments, and Discover.
 
 ## Product vision — source of truth
 
 The business outcome is not “the pipeline produced some highlights.” The outcome is:
 
-> For every distinct athlete with at least one complete, visible, usable action, produce a personal reel that can be uploaded directly to social media so the athlete can promote themself.
+> For every distinct athlete with at least one complete, visible, usable action, produce a personal silent video that centers that athlete and can be uploaded directly to social media so the athlete can promote themself and add platform-native audio after download.
 
 This vision has the following non-negotiable rules:
 
-1. **One athlete per reel.** Never mix athletes. When identity is uncertain, block or split conservatively instead of guessing.
+1. **One featured athlete per reel, not one visible person.** Each reel is centered on one target athlete and the featured actions belong to that athlete. Teammates, opponents, officials, bystanders, and other athletes may remain visible or actively participate when the target athlete stays clear, continuous, and central. In football, a play normally contains many players. In surfing, another surfer may enter or ride the same wave. Neither case is a defect by itself. Block or split only when identity, tracking, or action attribution becomes genuinely uncertain.
 2. **Every eligible athlete is accountable.** Each athlete with at least one usable action must receive a publishable reel, or the run must contain an explicit hard-reject reason explaining why no reel can be produced.
-3. **One canonical publishable output per part.** Internal clean renders may exist during processing, but Review must show only the social-ready variant. A publishable reel must have audio, vertical 9:16 framing, supported encoding, acceptable resolution, and a duration of at most 90 seconds.
-4. **Primary reel first.** Each athlete receives one primary reel. Additional parts are allowed only when complete actions cannot fit under the platform limit. Parts must be clearly ordered and independently publishable.
-5. **Sport-specific coverage, shared business contract.** The definition of a usable action depends on the sport, but the athlete-level obligation does not. In surfing, every complete readable wave is included; a wave is rejected only for explicit evidence such as an immediate failed takeoff, no readable ride, duplication, or wrong athlete. In team sports, the action belongs to the athlete who performs the meaningful play.
+3. **One canonical silent output per part.** The pipeline must not select music, mix audio, preserve source audio, or publish an audio-bearing variant. Review shows one video-only file per Part. The athlete can add music or other audio in the social platform after download. A publishable reel must prove that it has no audio stream, use vertical 9:16 framing, supported encoding, acceptable resolution, and a duration of at most 90 seconds.
+4. **Primary reel first.** Each athlete receives one primary reel. Additional parts are allowed only when complete actions cannot fit under the platform limit. Parts must be clearly ordered and independently publishable. A complete action is never split between Parts.
+5. **Sport-specific coverage, shared business contract.** The definition of a usable action depends on the sport, but the athlete-level obligation does not. In surfing, every complete readable wave is included; a wave is rejected only for explicit evidence such as an immediate failed takeoff, no readable ride, duplication, wrong athlete, or loss of the target. Another surfer on the same wave does not invalidate the ride when the target surfer remains central. In team sports, the action belongs to the athlete who performs the meaningful play while the other players remain expected context.
 6. **Repair before removal.** QA should trim, extend, re-crop, re-track, or re-render when possible. A usable action must not disappear merely because it is less impressive, has removable dead time, or is not the best moment in the session.
 7. **QA failure is not publishable.** A final QA failure must block approval and enter the re-edit loop. “Non-blocking FAIL” is not a publishable business state.
-8. **Evidence is mandatory.** A production run is successful only when diagnostics prove athlete coverage, identity lineage, action inclusion/rejection reasons, social-media technical compliance, and final QA status.
+8. **Evidence is mandatory.** A production run is successful only when diagnostics prove athlete coverage, identity lineage, primary-athlete continuity, action inclusion/rejection reasons, silent-video technical compliance, and final QA status.
 
 Terms used throughout the repository:
 
 - **Eligible athlete:** a distinct athlete with at least one complete, visible, usable action.
-- **Publishable reel:** the canonical social-ready output that passed final QA and technical checks.
+- **Featured athlete / primary athlete:** the athlete for whom the personal reel is being created. Other people may be present, but the edit, tracking, and action attribution stay centered on this athlete.
+- **Publishable reel:** the canonical silent social-ready video that passed final QA and technical checks.
 - **Primary reel:** the first publishable reel for an athlete.
 - **Supplemental part:** another publishable reel required only because complete actions exceed 90 seconds.
-- **Hard reject:** an evidence-backed reason that makes an action or athlete output genuinely unusable; low score alone is not a hard reject.
+- **Hard reject:** an evidence-backed reason that makes an action or athlete output genuinely unusable; low score, other visible people, or another surfer on the same wave are not hard rejects by themselves.
 
 The implementation and acceptance plan for this contract is tracked in `docs/audit/personal-publishable-reel-completion-plan-20260717.md`. Changes that conflict with this section require an explicit product decision and an audit update; they must not be introduced as a local optimization.
 
@@ -78,7 +79,7 @@ Storage folder/prefix membership is operational state. The current flow uses:
 
 - `RAW_FOLDER_ID` / `raw/` — incoming footage waiting to run.
 - `PROCESSED_FOLDER_ID` / `processed/` — originals after verified processing.
-- `REVIEW_FOLDER_ID` / `review/` — canonical generated reels awaiting operator approval.
+- `REVIEW_FOLDER_ID` / `review/` — canonical generated silent reels awaiting operator approval.
 - `APPROVED_FOLDER_ID` / `approved/` — approved reels ready for delivery.
 - `PREVIEW_FOLDER_ID` / `previews/` — optional watermarked previews.
 - `PENDING_PAYMENT_FOLDER_ID` / `pending_payment/` — optional full reels awaiting payment handoff.
