@@ -1,0 +1,188 @@
+) == []:
++        raise RuntimeError(f"pipeline_runs update matched no row for {run_id}")
++
++
++def mark_run(**fields: Any) -> None:
++    """Best-effort live progress update; terminal correction uses strict helpers."""
+     try:
+-        from integrations.supabase_uploader import _supabase
+-        _supabase().table("pipeline_runs").update(fields).eq("id", run_id).execute()
++        mark_run_strict(**fields)
+     except Exception:
+         logger.warning("pipeline_runs update skipped", exc_info=True)
+ 
+@@ -42,6 +62,61 @@
+     return status, round(float(progress), 4) if progress is not None else 0.0
+ 
+ 
++def _terminal_payload(
++    *,
++    status: str,
++    stage: str,
++    progress: float | None,
++    error: str | None,
++    meta: dict[str, Any],
++) -> tuple[str, float, dict[str, Any], dict[str, Any]]:
++    global_stage, global_progress = _global_terminal_signal(status, progress)
++    global_meta: dict[str, Any] = {"terminal_status": status}
++    run_id = get_run_id()
++    if run_id:
++        global_meta["pipeline_run_id"] = run_id
++    if error:
++        global_meta["error"] = error
++    global_meta.update(meta)
++    run_fields: dict[str, Any] = {
++        "status": status,
++        "stage": stage,
++        "meta": global_meta,
++    }
++    if progress is not None or status in {"succeeded", "no_input"}:
++        run_fields["progress"] = global_progress
++    if error:
++        run_fields["error"] = error
++    return global_stage, global_progress, global_meta, run_fields
++
++
++def mark_terminal_run_strict(
++    *,
++    status: str,
++    stage: str,
++    progress: float | None = None,
++    error: str | None = None,
++    **meta: Any,
++) -> None:
++    """Persist both operator and run-scoped terminal state without swallowing errors."""
++    from integrations.supabase_uploader import _supabase
++
++    global_stage, global_progress, global_meta, run_fields = _terminal_payload(
++        status=status,
++        stage=stage,
++        progress=progress,
++        error=error,
++        meta=meta,
++    )
++    _supabase().table("pipeline_status").upsert({
++        "id": 1,
++        "stage": global_stage,
++        "progress": global_progress,
++        "meta": global_meta,
++    }).execute()
++    mark_run_strict(**run_fields)
++
++
+ def mark_terminal_run(
+     *,
+     status: str,
+@@ -50,34 +125,51 @@
+     error: str | None = None,
+     **meta: Any,
+ ) -> None:
+-    """Finalize both the durable run row and the singleton global live signal.
++    """Best-effort live terminal update used during the running pipeline.
+ 
+-    `pipeline_runs` remains the source of truth for the specific app-triggered
+-    run, while `pipeline_status` is only the global live signal displayed in the
+-    operator UI. The terminal write prevents a completed tracked run from leaving
+-    a stale intermediate global stage such as `qa` at 46%.
++    The post-run business gate deliberately calls ``mark_terminal_run_strict``
++    and verifies read-back. Keeping this path best-effort preserves progress
++    reporting when observability is temporarily unavailable.
+     """
+-    global_stage, global_progress = _global_terminal_signal(status, progress)
+-    global_meta: dict[str, Any] = {"terminal_status": status}
+-    run_id = get_run_id()
+-    if run_id:
+-        global_meta["pipeline_run_id"] = run_id
+-    if error:
+-        global_meta["error"] = error
+-    global_meta.update(meta)
+-
+-    # Write the global singleton first. In run_tracked.py this writer is patched
+-    # to mirror stage/progress into pipeline_runs, so the final mark_run below
+-    # intentionally wins and preserves run-scoped stage values like "finished".
++    global_stage, global_progress, global_meta, run_fields = _terminal_payload(
++        status=status,
++        stage=stage,
++        progress=progress,
++        error=error,
++        meta=meta,
++    )
+     try:
+         from integrations.supabase_uploader import write_pipeline_status
++
+         write_pipeline_status(global_stage, global_progress, **global_meta)
+     except Exception:
+         logger.warning("pipeline_status terminal update skipped", exc_info=True)
++    mark_run(**run_fields)
+ 
+-    run_fields: dict[str, Any] = {"status": status, "stage": stage, "meta": global_meta}
+-    if progress is not None or status in {"succeeded", "no_input"}:
+-        run_fields["progress"] = global_progress
+-    if error:
+-        run_fields["error"] = error
+-    mark_run(**run_fields)
++
++def read_terminal_state() -> dict[str, Any]:
++    """Read back run-scoped and operator terminal state for convergence checks."""
++    from integrations.supabase_uploader import _supabase
++
++    client = _supabase()
++    run_row: dict[str, Any] | None = None
++    run_id = get_run_id()
++    if run_id:
++        response = (
++            client.table("pipeline_runs")
++            .select("id,status,stage,progress,error,meta,finished_at")
++            .eq("id", run_id)
++            .limit(1)
++            .execute()
++        )
++        if getattr(response, "data", None):
++            run_row = response.data[0]
++    global_response = (
++        client.table("pipeline_status")
++        .select("id,stage,progress,meta,updated_at")
++        .eq("id", 1)
++        .limit(1)
++        .execute()
++    )
++    global_row = global_response.data[0] if getattr(global_response, "data", None) else None
++    return {"run": run_row, "global": global_row}
+--- a/integrations/supabase_uploader.py
++++ b/integrations/supabase_uploader.py
+@@ -123,6 +123,26 @@
+     if res.data:
+         return res.data[0].get("sources") or []
+     return []
++
++
++def upsert_draft_publishability(record: dict) -> None:
++    """Persist the authoritative server-side approval contract for one REVIEW object.
++
++    This write is product-critical. Callers must convert a failure into a blocked
++    manifest outcome rather than allowing filename/client inference to approve it.
++    """
++    required = {"storage_object_id", "draft_name", "part_index", "manifest_revision"}
++    missing = sorted(key for key in required if not str(record.get(key) or "").strip())
++    if missing:
++        raise ValueError(f"draft publishability record missing required fields: {missing}")
++    payload = {
++        **record,
++        "technical_issues": [str(item) for item in record.get("technical_issues", []) or []],
++        "approval_blocked_reasons": [
++            str(item) for item in record.get("approval_blocked_reasons", []) or []
++        ],
++    }
++    _supabase().table("draft_publishability").upsert(payload).execute()
+ 
+ 
+ def _qa_defects(qa_gate: dict) -> list[dict]:
+--- a/mobile/src/app/(operator)/review.tsx
++++ b/mobile/src/app/(operator)/review.tsx
+@@ -175,9 +175,6 @@
+                 headers: { 'Content-Type': 'application/json' },
+                 body: JSON.stringify({
+                   file_id: draft.id,
+-                  file_name: draft.name,
+-                  review_required: draft.review_required,
+-                  approval_blocked_reasons: draft.approval_blocked_reasons,
