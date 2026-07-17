@@ -175,6 +175,12 @@ else
   fi
 fi
 
+# A checker import/runtime crash must not leave status propagation without the
+# durable failure artifact it consumes.
+if [ "$BUSINESS_GATE_STATUS" -ne 0 ] && [ ! -f "$PUBLISHABLE_GATE_RESULT_FILE" ]; then
+  write_missing_gate_result "publishable reel business gate failed before writing its result artifact"
+fi
+
 # run_tracked.py has already written a terminal result before this post-run gate.
 # When processing succeeded but the product contract failed, overwrite both the
 # durable run row and the global operator signal so the app cannot show success.
