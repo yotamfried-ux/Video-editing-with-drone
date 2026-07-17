@@ -35,6 +35,8 @@ def manifest(athlete_ids: list[str]) -> dict:
                         "uploaded_to_review": True,
                         "upload_error": None,
                         "publishable": True,
+                        "qa_evidence_recorded": True,
+                        "qa_verdict": "PASS",
                         "qa_passed": True,
                         "has_audio": False,
                         "technical_issues": [],
@@ -70,7 +72,6 @@ def coverage(athlete_ids: list[str], lineage_rate: float | None = None) -> dict:
             {
                 "athlete_cluster_id": "source.mp4::person_A",
                 "athlete_ids": athlete_ids,
-                "descriptions": ["surfer in black wetsuit"],
                 "candidate_action_count": 1,
                 "selected_action_count": 1,
                 "no_output_reason_explicit": False,
@@ -94,14 +95,21 @@ def main() -> int:
         manifest([]),
         coverage(["athlete_canonical_A"], 1.0),
     )
-    if not any("publishable athlete lacks canonical athlete_id lineage" in error for error in manifest_missing):
+    if not any("exactly one featured canonical athlete_id" in error for error in manifest_missing):
         raise SystemExit("publishable output without athlete_id was not blocked")
+
+    manifest_mixed = checker.validate_manifest(
+        manifest(["athlete_canonical_A", "athlete_canonical_B"]),
+        coverage(["athlete_canonical_A"], 1.0),
+    )
+    if not any("exactly one featured canonical athlete_id" in error for error in manifest_mixed):
+        raise SystemExit("one publishable row owning two athletes was not blocked")
 
     coverage_missing = checker.validate_manifest(
         manifest(["athlete_canonical_A"]),
         coverage([], 0.0),
     )
-    if not any("selected athlete lacks canonical athlete_id lineage" in error for error in coverage_missing):
+    if not any("exactly one canonical athlete_id" in error for error in coverage_missing):
         raise SystemExit("selected coverage row without athlete_id was not blocked")
     if not any("selected identity lineage completeness" in error for error in coverage_missing):
         raise SystemExit("lineage summary below 1.0 was not blocked")
