@@ -8,6 +8,7 @@ contract failure rather than a preferred output.
 from __future__ import annotations
 
 import logging
+import math
 import os
 from pathlib import Path
 from typing import Any, Callable
@@ -21,6 +22,14 @@ MAX_PUBLISHABLE_SECONDS = 90.0
 MIN_PUBLISHABLE_HEIGHT = 1280
 
 
+def _finite_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if math.isfinite(number) else None
+
+
 def silent_social_ready_issues(specs: dict[str, Any]) -> list[str]:
     """Return deterministic reasons a file violates the silent social-ready contract."""
     issues: list[str] = []
@@ -30,20 +39,14 @@ def silent_social_ready_issues(specs: dict[str, Any]) -> list[str]:
     elif audio_state is not False:
         issues.append("audio_state_unknown")
 
-    try:
-        duration = float(specs.get("duration"))
-    except (TypeError, ValueError):
-        duration = 0.0
-    if duration <= 0:
+    duration = _finite_float(specs.get("duration"))
+    if duration is None or duration <= 0:
         issues.append("invalid_duration")
     elif duration > MAX_PUBLISHABLE_SECONDS:
         issues.append("duration_over_90_seconds")
 
-    try:
-        aspect = float(specs.get("aspect"))
-    except (TypeError, ValueError):
-        aspect = 0.0
-    if aspect <= 0 or abs(aspect - 9 / 16) > 0.02:
+    aspect = _finite_float(specs.get("aspect"))
+    if aspect is None or aspect <= 0 or abs(aspect - 9 / 16) > 0.02:
         issues.append("aspect_not_9_16")
 
     try:
@@ -99,18 +102,22 @@ def canonicalize_silent_variants(
     for canonical in order:
         variants = groups[canonical]
         clean_variants = [path for path in variants if not path.lower().endswith("_music.mp4")]
+        specs_by_path: dict[str, dict[str, Any]] = {}
+        for path in variants:
+            inspected = inspect(path)
+            specs_by_path[path] = inspected if isinstance(inspected, dict) else {}
+
         candidate: str | None = None
         candidate_specs: dict[str, Any] = {}
-
         for path in clean_variants:
-            specs = inspect(path)
+            specs = specs_by_path[path]
             if specs.get("has_audio") is False:
                 candidate = path
                 candidate_specs = specs
                 break
 
         if candidate is None:
-            if any(inspect(path).get("has_audio") is True for path in clean_variants):
+            if any(specs_by_path[path].get("has_audio") is True for path in clean_variants):
                 failures.append(f"unexpected_audio_variant:{Path(canonical).name}")
             else:
                 failures.append(f"no_silent_variant:{Path(canonical).name}")
@@ -118,12 +125,13 @@ def canonicalize_silent_variants(
                 _safe_remove(variant)
             continue
 
-        try:
-            duration = float(candidate_specs.get("duration") or 0.0)
-        except (TypeError, ValueError):
-            duration = 0.0
-        if duration <= 0 or duration > MAX_PUBLISHABLE_SECONDS:
-            code = "invalid_duration" if duration <= 0 else "duration_over_90_seconds"
+        duration = _finite_float(candidate_specs.get("duration"))
+        if duration is None or duration <= 0 or duration > MAX_PUBLISHABLE_SECONDS:
+            code = (
+                "invalid_duration"
+                if duration is None or duration <= 0
+                else "duration_over_90_seconds"
+            )
             failures.append(f"{code}:{Path(canonical).name}")
             for variant in variants:
                 _safe_remove(variant)
