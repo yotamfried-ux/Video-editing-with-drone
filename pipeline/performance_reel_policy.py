@@ -3,7 +3,8 @@
 Every usable wave for one surfer belongs in that surfer's performance reel.
 Scores control ordering and emphasis, not whether a readable ride disappears.
 Whole rides are packed below the 90-second platform ceiling and split only
-between rides.
+between rides. Another surfer may be present or active on the same wave when
+the target surfer remains the clear, continuous center of the selected ride.
 """
 from __future__ import annotations
 
@@ -40,16 +41,22 @@ SCORE-CUTOFF RULES ABOVE WHEN THE FOOTAGE IS SURFING:
   highlights and not an arbitrary 3-8 event sample.
 - A lower score changes ordering and edit emphasis; it does NOT remove a completed
   readable ride from that surfer's performance reel.
+- A surfer is the featured athlete of their own reel; the frame does not need to
+  contain only that surfer. Another surfer may enter, cross, or ride the SAME WAVE.
+  Keep the full ride when the target surfer remains the clear, continuous center and
+  the selected maneuvers are attributable to that surfer.
 - Exclude a wave only when there is explicit hard evidence that no usable ride was
   established, such as an immediate failed takeoff, no visible/readable surfing,
-  a duplicate of the same physical wave, or a different athlete.
+  a duplicate of the same physical wave, target loss, identity switch, or evidence
+  that the selected action actually belongs to a different athlete.
+- Do NOT use another visible/active surfer as a rejection reason by itself.
 - Use one event for the complete ride: takeoff/setup through the natural finish,
   fall, kick-out, or loss of the wave. Do not split one wave into separate turns.
 - Keep separate waves as separate events so the editor can pack all whole rides
   into consecutive reels of at most 90 seconds and split only between waves.
 - In the JSON, set ride_completed=true for a completed readable ride. Set
   ride_completed=false only with hard_reject_reason explaining the explicit
-  failed-takeoff/no-ride evidence.
+  failed-takeoff/no-ride or target-identity evidence.
 """
 
 
