@@ -1,0 +1,33 @@
+name: Performance Reel Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/performance-reel-contract.yml'
+      - 'pipeline/performance_reel_policy.py'
+      - 'pipeline/bootstrap.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_performance_reel_policy_contract.py'
+      - 'mobile/src/app/(operator)/review.tsx'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate all-waves performance reel contract
+        run: python scripts/test_performance_reel_policy_contract.py
+      - name: Validate mobile review TypeScript
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run type-check
