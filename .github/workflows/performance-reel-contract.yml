@@ -9,7 +9,10 @@ on:
       - 'docs/audit/run-29516256449-performance-reel-repair-plan.md'
       - 'pipeline/performance_reel_policy.py'
       - 'pipeline/publishable_reel_policy.py'
+      - 'pipeline/silent_output_policy.py'
       - 'pipeline/publishable_qa_evidence.py'
+      - 'pipeline/primary_actor_policy.py'
+      - 'pipeline/single_athlete_selection_policy.py'
       - 'pipeline/analyzer_score_guard.py'
       - 'pipeline/runtime_quality.py'
       - 'pipeline/qa_gate_policy.py'
@@ -34,6 +37,8 @@ on:
       - 'scripts/test_publishable_qa_evidence_contract.py'
       - 'scripts/test_publishable_reel_business_contract.py'
       - 'scripts/test_publishable_reel_concurrency_contract.py'
+      - 'scripts/test_silent_output_policy_contract.py'
+      - 'scripts/test_single_athlete_selection_policy_contract.py'
       - 'mobile/src/app/(operator)/review.tsx'
       - 'mobile/src/shared/components/Card.tsx'
   workflow_dispatch:
@@ -53,6 +58,10 @@ jobs:
           python-version: '3.11'
       - name: Validate all-waves performance reel contract
         run: python scripts/test_performance_reel_policy_contract.py
+      - name: Validate centered-athlete selection contract
+        run: python scripts/test_single_athlete_selection_policy_contract.py
+      - name: Validate silent output runtime contract
+        run: python scripts/test_silent_output_policy_contract.py
       - name: Validate per-athlete publishable reel business contract
         run: python scripts/test_publishable_reel_business_contract.py
       - name: Validate explicit final QA evidence
