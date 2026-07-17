@@ -150,6 +150,10 @@ def install_pre_orchestrator_patches() -> None:
 
     install_performance_reel_policy()
 
+    from pipeline.publishable_reel_policy import install as install_publishable_reel_policy
+
+    install_publishable_reel_policy()
+
     from pipeline.selector_candidate_runtime import install as install_selector_candidate_runtime
 
     install_selector_candidate_runtime()
