@@ -10,13 +10,12 @@ permissions:
   contents: write
 
 jobs:
-  apply-verified-repair:
+  stage-verified-repair:
     runs-on: ubuntu-latest
     env:
       REPAIR_BRANCH: temp/logical-consistency-repair-bundle
-      PR_BRANCH: fix/per-athlete-all-waves-performance-reels
+      TARGET_BRANCH: temp/logical-consistency-applied
       EXPECTED_PATCH_SHA256: 7bcfc4e74db1f085271bb69a05e5aa97d43512d99c4361e0c4e24bc5d065255f
-      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -72,30 +71,26 @@ jobs:
               text = text.replace(old, new, 1)
           path.write_text(text, encoding='utf-8')
           PY
-          wc -c /tmp/logical-repair.patch
-          sha256sum /tmp/logical-repair.patch
           echo "$EXPECTED_PATCH_SHA256  /tmp/logical-repair.patch" | sha256sum --check --strict
-      - name: Apply repair to exact pre-repair tree
+      - name: Apply repair and verify integrated contracts
         run: |
           set -euo pipefail
           git show 344d03d7dab6d4a078aaa70f3920fd348357e36b:.github/workflows/performance-reel-contract.yml \
             > .github/workflows/performance-reel-contract.yml
           patch --batch --forward -p1 < /tmp/logical-repair.patch
           git diff --check
-      - name: Verify integrated product contracts before commit
-        run: |
-          set -euo pipefail
           python scripts/test_pipeline_logical_consistency_integration.py
           python scripts/test_bootstrap_parity_contract.py
           python scripts/test_performance_reel_policy_contract.py
           python scripts/test_publishable_reel_business_contract.py
-      - name: Commit verified repair atomically
+      - name: Commit non-workflow repair files to staging branch
         run: |
           set -euo pipefail
+          git checkout HEAD -- \
+            .github/workflows/operator-smoke-check.yml \
+            .github/workflows/performance-reel-contract.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'Fix cross-layer logical consistency contracts'
-          git push origin "HEAD:$PR_BRANCH"
-          gh api --method DELETE \
-            "repos/${GITHUB_REPOSITORY}/git/refs/heads/temp/logical-consistency-repair-bundle" || true
+          git push origin "HEAD:$TARGET_BRANCH"
