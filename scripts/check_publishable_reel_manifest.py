@@ -211,8 +211,13 @@ def validate_manifest(
                 publishable_parts.append(part)
             if part.get("qa_passed") is not True:
                 errors.append(f"{label}: part {part_pos} did not pass final QA")
-            if part.get("has_audio") is not True:
-                errors.append(f"{label}: part {part_pos} has no audio")
+
+            audio_state = part.get("has_audio")
+            if audio_state is True:
+                errors.append(f"{label}: part {part_pos} contains unexpected audio")
+            elif audio_state is not False:
+                errors.append(f"{label}: part {part_pos} does not prove a silent audio state")
+
             issues = part.get("technical_issues") or []
             if issues:
                 errors.append(f"{label}: part {part_pos} technical issues: {issues}")
