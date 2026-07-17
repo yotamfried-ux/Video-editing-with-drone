@@ -1,7 +1,8 @@
 """Bootstrap guards for script entrypoints.
 
 Python imports this file automatically when a script in this directory is run.
-Keep it narrow and fail-safe.
+Keep it narrow and fail-safe. Product-critical policies are installed explicitly
+by the real entrypoint so their failures cannot be suppressed here.
 """
 from __future__ import annotations
 
@@ -161,15 +162,6 @@ def _install_context_qa_long_video() -> None:
         pass
 
 
-def _install_performance_reel_policy() -> None:
-    _repo_root()
-    try:
-        from pipeline.performance_reel_policy import install
-        install()
-    except Exception:
-        pass
-
-
 _install_perception_runtime()
 _install_raw_timestamp_recovery()
 _install_analyzer_score_guard()
@@ -186,4 +178,3 @@ _install_real_identity_gate()
 _install_final_duplicate_guard()
 _install_context_qa_gate()
 _install_context_qa_long_video()
-_install_performance_reel_policy()
