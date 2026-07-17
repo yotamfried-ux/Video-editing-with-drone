@@ -154,6 +154,10 @@ def install_pre_orchestrator_patches() -> None:
 
     install_publishable_reel_policy()
 
+    from pipeline.publishable_qa_evidence import install as install_publishable_qa_evidence
+
+    install_publishable_qa_evidence()
+
     from pipeline.selector_candidate_runtime import install as install_selector_candidate_runtime
 
     install_selector_candidate_runtime()
