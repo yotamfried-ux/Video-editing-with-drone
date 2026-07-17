@@ -101,6 +101,17 @@ jobs:
         run: python scripts/test_bootstrap_parity_contract.py
       - name: Validate cross-layer logical consistency
         run: python scripts/test_pipeline_logical_consistency_integration.py
+      - name: Package exact PR source snapshot
+        if: always()
+        run: tar --exclude=.git -czf /tmp/sportreel-pr-source.tgz .
+      - name: Upload exact PR source snapshot
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sportreel-pr-source-${{ github.event.pull_request.head.sha || github.sha }}
+          path: /tmp/sportreel-pr-source.tgz
+          if-no-files-found: error
+          retention-days: 1
       - name: Validate mobile review TypeScript
         working-directory: mobile
         run: |
