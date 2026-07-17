@@ -44,3 +44,9 @@ def install() -> None:
     # replacing it here also updates the already-installed production wrapper.
     selection.rewrite_raw_selection_json = rewrite_with_parent_identity
     setattr(selection, _INSTALLED_FLAG, True)
+
+    # Scope the legacy editor-to-QA pending maps as part of the same pre-analysis
+    # integrity installation, before any athlete render begins.
+    from pipeline.publishable_pending_scope import install as install_pending_scope
+
+    install_pending_scope()
