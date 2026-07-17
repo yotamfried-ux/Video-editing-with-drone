@@ -30,8 +30,14 @@ def main() -> int:
     patch.install()
     if not getattr(gate, "_sportreel_source_evidence_patch_installed", False):
         raise SystemExit("patch not installed")
-    if "pipeline.source_evidence_patch" not in (ROOT / "scripts/usercustomize.py").read_text(encoding="utf-8"):
-        raise SystemExit("bootstrap missing")
+
+    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+    if "pipeline.source_evidence_patch" not in bootstrap:
+        raise SystemExit("canonical bootstrap missing source evidence patch")
+    usercustomize = (ROOT / "scripts/usercustomize.py").read_text(encoding="utf-8")
+    if "pipeline.source_evidence_patch" in usercustomize or "except Exception" in usercustomize:
+        raise SystemExit("source evidence patch reintroduced fail-silent auto-installation")
+
     print("Source evidence contract checks passed")
     return 0
 
