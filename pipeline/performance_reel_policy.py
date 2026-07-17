@@ -1,9 +1,9 @@
-"""Per-athlete performance reel contract.
+"""Coverage-first per-athlete performance reel policy.
 
-The product contract is coverage-first: every usable wave for one surfer belongs
-in that surfer's performance reel. Quality scores control ordering and emphasis,
-not whether an otherwise valid ride disappears. Reels are packed from whole rides
-and split only between rides before the 90-second platform ceiling.
+Every usable wave for one surfer belongs in that surfer's performance reel.
+Scores control ordering and emphasis, not whether a readable ride disappears.
+Whole rides are packed below the 90-second platform ceiling and split only
+between rides.
 """
 from __future__ import annotations
 
@@ -15,40 +15,19 @@ logger = logging.getLogger(__name__)
 
 MAX_PERFORMANCE_REEL_SEC = 89.0
 _SURF_TERMS = {
-    "surf",
-    "surfing",
-    "surfer",
-    "wave",
-    "longboard",
-    "shortboard",
-    "cutback",
-    "bottom_turn",
-    "carve",
-    "snap",
-    "barrel",
-    "tube_ride",
-    "wave_catch",
-    "surf_ride",
+    "surf", "surfing", "surfer", "wave", "longboard", "shortboard",
+    "cutback", "bottom_turn", "carve", "snap", "barrel", "tube_ride",
+    "wave_catch", "surf_ride",
 }
 _FAILED_TAKEOFF_TERMS = {
-    "failed takeoff",
-    "falls immediately",
-    "fell immediately",
-    "immediate fall",
-    "wipeout at takeoff",
-    "misses the wave",
-    "never stands",
-    "does not stand",
+    "failed takeoff", "falls immediately", "fell immediately", "immediate fall",
+    "wipeout at takeoff", "misses the wave", "never stands", "does not stand",
 }
 _HARD_REJECT_DEFECTS = {
-    "DUPLICATE_MOMENT",
-    "IDENTITY_MISMATCH",
-    "NO_VISIBLE_ACTION",
+    "DUPLICATE_MOMENT", "IDENTITY_MISMATCH", "NO_VISIBLE_ACTION",
 }
 _REPAIR_WITHOUT_DROP_DEFECTS = {
-    "PREMATURE_CUT",
-    "CUT_TOO_EARLY",
-    "UNNATURAL_SLOWMO",
+    "PREMATURE_CUT", "CUT_TOO_EARLY", "UNNATURAL_SLOWMO",
 }
 _INSTALLED_FLAG = "_sportreel_performance_reel_policy_installed"
 _ORCHESTRATOR_FLAG = "_sportreel_performance_reel_post_installed"
@@ -74,6 +53,10 @@ SCORE-CUTOFF RULES ABOVE WHEN THE FOOTAGE IS SURFING:
 """
 
 
+class PerformanceReelPackingError(RuntimeError):
+    """Raised when a complete ride cannot fit inside one platform-valid reel."""
+
+
 def _text(event: dict[str, Any], activity: str = "") -> str:
     return " ".join(
         [
@@ -90,21 +73,19 @@ def is_surf_event(event: dict[str, Any], activity: str = "") -> bool:
     """Return whether an event belongs to the surfing coverage contract."""
     if event.get("ride_segment"):
         return True
-    text = _text(event, activity)
-    return any(term in text for term in _SURF_TERMS)
+    return any(term in _text(event, activity) for term in _SURF_TERMS)
 
 
 def is_explicit_failed_takeoff(event: dict[str, Any], activity: str = "") -> bool:
-    """Reject only explicit no-ride evidence, never a low score by itself."""
+    """Reject explicit no-ride evidence regardless of score."""
     reason = str(event.get("hard_reject_reason") or "").strip().lower()
     if reason in {"failed_takeoff", "no_ride_established", "immediate_fall"}:
         return True
-    text = _text(event, activity)
-    return any(term in text for term in _FAILED_TAKEOFF_TERMS)
+    return any(term in _text(event, activity) for term in _FAILED_TAKEOFF_TERMS)
 
 
 def keep_event_for_performance_reel(event: dict[str, Any], activity: str = "") -> bool:
-    """Coverage-first event admission shared by parser/runtime wrappers."""
+    """Apply coverage-first admission while preserving non-surf score policy."""
     surf_event = is_surf_event(event, activity)
     if surf_event and is_explicit_failed_takeoff(event, activity):
         return False
@@ -112,9 +93,7 @@ def keep_event_for_performance_reel(event: dict[str, Any], activity: str = "") -
         score = int(event.get("score", 0))
     except (TypeError, ValueError):
         score = 0
-    if score >= 6:
-        return True
-    return surf_event
+    return score >= 6 or surf_event
 
 
 def _source(event: dict[str, Any]) -> str:
@@ -138,21 +117,25 @@ def _event_duration(event: dict[str, Any]) -> float:
     return max(0.0, _number(event.get("end")) - _number(event.get("start")))
 
 
+def _slowmo_eligible(event: dict[str, Any]) -> bool:
+    edit = event.get("edit") if isinstance(event.get("edit"), dict) else {}
+    return bool(edit.get("slowmo")) and _number(event.get("score")) >= 8
+
+
 def _group_duration(events: list[dict[str, Any]], slowmo_capable: bool, xfade_dur: float) -> float:
     if not events:
         return 0.0
     base = sum(_event_duration(event) for event in events)
     base -= xfade_dur * max(0, len(events) - 1)
-    if slowmo_capable:
-        climax = max(events, key=lambda event: _number(event.get("score"), 0.0))
+    eligible = [event for event in events if slowmo_capable and _slowmo_eligible(event)]
+    if eligible:
+        climax = max(eligible, key=lambda event: _number(event.get("score"), 0.0))
         raw = _event_duration(climax)
-        score = int(_number(climax.get("score"), 7.0))
+        score = int(_number(climax.get("score"), 8.0))
         if score >= 9:
             slow_fraction, slow_factor = 0.50, 2.5
-        elif score >= 7:
-            slow_fraction, slow_factor = 0.40, 2.0
         else:
-            slow_fraction, slow_factor = 0.30, 1.5
+            slow_fraction, slow_factor = 0.40, 2.0
         base += raw * (slow_fraction * slow_factor - slow_fraction)
     return max(0.0, base)
 
@@ -164,11 +147,14 @@ def partition_complete_performance_reels(
     *,
     xfade_dur: float = 0.25,
 ) -> list[list[dict[str, Any]]]:
-    """Pack every whole event and split only between events before 90 seconds."""
+    """Pack every whole ride and split only between rides before 90 seconds."""
     if not events:
         return []
 
-    budget = min(MAX_PERFORMANCE_REEL_SEC, max(4.0, _number(target_max, MAX_PERFORMANCE_REEL_SEC)))
+    budget = min(
+        MAX_PERFORMANCE_REEL_SEC,
+        max(4.0, _number(target_max, MAX_PERFORMANCE_REEL_SEC)),
+    )
     source_order: dict[str, int] = {}
     indexed: list[tuple[int, dict[str, Any]]] = []
     for index, event in enumerate(events):
@@ -191,6 +177,14 @@ def partition_complete_performance_reels(
     groups: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     for event in ordered:
+        standalone_duration = _group_duration([event], slowmo_capable, xfade_dur)
+        if standalone_duration > budget:
+            event_id = event.get("event_id") or event.get("id") or "unknown"
+            raise PerformanceReelPackingError(
+                "performance_reel_packing_blocked: complete ride "
+                f"{event_id} requires {standalone_duration:.2f}s, exceeding "
+                f"the {budget:.2f}s whole-wave reel budget"
+            )
         proposed = [*current, event]
         if current and _group_duration(proposed, slowmo_capable, xfade_dur) > budget:
             groups.append(current)
@@ -205,6 +199,7 @@ def partition_complete_performance_reels(
     annotated: list[list[dict[str, Any]]] = []
     running_wave_index = 0
     for part_index, group in enumerate(groups, start=1):
+        estimated_duration = round(_group_duration(group, slowmo_capable, xfade_dur), 3)
         part: list[dict[str, Any]] = []
         for event in group:
             running_wave_index += 1
@@ -217,9 +212,7 @@ def partition_complete_performance_reels(
                     "performance_reel_wave_index": running_wave_index,
                     "performance_reel_wave_count": len(group),
                     "performance_reel_total_wave_count": total_wave_count,
-                    "performance_reel_estimated_part_duration": round(
-                        _group_duration(group, slowmo_capable, xfade_dur), 3
-                    ),
+                    "performance_reel_estimated_part_duration": estimated_duration,
                 }
             )
         annotated.append(part)
@@ -261,7 +254,10 @@ def _patch_prompt_and_filters() -> None:
 
     def filter_single_result(result: dict[str, Any]) -> dict[str, Any]:
         activity = str(result.get("activity", ""))
-        return {**result, "events": filter_events(list(result.get("events", []) or []), activity)}
+        return {
+            **result,
+            "events": filter_events(list(result.get("events", []) or []), activity),
+        }
 
     analyzer_score_guard.filter_events = filter_events
     analyzer_score_guard.filter_session_result = filter_session_result
@@ -274,8 +270,7 @@ def _patch_prompt_and_filters() -> None:
         dropped_people = 0
         for person in result.get("persons", []) or []:
             events: list[dict[str, Any]] = []
-            original_events = list(person.get("events", []) or [])
-            for event in original_events:
+            for event in list(person.get("events", []) or []):
                 if not keep_event_for_performance_reel(event, activity):
                     dropped_events += 1
                     continue
@@ -290,10 +285,7 @@ def _patch_prompt_and_filters() -> None:
                 continue
             hardened = {**person, "events": events}
             best = max(events, key=runtime_quality._score)
-            try:
-                midpoint = (_number(best["start"]) + _number(best["end"])) / 2.0
-            except (KeyError, TypeError, ValueError):
-                midpoint = -1.0
+            midpoint = (_number(best.get("start")) + _number(best.get("end"))) / 2.0
             if midpoint >= 0:
                 old_thumb = hardened.get("thumbnail") or ""
                 focused = runtime_quality._extract_identity_thumbnail(video_path, best, midpoint)
@@ -322,9 +314,13 @@ def _patch_editor() -> None:
 
     if getattr(editor, _INSTALLED_FLAG, False):
         return
+    original_partition = editor._partition_events
 
     def partition(events, slowmo_capable, target_max=MAX_PERFORMANCE_REEL_SEC):
-        deduplicated = remove_duplicate_events(list(events or []))
+        event_list = list(events or [])
+        if not _surf_events(event_list):
+            return original_partition(event_list, slowmo_capable, target_max)
+        deduplicated = remove_duplicate_events(event_list)
         return partition_complete_performance_reels(
             deduplicated,
             bool(slowmo_capable),
@@ -341,7 +337,6 @@ def _patch_qa_policy() -> None:
 
     if getattr(qa_policy, _INSTALLED_FLAG, False):
         return
-
     original_final = qa_policy.build_final_qa_diagnostics
 
     def final_diagnostics(qa, *, retry_count, reel_path="", was_flagged=False):
@@ -389,8 +384,7 @@ def _patch_qa_policy() -> None:
                     len([event for event in events if not event.get("_teaser")]),
                 )
                 return events, False
-            fixed, changed = original_apply(events, allowed)
-            return fixed, changed
+            return original_apply(events, allowed)
 
         orchestrator._apply_qa_fixes = preserve_complete_rides
         setattr(orchestrator, _ORCHESTRATOR_FLAG, True)
