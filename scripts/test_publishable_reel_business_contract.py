@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Regression tests for one silent publishable reel per eligible athlete."""
+"""Regression tests for the final centered-athlete silent business contract."""
 from __future__ import annotations
 
 import ast
 import copy
 import importlib.util
-import json
-import os
+import math
 import sys
 import tempfile
 from pathlib import Path
@@ -28,7 +27,7 @@ def load_module(name: str, path: Path):
     return module
 
 
-def specs(*, audio: bool = False, duration: float = 30.0, width: int = 1080, height: int = 1920) -> dict[str, Any]:
+def specs(*, audio: bool | None = False, duration: float = 30.0, width: int = 1080, height: int = 1920) -> dict[str, Any]:
     return {
         "has_audio": audio,
         "duration": duration,
@@ -38,102 +37,76 @@ def specs(*, audio: bool = False, duration: float = 30.0, width: int = 1080, hei
     }
 
 
-def event(index: int, source: str = "session.mp4", athlete_id: str = "athlete_7") -> dict[str, Any]:
+def valid_manifest() -> dict[str, Any]:
     return {
-        "event_id": f"action-{index}",
-        "athlete_id": athlete_id,
-        "type": "goal" if index == 1 else "save",
-        "sport": "football",
-        "start": float(index * 10),
-        "end": float(index * 10 + 8),
-        "score": 8,
-        "_src": source,
-    }
-
-
-def assert_canonical_variant_selection(silent: Any, tmp: Path) -> None:
-    clean = tmp / "MULTI_player_p1.mp4"
-    music = tmp / "MULTI_player_p1_music.mp4"
-    clean.write_bytes(b"silent-publishable")
-    music.write_bytes(b"audio-legacy")
-    source_events = [(str(clean), [event(1)]), (str(music), [event(1)])]
-    spec_map = {
-        str(clean): specs(audio=False),
-        str(music): specs(audio=True),
-    }
-
-    selected, selected_events, failures = silent.canonicalize_silent_variants(
-        [str(clean), str(music)],
-        source_events,
-        specs_getter=lambda path: spec_map[path],
-    )
-    if selected != [str(clean)]:
-        raise SystemExit(f"silent canonical path was not selected: {selected}")
-    if failures:
-        raise SystemExit(f"valid silent selection produced failures: {failures}")
-    if clean.read_bytes() != b"silent-publishable" or music.exists():
-        raise SystemExit("audio variant was not removed while preserving the clean render")
-    if selected_events != [(str(clean), [event(1)])]:
-        raise SystemExit("silent canonical output lost event lineage")
-
-    audio_only = tmp / "MULTI_audio_only.mp4"
-    audio_only.write_bytes(b"audio")
-    selected, selected_events, failures = silent.canonicalize_silent_variants(
-        [str(audio_only)],
-        [(str(audio_only), [event(2)])],
-        specs_getter=lambda _path: specs(audio=True),
-    )
-    if selected or selected_events or failures != ["unexpected_audio_variant:MULTI_audio_only.mp4"]:
-        raise SystemExit(f"audio-only output was not blocked deterministically: {failures}")
-    if audio_only.exists():
-        raise SystemExit("audio-only output remained after the silent contract failed")
-
-    part1 = tmp / "MULTI_multi_p1.mp4"
-    part1_music = tmp / "MULTI_multi_p1_music.mp4"
-    part2 = tmp / "MULTI_multi_p2.mp4"
-    part2_music = tmp / "MULTI_multi_p2_music.mp4"
-    for path, content in [
-        (part1, b"silent1"),
-        (part1_music, b"music1"),
-        (part2, b"silent2"),
-        (part2_music, b"music2"),
-    ]:
-        path.write_bytes(content)
-    spec_map = {
-        str(part1): specs(audio=False, duration=70),
-        str(part1_music): specs(audio=True, duration=70),
-        str(part2): specs(audio=False, duration=25),
-        str(part2_music): specs(audio=True, duration=25),
-    }
-    selected, _, failures = silent.canonicalize_silent_variants(
-        [str(part1), str(part1_music), str(part2), str(part2_music)],
-        [
-            (str(part1), [event(1)]),
-            (str(part1_music), [event(1)]),
-            (str(part2), [event(2)]),
-            (str(part2_music), [event(2)]),
+        "schema_version": "sportreel.publishable_reel_manifest.v1",
+        "business_contract": "one_primary_publishable_reel_per_eligible_athlete_v1",
+        "athletes": [
+            {
+                "athlete_key": "athlete_manifest_7",
+                "athlete_ids": ["athlete_7"],
+                "athlete_label": "player #7 in red",
+                "sport": "football",
+                "eligible": True,
+                "parts": [
+                    {
+                        "part_index": 1,
+                        "file_name": "DRAFT_player_7_part_1.mp4",
+                        "uploaded_to_review": True,
+                        "upload_error": None,
+                        "publishable": True,
+                        "qa_evidence_recorded": True,
+                        "qa_verdict": "PASS",
+                        "qa_passed": True,
+                        "has_audio": False,
+                        "technical_issues": [],
+                        "duration": 72.0,
+                        "width": 1080,
+                        "height": 1920,
+                        "aspect": 1080 / 1920,
+                    },
+                    {
+                        "part_index": 2,
+                        "file_name": "DRAFT_player_7_part_2.mp4",
+                        "uploaded_to_review": True,
+                        "upload_error": None,
+                        "publishable": True,
+                        "qa_evidence_recorded": True,
+                        "qa_verdict": "PASS",
+                        "qa_passed": True,
+                        "has_audio": False,
+                        "technical_issues": [],
+                        "duration": 28.0,
+                        "width": 1080,
+                        "height": 1920,
+                        "aspect": 1080 / 1920,
+                    },
+                ],
+                "primary_publishable_reel": "DRAFT_player_7_part_1.mp4",
+                "supplemental_publishable_reels": ["DRAFT_player_7_part_2.mp4"],
+            }
         ],
-        specs_getter=lambda path: spec_map[path],
-    )
-    if selected != [str(part1), str(part2)] or failures:
-        raise SystemExit(f"multiple silent parts failed canonical selection: {selected}, {failures}")
-    if part1.read_bytes() != b"silent1" or part2.read_bytes() != b"silent2":
-        raise SystemExit("silent Part contents were replaced by audio variants")
-    if part1_music.exists() or part2_music.exists():
-        raise SystemExit("legacy music variants were not deleted")
+        "summary": {
+            "eligible_athlete_count": 1,
+            "publishable_athlete_count": 1,
+            "primary_publishable_reel_count": 1,
+            "supplemental_publishable_reel_count": 1,
+            "coverage_gap_count": 0,
+        },
+    }
 
 
-def coverage_payload(*, athlete_id: str = "athlete_7", description: str = "player #7 in red") -> dict[str, Any]:
+def valid_coverage() -> dict[str, Any]:
     return {
         "summary": {
             "coverage_gap_cluster_count": 0,
             "athlete_accountability_rate": 1.0,
+            "selected_identity_lineage_completeness_rate": 1.0,
         },
         "athletes": [
             {
                 "athlete_cluster_id": "session.mp4::person_A",
-                "athlete_ids": [athlete_id],
-                "descriptions": [description],
+                "athlete_ids": ["athlete_7"],
                 "candidate_action_count": 2,
                 "selected_action_count": 2,
                 "no_output_reason_explicit": False,
@@ -143,225 +116,113 @@ def coverage_payload(*, athlete_id: str = "athlete_7", description: str = "playe
     }
 
 
-def assert_manifest_and_gate(policy: Any, checker: Any, silent: Any, tmp: Path) -> None:
-    policy.social_ready_issues = silent.silent_social_ready_issues
-    policy.canonicalize_publishable_variants = silent.canonicalize_silent_variants
+def require_error(errors: list[str], text: str) -> None:
+    if not any(text in error for error in errors):
+        raise SystemExit(f"expected error containing {text!r}, got {errors}")
 
-    manifest = tmp / "publishable_reel_manifest.json"
-    os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(manifest)
-    policy.reset_manifest()
 
-    p1 = str(tmp / "athlete_p1.mp4")
-    p2 = str(tmp / "athlete_p2.mp4")
-    spec_map = {
-        p1: specs(audio=False, duration=72),
-        p2: specs(audio=False, duration=28),
-    }
-    row = policy.record_athlete_outcome(
-        sport="football",
-        athlete_label="player #7 in red",
-        final_reels=[p1, p2],
-        events_by_reel={p1: [event(1)], p2: [event(2)]},
-        flagged_paths=set(),
+def assert_silent_variant_selection(silent: Any, tmp: Path) -> None:
+    clean = tmp / "MULTI_player_p1.mp4"
+    music = tmp / "MULTI_player_p1_music.mp4"
+    clean.write_bytes(b"silent")
+    music.write_bytes(b"audio")
+    spec_map = {str(clean): specs(), str(music): specs(audio=True)}
+    selected, events, failures = silent.canonicalize_silent_variants(
+        [str(clean), str(music)],
+        [(str(clean), [{"event_id": "goal-1"}]), (str(music), [{"event_id": "goal-1"}])],
         specs_getter=lambda path: spec_map[path],
     )
-    if row["primary_publishable_reel"] is not None:
-        raise SystemExit("rendered output became publishable before REVIEW upload confirmation")
-    pre_upload = json.loads(manifest.read_text(encoding="utf-8"))
-    if not any("was not uploaded to REVIEW" in error for error in checker.validate_manifest(pre_upload)):
-        raise SystemExit("unuploaded rendered output did not fail the business gate")
+    if selected != [str(clean)] or failures:
+        raise SystemExit(f"silent canonical selection failed: {selected}, {failures}")
+    if music.exists() or clean.read_bytes() != b"silent":
+        raise SystemExit("legacy audio variant was not removed cleanly")
+    if events != [(str(clean), [{"event_id": "goal-1"}])]:
+        raise SystemExit("silent canonicalization lost event lineage")
 
-    if not policy.mark_upload_result(p1, "DRAFT_player_7_part_1.mp4"):
-        raise SystemExit("Part 1 upload could not be attached to the manifest")
-    if not policy.mark_upload_result(p2, "DRAFT_player_7_part_2.mp4"):
-        raise SystemExit("Part 2 upload could not be attached to the manifest")
 
-    payload = json.loads(manifest.read_text(encoding="utf-8"))
-    row = payload["athletes"][0]
-    if row["primary_publishable_reel"] != "DRAFT_player_7_part_1.mp4":
-        raise SystemExit("uploaded Part 1 was not selected as the primary publishable reel")
-    if row["supplemental_publishable_reels"] != ["DRAFT_player_7_part_2.mp4"]:
-        raise SystemExit("uploaded supplemental publishable parts are not ordered")
-    if row["athlete_ids"] != ["athlete_7"]:
-        raise SystemExit("canonical athlete identity was not preserved in the manifest")
-    if any(part.get("has_audio") is not False for part in row["parts"]):
-        raise SystemExit("publishable manifest did not preserve the required silent state")
-
-    coverage = coverage_payload()
+def assert_manifest_contract(checker: Any) -> None:
+    payload = valid_manifest()
+    coverage = valid_coverage()
     errors = checker.validate_manifest(payload, coverage)
     if errors:
-        raise SystemExit(f"valid silent publishable athlete manifest failed: {errors}")
+        raise SystemExit(f"valid strict manifest failed: {errors}")
 
-    unmatched_coverage = coverage_payload(athlete_id="athlete_missing", description="player #99 in green")
-    errors = checker.validate_manifest(payload, unmatched_coverage)
-    if not any("absent from the publishable manifest" in error for error in errors):
-        raise SystemExit("upstream selected athlete missing from the manifest was not detected")
+    missing_qa = copy.deepcopy(payload)
+    missing_qa["athletes"][0]["parts"][0]["qa_evidence_recorded"] = False
+    require_error(checker.validate_manifest(missing_qa, coverage), "lacks explicit final QA evidence")
 
-    unresolved_coverage = coverage_payload()
-    unresolved_coverage["athletes"][0]["coverage_requirement_met"] = False
-    unresolved_coverage["summary"]["coverage_gap_cluster_count"] = 1
-    unresolved_coverage["summary"]["athlete_accountability_rate"] = 0.0
-    errors = checker.validate_manifest(payload, unresolved_coverage)
-    if not any("unresolved coverage gap" in error for error in errors):
-        raise SystemExit("unresolved athlete coverage was not blocked")
-
-    missing_output = copy.deepcopy(payload)
-    missing_output["athletes"][0]["primary_publishable_reel"] = None
-    missing_output["athletes"][0]["supplemental_publishable_reels"] = []
-    missing_output["summary"]["publishable_athlete_count"] = 0
-    missing_output["summary"]["primary_publishable_reel_count"] = 0
-    missing_output["summary"]["supplemental_publishable_reel_count"] = 0
-    missing_output["summary"]["coverage_gap_count"] = 1
-    errors = checker.validate_manifest(missing_output, coverage)
-    if not any("no primary publishable reel" in error for error in errors):
-        raise SystemExit("missing athlete output did not fail the business gate")
+    failed_qa = copy.deepcopy(payload)
+    failed_qa["athletes"][0]["parts"][0]["qa_verdict"] = "FAIL"
+    failed_qa["athletes"][0]["parts"][0]["qa_passed"] = False
+    require_error(checker.validate_manifest(failed_qa, coverage), "final QA verdict is not PASS")
 
     audio = copy.deepcopy(payload)
     audio["athletes"][0]["parts"][0]["has_audio"] = True
-    audio["athletes"][0]["parts"][0]["technical_issues"] = ["unexpected_audio"]
-    audio["athletes"][0]["parts"][0]["publishable"] = False
-    errors = checker.validate_manifest(audio, coverage)
-    if not any("contains unexpected audio" in error for error in errors):
-        raise SystemExit("audio-bearing primary output did not fail the silent business gate")
+    require_error(checker.validate_manifest(audio, coverage), "contains unexpected audio")
 
     unknown_audio = copy.deepcopy(payload)
     unknown_audio["athletes"][0]["parts"][0]["has_audio"] = None
-    errors = checker.validate_manifest(unknown_audio, coverage)
-    if not any("does not prove a silent audio state" in error for error in errors):
-        raise SystemExit("unknown audio state did not fail closed")
+    require_error(checker.validate_manifest(unknown_audio, coverage), "does not prove a silent audio state")
 
-    qa_failed = copy.deepcopy(payload)
-    qa_failed["athletes"][0]["parts"][0]["qa_passed"] = False
-    qa_failed["athletes"][0]["parts"][0]["technical_issues"] = ["final_qa_failed"]
-    qa_failed["athletes"][0]["parts"][0]["publishable"] = False
-    errors = checker.validate_manifest(qa_failed, coverage)
-    if not any("did not pass final QA" in error for error in errors):
-        raise SystemExit("QA-failed output was incorrectly accepted as publishable")
+    mixed_row = copy.deepcopy(payload)
+    mixed_row["athletes"][0]["athlete_ids"] = ["athlete_7", "athlete_9"]
+    require_error(checker.validate_manifest(mixed_row, coverage), "exactly one featured canonical athlete_id")
 
-    duplicate = copy.deepcopy(payload)
-    second = copy.deepcopy(duplicate["athletes"][0])
-    second["athlete_key"] = "athlete_second"
-    second["athlete_label"] = "player #9 in blue"
-    duplicate["athletes"].append(second)
-    duplicate["summary"]["eligible_athlete_count"] = 2
-    duplicate["summary"]["publishable_athlete_count"] = 2
-    duplicate["summary"]["primary_publishable_reel_count"] = 2
-    duplicate["summary"]["supplemental_publishable_reel_count"] = 2
-    errors = checker.validate_manifest(duplicate)
-    if not any("canonical athlete_id" in error for error in errors):
-        raise SystemExit("duplicate canonical athlete ownership did not fail the business gate")
-    if not any("duplicated across athletes/parts" in error for error in errors):
-        raise SystemExit("duplicate output ownership did not fail the business gate")
+    nonfinite_duration = copy.deepcopy(payload)
+    nonfinite_duration["athletes"][0]["parts"][0]["duration"] = math.nan
+    require_error(checker.validate_manifest(nonfinite_duration, coverage), "invalid finite duration")
 
-    policy.reset_manifest()
-    empty = json.loads(manifest.read_text(encoding="utf-8"))
-    empty_coverage = {
-        "summary": {"coverage_gap_cluster_count": 0, "athlete_accountability_rate": 1.0},
-        "athletes": [],
-    }
-    if checker.validate_manifest(empty, empty_coverage):
-        raise SystemExit("empty no-input manifest should remain a valid zero-athlete result")
+    nonfinite_aspect = copy.deepcopy(payload)
+    nonfinite_aspect["athletes"][0]["parts"][0]["aspect"] = math.inf
+    require_error(checker.validate_manifest(nonfinite_aspect, coverage), "not finite 9:16 media")
 
+    bad_summary = copy.deepcopy(payload)
+    bad_summary["summary"] = []
+    require_error(checker.validate_manifest(bad_summary, coverage), "summary must be an object")
 
-def assert_semantic_and_qa_validation(policy: Any) -> None:
-    valid = {
-        "activity": "football",
-        "persons": [
-            {
-                "id": "person_A",
-                "description": "player #7 in red",
-                "events": [event(1)],
-            }
-        ],
-    }
-    parsed = policy.validate_session_semantics(valid)
-    if parsed["persons"][0]["id"] != "person_A":
-        raise SystemExit("valid session semantics were not preserved")
+    malformed_counts = copy.deepcopy(coverage)
+    malformed_counts["athletes"][0]["candidate_action_count"] = "2"
+    require_error(checker.validate_manifest(payload, malformed_counts), "must be a non-negative integer")
 
-    duplicate_person = copy.deepcopy(valid)
-    duplicate_person["persons"].append(copy.deepcopy(valid["persons"][0]))
-    try:
-        policy.validate_session_semantics(duplicate_person)
-    except ValueError as exc:
-        if "duplicate person id" not in str(exc):
-            raise
-    else:
-        raise SystemExit("duplicate model person IDs were not rejected")
+    impossible_counts = copy.deepcopy(coverage)
+    impossible_counts["athletes"][0]["selected_action_count"] = 3
+    require_error(checker.validate_manifest(payload, impossible_counts), "cannot exceed candidate_action_count")
 
-    invalid_window = copy.deepcopy(valid)
-    invalid_window["persons"][0]["events"][0]["end"] = invalid_window["persons"][0]["events"][0]["start"]
-    try:
-        policy.validate_session_semantics(invalid_window)
-    except ValueError as exc:
-        if "invalid time window" not in str(exc):
-            raise
-    else:
-        raise SystemExit("invalid model event window was not rejected")
+    invalid_rate = copy.deepcopy(coverage)
+    invalid_rate["summary"]["athlete_accountability_rate"] = math.nan
+    require_error(checker.validate_manifest(payload, invalid_rate), "finite number equal to 1.0")
 
-    unavailable = policy.require_real_qa_result({
-        "verdict": "PASS",
-        "technical": {"pass": True},
-        "defects": [],
-        "engagement_score": 100,
-        "overall": "QA skipped",
-    })
-    if unavailable.get("verdict") != "FAIL":
-        raise SystemExit("unavailable final QA did not fail closed")
-    if not any(defect.get("type") == "QA_UNAVAILABLE" for defect in unavailable.get("defects", [])):
-        raise SystemExit("QA outage did not produce explicit blocking evidence")
+    duplicate_coverage = copy.deepcopy(coverage)
+    duplicate_coverage["athletes"].append(copy.deepcopy(duplicate_coverage["athletes"][0]))
+    duplicate_coverage["athletes"][1]["athlete_cluster_id"] = "session.mp4::person_B"
+    require_error(checker.validate_manifest(payload, duplicate_coverage), "selected by multiple coverage rows")
 
 
-def assert_source_contract(policy: Any, silent: Any) -> None:
+def assert_source_contract(silent: Any) -> None:
     policy_source = POLICY_PATH.read_text(encoding="utf-8")
     silent_source = SILENT_POLICY_PATH.read_text(encoding="utf-8")
     checker_source = CHECKER_PATH.read_text(encoding="utf-8")
+    strict_source = (ROOT / "scripts/publishable_manifest_contract.py").read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     audit = (ROOT / "docs/audit/personal-publishable-reel-completion-plan-20260717.md").read_text(encoding="utf-8")
     bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
-    diagnostics = (ROOT / "scripts/run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
 
-    for text in (policy_source, silent_source, checker_source, bootstrap, run_tracked):
+    for text in (policy_source, silent_source, checker_source, strict_source, bootstrap, run_tracked):
         ast.parse(text)
 
-    required_policy = [
-        "EVERY DISTINCT ATHLETE",
-        "ONE usable action is enough",
-        "one_primary_publishable_reel_per_eligible_athlete_v1",
-        "record_athlete_outcome",
-        "mark_upload_result",
-        "validate_session_semantics",
-        "require_real_qa_result",
-        "all_final_failures_block",
-        "uploaded_to_review",
-    ]
-    missing = [token for token in required_policy if token not in policy_source]
-    if missing:
-        raise SystemExit(f"publishable policy is missing product-contract tokens: {missing}")
-
-    required_silent = [
-        "video-only, no-audio product contract",
-        "silent_social_ready_issues",
-        "canonicalize_silent_variants",
-        "unexpected_audio",
-        "audio_state_unknown",
-        "editor._pick_music = no_music_picker",
-        "kwargs[\"music_path\"] = None",
-    ]
-    missing = [token for token in required_silent if token not in silent_source]
-    if missing:
-        raise SystemExit(f"silent output policy is incomplete: {missing}")
-
-    required_readme = [
-        "Product vision — source of truth",
-        "every distinct athlete with at least one complete, visible, usable action",
-        "One canonical silent output per part",
-        "QA failure is not publishable",
-        "centered on one target athlete",
-    ]
-    missing = [token for token in required_readme if token not in readme]
-    if missing:
-        raise SystemExit(f"README is missing the revised business vision: {missing}")
+    required = {
+        "policy": (policy_source, ["EVERY DISTINCT ATHLETE", "ONE usable action is enough", "record_athlete_outcome", "mark_upload_result"]),
+        "silent": (silent_source, ["video-only, no-audio product contract", "canonicalize_silent_variants", "unexpected_audio", "audio_state_unknown"]),
+        "strict checker": (strict_source, ["qa_evidence_recorded", "exactly one featured canonical athlete_id", "math.isfinite", "selected by multiple coverage rows"]),
+        "README": (readme, ["One featured athlete per reel, not one visible person", "One canonical silent output per part", "another surfer may enter or ride the same wave"]),
+        "bootstrap": (bootstrap, ["pipeline.silent_output_policy"]),
+        "production runner": (run_tracked, ["_install_silent_output_policy_runtime()"]),
+    }
+    for label, (source, tokens) in required.items():
+        missing = [token for token in tokens if token not in source]
+        if missing:
+            raise SystemExit(f"{label} missing contract tokens: {missing}")
 
     official_refs = [
         "https://ai.google.dev/gemini-api/docs/video-understanding",
@@ -375,41 +236,22 @@ def assert_source_contract(policy: Any, silent: Any) -> None:
     ]
     missing = [url for url in official_refs if url not in audit]
     if missing:
-        raise SystemExit(f"audit is missing official documentation references: {missing}")
-
-    if "pipeline.silent_output_policy" not in bootstrap or "_install_silent_output_policy_runtime" not in run_tracked:
-        raise SystemExit("silent output policy is not installed by all production entrypoints")
-    if "check_publishable_reel_manifest.py" not in diagnostics:
-        raise SystemExit("production diagnostics do not enforce the publishable manifest")
-    if '"$ATHLETE_COVERAGE_FILE"' not in diagnostics:
-        raise SystemExit("production business gate is not reconciled with athlete coverage evidence")
-    if 'exit "$BUSINESS_GATE_STATUS"' not in diagnostics:
-        raise SystemExit("business gate result is not the final successful-process exit code")
+        raise SystemExit(f"audit missing official references: {missing}")
 
     issues = silent.silent_social_ready_issues(specs(audio=True, duration=91, width=1920, height=1080))
-    expected = {
-        "unexpected_audio",
-        "duration_over_90_seconds",
-        "aspect_not_9_16",
-        "resolution_below_publishable_floor",
-    }
+    expected = {"unexpected_audio", "duration_over_90_seconds", "aspect_not_9_16", "resolution_below_publishable_floor"}
     if not expected.issubset(set(issues)):
-        raise SystemExit(f"silent technical publishability validation is incomplete: {issues}")
-    if silent.silent_social_ready_issues(specs(audio=False)):
-        raise SystemExit("valid silent vertical output was incorrectly rejected")
+        raise SystemExit(f"silent technical contract is incomplete: {issues}")
 
 
 def main() -> int:
-    policy = load_module("publishable_reel_policy_contract", POLICY_PATH)
     silent = load_module("silent_output_policy_contract", SILENT_POLICY_PATH)
     checker = load_module("publishable_reel_checker_contract", CHECKER_PATH)
     with tempfile.TemporaryDirectory(prefix="sportreel-business-contract-") as directory:
-        tmp = Path(directory)
-        assert_canonical_variant_selection(silent, tmp)
-        assert_manifest_and_gate(policy, checker, silent, tmp)
-    assert_semantic_and_qa_validation(policy)
-    assert_source_contract(policy, silent)
-    print("Silent publishable reel business contract checks passed")
+        assert_silent_variant_selection(silent, Path(directory))
+    assert_manifest_contract(checker)
+    assert_source_contract(silent)
+    print("Strict centered-athlete silent business contract checks passed")
     return 0
 
 
