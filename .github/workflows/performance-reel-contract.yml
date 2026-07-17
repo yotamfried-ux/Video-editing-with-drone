@@ -5,10 +5,20 @@ on:
     paths:
       - '.github/workflows/performance-reel-contract.yml'
       - 'pipeline/performance_reel_policy.py'
+      - 'pipeline/analyzer_score_guard.py'
+      - 'pipeline/runtime_quality.py'
+      - 'pipeline/qa_gate_policy.py'
+      - 'pipeline/final_duplicate_guard.py'
+      - 'pipeline/orchestrator.py'
+      - 'pipeline/stages/analyzer.py'
+      - 'pipeline/stages/editor.py'
+      - 'pipeline/stages/feedback.py'
       - 'pipeline/bootstrap.py'
+      - 'scripts/run_tracked.py'
       - 'scripts/sitecustomize.py'
       - 'scripts/test_performance_reel_policy_contract.py'
       - 'mobile/src/app/(operator)/review.tsx'
+      - 'mobile/src/shared/components/Card.tsx'
   workflow_dispatch:
 
 permissions:
