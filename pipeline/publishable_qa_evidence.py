@@ -168,6 +168,9 @@ def _patch_orchestrator() -> None:
 
 
 def install() -> None:
-    """Install explicit QA evidence capture and pre-upload reconciliation."""
+    """Install explicit QA evidence capture and publishable runtime integrity."""
     _patch_analyzer()
     _patch_orchestrator()
+    from pipeline.publishable_runtime_integrity import install as install_integrity
+
+    install_integrity()
