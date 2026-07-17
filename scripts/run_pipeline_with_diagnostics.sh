@@ -114,32 +114,60 @@ python scripts/append_qa_policy_trace_summary_to_report.py "$RUN_QUALITY_REPORT_
 # primary-actor decision after other report appenders have finished.
 python scripts/append_primary_actor_subject_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" "$DEBUG_DIR/sidecars" || true
 
-BUSINESS_GATE_STATUS=0
-if [ -f "$PUBLISHABLE_MANIFEST_FILE" ]; then
-  python scripts/check_publishable_reel_manifest.py "$PUBLISHABLE_MANIFEST_FILE" "$PUBLISHABLE_GATE_RESULT_FILE"
-  BUSINESS_GATE_STATUS=$?
-else
-  python - "$PUBLISHABLE_GATE_RESULT_FILE" <<'PY'
+write_missing_gate_result() {
+  local error_message="$1"
+  python - "$PUBLISHABLE_GATE_RESULT_FILE" "$PUBLISHABLE_MANIFEST_FILE" "$ATHLETE_COVERAGE_FILE" "$error_message" <<'PY'
 from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1])
-path.parent.mkdir(parents=True, exist_ok=True)
-path.write_text(
+result = Path(sys.argv[1])
+result.parent.mkdir(parents=True, exist_ok=True)
+result.write_text(
     json.dumps(
         {
             "schema_version": "sportreel.publishable_reel_gate_result.v1",
             "passed": False,
-            "errors": ["publishable reel manifest missing"],
+            "manifest_path": sys.argv[2],
+            "athlete_coverage_path": sys.argv[3],
+            "errors": [sys.argv[4]],
         },
         indent=2,
     ),
     encoding="utf-8",
 )
 PY
+}
+
+BUSINESS_GATE_STATUS=0
+if [ -f "$PUBLISHABLE_MANIFEST_FILE" ] && [ -f "$ATHLETE_COVERAGE_FILE" ]; then
+  python scripts/check_publishable_reel_manifest.py \
+    "$PUBLISHABLE_MANIFEST_FILE" \
+    "$PUBLISHABLE_GATE_RESULT_FILE" \
+    "$ATHLETE_COVERAGE_FILE"
+  BUSINESS_GATE_STATUS=$?
+elif [ -f "$PUBLISHABLE_MANIFEST_FILE" ]; then
+  # A true no-input run has no candidate/selection evidence and may legitimately
+  # have an empty manifest. Any other successful run must include the athlete
+  # coverage report so missing evidence cannot appear green.
+  if [ ! -f "$CANDIDATE_LEDGER_FILE" ] \
+     && [ ! -f "$SELECTION_FILTER_EVENTS_FILE" ] \
+     && [ ! -f "$DRAFT_TRACE_FILE" ]; then
+    python scripts/check_publishable_reel_manifest.py \
+      "$PUBLISHABLE_MANIFEST_FILE" \
+      "$PUBLISHABLE_GATE_RESULT_FILE"
+    BUSINESS_GATE_STATUS=$?
+  else
+    write_missing_gate_result "athlete coverage report missing for a run with candidate evidence"
+    if [ "$STATUS" -eq 0 ]; then
+      echo "::error::athlete coverage evidence missing after a successful pipeline process"
+      BUSINESS_GATE_STATUS=1
+    fi
+  fi
+else
+  write_missing_gate_result "publishable reel manifest missing"
   if [ "$STATUS" -eq 0 ]; then
     echo "::error::publishable reel manifest missing after a successful pipeline process"
     BUSINESS_GATE_STATUS=1
