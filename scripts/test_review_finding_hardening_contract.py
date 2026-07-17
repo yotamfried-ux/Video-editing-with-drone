@@ -56,6 +56,90 @@ def assert_silent_technical_qa() -> None:
             stages.analyzer = original_analyzer
 
 
+def assert_failed_audio_probe_is_unknown() -> None:
+    original_config = sys.modules.get("config")
+    original_ffmpeg = sys.modules.pop("integrations.ffmpeg", None)
+    sys.modules["config"] = types.ModuleType("config")
+    try:
+        import integrations.ffmpeg as ffmpeg
+        from pipeline.silent_output_policy import silent_social_ready_issues
+
+        original_run = ffmpeg.subprocess.run
+        original_source_info = ffmpeg.get_source_info
+        original_duration = ffmpeg.get_duration
+        try:
+            ffmpeg.get_source_info = lambda _path: {"width": 1080, "height": 1920}
+            ffmpeg.get_duration = lambda _path: 30.0
+
+            def timed_out(*_args, **_kwargs):
+                raise ffmpeg.subprocess.TimeoutExpired(cmd="ffprobe", timeout=15)
+
+            ffmpeg.subprocess.run = timed_out
+            specs = ffmpeg.get_reel_specs("probe-timeout.mp4")
+        finally:
+            ffmpeg.subprocess.run = original_run
+            ffmpeg.get_source_info = original_source_info
+            ffmpeg.get_duration = original_duration
+    finally:
+        sys.modules.pop("integrations.ffmpeg", None)
+        if original_ffmpeg is not None:
+            sys.modules["integrations.ffmpeg"] = original_ffmpeg
+        if original_config is None:
+            sys.modules.pop("config", None)
+        else:
+            sys.modules["config"] = original_config
+
+    if specs.get("has_audio") is not None:
+        raise SystemExit(f"failed audio probe was recorded as proven silence: {specs}")
+    if "audio_state_unknown" not in silent_social_ready_issues(specs):
+        raise SystemExit("unknown audio state did not block publishability")
+
+
+def assert_complete_action_window_persists_to_qa() -> None:
+    import pipeline.stages as stages
+    from pipeline.complete_action_window_policy import install, normalize_complete_action_event
+    from pipeline.subject_gate_policy import effective_cut_window
+
+    event = {
+        "event_id": "wave_full",
+        "performance_reel_contract": "all_usable_waves_per_athlete_v1",
+        "type": "wave_catch",
+        "start": 10.0,
+        "end": 50.0,
+        "score": 8,
+        "_cap_dur": 15.0,
+        "_single_clip_cap": True,
+        "_is_climax": False,
+    }
+    normalized = normalize_complete_action_event(event)
+    if effective_cut_window(normalized) != (10.0, 50.0):
+        raise SystemExit(f"complete action remained capped before render: {normalized}")
+
+    fake_editor = types.SimpleNamespace(
+        cut_clip=lambda *_args, **_kwargs: "clip.mp4",
+        _events_with_rendered_timeline=lambda events, _paths, _transitions=None: list(events),
+    )
+    original_editor = getattr(stages, "editor", None)
+    stages.editor = fake_editor
+    try:
+        install()
+        persisted = fake_editor._events_with_rendered_timeline(
+            [event],
+            ["wave_full.mp4"],
+            ["cut"],
+        )[0]
+    finally:
+        if original_editor is None:
+            delattr(stages, "editor")
+        else:
+            stages.editor = original_editor
+
+    if effective_cut_window(persisted) != (10.0, 50.0):
+        raise SystemExit(f"QA evidence did not preserve the rendered action window: {persisted}")
+    if persisted.get("complete_action_window_preserved") is not True:
+        raise SystemExit("QA evidence lacks explicit complete-action preservation")
+
+
 def _raw_session(*, person_id: str, include_centrality: bool) -> str:
     event = {
         "type": "wave_catch",
@@ -132,6 +216,8 @@ def assert_source_wiring() -> None:
 
 def main() -> int:
     assert_silent_technical_qa()
+    assert_failed_audio_probe_is_unknown()
+    assert_complete_action_window_persists_to_qa()
     assert_parent_identity_before_filtering()
     assert_source_wiring()
     print("Final review finding hardening checks passed")
