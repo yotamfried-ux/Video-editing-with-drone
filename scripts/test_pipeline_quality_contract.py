@@ -42,6 +42,7 @@ def run_cross_source_dedup_contract() -> None:
 def main() -> int:
     runtime = _read("pipeline/runtime_quality.py")
     performance_policy = _read("pipeline/performance_reel_policy.py")
+    publishable_policy = _read("pipeline/publishable_reel_policy.py")
     identity_failsafe = _read("pipeline/identity_failsafe.py")
     cross_source_dedup = _read("pipeline/cross_source_dedup.py")
     perception_runtime = _read("pipeline/perception/runtime.py")
@@ -59,6 +60,7 @@ def main() -> int:
     for source in (
         runtime,
         performance_policy,
+        publishable_policy,
         identity_failsafe,
         cross_source_dedup,
         perception_runtime,
@@ -108,6 +110,22 @@ def main() -> int:
             "remove_duplicate_events(event_list)",
             "performance_reel_total_wave_count",
             "QA_FAIL: Reel did not pass final quality review.",
+        ],
+    )
+    require_tokens(
+        "per-athlete publishable business policy",
+        publishable_policy,
+        [
+            "EVERY DISTINCT ATHLETE",
+            "ONE usable action is enough",
+            "MANIFEST_SCHEMA_VERSION",
+            "canonicalize_publishable_variants",
+            "record_athlete_outcome",
+            "one_primary_publishable_reel_per_eligible_athlete_v1",
+            "all_final_failures_block",
+            "missing_audio",
+            "duration_over_90_seconds",
+            "aspect_not_9_16",
         ],
     )
 
@@ -289,6 +307,8 @@ def main() -> int:
             "from pipeline.runtime_quality import install",
             "def _install_performance_reel_policy_runtime()",
             "from pipeline.performance_reel_policy import install",
+            "def _install_publishable_reel_policy_runtime()",
+            "from pipeline.publishable_reel_policy import install",
             "def _install_raw_timestamp_recovery()",
             "from pipeline.raw_timestamp_recovery import install",
             "def _install_identity_failsafe_runtime()",
@@ -301,7 +321,7 @@ def main() -> int:
             "from pipeline.candidate_ledger import install",
             "def _install_athlete_canonicalization_runtime()",
             "from pipeline.athlete_canonicalization import install",
-            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_raw_timestamp_recovery()\n_install_chunk_timeline_runtime()\n_install_selector_candidate_runtime()",
+            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_raw_timestamp_recovery()\n_install_chunk_timeline_runtime()\n_install_selector_candidate_runtime()",
             "_install_identity_failsafe_runtime()",
             "_install_cross_source_dedup_runtime()",
             "_install_draft_diagnostics_runtime()",
@@ -323,7 +343,7 @@ def main() -> int:
     require_no_tokens(
         "fail-silent script bootstrap",
         sitecustomize,
-        ["pipeline.performance_reel_policy"],
+        ["pipeline.performance_reel_policy", "pipeline.publishable_reel_policy"],
     )
 
     require_tokens(
@@ -331,6 +351,7 @@ def main() -> int:
         workflow,
         [
             "pipeline/runtime_quality.py",
+            "pipeline/publishable_reel_policy.py",
             "pipeline/stages/analyzer.py",
             "pipeline/stages/identity.py",
             "pipeline/cross_source_dedup.py",
@@ -340,7 +361,9 @@ def main() -> int:
             "pipeline/perception/**",
             "pipeline/perception/event_fingerprint.py",
             "scripts/build_athlete_coverage_report.py",
+            "scripts/check_publishable_reel_manifest.py",
             "scripts/test_athlete_coverage_report_contract.py",
+            "scripts/test_publishable_reel_business_contract.py",
             "scripts/test_pipeline_quality_contract.py",
             "scripts/test_cross_source_dedup_contract.py",
             "scripts/test_multi_person_clip_gate_contract.py",
