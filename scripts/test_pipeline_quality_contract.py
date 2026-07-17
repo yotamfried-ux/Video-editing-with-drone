@@ -41,6 +41,7 @@ def run_cross_source_dedup_contract() -> None:
 
 def main() -> int:
     runtime = _read("pipeline/runtime_quality.py")
+    performance_policy = _read("pipeline/performance_reel_policy.py")
     identity_failsafe = _read("pipeline/identity_failsafe.py")
     cross_source_dedup = _read("pipeline/cross_source_dedup.py")
     perception_runtime = _read("pipeline/perception/runtime.py")
@@ -57,6 +58,7 @@ def main() -> int:
 
     for source in (
         runtime,
+        performance_policy,
         identity_failsafe,
         cross_source_dedup,
         perception_runtime,
@@ -92,6 +94,21 @@ def main() -> int:
         "runtime quality hardening",
         runtime,
         ["best_score >= 5", "score >= 5", "include their top 2"],
+    )
+
+    require_tokens(
+        "performance reel coverage policy",
+        performance_policy,
+        [
+            "EVERY DISTINCT WAVE RIDE",
+            "MAX_PERFORMANCE_REEL_SEC = 89.0",
+            "PerformanceReelPackingError",
+            "if surf_event and is_explicit_failed_takeoff",
+            "if not _surf_events(event_list)",
+            "remove_duplicate_events(event_list)",
+            "performance_reel_total_wave_count",
+            "QA_FAIL: Reel did not pass final quality review.",
+        ],
     )
 
     require_tokens(
@@ -270,6 +287,8 @@ def main() -> int:
             "from pipeline.perception.runtime import install",
             "def _install_pipeline_quality_runtime()",
             "from pipeline.runtime_quality import install",
+            "def _install_performance_reel_policy_runtime()",
+            "from pipeline.performance_reel_policy import install",
             "def _install_raw_timestamp_recovery()",
             "from pipeline.raw_timestamp_recovery import install",
             "def _install_identity_failsafe_runtime()",
@@ -282,7 +301,7 @@ def main() -> int:
             "from pipeline.candidate_ledger import install",
             "def _install_athlete_canonicalization_runtime()",
             "from pipeline.athlete_canonicalization import install",
-            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_raw_timestamp_recovery()\n_install_chunk_timeline_runtime()\n_install_selector_candidate_runtime()",
+            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_raw_timestamp_recovery()\n_install_chunk_timeline_runtime()\n_install_selector_candidate_runtime()",
             "_install_identity_failsafe_runtime()",
             "_install_cross_source_dedup_runtime()",
             "_install_draft_diagnostics_runtime()",
@@ -300,6 +319,11 @@ def main() -> int:
             "from pipeline.raw_timestamp_recovery import install",
             "_install_perception_runtime()\n_install_raw_timestamp_recovery()\n_install_analyzer_score_guard()\n_install_chunk_timeline_runtime()",
         ],
+    )
+    require_no_tokens(
+        "fail-silent script bootstrap",
+        sitecustomize,
+        ["pipeline.performance_reel_policy"],
     )
 
     require_tokens(
