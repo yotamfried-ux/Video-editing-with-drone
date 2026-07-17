@@ -39,6 +39,7 @@ on:
       - 'scripts/check_qa_reedit_schema.py'
       - 'scripts/build_candidate_decision_ledger.py'
       - 'integrations/supabase_uploader.py'
+      - 'integrations/ffmpeg.py'
       - 'integrations/drive.py'
       - 'pipeline/stages/selector_candidates.py'
       - 'pipeline/selector_candidate_runtime.py'
