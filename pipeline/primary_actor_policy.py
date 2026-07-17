@@ -1,8 +1,9 @@
-"""Sport-agnostic primary-actor continuity policy.
+"""Sport-agnostic primary-athlete continuity policy.
 
-People in the background are normal in surfing, football, basketball, cycling,
-and most other sports. A clip is unsafe only when the athlete performing the
-highlight cannot be followed reliably through the action.
+A personal reel is centered on one target athlete; it does not require an empty
+frame or a solo action. Teammates, opponents, officials, bystanders, and even
+another surfer on the same wave are allowed when the target athlete remains the
+clear, continuous subject and the featured action is attributable to them.
 """
 from __future__ import annotations
 
@@ -26,6 +27,16 @@ _BAD_STATUS_VALUES = {
     "blocked",
 }
 
+_STABLE_STATUS_VALUES = {
+    "clear",
+    "continuous",
+    "followed",
+    "stable",
+    "tracked",
+}
+
+# These are true identity/continuity failures and remain blocking regardless of
+# how many other people are visible.
 _TRUE_AMBIGUITY_FIELDS = (
     "primary_actor_unclear",
     "actor_ambiguous",
@@ -36,6 +47,11 @@ _TRUE_AMBIGUITY_FIELDS = (
     "target_occluded_at_key_moment",
     "primary_actor_occluded_at_key_moment",
     "critical_occlusion",
+)
+
+# Active people around the target are context, not an automatic identity defect.
+# They become blocking only when the target athlete is not clearly attributable.
+_ACTIVE_CONTEXT_FIELDS = (
     "multiple_active_subjects",
     "competing_active_subjects",
     "competing_primary_actors",
@@ -59,6 +75,10 @@ def _float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _status(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def primary_actor_id(event: dict[str, Any]) -> str | None:
@@ -92,6 +112,28 @@ def explicit_primary_actor_clear(event: dict[str, Any]) -> bool | None:
     return None
 
 
+def _identity_statuses(event: dict[str, Any]) -> list[str]:
+    return [
+        _status(event.get(key))
+        for key in ("primary_actor_status", "identity_continuity", "actor_tracking_status")
+        if _status(event.get(key))
+    ]
+
+
+def _target_is_clearly_centered(event: dict[str, Any]) -> bool:
+    """Return true when other active people do not obscure action ownership."""
+    clear = explicit_primary_actor_clear(event)
+    confidence = primary_actor_confidence(event)
+    statuses = _identity_statuses(event)
+    has_bad_status = any(value in _BAD_STATUS_VALUES for value in statuses)
+    stable_status = not statuses or any(value in _STABLE_STATUS_VALUES for value in statuses)
+    confidence_ok = confidence is None or confidence >= MIN_PRIMARY_ACTOR_CONFIDENCE
+    has_identity = primary_actor_id(event) is not None
+    return not has_bad_status and confidence_ok and (
+        clear is True or (has_identity and stable_status)
+    )
+
+
 def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any]:
     """Clear broad-window ambiguity flags after selecting a focused sub-window.
 
@@ -101,7 +143,7 @@ def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any
     """
     normalized = dict(event)
     normalized["broad_window_ambiguity_reasons"] = ambiguity_reasons(event)
-    for key in _TRUE_AMBIGUITY_FIELDS:
+    for key in (*_TRUE_AMBIGUITY_FIELDS, *_ACTIVE_CONTEXT_FIELDS):
         normalized[key] = False
     normalized.update({
         "primary_actor_clear": True,
@@ -126,7 +168,7 @@ def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
             reasons.append(key)
 
     for key in ("primary_actor_status", "identity_continuity", "actor_tracking_status"):
-        value = str(event.get(key) or "").strip().lower().replace("-", "_").replace(" ", "_")
+        value = _status(event.get(key))
         if value in _BAD_STATUS_VALUES:
             reasons.append(f"{key}:{value}")
 
@@ -137,6 +179,14 @@ def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
     confidence = primary_actor_confidence(event)
     if confidence is not None and confidence < MIN_PRIMARY_ACTOR_CONFIDENCE:
         reasons.append(f"primary_actor_confidence:{confidence:.3f}")
+
+    # Multiple people may all be actively participating in the same play or wave.
+    # Do not convert that normal sports context into a mixed-athlete defect when the
+    # target remains centered, trackable, and clearly owns the featured action.
+    if not _target_is_clearly_centered(event):
+        for key in _ACTIVE_CONTEXT_FIELDS:
+            if _bool(event.get(key)) is True:
+                reasons.append(key)
 
     # A focused sub-window has new scoped evidence. Do not reapply natural-language
     # ambiguity phrases describing the wider event; deterministic sidecar gates still
@@ -174,10 +224,11 @@ def classify_primary_actor(
     visible_subject_count: int = 0,
     primary_continuity_ratio: float | None = None,
 ) -> dict[str, Any]:
-    """Classify whether the athlete performing the action remains followable.
+    """Classify whether the featured athlete remains centered and followable.
 
-    Additional visible people are explicitly non-blocking. The decision only
-    becomes review-required when identity/action attribution is uncertain.
+    Additional visible or active people are explicitly non-blocking. The decision
+    becomes review-required only when identity, continuity, or action attribution
+    to the featured athlete is uncertain.
     """
     reasons = ambiguity_reasons(event)
     actor_id = primary_actor_id(event)
@@ -198,6 +249,8 @@ def classify_primary_actor(
             "primary_actor_confidence": confidence,
             "primary_continuity_ratio": primary_continuity_ratio,
             "visible_subject_count": visible_subject_count,
+            "primary_athlete_centered": False,
+            "other_people_allowed": False,
             "background_people_allowed": False,
             "ambiguity_reasons": list(dict.fromkeys(reasons)),
         }
@@ -205,12 +258,14 @@ def classify_primary_actor(
     if actor_id or clear is True or (primary_continuity_ratio is not None and primary_continuity_ratio >= 0.50):
         return {
             "decision": "allowed_primary_actor_clear",
-            "reason": "primary_actor_continuous_background_people_allowed",
+            "reason": "primary_athlete_centered_other_people_allowed",
             "primary_actor_id": actor_id,
             "primary_actor_clear": clear,
             "primary_actor_confidence": confidence,
             "primary_continuity_ratio": primary_continuity_ratio,
             "visible_subject_count": visible_subject_count,
+            "primary_athlete_centered": True,
+            "other_people_allowed": visible_subject_count > 1,
             "background_people_allowed": visible_subject_count > 1,
             "ambiguity_reasons": [],
         }
@@ -221,6 +276,8 @@ def classify_primary_actor(
             "reason": "single_visible_subject",
             "primary_actor_id": actor_id,
             "visible_subject_count": visible_subject_count,
+            "primary_athlete_centered": True,
+            "other_people_allowed": False,
             "background_people_allowed": False,
             "ambiguity_reasons": [],
         }
@@ -231,6 +288,8 @@ def classify_primary_actor(
         "defect_type": PRIMARY_ACTOR_UNCLEAR,
         "primary_actor_id": None,
         "visible_subject_count": visible_subject_count,
+        "primary_athlete_centered": False,
+        "other_people_allowed": False,
         "background_people_allowed": False,
         "ambiguity_reasons": ["primary_actor_unknown"],
     }
