@@ -73,15 +73,14 @@ function reeditAttemptLabel(draft: DraftRow): string | null {
 }
 
 function readableDraftLabel(name: string): { athlete: string; reel: string } {
-  const withoutPrefix = name.replace(/^DRAFT_/i, '').replace(/\.mp4$/i, '');
-  const withoutDate = withoutPrefix.replace(/_\d{8}$/i, '');
-  const partMatch = withoutDate.match(/\s*\(part\s+(\d+)\)\s*$/i);
-  const part = partMatch?.[1];
-  const athlete = withoutDate
-    .replace(/\s*\(part\s+\d+\)\s*$/i, '')
-    .replace(/\s*\(music\)\s*$/i, '')
-    .replace(/\s*QA-FLAGGED\s*$/i, '')
-    .replace(/_/g, ' ')
+  const base = name.replace(/^DRAFT_/i, '').replace(/\.mp4$/i, '');
+  const part = base.match(/(?:^|[\s_(])part\s+(\d+)(?=$|[\s_)])/i)?.[1];
+  const athlete = base
+    .replace(/(?:^|[\s_(])part\s+\d+(?=$|[\s_)])/gi, ' ')
+    .replace(/(?:^|[\s_(])music(?=$|[\s_)])/gi, ' ')
+    .replace(/QA-FLAGGED/gi, ' ')
+    .replace(/(?:^|[_\s])\d{8}(?=$|[_\s])/g, ' ')
+    .replace(/[()_]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
   return {
