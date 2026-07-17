@@ -174,6 +174,15 @@ else
   fi
 fi
 
+# run_tracked.py has already written a terminal result before this post-run gate.
+# When processing succeeded but the product contract failed, overwrite both the
+# durable run row and the global operator signal so the app cannot show success.
+if [ "$STATUS" -eq 0 ] && [ "$BUSINESS_GATE_STATUS" -ne 0 ]; then
+  if ! python scripts/record_publishable_business_gate_status.py "$PUBLISHABLE_GATE_RESULT_FILE"; then
+    echo "::warning::could not propagate publishable business-gate failure to operator status"
+  fi
+fi
+
 # Preserve the original processing failure as the primary exit code. When the
 # renderer itself succeeded, the athlete-level business gate becomes the final
 # production result instead of allowing incomplete coverage to appear green.
