@@ -78,6 +78,12 @@ def _install_pipeline_quality_runtime() -> None:
     install()
 
 
+def _install_performance_reel_policy_runtime() -> None:
+    """Install the coverage-first product contract; failures are fatal."""
+    from pipeline.performance_reel_policy import install
+    install()
+
+
 def _install_raw_timestamp_recovery() -> None:
     # Must wrap analyzer._parse_session before chunk/selector runtimes capture it.
     # Otherwise MM.SS values are discarded as sub-second fragments first.
@@ -215,6 +221,7 @@ _install_storage_backend_alias()
 _install_r2_batch_scope()
 _install_perception_runtime()
 _install_pipeline_quality_runtime()
+_install_performance_reel_policy_runtime()
 _install_raw_timestamp_recovery()
 _install_chunk_timeline_runtime()
 _install_selector_candidate_runtime()
