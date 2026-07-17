@@ -13,6 +13,13 @@ on:
       - 'docs/operator-smoke.md'
       - 'docs/qa-reedit-migration-smoke.md'
       - 'docs/audit/personal-publishable-reel-completion-plan-20260717.md'
+      - 'web-api/src/lib/operator-draft-approve.ts'
+      - 'web-api/src/lib/draft-publishability.ts'
+      - 'scripts/test_pipeline_logical_consistency_integration.py'
+      - 'pipeline/stages/selector_candidates.py'
+      - 'pipeline/subject_gate_policy.py'
+      - 'pipeline/rendered_timeline.py'
+      - 'docs/audit/cross-layer-logical-consistency-test-basis-20260717.md'
       - 'docs/audit/run-29165422772-four-gap-repair-plan.md'
       - 'integrations/drive.py'
       - 'integrations/r2_storage.py'
@@ -214,6 +221,8 @@ jobs:
             raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
           print('Multi-upload batch contract checks passed')
           PY
+      - name: Validate cross-layer logical consistency
+        run: python scripts/test_pipeline_logical_consistency_integration.py
       - name: Validate Bootstrap parity contract
         run: PYTHONPATH=scripts:. python scripts/test_bootstrap_parity_contract.py
       - name: Validate Batch scope contract
