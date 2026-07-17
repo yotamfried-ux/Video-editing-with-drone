@@ -9,6 +9,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from pipeline.primary_actor_policy import primary_actor_id
+
 _INSTALLED_FLAG = "_sportreel_primary_actor_parent_identity_installed"
 
 
@@ -30,7 +32,7 @@ def install() -> None:
                 if not isinstance(raw_event, dict):
                     continue
                 event = dict(raw_event)
-                if person_id and not selection.primary_actor_id(event):
+                if person_id and not primary_actor_id(event):
                     event["person_id"] = person_id
                 allowed = selection._event_allowed(event)
                 if allowed is not None:
