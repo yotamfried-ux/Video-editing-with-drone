@@ -51,6 +51,9 @@ def validate_tokens() -> None:
         "normalize_focused_subwindow_evidence",
         "FOCUSED_SUBWINDOW_SCOPE",
         "_ACTIVE_CONTEXT_FIELDS",
+        "_centered_evidence_gaps",
+        "primary_actor_id:missing",
+        "identity_continuity:not_proven_stable",
     ]:
         require(token in actor_policy, f"primary athlete policy missing {token}")
     print("primary athlete policy tokens ok")
@@ -108,6 +111,16 @@ def validate_football() -> None:
                     "primary_actor_start": 43.0,
                     "primary_actor_end": 50.0,
                 },
+                {
+                    "type": "pass",
+                    "start": 56.0,
+                    "end": 64.0,
+                    "score": 8,
+                    "description": "Several players contest the ball but no centrality evidence was returned.",
+                    "athlete_id": "player_7",
+                    "multiple_active_subjects": True,
+                    "competing_active_subjects": True,
+                },
             ],
         }],
     }
@@ -121,6 +134,14 @@ def validate_football() -> None:
     gate = classify_primary_actor(goal, visible_subject_count=5, primary_continuity_ratio=0.9)
     require(gate["decision"] == "allowed_primary_actor_clear", f"centered football player was blocked: {gate}")
     require(gate["other_people_allowed"] is True, "football gate did not allow other participants")
+
+    insufficient = payload["persons"][0]["events"][3]
+    gaps = ambiguity_reasons(insufficient)
+    require("primary_actor_clear:not_proven" in gaps, f"missing actor clarity did not fail closed: {gaps}")
+    require("identity_continuity:not_proven_stable" in gaps, f"missing stable continuity did not fail closed: {gaps}")
+    require("primary_actor_confidence:missing" in gaps, f"missing confidence did not fail closed: {gaps}")
+    insufficient_gate = classify_primary_actor(insufficient, visible_subject_count=6, primary_continuity_ratio=0.8)
+    require(insufficient_gate["decision"] == "review_required", "athlete_id alone approved a crowded play")
 
     rescued = events[1]
     require(rescued["start"] == 43.0 and rescued["end"] == 50.0, "ambiguous event should use focused sub-window")
@@ -173,12 +194,22 @@ def validate_surfing() -> None:
                     "multiple_active_subjects": True,
                     "competing_active_subjects": True,
                 },
+                {
+                    "type": "wave_catch",
+                    "start": 105.0,
+                    "end": 120.0,
+                    "score": 8,
+                    "description": "Another surfer joins the wave but the model returned only a target ID.",
+                    "athlete_id": "surfer_target",
+                    "multiple_active_subjects": True,
+                    "competing_active_subjects": True,
+                },
             ],
         }],
     }
     rewritten = json.loads(rewrite_raw_selection_json(json.dumps(payload)))
     events = rewritten["persons"][0]["events"]
-    require(len(events) == 1, f"expected only the clearly centered same-wave ride, got {events}")
+    require(len(events) == 1, f"expected only the proven centered same-wave ride, got {events}")
     ride = events[0]
     require(ride["competing_active_subjects"] is True, "same-wave surfer context should be preserved")
     require(ambiguity_reasons(ride) == [], "another surfer on the same wave must not discard a clear ride")
@@ -186,6 +217,12 @@ def validate_surfing() -> None:
     require(gate["decision"] == "allowed_primary_actor_clear", f"clear same-wave ride was blocked: {gate}")
     require(gate["primary_athlete_centered"] is True, "target surfer was not recorded as centered")
     require(gate["other_people_allowed"] is True, "same-wave participant was not allowed")
+
+    target_id_only = payload["persons"][0]["events"][2]
+    reasons = ambiguity_reasons(target_id_only)
+    require(reasons, "same-wave target ID without centrality evidence was accepted")
+    blocked = classify_primary_actor(target_id_only, visible_subject_count=2, primary_continuity_ratio=0.85)
+    require(blocked["decision"] == "review_required", "same-wave athlete_id alone bypassed the centrality gate")
     print("surfing same-wave centered-athlete selection ok")
 
 
