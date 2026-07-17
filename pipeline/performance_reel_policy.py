@@ -40,9 +40,6 @@ _FAILED_TAKEOFF_TERMS = {
     "never stands",
     "does not stand",
 }
-# These defects may justify removing a ride after QA because the source is not a
-# usable performance moment or is not the same athlete. Other defects must be
-# repaired or review-blocked without silently deleting the wave.
 _HARD_REJECT_DEFECTS = {
     "DUPLICATE_MOMENT",
     "IDENTITY_MISMATCH",
@@ -108,13 +105,16 @@ def is_explicit_failed_takeoff(event: dict[str, Any], activity: str = "") -> boo
 
 def keep_event_for_performance_reel(event: dict[str, Any], activity: str = "") -> bool:
     """Coverage-first event admission shared by parser/runtime wrappers."""
+    surf_event = is_surf_event(event, activity)
+    if surf_event and is_explicit_failed_takeoff(event, activity):
+        return False
     try:
         score = int(event.get("score", 0))
     except (TypeError, ValueError):
         score = 0
     if score >= 6:
         return True
-    return is_surf_event(event, activity) and not is_explicit_failed_takeoff(event, activity)
+    return surf_event
 
 
 def _source(event: dict[str, Any]) -> str:
@@ -311,24 +311,22 @@ def _patch_prompt_and_filters() -> None:
         return {**result, "persons": hardened_people}
 
     runtime_quality._harden_session_result = harden_session_result
-
-    # The button-based complaint taxonomy is not part of the operator workflow.
-    # Keep the approval/free-text re-edit loops, but stop querying the absent
-    # draft_feedback table and stop injecting those labels into prompts.
     feedback.get_negative_feedback_hint = lambda: ""
     if hasattr(analyzer, "get_negative_feedback_hint"):
         analyzer.get_negative_feedback_hint = lambda: ""
 
 
 def _patch_editor() -> None:
+    from pipeline.final_duplicate_guard import remove_duplicate_events
     from pipeline.stages import editor
 
     if getattr(editor, _INSTALLED_FLAG, False):
         return
 
     def partition(events, slowmo_capable, target_max=MAX_PERFORMANCE_REEL_SEC):
+        deduplicated = remove_duplicate_events(list(events or []))
         return partition_complete_performance_reels(
-            list(events or []),
+            deduplicated,
             bool(slowmo_capable),
             target_max=target_max,
             xfade_dur=float(getattr(editor, "XFADE_DUR", 0.25)),
