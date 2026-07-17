@@ -1,0 +1,320 @@
+ in successful_indices],
++            clip_paths,
++            rendered_transitions,
++        )
+ 
+         if not clip_paths:
+             label = athlete_label or "unknown athlete"
+@@ -1754,7 +1799,7 @@
+                 shutil.copy2(cp, dst)
+                 cached_clips.append(dst)
+             meta = {
+-                "events":         ordered,
++                "events":         rendered_events,
+                 "sport":          sport,
+                 "athlete_label":  athlete_label,
+                 "clip_paths":     cached_clips,
+@@ -1768,11 +1813,11 @@
+         try:
+             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                       sport=sport, athlete_label=athlete_label,
+-                                      transitions=event_transitions, fps=reel_fps)
++                                      transitions=rendered_transitions, fps=reel_fps)
+             if reel_clean:
+                 reels.append(reel_clean)
+                 if _events_out is not None:
+-                    _events_out.append((reel_clean, ordered))
++                    _events_out.append((reel_clean, rendered_events))
+ 
+             music_track = _pick_music(sport)
+             if music_track:
+@@ -1780,11 +1825,11 @@
+                 reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
+                                           sport=sport, athlete_label=athlete_label,
+                                           music_path=music_track,
+-                                          transitions=event_transitions, fps=reel_fps)
++                                          transitions=rendered_transitions, fps=reel_fps)
+                 if reel_music:
+                     reels.append(reel_music)
+                     if _events_out is not None:
+-                        _events_out.append((reel_music, ordered))
++                        _events_out.append((reel_music, rendered_events))
+         finally:
+             for p in clip_paths:
+                 try: os.remove(p)
+--- a/pipeline/stages/selector_candidates.py
++++ b/pipeline/stages/selector_candidates.py
+@@ -141,6 +141,20 @@
+ 
+     selected_count = sum(1 for item in candidates if item.get("selected"))
+     discarded_count = sum(1 for item in candidates if item.get("discarded"))
++    detected_athlete_registry = [
++        {
++            "person_id": str(person.get("id") or "person_?"),
++            "source_person_id": str(person.get("id") or "person_?"),
++            "person_description": str(person.get("description") or "unknown"),
++            "source_video": source_video,
++            "detected_event_count": len([
++                event for event in person.get("events", []) or [] if isinstance(event, dict)
++            ]),
++            "no_output_reason": person.get("no_output_reason"),
++        }
++        for person in persons
++        if isinstance(person, dict)
++    ]
+     return {
+         "schema_version": SCHEMA_VERSION,
+         "source_video": source_video,
+@@ -148,6 +162,7 @@
+         "selected_count": selected_count,
+         "discarded_count": discarded_count,
+         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
++        "detected_athlete_registry": detected_athlete_registry,
+         "candidates": candidates,
+     }
+ 
+--- a/pipeline/subject_gate_policy.py
++++ b/pipeline/subject_gate_policy.py
+@@ -275,6 +275,29 @@
+             continue
+         next_event = with_effective_cut_window(event)
+         gate = build_subject_gate(next_event, detections, index, source_video=source_video)
++        if gate is None and next_event.get("focused_subwindow_requires_validation"):
++            start, end = effective_cut_window(next_event)
++            event_id = str(next_event.get("event_id") or next_event.get("id") or f"event_{index:03d}")
++            gate = {
++                "decision": "review_required",
++                "reason": "focused_subwindow_lacks_scoped_continuity_evidence",
++                "defect_type": DEFECT_TYPE,
++                "event_id": event_id,
++                "source_video": _source_name(_event_source(next_event, source_video)),
++                "source_window": {"start": start, "end": end},
++                "primary_actor_id": next_event.get("person_id") or next_event.get("athlete_id"),
++                "primary_athlete_centered": False,
++                "ambiguity_reasons": ["focused_subwindow_validation_required"],
++                "defect": {
++                    "type": DEFECT_TYPE,
++                    "severity": "critical",
++                    "blocking": True,
++                    "event_id": event_id,
++                    "source_video": _source_name(_event_source(next_event, source_video)),
++                    "note": "focused sub-window has no new continuity evidence",
++                    "ambiguity_reasons": ["focused_subwindow_validation_required"],
++                },
++            }
+         if gate is not None:
+             next_event = {**next_event, "subject_isolation_gate": gate}
+             next_event = merge_gate_defect_into_qa(
+--- a/scripts/build_athlete_coverage_report.py
++++ b/scripts/build_athlete_coverage_report.py
+@@ -31,6 +31,14 @@
+     "insufficient_time_inside_chunk": "no_complete_action",
+     "invalid_numeric_window": "invalid_source_timestamp",
+ }
++_EXPLICIT_PERSON_NO_OUTPUT_REASONS = {
++    "no_complete_action",
++    "quality_below_threshold",
++    "identity_uncertain",
++    "target_not_trackable",
++    "invalid_source_timestamp",
++    "duplicate_action_window",
++}
+ 
+ 
+ def _read(path: Path) -> dict[str, Any]:
+@@ -103,6 +111,22 @@
+     if reasons:
+         return "unresolved_selection_path", False
+     return None, False
++
++
++def _cluster_outcome(
++    rows: list[dict[str, Any]],
++    selected: list[dict[str, Any]],
++    no_output_reason: str | None,
++) -> str:
++    if any(row.get("uploaded_to_review") or row.get("review_draft_name") for row in rows):
++        return "uploaded_to_review"
++    if any(row.get("qa_passed") is True for row in rows):
++        return "qa_passed"
++    if any(row.get("rendered") is True or row.get("emitted_draft_name") for row in rows):
++        return "rendered"
++    if selected:
++        return "selected_for_render"
++    return no_output_reason or "coverage_gap"
+ 
+ 
+ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) -> dict[str, Any]:
+@@ -131,21 +155,52 @@
+     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+     for candidate in candidates:
+         grouped[_cluster_key(candidate)].append(candidate)
++    registry_by_cluster: dict[str, dict[str, Any]] = {}
++    for raw in ledger.get("detected_athlete_registry", []) or []:
++        if not isinstance(raw, dict):
++            continue
++        registry = dict(raw)
++        cluster_id = _cluster_key(registry)
++        registry_by_cluster[cluster_id] = registry
++        grouped.setdefault(cluster_id, [])
+ 
+     athletes: list[dict[str, Any]] = []
+     for cluster_id, rows in sorted(grouped.items()):
++        registry = registry_by_cluster.get(cluster_id, {})
+         selected = [row for row in rows if row.get("selected")]
+         discarded = [row for row in rows if row.get("discarded")]
+         no_output_reason, explicit = _no_output_reason(rows)
++        if not rows:
++            registry_reason = str(registry.get("no_output_reason") or "").strip()
++            if registry_reason in _EXPLICIT_PERSON_NO_OUTPUT_REASONS:
++                no_output_reason, explicit = registry_reason, True
++            else:
++                no_output_reason, explicit = "detected_without_candidate_evidence", False
+         descriptions = [str(row.get("person_description") or "").strip() for row in rows]
++        if registry.get("person_description"):
++            descriptions.append(str(registry.get("person_description")).strip())
+         descriptions = [description for description in descriptions if description]
+-        person_ids = sorted({str(row.get("person_id")) for row in rows if row.get("person_id")})
++        person_ids = sorted({
++            str(value) for value in [
++                *(row.get("person_id") for row in rows),
++                registry.get("person_id"),
++            ] if value
++        })
+         athlete_ids = sorted({str(row.get("athlete_id")) for row in rows if row.get("athlete_id")})
+-        source_videos = sorted({str(row.get("source_video")) for row in rows if row.get("source_video")})
++        source_videos = sorted({
++            str(value) for value in [
++                *(row.get("source_video") for row in rows),
++                registry.get("source_video"),
++            ] if value
++        })
+         candidate_seconds = sum((_candidate_window(row).get("duration") or 0.0) for row in rows)
+         selected_seconds = sum((_selected_window(row).get("duration") or 0.0) for row in selected)
+-        outcome = "draft_created" if selected else (no_output_reason or "coverage_gap")
++        outcome = _cluster_outcome(rows, selected, no_output_reason)
+         coverage_met = bool(selected) or explicit
++        detected_event_count = max(
++            len(rows),
++            int(registry.get("detected_event_count") or 0),
++        )
+         selected_lineage_complete = all(
+             row.get("person_id") and row.get("athlete_id") and row.get("source_video")
+             for row in selected
+@@ -156,7 +211,7 @@
+             "athlete_ids": athlete_ids,
+             "source_videos": source_videos,
+             "descriptions": sorted(set(descriptions)),
+-            "candidate_action_count": len(rows),
++            "candidate_action_count": detected_event_count,
+             "selected_action_count": len(selected),
+             "discarded_action_count": len(discarded),
+             "candidate_seconds": round(candidate_seconds, 2),
+@@ -166,6 +221,7 @@
+             "discard_reason_counts": dict(Counter(_detailed_reason(row) or "missing_reason" for row in discarded)),
+             "final_outcome": outcome,
+             "no_output_reason_explicit": explicit,
++            "detected_registry_present": bool(registry),
+             "coverage_requirement_met": coverage_met,
+             "selected_identity_lineage_complete": selected_lineage_complete,
+             "selected_windows": [
+--- a/scripts/build_candidate_decision_ledger.py
++++ b/scripts/build_candidate_decision_ledger.py
+@@ -288,6 +288,10 @@
+         "discard_causes_available": discard_causes_available,
+         "recall_status": "selected_and_discarded" if selected_count > 0 and discard_causes_available else "selected_only",
+         "known_gap": None if selected_count > 0 and discard_causes_available else "discarded candidates are not yet emitted by the upstream selector",
++        "detected_athlete_registry": [
++            dict(row) for row in upstream.get("detected_athlete_registry", []) or []
++            if isinstance(row, dict)
++        ],
+         "candidates": candidates,
+     }
+ 
+--- a/scripts/check_qa_reedit_schema.py
++++ b/scripts/check_qa_reedit_schema.py
+@@ -1,5 +1,5 @@
+ #!/usr/bin/env python3
+-"""Fail-fast Supabase schema preflight for the QA re-edit loop."""
++"""Fail-fast Supabase schema preflight for QA repair and draft publishability."""
+ from __future__ import annotations
+ 
+ import os
+@@ -8,7 +8,7 @@
+ 
+ from supabase import create_client
+ 
+-REQUIRED_COLUMNS = (
++REEDIT_REQUIRED_COLUMNS = (
+     "origin",
+     "qa_defects",
+     "approval_blocked_reasons",
+@@ -16,16 +16,30 @@
+     "max_attempts",
+     "last_pipeline_run_id",
+ )
+-
+-SELECT_COLUMNS = ",".join((
++REEDIT_SELECT_COLUMNS = ",".join((
+     "id",
+     "draft_name",
+     "notes",
+     "status",
+-    *REQUIRED_COLUMNS,
++    *REEDIT_REQUIRED_COLUMNS,
+ ))
+-
+-MIGRATION_PATH = "supabase/migrations/20260708_qa_reedit_tasks.sql"
++PUBLISHABILITY_SELECT_COLUMNS = ",".join((
++    "storage_object_id",
++    "draft_name",
++    "pipeline_run_id",
++    "athlete_key",
++    "part_index",
++    "publishable",
++    "qa_evidence_recorded",
++    "qa_verdict",
++    "qa_passed",
++    "technical_issues",
++    "approval_blocked_reasons",
++    "media_specs_revision",
++    "manifest_revision",
++))
++REEDIT_MIGRATION_PATH = "supabase/migrations/20260708_qa_reedit_tasks.sql"
++PUBLISHABILITY_MIGRATION_PATH = "supabase/migrations/20260717_draft_publishability_authority.sql"
+ 
+ 
+ def _error(message: str) -> None:
+@@ -33,18 +47,19 @@
+ 
+ 
+ def _schema_failure_message(original_error: str) -> str:
+-    columns = ", ".join(REQUIRED_COLUMNS)
++    columns = ", ".join(REEDIT_REQUIRED_COLUMNS)
+     return dedent(
+         f"""
+-        QA re-edit Supabase schema preflight failed.
++        SportReel Supabase schema preflight failed.
+ 
+-        The real Supabase project does not expose the columns required for the
+-        persistent QA-blocked draft repair loop: {columns}.
++        The real Supabase project must expose both:
++        - reprocess_requests columns required for QA repair: {columns};
++        - draft_publishability, the authoritative server-side approval contract.
+ 
+-        Apply {MIGRATION_PATH} in the real Supabase project before running the
+-        pipeline again. If the migration was already applied but Supabase REST
+-        still returns PGRST204, reload/restart the Supabase API schema cache and
+-        run this preflight again.
++        Apply {REEDIT_MIGRATION_PATH} and {PUBLISHABILITY_MIGRATION_PATH} in the
++        real Supabase project before running the pipeline or deploying the operator
++        approval API. If migrations were applied but PostgREST still returns
++        PGRST204/PGRST205, reload the Supabase API schema cache and retry.
+ 
+         Original Supabase/PostgREST error:
+         {original_error}
+@@ -56,26 +71,28 @@
+     url = os.getenv("SUPABASE_URL", "").strip()
+     service_key = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
+     if not url or not service_key:
+-        _error("SUPABASE_URL and SUPABASE_SERVICE_KEY are required for QA re-edit schem
