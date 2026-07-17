@@ -71,6 +71,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
+      - name: Print exact Git tree
+        run: echo "HEAD_TREE=$(git rev-parse HEAD^{tree})"
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
