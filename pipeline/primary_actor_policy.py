@@ -120,18 +120,49 @@ def _identity_statuses(event: dict[str, Any]) -> list[str]:
     ]
 
 
+def _active_context_present(event: dict[str, Any]) -> bool:
+    return any(_bool(event.get(key)) is True for key in _ACTIVE_CONTEXT_FIELDS)
+
+
 def _target_is_clearly_centered(event: dict[str, Any]) -> bool:
-    """Return true when other active people do not obscure action ownership."""
+    """Require positive attribution evidence when other athletes are active.
+
+    An athlete ID by itself is not proof that the camera and action remain centered
+    on that athlete. Group plays and shared waves require all four positive signals:
+    canonical target identity, explicit actor clarity, stable continuity, and a
+    confidence value at or above the policy threshold.
+    """
     clear = explicit_primary_actor_clear(event)
     confidence = primary_actor_confidence(event)
     statuses = _identity_statuses(event)
     has_bad_status = any(value in _BAD_STATUS_VALUES for value in statuses)
-    stable_status = not statuses or any(value in _STABLE_STATUS_VALUES for value in statuses)
-    confidence_ok = confidence is None or confidence >= MIN_PRIMARY_ACTOR_CONFIDENCE
+    has_stable_status = any(value in _STABLE_STATUS_VALUES for value in statuses)
     has_identity = primary_actor_id(event) is not None
-    return not has_bad_status and confidence_ok and (
-        clear is True or (has_identity and stable_status)
+    return (
+        not has_bad_status
+        and has_identity
+        and clear is True
+        and has_stable_status
+        and confidence is not None
+        and confidence >= MIN_PRIMARY_ACTOR_CONFIDENCE
     )
+
+
+def _centered_evidence_gaps(event: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    if primary_actor_id(event) is None:
+        gaps.append("primary_actor_id:missing")
+    if explicit_primary_actor_clear(event) is not True:
+        gaps.append("primary_actor_clear:not_proven")
+    statuses = _identity_statuses(event)
+    if not any(value in _STABLE_STATUS_VALUES for value in statuses):
+        gaps.append("identity_continuity:not_proven_stable")
+    confidence = primary_actor_confidence(event)
+    if confidence is None:
+        gaps.append("primary_actor_confidence:missing")
+    elif confidence < MIN_PRIMARY_ACTOR_CONFIDENCE:
+        gaps.append(f"primary_actor_confidence:{confidence:.3f}")
+    return gaps
 
 
 def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any]:
@@ -181,9 +212,10 @@ def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
         reasons.append(f"primary_actor_confidence:{confidence:.3f}")
 
     # Multiple people may all be actively participating in the same play or wave.
-    # Do not convert that normal sports context into a mixed-athlete defect when the
-    # target remains centered, trackable, and clearly owns the featured action.
-    if not _target_is_clearly_centered(event):
+    # Allow that context only with positive centrality/identity evidence. Missing
+    # fields fail closed instead of letting an athlete_id alone imply ownership.
+    if _active_context_present(event) and not _target_is_clearly_centered(event):
+        reasons.extend(_centered_evidence_gaps(event))
         for key in _ACTIVE_CONTEXT_FIELDS:
             if _bool(event.get(key)) is True:
                 reasons.append(key)
