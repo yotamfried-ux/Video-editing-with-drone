@@ -1,0 +1,280 @@
+        }},
++            )
++            payload = json.loads(manifest.read_text(encoding="utf-8"))
++            part = payload["athletes"][0]["parts"][0]
++            part.update({
++                "qa_evidence_recorded": True,
++                "qa_verdict": "PASS",
++                "qa_passed": True,
++                "technical_issues": [],
++                "render_ready": True,
++            })
++            payload["athletes"][0]["blocking_reasons"] = []
++            policy._refresh_row_publishability(payload["athletes"][0])
++            policy._atomic_write(manifest, payload)
++            policy._persist_draft_publishability = lambda record: captured.append(dict(record))
++            if not policy.mark_upload_result(
++                reel,
++                "DRAFT_target.mp4",
++                storage_object_id="review/DRAFT_target.mp4",
++            ):
++                raise AssertionError("manifest did not reconcile the real REVIEW upload")
++            if len(captured) != 1 or captured[0].get("publishable") is not True:
++                raise AssertionError(f"pipeline did not persist positive authoritative publishability: {captured}")
++            stored = json.loads(manifest.read_text(encoding="utf-8"))["athletes"][0]["parts"][0]
++            if stored.get("authoritative_publishability_persisted") is not True:
++                raise AssertionError("manifest did not confirm authoritative publishability persistence")
++        finally:
++            policy._persist_draft_publishability = original_persist
++            if old_manifest is None:
++                os.environ.pop("PUBLISHABLE_REEL_MANIFEST_FILE", None)
++            else:
++                os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = old_manifest
++
+     helper_path = ROOT / "web-api/src/lib/draft-publishability.ts"
+     if not helper_path.exists():
+         raise AssertionError("server-side draft publishability authority is missing")
+--- a/scripts/test_pipeline_quality_contract.py
++++ b/scripts/test_pipeline_quality_contract.py
+@@ -56,6 +56,7 @@
+     context_qa_long_video = _read("pipeline/context_qa_long_video.py")
+     raw_timestamp_recovery = _read("pipeline/raw_timestamp_recovery.py")
+     run_tracked = _read("scripts/run_tracked.py")
++    bootstrap = _read("pipeline/bootstrap.py")
+     diagnostics = _read("scripts/run_pipeline_with_diagnostics.sh")
+     sitecustomize = _read("scripts/sitecustomize.py")
+     workflow = _read(".github/workflows/operator-smoke-check.yml")
+@@ -77,6 +78,7 @@
+         context_qa_long_video,
+         raw_timestamp_recovery,
+         run_tracked,
++        bootstrap,
+         sitecustomize,
+     ):
+         ast.parse(source)
+@@ -339,39 +341,31 @@
+     )
+ 
+     require_tokens(
+-        "tracked runner quality install",
++        "tracked runner canonical bootstrap",
+         run_tracked,
+         [
+-            "def _install_perception_runtime()",
+-            "from pipeline.perception.runtime import install",
+-            "def _install_pipeline_quality_runtime()",
+-            "from pipeline.runtime_quality import install",
+-            "def _install_performance_reel_policy_runtime()",
+-            "from pipeline.performance_reel_policy import install",
+-            "def _install_publishable_reel_policy_runtime()",
+-            "from pipeline.publishable_reel_policy import install",
+-            "def _install_silent_output_policy_runtime()",
+-            "from pipeline.silent_output_policy import install",
+-            "def _install_publishable_qa_evidence_runtime()",
+-            "from pipeline.publishable_qa_evidence import install",
+-            "def _install_raw_timestamp_recovery()",
+-            "from pipeline.raw_timestamp_recovery import install",
+-            "def _install_identity_failsafe_runtime()",
+-            "from pipeline.identity_failsafe import install",
+-            "def _install_cross_source_dedup_runtime()",
+-            "from pipeline.cross_source_dedup import install",
+-            "def _install_draft_diagnostics_runtime()",
+-            "from pipeline.draft_diagnostics import install",
+-            "def _install_candidate_ledger_runtime()",
+-            "from pipeline.candidate_ledger import install",
+-            "def _install_athlete_canonicalization_runtime()",
+-            "from pipeline.athlete_canonicalization import install",
+-            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_silent_output_policy_runtime()\n_install_publishable_qa_evidence_runtime()\n_install_raw_timestamp_recovery()",
+-            "_install_identity_failsafe_runtime()",
+-            "_install_cross_source_dedup_runtime()",
+-            "_install_draft_diagnostics_runtime()",
+-            "_install_candidate_ledger_runtime()",
+-            "_install_athlete_canonicalization_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
++            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
++            "install_pre_orchestrator_patches()",
++            "install_post_orchestrator_patches()",
++            "import pipeline.orchestrator as _orchestrator",
++        ],
++    )
++    require_tokens(
++        "canonical quality policy stack",
++        bootstrap,
++        [
++            "pipeline.perception.runtime",
++            "pipeline.runtime_quality",
++            "pipeline.performance_reel_policy",
++            "pipeline.publishable_reel_policy",
++            "pipeline.silent_output_policy",
++            "pipeline.publishable_qa_evidence",
++            "pipeline.raw_timestamp_recovery",
++            "pipeline.identity_failsafe",
++            "pipeline.cross_source_dedup",
++            "pipeline.draft_diagnostics",
++            "pipeline.candidate_ledger",
++            "pipeline.athlete_canonicalization",
+         ],
+     )
+     require_tokens(
+@@ -385,21 +379,21 @@
+         ],
+     )
+     require_tokens(
+-        "script bootstrap timestamp install",
++        "canonical timestamp installation order",
++        bootstrap,
++        [
++            "pipeline.perception.runtime",
++            "pipeline.raw_timestamp_recovery",
++            "pipeline.analyzer_score_guard",
++            "pipeline.chunk_timeline_runtime",
++        ],
++    )
++    require_no_tokens(
++        "path-only script bootstrap",
+         sitecustomize,
+-        [
+-            "def _install_perception_runtime()",
+-            "from pipeline.perception.runtime import install",
+-            "def _install_raw_timestamp_recovery()",
+-            "from pipeline.raw_timestamp_recovery import install",
+-            "_install_perception_runtime()\n_install_raw_timestamp_recovery()\n_install_analyzer_score_guard()\n_install_chunk_timeline_runtime()",
+-        ],
+-    )
+-    require_no_tokens(
+-        "fail-silent script bootstrap",
+-        sitecustomize,
+-        ["pipeline.performance_reel_policy", "pipeline.publishable_reel_policy", "pipeline.silent_output_policy"],
++        ["from pipeline.", "except Exception"],
+     )
++
+ 
+     require_tokens(
+         "operator smoke workflow quality coverage",
+--- a/scripts/test_publishable_gate_status_contract.py
++++ b/scripts/test_publishable_gate_status_contract.py
+@@ -33,6 +33,7 @@
+         },
+         result_path="/tmp/pipeline-debug/publishable_reel_gate_result.json",
+         marker=lambda **fields: calls.append(fields),
++        reader=lambda: {"status": "failed", "stage": "publishable_business_gate_failed"},
+     )
+     if not changed or len(calls) != 1:
+         raise SystemExit(f"failed business gate did not emit one terminal status update: {calls}")
+@@ -73,10 +74,12 @@
+ 
+     source = SCRIPT_PATH.read_text(encoding="utf-8")
+     required_source = [
+-        "from integrations.run_status import mark_terminal_run",
+-        'stage="publishable_business_gate_failed"',
+-        'status="failed"',
+-        'failure_source="publishable_reel_business_gate"',
++        "from integrations.run_status import mark_terminal_run_strict, read_terminal_state",
++        "write_status_outbox",
++        "verify_terminal_state",
++        '"stage": "publishable_business_gate_failed"',
++        '"status": "failed"',
++        '"failure_source": "publishable_reel_business_gate"',
+     ]
+     missing = [token for token in required_source if token not in source]
+     if missing:
+--- a/scripts/test_publishable_identity_lineage_contract.py
++++ b/scripts/test_publishable_identity_lineage_contract.py
+@@ -32,6 +32,10 @@
+                     {
+                         "part_index": 1,
+                         "file_name": "DRAFT_black_wetsuit.mp4",
++                        "storage_object_id": "review/DRAFT_black_wetsuit.mp4",
++                        "authoritative_publishability_required": True,
++                        "authoritative_publishability_persisted": True,
++                        "authoritative_manifest_revision": "manifest-revision",
+                         "uploaded_to_review": True,
+                         "upload_error": None,
+                         "publishable": True,
+--- a/scripts/test_publishable_qa_evidence_contract.py
++++ b/scripts/test_publishable_qa_evidence_contract.py
+@@ -157,10 +157,13 @@
+         raise SystemExit("shared bootstrap does not install explicit QA evidence")
+     if "pipeline.silent_output_policy" not in bootstrap:
+         raise SystemExit("shared bootstrap does not install the silent output policy")
+-    if "_install_publishable_qa_evidence_runtime()" not in run_tracked:
+-        raise SystemExit("production runner does not install explicit QA evidence")
+-    if "_install_silent_output_policy_runtime()" not in run_tracked:
+-        raise SystemExit("production runner does not install silent output policy")
++    for token in (
++        "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
++        "install_pre_orchestrator_patches()",
++        "install_post_orchestrator_patches()",
++    ):
++        if token not in run_tracked:
++            raise SystemExit(f"production runner missing canonical bootstrap token: {token}")
+ 
+     print("Silent publishable final QA evidence contract checks passed")
+     return 0
+--- a/scripts/test_publishable_reel_business_contract.py
++++ b/scripts/test_publishable_reel_business_contract.py
+@@ -52,6 +52,10 @@
+                     {
+                         "part_index": 1,
+                         "file_name": "DRAFT_player_7_part_1.mp4",
++                        "storage_object_id": "review/DRAFT_player_7_part_1.mp4",
++                        "authoritative_publishability_required": True,
++                        "authoritative_publishability_persisted": True,
++                        "authoritative_manifest_revision": "manifest-revision-1",
+                         "uploaded_to_review": True,
+                         "upload_error": None,
+                         "publishable": True,
+@@ -68,6 +72,10 @@
+                     {
+                         "part_index": 2,
+                         "file_name": "DRAFT_player_7_part_2.mp4",
++                        "storage_object_id": "review/DRAFT_player_7_part_2.mp4",
++                        "authoritative_publishability_required": True,
++                        "authoritative_publishability_persisted": True,
++                        "authoritative_manifest_revision": "manifest-revision-2",
+                         "uploaded_to_review": True,
+                         "upload_error": None,
+                         "publishable": True,
+@@ -217,7 +225,11 @@
+         "strict checker": (strict_source, ["qa_evidence_recorded", "exactly one featured canonical athlete_id", "math.isfinite", "selected by multiple coverage rows"]),
+         "README": (readme, ["One featured athlete per reel, not one visible person", "One canonical silent output per part", "another surfer may enter or ride the same wave"]),
+         "bootstrap": (bootstrap, ["pipeline.silent_output_policy"]),
+-        "production runner": (run_tracked, ["_install_silent_output_policy_runtime()"]),
++        "production runner": (run_tracked, [
++            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
++            "install_pre_orchestrator_patches()",
++            "install_post_orchestrator_patches()",
++        ]),
+     }
+     for label, (source, tokens) in required.items():
+         missing = [token for token in tokens if token not in source]
+--- a/scripts/test_publishable_reel_concurrency_contract.py
++++ b/scripts/test_publishable_reel_concurrency_contract.py
+@@ -83,14 +83,23 @@
+         )
+         attach_final_qa_pass(manifest)
+ 
++        persisted: list[dict[str, Any]] = []
++        policy._persist_draft_publishability = lambda record: persisted.append(dict(record))
+         uploads = [
+-            (part1, "DRAFT_orange_board_part_1.mp4"),
+-            (part2, "DRAFT_orange_board_part_2.mp4"),
++            (part1, "DRAFT_orange_board_part_1.mp4", "review/DRAFT_orange_board_part_1.mp4"),
++            (part2, "DRAFT_orange_board_part_2.mp4", "review/DRAFT_orange_board_part_2.mp4"),
+         ]
+         with ThreadPoolExecutor(max_workers=2) as pool:
+-            results = list(pool.map(lambda args: policy.mark_upload_result(*args), uploads))
+-        if results != [True, True]:
+-            raise SystemExit(f"concurrent uploads were not both attached: {results}")
++            results = list(pool.map(
++                lambda args: policy.mark_upload_result(
++                    args[0],
++                    args[1],
++                    storage_object_id=args[2],
++                ),
++                uploads,
++            ))
++        if results != [True, True] or len(persisted) != 2:
++            raise SystemExit(f"concurrent uploads were not both authoritatively attached: {results}, {persisted}")
+ 
+         payload = json.loads(manifest.read_text(encoding="utf-8"))
+         athlete = payload["athletes"]
