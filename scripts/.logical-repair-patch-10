@@ -1,0 +1,360 @@
+a preflight")
++        _error("SUPABASE_URL and SUPABASE_SERVICE_KEY are required for schema preflight")
+         print(
+-            f"Set both secrets before running the production pipeline. Required migration: {MIGRATION_PATH}",
++            f"Required migrations: {REEDIT_MIGRATION_PATH}, {PUBLISHABILITY_MIGRATION_PATH}",
+             file=sys.stderr,
+         )
+         return 2
+ 
+     try:
+-        create_client(url, service_key).table("reprocess_requests").select(SELECT_COLUMNS).limit(1).execute()
++        client = create_client(url, service_key)
++        client.table("reprocess_requests").select(REEDIT_SELECT_COLUMNS).limit(1).execute()
++        client.table("draft_publishability").select(PUBLISHABILITY_SELECT_COLUMNS).limit(1).execute()
+     except Exception as exc:  # noqa: BLE001 - Supabase client raises API-specific runtime errors.
+         message = str(exc)
+-        if "PGRST204" in message or "Could not find" in message or "schema cache" in message:
+-            _error("QA re-edit Supabase migration is missing or the schema cache is stale")
++        if any(token in message for token in ("PGRST204", "PGRST205", "Could not find", "schema cache")):
++            _error("Required Supabase migration is missing or the schema cache is stale")
+             print(_schema_failure_message(message), file=sys.stderr)
+             return 2
+-        _error("Could not validate QA re-edit Supabase schema")
++        _error("Could not validate SportReel Supabase schema")
+         print(message, file=sys.stderr)
+         return 2
+ 
+-    print("QA re-edit Supabase schema preflight ok")
++    print("QA re-edit and draft publishability Supabase schema preflight ok")
+     return 0
+ 
+ 
+--- a/scripts/publishable_manifest_contract.py
++++ b/scripts/publishable_manifest_contract.py
+@@ -248,6 +248,15 @@
+             else:
+                 publishable_parts.append(part)
+ 
++            if not str(part.get("storage_object_id") or "").strip():
++                errors.append(f"{label}: Part {part_pos} lacks immutable REVIEW storage identity")
++            if part.get("authoritative_publishability_required") is not True:
++                errors.append(f"{label}: Part {part_pos} did not require server-side publishability authority")
++            if part.get("authoritative_publishability_persisted") is not True:
++                errors.append(f"{label}: Part {part_pos} publishability authority was not persisted")
++            if not str(part.get("authoritative_manifest_revision") or "").strip():
++                errors.append(f"{label}: Part {part_pos} lacks authoritative manifest revision")
++
+             if part.get("qa_evidence_recorded") is not True:
+                 errors.append(f"{label}: Part {part_pos} lacks explicit final QA evidence")
+             if str(part.get("qa_verdict") or "").upper() != "PASS":
+--- a/scripts/record_publishable_business_gate_status.py
++++ b/scripts/record_publishable_business_gate_status.py
+@@ -1,9 +1,11 @@
+ #!/usr/bin/env python3
+-"""Propagate a post-pipeline business-gate failure to durable/operator status."""
++"""Propagate a post-pipeline business-gate failure with durable convergence proof."""
+ from __future__ import annotations
+ 
+ import json
++import os
+ import sys
++from datetime import datetime, timezone
+ from pathlib import Path
+ from typing import Any, Callable
+ 
+@@ -20,13 +22,51 @@
+     return payload
+ 
+ 
++def write_status_outbox(path: Path, payload: dict[str, Any]) -> None:
++    """Persist a retryable terminal-state correction when remote convergence fails."""
++    path.parent.mkdir(parents=True, exist_ok=True)
++    body = {
++        "schema_version": "sportreel.terminal_status_outbox.v1",
++        "created_at": datetime.now(timezone.utc).isoformat(),
++        **payload,
++    }
++    tmp = path.with_suffix(path.suffix + ".tmp")
++    tmp.write_text(json.dumps(body, indent=2, ensure_ascii=False), encoding="utf-8")
++    tmp.replace(path)
++
++
++def verify_terminal_state(actual: dict[str, Any]) -> bool:
++    """Verify the durable run and global operator signal agree on business failure."""
++    if not isinstance(actual, dict):
++        return False
++    # Tests and connector adapters may return one flattened run row.
++    if "status" in actual or "stage" in actual:
++        return (
++            str(actual.get("status") or "") == "failed"
++            and str(actual.get("stage") or "") == "publishable_business_gate_failed"
++        )
++    run_row = actual.get("run") if isinstance(actual.get("run"), dict) else None
++    global_row = actual.get("global") if isinstance(actual.get("global"), dict) else None
++    if run_row is None or global_row is None:
++        return False
++    global_meta = global_row.get("meta") if isinstance(global_row.get("meta"), dict) else {}
++    return (
++        str(run_row.get("status") or "") == "failed"
++        and str(run_row.get("stage") or "") == "publishable_business_gate_failed"
++        and str(global_row.get("stage") or "") == "failed"
++        and str(global_meta.get("terminal_status") or "") == "failed"
++    )
++
++
+ def record_gate_failure(
+     payload: dict[str, Any],
+     *,
+     result_path: str,
+     marker: Callable[..., None],
++    reader: Callable[[], dict[str, Any]] | None = None,
++    outbox_path: Path | None = None,
+ ) -> bool:
+-    """Mark the run failed when the deterministic business gate did not pass."""
++    """Mark the run failed, read it back, and leave an outbox on any mismatch."""
+     if payload.get("passed") is True:
+         return False
+     errors = [str(error).strip() for error in payload.get("errors", []) or [] if str(error).strip()]
+@@ -35,16 +75,35 @@
+     summary = "; ".join(errors[:5])
+     if len(errors) > 5:
+         summary += f"; +{len(errors) - 5} more"
+-    marker(
+-        status="failed",
+-        stage="publishable_business_gate_failed",
+-        progress=1.0,
+-        error=summary[:2000],
+-        failure_source="publishable_reel_business_gate",
+-        publishable_gate_result_path=result_path,
+-        publishable_gate_error_count=len(errors),
+-        publishable_gate_errors=errors[:20],
+-    )
++    fields = {
++        "status": "failed",
++        "stage": "publishable_business_gate_failed",
++        "progress": 1.0,
++        "error": summary[:2000],
++        "failure_source": "publishable_reel_business_gate",
++        "publishable_gate_result_path": result_path,
++        "publishable_gate_error_count": len(errors),
++        "publishable_gate_errors": errors[:20],
++    }
++    outbox = outbox_path or Path(result_path).with_name("terminal_status_outbox.json")
++    try:
++        marker(**fields)
++        actual = reader() if reader is not None else None
++        if reader is not None and not verify_terminal_state(actual or {}):
++            raise RuntimeError(f"terminal status read-back mismatch: {actual!r}")
++    except Exception as exc:
++        write_status_outbox(outbox, {
++            "operation": "set_publishable_business_gate_failure",
++            "pipeline_run_id": os.getenv("PIPELINE_RUN_ID") or None,
++            "expected": fields,
++            "result_path": result_path,
++            "last_error": str(exc),
++        })
++        raise
++    try:
++        outbox.unlink()
++    except FileNotFoundError:
++        pass
+     return True
+ 
+ 
+@@ -54,15 +113,17 @@
+         return 2
+     result_path = Path(sys.argv[1])
+     payload = _load(result_path)
+-    from integrations.run_status import mark_terminal_run
++    from integrations.run_status import mark_terminal_run_strict, read_terminal_state
+ 
+     changed = record_gate_failure(
+         payload,
+         result_path=str(result_path),
+-        marker=mark_terminal_run,
++        marker=mark_terminal_run_strict,
++        reader=read_terminal_state,
++        outbox_path=result_path.with_name("terminal_status_outbox.json"),
+     )
+     print(
+-        "publishable business gate failure propagated to operator status"
++        "publishable business gate failure propagated and read back from operator status"
+         if changed
+         else "publishable business gate passed; terminal status unchanged"
+     )
+--- a/scripts/run_pipeline_with_diagnostics.sh
++++ b/scripts/run_pipeline_with_diagnostics.sh
+@@ -186,7 +186,7 @@
+ # durable run row and the global operator signal so the app cannot show success.
+ if [ "$STATUS" -eq 0 ] && [ "$BUSINESS_GATE_STATUS" -ne 0 ]; then
+   if ! python scripts/record_publishable_business_gate_status.py "$PUBLISHABLE_GATE_RESULT_FILE"; then
+-    echo "::warning::could not propagate publishable business-gate failure to operator status"
++    echo "::error::could not verify publishable business-gate failure in durable/operator status; terminal_status_outbox.json was retained for retry"
+   fi
+ fi
+ 
+--- a/scripts/run_tracked.py
++++ b/scripts/run_tracked.py
+@@ -42,132 +42,8 @@
+     status_writer.write_pipeline_status = tracked_write_pipeline_status
+ 
+ 
+-def _install_storage_backend_alias() -> None:
+-    """Route legacy integrations.drive imports through storage.py for non-Drive backends."""
+-    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
+-    if backend == "drive":
+-        return
+-    import integrations.storage as storage
+-    sys.modules["integrations.drive"] = storage
+ 
+-
+-def _install_r2_batch_scope() -> None:
+-    """Scope R2 raw-video listing to a batch prefix when a batch id is set.
+-
+-    Previously only installed by the root ``sitecustomize.py``, which never
+-    actually runs for ``python scripts/run_tracked.py`` -- Python's automatic
+-    ``sitecustomize`` import only sees the script's own directory
+-    (``scripts/``), not the repository root -- so batch scoping was silently
+-    inactive in the real GitHub Actions production run.
+-    """
+-    backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
+-    batch_id = (os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
+-    if backend != "r2" or not batch_id:
+-        return
+-    from pipeline.r2_batch_scope import install
+-    install()
+-
+-
+-def _install_perception_runtime() -> None:
+-    from pipeline.perception.runtime import install
+-    install()
+-
+-
+-def _install_pipeline_quality_runtime() -> None:
+-    from pipeline.runtime_quality import install
+-    install()
+-
+-
+-def _install_performance_reel_policy_runtime() -> None:
+-    """Install the coverage-first sport-action contract; failures are fatal."""
+-    from pipeline.performance_reel_policy import install
+-    install()
+-
+-
+-def _install_publishable_reel_policy_runtime() -> None:
+-    """Install the canonical social-ready output and athlete business contract."""
+-    from pipeline.publishable_reel_policy import install
+-    install()
+-
+-
+-def _install_silent_output_policy_runtime() -> None:
+-    """Disable music/audio output and require one silent video per publishable Part."""
+-    from pipeline.silent_output_policy import install
+-    install()
+-
+-
+-def _install_publishable_qa_evidence_runtime() -> None:
+-    """Require a recorded final QA PASS before a rendered Part can be uploaded."""
+-    from pipeline.publishable_qa_evidence import install
+-    install()
+-
+-
+-def _install_raw_timestamp_recovery() -> None:
+-    # Must wrap analyzer._parse_session before chunk/selector runtimes capture it.
+-    # Otherwise MM.SS values are discarded as sub-second fragments first.
+-    from pipeline.raw_timestamp_recovery import install
+-    install()
+-
+-
+-def _install_chunk_timeline_runtime() -> None:
+-    from pipeline.chunk_timeline_runtime import install
+-    install()
+-
+-
+-def _install_selector_candidate_runtime() -> None:
+-    from pipeline.selector_candidate_runtime import install
+-    install()
+-
+-
+-def _install_teaser_policy_runtime() -> None:
+-    from pipeline.teaser_policy_runtime import install
+-    install()
+-
+-
+-def _install_identity_failsafe_runtime() -> None:
+-    from pipeline.identity_failsafe import install
+-    install()
+-
+-
+-def _install_cross_source_dedup_runtime() -> None:
+-    from pipeline.cross_source_dedup import install
+-    install()
+-
+-
+-def _install_context_runtime() -> None:
+-    from pipeline.context_qa_long_video import install
+-    install()
+-
+-
+-def _install_draft_diagnostics_runtime() -> None:
+-    from pipeline.draft_diagnostics import install
+-    install()
+-
+-
+-def _install_candidate_ledger_runtime() -> None:
+-    from pipeline.candidate_ledger import install
+-    install()
+-
+-
+-def _install_editorial_value_ranker_runtime() -> None:
+-    from pipeline.editorial_value_ranker import install
+-    install()
+-
+-
+-def _install_athlete_canonicalization_runtime() -> None:
+-    from pipeline.athlete_canonicalization import install
+-    install()
+-
+-
+-def _install_qa_reedit_window_contract() -> None:
+-    from pipeline.qa_reedit_window_contract import install
+-    install()
+-
+-
+-def _install_draft_identity_metadata() -> None:
+-    from pipeline.draft_identity_metadata import install
+-    install()
+-
++from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches
+ 
+ def _selection_filter_path() -> Path:
+     try:
+@@ -235,32 +111,11 @@
+ 
+ mark_run(status="running", stage="starting", progress=0.01)
+ _install_status_mirror()
+-_install_storage_backend_alias()
+-_install_r2_batch_scope()
+-_install_perception_runtime()
+-_install_pipeline_quality_runtime()
+-_install_performance_reel_policy_runtime()
+-_install_publishable_reel_policy_runtime()
+-_install_silent_output_policy_runtime()
+-_install_publishable_qa_evidence_runtime()
+-_install_raw_timestamp_recovery()
+-_install_chunk_timeline_runtime()
+-_install_selector_candidate_runtime()
+-_install_teaser_policy_runtime()
+-_install_identity_failsafe_runtime()
+-_install_cross_source_dedup_runtime()
+-_install_context_runtime()
+-_install_draft_diagnostics_runtime()
+-_install_candidate_ledger_runtime()
+-_install_editorial_value_ranker_runtime()
+-_install_athlete_canonicalization_runtime()
++install_pre_orchestrator_patches()
+ 
+ import pipeline.orchestrator as _orchestrator
+ 
+-# These contracts wrap the fin
