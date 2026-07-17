@@ -1,0 +1,372 @@
+ try:
+-        __import__(_module, fromlist=["install"]).install()
+-    except Exception:
+-        pass
++"""Intentionally empty. Product policies must never auto-install fail-silently."""
+--- a/sitecustomize.py
++++ b/sitecustomize.py
+@@ -1,42 +1,5 @@
+-"""Interpreter bootstrap for production pipeline entrypoints.
++"""Repository interpreter startup hook.
+ 
+-Python imports ``sitecustomize`` automatically when it is present on sys.path.
+-Keep this file narrow: only process-wide safety guards that must run before
+-pipeline modules capture imported symbols belong here.
++Product behavior is installed explicitly and fail-fast by ``pipeline.bootstrap`` in
++every real entrypoint. Keep automatic interpreter startup free of product patches.
+ """
+-
+-from __future__ import annotations
+-
+-from pathlib import Path
+-import os
+-import sys
+-
+-
+-def _enable_surf_editor_policy() -> None:
+-    if Path(sys.argv[0]).name != "run.py":
+-        return
+-    try:
+-        from pipeline import enable_surf_editor_policy
+-        enable_surf_editor_policy()
+-    except Exception:
+-        # Never make Python startup fail before the real pipeline logger/Sentry
+-        # are initialized. The normal editor remains available as a safe fallback.
+-        pass
+-
+-
+-def _install_r2_batch_scope() -> None:
+-    backend = (os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive")
+-    batch_id = (os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
+-    if backend != "r2" or not batch_id:
+-        return
+-    try:
+-        from pipeline.r2_batch_scope import install
+-        install()
+-    except Exception:
+-        # Avoid failing interpreter startup; storage preflight / pipeline execution
+-        # will surface actionable errors once logging is initialized.
+-        pass
+-
+-
+-_enable_surf_editor_policy()
+-_install_r2_batch_scope()
+--- a/supabase/migrations/20260717_draft_publishability_authority.sql
++++ b/supabase/migrations/20260717_draft_publishability_authority.sql
+@@ -0,0 +1,28 @@
++-- Authoritative server-side publishability state for every object in REVIEW.
++--
++-- Storage listing and operator approval must not infer QA state from a filename or
++-- trust booleans supplied by a client. The pipeline writes this row only after the
++-- immutable rendered media snapshot, explicit final QA, manifest reconciliation,
++-- and the real REVIEW upload are known.
++
++create table if not exists public.draft_publishability (
++  storage_object_id text primary key,
++  draft_name text not null unique,
++  pipeline_run_id text,
++  athlete_key text,
++  part_index integer not null check (part_index > 0),
++  publishable boolean not null default false,
++  qa_evidence_recorded boolean not null default false,
++  qa_verdict text,
++  qa_passed boolean not null default false,
++  technical_issues jsonb not null default '[]'::jsonb,
++  approval_blocked_reasons jsonb not null default '[]'::jsonb,
++  media_specs_revision text,
++  manifest_revision text not null,
++  updated_at timestamptz not null default now()
++);
++
++create index if not exists draft_publishability_run_idx
++  on public.draft_publishability (pipeline_run_id, updated_at desc);
++
++alter table public.draft_publishability enable row level security;
+--- a/web-api/src/app/api/operator/drafts/route.ts
++++ b/web-api/src/app/api/operator/drafts/route.ts
+@@ -4,6 +4,10 @@
+ import { listFolder } from '@/lib/google-drive';
+ import { createR2SignedGetUrl, listR2Prefix, shouldUseR2Storage } from '@/lib/r2-storage';
+ import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
++import {
++  loadAuthoritativeDraftPublishability,
++  type DraftPublishabilityAuthority,
++} from '@/lib/draft-publishability';
+ import type { DraftRow, DraftsResponse, ReprocessRow } from '@/types/operator-contracts';
+ 
+ const ACTIVE_REEDIT_STATUSES = ['qa_blocked', 'pending', 'queued'];
+@@ -36,18 +40,65 @@
+   return map;
+ }
+ 
+-function withReviewPolicy(draft: StorageDraft, task: ReprocessRow | undefined): DraftRow {
++function authorityReasons(authority: DraftPublishabilityAuthority | undefined): string[] {
++  if (!authority) {
++    return ['Authoritative pipeline publishability evidence is missing.'];
++  }
++  const reasons = [...authority.approval_blocked_reasons];
++  if (!authority.qa_evidence_recorded) reasons.push('Final QA evidence is missing.');
++  if (authority.qa_verdict !== 'PASS' || !authority.qa_passed) reasons.push('Final QA did not pass.');
++  for (const issue of authority.technical_issues) reasons.push(`Technical issue: ${issue}`);
++  if (!authority.publishable && !reasons.length) reasons.push('The final business manifest blocked publication.');
++  return [...new Set(reasons)];
++}
++
++function withReviewPolicy(
++  draft: StorageDraft,
++  task: ReprocessRow | undefined,
++  authority: DraftPublishabilityAuthority | undefined,
++): DraftRow {
+   const taskReasons = Array.isArray(task?.approval_blocked_reasons) ? task.approval_blocked_reasons : [];
++  const authoritativeReasons = authorityReasons(authority);
++  const authoritativeReady = Boolean(
++    authority?.publishable
++      && authority.qa_evidence_recorded
++      && authority.qa_verdict === 'PASS'
++      && authority.qa_passed
++      && authority.technical_issues.length === 0,
++  );
+   const policy = evaluateDraftReviewPolicy({
+     name: draft.name,
+-    review_required: Boolean(task),
+-    approval_blocked_reasons: taskReasons,
++    review_required: Boolean(task) || !authoritativeReady,
++    qa_review_required: !authoritativeReady,
++    qa_gate: authority ? {
++      final_verdict: authority.qa_verdict,
++      qa_review_required: !authoritativeReady,
++      defects: authority.technical_issues.map((issue) => ({
++        severity: 'critical',
++        blocking: true,
++        note: issue,
++      })),
++    } : null,
++    approval_blocked_reasons: [...taskReasons, ...authoritativeReasons],
+   });
+   return {
+     ...draft,
+     ...policy,
++    authoritative_publishability: authority ?? null,
+     reedit_task: task ?? null,
+   };
++}
++
++async function enrichDrafts(drafts: StorageDraft[]): Promise<DraftRow[]> {
++  const [tasks, authorities] = await Promise.all([
++    activeReeditTasks(drafts.map((draft) => draft.name)),
++    loadAuthoritativeDraftPublishability(drafts),
++  ]);
++  return drafts.map((draft) => withReviewPolicy(
++    draft,
++    tasks.get(draft.name),
++    authorities.get(draft.id) ?? authorities.get(`name:${draft.name}`),
++  ));
+ }
+ 
+ // GET /api/operator/drafts — list draft reels waiting for approval.
+@@ -69,17 +120,14 @@
+         storage_backend: 'r2',
+         storage_key: f.key,
+       }));
+-      const tasks = await activeReeditTasks(drafts.map((draft) => draft.name));
+-      return NextResponse.json<DraftsResponse>({
+-        drafts: drafts.map((draft) => withReviewPolicy(draft, tasks.get(draft.name))),
+-      });
++      return NextResponse.json<DraftsResponse>({ drafts: await enrichDrafts(drafts) });
+     }
+ 
+     const reviewFolder = process.env.REVIEW_FOLDER_ID;
+     if (!reviewFolder) {
+       return NextResponse.json(
+         { error: 'REVIEW_FOLDER_ID not configured' },
+-        { status: 503 }
++        { status: 503 },
+       );
+     }
+     const files = await listFolder(reviewFolder);
+@@ -91,14 +139,11 @@
+       watch_url: f.webViewLink ?? null,
+       storage_backend: 'drive',
+     }));
+-    const tasks = await activeReeditTasks(drafts.map((draft) => draft.name));
+-    return NextResponse.json<DraftsResponse>({
+-      drafts: drafts.map((draft) => withReviewPolicy(draft, tasks.get(draft.name))),
+-    });
++    return NextResponse.json<DraftsResponse>({ drafts: await enrichDrafts(drafts) });
+   } catch (e) {
+     return NextResponse.json(
+       { error: e instanceof Error ? e.message : 'Storage request failed' },
+-      { status: 502 }
++      { status: 502 },
+     );
+   }
+ }
+--- a/web-api/src/lib/draft-publishability.ts
++++ b/web-api/src/lib/draft-publishability.ts
+@@ -0,0 +1,135 @@
++import { supabaseAdmin } from '@/lib/supabase-admin';
++
++export type DraftPublishabilityAuthority = {
++  storage_object_id: string;
++  draft_name: string;
++  pipeline_run_id: string | null;
++  athlete_key: string | null;
++  part_index: number;
++  publishable: boolean;
++  qa_evidence_recorded: boolean;
++  qa_verdict: string | null;
++  qa_passed: boolean;
++  technical_issues: string[];
++  approval_blocked_reasons: string[];
++  media_specs_revision: string | null;
++  manifest_revision: string;
++  updated_at: string;
++};
++
++export class DraftPublishabilityError extends Error {
++  status: number;
++  authority: DraftPublishabilityAuthority | null;
++
++  constructor(message: string, status = 409, authority: DraftPublishabilityAuthority | null = null) {
++    super(message);
++    this.name = 'DraftPublishabilityError';
++    this.status = status;
++    this.authority = authority;
++  }
++}
++
++function normalize(row: Record<string, unknown>): DraftPublishabilityAuthority {
++  return {
++    storage_object_id: String(row.storage_object_id ?? ''),
++    draft_name: String(row.draft_name ?? ''),
++    pipeline_run_id: row.pipeline_run_id ? String(row.pipeline_run_id) : null,
++    athlete_key: row.athlete_key ? String(row.athlete_key) : null,
++    part_index: Number(row.part_index ?? 0),
++    publishable: row.publishable === true,
++    qa_evidence_recorded: row.qa_evidence_recorded === true,
++    qa_verdict: row.qa_verdict ? String(row.qa_verdict).toUpperCase() : null,
++    qa_passed: row.qa_passed === true,
++    technical_issues: Array.isArray(row.technical_issues) ? row.technical_issues.map(String) : [],
++    approval_blocked_reasons: Array.isArray(row.approval_blocked_reasons)
++      ? row.approval_blocked_reasons.map(String)
++      : [],
++    media_specs_revision: row.media_specs_revision ? String(row.media_specs_revision) : null,
++    manifest_revision: String(row.manifest_revision ?? ''),
++    updated_at: String(row.updated_at ?? ''),
++  };
++}
++
++const AUTHORITY_COLUMNS = [
++  'storage_object_id',
++  'draft_name',
++  'pipeline_run_id',
++  'athlete_key',
++  'part_index',
++  'publishable',
++  'qa_evidence_recorded',
++  'qa_verdict',
++  'qa_passed',
++  'technical_issues',
++  'approval_blocked_reasons',
++  'media_specs_revision',
++  'manifest_revision',
++  'updated_at',
++].join(',');
++
++export async function loadAuthoritativeDraftPublishability(
++  drafts: Array<{ id: string; name: string }>,
++): Promise<Map<string, DraftPublishabilityAuthority>> {
++  const result = new Map<string, DraftPublishabilityAuthority>();
++  if (!drafts.length) return result;
++
++  const objectIds = [...new Set(drafts.map((draft) => draft.id).filter(Boolean))];
++  const names = [...new Set(drafts.map((draft) => draft.name).filter(Boolean))];
++  const rows: Record<string, unknown>[] = [];
++
++  if (objectIds.length) {
++    const { data, error } = await supabaseAdmin
++      .from('draft_publishability')
++      .select(AUTHORITY_COLUMNS)
++      .in('storage_object_id', objectIds);
++    if (error) throw new DraftPublishabilityError(`Could not read draft publishability: ${error.message}`, 503);
++    rows.push(...((data ?? []) as unknown as Record<string, unknown>[]));
++  }
++
++  const foundNames = new Set(rows.map((row) => String(row.draft_name ?? '')));
++  const missingNames = names.filter((name) => !foundNames.has(name));
++  if (missingNames.length) {
++    const { data, error } = await supabaseAdmin
++      .from('draft_publishability')
++      .select(AUTHORITY_COLUMNS)
++      .in('draft_name', missingNames);
++    if (error) throw new DraftPublishabilityError(`Could not read draft publishability: ${error.message}`, 503);
++    rows.push(...((data ?? []) as unknown as Record<string, unknown>[]));
++  }
++
++  for (const row of rows) {
++    const authority = normalize(row);
++    if (authority.storage_object_id) result.set(authority.storage_object_id, authority);
++    if (authority.draft_name) result.set(`name:${authority.draft_name}`, authority);
++  }
++  return result;
++}
++
++export async function requireAuthoritativeDraftPublishability(input: {
++  storageObjectId: string;
++  draftName: string;
++}): Promise<DraftPublishabilityAuthority> {
++  const authorities = await loadAuthoritativeDraftPublishability([
++    { id: input.storageObjectId, name: input.draftName },
++  ]);
++  const authority = authorities.get(input.storageObjectId) ?? authorities.get(`name:${input.draftName}`) ?? null;
++  if (!authority) {
++    throw new DraftPublishabilityError(
++      'Authoritative publishability evidence is missing. The draft cannot be approved.',
++      409,
++    );
++  }
++  const valid = authority.publishable
++    && authority.qa_evidence_recorded
++    && authority.qa_verdict === 'PASS'
++    && authority.qa_passed
++    && authority.technical_issues.length === 0;
++  if (!valid) {
++    throw new DraftPublishabilityError(
++      'The authoritative pipeline result does not allow this draft to be published.',
++      409,
++      authority,
++    );
++  }
++  return authority;
++}
+--- a/web-api/src/lib/operator-draft-approve.ts
++++ b/web-api/src/lib/operator-draft-approve.ts
+@@ -5,6 +5,10 @@
+ import { supabaseAdmin } from '@/lib/supabase-admin';
+ import { githubDispatchError } from '@/lib/github-dispatch-error';
+ import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
++import {
++  DraftPublishabilityError,
++  requireAuthoritativeDraftPublishability,
++} from '@/lib/draft-publishability';
+ import type { ApproveDraftResponse } from '@/types/operator-contracts';
+ 
+ const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/deliver.yml`;
+@@ -23,13 +27,7 @@
+ }
+ 
+ type DeliveryRunPatch = { status?: string; stage?: string; error?: string; finished_at?: string };
+-
+-type ApproveBody = {
+-  file_id?: string;
+-  review_required?: boolean;
+-  qa_review_required?: boolean;
+-  approval_blocked_reasons?: unknown;
+-};
++type ApproveBody = { file_id?: string };
+ 
+ export async function approveDraftPost(req: NextRequest) {
+   const limited = await enforceRateLimit(req, 'draft-approve', 20, 60);
+@@ -42,13 +40,32 @@
+ 
+   const useR2 = sho
