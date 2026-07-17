@@ -79,8 +79,14 @@ def _install_pipeline_quality_runtime() -> None:
 
 
 def _install_performance_reel_policy_runtime() -> None:
-    """Install the coverage-first product contract; failures are fatal."""
+    """Install the coverage-first sport-action contract; failures are fatal."""
     from pipeline.performance_reel_policy import install
+    install()
+
+
+def _install_publishable_reel_policy_runtime() -> None:
+    """Install the canonical social-ready output and athlete business contract."""
+    from pipeline.publishable_reel_policy import install
     install()
 
 
@@ -222,6 +228,7 @@ _install_r2_batch_scope()
 _install_perception_runtime()
 _install_pipeline_quality_runtime()
 _install_performance_reel_policy_runtime()
+_install_publishable_reel_policy_runtime()
 _install_raw_timestamp_recovery()
 _install_chunk_timeline_runtime()
 _install_selector_candidate_runtime()
