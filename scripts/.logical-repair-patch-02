@@ -1,0 +1,337 @@
+        }),
+               });
+               setDrafts((current) => current.filter((item) => item.id !== draft.id));
+--- a/mobile/src/features/operator/types/contracts.ts
++++ b/mobile/src/features/operator/types/contracts.ts
+@@ -88,6 +88,23 @@
+   github_actions_url?: string;
+ };
+ 
++export type DraftPublishabilityAuthority = {
++  storage_object_id: string;
++  draft_name: string;
++  pipeline_run_id: string | null;
++  athlete_key: string | null;
++  part_index: number;
++  publishable: boolean;
++  qa_evidence_recorded: boolean;
++  qa_verdict: string | null;
++  qa_passed: boolean;
++  technical_issues: string[];
++  approval_blocked_reasons: string[];
++  media_specs_revision: string | null;
++  manifest_revision: string;
++  updated_at: string;
++};
++
+ export type DraftRow = {
+   id: string;
+   name: string;
+@@ -98,6 +115,7 @@
+   approval_blocked?: boolean;
+   approval_blocked_reasons?: string[];
+   approval_policy_version?: string;
++  authoritative_publishability?: DraftPublishabilityAuthority | null;
+   reedit_task?: ReprocessRow | null;
+ };
+ 
+--- a/pipeline/chunk_timeline_runtime.py
++++ b/pipeline/chunk_timeline_runtime.py
+@@ -362,6 +362,7 @@
+     chunk_count = len(payloads)
+     specs = build_chunk_specs(source_duration_sec, segment_sec, chunk_count)
+     candidates: list[dict[str, Any]] = []
++    detected_registry: list[dict[str, Any]] = []
+     invalid_count = 0
+     clamped_count = 0
+     recovered_count = 0
+@@ -370,6 +371,18 @@
+ 
+     for chunk_index, payload in enumerate(payloads):
+         spec = specs[chunk_index]
++        for raw_person in payload.get("detected_athlete_registry", []) or []:
++            if not isinstance(raw_person, dict):
++                continue
++            source_person_id = str(raw_person.get("source_person_id") or raw_person.get("person_id") or "person_?")
++            detected_registry.append({
++                **raw_person,
++                "source_video": source_video,
++                "source_person_id": source_person_id,
++                "person_id": runtime_person_id(chunk_count, chunk_index, source_person_id),
++                "chunk_person_id": runtime_person_id(chunk_count, chunk_index, source_person_id),
++                "chunk_index": chunk_index,
++            })
+         for raw in payload.get("candidates", []) or []:
+             if not isinstance(raw, dict):
+                 continue
+@@ -441,6 +454,7 @@
+         "selected_count": selected_count,
+         "discarded_count": discarded_count,
+         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
++        "detected_athlete_registry": detected_registry,
+         "chunk_timeline_summary": {
+             "source_duration_sec": round(source_duration_sec, 3),
+             "chunk_count": chunk_count,
+--- a/pipeline/context_qa_gate.py
++++ b/pipeline/context_qa_gate.py
+@@ -215,8 +215,10 @@
+         try:
+             from pipeline.real_identity_gate import enforce_identity_gate
+             clusters = enforce_identity_gate(clusters)
+-        except Exception:
+-            pass
++        except Exception as exc:
++            raise RuntimeError(
++                "real identity gate failed before context QA; refusing fail-open compilation"
++            ) from exc
+         pending: list[tuple[str, str]] = []
+         pending_meta: list[tuple[str, str, list[dict], dict]] = []
+         fn_to_id = fn_to_id or {}
+--- a/pipeline/orchestrator.py
++++ b/pipeline/orchestrator.py
+@@ -90,6 +90,11 @@
+                  "NO_VISIBLE_ACTION", "DEAD_TIME", "LOW_QUALITY"}
+ 
+ 
++from pipeline.rendered_timeline import (
++    event_index_for_qa_defect as _event_index_for_qa_defect,
++)
++
++
+ def _apply_qa_fixes(ordered_events: list[dict], defects: list[dict]) -> tuple[list[dict], bool]:
+     """Translate QA defects into event-level edits.
+ 
+@@ -98,24 +103,8 @@
+     clip durations. Returns (fixed_events_without_teaser, changed) — the teaser
+     is stripped because recompilation rebuilds it from the new climax.
+     """
+-    from pipeline.stages.editor import _est_clip_dur
+-
+-    # Approximate cumulative timeline (xfade overlaps ~0.2-0.5s are within the
+-    # matching tolerance — QA timestamps are approximate anyway).
+-    spans: list[tuple[float, float]] = []
+-    t = 0.0
+-    for ev in ordered_events:
+-        dur = (_est_clip_dur(ev, True) if not ev.get("_teaser")
+-               else (ev["end"] - ev["start"]))
+-        spans.append((t, t + dur))
+-        t += dur
+-
+-    def _idx_at(seconds: float) -> int | None:
+-        for i, (s, e) in enumerate(spans):
+-            if s - 1.5 <= seconds <= e + 1.5:
+-                return i
+-        return None
+-
++    # Rendered event offsets are persisted by the editor. Legacy metadata falls
++    # back to source duration, but event IDs always take precedence.
+     drop: set[int] = set()
+     fixed = [dict(ev) for ev in ordered_events]
+     changed = False
+@@ -126,7 +115,7 @@
+             continue
+         dtype = str(d.get("type", "")).upper()
+         at    = d.get("at_seconds")
+-        idx   = _idx_at(float(at)) if isinstance(at, (int, float)) else None
++        idx   = _event_index_for_qa_defect(fixed, d)
+ 
+         if dtype == "BAD_FIRST_CLIP":
+             idx = next((i for i, ev in enumerate(fixed) if not ev.get("_teaser")), None)
+--- a/pipeline/performance_reel_policy.py
++++ b/pipeline/performance_reel_policy.py
+@@ -15,6 +15,7 @@
+ logger = logging.getLogger(__name__)
+ 
+ MAX_PERFORMANCE_REEL_SEC = 89.0
++RENDERED_TIMELINE_RESERVED_SECONDS = 2.75
+ _SURF_TERMS = {
+     "surf", "surfing", "surfer", "wave", "longboard", "shortboard",
+     "cutback", "bottom_turn", "carve", "snap", "barrel", "tube_ride",
+@@ -103,6 +104,62 @@
+     return score >= 6 or surf_event
+ 
+ 
++
++
++def _no_output_reason_for_person(person: dict[str, Any], activity: str) -> str:
++    existing = str(person.get("no_output_reason") or "").strip()
++    if existing:
++        return existing
++    events = [event for event in person.get("events", []) or [] if isinstance(event, dict)]
++    if not events:
++        return "no_complete_action"
++    if all(is_explicit_failed_takeoff(event, activity) for event in events if is_surf_event(event, activity)):
++        return "no_complete_action"
++    if any(is_surf_event(event, activity) for event in events):
++        return "explicit_hard_reject"
++    return "quality_below_threshold"
++
++
++def filter_session_result_for_performance_reel(result: dict[str, Any]) -> dict[str, Any]:
++    """Preserve every detected athlete while filtering only their event list.
++
++    Empty athlete rows remain as accountability evidence and are ignored later by
++    identity clustering, which already requires at least one usable event.
++    """
++    activity = str(result.get("activity", ""))
++    people: list[dict[str, Any]] = []
++    registry: list[dict[str, Any]] = []
++    for index, raw_person in enumerate(result.get("persons", []) or []):
++        if not isinstance(raw_person, dict):
++            continue
++        person = dict(raw_person)
++        original_events = [event for event in person.get("events", []) or [] if isinstance(event, dict)]
++        events = [event for event in original_events if keep_event_for_performance_reel(event, activity)]
++        person_id = str(person.get("id") or f"detected_person_{index:03d}")
++        person["id"] = person_id
++        person["events"] = events
++        no_output_reason = None if events else _no_output_reason_for_person(person, activity)
++        if no_output_reason:
++            person["no_output_reason"] = no_output_reason
++        people.append(person)
++        registry.append({
++            "person_id": person_id,
++            "description": str(person.get("description") or "unknown athlete"),
++            "detected_action_count": len(original_events),
++            "retained_action_count": len(events),
++            "no_output_reason": no_output_reason,
++        })
++    return {**result, "persons": people, "detected_athlete_registry": registry}
++
++
++def should_prepend_teaser(events: list[dict[str, Any]]) -> bool:
++    """Performance reels must not visually duplicate a complete action as a teaser."""
++    return not any(
++        str(event.get("performance_reel_contract") or "") == "all_usable_waves_per_athlete_v1"
++        for event in events or []
++        if isinstance(event, dict)
++    )
++
+ def _source(event: dict[str, Any]) -> str:
+     return str(
+         event.get("_src")
+@@ -158,10 +215,11 @@
+     if not events:
+         return []
+ 
+-    budget = min(
++    requested_budget = min(
+         MAX_PERFORMANCE_REEL_SEC,
+         max(4.0, _number(target_max, MAX_PERFORMANCE_REEL_SEC)),
+     )
++    budget = max(4.0, requested_budget - RENDERED_TIMELINE_RESERVED_SECONDS)
+     source_order: dict[str, int] = {}
+     indexed: list[tuple[int, dict[str, Any]]] = []
+     for index, event in enumerate(events):
+@@ -206,7 +264,7 @@
+     annotated: list[list[dict[str, Any]]] = []
+     running_wave_index = 0
+     for part_index, group in enumerate(groups, start=1):
+-        estimated_duration = round(_group_duration(group, slowmo_capable, xfade_dur), 3)
++        estimated_duration = round(_group_duration(group, slowmo_capable, xfade_dur) + RENDERED_TIMELINE_RESERVED_SECONDS, 3)
+         part: list[dict[str, Any]] = []
+         for event in group:
+             running_wave_index += 1
+@@ -251,13 +309,7 @@
+         return [event for event in events if keep_event_for_performance_reel(event, activity)]
+ 
+     def filter_session_result(result: dict[str, Any]) -> dict[str, Any]:
+-        activity = str(result.get("activity", ""))
+-        persons: list[dict[str, Any]] = []
+-        for person in result.get("persons", []) or []:
+-            events = filter_events(list(person.get("events", []) or []), activity)
+-            if events:
+-                persons.append({**person, "events": events})
+-        return {**result, "persons": persons}
++        return filter_session_result_for_performance_reel(result)
+ 
+     def filter_single_result(result: dict[str, Any]) -> dict[str, Any]:
+         activity = str(result.get("activity", ""))
+@@ -289,6 +341,11 @@
+             if not events:
+                 dropped_people += 1
+                 runtime_quality._safe_remove(person.get("thumbnail"))
++                hardened_people.append({
++                    **person,
++                    "events": [],
++                    "no_output_reason": _no_output_reason_for_person(person, activity),
++                })
+                 continue
+             hardened = {**person, "events": events}
+             best = max(events, key=runtime_quality._score)
+@@ -307,7 +364,17 @@
+                 f"{dropped_events} explicit no-ride/framing-risk event(s) and "
+                 f"{dropped_people} athlete(s) with no usable events"
+             )
+-        return {**result, "persons": hardened_people}
++        registry = [
++            {
++                "person_id": str(person.get("id") or ""),
++                "description": str(person.get("description") or "unknown athlete"),
++                "detected_action_count": len(person.get("events", []) or []),
++                "retained_action_count": len(person.get("events", []) or []),
++                "no_output_reason": person.get("no_output_reason"),
++            }
++            for person in hardened_people
++        ]
++        return {**result, "persons": hardened_people, "detected_athlete_registry": registry}
+ 
+     runtime_quality._harden_session_result = harden_session_result
+     feedback.get_negative_feedback_hint = lambda: ""
+--- a/pipeline/primary_actor_policy.py
++++ b/pipeline/primary_actor_policy.py
+@@ -14,6 +14,7 @@
+ PRIMARY_ACTOR_OCCLUDED = "PRIMARY_ACTOR_OCCLUDED"
+ MIN_PRIMARY_ACTOR_CONFIDENCE = 0.55
+ FOCUSED_SUBWINDOW_SCOPE = "focused_subwindow"
++FOCUSED_SUBWINDOW_PENDING_SCOPE = "focused_subwindow_pending_validation"
+ 
+ _BAD_STATUS_VALUES = {
+     "ambiguous",
+@@ -166,29 +167,34 @@
+ 
+ 
+ def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any]:
+-    """Clear broad-window ambiguity flags after selecting a focused sub-window.
+-
+-    The original evidence is retained for audit, but downstream gates evaluate the
+-    focused window rather than stale identity/occlusion flags from the wider event.
+-    Sidecar continuity and explicit target-presence checks still run afterwards.
++    """Scope broad-window defects without manufacturing new identity evidence.
++
++    Selecting a narrower time window is an edit decision, not an observation. Broad
++    ambiguity flags are retained for audit and removed from the focused evaluation,
++    but positive clarity, continuity, and confidence must be recomputed from sidecar
++    detections on the new window before publication.
+     """
+     normalized = dict(event)
+     normalized["broad_window_ambiguity_reasons"] = ambiguity_reasons(event)
+     for key in (*_TRUE_AMBIGUITY_FIELDS, *_ACTIVE_CONTEXT_FIELDS):
+         normalized[key] = False
++    for key in (
++        "primary_actor_clear",
++        "target_actor_clear",
++        "main_athlete_clear",
++        "identity_continuity",
++        "primary_actor_status",
++        "actor_tracking_status",
++        "primary_actor_confidence",
++        "target_confidence",
++    ):
++        normalized.pop(key, None)
+     normalized.update({
+-        "primary_actor_clear": True,
+-        "target_actor_clear": True,
+-        "main_athlete_clear": True,
+-        "identity_continuity": "stable",
+-        "primary_actor_status": "stable",
+-        "actor_tracking_status": "stable",
++        "primary_actor_evidence_scope": FOCUSED_SUBWINDOW_PENDING_SCOPE,
++        "focused_subwindow_requires_validation": True,
+         "competing_active_subjects": False,
+         "target_occluded_at_key_moment": False,
+-        "primary_actor_evidence_scope": FOCUSED_SUBWINDOW_SCOPE,
+     })
+-    confidence = primary_actor_confidence(event)
+-    normalized["primary_actor_confidence"] = max(0.75, confidence or 0.0)
+     return norma
