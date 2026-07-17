@@ -5,7 +5,9 @@ from __future__ import annotations
 import ast
 import importlib.util
 import sys
+import types
 from pathlib import Path
+from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "pipeline/performance_reel_policy.py"
@@ -33,6 +35,159 @@ def event(index: int, start: float, end: float, score: int = 7, **extra):
         "_src": "session.mp4",
         **extra,
     }
+
+
+def _function(tree: ast.Module, name: str) -> ast.FunctionDef:
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == name:
+            return node
+    raise SystemExit(f"missing active function {name}")
+
+
+def _assert_import_and_call(function: ast.FunctionDef, module: str, called_name: str) -> None:
+    imports = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.ImportFrom) and node.module == module
+    ]
+    if not imports:
+        raise SystemExit(f"{function.name} does not import {module}")
+    calls = [
+        node
+        for node in ast.walk(function)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == called_name
+    ]
+    if not calls:
+        raise SystemExit(f"{function.name} does not call {called_name}()")
+
+
+def _assert_module_level_call(tree: ast.Module, called_name: str) -> None:
+    for node in tree.body:
+        if (
+            isinstance(node, ast.Expr)
+            and isinstance(node.value, ast.Call)
+            and isinstance(node.value.func, ast.Name)
+            and node.value.func.id == called_name
+        ):
+            return
+    raise SystemExit(f"module does not actively call {called_name}()")
+
+
+def _exercise_install(policy: Any) -> None:
+    """Install against stubs so incompatible monkeypatches fail the contract."""
+    import pipeline
+
+    module_names = [
+        "pipeline.analyzer_score_guard",
+        "pipeline.runtime_quality",
+        "pipeline.stages",
+        "pipeline.stages.analyzer",
+        "pipeline.stages.feedback",
+        "pipeline.stages.editor",
+        "pipeline.final_duplicate_guard",
+        "pipeline.qa_gate_policy",
+        "pipeline.orchestrator",
+    ]
+    saved_modules = {name: sys.modules.get(name) for name in module_names}
+    saved_attrs = {
+        name: getattr(pipeline, name, None)
+        for name in ("analyzer_score_guard", "runtime_quality", "qa_gate_policy")
+    }
+
+    analyzer_guard = types.ModuleType("pipeline.analyzer_score_guard")
+    analyzer_guard.filter_events = lambda events, activity="": list(events)
+    analyzer_guard.filter_session_result = lambda result: result
+    analyzer_guard.filter_single_result = lambda result: result
+
+    runtime_quality = types.ModuleType("pipeline.runtime_quality")
+    runtime_quality._normalize_event_crop = lambda item: dict(item)
+    runtime_quality._safe_remove = lambda path: None
+    runtime_quality._score = lambda item: int(item.get("score", 0))
+    runtime_quality._extract_identity_thumbnail = lambda *_args: None
+
+    stages = types.ModuleType("pipeline.stages")
+    stages.__path__ = []
+    analyzer = types.ModuleType("pipeline.stages.analyzer")
+    analyzer._IDENTITY_PROMPT = "base prompt"
+    analyzer.get_negative_feedback_hint = lambda: "old"
+    feedback = types.ModuleType("pipeline.stages.feedback")
+    feedback.get_negative_feedback_hint = lambda: "old"
+    editor = types.ModuleType("pipeline.stages.editor")
+    editor.XFADE_DUR = 0.25
+    editor._partition_events = lambda events, _slowmo, _max=85.0: [
+        [{**item, "original_non_surf_partitioner": True} for item in events]
+    ]
+    stages.analyzer = analyzer
+    stages.feedback = feedback
+    stages.editor = editor
+
+    duplicate_guard = types.ModuleType("pipeline.final_duplicate_guard")
+    duplicate_guard.remove_duplicate_events = lambda events: list(events)
+
+    qa_policy = types.ModuleType("pipeline.qa_gate_policy")
+    qa_policy.build_final_qa_diagnostics = (
+        lambda _qa, *, retry_count, reel_path="", was_flagged=False: (
+            {"retry_count": retry_count},
+            False,
+        )
+    )
+    qa_policy._patch_orchestrator = lambda _orchestrator: None
+
+    try:
+        for module in (
+            analyzer_guard,
+            runtime_quality,
+            stages,
+            analyzer,
+            feedback,
+            editor,
+            duplicate_guard,
+            qa_policy,
+        ):
+            sys.modules[module.__name__] = module
+        sys.modules.pop("pipeline.orchestrator", None)
+        pipeline.analyzer_score_guard = analyzer_guard
+        pipeline.runtime_quality = runtime_quality
+        pipeline.qa_gate_policy = qa_policy
+
+        policy.install()
+
+        if "EVERY DISTINCT WAVE RIDE" not in analyzer._IDENTITY_PROMPT:
+            raise SystemExit("policy install did not update the analyzer prompt")
+        if feedback.get_negative_feedback_hint() != "":
+            raise SystemExit("policy install did not disable button-taxonomy prompt injection")
+
+        non_surf = {"type": "goal", "sport": "football", "start": 0, "end": 8, "score": 9}
+        delegated = editor._partition_events([non_surf], False, 85.0)
+        if not delegated[0][0].get("original_non_surf_partitioner"):
+            raise SystemExit("installed policy did not delegate non-surf partitioning")
+
+        surf_parts = editor._partition_events([event(30, 0, 18, 8)], False, 89.0)
+        if surf_parts[0][0].get("performance_reel_contract") != "all_usable_waves_per_athlete_v1":
+            raise SystemExit("installed policy did not activate surf performance packing")
+
+        diagnostics, blocked = qa_policy.build_final_qa_diagnostics(
+            {"verdict": "FAIL"},
+            retry_count=0,
+        )
+        if not blocked or diagnostics.get("decision") != "blocked_review_required":
+            raise SystemExit("installed policy did not block a final QA failure")
+    finally:
+        for name, module in saved_modules.items():
+            if module is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = module
+        for name, value in saved_attrs.items():
+            if value is None:
+                try:
+                    delattr(pipeline, name)
+                except AttributeError:
+                    pass
+            else:
+                setattr(pipeline, name, value)
 
 
 def main() -> int:
@@ -88,18 +243,26 @@ def main() -> int:
     if len(parts) != 2:
         raise SystemExit(f"six 18-second waves should split into two reels, got {len(parts)}")
     for part_index, part in enumerate(parts, start=1):
-        if not part:
-            raise SystemExit("empty performance reel part created")
         estimated = float(part[0]["performance_reel_estimated_part_duration"])
         if estimated > 89.0:
-            raise SystemExit(f"part {part_index} exceeds the safe 90-second budget: {estimated}")
+            raise SystemExit(f"part {part_index} exceeds the safe budget: {estimated}")
         if any(item["performance_reel_part"] != part_index for item in part):
             raise SystemExit("part metadata does not match packing result")
         if any(item["performance_reel_total_wave_count"] != 6 for item in part):
             raise SystemExit("total wave coverage metadata is incomplete")
 
-    # Duplicate removal must happen before packing, otherwise the same wave can
-    # land once near the end of Part 1 and again at the start of Part 2.
+    try:
+        policy.partition_complete_performance_reels(
+            [event(99, 0, 95, 9)],
+            slowmo_capable=False,
+            target_max=89.0,
+        )
+    except policy.PerformanceReelPackingError as exc:
+        if "performance_reel_packing_blocked" not in str(exc):
+            raise SystemExit("impossible packing failed without an actionable reason") from exc
+    else:
+        raise SystemExit("a standalone ride longer than the reel ceiling was emitted")
+
     from pipeline.final_duplicate_guard import remove_duplicate_events
 
     duplicate_across_boundary = [
@@ -112,11 +275,10 @@ def main() -> int:
         deduplicated,
         slowmo_capable=False,
         target_max=89.0,
-        xfade_dur=0.25,
     )
     duplicate_ids = [item["event_id"] for part in duplicate_parts for item in part]
     if len(duplicate_ids) != 2 or len(set(duplicate_ids)) != 2:
-        raise SystemExit(f"duplicate wave crossed a performance-reel boundary: {duplicate_ids}")
+        raise SystemExit(f"duplicate wave crossed a reel boundary: {duplicate_ids}")
 
     defects = [
         {"type": "DEAD_TIME", "severity": "critical"},
@@ -125,34 +287,48 @@ def main() -> int:
         {"type": "IDENTITY_MISMATCH", "severity": "critical"},
         {"type": "PREMATURE_CUT", "severity": "critical"},
     ]
-    filtered = policy._filter_surf_qa_defects(defects)
-    filtered_types = {item["type"] for item in filtered}
+    filtered_types = {item["type"] for item in policy._filter_surf_qa_defects(defects)}
     if filtered_types != {"IDENTITY_MISMATCH", "PREMATURE_CUT"}:
-        raise SystemExit(f"QA deletion policy retained the wrong defect set: {filtered_types}")
+        raise SystemExit(f"QA deletion policy retained the wrong defects: {filtered_types}")
 
     policy_source = POLICY_PATH.read_text(encoding="utf-8")
-    sitecustomize = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
-    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+    run_tracked_source = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
+    bootstrap_source = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+    sitecustomize_source = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
     review = (ROOT / "mobile/src/app/(operator)/review.tsx").read_text(encoding="utf-8")
-    for source in (policy_source, sitecustomize, bootstrap):
-        ast.parse(source)
+
+    policy_tree = ast.parse(policy_source)
+    run_tracked_tree = ast.parse(run_tracked_source)
+    bootstrap_tree = ast.parse(bootstrap_source)
+    ast.parse(sitecustomize_source)
 
     required_policy_tokens = [
         "EVERY DISTINCT WAVE RIDE",
         "MAX_PERFORMANCE_REEL_SEC = 89.0",
+        "PerformanceReelPackingError",
         "performance_reel_total_wave_count",
         "QA_FAIL: Reel did not pass final quality review.",
-        "feedback.get_negative_feedback_hint = lambda: \"\"",
-        "remove_duplicate_events(list(events or []))",
+        "remove_duplicate_events(event_list)",
+        "if not _surf_events(event_list)",
         "if surf_event and is_explicit_failed_takeoff",
     ]
     missing = [token for token in required_policy_tokens if token not in policy_source]
     if missing:
         raise SystemExit(f"performance policy is missing contract tokens: {missing}")
-    if "pipeline.performance_reel_policy" not in sitecustomize:
-        raise SystemExit("production scripts do not install the performance reel policy")
-    if "pipeline.performance_reel_policy" not in bootstrap:
-        raise SystemExit("shared bootstrap does not install the performance reel policy")
+
+    run_helper = _function(run_tracked_tree, "_install_performance_reel_policy_runtime")
+    _assert_import_and_call(run_helper, "pipeline.performance_reel_policy", "install")
+    _assert_module_level_call(run_tracked_tree, "_install_performance_reel_policy_runtime")
+
+    bootstrap_helper = _function(bootstrap_tree, "install_pre_orchestrator_patches")
+    _assert_import_and_call(
+        bootstrap_helper,
+        "pipeline.performance_reel_policy",
+        "install_performance_reel_policy",
+    )
+    if "pipeline.performance_reel_policy" in sitecustomize_source:
+        raise SystemExit("required performance policy must not remain in fail-silent sitecustomize")
+
     forbidden_review_tokens = [
         "FEEDBACK_FLAGS",
         "DraftFeedbackResponse",
@@ -170,6 +346,10 @@ def main() -> int:
     ]:
         if required not in review:
             raise SystemExit(f"review screen missing clear product status: {required}")
+
+    if not isinstance(policy_tree, ast.Module):
+        raise SystemExit("policy source did not parse as a module")
+    _exercise_install(policy)
 
     print("Performance reel policy contract checks passed")
     return 0
