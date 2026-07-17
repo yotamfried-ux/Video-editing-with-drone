@@ -141,26 +141,6 @@ result.write_text(
 PY
 }
 
-manifest_is_empty() {
-  python - "$PUBLISHABLE_MANIFEST_FILE" <<'PY'
-from __future__ import annotations
-
-import json
-import sys
-from pathlib import Path
-
-path = Path(sys.argv[1])
-try:
-    payload = json.loads(path.read_text(encoding="utf-8"))
-except Exception:
-    raise SystemExit(1)
-athletes = payload.get("athletes")
-summary = payload.get("summary") if isinstance(payload.get("summary"), dict) else {}
-empty = isinstance(athletes, list) and len(athletes) == 0 and int(summary.get("eligible_athlete_count") or 0) == 0
-raise SystemExit(0 if empty else 1)
-PY
-}
-
 BUSINESS_GATE_STATUS=0
 if [ -f "$PUBLISHABLE_MANIFEST_FILE" ] && [ -f "$ATHLETE_COVERAGE_FILE" ]; then
   python scripts/check_publishable_reel_manifest.py \
@@ -172,7 +152,7 @@ elif [ -f "$PUBLISHABLE_MANIFEST_FILE" ]; then
   # A true no-input run must have both an empty manifest and no candidate or
   # draft evidence. A non-empty manifest can never bypass athlete coverage just
   # because an earlier diagnostic builder failed to write its files.
-  if manifest_is_empty \
+  if python scripts/check_publishable_manifest_empty.py "$PUBLISHABLE_MANIFEST_FILE" \
      && [ ! -f "$CANDIDATE_LEDGER_FILE" ] \
      && [ ! -f "$SELECTION_FILTER_EVENTS_FILE" ] \
      && [ ! -f "$DRAFT_TRACE_FILE" ]; then
