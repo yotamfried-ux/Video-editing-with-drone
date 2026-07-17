@@ -83,14 +83,23 @@ def main() -> int:
         )
         attach_final_qa_pass(manifest)
 
+        persisted: list[dict[str, Any]] = []
+        policy._persist_draft_publishability = lambda record: persisted.append(dict(record))
         uploads = [
-            (part1, "DRAFT_orange_board_part_1.mp4"),
-            (part2, "DRAFT_orange_board_part_2.mp4"),
+            (part1, "DRAFT_orange_board_part_1.mp4", "review/DRAFT_orange_board_part_1.mp4"),
+            (part2, "DRAFT_orange_board_part_2.mp4", "review/DRAFT_orange_board_part_2.mp4"),
         ]
         with ThreadPoolExecutor(max_workers=2) as pool:
-            results = list(pool.map(lambda args: policy.mark_upload_result(*args), uploads))
-        if results != [True, True]:
-            raise SystemExit(f"concurrent uploads were not both attached: {results}")
+            results = list(pool.map(
+                lambda args: policy.mark_upload_result(
+                    args[0],
+                    args[1],
+                    storage_object_id=args[2],
+                ),
+                uploads,
+            ))
+        if results != [True, True] or len(persisted) != 2:
+            raise SystemExit(f"concurrent uploads were not both authoritatively attached: {results}, {persisted}")
 
         payload = json.loads(manifest.read_text(encoding="utf-8"))
         athlete = payload["athletes"][0]

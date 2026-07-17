@@ -275,6 +275,29 @@ def annotate_subject_events(events: list[dict[str, Any]], *, source_video: str =
             continue
         next_event = with_effective_cut_window(event)
         gate = build_subject_gate(next_event, detections, index, source_video=source_video)
+        if gate is None and next_event.get("focused_subwindow_requires_validation"):
+            start, end = effective_cut_window(next_event)
+            event_id = str(next_event.get("event_id") or next_event.get("id") or f"event_{index:03d}")
+            gate = {
+                "decision": "review_required",
+                "reason": "focused_subwindow_lacks_scoped_continuity_evidence",
+                "defect_type": DEFECT_TYPE,
+                "event_id": event_id,
+                "source_video": _source_name(_event_source(next_event, source_video)),
+                "source_window": {"start": start, "end": end},
+                "primary_actor_id": next_event.get("person_id") or next_event.get("athlete_id"),
+                "primary_athlete_centered": False,
+                "ambiguity_reasons": ["focused_subwindow_validation_required"],
+                "defect": {
+                    "type": DEFECT_TYPE,
+                    "severity": "critical",
+                    "blocking": True,
+                    "event_id": event_id,
+                    "source_video": _source_name(_event_source(next_event, source_video)),
+                    "note": "focused sub-window has no new continuity evidence",
+                    "ambiguity_reasons": ["focused_subwindow_validation_required"],
+                },
+            }
         if gate is not None:
             next_event = {**next_event, "subject_isolation_gate": gate}
             next_event = merge_gate_defect_into_qa(

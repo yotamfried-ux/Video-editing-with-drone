@@ -19,11 +19,11 @@ def main() -> int:
     from pipeline.narrative_policy import choose_climax, order_events, quality_score
 
     text = (ROOT / "pipeline/narrative_policy.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     for token in ["def quality_score", "def choose_climax", "_disable_teaser", "cut_clip_without_unqualified_teaser", "evidence_penalty"]:
         if token not in text:
             raise SystemExit(f"missing token: {token}")
-    if "from pipeline.narrative_policy import install" not in boot:
+    if "pipeline.narrative_policy" not in boot:
         raise SystemExit("narrative policy is not bootstrapped")
 
     bad_high = ev("bad_high", 10, visible=0.1, confidence=0.95)

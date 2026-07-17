@@ -1122,6 +1122,35 @@ def _pair_transitions(n: int, transitions: list[str] | None) -> list[tuple[str, 
     return pairs
 
 
+def _events_with_rendered_timeline(
+    events: list[dict],
+    clip_paths: list[str],
+    transitions: list[str] | None = None,
+) -> list[dict]:
+    """Attach immutable event IDs and actual clip offsets used by final QA repair."""
+    if len(events) != len(clip_paths):
+        raise ValueError("rendered timeline events and clips must have equal length")
+    durations = [_get_duration(path) for path in clip_paths]
+    pairs = _pair_transitions(len(events), transitions)
+    cursor = 0.0
+    out: list[dict] = []
+    for index, (event, duration) in enumerate(zip(events, durations)):
+        start = round(cursor, 3)
+        end = round(start + max(0.0, float(duration)), 3)
+        event_id = str(event.get("event_id") or event.get("id") or f"event_{index:03d}")
+        out.append({
+            **event,
+            "event_id": event_id,
+            "rendered_timeline_start": start,
+            "rendered_timeline_end": end,
+            "rendered_clip_duration": round(max(0.0, float(duration)), 3),
+            "rendered_occurrence": "teaser" if event.get("_teaser") else "primary",
+        })
+        overlap = pairs[index][1] if index < len(pairs) else 0.0
+        cursor = max(start, end - overlap)
+    return out
+
+
 def _xfade_filter(
     n: int,
     durations: list[float],
@@ -1437,7 +1466,8 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         _climax_ev  = ordered[-1]
         _preview_dur = 2.5
         _climax_src_dur = _climax_ev["end"] - _climax_ev["start"]
-        if len(ordered) >= 2 and _climax_src_dur > _preview_dur + 2.0:
+        from pipeline.performance_reel_policy import should_prepend_teaser
+        if should_prepend_teaser(ordered) and len(ordered) >= 2 and _climax_src_dur > _preview_dur + 2.0:
             _peak_t        = _climax_ev["start"] + _climax_src_dur * 0.65
             _preview_start = min(_peak_t - _preview_dur / 2,
                                  _climax_ev["end"] - _preview_dur)
@@ -1494,7 +1524,14 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                 clip = fut.result()
                 if clip:
                     results[i] = clip
-        clip_paths = [results[i] for i in sorted(results)]
+        successful_indices = sorted(results)
+        clip_paths = [results[i] for i in successful_indices]
+        rendered_transitions = [event_transitions[i] for i in successful_indices]
+        rendered_events = _events_with_rendered_timeline(
+            [ordered[i] for i in successful_indices],
+            clip_paths,
+            rendered_transitions,
+        )
 
         if not clip_paths:
             label = athlete_label or "unknown athlete"
@@ -1517,7 +1554,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                 cached_clips_m.append(dst)
             first_si = next(iter(src_info_cache.values())) if src_info_cache else {}
             meta_m = {
-                "events":         ordered,
+                "events":         rendered_events,
                 "sport":          sport,
                 "athlete_label":  athlete_label,
                 "clip_paths":     cached_clips_m,
@@ -1531,11 +1568,11 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         try:
             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                       sport=sport, athlete_label=athlete_label,
-                                      transitions=event_transitions, fps=reel_fps)
+                                      transitions=rendered_transitions, fps=reel_fps)
             if reel_clean:
                 reels.append(reel_clean)
                 if _events_out is not None:
-                    _events_out.append((reel_clean, ordered))
+                    _events_out.append((reel_clean, rendered_events))
 
             music_track = _pick_music(sport)
             if music_track:
@@ -1543,11 +1580,11 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                 reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
                                           sport=sport, athlete_label=athlete_label,
                                           music_path=music_track,
-                                          transitions=event_transitions, fps=reel_fps)
+                                          transitions=rendered_transitions, fps=reel_fps)
                 if reel_music:
                     reels.append(reel_music)
                     if _events_out is not None:
-                        _events_out.append((reel_music, ordered))
+                        _events_out.append((reel_music, rendered_events))
         finally:
             for p in clip_paths:
                 try: os.remove(p)
@@ -1679,7 +1716,8 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         _climax_ev      = ordered[-1]
         _preview_dur    = 2.5
         _climax_src_dur = _climax_ev["end"] - _climax_ev["start"]
-        if _climax_src_dur > _preview_dur + 2.0:
+        from pipeline.performance_reel_policy import should_prepend_teaser
+        if should_prepend_teaser(ordered) and _climax_src_dur > _preview_dur + 2.0:
             if len(ordered) >= 2:
                 _peak_t        = _climax_ev["start"] + _climax_src_dur * 0.65
                 _preview_start = min(_peak_t - _preview_dur / 2,
@@ -1731,7 +1769,14 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                     results[i] = clip
                 else:
                     print(f"⚠️ Event {i} ({ordered[i].get('type')}) skipped")
-        clip_paths = [results[i] for i in sorted(results)]
+        successful_indices = sorted(results)
+        clip_paths = [results[i] for i in successful_indices]
+        rendered_transitions = [event_transitions[i] for i in successful_indices]
+        rendered_events = _events_with_rendered_timeline(
+            [ordered[i] for i in successful_indices],
+            clip_paths,
+            rendered_transitions,
+        )
 
         if not clip_paths:
             label = athlete_label or "unknown athlete"
@@ -1754,7 +1799,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                 shutil.copy2(cp, dst)
                 cached_clips.append(dst)
             meta = {
-                "events":         ordered,
+                "events":         rendered_events,
                 "sport":          sport,
                 "athlete_label":  athlete_label,
                 "clip_paths":     cached_clips,
@@ -1768,11 +1813,11 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         try:
             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                       sport=sport, athlete_label=athlete_label,
-                                      transitions=event_transitions, fps=reel_fps)
+                                      transitions=rendered_transitions, fps=reel_fps)
             if reel_clean:
                 reels.append(reel_clean)
                 if _events_out is not None:
-                    _events_out.append((reel_clean, ordered))
+                    _events_out.append((reel_clean, rendered_events))
 
             music_track = _pick_music(sport)
             if music_track:
@@ -1780,11 +1825,11 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                 reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
                                           sport=sport, athlete_label=athlete_label,
                                           music_path=music_track,
-                                          transitions=event_transitions, fps=reel_fps)
+                                          transitions=rendered_transitions, fps=reel_fps)
                 if reel_music:
                     reels.append(reel_music)
                     if _events_out is not None:
-                        _events_out.append((reel_music, ordered))
+                        _events_out.append((reel_music, rendered_events))
         finally:
             for p in clip_paths:
                 try: os.remove(p)

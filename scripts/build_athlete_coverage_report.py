@@ -31,6 +31,14 @@ _EXPLICIT_REASON_MAP = {
     "insufficient_time_inside_chunk": "no_complete_action",
     "invalid_numeric_window": "invalid_source_timestamp",
 }
+_EXPLICIT_PERSON_NO_OUTPUT_REASONS = {
+    "no_complete_action",
+    "quality_below_threshold",
+    "identity_uncertain",
+    "target_not_trackable",
+    "invalid_source_timestamp",
+    "duplicate_action_window",
+}
 
 
 def _read(path: Path) -> dict[str, Any]:
@@ -105,6 +113,22 @@ def _no_output_reason(candidates: list[dict[str, Any]]) -> tuple[str | None, boo
     return None, False
 
 
+def _cluster_outcome(
+    rows: list[dict[str, Any]],
+    selected: list[dict[str, Any]],
+    no_output_reason: str | None,
+) -> str:
+    if any(row.get("uploaded_to_review") or row.get("review_draft_name") for row in rows):
+        return "uploaded_to_review"
+    if any(row.get("qa_passed") is True for row in rows):
+        return "qa_passed"
+    if any(row.get("rendered") is True or row.get("emitted_draft_name") for row in rows):
+        return "rendered"
+    if selected:
+        return "selected_for_render"
+    return no_output_reason or "coverage_gap"
+
+
 def build_report(ledger_path: Path, selection_audit_path: Path | None = None) -> dict[str, Any]:
     ledger = _read(ledger_path)
     audit = _read(selection_audit_path) if selection_audit_path else {}
@@ -131,21 +155,52 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for candidate in candidates:
         grouped[_cluster_key(candidate)].append(candidate)
+    registry_by_cluster: dict[str, dict[str, Any]] = {}
+    for raw in ledger.get("detected_athlete_registry", []) or []:
+        if not isinstance(raw, dict):
+            continue
+        registry = dict(raw)
+        cluster_id = _cluster_key(registry)
+        registry_by_cluster[cluster_id] = registry
+        grouped.setdefault(cluster_id, [])
 
     athletes: list[dict[str, Any]] = []
     for cluster_id, rows in sorted(grouped.items()):
+        registry = registry_by_cluster.get(cluster_id, {})
         selected = [row for row in rows if row.get("selected")]
         discarded = [row for row in rows if row.get("discarded")]
         no_output_reason, explicit = _no_output_reason(rows)
+        if not rows:
+            registry_reason = str(registry.get("no_output_reason") or "").strip()
+            if registry_reason in _EXPLICIT_PERSON_NO_OUTPUT_REASONS:
+                no_output_reason, explicit = registry_reason, True
+            else:
+                no_output_reason, explicit = "detected_without_candidate_evidence", False
         descriptions = [str(row.get("person_description") or "").strip() for row in rows]
+        if registry.get("person_description"):
+            descriptions.append(str(registry.get("person_description")).strip())
         descriptions = [description for description in descriptions if description]
-        person_ids = sorted({str(row.get("person_id")) for row in rows if row.get("person_id")})
+        person_ids = sorted({
+            str(value) for value in [
+                *(row.get("person_id") for row in rows),
+                registry.get("person_id"),
+            ] if value
+        })
         athlete_ids = sorted({str(row.get("athlete_id")) for row in rows if row.get("athlete_id")})
-        source_videos = sorted({str(row.get("source_video")) for row in rows if row.get("source_video")})
+        source_videos = sorted({
+            str(value) for value in [
+                *(row.get("source_video") for row in rows),
+                registry.get("source_video"),
+            ] if value
+        })
         candidate_seconds = sum((_candidate_window(row).get("duration") or 0.0) for row in rows)
         selected_seconds = sum((_selected_window(row).get("duration") or 0.0) for row in selected)
-        outcome = "draft_created" if selected else (no_output_reason or "coverage_gap")
+        outcome = _cluster_outcome(rows, selected, no_output_reason)
         coverage_met = bool(selected) or explicit
+        detected_event_count = max(
+            len(rows),
+            int(registry.get("detected_event_count") or 0),
+        )
         selected_lineage_complete = all(
             row.get("person_id") and row.get("athlete_id") and row.get("source_video")
             for row in selected
@@ -156,7 +211,7 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
             "athlete_ids": athlete_ids,
             "source_videos": source_videos,
             "descriptions": sorted(set(descriptions)),
-            "candidate_action_count": len(rows),
+            "candidate_action_count": detected_event_count,
             "selected_action_count": len(selected),
             "discarded_action_count": len(discarded),
             "candidate_seconds": round(candidate_seconds, 2),
@@ -166,6 +221,7 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
             "discard_reason_counts": dict(Counter(_detailed_reason(row) or "missing_reason" for row in discarded)),
             "final_outcome": outcome,
             "no_output_reason_explicit": explicit,
+            "detected_registry_present": bool(registry),
             "coverage_requirement_met": coverage_met,
             "selected_identity_lineage_complete": selected_lineage_complete,
             "selected_windows": [

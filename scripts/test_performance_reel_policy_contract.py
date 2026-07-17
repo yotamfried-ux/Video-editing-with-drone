@@ -316,9 +316,15 @@ def main() -> int:
     if missing:
         raise SystemExit(f"performance policy is missing contract tokens: {missing}")
 
-    run_helper = _function(run_tracked_tree, "_install_performance_reel_policy_runtime")
-    _assert_import_and_call(run_helper, "pipeline.performance_reel_policy", "install")
-    _assert_module_level_call(run_tracked_tree, "_install_performance_reel_policy_runtime")
+    for token in (
+        "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+        "install_pre_orchestrator_patches()",
+        "install_post_orchestrator_patches()",
+    ):
+        if token not in run_tracked_source:
+            raise SystemExit(f"production runner missing canonical bootstrap token: {token}")
+    if "_install_performance_reel_policy_runtime" in run_tracked_source:
+        raise SystemExit("production runner reintroduced a divergent performance-policy installer")
 
     bootstrap_helper = _function(bootstrap_tree, "install_pre_orchestrator_patches")
     _assert_import_and_call(

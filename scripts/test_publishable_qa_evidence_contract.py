@@ -157,10 +157,13 @@ def main() -> int:
         raise SystemExit("shared bootstrap does not install explicit QA evidence")
     if "pipeline.silent_output_policy" not in bootstrap:
         raise SystemExit("shared bootstrap does not install the silent output policy")
-    if "_install_publishable_qa_evidence_runtime()" not in run_tracked:
-        raise SystemExit("production runner does not install explicit QA evidence")
-    if "_install_silent_output_policy_runtime()" not in run_tracked:
-        raise SystemExit("production runner does not install silent output policy")
+    for token in (
+        "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+        "install_pre_orchestrator_patches()",
+        "install_post_orchestrator_patches()",
+    ):
+        if token not in run_tracked:
+            raise SystemExit(f"production runner missing canonical bootstrap token: {token}")
 
     print("Silent publishable final QA evidence contract checks passed")
     return 0

@@ -56,6 +56,7 @@ def main() -> int:
     context_qa_long_video = _read("pipeline/context_qa_long_video.py")
     raw_timestamp_recovery = _read("pipeline/raw_timestamp_recovery.py")
     run_tracked = _read("scripts/run_tracked.py")
+    bootstrap = _read("pipeline/bootstrap.py")
     diagnostics = _read("scripts/run_pipeline_with_diagnostics.sh")
     sitecustomize = _read("scripts/sitecustomize.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
@@ -77,6 +78,7 @@ def main() -> int:
         context_qa_long_video,
         raw_timestamp_recovery,
         run_tracked,
+        bootstrap,
         sitecustomize,
     ):
         ast.parse(source)
@@ -339,39 +341,31 @@ def main() -> int:
     )
 
     require_tokens(
-        "tracked runner quality install",
+        "tracked runner canonical bootstrap",
         run_tracked,
         [
-            "def _install_perception_runtime()",
-            "from pipeline.perception.runtime import install",
-            "def _install_pipeline_quality_runtime()",
-            "from pipeline.runtime_quality import install",
-            "def _install_performance_reel_policy_runtime()",
-            "from pipeline.performance_reel_policy import install",
-            "def _install_publishable_reel_policy_runtime()",
-            "from pipeline.publishable_reel_policy import install",
-            "def _install_silent_output_policy_runtime()",
-            "from pipeline.silent_output_policy import install",
-            "def _install_publishable_qa_evidence_runtime()",
-            "from pipeline.publishable_qa_evidence import install",
-            "def _install_raw_timestamp_recovery()",
-            "from pipeline.raw_timestamp_recovery import install",
-            "def _install_identity_failsafe_runtime()",
-            "from pipeline.identity_failsafe import install",
-            "def _install_cross_source_dedup_runtime()",
-            "from pipeline.cross_source_dedup import install",
-            "def _install_draft_diagnostics_runtime()",
-            "from pipeline.draft_diagnostics import install",
-            "def _install_candidate_ledger_runtime()",
-            "from pipeline.candidate_ledger import install",
-            "def _install_athlete_canonicalization_runtime()",
-            "from pipeline.athlete_canonicalization import install",
-            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_silent_output_policy_runtime()\n_install_publishable_qa_evidence_runtime()\n_install_raw_timestamp_recovery()",
-            "_install_identity_failsafe_runtime()",
-            "_install_cross_source_dedup_runtime()",
-            "_install_draft_diagnostics_runtime()",
-            "_install_candidate_ledger_runtime()",
-            "_install_athlete_canonicalization_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
+            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+            "install_pre_orchestrator_patches()",
+            "install_post_orchestrator_patches()",
+            "import pipeline.orchestrator as _orchestrator",
+        ],
+    )
+    require_tokens(
+        "canonical quality policy stack",
+        bootstrap,
+        [
+            "pipeline.perception.runtime",
+            "pipeline.runtime_quality",
+            "pipeline.performance_reel_policy",
+            "pipeline.publishable_reel_policy",
+            "pipeline.silent_output_policy",
+            "pipeline.publishable_qa_evidence",
+            "pipeline.raw_timestamp_recovery",
+            "pipeline.identity_failsafe",
+            "pipeline.cross_source_dedup",
+            "pipeline.draft_diagnostics",
+            "pipeline.candidate_ledger",
+            "pipeline.athlete_canonicalization",
         ],
     )
     require_tokens(
@@ -385,21 +379,21 @@ def main() -> int:
         ],
     )
     require_tokens(
-        "script bootstrap timestamp install",
-        sitecustomize,
+        "canonical timestamp installation order",
+        bootstrap,
         [
-            "def _install_perception_runtime()",
-            "from pipeline.perception.runtime import install",
-            "def _install_raw_timestamp_recovery()",
-            "from pipeline.raw_timestamp_recovery import install",
-            "_install_perception_runtime()\n_install_raw_timestamp_recovery()\n_install_analyzer_score_guard()\n_install_chunk_timeline_runtime()",
+            "pipeline.perception.runtime",
+            "pipeline.raw_timestamp_recovery",
+            "pipeline.analyzer_score_guard",
+            "pipeline.chunk_timeline_runtime",
         ],
     )
     require_no_tokens(
-        "fail-silent script bootstrap",
+        "path-only script bootstrap",
         sitecustomize,
-        ["pipeline.performance_reel_policy", "pipeline.publishable_reel_policy", "pipeline.silent_output_policy"],
+        ["from pipeline.", "except Exception"],
     )
+
 
     require_tokens(
         "operator smoke workflow quality coverage",

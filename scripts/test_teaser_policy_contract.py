@@ -28,10 +28,13 @@ def main() -> int:
 
     runtime = (ROOT / "pipeline/teaser_policy_runtime.py").read_text(encoding="utf-8")
     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
+    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     for token in ["Skipping cold-open teaser", "editor._cut_clip_with_qa", "strip_teasers_from_events_out"]:
         require(token in runtime, f"teaser runtime missing {token}")
-    require("_install_teaser_policy_runtime()" in run_tracked, "run_tracked must install teaser policy before orchestrator import")
-    require(run_tracked.index("_install_teaser_policy_runtime()") < run_tracked.index("import pipeline.orchestrator"), "teaser policy must install before orchestrator import")
+    require("install_pre_orchestrator_patches()" in run_tracked, "run_tracked must use canonical bootstrap")
+    require("pipeline.teaser_policy_runtime" in bootstrap, "canonical bootstrap must install teaser policy")
+    pre = bootstrap[bootstrap.index("def install_pre_orchestrator_patches"):bootstrap.index("def install_post_orchestrator_patches")]
+    require(pre.index("pipeline.teaser_policy_runtime") < pre.index("pipeline.identity_failsafe"), "teaser policy order drifted")
 
     print("teaser policy contract ok")
     return 0

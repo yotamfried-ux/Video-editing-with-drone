@@ -90,6 +90,11 @@ _DROP_DEFECTS = {"DUPLICATE_MOMENT", "IDENTITY_MISMATCH", "SOFT_FOCUS",
                  "NO_VISIBLE_ACTION", "DEAD_TIME", "LOW_QUALITY"}
 
 
+from pipeline.rendered_timeline import (
+    event_index_for_qa_defect as _event_index_for_qa_defect,
+)
+
+
 def _apply_qa_fixes(ordered_events: list[dict], defects: list[dict]) -> tuple[list[dict], bool]:
     """Translate QA defects into event-level edits.
 
@@ -98,24 +103,8 @@ def _apply_qa_fixes(ordered_events: list[dict], defects: list[dict]) -> tuple[li
     clip durations. Returns (fixed_events_without_teaser, changed) — the teaser
     is stripped because recompilation rebuilds it from the new climax.
     """
-    from pipeline.stages.editor import _est_clip_dur
-
-    # Approximate cumulative timeline (xfade overlaps ~0.2-0.5s are within the
-    # matching tolerance — QA timestamps are approximate anyway).
-    spans: list[tuple[float, float]] = []
-    t = 0.0
-    for ev in ordered_events:
-        dur = (_est_clip_dur(ev, True) if not ev.get("_teaser")
-               else (ev["end"] - ev["start"]))
-        spans.append((t, t + dur))
-        t += dur
-
-    def _idx_at(seconds: float) -> int | None:
-        for i, (s, e) in enumerate(spans):
-            if s - 1.5 <= seconds <= e + 1.5:
-                return i
-        return None
-
+    # Rendered event offsets are persisted by the editor. Legacy metadata falls
+    # back to source duration, but event IDs always take precedence.
     drop: set[int] = set()
     fixed = [dict(ev) for ev in ordered_events]
     changed = False
@@ -126,7 +115,7 @@ def _apply_qa_fixes(ordered_events: list[dict], defects: list[dict]) -> tuple[li
             continue
         dtype = str(d.get("type", "")).upper()
         at    = d.get("at_seconds")
-        idx   = _idx_at(float(at)) if isinstance(at, (int, float)) else None
+        idx   = _event_index_for_qa_defect(fixed, d)
 
         if dtype == "BAD_FIRST_CLIP":
             idx = next((i for i, ev in enumerate(fixed) if not ev.get("_teaser")), None)

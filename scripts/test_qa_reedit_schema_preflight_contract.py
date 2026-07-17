@@ -34,6 +34,11 @@ def main() -> int:
         "last_pipeline_run_id",
         "PGRST204",
         "20260708_qa_reedit_tasks.sql",
+        "draft_publishability",
+        "storage_object_id",
+        "qa_evidence_recorded",
+        "manifest_revision",
+        "20260717_draft_publishability_authority.sql",
     ]:
         require(token, script, "schema preflight script")
 

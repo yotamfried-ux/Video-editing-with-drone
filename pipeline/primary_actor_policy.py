@@ -14,6 +14,7 @@ IDENTITY_SWITCH = "IDENTITY_SWITCH"
 PRIMARY_ACTOR_OCCLUDED = "PRIMARY_ACTOR_OCCLUDED"
 MIN_PRIMARY_ACTOR_CONFIDENCE = 0.55
 FOCUSED_SUBWINDOW_SCOPE = "focused_subwindow"
+FOCUSED_SUBWINDOW_PENDING_SCOPE = "focused_subwindow_pending_validation"
 
 _BAD_STATUS_VALUES = {
     "ambiguous",
@@ -166,29 +167,34 @@ def _centered_evidence_gaps(event: dict[str, Any]) -> list[str]:
 
 
 def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any]:
-    """Clear broad-window ambiguity flags after selecting a focused sub-window.
+    """Scope broad-window defects without manufacturing new identity evidence.
 
-    The original evidence is retained for audit, but downstream gates evaluate the
-    focused window rather than stale identity/occlusion flags from the wider event.
-    Sidecar continuity and explicit target-presence checks still run afterwards.
+    Selecting a narrower time window is an edit decision, not an observation. Broad
+    ambiguity flags are retained for audit and removed from the focused evaluation,
+    but positive clarity, continuity, and confidence must be recomputed from sidecar
+    detections on the new window before publication.
     """
     normalized = dict(event)
     normalized["broad_window_ambiguity_reasons"] = ambiguity_reasons(event)
     for key in (*_TRUE_AMBIGUITY_FIELDS, *_ACTIVE_CONTEXT_FIELDS):
         normalized[key] = False
+    for key in (
+        "primary_actor_clear",
+        "target_actor_clear",
+        "main_athlete_clear",
+        "identity_continuity",
+        "primary_actor_status",
+        "actor_tracking_status",
+        "primary_actor_confidence",
+        "target_confidence",
+    ):
+        normalized.pop(key, None)
     normalized.update({
-        "primary_actor_clear": True,
-        "target_actor_clear": True,
-        "main_athlete_clear": True,
-        "identity_continuity": "stable",
-        "primary_actor_status": "stable",
-        "actor_tracking_status": "stable",
+        "primary_actor_evidence_scope": FOCUSED_SUBWINDOW_PENDING_SCOPE,
+        "focused_subwindow_requires_validation": True,
         "competing_active_subjects": False,
         "target_occluded_at_key_moment": False,
-        "primary_actor_evidence_scope": FOCUSED_SUBWINDOW_SCOPE,
     })
-    confidence = primary_actor_confidence(event)
-    normalized["primary_actor_confidence"] = max(0.75, confidence or 0.0)
     return normalized
 
 
@@ -220,10 +226,19 @@ def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
             if _bool(event.get(key)) is True:
                 reasons.append(key)
 
-    # A focused sub-window has new scoped evidence. Do not reapply natural-language
-    # ambiguity phrases describing the wider event; deterministic sidecar gates still
-    # verify target presence and continuity in the focused cut itself.
-    if event.get("primary_actor_evidence_scope") != FOCUSED_SUBWINDOW_SCOPE:
+    pending_focused_validation = (
+        event.get("primary_actor_evidence_scope") == FOCUSED_SUBWINDOW_PENDING_SCOPE
+        or _bool(event.get("focused_subwindow_requires_validation")) is True
+    )
+    if pending_focused_validation:
+        reasons.append("focused_subwindow_validation_required")
+
+    # Do not reapply natural-language ambiguity phrases from the broad source window
+    # after a focused rescue. Deterministic sidecar evidence is still mandatory.
+    if event.get("primary_actor_evidence_scope") not in {
+        FOCUSED_SUBWINDOW_SCOPE,
+        FOCUSED_SUBWINDOW_PENDING_SCOPE,
+    }:
         text = f"{event.get('description', '')} {event.get('notes', '')}".lower()
         phrases = {
             "identity switches": "identity_switch_description",
@@ -266,6 +281,22 @@ def classify_primary_actor(
     actor_id = primary_actor_id(event)
     clear = explicit_primary_actor_clear(event)
     confidence = primary_actor_confidence(event)
+    pending_focused_validation = (
+        event.get("primary_actor_evidence_scope") == FOCUSED_SUBWINDOW_PENDING_SCOPE
+        or _bool(event.get("focused_subwindow_requires_validation")) is True
+    )
+    if (
+        pending_focused_validation
+        and actor_id is not None
+        and primary_continuity_ratio is not None
+        and primary_continuity_ratio >= 0.50
+    ):
+        reasons = [
+            reason for reason in reasons
+            if reason != "focused_subwindow_validation_required"
+        ]
+        clear = True
+        confidence = max(MIN_PRIMARY_ACTOR_CONFIDENCE, confidence or 0.0)
 
     if primary_continuity_ratio is not None and primary_continuity_ratio < 0.50:
         reasons.append(f"primary_continuity_ratio:{primary_continuity_ratio:.3f}")

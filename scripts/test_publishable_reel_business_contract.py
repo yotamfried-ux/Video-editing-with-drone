@@ -52,6 +52,10 @@ def valid_manifest() -> dict[str, Any]:
                     {
                         "part_index": 1,
                         "file_name": "DRAFT_player_7_part_1.mp4",
+                        "storage_object_id": "review/DRAFT_player_7_part_1.mp4",
+                        "authoritative_publishability_required": True,
+                        "authoritative_publishability_persisted": True,
+                        "authoritative_manifest_revision": "manifest-revision-1",
                         "uploaded_to_review": True,
                         "upload_error": None,
                         "publishable": True,
@@ -68,6 +72,10 @@ def valid_manifest() -> dict[str, Any]:
                     {
                         "part_index": 2,
                         "file_name": "DRAFT_player_7_part_2.mp4",
+                        "storage_object_id": "review/DRAFT_player_7_part_2.mp4",
+                        "authoritative_publishability_required": True,
+                        "authoritative_publishability_persisted": True,
+                        "authoritative_manifest_revision": "manifest-revision-2",
                         "uploaded_to_review": True,
                         "upload_error": None,
                         "publishable": True,
@@ -217,7 +225,11 @@ def assert_source_contract(silent: Any) -> None:
         "strict checker": (strict_source, ["qa_evidence_recorded", "exactly one featured canonical athlete_id", "math.isfinite", "selected by multiple coverage rows"]),
         "README": (readme, ["One featured athlete per reel, not one visible person", "One canonical silent output per part", "another surfer may enter or ride the same wave"]),
         "bootstrap": (bootstrap, ["pipeline.silent_output_policy"]),
-        "production runner": (run_tracked, ["_install_silent_output_policy_runtime()"]),
+        "production runner": (run_tracked, [
+            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+            "install_pre_orchestrator_patches()",
+            "install_post_orchestrator_patches()",
+        ]),
     }
     for label, (source, tokens) in required.items():
         missing = [token for token in tokens if token not in source]

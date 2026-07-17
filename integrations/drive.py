@@ -356,7 +356,7 @@ def download_video(file_id: str, filename: str) -> str:
 
 
 def upload_draft(draft_path: str, draft_name: str) -> str:
-    """Upload a draft reel to REVIEW_FOLDER_ID. Returns webViewLink."""
+    """Upload a draft reel to REVIEW_FOLDER_ID. Returns immutable Drive file id."""
     print(f"📋 Uploading draft '{draft_name}' to REVIEW folder...")
     try:
         service       = _get_upload_service()
@@ -381,7 +381,9 @@ def upload_draft(draft_path: str, draft_name: str) -> str:
             logger.warning("⚠️ Could not set public permission on draft %s: %s", draft_name, perm_err)
         print(f"✅ Draft ready for review: {link}")
         logger.info("Draft uploaded %s → %s", draft_name, link)
-        return link
+        if not file_id:
+            raise RuntimeError(f"Drive upload returned no immutable file id for {draft_name}")
+        return file_id
     except Exception as e:
         logger.error("❌ Failed to upload draft %s: %s", draft_name, e)
         print(f"❌ Draft upload failed for '{draft_name}': {e}")

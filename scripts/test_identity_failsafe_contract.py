@@ -19,16 +19,18 @@ def require(label: str, text: str, tokens: list[str]) -> None:
 
 def main() -> int:
     runner = read("scripts/run_tracked.py")
+    bootstrap = read("pipeline/bootstrap.py")
     guard = read("pipeline/identity_failsafe.py")
-    for text in (runner, guard, read("scripts/test_identity_failsafe_contract.py")):
+    for text in (runner, bootstrap, guard, read("scripts/test_identity_failsafe_contract.py")):
         ast.parse(text)
 
     require("runner", runner, [
-        "def _install_identity_failsafe_runtime()",
-        "from pipeline.identity_failsafe import install",
-        "_install_identity_failsafe_runtime()",
+        "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+        "install_pre_orchestrator_patches()",
         "import pipeline.orchestrator as _orchestrator",
+        "install_post_orchestrator_patches()",
     ])
+    require("bootstrap", bootstrap, ["pipeline.identity_failsafe"])
     require("guard", guard, [
         "def _cluster_has_perception_evidence",
         "medium confidence without bbox perception evidence",

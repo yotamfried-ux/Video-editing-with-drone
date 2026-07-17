@@ -145,15 +145,21 @@ def validate_football() -> None:
 
     rescued = events[1]
     require(rescued["start"] == 43.0 and rescued["end"] == 50.0, "ambiguous event should use focused sub-window")
-    require(rescued["primary_actor_clear"] is True, "focused rescue should become clear")
-    require(rescued["identity_continuity"] == "stable", "focused rescue continuity should be stable")
-    require(rescued["identity_switch_detected"] is False, "stale identity switch evidence was not cleared")
-    require(rescued["critical_occlusion"] is False, "stale occlusion evidence was not cleared")
-    require(rescued["competing_active_subjects"] is False, "focused rescue did not clear stale context evidence")
-    require(rescued["primary_actor_confidence"] >= 0.75, "focused rescue confidence was not scoped")
-    require(rescued["primary_actor_evidence_scope"] == "focused_subwindow", "focused evidence scope missing")
+    require(rescued.get("primary_actor_clear") is not True, "focused rescue manufactured actor clarity")
+    require(str(rescued.get("identity_continuity") or "").lower() != "stable", "focused rescue manufactured continuity")
+    require(rescued.get("primary_actor_confidence") in {None, 0.3}, "focused rescue changed confidence without evidence")
+    require(rescued["primary_actor_evidence_scope"] == "focused_subwindow_pending_validation", "pending focused evidence scope missing")
     require(rescued["broad_window_ambiguity_reasons"], "broad-window audit evidence should be retained")
-    require(ambiguity_reasons(rescued) == [], f"focused sub-window still carries stale ambiguity: {rescued}")
+    focused_reasons = ambiguity_reasons(rescued)
+    require("focused_subwindow_validation_required" in focused_reasons, f"focused sub-window did not fail closed: {rescued}")
+    focused_gate = classify_primary_actor(rescued, visible_subject_count=2)
+    require(focused_gate["decision"] == "review_required", "focused sub-window passed without sidecar evidence")
+    validated_gate = classify_primary_actor(
+        {**rescued, "person_id": "person_A"},
+        visible_subject_count=2,
+        primary_continuity_ratio=0.9,
+    )
+    require(validated_gate["decision"] == "allowed_primary_actor_clear", "scoped sidecar continuity did not validate focused window")
     print("football centered-athlete selection ok")
 
 
@@ -228,14 +234,12 @@ def validate_surfing() -> None:
 
 def validate_sitecustomize() -> None:
     sitecustomize = (ROOT / "scripts" / "sitecustomize.py").read_text(encoding="utf-8")
-    required = [
-        "def _install_single_athlete_selection_policy()",
-        "from pipeline.single_athlete_selection_policy import install",
-        "_install_single_athlete_selection_policy()",
-    ]
-    missing = [token for token in required if token not in sitecustomize]
-    require(not missing, f"sitecustomize does not install policy: {missing}")
-    print("primary athlete policy bootstrap ok")
+    bootstrap = (ROOT / "pipeline" / "bootstrap.py").read_text(encoding="utf-8")
+    run_tracked = (ROOT / "scripts" / "run_tracked.py").read_text(encoding="utf-8")
+    require("pipeline.single_athlete_selection_policy" in bootstrap, "canonical bootstrap omits primary athlete policy")
+    require("install_pre_orchestrator_patches()" in run_tracked, "production runner does not call canonical bootstrap")
+    require("from pipeline." not in sitecustomize, "sitecustomize reintroduced a fail-silent product policy")
+    print("primary athlete canonical bootstrap ok")
 
 
 VALIDATORS = {

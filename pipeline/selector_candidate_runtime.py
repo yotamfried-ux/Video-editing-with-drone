@@ -65,6 +65,13 @@ def _append_payload(path: Path, payload: dict[str, Any]) -> None:
         "timestamp_basis_counts": _merge_counter_summaries(summaries, "timestamp_basis_counts"),
         "timestamp_encoding_counts": _merge_counter_summaries(summaries, "timestamp_encoding_counts"),
     }
+    registry_by_key: dict[tuple[str, str], dict[str, Any]] = {}
+    for source_payload in (existing, payload):
+        for row in source_payload.get("detected_athlete_registry", []) or []:
+            if not isinstance(row, dict):
+                continue
+            key = (str(row.get("source_video") or ""), str(row.get("person_id") or ""))
+            registry_by_key[key] = dict(row)
     merged = {
         "schema_version": "sportreel.selector_candidate_events.v1",
         "source_video": payload.get("source_video") or existing.get("source_video"),
@@ -73,6 +80,7 @@ def _append_payload(path: Path, payload: dict[str, Any]) -> None:
         "discarded_count": discarded_count,
         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
         "chunk_timeline_summary": merged_summary,
+        "detected_athlete_registry": list(registry_by_key.values()),
         "candidates": candidates,
     }
     write_selector_candidate_events(path, merged)

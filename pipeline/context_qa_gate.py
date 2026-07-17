@@ -215,8 +215,10 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         try:
             from pipeline.real_identity_gate import enforce_identity_gate
             clusters = enforce_identity_gate(clusters)
-        except Exception:
-            pass
+        except Exception as exc:
+            raise RuntimeError(
+                "real identity gate failed before context QA; refusing fail-open compilation"
+            ) from exc
         pending: list[tuple[str, str]] = []
         pending_meta: list[tuple[str, str, list[dict], dict]] = []
         fn_to_id = fn_to_id or {}

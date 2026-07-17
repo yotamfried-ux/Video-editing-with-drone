@@ -56,6 +56,7 @@ def _patch_policy() -> None:
     if getattr(policy, _POLICY_FLAG, False):
         return
     original_record = policy.record_athlete_outcome
+    original_mark_upload_result = policy.mark_upload_result
 
     def record_fail_closed(
         *,
@@ -66,7 +67,10 @@ def _patch_policy() -> None:
         flagged_paths: set[str],
         variant_failures: list[str] | None = None,
         specs_getter: Callable[[str], dict[str, Any]] | None = None,
+        specs_by_path: dict[str, dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        inspect = specs_getter or policy._default_specs
+        snapshot = specs_by_path or _inspect_once(list(final_reels or []), inspect)
         row = original_record(
             sport=sport,
             athlete_label=athlete_label,
@@ -75,9 +79,8 @@ def _patch_policy() -> None:
             flagged_paths=flagged_paths,
             variant_failures=variant_failures,
             specs_getter=specs_getter,
+            specs_by_path=snapshot,
         )
-        inspect = specs_getter or policy._default_specs
-        specs_by_path = _inspect_once(list(final_reels or []), inspect)
         with policy._MANIFEST_LOCK:
             payload = policy._read_manifest()
             for manifest_row in payload.get("athletes", []) or []:
@@ -90,7 +93,7 @@ def _patch_policy() -> None:
                     if not isinstance(part, dict):
                         continue
                     local_path = str(part.get("local_path") or "")
-                    specs = specs_by_path.get(_path_key(local_path), {})
+                    specs = snapshot.get(_path_key(local_path), {}) or snapshot.get(local_path, {})
                     part["has_audio"] = _audio_state(specs)
                     part["qa_evidence_recorded"] = False
                     part["qa_verdict"] = None
@@ -144,48 +147,20 @@ def _patch_policy() -> None:
                 policy._atomic_write(policy._manifest_path(), payload)
             return matched
 
-    def mark_upload_result(draft_path: str, draft_name: str, error: str | None = None) -> bool:
-        draft_key = _path_key(draft_path)
-        with policy._MANIFEST_LOCK:
-            payload = policy._read_manifest()
-            matched = False
-            for manifest_row in payload.get("athletes", []) or []:
-                if not isinstance(manifest_row, dict):
-                    continue
-                for part in manifest_row.get("parts", []) or []:
-                    if not isinstance(part, dict):
-                        continue
-                    paths = {_path_key(str(part.get("local_path") or ""))}
-                    paths.update(
-                        _path_key(str(alias))
-                        for alias in part.get("upload_path_aliases", []) or []
-                    )
-                    if draft_key not in paths:
-                        continue
-                    matched = True
-                    part["upload_error"] = str(error) if error else None
-                    part["uploaded_to_review"] = error is None
-                    if error is None:
-                        part["review_draft_name"] = draft_name
-                        part["file_name"] = draft_name
-                        part["uploaded_local_path"] = draft_key
-                    else:
-                        reasons = list(manifest_row.get("blocking_reasons") or [])
-                        reasons.append(
-                            f"review_upload_failed:{Path(draft_path).name}:{error}"
-                        )
-                        manifest_row["blocking_reasons"] = sorted(set(reasons))
-                    policy._refresh_row_publishability(manifest_row)
-                    break
-            if matched:
-                policy._recompute_summary(payload)
-                policy._atomic_write(policy._manifest_path(), payload)
-            else:
-                policy.logger.warning(
-                    "Publishable manifest could not match uploaded draft path %s",
-                    draft_path,
-                )
-            return matched
+    def mark_upload_result(
+        draft_path: str,
+        draft_name: str,
+        error: str | None = None,
+        *,
+        storage_object_id: str | None = None,
+    ) -> bool:
+        return original_mark_upload_result(
+            draft_path,
+            draft_name,
+            error=error,
+            storage_object_id=storage_object_id,
+        )
+
 
     policy.record_athlete_outcome = record_fail_closed
     policy.register_staged_upload_path = register_staged_upload_path

@@ -43,7 +43,7 @@ def main() -> int:
         raise SystemExit("distant waves must not merge")
 
     text = (ROOT / "pipeline/surf_ride_segment.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/usercustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     for token in ["normalize_surf_rides", "RIDE_BOUNDARY_UNCERTAIN", "IDENTITY_UNCERTAIN", "merged_ride_fragments"]:
         if token not in text:
             raise SystemExit(f"missing token: {token}")

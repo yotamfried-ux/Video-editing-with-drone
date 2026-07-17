@@ -15,6 +15,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 MAX_PERFORMANCE_REEL_SEC = 89.0
+RENDERED_TIMELINE_RESERVED_SECONDS = 2.75
 _SURF_TERMS = {
     "surf", "surfing", "surfer", "wave", "longboard", "shortboard",
     "cutback", "bottom_turn", "carve", "snap", "barrel", "tube_ride",
@@ -103,6 +104,62 @@ def keep_event_for_performance_reel(event: dict[str, Any], activity: str = "") -
     return score >= 6 or surf_event
 
 
+
+
+def _no_output_reason_for_person(person: dict[str, Any], activity: str) -> str:
+    existing = str(person.get("no_output_reason") or "").strip()
+    if existing:
+        return existing
+    events = [event for event in person.get("events", []) or [] if isinstance(event, dict)]
+    if not events:
+        return "no_complete_action"
+    if all(is_explicit_failed_takeoff(event, activity) for event in events if is_surf_event(event, activity)):
+        return "no_complete_action"
+    if any(is_surf_event(event, activity) for event in events):
+        return "explicit_hard_reject"
+    return "quality_below_threshold"
+
+
+def filter_session_result_for_performance_reel(result: dict[str, Any]) -> dict[str, Any]:
+    """Preserve every detected athlete while filtering only their event list.
+
+    Empty athlete rows remain as accountability evidence and are ignored later by
+    identity clustering, which already requires at least one usable event.
+    """
+    activity = str(result.get("activity", ""))
+    people: list[dict[str, Any]] = []
+    registry: list[dict[str, Any]] = []
+    for index, raw_person in enumerate(result.get("persons", []) or []):
+        if not isinstance(raw_person, dict):
+            continue
+        person = dict(raw_person)
+        original_events = [event for event in person.get("events", []) or [] if isinstance(event, dict)]
+        events = [event for event in original_events if keep_event_for_performance_reel(event, activity)]
+        person_id = str(person.get("id") or f"detected_person_{index:03d}")
+        person["id"] = person_id
+        person["events"] = events
+        no_output_reason = None if events else _no_output_reason_for_person(person, activity)
+        if no_output_reason:
+            person["no_output_reason"] = no_output_reason
+        people.append(person)
+        registry.append({
+            "person_id": person_id,
+            "description": str(person.get("description") or "unknown athlete"),
+            "detected_action_count": len(original_events),
+            "retained_action_count": len(events),
+            "no_output_reason": no_output_reason,
+        })
+    return {**result, "persons": people, "detected_athlete_registry": registry}
+
+
+def should_prepend_teaser(events: list[dict[str, Any]]) -> bool:
+    """Performance reels must not visually duplicate a complete action as a teaser."""
+    return not any(
+        str(event.get("performance_reel_contract") or "") == "all_usable_waves_per_athlete_v1"
+        for event in events or []
+        if isinstance(event, dict)
+    )
+
 def _source(event: dict[str, Any]) -> str:
     return str(
         event.get("_src")
@@ -158,10 +215,11 @@ def partition_complete_performance_reels(
     if not events:
         return []
 
-    budget = min(
+    requested_budget = min(
         MAX_PERFORMANCE_REEL_SEC,
         max(4.0, _number(target_max, MAX_PERFORMANCE_REEL_SEC)),
     )
+    budget = max(4.0, requested_budget - RENDERED_TIMELINE_RESERVED_SECONDS)
     source_order: dict[str, int] = {}
     indexed: list[tuple[int, dict[str, Any]]] = []
     for index, event in enumerate(events):
@@ -206,7 +264,7 @@ def partition_complete_performance_reels(
     annotated: list[list[dict[str, Any]]] = []
     running_wave_index = 0
     for part_index, group in enumerate(groups, start=1):
-        estimated_duration = round(_group_duration(group, slowmo_capable, xfade_dur), 3)
+        estimated_duration = round(_group_duration(group, slowmo_capable, xfade_dur) + RENDERED_TIMELINE_RESERVED_SECONDS, 3)
         part: list[dict[str, Any]] = []
         for event in group:
             running_wave_index += 1
@@ -251,13 +309,7 @@ def _patch_prompt_and_filters() -> None:
         return [event for event in events if keep_event_for_performance_reel(event, activity)]
 
     def filter_session_result(result: dict[str, Any]) -> dict[str, Any]:
-        activity = str(result.get("activity", ""))
-        persons: list[dict[str, Any]] = []
-        for person in result.get("persons", []) or []:
-            events = filter_events(list(person.get("events", []) or []), activity)
-            if events:
-                persons.append({**person, "events": events})
-        return {**result, "persons": persons}
+        return filter_session_result_for_performance_reel(result)
 
     def filter_single_result(result: dict[str, Any]) -> dict[str, Any]:
         activity = str(result.get("activity", ""))
@@ -289,6 +341,11 @@ def _patch_prompt_and_filters() -> None:
             if not events:
                 dropped_people += 1
                 runtime_quality._safe_remove(person.get("thumbnail"))
+                hardened_people.append({
+                    **person,
+                    "events": [],
+                    "no_output_reason": _no_output_reason_for_person(person, activity),
+                })
                 continue
             hardened = {**person, "events": events}
             best = max(events, key=runtime_quality._score)
@@ -307,7 +364,17 @@ def _patch_prompt_and_filters() -> None:
                 f"{dropped_events} explicit no-ride/framing-risk event(s) and "
                 f"{dropped_people} athlete(s) with no usable events"
             )
-        return {**result, "persons": hardened_people}
+        registry = [
+            {
+                "person_id": str(person.get("id") or ""),
+                "description": str(person.get("description") or "unknown athlete"),
+                "detected_action_count": len(person.get("events", []) or []),
+                "retained_action_count": len(person.get("events", []) or []),
+                "no_output_reason": person.get("no_output_reason"),
+            }
+            for person in hardened_people
+        ]
+        return {**result, "persons": hardened_people, "detected_athlete_registry": registry}
 
     runtime_quality._harden_session_result = harden_session_result
     feedback.get_negative_feedback_hint = lambda: ""

@@ -175,9 +175,6 @@ export default function OperatorReviewScreen() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   file_id: draft.id,
-                  file_name: draft.name,
-                  review_required: draft.review_required,
-                  approval_blocked_reasons: draft.approval_blocked_reasons,
                 }),
               });
               setDrafts((current) => current.filter((item) => item.id !== draft.id));

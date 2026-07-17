@@ -97,9 +97,10 @@ def main() -> int:
     require("_qa_reedit_allow_long_cut" not in unchanged, "non-cut defects must not override pacing")
 
     runtime = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
+    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     contract = (ROOT / "pipeline/qa_reedit_window_contract.py").read_text(encoding="utf-8")
-    for token in ("_install_qa_reedit_window_contract()", "from pipeline.qa_reedit_window_contract import install"):
-        require(token in runtime, f"tracked runtime missing QA re-edit wiring: {token}")
+    require("install_post_orchestrator_patches()" in runtime, "tracked runtime omits canonical post-orchestrator bootstrap")
+    require("pipeline.qa_reedit_window_contract" in bootstrap, "canonical bootstrap omits QA re-edit window contract")
     for token in (
         "orchestrator._apply_qa_fixes = apply_with_renderable_extension",
         "editor.cut_clip = cut_with_reedit_window",
