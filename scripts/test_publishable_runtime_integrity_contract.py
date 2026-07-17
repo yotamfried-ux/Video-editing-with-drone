@@ -55,6 +55,12 @@ def assert_fail_closed_and_staged_alias() -> None:
         staged = str(tmp / "target.draft-candidate-001.mp4")
         os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(manifest)
         policy.reset_manifest()
+        inspect_calls = 0
+
+        def inspect(_path: str) -> dict[str, Any]:
+            nonlocal inspect_calls
+            inspect_calls += 1
+            return specs()
 
         row = policy.record_athlete_outcome(
             sport="surfing",
@@ -62,8 +68,14 @@ def assert_fail_closed_and_staged_alias() -> None:
             final_reels=[original],
             events_by_reel={original: [event()]},
             flagged_paths=set(),
-            specs_getter=lambda _path: specs(),
+            specs_getter=inspect,
         )
+        # The original recorder needs one inspection and the integrity layer needs
+        # one independent final inspection. The integrity layer must not call its
+        # own inspection twice through a conditional expression.
+        if inspect_calls != 2:
+            raise SystemExit(f"unexpected final media inspection count: {inspect_calls}")
+
         part = row["parts"][0]
         if part.get("qa_evidence_recorded") is not False:
             raise SystemExit("new Part did not start without explicit QA evidence")
@@ -168,6 +180,7 @@ def assert_source_contract() -> None:
             "contextvars.ContextVar",
             "_QA_RESULTS.pop",
             "stage_with_manifest_alias",
+            "_inspect_once",
         ],
         "complete action": [
             "all_usable_waves_per_athlete_v1",
