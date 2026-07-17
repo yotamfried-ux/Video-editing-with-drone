@@ -9,6 +9,7 @@ on:
       - 'docs/audit/run-29516256449-performance-reel-repair-plan.md'
       - 'pipeline/performance_reel_policy.py'
       - 'pipeline/publishable_reel_policy.py'
+      - 'pipeline/publishable_qa_evidence.py'
       - 'pipeline/analyzer_score_guard.py'
       - 'pipeline/runtime_quality.py'
       - 'pipeline/qa_gate_policy.py'
@@ -20,14 +21,17 @@ on:
       - 'pipeline/bootstrap.py'
       - 'scripts/run_tracked.py'
       - 'scripts/run_pipeline_with_diagnostics.sh'
+      - 'scripts/check_publishable_manifest_empty.py'
       - 'scripts/check_publishable_reel_manifest.py'
       - 'scripts/record_publishable_business_gate_status.py'
       - 'scripts/sitecustomize.py'
       - 'scripts/test_bootstrap_parity_contract.py'
       - 'scripts/test_cross_sport_publishable_eval_matrix.py'
       - 'scripts/test_performance_reel_policy_contract.py'
+      - 'scripts/test_publishable_coverage_fail_closed_contract.py'
       - 'scripts/test_publishable_gate_status_contract.py'
       - 'scripts/test_publishable_identity_lineage_contract.py'
+      - 'scripts/test_publishable_qa_evidence_contract.py'
       - 'scripts/test_publishable_reel_business_contract.py'
       - 'scripts/test_publishable_reel_concurrency_contract.py'
       - 'mobile/src/app/(operator)/review.tsx'
@@ -51,6 +55,10 @@ jobs:
         run: python scripts/test_performance_reel_policy_contract.py
       - name: Validate per-athlete publishable reel business contract
         run: python scripts/test_publishable_reel_business_contract.py
+      - name: Validate explicit final QA evidence
+        run: python scripts/test_publishable_qa_evidence_contract.py
+      - name: Validate missing coverage fails closed
+        run: python scripts/test_publishable_coverage_fail_closed_contract.py
       - name: Validate concurrent publishable manifest updates
         run: python scripts/test_publishable_reel_concurrency_contract.py
       - name: Validate canonical identity lineage
