@@ -146,6 +146,10 @@ def install_pre_orchestrator_patches() -> None:
 
     install_runtime_quality()
 
+    from pipeline.performance_reel_policy import install as install_performance_reel_policy
+
+    install_performance_reel_policy()
+
     from pipeline.selector_candidate_runtime import install as install_selector_candidate_runtime
 
     install_selector_candidate_runtime()
