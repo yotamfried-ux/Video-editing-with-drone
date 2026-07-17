@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import sys
 from pathlib import Path
 from typing import Any
@@ -23,10 +22,6 @@ def _load(path: Path, label: str) -> dict[str, Any]:
     return payload
 
 
-def _normal(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
-
-
 def _as_int(value: Any) -> int:
     try:
         return int(value)
@@ -34,29 +29,24 @@ def _as_int(value: Any) -> int:
         return 0
 
 
+def _id_set(values: Any) -> set[str]:
+    if not isinstance(values, list):
+        return set()
+    return {str(value).strip() for value in values if str(value).strip()}
+
+
 def _coverage_matches(
     manifest_rows: list[dict[str, Any]],
     coverage_row: dict[str, Any],
 ) -> list[dict[str, Any]]:
-    coverage_ids = {str(value) for value in coverage_row.get("athlete_ids", []) or [] if value}
-    coverage_descriptions = {
-        _normal(value) for value in coverage_row.get("descriptions", []) or [] if _normal(value)
-    }
+    """Match only with canonical athlete IDs; text labels are never identity proof."""
+    coverage_ids = _id_set(coverage_row.get("athlete_ids"))
+    if not coverage_ids:
+        return []
     matches: list[dict[str, Any]] = []
     for row in manifest_rows:
-        manifest_ids = {str(value) for value in row.get("athlete_ids", []) or [] if value}
-        label = _normal(row.get("athlete_label"))
-        id_match = bool(coverage_ids and manifest_ids and coverage_ids.intersection(manifest_ids))
-        description_match = bool(
-            label
-            and any(
-                label == description
-                or label in description
-                or description in label
-                for description in coverage_descriptions
-            )
-        )
-        if id_match or description_match:
+        manifest_ids = _id_set(row.get("athlete_ids"))
+        if coverage_ids.intersection(manifest_ids):
             matches.append(row)
     return matches
 
@@ -65,7 +55,7 @@ def validate_athlete_coverage(
     manifest_rows: list[dict[str, Any]],
     coverage: dict[str, Any],
 ) -> list[str]:
-    """Cross-check upstream athlete candidates against final publishable outcomes."""
+    """Cross-check upstream athlete candidates against final canonical outcomes."""
     errors: list[str] = []
     rows = coverage.get("athletes")
     if not isinstance(rows, list):
@@ -80,14 +70,20 @@ def validate_athlete_coverage(
         selected_count = _as_int(raw.get("selected_action_count"))
         explicit = raw.get("no_output_reason_explicit") is True
         covered = raw.get("coverage_requirement_met") is True
+        coverage_ids = _id_set(raw.get("athlete_ids"))
 
         if candidate_count > 0 and not covered:
             errors.append(f"{cluster}: candidate athlete has an unresolved coverage gap")
         if selected_count > 0:
+            if not coverage_ids:
+                errors.append(f"{cluster}: selected athlete lacks canonical athlete_id lineage")
+                continue
             matches = _coverage_matches(manifest_rows, raw)
             if not matches:
                 errors.append(f"{cluster}: selected athlete is absent from the publishable manifest")
-            elif not any(match.get("primary_publishable_reel") for match in matches):
+            elif len(matches) > 1:
+                errors.append(f"{cluster}: canonical athlete maps to multiple publishable manifest rows")
+            elif not matches[0].get("primary_publishable_reel"):
                 errors.append(f"{cluster}: selected athlete has no primary publishable reel")
         elif candidate_count > 0 and not explicit:
             errors.append(f"{cluster}: no output exists without an explicit rejection reason")
@@ -104,6 +100,15 @@ def validate_athlete_coverage(
         accountability = 1.0 if not rows else 0.0
     if accountability < 1.0:
         errors.append(f"athlete accountability rate must be 1.0, got {accountability}")
+    try:
+        lineage_rate = float(summary.get("selected_identity_lineage_completeness_rate"))
+    except (TypeError, ValueError):
+        lineage_rate = 1.0 if not any(
+            isinstance(row, dict) and _as_int(row.get("selected_action_count")) > 0
+            for row in rows
+        ) else 0.0
+    if lineage_rate < 1.0:
+        errors.append(f"selected identity lineage completeness must be 1.0, got {lineage_rate}")
     return errors
 
 
@@ -139,11 +144,10 @@ def validate_manifest(
             errors.append(f"{label}: duplicate athlete_key {key}")
         athlete_keys.add(key)
 
-        athlete_ids = raw.get("athlete_ids") or []
-        if not isinstance(athlete_ids, list):
+        athlete_ids = _id_set(raw.get("athlete_ids"))
+        if raw.get("athlete_ids") is not None and not isinstance(raw.get("athlete_ids"), list):
             errors.append(f"{label}: athlete_ids must be an array")
-            athlete_ids = []
-        for athlete_id in {str(value) for value in athlete_ids if value}:
+        for athlete_id in athlete_ids:
             owner = athlete_id_owners.get(athlete_id)
             if owner and owner != key:
                 errors.append(
@@ -158,6 +162,8 @@ def validate_manifest(
         hard_reject = raw.get("explicit_hard_reject_reason")
         if not primary and not hard_reject:
             errors.append(f"{label}: eligible athlete has no primary publishable reel")
+        if primary and not athlete_ids:
+            errors.append(f"{label}: publishable athlete lacks canonical athlete_id lineage")
         if primary:
             publishable_athletes += 1
             primary_count += 1
