@@ -4,7 +4,11 @@ on:
   pull_request:
     paths:
       - '.github/workflows/performance-reel-contract.yml'
+      - 'README.md'
+      - 'docs/audit/personal-publishable-reel-completion-plan-20260717.md'
+      - 'docs/audit/run-29516256449-performance-reel-repair-plan.md'
       - 'pipeline/performance_reel_policy.py'
+      - 'pipeline/publishable_reel_policy.py'
       - 'pipeline/analyzer_score_guard.py'
       - 'pipeline/runtime_quality.py'
       - 'pipeline/qa_gate_policy.py'
@@ -15,8 +19,12 @@ on:
       - 'pipeline/stages/feedback.py'
       - 'pipeline/bootstrap.py'
       - 'scripts/run_tracked.py'
+      - 'scripts/run_pipeline_with_diagnostics.sh'
+      - 'scripts/check_publishable_reel_manifest.py'
       - 'scripts/sitecustomize.py'
+      - 'scripts/test_bootstrap_parity_contract.py'
       - 'scripts/test_performance_reel_policy_contract.py'
+      - 'scripts/test_publishable_reel_business_contract.py'
       - 'mobile/src/app/(operator)/review.tsx'
       - 'mobile/src/shared/components/Card.tsx'
   workflow_dispatch:
@@ -36,6 +44,10 @@ jobs:
           python-version: '3.11'
       - name: Validate all-waves performance reel contract
         run: python scripts/test_performance_reel_policy_contract.py
+      - name: Validate per-athlete publishable reel business contract
+        run: python scripts/test_publishable_reel_business_contract.py
+      - name: Validate bootstrap parity
+        run: python scripts/test_bootstrap_parity_contract.py
       - name: Validate mobile review TypeScript
         working-directory: mobile
         run: |
