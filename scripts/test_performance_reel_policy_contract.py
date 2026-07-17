@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import ast
 import importlib.util
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "pipeline/performance_reel_policy.py"
+sys.path.insert(0, str(ROOT))
 
 
 def load_policy():
@@ -46,11 +48,22 @@ def main() -> int:
         hard_reject_reason="failed_takeoff",
         description="falls immediately during a failed takeoff",
     )
+    high_score_failed_takeoff = event(
+        3,
+        30,
+        34,
+        score=8,
+        ride_completed=False,
+        hard_reject_reason="no_ride_established",
+        description="misses the wave and never stands",
+    )
     non_surf = {"type": "walk", "sport": "football", "score": 4, "start": 0, "end": 8}
     if not policy.keep_event_for_performance_reel(readable_low_score, "surfing"):
         raise SystemExit("readable low-score surf ride was incorrectly discarded")
     if policy.keep_event_for_performance_reel(failed_takeoff, "surfing"):
         raise SystemExit("explicit failed takeoff was incorrectly preserved")
+    if policy.keep_event_for_performance_reel(high_score_failed_takeoff, "surfing"):
+        raise SystemExit("high score bypassed explicit no-ride evidence")
     if policy.keep_event_for_performance_reel(non_surf, "football"):
         raise SystemExit("generic low-score non-surf event bypassed the existing quality floor")
 
@@ -85,6 +98,26 @@ def main() -> int:
         if any(item["performance_reel_total_wave_count"] != 6 for item in part):
             raise SystemExit("total wave coverage metadata is incomplete")
 
+    # Duplicate removal must happen before packing, otherwise the same wave can
+    # land once near the end of Part 1 and again at the start of Part 2.
+    from pipeline.final_duplicate_guard import remove_duplicate_events
+
+    duplicate_across_boundary = [
+        event(10, 0, 44, 8, event_fingerprint="same-wave"),
+        event(11, 50, 94, 7),
+        event(12, 100, 144, 9, event_fingerprint="same-wave"),
+    ]
+    deduplicated = remove_duplicate_events(duplicate_across_boundary)
+    duplicate_parts = policy.partition_complete_performance_reels(
+        deduplicated,
+        slowmo_capable=False,
+        target_max=89.0,
+        xfade_dur=0.25,
+    )
+    duplicate_ids = [item["event_id"] for part in duplicate_parts for item in part]
+    if len(duplicate_ids) != 2 or len(set(duplicate_ids)) != 2:
+        raise SystemExit(f"duplicate wave crossed a performance-reel boundary: {duplicate_ids}")
+
     defects = [
         {"type": "DEAD_TIME", "severity": "critical"},
         {"type": "LOW_QUALITY", "severity": "critical"},
@@ -110,6 +143,8 @@ def main() -> int:
         "performance_reel_total_wave_count",
         "QA_FAIL: Reel did not pass final quality review.",
         "feedback.get_negative_feedback_hint = lambda: \"\"",
+        "remove_duplicate_events(list(events or []))",
+        "if surf_event and is_explicit_failed_takeoff",
     ]
     missing = [token for token in required_policy_tokens if token not in policy_source]
     if missing:
