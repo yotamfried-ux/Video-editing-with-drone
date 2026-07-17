@@ -61,6 +61,7 @@ def validate_athlete_coverage(
     if not isinstance(rows, list):
         return ["athlete coverage report athletes must be an array"]
 
+    selected_rows: list[dict[str, Any]] = []
     for index, raw in enumerate(rows):
         if not isinstance(raw, dict):
             errors.append(f"coverage.athletes[{index}] must be an object")
@@ -72,6 +73,8 @@ def validate_athlete_coverage(
         covered = raw.get("coverage_requirement_met") is True
         coverage_ids = _id_set(raw.get("athlete_ids"))
 
+        if selected_count > 0:
+            selected_rows.append(raw)
         if candidate_count > 0 and not covered:
             errors.append(f"{cluster}: candidate athlete has an unresolved coverage gap")
         if selected_count > 0:
@@ -100,13 +103,15 @@ def validate_athlete_coverage(
         accountability = 1.0 if not rows else 0.0
     if accountability < 1.0:
         errors.append(f"athlete accountability rate must be 1.0, got {accountability}")
-    try:
-        lineage_rate = float(summary.get("selected_identity_lineage_completeness_rate"))
-    except (TypeError, ValueError):
-        lineage_rate = 1.0 if not any(
-            isinstance(row, dict) and _as_int(row.get("selected_action_count")) > 0
-            for row in rows
-        ) else 0.0
+
+    raw_lineage_rate = summary.get("selected_identity_lineage_completeness_rate")
+    if raw_lineage_rate is None:
+        lineage_rate = 1.0 if all(_id_set(row.get("athlete_ids")) for row in selected_rows) else 0.0
+    else:
+        try:
+            lineage_rate = float(raw_lineage_rate)
+        except (TypeError, ValueError):
+            lineage_rate = 0.0
     if lineage_rate < 1.0:
         errors.append(f"selected identity lineage completeness must be 1.0, got {lineage_rate}")
     return errors
