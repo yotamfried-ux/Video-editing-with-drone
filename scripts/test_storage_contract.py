@@ -40,8 +40,16 @@ def require_upload_queue_contract(pipeline_screen: str) -> None:
 
 
 def require_review_watch_label_contract(review_screen: str) -> None:
-    require_tokens("review watch label", review_screen, ['label="Watch draft"'])
-    require_no_tokens("review legacy storage label", review_screen, ["Watch in Drive"])
+    require_tokens(
+        "review watch label",
+        review_screen,
+        ['label="Watch performance reel"'],
+    )
+    require_no_tokens(
+        "review legacy storage label",
+        review_screen,
+        ["Watch in Drive"],
+    )
 
 
 def main() -> int:
@@ -79,13 +87,13 @@ def main() -> int:
         "r2 adapter",
         r2,
         [
-            "RAW_PREFIX = \"raw/\"",
-            "PROCESSED_PREFIX = \"processed/\"",
-            "REVIEW_PREFIX = \"review/\"",
-            "APPROVED_PREFIX = \"approved/\"",
-            "PENDING_PAYMENT_PREFIX = \"pending_payment/\"",
-            "PREVIEWS_PREFIX = \"previews/\"",
-            "METADATA_PREFIX = \"metadata/\"",
+            'RAW_PREFIX = "raw/"',
+            'PROCESSED_PREFIX = "processed/"',
+            'REVIEW_PREFIX = "review/"',
+            'APPROVED_PREFIX = "approved/"',
+            'PENDING_PAYMENT_PREFIX = "pending_payment/"',
+            'PREVIEWS_PREFIX = "previews/"',
+            'METADATA_PREFIX = "metadata/"',
             "R2_ACCOUNT_ID",
             "R2_ACCESS_KEY_ID",
             "R2_SECRET_ACCESS_KEY",
@@ -127,7 +135,7 @@ def main() -> int:
         [
             "def _install_storage_backend_alias()",
             'os.getenv("STORAGE_BACKEND", "drive")',
-            "if backend == \"drive\":",
+            'if backend == "drive":',
             "import integrations.storage as storage",
             'sys.modules["integrations.drive"] = storage',
             "_install_storage_backend_alias()",
