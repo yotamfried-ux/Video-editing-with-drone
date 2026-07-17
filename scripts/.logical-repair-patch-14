@@ -1,0 +1,249 @@
+en in ["apply_cut_window_guard", "apply_to_appearances", "compile_guarded", "cut_clip_guarded"]:
+         if token not in text:
+             raise SystemExit(f"missing token: {token}")
+     if "cut_window_guard" not in diag:
+         raise SystemExit("diagnostics must include cut window guard metadata")
+-    if "from pipeline.cut_window_guard import install" not in boot:
++    if "pipeline.cut_window_guard" not in boot:
+         raise SystemExit("cut window guard is not bootstrapped")
+     if "REAL-CUT-001" not in audit:
+         raise SystemExit("audit missing REAL-CUT-001")
+--- a/scripts/test_draft_diagnostics_contract.py
++++ b/scripts/test_draft_diagnostics_contract.py
+@@ -76,13 +76,13 @@
+             raise SystemExit("diagnostic artifact was not persisted")
+ 
+     text = (ROOT / "pipeline/draft_diagnostics.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     for token in ["build_diagnostic_artifact", "augment_metadata_entry", "_wrap_qa_hook", "save_with_diagnostics"]:
+         if token not in text:
+             raise SystemExit(f"missing install token: {token}")
+     if "importlib.abc" in text or "MetaPathFinder" in text:
+         raise SystemExit("draft diagnostics must compose with QA hook, not install a competing import hook")
+-    if "from pipeline.draft_diagnostics import install" not in boot:
++    if "pipeline.draft_diagnostics" not in boot:
+         raise SystemExit("draft diagnostics is not bootstrapped")
+ 
+     print("Draft diagnostics contract checks passed")
+--- a/scripts/test_final_duplicate_guard_contract.py
++++ b/scripts/test_final_duplicate_guard_contract.py
+@@ -43,12 +43,12 @@
+         raise SystemExit("duplicate drop was not persisted to artifact")
+ 
+     text = (ROOT / "pipeline/final_duplicate_guard.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     audit = (ROOT / "docs/pipeline-quality-audit-real-run-20260705.md").read_text(encoding="utf-8")
+     for token in ["remove_duplicate_events", "_duplicate_reason", "DUPLICATE_MOMENT", "_patch_editor"]:
+         if token not in text:
+             raise SystemExit(f"missing token: {token}")
+-    if "from pipeline.final_duplicate_guard import install" not in boot:
++    if "pipeline.final_duplicate_guard" not in boot:
+         raise SystemExit("guard not bootstrapped")
+     if "REAL-DUP-001" not in audit:
+         raise SystemExit("audit missing REAL-DUP-001")
+--- a/scripts/test_identity_failsafe_contract.py
++++ b/scripts/test_identity_failsafe_contract.py
+@@ -19,16 +19,18 @@
+ 
+ def main() -> int:
+     runner = read("scripts/run_tracked.py")
++    bootstrap = read("pipeline/bootstrap.py")
+     guard = read("pipeline/identity_failsafe.py")
+-    for text in (runner, guard, read("scripts/test_identity_failsafe_contract.py")):
++    for text in (runner, bootstrap, guard, read("scripts/test_identity_failsafe_contract.py")):
+         ast.parse(text)
+ 
+     require("runner", runner, [
+-        "def _install_identity_failsafe_runtime()",
+-        "from pipeline.identity_failsafe import install",
+-        "_install_identity_failsafe_runtime()",
++        "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
++        "install_pre_orchestrator_patches()",
+         "import pipeline.orchestrator as _orchestrator",
++        "install_post_orchestrator_patches()",
+     ])
++    require("bootstrap", bootstrap, ["pipeline.identity_failsafe"])
+     require("guard", guard, [
+         "def _cluster_has_perception_evidence",
+         "medium confidence without bbox perception evidence",
+--- a/scripts/test_narrative_policy_contract.py
++++ b/scripts/test_narrative_policy_contract.py
+@@ -19,11 +19,11 @@
+     from pipeline.narrative_policy import choose_climax, order_events, quality_score
+ 
+     text = (ROOT / "pipeline/narrative_policy.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     for token in ["def quality_score", "def choose_climax", "_disable_teaser", "cut_clip_without_unqualified_teaser", "evidence_penalty"]:
+         if token not in text:
+             raise SystemExit(f"missing token: {token}")
+-    if "from pipeline.narrative_policy import install" not in boot:
++    if "pipeline.narrative_policy" not in boot:
+         raise SystemExit("narrative policy is not bootstrapped")
+ 
+     bad_high = ev("bad_high", 10, visible=0.1, confidence=0.95)
+--- a/scripts/test_operator_smoke_workflow_validator.py
++++ b/scripts/test_operator_smoke_workflow_validator.py
+@@ -50,30 +50,27 @@
+     require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'lap>=0.5.12', 'ultralytics>=8.3.0'])
+ 
+     run_tracked = Path('scripts/run_tracked.py').read_text(encoding='utf-8')
++    bootstrap = Path('pipeline/bootstrap.py').read_text(encoding='utf-8')
+     selector_runtime = Path('pipeline/selector_candidate_runtime.py').read_text(encoding='utf-8')
+     draft_diagnostics = Path('pipeline/draft_diagnostics.py').read_text(encoding='utf-8')
+     require_tokens(
+-        'selector candidate runtime install',
++        'production canonical bootstrap',
+         run_tracked,
+         [
+-            '_install_selector_candidate_runtime',
+-            'from pipeline.selector_candidate_runtime import install',
+-            '_install_selector_candidate_runtime()',
++            'from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches',
++            'install_pre_orchestrator_patches()',
+             'import pipeline.orchestrator as _orchestrator',
++            'install_post_orchestrator_patches()',
+         ],
+     )
+     require_tokens(
+-        'long video context runtime install',
+-        run_tracked,
++        'canonical selector and context runtime install',
++        bootstrap,
+         [
+-            '_install_context_runtime',
+-            'from pipeline.context_qa_long_video import install',
+-            '_install_context_runtime()',
+-            'import pipeline.orchestrator as _orchestrator',
++            'pipeline.selector_candidate_runtime',
++            'pipeline.context_qa_long_video',
+         ],
+     )
+-    if run_tracked.index('_install_context_runtime()') > run_tracked.index('import pipeline.orchestrator as _orchestrator'):
+-        raise SystemExit('context runtime must be installed before orchestrator import')
+     require_tokens(
+         'selector candidate runtime evidence',
+         selector_runtime,
+--- a/scripts/test_perception_contract.py
++++ b/scripts/test_perception_contract.py
+@@ -413,6 +413,7 @@
+     runtime = _read("pipeline/perception/runtime.py")
+     generator_cli = _read("scripts/generate_perception_sidecar.py")
+     run_tracked = _read("scripts/run_tracked.py")
++    bootstrap = _read("pipeline/bootstrap.py")
+ 
+     for label, text in {
+         "perception schema": schema,
+@@ -431,7 +432,8 @@
+     require_tokens("perception producer", producer, ["SPORTREEL_PERCEPTION_BACKEND", "SPORTREEL_PERCEPTION_DETECTIONS_JSON", "SPORTREEL_PERCEPTION_MIN_CONFIDENCE", "def generate_sidecar", "def sidecar_from_detection_json", "perception_backend_not_configured", "each production detection must include track_id", "status", "ok"])
+     require_tokens("perception generator cli", generator_cli, ["generate_sidecar", "--backend", "--detections-json", "perception sidecar status="])
+     require_tokens("perception runtime", runtime, ["SPORTREEL_PERCEPTION_SIDECAR_DIR", "SPORTREEL_PERCEPTION_COMMAND", "SPORTREEL_REQUIRE_PERCEPTION", "sidecar_output_path", "ensure_sidecar_for_video", "validate_sidecar", "subprocess.run", "load_sidecar_detections", "enrich_event", "enrich_session_with_sidecar", "source_window_track_ids", "visible_track_ids", "perception_evidence_status", "tracker_sidecar", "_is_reusable_sidecar", "_producer_status_from_sidecar", "Perception producer did not create a reusable sidecar", "shlex.split(command)", "ensure_sidecar_for_video(video_path)", "analyzer.analyze_session = analyze_with_perception_sidecar"])
+-    require_tokens("tracked perception runtime install", run_tracked, ["def _install_perception_runtime()", "from pipeline.perception.runtime import install", "_install_perception_runtime()", "_install_pipeline_quality_runtime()"])
++    require_tokens("tracked canonical bootstrap", run_tracked, ["install_pre_orchestrator_patches()", "install_post_orchestrator_patches()"] )
++    require_tokens("canonical perception runtime install", bootstrap, ["pipeline.perception.runtime", "pipeline.runtime_quality"])
+     require_no_tokens("perception foundation", "\n".join([schema, adapter, crop_math]), ["from supervision.tracker", "update_with_detections"])
+     require_tokens("operator smoke workflow perception coverage", workflow, ["pipeline/perception/**", "scripts/test_perception_contract.py", "Install perception dependency", "Validate Perception contract"])
+ 
+--- a/scripts/test_performance_reel_policy_contract.py
++++ b/scripts/test_performance_reel_policy_contract.py
+@@ -316,9 +316,15 @@
+     if missing:
+         raise SystemExit(f"performance policy is missing contract tokens: {missing}")
+ 
+-    run_helper = _function(run_tracked_tree, "_install_performance_reel_policy_runtime")
+-    _assert_import_and_call(run_helper, "pipeline.performance_reel_policy", "install")
+-    _assert_module_level_call(run_tracked_tree, "_install_performance_reel_policy_runtime")
++    for token in (
++        "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
++        "install_pre_orchestrator_patches()",
++        "install_post_orchestrator_patches()",
++    ):
++        if token not in run_tracked_source:
++            raise SystemExit(f"production runner missing canonical bootstrap token: {token}")
++    if "_install_performance_reel_policy_runtime" in run_tracked_source:
++        raise SystemExit("production runner reintroduced a divergent performance-policy installer")
+ 
+     bootstrap_helper = _function(bootstrap_tree, "install_pre_orchestrator_patches")
+     _assert_import_and_call(
+--- a/scripts/test_pipeline_logical_consistency_integration.py
++++ b/scripts/test_pipeline_logical_consistency_integration.py
+@@ -208,6 +208,26 @@
+     if not isinstance(registry, list) or {row.get("person_id") for row in registry} != set(people):
+         raise AssertionError("detected-athlete registry is incomplete")
+ 
++    from scripts.build_athlete_coverage_report import build_report
++    with tempfile.TemporaryDirectory() as td:
++        ledger = Path(td) / "ledger.json"
++        ledger.write_text(json.dumps({
++            "detected_athlete_registry": [{
++                "person_id": "person_missing",
++                "person_description": "detected surfer",
++                "source_video": "source.mp4",
++                "detected_event_count": 1,
++                "no_output_reason": None,
++            }],
++            "candidates": [],
++        }), encoding="utf-8")
++        coverage = build_report(ledger)
++        if coverage["summary"]["confirmed_athlete_cluster_count"] != 1:
++            raise AssertionError("registry-only athlete disappeared from the coverage denominator")
++        athlete = coverage["athletes"][0]
++        if athlete["coverage_requirement_met"] or athlete["final_outcome"] != "detected_without_candidate_evidence":
++            raise AssertionError(f"registry-only athlete did not become an explicit coverage gap: {athlete}")
++
+ 
+ def _wave(event_id: str, start: float, end: float) -> dict[str, Any]:
+     return {
+@@ -246,18 +266,15 @@
+ 
+ 
+ def assert_qa_maps_actual_rendered_timeline() -> None:
+-    import pipeline.orchestrator as orchestrator
+-
+-    mapper = getattr(orchestrator, "_event_index_for_qa_defect", None)
+-    if not callable(mapper):
+-        raise AssertionError("QA repair has no rendered-timeline/event-id mapper")
++    from pipeline.rendered_timeline import event_index_for_qa_defect
++
+     events = [
+         {**_wave("wave_1", 0, 30), "rendered_timeline_start": 0.0, "rendered_timeline_end": 20.0},
+         {**_wave("wave_2", 40, 70), "rendered_timeline_start": 19.75, "rendered_timeline_end": 42.0},
+     ]
+-    if mapper(events, {"event_id": "wave_2", "at_seconds": 4.0}) != 1:
++    if event_index_for_qa_defect(events, {"event_id": "wave_2", "at_seconds": 4.0}) != 1:
+         raise AssertionError("event_id did not take precedence over an approximate timestamp")
+-    if mapper(events, {"at_seconds": 30.0}) != 1:
++    if event_index_for_qa_defect(events, {"at_seconds": 30.0}) != 1:
+         raise AssertionError("QA timestamp was not mapped through actual rendered offsets")
+ 
+ 
+@@ -337,6 +354,62 @@
+ 
+ 
+ def assert_operator_uses_authoritative_publishability() -> None:
++    import pipeline.publishable_reel_policy as policy
++
++    captured: list[dict[str, Any]] = []
++    original_persist = policy._persist_draft_publishability
++    with tempfile.TemporaryDirectory() as td:
++        manifest = Path(td) / "manifest.json"
++        reel = str(Path(td) / "part.mp4")
++        old_manifest = os.environ.get("PUBLISHABLE_REEL_MANIFEST_FILE")
++        os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(manifest)
++        try:
++            policy.reset_manifest()
++            policy.record_athlete_outcome(
++                sport="surfing",
++                athlete_label="target surfer",
++                final_reels=[reel],
++                events_by_reel={reel: [_wave("wave_1", 0, 20)]},
++                flagged_paths=set(),
++                specs_by_path={reel: {
++                    "duration": 20.0,
++                    "width": 1080,
++                    "height": 1920,
++                    "aspect": 1080 / 1920,
++                    "has_audio": False,
++        
