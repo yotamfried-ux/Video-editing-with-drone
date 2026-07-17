@@ -1,0 +1,317 @@
+ mark_upload_result(
++                    draft_path,
++                    draft_name,
++                    storage_object_id=str(result or draft_name),
++                )
+                 return result
+ 
+             orchestrator.upload_draft = upload_with_manifest
+--- a/pipeline/publishable_runtime_integrity.py
++++ b/pipeline/publishable_runtime_integrity.py
+@@ -56,6 +56,7 @@
+     if getattr(policy, _POLICY_FLAG, False):
+         return
+     original_record = policy.record_athlete_outcome
++    original_mark_upload_result = policy.mark_upload_result
+ 
+     def record_fail_closed(
+         *,
+@@ -66,7 +67,10 @@
+         flagged_paths: set[str],
+         variant_failures: list[str] | None = None,
+         specs_getter: Callable[[str], dict[str, Any]] | None = None,
++        specs_by_path: dict[str, dict[str, Any]] | None = None,
+     ) -> dict[str, Any]:
++        inspect = specs_getter or policy._default_specs
++        snapshot = specs_by_path or _inspect_once(list(final_reels or []), inspect)
+         row = original_record(
+             sport=sport,
+             athlete_label=athlete_label,
+@@ -75,9 +79,8 @@
+             flagged_paths=flagged_paths,
+             variant_failures=variant_failures,
+             specs_getter=specs_getter,
++            specs_by_path=snapshot,
+         )
+-        inspect = specs_getter or policy._default_specs
+-        specs_by_path = _inspect_once(list(final_reels or []), inspect)
+         with policy._MANIFEST_LOCK:
+             payload = policy._read_manifest()
+             for manifest_row in payload.get("athletes", []) or []:
+@@ -90,7 +93,7 @@
+                     if not isinstance(part, dict):
+                         continue
+                     local_path = str(part.get("local_path") or "")
+-                    specs = specs_by_path.get(_path_key(local_path), {})
++                    specs = snapshot.get(_path_key(local_path), {}) or snapshot.get(local_path, {})
+                     part["has_audio"] = _audio_state(specs)
+                     part["qa_evidence_recorded"] = False
+                     part["qa_verdict"] = None
+@@ -144,48 +147,20 @@
+                 policy._atomic_write(policy._manifest_path(), payload)
+             return matched
+ 
+-    def mark_upload_result(draft_path: str, draft_name: str, error: str | None = None) -> bool:
+-        draft_key = _path_key(draft_path)
+-        with policy._MANIFEST_LOCK:
+-            payload = policy._read_manifest()
+-            matched = False
+-            for manifest_row in payload.get("athletes", []) or []:
+-                if not isinstance(manifest_row, dict):
+-                    continue
+-                for part in manifest_row.get("parts", []) or []:
+-                    if not isinstance(part, dict):
+-                        continue
+-                    paths = {_path_key(str(part.get("local_path") or ""))}
+-                    paths.update(
+-                        _path_key(str(alias))
+-                        for alias in part.get("upload_path_aliases", []) or []
+-                    )
+-                    if draft_key not in paths:
+-                        continue
+-                    matched = True
+-                    part["upload_error"] = str(error) if error else None
+-                    part["uploaded_to_review"] = error is None
+-                    if error is None:
+-                        part["review_draft_name"] = draft_name
+-                        part["file_name"] = draft_name
+-                        part["uploaded_local_path"] = draft_key
+-                    else:
+-                        reasons = list(manifest_row.get("blocking_reasons") or [])
+-                        reasons.append(
+-                            f"review_upload_failed:{Path(draft_path).name}:{error}"
+-                        )
+-                        manifest_row["blocking_reasons"] = sorted(set(reasons))
+-                    policy._refresh_row_publishability(manifest_row)
+-                    break
+-            if matched:
+-                policy._recompute_summary(payload)
+-                policy._atomic_write(policy._manifest_path(), payload)
+-            else:
+-                policy.logger.warning(
+-                    "Publishable manifest could not match uploaded draft path %s",
+-                    draft_path,
+-                )
+-            return matched
++    def mark_upload_result(
++        draft_path: str,
++        draft_name: str,
++        error: str | None = None,
++        *,
++        storage_object_id: str | None = None,
++    ) -> bool:
++        return original_mark_upload_result(
++            draft_path,
++            draft_name,
++            error=error,
++            storage_object_id=storage_object_id,
++        )
++
+ 
+     policy.record_athlete_outcome = record_fail_closed
+     policy.register_staged_upload_path = register_staged_upload_path
+--- a/pipeline/rendered_timeline.py
++++ b/pipeline/rendered_timeline.py
+@@ -0,0 +1,57 @@
++"""Pure helpers for mapping QA evidence to the actual rendered event timeline."""
++from __future__ import annotations
++
++from typing import Any
++
++
++def event_identity(event: dict[str, Any], index: int) -> str:
++    return str(event.get("event_id") or event.get("id") or f"event_{index:03d}")
++
++
++def rendered_event_spans(events: list[dict[str, Any]]) -> list[tuple[float, float]]:
++    """Return persisted rendered offsets, with a legacy source-duration fallback."""
++    spans: list[tuple[float, float]] = []
++    cursor = 0.0
++    for event in events or []:
++        start = event.get("rendered_timeline_start")
++        end = event.get("rendered_timeline_end")
++        try:
++            start_f = float(start)
++            end_f = float(end)
++        except (TypeError, ValueError):
++            start_f = cursor
++            try:
++                duration = max(0.0, float(event.get("end")) - float(event.get("start")))
++            except (TypeError, ValueError):
++                duration = 0.0
++            end_f = start_f + duration
++        if end_f < start_f:
++            start_f, end_f = end_f, start_f
++        spans.append((start_f, end_f))
++        cursor = end_f
++    return spans
++
++
++def event_index_for_qa_defect(
++    events: list[dict[str, Any]],
++    defect: dict[str, Any],
++) -> int | None:
++    """Map QA evidence by immutable event ID, then actual rendered offsets."""
++    requested_id = str(
++        defect.get("event_id")
++        or defect.get("clip_id")
++        or defect.get("source_event_id")
++        or ""
++    ).strip()
++    if requested_id:
++        for index, event in enumerate(events or []):
++            if event_identity(event, index) == requested_id:
++                return index
++    at = defect.get("at_seconds")
++    if not isinstance(at, (int, float)):
++        return None
++    second = float(at)
++    for index, (start, end) in enumerate(rendered_event_spans(events)):
++        if start <= second <= end:
++            return index
++    return None
+--- a/pipeline/selector_candidate_runtime.py
++++ b/pipeline/selector_candidate_runtime.py
+@@ -65,6 +65,13 @@
+         "timestamp_basis_counts": _merge_counter_summaries(summaries, "timestamp_basis_counts"),
+         "timestamp_encoding_counts": _merge_counter_summaries(summaries, "timestamp_encoding_counts"),
+     }
++    registry_by_key: dict[tuple[str, str], dict[str, Any]] = {}
++    for source_payload in (existing, payload):
++        for row in source_payload.get("detected_athlete_registry", []) or []:
++            if not isinstance(row, dict):
++                continue
++            key = (str(row.get("source_video") or ""), str(row.get("person_id") or ""))
++            registry_by_key[key] = dict(row)
+     merged = {
+         "schema_version": "sportreel.selector_candidate_events.v1",
+         "source_video": payload.get("source_video") or existing.get("source_video"),
+@@ -73,6 +80,7 @@
+         "discarded_count": discarded_count,
+         "discard_causes_available": discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded")),
+         "chunk_timeline_summary": merged_summary,
++        "detected_athlete_registry": list(registry_by_key.values()),
+         "candidates": candidates,
+     }
+     write_selector_candidate_events(path, merged)
+--- a/pipeline/stages/editor.py
++++ b/pipeline/stages/editor.py
+@@ -1120,6 +1120,35 @@
+         key = transitions[i] if transitions and i < len(transitions) else None
+         pairs.append(_TRANSITION_MAP.get(key, _DEFAULT_TRANSITION))
+     return pairs
++
++
++def _events_with_rendered_timeline(
++    events: list[dict],
++    clip_paths: list[str],
++    transitions: list[str] | None = None,
++) -> list[dict]:
++    """Attach immutable event IDs and actual clip offsets used by final QA repair."""
++    if len(events) != len(clip_paths):
++        raise ValueError("rendered timeline events and clips must have equal length")
++    durations = [_get_duration(path) for path in clip_paths]
++    pairs = _pair_transitions(len(events), transitions)
++    cursor = 0.0
++    out: list[dict] = []
++    for index, (event, duration) in enumerate(zip(events, durations)):
++        start = round(cursor, 3)
++        end = round(start + max(0.0, float(duration)), 3)
++        event_id = str(event.get("event_id") or event.get("id") or f"event_{index:03d}")
++        out.append({
++            **event,
++            "event_id": event_id,
++            "rendered_timeline_start": start,
++            "rendered_timeline_end": end,
++            "rendered_clip_duration": round(max(0.0, float(duration)), 3),
++            "rendered_occurrence": "teaser" if event.get("_teaser") else "primary",
++        })
++        overlap = pairs[index][1] if index < len(pairs) else 0.0
++        cursor = max(start, end - overlap)
++    return out
+ 
+ 
+ def _xfade_filter(
+@@ -1437,7 +1466,8 @@
+         _climax_ev  = ordered[-1]
+         _preview_dur = 2.5
+         _climax_src_dur = _climax_ev["end"] - _climax_ev["start"]
+-        if len(ordered) >= 2 and _climax_src_dur > _preview_dur + 2.0:
++        from pipeline.performance_reel_policy import should_prepend_teaser
++        if should_prepend_teaser(ordered) and len(ordered) >= 2 and _climax_src_dur > _preview_dur + 2.0:
+             _peak_t        = _climax_ev["start"] + _climax_src_dur * 0.65
+             _preview_start = min(_peak_t - _preview_dur / 2,
+                                  _climax_ev["end"] - _preview_dur)
+@@ -1494,7 +1524,14 @@
+                 clip = fut.result()
+                 if clip:
+                     results[i] = clip
+-        clip_paths = [results[i] for i in sorted(results)]
++        successful_indices = sorted(results)
++        clip_paths = [results[i] for i in successful_indices]
++        rendered_transitions = [event_transitions[i] for i in successful_indices]
++        rendered_events = _events_with_rendered_timeline(
++            [ordered[i] for i in successful_indices],
++            clip_paths,
++            rendered_transitions,
++        )
+ 
+         if not clip_paths:
+             label = athlete_label or "unknown athlete"
+@@ -1517,7 +1554,7 @@
+                 cached_clips_m.append(dst)
+             first_si = next(iter(src_info_cache.values())) if src_info_cache else {}
+             meta_m = {
+-                "events":         ordered,
++                "events":         rendered_events,
+                 "sport":          sport,
+                 "athlete_label":  athlete_label,
+                 "clip_paths":     cached_clips_m,
+@@ -1531,11 +1568,11 @@
+         try:
+             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
+                                       sport=sport, athlete_label=athlete_label,
+-                                      transitions=event_transitions, fps=reel_fps)
++                                      transitions=rendered_transitions, fps=reel_fps)
+             if reel_clean:
+                 reels.append(reel_clean)
+                 if _events_out is not None:
+-                    _events_out.append((reel_clean, ordered))
++                    _events_out.append((reel_clean, rendered_events))
+ 
+             music_track = _pick_music(sport)
+             if music_track:
+@@ -1543,11 +1580,11 @@
+                 reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
+                                           sport=sport, athlete_label=athlete_label,
+                                           music_path=music_track,
+-                                          transitions=event_transitions, fps=reel_fps)
++                                          transitions=rendered_transitions, fps=reel_fps)
+                 if reel_music:
+                     reels.append(reel_music)
+                     if _events_out is not None:
+-                        _events_out.append((reel_music, ordered))
++                        _events_out.append((reel_music, rendered_events))
+         finally:
+             for p in clip_paths:
+                 try: os.remove(p)
+@@ -1679,7 +1716,8 @@
+         _climax_ev      = ordered[-1]
+         _preview_dur    = 2.5
+         _climax_src_dur = _climax_ev["end"] - _climax_ev["start"]
+-        if _climax_src_dur > _preview_dur + 2.0:
++        from pipeline.performance_reel_policy import should_prepend_teaser
++        if should_prepend_teaser(ordered) and _climax_src_dur > _preview_dur + 2.0:
+             if len(ordered) >= 2:
+                 _peak_t        = _climax_ev["start"] + _climax_src_dur * 0.65
+                 _preview_start = min(_peak_t - _preview_dur / 2,
+@@ -1731,7 +1769,14 @@
+                     results[i] = clip
+                 else:
+                     print(f"⚠️ Event {i} ({ordered[i].get('type')}) skipped")
+-        clip_paths = [results[i] for i in sorted(results)]
++        successful_indices = sorted(results)
++        clip_paths = [results[i] for i in successful_indices]
++        rendered_transitions = [event_transitions[i] for i in successful_indices]
++        rendered_events = _events_with_rendered_timeline(
++            [ordered[i] for i
