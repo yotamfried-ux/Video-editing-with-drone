@@ -1,0 +1,363 @@
+al orchestrator/editor chains, after QA/context
+-# import hooks have installed their behavior.
+-_install_qa_reedit_window_contract()
+-_install_draft_identity_metadata()
++install_post_orchestrator_patches()
+ 
+ from pipeline.orchestrator import main
+ 
+--- a/scripts/sitecustomize.py
++++ b/scripts/sitecustomize.py
+@@ -1,180 +1,11 @@
+-"""Bootstrap guards for script entrypoints.
++"""Minimal Python path bootstrap for scripts/ entrypoints.
+ 
+-Python imports this file automatically when a script in this directory is run.
+-Keep it narrow and fail-safe. Product-critical policies are installed explicitly
+-by the real entrypoint so their failures cannot be suppressed here.
++Product-critical runtime policies are installed explicitly and fail-fast through
++``pipeline.bootstrap`` by each real entrypoint.
+ """
+-from __future__ import annotations
+-
+ from pathlib import Path
+ import sys
+ 
+-
+-def _repo_root() -> str:
+-    root = Path(__file__).resolve().parents[1]
+-    root_text = str(root)
+-    if root_text not in sys.path:
+-        sys.path.insert(0, root_text)
+-    return root_text
+-
+-
+-def _install_perception_runtime() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.perception.runtime import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_raw_timestamp_recovery() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.raw_timestamp_recovery import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_chunk_timeline_runtime() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.chunk_timeline_runtime import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_analyzer_score_guard() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.analyzer_score_guard import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_single_athlete_selection_policy() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.single_athlete_selection_policy import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_window_policy() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.window_policy import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_cut_window_guard() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.cut_window_guard import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_narrative_policy() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.narrative_policy import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_qa_gate_policy() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.qa_gate_policy import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_draft_diagnostics() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.draft_diagnostics import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_candidate_ledger() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.candidate_ledger import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_athlete_canonicalization() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.athlete_canonicalization import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_real_identity_gate() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.real_identity_gate import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_final_duplicate_guard() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.final_duplicate_guard import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_context_qa_gate() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.context_qa_gate import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-def _install_context_qa_long_video() -> None:
+-    _repo_root()
+-    try:
+-        from pipeline.context_qa_long_video import install
+-        install()
+-    except Exception:
+-        pass
+-
+-
+-_install_perception_runtime()
+-_install_raw_timestamp_recovery()
+-_install_analyzer_score_guard()
+-_install_chunk_timeline_runtime()
+-_install_single_athlete_selection_policy()
+-_install_window_policy()
+-_install_cut_window_guard()
+-_install_narrative_policy()
+-_install_qa_gate_policy()
+-_install_draft_diagnostics()
+-_install_candidate_ledger()
+-_install_athlete_canonicalization()
+-_install_real_identity_gate()
+-_install_final_duplicate_guard()
+-_install_context_qa_gate()
+-_install_context_qa_long_video()
++root = str(Path(__file__).resolve().parents[1])
++if root not in sys.path:
++    sys.path.insert(0, root)
+--- a/scripts/test_analyzer_score_guard_contract.py
++++ b/scripts/test_analyzer_score_guard_contract.py
+@@ -27,8 +27,8 @@
+ 
+ def main() -> int:
+     guard_text = (ROOT / "pipeline/analyzer_score_guard.py").read_text(encoding="utf-8")
+-    boot_text = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+-    if "MIN_SCORE = 6" not in guard_text or "_install_analyzer_score_guard" not in boot_text:
++    boot_text = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
++    if "MIN_SCORE = 6" not in guard_text or "pipeline.analyzer_score_guard" not in boot_text:
+         raise SystemExit("missing PQ006 guard or bootstrap")
+ 
+     _install_import_stubs()
+--- a/scripts/test_athlete_canonicalization_contract.py
++++ b/scripts/test_athlete_canonicalization_contract.py
+@@ -90,7 +90,10 @@
+ 
+     with open("scripts/run_tracked.py", encoding="utf-8") as handle:
+         runner = handle.read()
+-    assert_true("_install_athlete_canonicalization_runtime()\n\nimport pipeline.orchestrator" in runner, "tracked runner must install athlete canonicalization before orchestrator import")
++    with open("pipeline/bootstrap.py", encoding="utf-8") as handle:
++        bootstrap = handle.read()
++    assert_true("install_pre_orchestrator_patches()" in runner, "tracked runner must use canonical bootstrap")
++    assert_true("pipeline.athlete_canonicalization" in bootstrap, "canonical bootstrap must install athlete canonicalization")
+ 
+     print("athlete canonicalization contract ok")
+ 
+--- a/scripts/test_athlete_coverage_report_contract.py
++++ b/scripts/test_athlete_coverage_report_contract.py
+@@ -84,7 +84,7 @@
+         require(summary["selected_action_seconds"] == 10.0, f"selected seconds wrong: {summary}")
+ 
+         by_id = {item["athlete_cluster_id"]: item for item in report["athletes"]}
+-        require(by_id["player_7"]["final_outcome"] == "draft_created", f"selected athlete outcome wrong: {by_id}")
++        require(by_id["player_7"]["final_outcome"] == "selected_for_render", f"selected athlete outcome wrong: {by_id}")
+         require(by_id["surfer_B"]["final_outcome"] == "target_not_trackable", f"explicit no-output reason wrong: {by_id}")
+         require(by_id["surfer_B"]["coverage_requirement_met"] is True, "explicit no-output should satisfy accountability")
+         require(by_id["player_10"]["final_outcome"] == "unresolved_selection_path", f"generic reason should remain a gap: {by_id}")
+--- a/scripts/test_batch_scope_contract.py
++++ b/scripts/test_batch_scope_contract.py
+@@ -82,9 +82,9 @@
+     mobile = read("mobile/src/app/(operator)/pipeline.tsx")
+     contracts = read("mobile/src/features/operator/types/contracts.ts")
+     scope = read("pipeline/r2_batch_scope.py")
+-    sitecustomize = read("sitecustomize.py")
++    bootstrap = read("pipeline/bootstrap.py")
+ 
+-    for text in [scope, sitecustomize, read("scripts/test_batch_scope_contract.py")]:
++    for text in [scope, bootstrap, read("scripts/test_batch_scope_contract.py")]:
+         ast.parse(text)
+ 
+     require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
+@@ -94,7 +94,7 @@
+     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
+     require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "batch_id: lastBatchId ?? activeBatchId", "Current upload batch"])
+     require("operator contracts", contracts, ["batch_id?: string | null"])
+-    require("python startup hook", sitecustomize, ["RAW_BATCH_ID", "pipeline.r2_batch_scope", "_install_r2_batch_scope"])
++    require("canonical batch bootstrap", bootstrap, ["RAW_BATCH_ID", "pipeline.r2_batch_scope", "_install_r2_batch_scope"])
+     require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
+ 
+     if "const key = `raw/${storageName}`" in r2_lib:
+--- a/scripts/test_bootstrap_parity_contract.py
++++ b/scripts/test_bootstrap_parity_contract.py
+@@ -194,22 +194,36 @@
+     )
+ 
+     require(
+-        "scripts/run_tracked.py installs required production policies",
++        "scripts/run_tracked.py uses shared bootstrap",
+         run_tracked,
+         [
++            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
++            "install_pre_orchestrator_patches()",
++            "install_post_orchestrator_patches()",
++        ],
++    )
++    forbid(
++        "scripts/run_tracked.py must not keep a divergent manual patch stack",
++        run_tracked,
++        [
+             "def _install_r2_batch_scope() -> None:",
+-            "from pipeline.r2_batch_scope import install",
+             "def _install_performance_reel_policy_runtime() -> None:",
+-            "from pipeline.performance_reel_policy import install",
+             "def _install_publishable_reel_policy_runtime() -> None:",
+-            "from pipeline.publishable_reel_policy import install",
+             "def _install_silent_output_policy_runtime() -> None:",
+-            "from pipeline.silent_output_policy import install",
+             "def _install_publishable_qa_evidence_runtime() -> None:",
+-            "from pipeline.publishable_qa_evidence import install",
+-            "_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_silent_output_policy_runtime()\n_install_publishable_qa_evidence_runtime()\n_install_raw_timestamp_recovery()",
+-            "_install_storage_backend_alias()\n_install_r2_batch_scope()\n_install_perception_runtime()",
+-        ],
++        ],
++    )
++    sitecustomize = read("scripts/sitecustomize.py")
++    usercustomize = read("scripts/usercustomize.py")
++    forbid(
++        "scripts/sitecustomize.py must remain path-only",
++        sitecustomize,
++        ["from pipeline.", "except Exception"],
++    )
++    forbid(
++        "scripts/usercustomize.py must remain empty of policy installs",
++        usercustomize,
++        ["from pipeline.", "__import__", "except Exception"],
+     )
+ 
+     require(
+--- a/scripts/test_candidate_ledger_contract.py
++++ b/scripts/test_candidate_ledger_contract.py
+@@ -78,9 +78,9 @@
+     install()
+     assert_true(getattr(draft_diagnostics, "_sportreel_candidate_ledger_installed", False), "install must patch diagnostics module")
+ 
+-    with open("scripts/sitecustomize.py", encoding="utf-8") as handle:
++    with open("pipeline/bootstrap.py", encoding="utf-8") as handle:
+         bootstrap = handle.read()
+-    assert_true("pipeline.candidate_ledger" in bootstrap, "sitecustomize must bootstrap candidate ledger")
++    assert_true("pipeline.candidate_ledger" in bootstrap, "canonical bootstrap must install candidate ledger")
+ 
+     print("candidate ledger contract ok")
+ 
+--- a/scripts/test_context_qa_gate_contract.py
++++ b/scripts/test_context_qa_gate_contract.py
+@@ -65,7 +65,7 @@
+ 
+     text = (ROOT / "pipeline/context_qa_gate.py").read_text(encoding="utf-8")
+     long_video = (ROOT / "pipeline/context_qa_long_video.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     audit = (ROOT / "docs/pipeline-context-qa-audit-20260705.md").read_text(encoding="utf-8")
+     for token in ["build_qa_package", "filter_duplicate_draft_candidates", "DUPLICATE_DRAFT", "compile_clusters_with_context_qa"]:
+         if token not in text:
+@@ -73,7 +73,7 @@
+     for token in ["_stage_reel_candidate", "draft-candidate", "produced_reels", "staged_reels"]:
+         if token not in long_video:
+             raise SystemExit(f"missing long-video staging token: {token}")
+-    if "from pipeline.context_qa_gate import install" not in boot:
++    if "pipeline.context_qa_gate" not in boot:
+         raise SystemExit("context QA gate is not bootstrapped")
+     if "REAL-QA-001" not in audit or "REAL-DUP-002" not in audit or "REAL-UPLOAD-003" not in audit:
+         raise SystemExit("context QA audit missing required gaps")
+--- a/scripts/test_cross_sport_publishable_eval_matrix.py
++++ b/scripts/test_cross_sport_publishable_eval_matrix.py
+@@ -27,6 +27,10 @@
+     return {
+         "part_index": index,
+         "file_name": name,
++        "storage_object_id": f"review/{name}",
++        "authoritative_publishability_required": True,
++        "authoritative_publishability_persisted": True,
++        "authoritative_manifest_revision": f"manifest-{index}",
+         "uploaded_to_review": True,
+         "upload_error": None,
+         "publishable": True,
+--- a/scripts/test_cut_window_guard_contract.py
++++ b/scripts/test_cut_window_guard_contract.py
+@@ -50,14 +50,14 @@
+ 
+     text = (ROOT / "pipeline/cut_window_guard.py").read_text(encoding="utf-8")
+     diag = (ROOT / "pipeline/draft_diagnostics.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     audit = (ROOT / "docs/pipeline-quality-audit-real-run-20260705.md").read_text(encoding="utf-8")
+     for tok
