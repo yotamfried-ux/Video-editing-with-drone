@@ -168,11 +168,15 @@ def _patch_orchestrator() -> None:
 
 
 def install() -> None:
-    """Install explicit QA evidence, complete actions, and runtime integrity."""
+    """Install explicit QA evidence and all final product-integrity patches."""
     _patch_analyzer()
     _patch_orchestrator()
     from pipeline.complete_action_window_policy import install as install_complete_action
+    from pipeline.primary_actor_parent_identity import install as install_parent_identity
     from pipeline.publishable_runtime_integrity import install as install_integrity
+    from pipeline.silent_qa_policy import install as install_silent_qa
 
+    install_parent_identity()
+    install_silent_qa()
     install_complete_action()
     install_integrity()
