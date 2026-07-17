@@ -1,0 +1,103 @@
+uldUseR2Storage();
+   const storageBackend = useR2 ? 'r2' : 'drive';
+-  let fileName: string | null = null;
++  let fileName: string;
+ 
+   if (useR2) {
+     fileName = r2Basename(fileId);
+   } else {
+     try { fileName = (await getFile(fileId)).name; }
+     catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'Drive file lookup failed' }, { status: 502 }); }
++  }
++
++  let authority;
++  try {
++    authority = await requireAuthoritativeDraftPublishability({
++      storageObjectId: fileId,
++      draftName: fileName,
++    });
++  } catch (e) {
++    if (e instanceof DraftPublishabilityError) {
++      return NextResponse.json({
++        error: e.message,
++        approval_blocked: true,
++        authoritative_publishability: e.authority,
++        storage_move_completed: false,
++        delivery_started: false,
++      }, { status: e.status });
++    }
++    return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not verify publishability' }, { status: 503 });
+   }
+ 
+   let reeditTask: any = null;
+@@ -61,14 +78,19 @@
+   const taskReasons = Array.isArray(reeditTask?.approval_blocked_reasons) ? reeditTask.approval_blocked_reasons : [];
+   const policy = evaluateDraftReviewPolicy({
+     name: fileName,
+-    review_required: body.review_required || Boolean(reeditTask),
+-    qa_review_required: body.qa_review_required || Boolean(reeditTask),
+-    approval_blocked_reasons: taskReasons.length ? taskReasons : body.approval_blocked_reasons,
++    review_required: Boolean(reeditTask),
++    qa_review_required: Boolean(reeditTask),
++    qa_gate: {
++      final_verdict: authority.qa_verdict,
++      qa_review_required: false,
++    },
++    approval_blocked_reasons: taskReasons,
+   });
+   if (policy.approval_blocked) {
+     return NextResponse.json({
+       error: 'Draft requires review before approval. Send it to re-edit or clear the QA block first.',
+       ...policy,
++      authoritative_publishability: authority,
+       reedit_task: reeditTask,
+       storage_move_completed: false,
+       delivery_started: false,
+@@ -98,7 +120,12 @@
+       stage: useR2 ? 'approved_moved_to_r2' : 'approved_moved_to_drive',
+       github_event: 'reel-approved',
+       github_run_url: repo ? actionsUrl(repo) : null,
+-      meta: { requested_by: 'operator_app', approved_file_name: fileName, storage_backend: storageBackend },
++      meta: {
++        requested_by: 'operator_app',
++        approved_file_name: fileName,
++        storage_backend: storageBackend,
++        publishability_manifest_revision: authority.manifest_revision,
++      },
+     })
+     .select('id')
+     .single();
+--- a/web-api/src/types/operator-contracts.ts
++++ b/web-api/src/types/operator-contracts.ts
+@@ -114,6 +114,23 @@
+ };
+ 
+ // GET /api/operator/drafts
++export type DraftPublishabilityAuthority = {
++  storage_object_id: string;
++  draft_name: string;
++  pipeline_run_id: string | null;
++  athlete_key: string | null;
++  part_index: number;
++  publishable: boolean;
++  qa_evidence_recorded: boolean;
++  qa_verdict: string | null;
++  qa_passed: boolean;
++  technical_issues: string[];
++  approval_blocked_reasons: string[];
++  media_specs_revision: string | null;
++  manifest_revision: string;
++  updated_at: string;
++};
++
+ export type DraftRow = {
+   id: string;
+   name: string;
+@@ -126,6 +143,7 @@
+   approval_blocked: boolean;
+   approval_blocked_reasons: string[];
+   approval_policy_version: string;
++  authoritative_publishability: DraftPublishabilityAuthority | null;
+   reedit_task: ReprocessRow | null;
+ };
+ 
