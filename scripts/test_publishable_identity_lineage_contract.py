@@ -36,7 +36,7 @@ def manifest(athlete_ids: list[str]) -> dict:
                         "upload_error": None,
                         "publishable": True,
                         "qa_passed": True,
-                        "has_audio": True,
+                        "has_audio": False,
                         "technical_issues": [],
                         "duration": 42.0,
                         "aspect": 1080 / 1920,
@@ -120,7 +120,7 @@ def main() -> int:
     if inferred_complete:
         raise SystemExit(f"legacy report with complete row IDs should infer full lineage: {inferred_complete}")
 
-    print("Publishable identity lineage contract checks passed")
+    print("Silent publishable identity lineage contract checks passed")
     return 0
 
 
