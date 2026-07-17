@@ -38,6 +38,18 @@ def _audio_state(specs: dict[str, Any]) -> bool | None:
     return value if isinstance(value, bool) else None
 
 
+def _inspect_once(
+    paths: list[str],
+    inspect: Callable[[str], dict[str, Any]],
+) -> dict[str, dict[str, Any]]:
+    """Inspect each final file exactly once and normalize non-object results."""
+    specs_by_path: dict[str, dict[str, Any]] = {}
+    for path in paths:
+        inspected = inspect(path)
+        specs_by_path[_path_key(path)] = inspected if isinstance(inspected, dict) else {}
+    return specs_by_path
+
+
 def _patch_policy() -> None:
     import pipeline.publishable_reel_policy as policy
 
@@ -65,10 +77,7 @@ def _patch_policy() -> None:
             specs_getter=specs_getter,
         )
         inspect = specs_getter or policy._default_specs
-        specs_by_path = {
-            _path_key(path): inspect(path) if isinstance(inspect(path), dict) else {}
-            for path in final_reels or []
-        }
+        specs_by_path = _inspect_once(list(final_reels or []), inspect)
         with policy._MANIFEST_LOCK:
             payload = policy._read_manifest()
             for manifest_row in payload.get("athletes", []) or []:
