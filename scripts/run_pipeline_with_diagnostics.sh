@@ -12,6 +12,8 @@ SELECTION_FILTER_EVENTS_FILE="$TMP_ROOT/selection_filter_events.json"
 CANDIDATE_LEDGER_FILE="$TMP_ROOT/candidate_decision_ledger.json"
 SELECTION_AUDIT_FILE="$TMP_ROOT/selection_decision_audit.json"
 ATHLETE_COVERAGE_FILE="$TMP_ROOT/athlete_coverage_report.json"
+PUBLISHABLE_MANIFEST_FILE="${PUBLISHABLE_REEL_MANIFEST_FILE:-$TMP_ROOT/publishable_reel_manifest.json}"
+PUBLISHABLE_GATE_RESULT_FILE="$DEBUG_DIR/publishable_reel_gate_result.json"
 RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
 
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
@@ -53,6 +55,9 @@ if [ -f "$CANDIDATE_LEDGER_FILE" ]; then
 fi
 if [ -f "$ATHLETE_COVERAGE_FILE" ]; then
   cp "$ATHLETE_COVERAGE_FILE" "$DEBUG_DIR/athlete_coverage_report.json" || true
+fi
+if [ -f "$PUBLISHABLE_MANIFEST_FILE" ]; then
+  cp "$PUBLISHABLE_MANIFEST_FILE" "$DEBUG_DIR/publishable_reel_manifest.json" || true
 fi
 
 python - "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" <<'PY'
@@ -109,4 +114,42 @@ python scripts/append_qa_policy_trace_summary_to_report.py "$RUN_QUALITY_REPORT_
 # primary-actor decision after other report appenders have finished.
 python scripts/append_primary_actor_subject_summary_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" "$DEBUG_DIR/sidecars" || true
 
-exit "$STATUS"
+BUSINESS_GATE_STATUS=0
+if [ -f "$PUBLISHABLE_MANIFEST_FILE" ]; then
+  python scripts/check_publishable_reel_manifest.py "$PUBLISHABLE_MANIFEST_FILE" "$PUBLISHABLE_GATE_RESULT_FILE"
+  BUSINESS_GATE_STATUS=$?
+else
+  python - "$PUBLISHABLE_GATE_RESULT_FILE" <<'PY'
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(
+    json.dumps(
+        {
+            "schema_version": "sportreel.publishable_reel_gate_result.v1",
+            "passed": False,
+            "errors": ["publishable reel manifest missing"],
+        },
+        indent=2,
+    ),
+    encoding="utf-8",
+)
+PY
+  if [ "$STATUS" -eq 0 ]; then
+    echo "::error::publishable reel manifest missing after a successful pipeline process"
+    BUSINESS_GATE_STATUS=1
+  fi
+fi
+
+# Preserve the original processing failure as the primary exit code. When the
+# renderer itself succeeded, the athlete-level business gate becomes the final
+# production result instead of allowing incomplete coverage to appear green.
+if [ "$STATUS" -ne 0 ]; then
+  exit "$STATUS"
+fi
+exit "$BUSINESS_GATE_STATUS"
