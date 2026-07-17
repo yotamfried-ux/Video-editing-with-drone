@@ -12,13 +12,40 @@ def _is_complete_performance_action(event: dict[str, Any]) -> bool:
     )
 
 
+def normalize_complete_action_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Persist the exact full action window used by the renderer and final QA.
+
+    This normalization is intentionally applied both before cutting and when
+    `_events_out` is built. A temporary cut wrapper alone is insufficient because
+    identity/continuity gates later derive evidence from the persisted event.
+    """
+    effective = dict(event)
+    if not _is_complete_performance_action(effective) or effective.get("_teaser"):
+        return effective
+    effective.pop("_cap_dur", None)
+    effective.pop("_single_clip_cap", None)
+    effective["_is_climax"] = True
+    try:
+        start = float(effective.get("start"))
+        end = float(effective.get("end"))
+    except (TypeError, ValueError):
+        return effective
+    if end < start:
+        start, end = end, start
+    effective["final_cut_start"] = round(start, 3)
+    effective["final_cut_end"] = round(end, 3)
+    effective["complete_action_window_preserved"] = True
+    return effective
+
+
 def install() -> None:
-    """Remove the historical 15-second climax cap from complete surf rides."""
+    """Remove historical pacing caps and persist the same complete action window."""
     from pipeline.stages import editor
 
     if getattr(editor, _INSTALLED_FLAG, False):
         return
     original_cut_clip = editor.cut_clip
+    original_rendered_timeline = getattr(editor, "_events_with_rendered_timeline", None)
 
     def cut_complete_action(
         video_path: str,
@@ -30,13 +57,7 @@ def install() -> None:
         session_peak: int = 10,
         target_fps: int | None = None,
     ):
-        effective = dict(event)
-        if _is_complete_performance_action(effective):
-            effective.pop("_cap_dur", None)
-            # A whole ride is the performance unit. Treat it as climax-equivalent
-            # for pacing so the generic non-climax MAX_NORMAL_WINDOW cap cannot
-            # remove its setup or natural finish.
-            effective["_is_climax"] = True
+        effective = normalize_complete_action_event(event)
         return original_cut_clip(
             video_path,
             effective,
@@ -49,4 +70,13 @@ def install() -> None:
         )
 
     editor.cut_clip = cut_complete_action
+    if callable(original_rendered_timeline):
+        def rendered_timeline_with_complete_actions(events, clip_paths, transitions=None):
+            normalized = [
+                normalize_complete_action_event(event)
+                for event in list(events or [])
+            ]
+            return original_rendered_timeline(normalized, clip_paths, transitions)
+
+        editor._events_with_rendered_timeline = rendered_timeline_with_complete_actions
     setattr(editor, _INSTALLED_FLAG, True)
