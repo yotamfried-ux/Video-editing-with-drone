@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression tests for one publishable social-ready reel per eligible athlete."""
+"""Regression tests for one silent publishable reel per eligible athlete."""
 from __future__ import annotations
 
 import ast
@@ -7,12 +7,15 @@ import copy
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 POLICY_PATH = ROOT / "pipeline/publishable_reel_policy.py"
+SILENT_POLICY_PATH = ROOT / "pipeline/silent_output_policy.py"
 CHECKER_PATH = ROOT / "scripts/check_publishable_reel_manifest.py"
 
 
@@ -25,7 +28,7 @@ def load_module(name: str, path: Path):
     return module
 
 
-def specs(*, audio: bool = True, duration: float = 30.0, width: int = 1080, height: int = 1920) -> dict[str, Any]:
+def specs(*, audio: bool = False, duration: float = 30.0, width: int = 1080, height: int = 1920) -> dict[str, Any]:
     return {
         "has_audio": audio,
         "duration": duration,
@@ -48,51 +51,51 @@ def event(index: int, source: str = "session.mp4", athlete_id: str = "athlete_7"
     }
 
 
-def assert_canonical_variant_selection(policy: Any, tmp: Path) -> None:
+def assert_canonical_variant_selection(silent: Any, tmp: Path) -> None:
     clean = tmp / "MULTI_player_p1.mp4"
     music = tmp / "MULTI_player_p1_music.mp4"
-    clean.write_bytes(b"silent-intermediate")
-    music.write_bytes(b"audio-publishable")
+    clean.write_bytes(b"silent-publishable")
+    music.write_bytes(b"audio-legacy")
     source_events = [(str(clean), [event(1)]), (str(music), [event(1)])]
     spec_map = {
         str(clean): specs(audio=False),
         str(music): specs(audio=True),
     }
 
-    selected, selected_events, failures = policy.canonicalize_publishable_variants(
+    selected, selected_events, failures = silent.canonicalize_silent_variants(
         [str(clean), str(music)],
         source_events,
         specs_getter=lambda path: spec_map[path],
     )
     if selected != [str(clean)]:
-        raise SystemExit(f"music variant was not collapsed into the canonical path: {selected}")
+        raise SystemExit(f"silent canonical path was not selected: {selected}")
     if failures:
-        raise SystemExit(f"valid canonical selection produced failures: {failures}")
-    if clean.read_bytes() != b"audio-publishable" or music.exists():
-        raise SystemExit("canonical output did not contain the audio-capable render")
+        raise SystemExit(f"valid silent selection produced failures: {failures}")
+    if clean.read_bytes() != b"silent-publishable" or music.exists():
+        raise SystemExit("audio variant was not removed while preserving the clean render")
     if selected_events != [(str(clean), [event(1)])]:
-        raise SystemExit("canonical output lost event lineage")
+        raise SystemExit("silent canonical output lost event lineage")
 
-    silent = tmp / "MULTI_silent.mp4"
-    silent.write_bytes(b"silent")
-    selected, selected_events, failures = policy.canonicalize_publishable_variants(
-        [str(silent)],
-        [(str(silent), [event(2)])],
-        specs_getter=lambda _path: specs(audio=False),
+    audio_only = tmp / "MULTI_audio_only.mp4"
+    audio_only.write_bytes(b"audio")
+    selected, selected_events, failures = silent.canonicalize_silent_variants(
+        [str(audio_only)],
+        [(str(audio_only), [event(2)])],
+        specs_getter=lambda _path: specs(audio=True),
     )
-    if selected or selected_events or failures != ["no_audio_variant:MULTI_silent.mp4"]:
-        raise SystemExit("silent-only output was not blocked deterministically")
-    if silent.exists():
-        raise SystemExit("silent intermediate remained after publishable selection failed")
+    if selected or selected_events or failures != ["unexpected_audio_variant:MULTI_audio_only.mp4"]:
+        raise SystemExit(f"audio-only output was not blocked deterministically: {failures}")
+    if audio_only.exists():
+        raise SystemExit("audio-only output remained after the silent contract failed")
 
     part1 = tmp / "MULTI_multi_p1.mp4"
     part1_music = tmp / "MULTI_multi_p1_music.mp4"
     part2 = tmp / "MULTI_multi_p2.mp4"
     part2_music = tmp / "MULTI_multi_p2_music.mp4"
     for path, content in [
-        (part1, b"clean1"),
+        (part1, b"silent1"),
         (part1_music, b"music1"),
-        (part2, b"clean2"),
+        (part2, b"silent2"),
         (part2_music, b"music2"),
     ]:
         path.write_bytes(content)
@@ -102,7 +105,7 @@ def assert_canonical_variant_selection(policy: Any, tmp: Path) -> None:
         str(part2): specs(audio=False, duration=25),
         str(part2_music): specs(audio=True, duration=25),
     }
-    selected, _, failures = policy.canonicalize_publishable_variants(
+    selected, _, failures = silent.canonicalize_silent_variants(
         [str(part1), str(part1_music), str(part2), str(part2_music)],
         [
             (str(part1), [event(1)]),
@@ -113,9 +116,11 @@ def assert_canonical_variant_selection(policy: Any, tmp: Path) -> None:
         specs_getter=lambda path: spec_map[path],
     )
     if selected != [str(part1), str(part2)] or failures:
-        raise SystemExit(f"multiple parts did not produce one canonical output per part: {selected}, {failures}")
-    if part1.read_bytes() != b"music1" or part2.read_bytes() != b"music2":
-        raise SystemExit("part canonicalization selected the wrong render variants")
+        raise SystemExit(f"multiple silent parts failed canonical selection: {selected}, {failures}")
+    if part1.read_bytes() != b"silent1" or part2.read_bytes() != b"silent2":
+        raise SystemExit("silent Part contents were replaced by audio variants")
+    if part1_music.exists() or part2_music.exists():
+        raise SystemExit("legacy music variants were not deleted")
 
 
 def coverage_payload(*, athlete_id: str = "athlete_7", description: str = "player #7 in red") -> dict[str, Any]:
@@ -138,7 +143,10 @@ def coverage_payload(*, athlete_id: str = "athlete_7", description: str = "playe
     }
 
 
-def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
+def assert_manifest_and_gate(policy: Any, checker: Any, silent: Any, tmp: Path) -> None:
+    policy.social_ready_issues = silent.silent_social_ready_issues
+    policy.canonicalize_publishable_variants = silent.canonicalize_silent_variants
+
     manifest = tmp / "publishable_reel_manifest.json"
     os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(manifest)
     policy.reset_manifest()
@@ -146,8 +154,8 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
     p1 = str(tmp / "athlete_p1.mp4")
     p2 = str(tmp / "athlete_p2.mp4")
     spec_map = {
-        p1: specs(audio=True, duration=72),
-        p2: specs(audio=True, duration=28),
+        p1: specs(audio=False, duration=72),
+        p2: specs(audio=False, duration=28),
     }
     row = policy.record_athlete_outcome(
         sport="football",
@@ -176,11 +184,13 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
         raise SystemExit("uploaded supplemental publishable parts are not ordered")
     if row["athlete_ids"] != ["athlete_7"]:
         raise SystemExit("canonical athlete identity was not preserved in the manifest")
+    if any(part.get("has_audio") is not False for part in row["parts"]):
+        raise SystemExit("publishable manifest did not preserve the required silent state")
 
     coverage = coverage_payload()
     errors = checker.validate_manifest(payload, coverage)
     if errors:
-        raise SystemExit(f"valid publishable athlete manifest failed: {errors}")
+        raise SystemExit(f"valid silent publishable athlete manifest failed: {errors}")
 
     unmatched_coverage = coverage_payload(athlete_id="athlete_missing", description="player #99 in green")
     errors = checker.validate_manifest(payload, unmatched_coverage)
@@ -206,13 +216,19 @@ def assert_manifest_and_gate(policy: Any, checker: Any, tmp: Path) -> None:
     if not any("no primary publishable reel" in error for error in errors):
         raise SystemExit("missing athlete output did not fail the business gate")
 
-    silent = copy.deepcopy(payload)
-    silent["athletes"][0]["parts"][0]["has_audio"] = False
-    silent["athletes"][0]["parts"][0]["technical_issues"] = ["missing_audio"]
-    silent["athletes"][0]["parts"][0]["publishable"] = False
-    errors = checker.validate_manifest(silent, coverage)
-    if not any("has no audio" in error for error in errors):
-        raise SystemExit("silent primary output did not fail the business gate")
+    audio = copy.deepcopy(payload)
+    audio["athletes"][0]["parts"][0]["has_audio"] = True
+    audio["athletes"][0]["parts"][0]["technical_issues"] = ["unexpected_audio"]
+    audio["athletes"][0]["parts"][0]["publishable"] = False
+    errors = checker.validate_manifest(audio, coverage)
+    if not any("contains unexpected audio" in error for error in errors):
+        raise SystemExit("audio-bearing primary output did not fail the silent business gate")
+
+    unknown_audio = copy.deepcopy(payload)
+    unknown_audio["athletes"][0]["parts"][0]["has_audio"] = None
+    errors = checker.validate_manifest(unknown_audio, coverage)
+    if not any("does not prove a silent audio state" in error for error in errors):
+        raise SystemExit("unknown audio state did not fail closed")
 
     qa_failed = copy.deepcopy(payload)
     qa_failed["athletes"][0]["parts"][0]["qa_passed"] = False
@@ -295,8 +311,9 @@ def assert_semantic_and_qa_validation(policy: Any) -> None:
         raise SystemExit("QA outage did not produce explicit blocking evidence")
 
 
-def assert_source_contract(policy: Any) -> None:
+def assert_source_contract(policy: Any, silent: Any) -> None:
     policy_source = POLICY_PATH.read_text(encoding="utf-8")
+    silent_source = SILENT_POLICY_PATH.read_text(encoding="utf-8")
     checker_source = CHECKER_PATH.read_text(encoding="utf-8")
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     audit = (ROOT / "docs/audit/personal-publishable-reel-completion-plan-20260717.md").read_text(encoding="utf-8")
@@ -304,14 +321,13 @@ def assert_source_contract(policy: Any) -> None:
     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
     diagnostics = (ROOT / "scripts/run_pipeline_with_diagnostics.sh").read_text(encoding="utf-8")
 
-    for text in (policy_source, checker_source, bootstrap, run_tracked):
+    for text in (policy_source, silent_source, checker_source, bootstrap, run_tracked):
         ast.parse(text)
 
     required_policy = [
         "EVERY DISTINCT ATHLETE",
         "ONE usable action is enough",
         "one_primary_publishable_reel_per_eligible_athlete_v1",
-        "canonicalize_publishable_variants",
         "record_athlete_outcome",
         "mark_upload_result",
         "validate_session_semantics",
@@ -323,15 +339,29 @@ def assert_source_contract(policy: Any) -> None:
     if missing:
         raise SystemExit(f"publishable policy is missing product-contract tokens: {missing}")
 
+    required_silent = [
+        "video-only, no-audio product contract",
+        "silent_social_ready_issues",
+        "canonicalize_silent_variants",
+        "unexpected_audio",
+        "audio_state_unknown",
+        "editor._pick_music = no_music_picker",
+        "kwargs[\"music_path\"] = None",
+    ]
+    missing = [token for token in required_silent if token not in silent_source]
+    if missing:
+        raise SystemExit(f"silent output policy is incomplete: {missing}")
+
     required_readme = [
         "Product vision — source of truth",
         "every distinct athlete with at least one complete, visible, usable action",
-        "One canonical publishable output per part",
+        "One canonical silent output per part",
         "QA failure is not publishable",
+        "centered on one target athlete",
     ]
     missing = [token for token in required_readme if token not in readme]
     if missing:
-        raise SystemExit(f"README is missing the business vision: {missing}")
+        raise SystemExit(f"README is missing the revised business vision: {missing}")
 
     official_refs = [
         "https://ai.google.dev/gemini-api/docs/video-understanding",
@@ -347,8 +377,8 @@ def assert_source_contract(policy: Any) -> None:
     if missing:
         raise SystemExit(f"audit is missing official documentation references: {missing}")
 
-    if "pipeline.publishable_reel_policy" not in bootstrap or "_install_publishable_reel_policy_runtime" not in run_tracked:
-        raise SystemExit("publishable policy is not installed by all production entrypoints")
+    if "pipeline.silent_output_policy" not in bootstrap or "_install_silent_output_policy_runtime" not in run_tracked:
+        raise SystemExit("silent output policy is not installed by all production entrypoints")
     if "check_publishable_reel_manifest.py" not in diagnostics:
         raise SystemExit("production diagnostics do not enforce the publishable manifest")
     if '"$ATHLETE_COVERAGE_FILE"' not in diagnostics:
@@ -356,27 +386,30 @@ def assert_source_contract(policy: Any) -> None:
     if 'exit "$BUSINESS_GATE_STATUS"' not in diagnostics:
         raise SystemExit("business gate result is not the final successful-process exit code")
 
-    issues = policy.social_ready_issues(specs(audio=False, duration=91, width=1920, height=1080))
+    issues = silent.silent_social_ready_issues(specs(audio=True, duration=91, width=1920, height=1080))
     expected = {
-        "missing_audio",
+        "unexpected_audio",
         "duration_over_90_seconds",
         "aspect_not_9_16",
         "resolution_below_publishable_floor",
     }
     if not expected.issubset(set(issues)):
-        raise SystemExit(f"technical publishability validation is incomplete: {issues}")
+        raise SystemExit(f"silent technical publishability validation is incomplete: {issues}")
+    if silent.silent_social_ready_issues(specs(audio=False)):
+        raise SystemExit("valid silent vertical output was incorrectly rejected")
 
 
 def main() -> int:
     policy = load_module("publishable_reel_policy_contract", POLICY_PATH)
+    silent = load_module("silent_output_policy_contract", SILENT_POLICY_PATH)
     checker = load_module("publishable_reel_checker_contract", CHECKER_PATH)
     with tempfile.TemporaryDirectory(prefix="sportreel-business-contract-") as directory:
         tmp = Path(directory)
-        assert_canonical_variant_selection(policy, tmp)
-        assert_manifest_and_gate(policy, checker, tmp)
+        assert_canonical_variant_selection(silent, tmp)
+        assert_manifest_and_gate(policy, checker, silent, tmp)
     assert_semantic_and_qa_validation(policy)
-    assert_source_contract(policy)
-    print("Publishable reel business contract checks passed")
+    assert_source_contract(policy, silent)
+    print("Silent publishable reel business contract checks passed")
     return 0
 
 
