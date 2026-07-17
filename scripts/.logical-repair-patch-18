@@ -1,0 +1,234 @@
+[0]
+--- a/scripts/test_publishable_runtime_integrity_contract.py
++++ b/scripts/test_publishable_runtime_integrity_contract.py
+@@ -70,10 +70,8 @@
+             flagged_paths=set(),
+             specs_getter=inspect,
+         )
+-        # The original recorder needs one inspection and the integrity layer needs
+-        # one independent final inspection. The integrity layer must not call its
+-        # own inspection twice through a conditional expression.
+-        if inspect_calls != 2:
++        # One immutable media snapshot is shared by the recorder and integrity layer.
++        if inspect_calls != 1:
+             raise SystemExit(f"unexpected final media inspection count: {inspect_calls}")
+ 
+         part = row["parts"][0]
+--- a/scripts/test_qa_gate_contract.py
++++ b/scripts/test_qa_gate_contract.py
+@@ -62,13 +62,13 @@
+             raise SystemExit("QA gate metadata was not persisted")
+ 
+     text = (ROOT / "pipeline/qa_gate_policy.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     for token in ["_OrchestratorPatchFinder", "_OrchestratorPatchLoader", "_patch_orchestrator", "original_qa_gate", "original_save_metadata", "qa_gate_with_diagnostics", "save_metadata_with_qa"]:
+         if token not in text:
+             raise SystemExit(f"missing install token: {token}")
+     if "import pipeline.orchestrator" in text:
+         raise SystemExit("QA gate policy must not import orchestrator during bootstrap")
+-    if "from pipeline.qa_gate_policy import install" not in boot:
++    if "pipeline.qa_gate_policy" not in boot:
+         raise SystemExit("QA gate policy is not bootstrapped")
+ 
+     print("QA gate diagnostics contract checks passed")
+--- a/scripts/test_qa_reedit_schema_preflight_contract.py
++++ b/scripts/test_qa_reedit_schema_preflight_contract.py
+@@ -34,6 +34,11 @@
+         "last_pipeline_run_id",
+         "PGRST204",
+         "20260708_qa_reedit_tasks.sql",
++        "draft_publishability",
++        "storage_object_id",
++        "qa_evidence_recorded",
++        "manifest_revision",
++        "20260717_draft_publishability_authority.sql",
+     ]:
+         require(token, script, "schema preflight script")
+ 
+--- a/scripts/test_qa_reedit_window_contract.py
++++ b/scripts/test_qa_reedit_window_contract.py
+@@ -97,9 +97,10 @@
+     require("_qa_reedit_allow_long_cut" not in unchanged, "non-cut defects must not override pacing")
+ 
+     runtime = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
++    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     contract = (ROOT / "pipeline/qa_reedit_window_contract.py").read_text(encoding="utf-8")
+-    for token in ("_install_qa_reedit_window_contract()", "from pipeline.qa_reedit_window_contract import install"):
+-        require(token in runtime, f"tracked runtime missing QA re-edit wiring: {token}")
++    require("install_post_orchestrator_patches()" in runtime, "tracked runtime omits canonical post-orchestrator bootstrap")
++    require("pipeline.qa_reedit_window_contract" in bootstrap, "canonical bootstrap omits QA re-edit window contract")
+     for token in (
+         "orchestrator._apply_qa_fixes = apply_with_renderable_extension",
+         "editor.cut_clip = cut_with_reedit_window",
+--- a/scripts/test_raw_timestamp_recovery_contract.py
++++ b/scripts/test_raw_timestamp_recovery_contract.py
+@@ -150,11 +150,13 @@
+     require((padded_event["interpreted_chunk_start"], padded_event["interpreted_chunk_end"]) == (120.0, 125.0), "parser padding overwrote interpreted evidence")
+ 
+     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
++    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     sitecustomize = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+     selector_runtime = (ROOT / "pipeline/selector_candidate_runtime.py").read_text(encoding="utf-8")
+-    require(run_tracked.rindex("_install_raw_timestamp_recovery()") < run_tracked.rindex("_install_chunk_timeline_runtime()"), "tracked runtime installs recovery after chunk filtering")
+-    require(run_tracked.rindex("_install_raw_timestamp_recovery()") < run_tracked.rindex("_install_selector_candidate_runtime()"), "tracked runtime installs recovery after selector capture")
+-    require(sitecustomize.rindex("_install_raw_timestamp_recovery()") < sitecustomize.rindex("_install_chunk_timeline_runtime()"), "sitecustomize installs recovery too late")
++    require("install_pre_orchestrator_patches()" in run_tracked, "tracked runtime does not use canonical bootstrap")
++    require(bootstrap.index("pipeline.raw_timestamp_recovery") < bootstrap.index("pipeline.chunk_timeline_runtime"), "canonical bootstrap installs recovery after chunk filtering")
++    require(bootstrap.index("pipeline.raw_timestamp_recovery") < bootstrap.index("pipeline.selector_candidate_runtime"), "canonical bootstrap installs recovery after selector capture")
++    require("from pipeline." not in sitecustomize, "sitecustomize reintroduced fail-silent timestamp patches")
+     require("recover_raw_session_payload(raw_text" in selector_runtime, "selector telemetry still reads unrecovered raw timestamps")
+     require("return original_parse_session(raw_text)" in selector_runtime, "selector runtime bypasses recovery-aware analyzer parser")
+ 
+--- a/scripts/test_real_identity_gate_contract.py
++++ b/scripts/test_real_identity_gate_contract.py
+@@ -55,7 +55,7 @@
+ 
+     text = (ROOT / "pipeline/real_identity_gate.py").read_text(encoding="utf-8")
+     diag = (ROOT / "pipeline/draft_diagnostics.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     audit = (ROOT / "docs/pipeline-quality-audit-real-run-20260705.md").read_text(encoding="utf-8")
+     for token in ["enforce_identity_gate", "_wrap_existing_hook", "_patch_orchestrator"]:
+         if token not in text:
+@@ -64,7 +64,7 @@
+         raise SystemExit("draft diagnostics must include identity gate metadata")
+     if "MetaPathFinder" in text or "importlib.abc" in text:
+         raise SystemExit("real identity gate must compose with QA hook, not install a competing import hook")
+-    if "from pipeline.real_identity_gate import install" not in boot:
++    if "pipeline.real_identity_gate" not in boot:
+         raise SystemExit("real identity gate is not bootstrapped")
+     if "REAL-ID-001" not in audit or "Google Cloud Video Intelligence object tracking" not in audit:
+         raise SystemExit("real-run audit addendum missing REAL-ID-001 or official references")
+--- a/scripts/test_single_athlete_selection_policy_contract.py
++++ b/scripts/test_single_athlete_selection_policy_contract.py
+@@ -145,15 +145,21 @@
+ 
+     rescued = events[1]
+     require(rescued["start"] == 43.0 and rescued["end"] == 50.0, "ambiguous event should use focused sub-window")
+-    require(rescued["primary_actor_clear"] is True, "focused rescue should become clear")
+-    require(rescued["identity_continuity"] == "stable", "focused rescue continuity should be stable")
+-    require(rescued["identity_switch_detected"] is False, "stale identity switch evidence was not cleared")
+-    require(rescued["critical_occlusion"] is False, "stale occlusion evidence was not cleared")
+-    require(rescued["competing_active_subjects"] is False, "focused rescue did not clear stale context evidence")
+-    require(rescued["primary_actor_confidence"] >= 0.75, "focused rescue confidence was not scoped")
+-    require(rescued["primary_actor_evidence_scope"] == "focused_subwindow", "focused evidence scope missing")
++    require(rescued.get("primary_actor_clear") is not True, "focused rescue manufactured actor clarity")
++    require(str(rescued.get("identity_continuity") or "").lower() != "stable", "focused rescue manufactured continuity")
++    require(rescued.get("primary_actor_confidence") in {None, 0.3}, "focused rescue changed confidence without evidence")
++    require(rescued["primary_actor_evidence_scope"] == "focused_subwindow_pending_validation", "pending focused evidence scope missing")
+     require(rescued["broad_window_ambiguity_reasons"], "broad-window audit evidence should be retained")
+-    require(ambiguity_reasons(rescued) == [], f"focused sub-window still carries stale ambiguity: {rescued}")
++    focused_reasons = ambiguity_reasons(rescued)
++    require("focused_subwindow_validation_required" in focused_reasons, f"focused sub-window did not fail closed: {rescued}")
++    focused_gate = classify_primary_actor(rescued, visible_subject_count=2)
++    require(focused_gate["decision"] == "review_required", "focused sub-window passed without sidecar evidence")
++    validated_gate = classify_primary_actor(
++        {**rescued, "person_id": "person_A"},
++        visible_subject_count=2,
++        primary_continuity_ratio=0.9,
++    )
++    require(validated_gate["decision"] == "allowed_primary_actor_clear", "scoped sidecar continuity did not validate focused window")
+     print("football centered-athlete selection ok")
+ 
+ 
+@@ -228,14 +234,12 @@
+ 
+ def validate_sitecustomize() -> None:
+     sitecustomize = (ROOT / "scripts" / "sitecustomize.py").read_text(encoding="utf-8")
+-    required = [
+-        "def _install_single_athlete_selection_policy()",
+-        "from pipeline.single_athlete_selection_policy import install",
+-        "_install_single_athlete_selection_policy()",
+-    ]
+-    missing = [token for token in required if token not in sitecustomize]
+-    require(not missing, f"sitecustomize does not install policy: {missing}")
+-    print("primary athlete policy bootstrap ok")
++    bootstrap = (ROOT / "pipeline" / "bootstrap.py").read_text(encoding="utf-8")
++    run_tracked = (ROOT / "scripts" / "run_tracked.py").read_text(encoding="utf-8")
++    require("pipeline.single_athlete_selection_policy" in bootstrap, "canonical bootstrap omits primary athlete policy")
++    require("install_pre_orchestrator_patches()" in run_tracked, "production runner does not call canonical bootstrap")
++    require("from pipeline." not in sitecustomize, "sitecustomize reintroduced a fail-silent product policy")
++    print("primary athlete canonical bootstrap ok")
+ 
+ 
+ VALIDATORS = {
+--- a/scripts/test_storage_contract.py
++++ b/scripts/test_storage_contract.py
+@@ -56,6 +56,7 @@
+     storage = _read("integrations/storage.py")
+     r2 = _read("integrations/r2_storage.py")
+     run_tracked = _read("scripts/run_tracked.py")
++    bootstrap = _read("pipeline/bootstrap.py")
+     deliver = _read("deliver.py")
+     pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
+     review_screen = _read("mobile/src/app/(operator)/review.tsx")
+@@ -130,8 +131,17 @@
+     )
+ 
+     require_tokens(
+-        "tracked pipeline storage routing",
++        "tracked pipeline canonical storage routing",
+         run_tracked,
++        [
++            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
++            "install_pre_orchestrator_patches()",
++            "import pipeline.orchestrator as _orchestrator",
++        ],
++    )
++    require_tokens(
++        "canonical storage backend alias",
++        bootstrap,
+         [
+             "def _install_storage_backend_alias()",
+             'os.getenv("STORAGE_BACKEND", "drive")',
+@@ -139,9 +149,9 @@
+             "import integrations.storage as storage",
+             'sys.modules["integrations.drive"] = storage',
+             "_install_storage_backend_alias()",
+-            "import pipeline.orchestrator as _orchestrator",
+         ],
+     )
++
+ 
+     require_tokens(
+         "delivery storage routing",
+--- a/scripts/test_surf_ride_continuity_contract.py
++++ b/scripts/test_surf_ride_continuity_contract.py
+@@ -43,7 +43,7 @@
+         raise SystemExit("distant waves must not merge")
+ 
+     text = (ROOT / "pipeline/surf_ride_segment.py").read_text(encoding="utf-8")
+-    boot = (ROOT / "scripts/usercustomize.py").read_text(encoding="utf-8")
++    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     for token in ["normalize_surf_rides", "RIDE_BOUNDARY_UNCERTAIN", "IDENTITY_UNCERTAIN", "merged_ride_fragments"]:
+         if token not in text:
+             raise SystemExit(f"missing token: {token}")
+--- a/scripts/test_teaser_policy_contract.py
++++ b/scripts/test_teaser_policy_contract.py
+@@ -28,10 +28,13 @@
+ 
+     runtime = (ROOT / "pipeline/teaser_policy_runtime.py").read_text(encoding="utf-8")
+     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
++    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+     for token in ["Skipping cold-open teaser", "editor._cut_clip_with_qa", "strip_teasers_from_events_out"]:
+         require(token in runtime, f"teaser runtime missing {token}")
+-    require("_install_teaser_policy_runtime()" in run_tracked, "run_tracked must install teaser policy before orchestrator import")
+-    require(run_tracked.index("_install_teaser_policy_runtime()") < run_tracked.index("import pipeline.orchestrator"), "teaser policy must install before orchestrator import")
++    require("install_pre_orchestrator_patches()" in run_tracked, "run_tracked must use canonical bootstrap")
++    require("pipeline.teaser_policy_runtime" in bootstrap, "canonical bootstrap must install teaser policy")
++    pre = bootstrap[bootstrap.index("def install_pre_orchestrator_patches"):bootstrap.index("def install_post_orchestrator_patches")]
++    require(pre.index("pipeline.teaser_policy_runtime") < pre.index("pipeline.identity_failsafe"), "teaser policy order drifted")
+ 
+     print("teaser policy contract ok")
+     return 0
+--- a/scripts/usercustomize.py
++++ b/scripts/usercustomize.py
+@@ -1,10 +1 @@
+-"""Extra bootstrap after sitecustomize."""
+-
+-for _module in [
+-    "pipeline.source_evidence_patch",
+-    "pipeline.surf_ride_gate",
+-]:
+-    
