@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression: concurrent REVIEW uploads must not overwrite manifest parts."""
+"""Regression: concurrent REVIEW uploads must not overwrite silent manifest parts."""
 from __future__ import annotations
 
 import importlib.util
@@ -12,6 +12,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "pipeline/publishable_reel_policy.py"
+SILENT_POLICY_PATH = ROOT / "pipeline/silent_output_policy.py"
 CHECKER_PATH = ROOT / "scripts/check_publishable_reel_manifest.py"
 
 
@@ -26,7 +27,7 @@ def load_module(name: str, path: Path):
 
 def specs(duration: float) -> dict[str, Any]:
     return {
-        "has_audio": True,
+        "has_audio": False,
         "duration": duration,
         "width": 1080,
         "height": 1920,
@@ -48,7 +49,9 @@ def event(index: int) -> dict[str, Any]:
 
 def main() -> int:
     policy = load_module("publishable_reel_policy_concurrency", POLICY_PATH)
+    silent = load_module("silent_output_policy_concurrency", SILENT_POLICY_PATH)
     checker = load_module("publishable_reel_checker_concurrency", CHECKER_PATH)
+    policy.social_ready_issues = silent.silent_social_ready_issues
 
     with tempfile.TemporaryDirectory(prefix="sportreel-manifest-concurrency-") as directory:
         tmp = Path(directory)
@@ -85,6 +88,8 @@ def main() -> int:
             raise SystemExit("parallel upload lost the supplemental part")
         if payload["summary"]["primary_publishable_reel_count"] != 1:
             raise SystemExit("parallel updates corrupted the manifest summary")
+        if any(part.get("has_audio") is not False for part in athlete["parts"]):
+            raise SystemExit("parallel manifest did not preserve silent output state")
 
         coverage = {
             "summary": {
@@ -105,7 +110,7 @@ def main() -> int:
         }
         errors = checker.validate_manifest(payload, coverage)
         if errors:
-            raise SystemExit(f"thread-safe manifest failed the business gate: {errors}")
+            raise SystemExit(f"thread-safe silent manifest failed the business gate: {errors}")
 
     source = POLICY_PATH.read_text(encoding="utf-8")
     required = ["threading.RLock()", "with _MANIFEST_LOCK:"]
@@ -113,7 +118,7 @@ def main() -> int:
     if missing:
         raise SystemExit(f"manifest concurrency protection missing: {missing}")
 
-    print("Publishable reel manifest concurrency checks passed")
+    print("Silent publishable reel manifest concurrency checks passed")
     return 0
 
 
