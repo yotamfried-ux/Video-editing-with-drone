@@ -15,12 +15,14 @@ jobs:
     env:
       REPAIR_BRANCH: temp/logical-consistency-repair-bundle
       TARGET_BRANCH: temp/logical-consistency-applied
+      BASE_COMMIT: bdee5ef2b7f9c2290e1fead24ffc1d88c465310b
       EXPECTED_PATCH_SHA256: 7bcfc4e74db1f085271bb69a05e5aa97d43512d99c4361e0c4e24bc5d065255f
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: true
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
@@ -83,14 +85,18 @@ jobs:
           python scripts/test_bootstrap_parity_contract.py
           python scripts/test_performance_reel_policy_contract.py
           python scripts/test_publishable_reel_business_contract.py
-      - name: Commit non-workflow repair files to staging branch
+      - name: Create verified non-workflow commit on staging branch
         run: |
           set -euo pipefail
-          git checkout HEAD -- \
+          git checkout "$BASE_COMMIT" -- \
             .github/workflows/operator-smoke-check.yml \
             .github/workflows/performance-reel-contract.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
-          git commit -m 'Fix cross-layer logical consistency contracts'
-          git push origin "HEAD:$TARGET_BRANCH"
+          TREE_SHA=$(git write-tree)
+          COMMIT_SHA=$(printf '%s\n' 'Fix cross-layer logical consistency contracts' \
+            | git commit-tree "$TREE_SHA" -p "$BASE_COMMIT")
+          git push origin "$COMMIT_SHA:$TARGET_BRANCH"
+          echo "STAGED_COMMIT=$COMMIT_SHA"
+          echo "STAGED_TREE=$TREE_SHA"
