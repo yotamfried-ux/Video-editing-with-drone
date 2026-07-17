@@ -43,6 +43,7 @@ def main() -> int:
     runtime = _read("pipeline/runtime_quality.py")
     performance_policy = _read("pipeline/performance_reel_policy.py")
     publishable_policy = _read("pipeline/publishable_reel_policy.py")
+    silent_output_policy = _read("pipeline/silent_output_policy.py")
     publishable_qa_evidence = _read("pipeline/publishable_qa_evidence.py")
     identity_failsafe = _read("pipeline/identity_failsafe.py")
     cross_source_dedup = _read("pipeline/cross_source_dedup.py")
@@ -63,6 +64,7 @@ def main() -> int:
         runtime,
         performance_policy,
         publishable_policy,
+        silent_output_policy,
         publishable_qa_evidence,
         identity_failsafe,
         cross_source_dedup,
@@ -126,10 +128,30 @@ def main() -> int:
             "record_athlete_outcome",
             "one_primary_publishable_reel_per_eligible_athlete_v1",
             "all_final_failures_block",
-            "missing_audio",
             "duration_over_90_seconds",
             "aspect_not_9_16",
         ],
+    )
+    require_tokens(
+        "silent output policy",
+        silent_output_policy,
+        [
+            "video-only, no-audio product contract",
+            "silent_social_ready_issues",
+            "canonicalize_silent_variants",
+            "unexpected_audio",
+            "audio_state_unknown",
+            "editor._pick_music = no_music_picker",
+            "editor.compile_reel = compile_silent",
+            "kwargs[\"music_path\"] = None",
+            "policy.social_ready_issues = silent_social_ready_issues",
+            "policy.canonicalize_publishable_variants = canonicalize_silent_variants",
+        ],
+    )
+    require_no_tokens(
+        "silent output policy",
+        silent_output_policy,
+        ["prefer the audio-capable", "no_audio_variant"],
     )
     require_tokens(
         "explicit publishable QA evidence",
@@ -226,7 +248,7 @@ def main() -> int:
     )
 
     require_tokens(
-        "primary actor policy",
+        "primary athlete policy",
         primary_actor_policy,
         [
             "def classify_primary_actor",
@@ -238,7 +260,10 @@ def main() -> int:
             "PRIMARY_ACTOR_UNCLEAR",
             "PRIMARY_ACTOR_OCCLUDED",
             "IDENTITY_SWITCH",
-            "background_people_allowed",
+            "primary_athlete_centered",
+            "other_people_allowed",
+            "_ACTIVE_CONTEXT_FIELDS",
+            "same wave",
             "primary_actor_not_reliably_followable",
         ],
     )
@@ -325,6 +350,8 @@ def main() -> int:
             "from pipeline.performance_reel_policy import install",
             "def _install_publishable_reel_policy_runtime()",
             "from pipeline.publishable_reel_policy import install",
+            "def _install_silent_output_policy_runtime()",
+            "from pipeline.silent_output_policy import install",
             "def _install_publishable_qa_evidence_runtime()",
             "from pipeline.publishable_qa_evidence import install",
             "def _install_raw_timestamp_recovery()",
@@ -339,7 +366,7 @@ def main() -> int:
             "from pipeline.candidate_ledger import install",
             "def _install_athlete_canonicalization_runtime()",
             "from pipeline.athlete_canonicalization import install",
-            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_publishable_qa_evidence_runtime()\n_install_raw_timestamp_recovery()\n_install_chunk_timeline_runtime()\n_install_selector_candidate_runtime()",
+            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_performance_reel_policy_runtime()\n_install_publishable_reel_policy_runtime()\n_install_silent_output_policy_runtime()\n_install_publishable_qa_evidence_runtime()\n_install_raw_timestamp_recovery()",
             "_install_identity_failsafe_runtime()",
             "_install_cross_source_dedup_runtime()",
             "_install_draft_diagnostics_runtime()",
@@ -371,7 +398,7 @@ def main() -> int:
     require_no_tokens(
         "fail-silent script bootstrap",
         sitecustomize,
-        ["pipeline.performance_reel_policy", "pipeline.publishable_reel_policy"],
+        ["pipeline.performance_reel_policy", "pipeline.publishable_reel_policy", "pipeline.silent_output_policy"],
     )
 
     require_tokens(
@@ -380,6 +407,7 @@ def main() -> int:
         [
             "pipeline/runtime_quality.py",
             "pipeline/publishable_reel_policy.py",
+            "pipeline/silent_output_policy.py",
             "pipeline/stages/analyzer.py",
             "pipeline/stages/identity.py",
             "pipeline/cross_source_dedup.py",
