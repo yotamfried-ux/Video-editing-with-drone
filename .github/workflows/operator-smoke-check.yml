@@ -26,6 +26,8 @@ on:
       - 'pipeline/bootstrap.py'
       - 'pipeline/performance_reel_policy.py'
       - 'pipeline/publishable_reel_policy.py'
+      - 'pipeline/silent_output_policy.py'
+      - 'pipeline/publishable_qa_evidence.py'
       - 'pipeline/r2_batch_scope.py'
       - 'pipeline/chunk_timeline_runtime.py'
       - 'pipeline/context_qa_gate.py'
@@ -98,6 +100,7 @@ on:
       - 'scripts/test_qa_reedit_window_contract.py'
       - 'scripts/test_run_quality_report_contract.py'
       - 'scripts/test_selection_decision_audit_contract.py'
+      - 'scripts/test_silent_output_policy_contract.py'
       - 'scripts/test_single_athlete_selection_policy_contract.py'
       - 'scripts/test_source_window_dedup_contract.py'
       - 'scripts/test_storage_contract.py'
@@ -231,8 +234,10 @@ jobs:
         run: python scripts/test_chunk_identity_timeline_contract.py
       - name: Validate Draft identity lineage contract
         run: python scripts/test_draft_identity_lineage_contract.py
-      - name: Validate Primary actor selection policy contract
+      - name: Validate Primary athlete selection policy contract
         run: python scripts/test_single_athlete_selection_policy_contract.py
+      - name: Validate Silent output runtime contract
+        run: python scripts/test_silent_output_policy_contract.py
       - name: Validate Athlete coverage report contract
         run: python scripts/test_athlete_coverage_report_contract.py
       - name: Validate Publishable reel business contract
