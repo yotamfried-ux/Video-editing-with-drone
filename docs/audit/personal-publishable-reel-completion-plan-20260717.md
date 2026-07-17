@@ -10,7 +10,7 @@ Audit state: **implementation complete; production experiment pending**
 
 For every distinct athlete with at least one complete, visible, usable action, the pipeline must produce a personal reel that can be uploaded directly to social media so the athlete can promote themself.
 
-The run is not successful merely because GitHub Actions, rendering, upload, or an LLM call completed. It is successful only when this chain is proven:
+A run is not successful merely because GitHub Actions, rendering, upload, or an LLM call completed. It is successful only when this chain is proven:
 
 ```text
 usable athlete detected
@@ -21,6 +21,7 @@ usable athlete detected
 → final QA and deterministic technical gates pass
 → every eligible athlete has one primary publishable reel
   or an explicit evidence-backed no-output reason
+→ GitHub, the durable run row, and the operator live status agree on the result
 ```
 
 ## 2. Official documentation research
@@ -99,7 +100,7 @@ Official guidance used:
 
 SportReel decisions:
 
-- Coverage, identity ownership, upload confirmation, audio, duration, aspect, resolution, part order, duplicates, and final QA state are deterministic gates.
+- Coverage, identity ownership, upload confirmation, audio, duration, aspect, resolution, part order, duplicates, final QA, and terminal status are deterministic gates.
 - Model-assisted QA grades social quality only after deterministic output checks.
 - Positive and negative fixtures are both required.
 
@@ -244,31 +245,38 @@ Files:
 - `pipeline/publishable_reel_policy.py`
 - `scripts/test_publishable_reel_concurrency_contract.py`
 
-### Stage E — production business gate
+### Stage E — production business gate and status alignment
 
 - [x] Add deterministic `check_publishable_reel_manifest.py`.
 - [x] Fail when an eligible athlete lacks a primary publishable reel.
 - [x] Reconcile the final manifest with `athlete_coverage_report.json`.
+- [x] Match coverage to publishable output only through canonical `athlete_id` lineage; text labels are not identity proof.
 - [x] Fail when a selected upstream athlete is absent from the manifest.
-- [x] Fail unresolved athlete coverage or accountability below 1.0.
+- [x] Fail unresolved athlete coverage, incomplete identity lineage, or accountability below 1.0.
 - [x] Fail duplicate athlete ownership, duplicate output names, missing REVIEW upload, missing audio, wrong aspect, low resolution, duration over 90 seconds, or final QA failure.
 - [x] Preserve diagnostics even when the business gate fails.
-- [x] Make the business-gate result the final exit code after successful processing.
+- [x] Make the business-gate result the final GitHub Actions exit code after successful processing.
+- [x] When the post-run gate fails, overwrite the stale `succeeded` durable run and global operator status with `failed / publishable_business_gate_failed`.
 - [x] Preserve true `no_input` behavior when no candidate evidence exists.
 
 Deterministic evidence:
 
 - Valid two-athlete cross-sport manifest passes.
-- Missing athlete output fails.
-- Missing upstream athlete fails.
+- Missing athlete output or missing upstream athlete fails.
+- Same label with a different canonical athlete ID does not match.
+- Publishable output without canonical identity lineage fails.
 - Silent, over-length, wrong-aspect, low-resolution, QA-failed, duplicate, and unuploaded outputs fail.
+- A failed business gate writes a terminal failure to the durable run and operator live status; a passing gate does not rewrite status.
 - Empty no-input manifest passes.
 
 Files:
 
 - `scripts/check_publishable_reel_manifest.py`
+- `scripts/record_publishable_business_gate_status.py`
 - `scripts/run_pipeline_with_diagnostics.sh`
 - `scripts/test_cross_sport_publishable_eval_matrix.py`
+- `scripts/test_publishable_identity_lineage_contract.py`
+- `scripts/test_publishable_gate_status_contract.py`
 - `scripts/test_publishable_reel_business_contract.py`
 
 ### Stage F — final QA and repair semantics
@@ -297,17 +305,19 @@ Deterministic evidence:
 - [x] Skateboarding: one complete trick is sufficient for a primary reel.
 - [x] Multi-person footage: background people are allowed when the primary actor is clear.
 - [x] Identity uncertainty: split or review-required; never mixed output.
-- [x] Technical negative cases: no audio, over 90 seconds, wrong aspect, low resolution, duplicate output, missing upload, and final QA failure.
+- [x] Technical negative cases: no audio, over 90 seconds, wrong aspect, low resolution, duplicate output, missing upload, final QA failure, missing identity lineage, and stale-success status.
 
 Evaluation policy:
 
 - Deterministic graders decide product-contract failures.
 - Model QA grades hook, pacing, clarity, payoff, and loopability after deterministic validation.
-- Fixtures define expected athlete count, publishable count, action ownership, and rejection behavior.
+- Fixtures define expected athlete count, publishable count, action ownership, rejection behavior, and terminal run state.
 
 Evidence:
 
 - `scripts/test_cross_sport_publishable_eval_matrix.py`
+- `scripts/test_publishable_identity_lineage_contract.py`
+- `scripts/test_publishable_gate_status_contract.py`
 - existing identity, primary-actor, multi-person, QA, surf-ride, and duplicate workflows
 
 ### Stage H — production experiment and closure
@@ -316,13 +326,14 @@ Required real-run evidence remains open:
 
 - [ ] Merge only after the final head has green CI and no unresolved review findings.
 - [ ] Run the same source footage used in run `29516256449` for direct comparison.
-- [ ] Inspect `publishable_reel_manifest.json`, athlete coverage, candidate ledger, selection audit, draft trace, QA trace, and final videos.
+- [ ] Inspect `publishable_reel_manifest.json`, athlete coverage, candidate ledger, selection audit, draft trace, QA trace, status row, and final videos.
 - [ ] Verify every eligible athlete has a primary publishable reel.
 - [ ] Verify every usable surf wave appears exactly once or has explicit hard-reject evidence.
 - [ ] Verify no silent duplicate drafts appear in Review.
 - [ ] Verify every part is at most 90 seconds and no action is split.
 - [ ] Verify each final file can be uploaded directly without additional editing.
-- [ ] Record false positives, false negatives, identity splits, and repair attempts in this audit.
+- [ ] Deliberately exercise one business-gate failure and confirm GitHub, the durable run row, and the operator live status all show failure.
+- [ ] Record false positives, false negatives, identity splits, repair attempts, and status inconsistencies in this audit.
 
 Closure rule:
 
@@ -336,10 +347,13 @@ Implemented repository artifacts:
 - `pipeline/performance_reel_policy.py`
 - `pipeline/publishable_reel_policy.py`
 - `scripts/check_publishable_reel_manifest.py`
+- `scripts/record_publishable_business_gate_status.py`
 - `scripts/run_pipeline_with_diagnostics.sh`
 - `scripts/test_performance_reel_policy_contract.py`
 - `scripts/test_publishable_reel_business_contract.py`
 - `scripts/test_publishable_reel_concurrency_contract.py`
+- `scripts/test_publishable_identity_lineage_contract.py`
+- `scripts/test_publishable_gate_status_contract.py`
 - `scripts/test_cross_sport_publishable_eval_matrix.py`
 - `.github/workflows/performance-reel-contract.yml`
 
@@ -348,7 +362,7 @@ Production-run artifacts:
 - `publishable_reel_manifest.json`
 - `publishable_reel_gate_result.json`
 - `athlete_coverage_report.json`
-- candidate ledger, selection audit, draft trace, QA trace, and perception sidecars
+- candidate ledger, selection audit, draft trace, QA trace, durable run status, operator live status, and perception sidecars
 
 ## 6. Current status
 
@@ -358,7 +372,9 @@ Production-run artifacts:
 - Cross-sport athlete obligation: implemented and covered by deterministic evals.
 - Canonical social-ready output selection: implemented.
 - Upload-confirmed per-athlete manifest: implemented.
+- Canonical identity-lineage reconciliation: implemented and regression-tested.
 - Athlete-coverage reconciliation and production business gate: implemented.
 - Concurrent manifest integrity: implemented and regression-tested.
 - Final QA fail-closed behavior: implemented.
+- GitHub/Supabase/operator terminal-status alignment for business-gate failures: implemented and regression-tested.
 - Real footage validation and business closure: pending explicit merge and production-run approval.
