@@ -7,7 +7,6 @@ production business gate must fail with explicit evidence.
 """
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import logging
@@ -15,6 +14,7 @@ import math
 import os
 import re
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Callable
 
@@ -28,6 +28,7 @@ _ANALYZER_FLAG = "_sportreel_publishable_reel_analyzer_installed"
 _ORCHESTRATOR_FLAG = "_sportreel_publishable_reel_orchestrator_installed"
 _UPLOAD_FLAG = "_sportreel_publishable_reel_upload_installed"
 _INSTALL_DONE = False
+_MANIFEST_LOCK = threading.RLock()
 _PENDING_VARIANT_FAILURES: dict[str, list[str]] = {}
 _PENDING_EVENT_LINEAGE: dict[str, list[dict[str, Any]]] = {}
 
@@ -80,7 +81,8 @@ def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
 def reset_manifest() -> Path:
     """Start a fresh run-scoped manifest and return its path."""
     path = _manifest_path()
-    _atomic_write(path, _empty_manifest())
+    with _MANIFEST_LOCK:
+        _atomic_write(path, _empty_manifest())
     return path
 
 
@@ -434,42 +436,44 @@ def record_athlete_outcome(
     }
     _refresh_row_publishability(row)
 
-    payload = _read_manifest()
-    existing = [item for item in payload.get("athletes", []) if item.get("athlete_key") != row["athlete_key"]]
-    payload["athletes"] = [*existing, row]
-    _recompute_summary(payload)
-    _atomic_write(_manifest_path(), payload)
+    with _MANIFEST_LOCK:
+        payload = _read_manifest()
+        existing = [item for item in payload.get("athletes", []) if item.get("athlete_key") != row["athlete_key"]]
+        payload["athletes"] = [*existing, row]
+        _recompute_summary(payload)
+        _atomic_write(_manifest_path(), payload)
     return row
 
 
 def mark_upload_result(draft_path: str, draft_name: str, error: str | None = None) -> bool:
     """Attach the real REVIEW upload result to the matching rendered manifest part."""
-    payload = _read_manifest()
-    matched = False
-    for row in payload.get("athletes", []) or []:
-        if not isinstance(row, dict):
-            continue
-        for part in row.get("parts", []) or []:
-            if not isinstance(part, dict) or str(part.get("local_path") or "") != str(draft_path):
+    with _MANIFEST_LOCK:
+        payload = _read_manifest()
+        matched = False
+        for row in payload.get("athletes", []) or []:
+            if not isinstance(row, dict):
                 continue
-            matched = True
-            part["upload_error"] = str(error) if error else None
-            part["uploaded_to_review"] = error is None
-            if error is None:
-                part["review_draft_name"] = draft_name
-                part["file_name"] = draft_name
-            else:
-                reasons = list(row.get("blocking_reasons") or [])
-                reasons.append(f"review_upload_failed:{Path(draft_path).name}:{error}")
-                row["blocking_reasons"] = sorted(set(reasons))
-            _refresh_row_publishability(row)
-            break
-    if matched:
-        _recompute_summary(payload)
-        _atomic_write(_manifest_path(), payload)
-    else:
-        logger.warning("Publishable manifest could not match uploaded draft path %s", draft_path)
-    return matched
+            for part in row.get("parts", []) or []:
+                if not isinstance(part, dict) or str(part.get("local_path") or "") != str(draft_path):
+                    continue
+                matched = True
+                part["upload_error"] = str(error) if error else None
+                part["uploaded_to_review"] = error is None
+                if error is None:
+                    part["review_draft_name"] = draft_name
+                    part["file_name"] = draft_name
+                else:
+                    reasons = list(row.get("blocking_reasons") or [])
+                    reasons.append(f"review_upload_failed:{Path(draft_path).name}:{error}")
+                    row["blocking_reasons"] = sorted(set(reasons))
+                _refresh_row_publishability(row)
+                break
+        if matched:
+            _recompute_summary(payload)
+            _atomic_write(_manifest_path(), payload)
+        else:
+            logger.warning("Publishable manifest could not match uploaded draft path %s", draft_path)
+        return matched
 
 
 def _patch_analyzer_contract() -> None:
