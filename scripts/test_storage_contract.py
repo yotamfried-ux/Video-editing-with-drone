@@ -25,7 +25,7 @@ def require_no_tokens(label: str, text: str, tokens: list[str]) -> None:
 
 
 def require_upload_queue_contract(pipeline_screen: str) -> None:
-    upload_start = pipeline_screen.index("const uploadFootage")
+    upload_start = pipeline_screen.index("const uploadSelectedItems")
     upload_end = pipeline_screen.index("const busy", upload_start)
     upload_block = pipeline_screen[upload_start:upload_end]
     if "/api/operator/pipeline/start" in upload_block:
