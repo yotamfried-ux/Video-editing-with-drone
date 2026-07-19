@@ -1,6 +1,6 @@
 name: Publish SD and USB Upload Update
 
-# Triggered after PR #183 was merged and validated.
+# Merge-triggered publication after PR #183 was merged and validated.
 on:
   push:
     branches: [main]
@@ -121,12 +121,13 @@ jobs:
 
           if [ "$PREVIEW_STATUS" = '0' ] && [ "$PRODUCTION_STATUS" = '0' ]; then
             rm .github/workflows/publish-sd-usb-update.yml
+            rm -f docs/audit/.eas-publish-trigger-note
           fi
 
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add docs/audit/eas-update-sd-usb-upload-20260719.md
-          git add -u .github/workflows/publish-sd-usb-update.yml || true
+          git add -u .github/workflows/publish-sd-usb-update.yml docs/audit/.eas-publish-trigger-note || true
           git commit -m 'Record EAS publication for SD and USB upload'
           git pull --rebase origin main
           git push origin HEAD:main
