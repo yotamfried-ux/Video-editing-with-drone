@@ -1,5 +1,6 @@
 name: Publish SD and USB Upload Update
 
+# Triggered after PR #183 was merged and validated.
 on:
   push:
     branches: [main]
