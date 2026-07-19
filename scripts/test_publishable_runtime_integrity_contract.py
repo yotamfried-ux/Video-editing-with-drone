@@ -7,7 +7,6 @@ import os
 import sys
 import tempfile
 import types
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -70,7 +69,6 @@ def assert_fail_closed_and_staged_alias() -> None:
             flagged_paths=set(),
             specs_getter=inspect,
         )
-        # One immutable media snapshot is shared by the recorder and integrity layer.
         if inspect_calls != 1:
             raise SystemExit(f"unexpected final media inspection count: {inspect_calls}")
 
@@ -101,27 +99,33 @@ def assert_fail_closed_and_staged_alias() -> None:
             raise SystemExit("upload without explicit QA evidence became publishable")
 
 
-def assert_qa_invocation_isolation() -> None:
+def assert_qa_scope_has_one_owner() -> None:
+    """Runtime integrity must not replace the canonical invocation-scoped store."""
+    import pipeline.publishable_pending_scope as pending
     import pipeline.publishable_qa_evidence as evidence
     import pipeline.publishable_runtime_integrity as integrity
 
-    integrity._patch_qa_evidence_scope()
+    pending.install()
+    original_record = evidence.record_qa_result
+    original_consume = evidence.consume_recorded_qa
+    integrity.install()
+    if evidence.record_qa_result is not original_record:
+        raise SystemExit("runtime integrity replaced canonical QA recording")
+    if evidence.consume_recorded_qa is not original_consume:
+        raise SystemExit("runtime integrity replaced canonical atomic QA consumption")
+
+    token_one = "integrity_scope_one"
+    token_two = "integrity_scope_two"
     path = "/tmp/shared-name.mp4"
-
-    def run(verdict: str) -> str:
-        evidence.clear_recorded_qa()
-        evidence.record_qa_result(path, {"verdict": verdict, "overall": verdict})
-        result = evidence.get_recorded_qa(path)
-        if result is None:
-            raise RuntimeError("scoped QA result disappeared")
-        if evidence.get_recorded_qa(path) is not None:
-            raise RuntimeError("QA result was not consumed atomically")
-        return str(result.get("verdict"))
-
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        results = sorted(pool.map(run, ["PASS", "FAIL"]))
-    if results != ["FAIL", "PASS"]:
-        raise SystemExit(f"concurrent QA invocations contaminated each other: {results}")
+    evidence.record_qa_result(path, {"verdict": "PASS", "overall": "PASS"}, invocation_token=token_one)
+    evidence.record_qa_result(path, {"verdict": "FAIL", "overall": "FAIL"}, invocation_token=token_two)
+    consumed = evidence.consume_recorded_qa(token_one)
+    if consumed.get(os.path.abspath(path), {}).get("verdict") != "PASS":
+        raise SystemExit("canonical QA invocation did not consume its own evidence")
+    remaining = evidence.get_recorded_qa(path, invocation_token=token_two)
+    if remaining is None or remaining.get("verdict") != "FAIL":
+        raise SystemExit("consuming one QA invocation contaminated another")
+    evidence.clear_recorded_qa(token_two)
 
 
 def assert_complete_action_window() -> None:
@@ -170,37 +174,53 @@ def assert_source_contract() -> None:
     integrity = (ROOT / "pipeline/publishable_runtime_integrity.py").read_text(encoding="utf-8")
     complete = (ROOT / "pipeline/complete_action_window_policy.py").read_text(encoding="utf-8")
     qa = (ROOT / "pipeline/publishable_qa_evidence.py").read_text(encoding="utf-8")
+    pending = (ROOT / "pipeline/publishable_pending_scope.py").read_text(encoding="utf-8")
     required = {
         "runtime integrity": [
             "register_staged_upload_path",
             "upload_path_aliases",
             "qa_evidence_recorded",
-            "contextvars.ContextVar",
-            "_QA_RESULTS.pop",
             "stage_with_manifest_alias",
             "_inspect_once",
+            "must not replace those functions",
         ],
         "complete action": [
             "all_usable_waves_per_athlete_v1",
-            "effective.pop(\"_cap_dur\", None)",
-            "effective[\"_is_climax\"] = True",
+            'effective.pop("_cap_dur", None)',
+            'effective["_is_climax"] = True',
+        ],
+        "QA evidence": [
+            "_QA_RESULTS_BY_INVOCATION",
+            "consume_recorded_qa",
+            "activate_next_scope",
+        ],
+        "pending scope": [
+            "contextvars.ContextVar",
+            "uuid.uuid4",
+            "create_pending_scope",
         ],
         "install chain": ["pipeline.publishable_runtime_integrity"],
     }
     sources = {
         "runtime integrity": integrity,
         "complete action": complete,
+        "QA evidence": qa,
+        "pending scope": pending,
         "install chain": qa,
     }
     for label, tokens in required.items():
         missing = [token for token in tokens if token not in sources[label]]
         if missing:
             raise SystemExit(f"{label} missing contract tokens: {missing}")
+    forbidden = ["def _patch_qa_evidence_scope", "_QA_TOKEN", "_QA_RESULTS ="]
+    present = [token for token in forbidden if token in integrity]
+    if present:
+        raise SystemExit(f"runtime integrity still owns a divergent QA scope: {present}")
 
 
 def main() -> int:
     assert_fail_closed_and_staged_alias()
-    assert_qa_invocation_isolation()
+    assert_qa_scope_has_one_owner()
     assert_complete_action_window()
     assert_source_contract()
     print("Publishable runtime integrity contract checks passed")
