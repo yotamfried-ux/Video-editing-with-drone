@@ -4,7 +4,7 @@ Date: 2026-07-17
 Repository: `yotamfried-ux/Video-editing-with-drone`  
 Active PR: `#182`  
 Business source of truth: `README.md` → **Product vision — source of truth**  
-Audit state: **centered-athlete and silent-output implementation updated; final CI/review and production experiment pending**
+Audit state: **centered-athlete and silent-output implementation is contract/CI/review validated; production experiment pending**
 
 ## 1. Business objective
 
@@ -274,12 +274,14 @@ Files:
 - [x] Derive a stable run-local key from canonical IDs, label, and source/action lineage.
 - [x] Write the manifest atomically.
 - [x] Protect parallel upload updates with an `RLock`.
+- [x] Scope editor-to-QA lineage, variant failures, and final QA evidence to one invocation-unique token.
 - [x] Include the manifest in diagnostics.
 
 Deterministic evidence:
 
 - A rendered Part is not publishable before a real REVIEW upload succeeds.
 - Two parallel Part uploads both remain in the manifest.
+- Two matching athlete labels cannot overwrite or clear each other's final QA evidence.
 - Duplicate canonical athlete ownership and duplicate output names fail.
 - QA-blocked, audio-bearing, and technically invalid outputs are not counted as publishable.
 
@@ -294,6 +296,8 @@ Deterministic evidence:
 - [x] Fail `has_audio:true` as unexpected audio.
 - [x] Fail an unknown/missing audio state rather than assuming silence.
 - [x] Fail duplicate ownership, duplicate output names, missing REVIEW upload, wrong aspect, low resolution, duration over 90 seconds, or final QA failure.
+- [x] Persist operator publishability authority under the immutable Drive file ID or canonical R2 object key.
+- [x] Refuse filename-only authority fallback and filename/object mismatches.
 - [x] Preserve diagnostics when the business gate fails.
 - [x] Make the business-gate result the final GitHub Actions exit code after successful processing.
 - [x] Propagate post-run business failure to the durable run and operator live status.
@@ -305,6 +309,7 @@ Deterministic evidence:
 - Audio-bearing and unknown-audio Parts fail.
 - Missing athlete output or upstream athlete fails.
 - Same label with a different canonical athlete ID does not match.
+- R2 and Drive REVIEW objects resolve authority only by the listed storage identity.
 - Wrong aspect, low resolution, over-length, QA-failed, duplicate, and unuploaded outputs fail.
 - A failed business gate writes a terminal failure to the durable run and operator live status.
 
@@ -313,7 +318,8 @@ Deterministic evidence:
 - [x] Treat every final QA `FAIL` as approval-blocking across sports.
 - [x] Fail closed with `QA_UNAVAILABLE` when real model QA is unavailable.
 - [x] Require explicit final QA evidence for each local Part path.
-- [x] Record QA state per canonical Part.
+- [x] Record QA state per canonical Part and invocation token.
+- [x] Consume final QA evidence atomically without a process-global clear.
 - [x] Keep surfing soft findings from deleting complete waves.
 - [x] Preserve repair actions for premature cuts, crop/tracking, and slow motion before rejection.
 - [x] Re-grade repaired output before it can become publishable.
@@ -350,8 +356,8 @@ Evidence:
 
 Required evidence remains open:
 
-- [ ] Confirm all workflows are green on the new centered-athlete/silent-output head.
-- [ ] Resolve any new review findings and record fallback self-review if automated review is unavailable.
+- [x] Confirm all workflows are green on the revised centered-athlete/silent-output implementation head.
+- [x] Resolve new review findings and record fallback self-review when automated review is unavailable.
 - [ ] Merge only after explicit user approval.
 - [ ] Run the same source footage used in run `29516256449` for direct comparison.
 - [ ] Inspect `publishable_reel_manifest.json`, athlete coverage, candidate ledger, selection audit, draft trace, QA trace, status row, and final videos.
@@ -370,6 +376,22 @@ Closure rule:
 
 This audit remains open until deterministic contracts, final-head CI/review, and real visual production evidence pass. Green CI alone does not close the footage-level product gap.
 
+### Contract/CI validation record — 2026-07-19
+
+The last code-changing head in the review pass was `5692368664bfdcea1ca8e32c6618e9f023e8dec3`.
+
+- All 20 triggered GitHub Actions workflows passed.
+- Performance Reel Contract run `29695393549` passed all 24 steps.
+- Operator Smoke Check run `29695393614` passed all 57 steps.
+- Mobile Check run `29695393547` passed.
+- Vercel and CodeRabbit commit statuses passed.
+- All PR review threads were resolved.
+- Fallback self-review found and fixed two gaps that the earlier green harness did not prove:
+  1. the runtime-integrity install chain still replaced invocation-scoped QA functions with an older process-global implementation;
+  2. R2 returned a signed URL after upload while the operator listed the canonical `review/` object key, forcing unsafe filename fallback.
+- New regressions prove a single QA-scope owner, matching-label invocation isolation, canonical R2 identity, storage-object-only authority lookup, and repeated filename safety.
+- No merge or real production run was performed. Validation level remains **Contract/CI only — pending real-run validation**.
+
 ## 5. Required artifacts
 
 Implemented repository artifacts:
@@ -378,9 +400,16 @@ Implemented repository artifacts:
 - `docs/audit/primary-actor-continuity-policy.md`
 - `pipeline/performance_reel_policy.py`
 - `pipeline/publishable_reel_policy.py`
+- `pipeline/publishable_pending_scope.py`
+- `pipeline/publishable_qa_evidence.py`
+- `pipeline/publishable_runtime_integrity.py`
 - `pipeline/silent_output_policy.py`
 - `pipeline/primary_actor_policy.py`
 - `pipeline/single_athlete_selection_policy.py`
+- `integrations/drive.py`
+- `integrations/r2_storage.py`
+- `web-api/src/lib/draft-publishability.ts`
+- `supabase/migrations/20260717_draft_publishability_authority.sql`
 - `scripts/check_publishable_reel_manifest.py`
 - `scripts/record_publishable_business_gate_status.py`
 - `scripts/run_pipeline_with_diagnostics.sh`
@@ -389,9 +418,13 @@ Implemented repository artifacts:
 - `scripts/test_silent_output_policy_contract.py`
 - `scripts/test_publishable_reel_business_contract.py`
 - `scripts/test_publishable_reel_concurrency_contract.py`
+- `scripts/test_publishable_qa_evidence_contract.py`
+- `scripts/test_publishable_runtime_integrity_contract.py`
 - `scripts/test_publishable_identity_lineage_contract.py`
 - `scripts/test_publishable_gate_status_contract.py`
 - `scripts/test_cross_sport_publishable_eval_matrix.py`
+- `scripts/test_review_finding_hardening_contract.py`
+- `scripts/test_storage_contract.py`
 - `.github/workflows/performance-reel-contract.yml`
 
 Production-run artifacts:
@@ -406,16 +439,18 @@ Production-run artifacts:
 - Product vision and terminology: updated for one centered athlete with other people allowed.
 - Football group-play policy: implemented with deterministic positive and negative fixtures.
 - Same-wave surfing policy: implemented with deterministic positive and negative fixtures.
-- Silent video-only output policy: implemented; final-head CI revalidation pending.
+- Silent video-only output policy: implemented and contract/CI validated.
 - Music selection/mixing in production execution: disabled by runtime policy.
 - Audio-bearing and unknown-audio output gates: implemented.
 - Surfing all-waves policy: implemented; real-run validation pending.
 - Cross-sport athlete obligation: implemented and covered by deterministic evals.
 - Upload-confirmed per-athlete manifest: implemented.
 - Canonical identity-lineage reconciliation: implemented and regression-tested.
+- Invocation-scoped QA evidence: implemented with one runtime owner and matching-label isolation tests.
+- Immutable storage-object publishability authority: implemented for Drive and R2; filename fallback removed.
 - Athlete-coverage reconciliation and production business gate: implemented.
 - Concurrent manifest integrity: implemented and regression-tested.
 - Final QA fail-closed behavior: implemented.
 - GitHub/Supabase/operator terminal-status alignment: implemented and regression-tested.
-- Final CI/review on the revised head: pending.
-- Real footage validation and business closure: pending explicit merge and production-run approval.
+- Final CI/review on the revised implementation head: complete.
+- Merge, migration application, real footage validation, and business closure: pending explicit approval and production-run evidence.
