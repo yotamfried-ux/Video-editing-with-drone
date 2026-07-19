@@ -68,39 +68,23 @@ const AUTHORITY_COLUMNS = [
 ].join(',');
 
 export async function loadAuthoritativeDraftPublishability(
-  drafts: Array<{ id: string; name: string }>,
+  drafts: Array<{ id: string }>,
 ): Promise<Map<string, DraftPublishabilityAuthority>> {
   const result = new Map<string, DraftPublishabilityAuthority>();
   if (!drafts.length) return result;
 
   const objectIds = [...new Set(drafts.map((draft) => draft.id).filter(Boolean))];
-  const names = [...new Set(drafts.map((draft) => draft.name).filter(Boolean))];
-  const rows: Record<string, unknown>[] = [];
+  if (!objectIds.length) return result;
 
-  if (objectIds.length) {
-    const { data, error } = await supabaseAdmin
-      .from('draft_publishability')
-      .select(AUTHORITY_COLUMNS)
-      .in('storage_object_id', objectIds);
-    if (error) throw new DraftPublishabilityError(`Could not read draft publishability: ${error.message}`, 503);
-    rows.push(...((data ?? []) as unknown as Record<string, unknown>[]));
-  }
+  const { data, error } = await supabaseAdmin
+    .from('draft_publishability')
+    .select(AUTHORITY_COLUMNS)
+    .in('storage_object_id', objectIds);
+  if (error) throw new DraftPublishabilityError(`Could not read draft publishability: ${error.message}`, 503);
 
-  const foundNames = new Set(rows.map((row) => String(row.draft_name ?? '')));
-  const missingNames = names.filter((name) => !foundNames.has(name));
-  if (missingNames.length) {
-    const { data, error } = await supabaseAdmin
-      .from('draft_publishability')
-      .select(AUTHORITY_COLUMNS)
-      .in('draft_name', missingNames);
-    if (error) throw new DraftPublishabilityError(`Could not read draft publishability: ${error.message}`, 503);
-    rows.push(...((data ?? []) as unknown as Record<string, unknown>[]));
-  }
-
-  for (const row of rows) {
+  for (const row of (data ?? []) as unknown as Record<string, unknown>[]) {
     const authority = normalize(row);
     if (authority.storage_object_id) result.set(authority.storage_object_id, authority);
-    if (authority.draft_name) result.set(`name:${authority.draft_name}`, authority);
   }
   return result;
 }
@@ -110,13 +94,20 @@ export async function requireAuthoritativeDraftPublishability(input: {
   draftName: string;
 }): Promise<DraftPublishabilityAuthority> {
   const authorities = await loadAuthoritativeDraftPublishability([
-    { id: input.storageObjectId, name: input.draftName },
+    { id: input.storageObjectId },
   ]);
-  const authority = authorities.get(input.storageObjectId) ?? authorities.get(`name:${input.draftName}`) ?? null;
+  const authority = authorities.get(input.storageObjectId) ?? null;
   if (!authority) {
     throw new DraftPublishabilityError(
-      'Authoritative publishability evidence is missing. The draft cannot be approved.',
+      'Authoritative publishability evidence is missing for this storage object. The draft cannot be approved.',
       409,
+    );
+  }
+  if (authority.draft_name !== input.draftName) {
+    throw new DraftPublishabilityError(
+      'Authoritative publishability evidence does not match the current storage object name.',
+      409,
+      authority,
     );
   }
   const valid = authority.publishable
