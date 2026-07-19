@@ -15,6 +15,15 @@ on:
         type: string
         default: "DRY_RUN"
 
+  # Temporary same-repository operational PR trigger. This branch is never merged.
+  # It exists only because the connected GitHub action surface cannot invoke
+  # workflow_dispatch directly. The migration and mode are pinned below.
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+    paths:
+      - ".github/workflows/supabase-migrate.yml"
+
   # One-time bootstrap for the current pipeline_runs migration. This fires when
   # this workflow change reaches main. The SQL is idempotent, so reruns are safe.
   push:
@@ -35,8 +44,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     env:
-      MIGRATION: ${{ inputs.migration || '20260624_add_pipeline_runs.sql' }}
-      CONFIRM_APPLY: ${{ inputs.confirm_apply || 'APPLY' }}
+      MIGRATION: ${{ inputs.migration || '20260717_draft_publishability_authority.sql' }}
+      CONFIRM_APPLY: ${{ inputs.confirm_apply || 'DRY_RUN' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
