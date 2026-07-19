@@ -1,8 +1,9 @@
-"""Require a recorded final QA PASS for every publishable reel part.
+"""Require invocation-scoped final QA PASS evidence for every publishable reel.
 
 `flagged_paths` alone is not positive QA evidence: when QA is disabled or a gate
 returns without grading, the set can be empty. This patch records each real QA
-result and reconciles it into the publishable manifest before REVIEW upload.
+result under the render-to-QA invocation token and consumes only that invocation's
+evidence atomically before REVIEW upload.
 """
 from __future__ import annotations
 
@@ -16,29 +17,58 @@ from typing import Any
 _ANALYZER_FLAG = "_sportreel_publishable_qa_evidence_analyzer_installed"
 _ORCHESTRATOR_FLAG = "_sportreel_publishable_qa_evidence_orchestrator_installed"
 _RESULTS_LOCK = threading.RLock()
-_QA_RESULTS_BY_PATH: dict[str, dict[str, Any]] = {}
+_QA_RESULTS_BY_INVOCATION: dict[str, dict[str, dict[str, Any]]] = {}
 
 
 def _path_key(path: str) -> str:
     return os.path.abspath(str(path))
 
 
-def clear_recorded_qa() -> None:
-    """Clear per-athlete temporary QA evidence before a new QA gate invocation."""
+def _resolve_token(invocation_token: str | None = None) -> str:
+    if invocation_token:
+        return str(invocation_token)
+    from pipeline.publishable_pending_scope import current_scope_token
+
+    return str(current_scope_token(required=True))
+
+
+def clear_recorded_qa(invocation_token: str | None = None) -> None:
+    """Clear only one invocation's temporary QA evidence."""
+    token = _resolve_token(invocation_token)
     with _RESULTS_LOCK:
-        _QA_RESULTS_BY_PATH.clear()
+        _QA_RESULTS_BY_INVOCATION.pop(token, None)
 
 
-def record_qa_result(path: str, result: dict[str, Any]) -> None:
-    """Record one normalized QA result by its rendered local path."""
+def record_qa_result(
+    path: str,
+    result: dict[str, Any],
+    *,
+    invocation_token: str | None = None,
+) -> None:
+    """Record one normalized QA result under its invocation and rendered path."""
+    token = _resolve_token(invocation_token)
     with _RESULTS_LOCK:
-        _QA_RESULTS_BY_PATH[_path_key(path)] = copy.deepcopy(result if isinstance(result, dict) else {})
+        bucket = _QA_RESULTS_BY_INVOCATION.setdefault(token, {})
+        bucket[_path_key(path)] = copy.deepcopy(result if isinstance(result, dict) else {})
 
 
-def get_recorded_qa(path: str) -> dict[str, Any] | None:
+def get_recorded_qa(
+    path: str,
+    *,
+    invocation_token: str | None = None,
+) -> dict[str, Any] | None:
+    """Read one result without consuming evidence from another invocation."""
+    token = _resolve_token(invocation_token)
     with _RESULTS_LOCK:
-        result = _QA_RESULTS_BY_PATH.get(_path_key(path))
+        result = _QA_RESULTS_BY_INVOCATION.get(token, {}).get(_path_key(path))
         return copy.deepcopy(result) if result is not None else None
+
+
+def consume_recorded_qa(invocation_token: str) -> dict[str, dict[str, Any]]:
+    """Atomically consume the complete QA result set for one invocation."""
+    token = _resolve_token(invocation_token)
+    with _RESULTS_LOCK:
+        return copy.deepcopy(_QA_RESULTS_BY_INVOCATION.pop(token, {}))
 
 
 def apply_final_qa_evidence(
@@ -46,10 +76,13 @@ def apply_final_qa_evidence(
     sport: str,
     athlete_label: str,
     final_reels: list[str],
+    invocation_token: str | None = None,
 ) -> set[str]:
     """Persist positive QA evidence and return paths that must be review-blocked."""
     import pipeline.publishable_reel_policy as policy
 
+    token = _resolve_token(invocation_token)
+    invocation_results = consume_recorded_qa(token)
     final_keys = {_path_key(path): path for path in final_reels or []}
     blocked: set[str] = set()
     with policy._MANIFEST_LOCK:
@@ -72,10 +105,14 @@ def apply_final_qa_evidence(
                 key = _path_key(local_path)
                 if key not in final_keys:
                     continue
-                result = get_recorded_qa(local_path)
+                result = invocation_results.get(key)
                 verdict = str((result or {}).get("verdict") or "").upper()
                 overall = str((result or {}).get("overall") or "")
-                evidence_recorded = result is not None and verdict in {"PASS", "FAIL"} and overall.strip().lower() != "qa skipped"
+                evidence_recorded = (
+                    result is not None
+                    and verdict in {"PASS", "FAIL"}
+                    and overall.strip().lower() != "qa skipped"
+                )
                 qa_passed = evidence_recorded and verdict == "PASS"
 
                 issues = [
@@ -92,6 +129,7 @@ def apply_final_qa_evidence(
                     reasons.append(f"final_qa_failed:{Path(local_path).name}")
                     blocked.add(final_keys[key])
 
+                part["qa_invocation_token"] = token
                 part["qa_evidence_recorded"] = evidence_recorded
                 part["qa_verdict"] = verdict or None
                 part["qa_engagement_score"] = (result or {}).get("engagement_score")
@@ -143,20 +181,28 @@ def _patch_orchestrator() -> None:
         original_gate = orchestrator._qa_gate
 
         def gate_with_required_evidence(reels, events_out, sport, athlete_label, recompile):
-            clear_recorded_qa()
-            final_reels, events_by_reel, flagged = original_gate(
-                reels,
-                events_out,
-                sport,
-                athlete_label,
-                recompile,
-            )
-            evidence_blocked = apply_final_qa_evidence(
-                sport=sport,
-                athlete_label=athlete_label,
-                final_reels=list(final_reels or []),
-            )
-            return final_reels, events_by_reel, set(flagged or set()) | evidence_blocked
+            from pipeline.publishable_pending_scope import activate_next_scope, release_scope
+
+            token = activate_next_scope(sport, athlete_label)
+            clear_recorded_qa(token)
+            try:
+                final_reels, events_by_reel, flagged = original_gate(
+                    reels,
+                    events_out,
+                    sport,
+                    athlete_label,
+                    recompile,
+                )
+                evidence_blocked = apply_final_qa_evidence(
+                    sport=sport,
+                    athlete_label=athlete_label,
+                    final_reels=list(final_reels or []),
+                    invocation_token=token,
+                )
+                return final_reels, events_by_reel, set(flagged or set()) | evidence_blocked
+            finally:
+                clear_recorded_qa(token)
+                release_scope(token)
 
         orchestrator._qa_gate = gate_with_required_evidence
         setattr(orchestrator, _ORCHESTRATOR_FLAG, True)
@@ -168,7 +214,10 @@ def _patch_orchestrator() -> None:
 
 
 def install() -> None:
-    """Install explicit QA evidence and all final product-integrity patches."""
+    """Install invocation-scoped QA evidence and final product-integrity patches."""
+    from pipeline.publishable_pending_scope import install as install_pending_scope
+
+    install_pending_scope()
     _patch_analyzer()
     _patch_orchestrator()
     from pipeline.complete_action_window_policy import install as install_complete_action
