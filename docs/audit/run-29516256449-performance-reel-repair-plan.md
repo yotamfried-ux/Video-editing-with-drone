@@ -105,9 +105,20 @@ The last code-changing head reviewed in this repair pass was `5692368664bfdcea1c
 - [x] Mobile type-check passes.
 - [x] Existing CI remains green.
 - [x] Automated review or documented fallback self-review has no unresolved findings.
+- [x] Merged into `main` (`e941f89e0b9aa94c21d5d68f9e9da17a38012021`).
+- [x] `draft_publishability` authority migration applied and live-verified (2026-07-19): DRY_RUN run
+      [`29698171717`](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/29698171717)
+      on `main`@`a9c5edd326ba4ac1bea932b0c2861edcf31e32c9` printed the exact tracked SQL with the
+      `Require database URL`/`Apply migration` steps skipped; APPLY executed via the authenticated
+      Supabase MCP connection to project `bcndgmymnismbxvdeetc` (the tracked workflow's APPLY path
+      remains blocked by a missing `SUPABASE_DB_URL` secret, unchanged since run `29697147885`); live
+      `list_tables`/`pg_indexes` confirm `public.draft_publishability` with PK `storage_object_id`,
+      both indexes, RLS enabled, and no unique constraint on `draft_name` alone. See
+      `docs/audit/personal-publishable-reel-completion-plan-20260717.md` for full evidence.
 - [ ] New production run proves all usable waves are represented exactly once.
 - [ ] Operator verifies a wave is retained when another surfer enters it but the target surfer stays central.
 - [ ] Operator verifies every generated Part is silent, at most 90 seconds, and no wave is cut between Parts.
 - [ ] Review contains no `_music.mp4` or other audio-bearing duplicate.
 
-A green PR does not close the footage-level gap. The final production and visual acceptance items require a new real run after explicit merge approval.
+A green PR and an applied migration do not close the footage-level gap. The final production and
+visual acceptance items still require a new real run on the same source footage as this run.

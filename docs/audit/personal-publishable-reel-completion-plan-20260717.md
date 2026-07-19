@@ -376,6 +376,51 @@ Closure rule:
 
 This audit remains open until deterministic contracts, final-head CI/review, and real visual production evidence pass. Green CI alone does not close the footage-level product gap.
 
+### Migration application record — 2026-07-19
+
+PR #182 merged as `e941f89e0b9aa94c21d5d68f9e9da17a38012021`. A prior
+operational attempt to apply `20260717_draft_publishability_authority.sql`
+through the tracked `Run Supabase Migration` workflow produced a successful
+DRY_RUN (`29697102730`) but a failed APPLY (`29697147885`) because GitHub
+Actions has no `SUPABASE_DB_URL` secret; no SQL executed and temporary PR
+#184 was closed unmerged without touching `main`, as required.
+
+Sequence completed this pass:
+
+1. **Fresh DRY_RUN** — `workflow_dispatch` of `Run Supabase Migration`
+   (`migration=20260717_draft_publishability_authority.sql`,
+   `confirm_apply=DRY_RUN`) on `main`@`a9c5edd326ba4ac1bea932b0c2861edcf31e32c9`:
+   run [`29698171717`](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/29698171717),
+   job `88222401404`, conclusion `success`. The job log printed the selected
+   filename (`supabase/migrations/20260717_draft_publishability_authority.sql`)
+   and the exact SQL — table `public.draft_publishability`, primary key
+   `storage_object_id`, both indexes, and `enable row level security` — with
+   the `Require database URL` and `Apply migration` steps correctly
+   `skipped`.
+2. **APPLY** — the tracked workflow's APPLY path remains blocked by the
+   missing `SUPABASE_DB_URL` secret (confirmed unchanged in
+   `.github/workflows/supabase-migrate.yml`). Per the documented preferred
+   order (tracked workflow → authenticated CLI → authenticated Supabase
+   MCP/Management API → SQL editor), this session used the already-
+   authenticated **Supabase MCP connection** to project `bcndgmymnismbxvdeetc`
+   (`list_projects` confirmed this is the only project visible to that
+   credential, name `sportreel`, `status: ACTIVE_HEALTHY` — the documented
+   production project) to run `mcp__Supabase__apply_migration` with the
+   identical SQL from the tracked migration file. No new temporary
+   workflow/PR was created. Result: `{"success": true}`.
+3. **Live verification** (read-only, post-APPLY):
+   - `mcp__Supabase__list_tables` (verbose) shows `public.draft_publishability`
+     with `rls_enabled: true`, `primary_keys: ["storage_object_id"]`, and
+     every column from the migration (`part_index integer ... check
+     (part_index > 0)`, `manifest_revision` `not null`, jsonb defaults, etc.).
+   - `pg_indexes` confirms three indexes: `draft_publishability_pkey`
+     (unique, `storage_object_id`), `draft_publishability_run_idx`
+     (`pipeline_run_id, updated_at desc`), `draft_publishability_name_idx`
+     (`draft_name, updated_at desc`, **not unique**) — `draft_name` carries
+     no global uniqueness constraint, matching the design intent.
+
+Migration status: **applied and live-verified**.
+
 ### Contract/CI validation record — 2026-07-19
 
 The last code-changing head in the review pass was `5692368664bfdcea1ca8e32c6618e9f023e8dec3`.
@@ -453,4 +498,6 @@ Production-run artifacts:
 - Final QA fail-closed behavior: implemented.
 - GitHub/Supabase/operator terminal-status alignment: implemented and regression-tested.
 - Final CI/review on the revised implementation head: complete.
-- Merge, migration application, real footage validation, and business closure: pending explicit approval and production-run evidence.
+- Merge: complete (`e941f89e0b9aa94c21d5d68f9e9da17a38012021`).
+- Migration application: complete and live-verified (see "Migration application record — 2026-07-19" above).
+- Real footage validation and business closure: pending production-run evidence.
