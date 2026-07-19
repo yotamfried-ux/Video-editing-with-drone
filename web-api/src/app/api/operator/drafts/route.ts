@@ -97,7 +97,7 @@ async function enrichDrafts(drafts: StorageDraft[]): Promise<DraftRow[]> {
   return drafts.map((draft) => withReviewPolicy(
     draft,
     tasks.get(draft.name),
-    authorities.get(draft.id) ?? authorities.get(`name:${draft.name}`),
+    authorities.get(draft.id),
   ));
 }
 
