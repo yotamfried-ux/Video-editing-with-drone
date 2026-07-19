@@ -1,0 +1,135 @@
+name: Publish SD and USB Upload Update
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/publish-sd-usb-update.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci --legacy-peer-deps
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Publish Android OTA updates
+        id: publish
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: 'https://bcndgmymnismbxvdeetc.supabase.co'
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: 'sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ'
+          EXPO_PUBLIC_API_BASE_URL: 'https://video-editing-with-drone.vercel.app'
+          EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY: 'pk_test_51TgXCICwQyJBd9MdnZum7LfttimmjbMwlys25dS7GGXDj4B9aX5uWla3sN84KkpaKpX3txVPIr0y65UygDVH6OUG007rD31Tyq'
+        shell: bash
+        run: |
+          set +e
+          eas update \
+            --channel preview \
+            --platform android \
+            --message 'Direct SD and USB video upload (#183)' \
+            --json \
+            --non-interactive \
+            > /tmp/eas-preview.json 2> /tmp/eas-preview.err
+          preview_status=$?
+
+          eas update \
+            --channel production \
+            --platform android \
+            --message 'Direct SD and USB video upload (#183)' \
+            --json \
+            --non-interactive \
+            > /tmp/eas-production.json 2> /tmp/eas-production.err
+          production_status=$?
+          set -e
+
+          echo "preview_status=$preview_status" >> "$GITHUB_OUTPUT"
+          echo "production_status=$production_status" >> "$GITHUB_OUTPUT"
+
+      - name: Record publication evidence
+        shell: bash
+        env:
+          PREVIEW_STATUS: ${{ steps.publish.outputs.preview_status }}
+          PRODUCTION_STATUS: ${{ steps.publish.outputs.production_status }}
+        run: |
+          mkdir -p docs/audit
+          {
+            echo '# EAS publication — direct SD / USB upload'
+            echo
+            echo 'Date: 2026-07-19'
+            echo 'Source merge: PR #183 / commit `3048538edaa8a89f68eb94682b8b63a8584003ca`'
+            echo 'Platform: Android'
+            echo
+            echo "- Preview channel exit status: \`$PREVIEW_STATUS\`"
+            echo "- Production channel exit status: \`$PRODUCTION_STATUS\`"
+            echo
+            echo '## Preview result'
+            echo '```json'
+            cat /tmp/eas-preview.json 2>/dev/null || true
+            echo '```'
+            if [ "$PREVIEW_STATUS" != '0' ]; then
+              echo
+              echo '### Preview error'
+              echo '```text'
+              tail -n 80 /tmp/eas-preview.err 2>/dev/null || true
+              echo '```'
+            fi
+            echo
+            echo '## Production result'
+            echo '```json'
+            cat /tmp/eas-production.json 2>/dev/null || true
+            echo '```'
+            if [ "$PRODUCTION_STATUS" != '0' ]; then
+              echo
+              echo '### Production error'
+              echo '```text'
+              tail -n 80 /tmp/eas-production.err 2>/dev/null || true
+              echo '```'
+            fi
+            echo
+            if [ "$PREVIEW_STATUS" = '0' ] && [ "$PRODUCTION_STATUS" = '0' ]; then
+              echo 'Status: **published successfully to both channels**.'
+            else
+              echo 'Status: **publication failed on at least one channel**.'
+            fi
+          } > docs/audit/eas-update-sd-usb-upload-20260719.md
+
+          if [ "$PREVIEW_STATUS" = '0' ] && [ "$PRODUCTION_STATUS" = '0' ]; then
+            rm .github/workflows/publish-sd-usb-update.yml
+          fi
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/audit/eas-update-sd-usb-upload-20260719.md
+          git add -u .github/workflows/publish-sd-usb-update.yml || true
+          git commit -m 'Record EAS publication for SD and USB upload'
+          git pull --rebase origin main
+          git push origin HEAD:main
+
+          if [ "$PREVIEW_STATUS" != '0' ] || [ "$PRODUCTION_STATUS" != '0' ]; then
+            exit 1
+          fi
