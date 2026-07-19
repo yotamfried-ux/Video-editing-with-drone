@@ -45,7 +45,7 @@ jobs:
     timeout-minutes: 10
     env:
       MIGRATION: ${{ inputs.migration || '20260717_draft_publishability_authority.sql' }}
-      CONFIRM_APPLY: ${{ inputs.confirm_apply || 'DRY_RUN' }}
+      CONFIRM_APPLY: ${{ inputs.confirm_apply || 'APPLY' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
