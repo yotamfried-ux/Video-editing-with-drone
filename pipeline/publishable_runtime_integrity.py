@@ -1,32 +1,24 @@
 """Runtime integrity hardening for the final publishable manifest.
 
-This module closes three gaps that are easy to miss in isolated unit tests:
+This module closes two cross-layer gaps that are easy to miss in isolated tests:
 
 * a rendered Part starts fail-closed until explicit final-QA evidence is applied;
-* QA evidence is scoped to one gate invocation instead of a process-global clear;
 * long-video staging paths remain aliases of the original manifest Part during upload.
+
+Invocation-scoped QA storage is owned exclusively by
+``pipeline.publishable_pending_scope`` and ``pipeline.publishable_qa_evidence``.
+This module must not replace those functions with a second token implementation.
 """
 from __future__ import annotations
 
-import contextvars
 import copy
 import os
-import threading
-import uuid
 from pathlib import Path
 from typing import Any, Callable
 
 _INSTALL_DONE = False
 _POLICY_FLAG = "_sportreel_publishable_runtime_integrity_policy_installed"
 _CONTEXT_FLAG = "_sportreel_publishable_runtime_integrity_context_installed"
-_EVIDENCE_FLAG = "_sportreel_publishable_runtime_integrity_evidence_installed"
-
-_QA_TOKEN: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "sportreel_publishable_qa_token",
-    default="unscoped",
-)
-_QA_LOCK = threading.RLock()
-_QA_RESULTS: dict[tuple[str, str], dict[str, Any]] = {}
 
 
 def _path_key(path: str) -> str:
@@ -161,39 +153,10 @@ def _patch_policy() -> None:
             storage_object_id=storage_object_id,
         )
 
-
     policy.record_athlete_outcome = record_fail_closed
     policy.register_staged_upload_path = register_staged_upload_path
     policy.mark_upload_result = mark_upload_result
     setattr(policy, _POLICY_FLAG, True)
-
-
-def _patch_qa_evidence_scope() -> None:
-    import pipeline.publishable_qa_evidence as evidence
-
-    if getattr(evidence, _EVIDENCE_FLAG, False):
-        return
-
-    def start_invocation() -> None:
-        _QA_TOKEN.set(uuid.uuid4().hex)
-
-    def record_qa_result(path: str, result: dict[str, Any]) -> None:
-        key = (_QA_TOKEN.get(), _path_key(path))
-        with _QA_LOCK:
-            _QA_RESULTS[key] = copy.deepcopy(
-                result if isinstance(result, dict) else {}
-            )
-
-    def get_recorded_qa(path: str) -> dict[str, Any] | None:
-        key = (_QA_TOKEN.get(), _path_key(path))
-        with _QA_LOCK:
-            result = _QA_RESULTS.pop(key, None)
-        return copy.deepcopy(result) if result is not None else None
-
-    evidence.clear_recorded_qa = start_invocation
-    evidence.record_qa_result = record_qa_result
-    evidence.get_recorded_qa = get_recorded_qa
-    setattr(evidence, _EVIDENCE_FLAG, True)
 
 
 def _patch_context_staging() -> None:
@@ -227,11 +190,10 @@ def _patch_context_staging() -> None:
 
 
 def install() -> None:
-    """Install fail-closed manifest, QA-scope, and staging-path integrity."""
+    """Install fail-closed manifest and staging-path integrity only."""
     global _INSTALL_DONE
     if _INSTALL_DONE:
         return
     _patch_policy()
-    _patch_qa_evidence_scope()
     _patch_context_staging()
     _INSTALL_DONE = True
