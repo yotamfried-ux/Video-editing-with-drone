@@ -1,0 +1,18 @@
+name: External Storage Upload Check
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'scripts/test_external_storage_upload_contract.py'
+      - '.github/workflows/external-storage-upload-check.yml'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/test_external_storage_upload_contract.py
