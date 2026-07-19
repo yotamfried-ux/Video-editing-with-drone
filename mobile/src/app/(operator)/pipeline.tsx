@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
@@ -26,6 +26,19 @@ import { Colors, Spacing } from '@/shared/constants/theme';
 
 const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
 const UPLOAD_CONCURRENCY_LIMIT = 3;
+const EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT = 1;
+const VIDEO_FILE_EXTENSIONS = new Set([
+  '.mp4',
+  '.mov',
+  '.m4v',
+  '.avi',
+  '.mkv',
+  '.webm',
+  '.mts',
+  '.m2ts',
+  '.mpg',
+  '.mpeg',
+]);
 
 type UploadSession = OperatorUploadInitResponse & {
   mimeType?: string | null;
@@ -49,6 +62,7 @@ type UploadFileState = {
   status: UploadItemStatus;
   batch_id?: string | null;
   error?: string | null;
+  requiresLocalCopy?: boolean;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -102,6 +116,53 @@ function selectedAssetMimeType(asset: ImagePicker.ImagePickerAsset): string {
   return asset.mimeType ?? 'video/mp4';
 }
 
+function filenameFromDocumentUri(uri: string, index: number): string {
+  try {
+    const decoded = decodeURIComponent(uri.split('?')[0]);
+    const candidate = decoded.split('/').filter(Boolean).pop();
+    if (candidate && candidate.includes('.')) return candidate;
+  } catch {
+    // Fall through to a deterministic fallback when Android returns a malformed URI.
+  }
+  return `external_footage_${Date.now()}_${index + 1}.mp4`;
+}
+
+function fileExtension(filename: string): string {
+  const dotIndex = filename.lastIndexOf('.');
+  return dotIndex >= 0 ? filename.slice(dotIndex).toLowerCase() : '';
+}
+
+function isSupportedVideoFilename(filename: string): boolean {
+  return VIDEO_FILE_EXTENSIONS.has(fileExtension(filename));
+}
+
+function mimeTypeForFilename(filename: string): string {
+  switch (fileExtension(filename)) {
+    case '.mov':
+      return 'video/quicktime';
+    case '.m4v':
+      return 'video/x-m4v';
+    case '.avi':
+      return 'video/x-msvideo';
+    case '.mkv':
+      return 'video/x-matroska';
+    case '.webm':
+      return 'video/webm';
+    case '.mts':
+    case '.m2ts':
+      return 'video/mp2t';
+    case '.mpg':
+    case '.mpeg':
+      return 'video/mpeg';
+    default:
+      return 'video/mp4';
+  }
+}
+
+function cacheSafeFilename(filename: string): string {
+  return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
+}
+
 export default function PipelineScreen() {
   const router = useRouter();
   const {
@@ -130,6 +191,7 @@ export default function PipelineScreen() {
   const [requests, setRequests] = useState<ReprocessRow[]>([]);
   const [triggering, setTriggering] = useState(false);
   const [resetting, setResetting] = useState(false);
+  const [selectingExternalStorage, setSelectingExternalStorage] = useState(false);
   const [uploadItems, setUploadItems] = useState<UploadFileState[]>([]);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
@@ -211,45 +273,68 @@ export default function PipelineScreen() {
 
   const uploadAssetToSession = async (item: UploadFileState, session: UploadSession) => {
     if (!session.uploadUrl) throw new Error(`Missing upload URL for ${item.filename}`);
+
+    let uploadUri = item.uri;
+    let temporaryUploadUri: string | null = null;
     updateUploadItem(item.id, {
-      status: 'uploading',
+      status: item.requiresLocalCopy ? 'initializing' : 'uploading',
       progress: 0,
       batch_id: session.batch_id,
       error: null,
       filename: session.filename || item.filename,
     });
 
-    const task = FileSystem.createUploadTask(
-      session.uploadUrl,
-      item.uri,
-      {
-        httpMethod: 'PUT',
-        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-        headers: { 'Content-Type': item.mimeType },
-      },
-      (progress) => {
-        const expected = progress.totalBytesExpectedToSend || 1;
-        const pct = Math.round((progress.totalBytesSent / expected) * 100);
-        updateUploadItem(item.id, { progress: pct });
+    try {
+      if (item.requiresLocalCopy) {
+        if (!FileSystem.cacheDirectory) {
+          throw new Error('App cache is unavailable for the selected SD / USB video.');
+        }
+        temporaryUploadUri = `${FileSystem.cacheDirectory}sportreel-upload-${Date.now()}-${cacheSafeFilename(item.id)}-${cacheSafeFilename(item.filename)}`;
+        await FileSystem.copyAsync({ from: item.uri, to: temporaryUploadUri });
+        uploadUri = temporaryUploadUri;
+        updateUploadItem(item.id, { status: 'uploading' });
       }
-    );
-    const uploadResult = await task.uploadAsync();
-    if (!uploadResult || uploadResult.status >= 300) {
-      throw new Error(`Upload failed with status ${uploadResult?.status}`);
-    }
 
-    if (session.storage_key) {
-      const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storage_key: session.storage_key }),
-      });
-      if (!verified.exists) {
-        throw new Error(`Upload finished but R2 verification failed for ${session.storage_key}`);
+      const task = FileSystem.createUploadTask(
+        session.uploadUrl,
+        uploadUri,
+        {
+          httpMethod: 'PUT',
+          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+          headers: { 'Content-Type': item.mimeType },
+        },
+        (progress) => {
+          const expected = progress.totalBytesExpectedToSend || 1;
+          const pct = Math.round((progress.totalBytesSent / expected) * 100);
+          updateUploadItem(item.id, { progress: pct });
+        }
+      );
+      const uploadResult = await task.uploadAsync();
+      if (!uploadResult || uploadResult.status >= 300) {
+        throw new Error(`Upload failed with status ${uploadResult?.status}`);
+      }
+
+      if (session.storage_key) {
+        const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ storage_key: session.storage_key }),
+        });
+        if (!verified.exists) {
+          throw new Error(`Upload finished but R2 verification failed for ${session.storage_key}`);
+        }
+      }
+
+      updateUploadItem(item.id, { status: 'verified', progress: 100, batch_id: session.batch_id, error: null });
+    } finally {
+      if (temporaryUploadUri) {
+        try {
+          await FileSystem.deleteAsync(temporaryUploadUri, { idempotent: true });
+        } catch {
+          // Cache cleanup must not hide the upload result.
+        }
       }
     }
-
-    updateUploadItem(item.id, { status: 'verified', progress: 100, batch_id: session.batch_id, error: null });
   };
 
   const retryUploadItem = async (item: UploadFileState) => {
@@ -277,33 +362,7 @@ export default function PipelineScreen() {
     }
   };
 
-  const uploadFootage = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert('Permission required', 'Please allow access to your media library.');
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: 'videos',
-      allowsMultipleSelection: true,
-      videoMaxDuration: 7200,
-    });
-    if (result.canceled || !result.assets?.length) return;
-
-    const items: UploadFileState[] = result.assets.map((asset, index) => {
-      const filename = selectedAssetFilename(asset, index);
-      return {
-        id: `${Date.now()}_${index}_${filename}`,
-        uri: asset.uri,
-        filename,
-        mimeType: selectedAssetMimeType(asset),
-        progress: 0,
-        status: 'queued',
-        batch_id: activeBatchId,
-        error: null,
-      };
-    });
+  const uploadSelectedItems = async (items: UploadFileState[]) => {
     setUploadItems(items);
 
     try {
@@ -325,7 +384,10 @@ export default function PipelineScreen() {
 
       const results: PromiseSettledResult<void>[] = new Array(items.length);
       let nextIndex = 0;
-      const workerCount = Math.min(UPLOAD_CONCURRENCY_LIMIT, items.length);
+      const concurrencyLimit = items.some((item) => item.requiresLocalCopy)
+        ? EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT
+        : UPLOAD_CONCURRENCY_LIMIT;
+      const workerCount = Math.min(concurrencyLimit, items.length);
       await Promise.all(
         Array.from({ length: workerCount }, async () => {
           while (nextIndex < items.length) {
@@ -369,9 +431,85 @@ export default function PipelineScreen() {
     }
   };
 
+  const uploadFootage = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert('Permission required', 'Please allow access to your media library.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: 'videos',
+      allowsMultipleSelection: true,
+      videoMaxDuration: 7200,
+    });
+    if (result.canceled || !result.assets?.length) return;
+
+    const items: UploadFileState[] = result.assets.map((asset, index) => {
+      const filename = selectedAssetFilename(asset, index);
+      return {
+        id: `${Date.now()}_${index}_${filename}`,
+        uri: asset.uri,
+        filename,
+        mimeType: selectedAssetMimeType(asset),
+        progress: 0,
+        status: 'queued',
+        batch_id: activeBatchId,
+        error: null,
+      };
+    });
+    await uploadSelectedItems(items);
+  };
+
+  const uploadExternalStorageFolder = async () => {
+    if (Platform.OS !== 'android') {
+      Alert.alert('Android only', 'Direct SD / USB folder upload is currently available on Android.');
+      return;
+    }
+
+    setSelectingExternalStorage(true);
+    try {
+      const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
+      if (!permission.granted) return;
+
+      const documentUris = await FileSystem.StorageAccessFramework.readDirectoryAsync(permission.directoryUri);
+      const videoDocuments = documentUris
+        .map((uri, index) => ({ uri, filename: filenameFromDocumentUri(uri, index) }))
+        .filter((document) => isSupportedVideoFilename(document.filename))
+        .sort((left, right) => left.filename.localeCompare(right.filename));
+
+      if (!videoDocuments.length) {
+        Alert.alert(
+          'No videos found',
+          'Choose the SD / USB folder that directly contains the video clips, then try again.'
+        );
+        return;
+      }
+
+      const items: UploadFileState[] = videoDocuments.map((document, index) => ({
+        id: `${Date.now()}_external_${index}_${document.filename}`,
+        uri: document.uri,
+        filename: document.filename,
+        mimeType: mimeTypeForFilename(document.filename),
+        progress: 0,
+        status: 'queued',
+        batch_id: activeBatchId,
+        error: null,
+        requiresLocalCopy: true,
+      }));
+
+      setSelectingExternalStorage(false);
+      await uploadSelectedItems(items);
+    } catch (e) {
+      handleOperatorError(e);
+    } finally {
+      setSelectingExternalStorage(false);
+    }
+  };
+
   const uploadBusy = uploadItems.some((item) => ['queued', 'initializing', 'uploading'].includes(item.status));
   const verifiedUploads = uploadItems.filter((item) => item.status === 'verified').length;
-  const busy = triggering || resetting || uploadBusy;
+  const busy = triggering || resetting || selectingExternalStorage || uploadBusy;
 
   return (
     <SafeArea>
@@ -415,12 +553,26 @@ export default function PipelineScreen() {
 
             <Button label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy} variant="secondary" style={{ height: 44 }} />
             <Button
-              label={uploadBusy ? `Uploading ${verifiedUploads}/${uploadItems.length}...` : 'Upload footage'}
+              label={uploadBusy ? `Uploading ${verifiedUploads}/${uploadItems.length}...` : 'Upload from gallery'}
               onPress={uploadFootage}
               disabled={busy}
               variant="secondary"
               style={{ height: 44 }}
             />
+            {Platform.OS === 'android' && (
+              <>
+                <Button
+                  label={selectingExternalStorage ? 'Opening SD / USB...' : 'Upload from SD / USB folder'}
+                  onPress={uploadExternalStorageFolder}
+                  disabled={busy}
+                  variant="secondary"
+                  style={{ height: 44 }}
+                />
+                <Text variant="caption" color={Colors.textSecondary}>
+                  Select the folder on the connected card or USB drive that directly contains the video clips.
+                </Text>
+              </>
+            )}
             <Button label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
             {uploadItems.length > 0 && (
               <View style={{ gap: Spacing.sm }}>
