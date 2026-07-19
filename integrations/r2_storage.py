@@ -195,8 +195,10 @@ def download_video(file_id_or_key: str, filename: str) -> str:
 
 
 def upload_draft(draft_path: str, draft_name: str) -> str:
+    """Upload to REVIEW and return the canonical immutable R2 object key."""
     key = _join(REVIEW_PREFIX, draft_name)
-    return upload_object(draft_path, key, "video/mp4")
+    upload_object(draft_path, key, "video/mp4")
+    return key
 
 
 def upload_preview(preview_path: str, preview_name: str) -> str:
