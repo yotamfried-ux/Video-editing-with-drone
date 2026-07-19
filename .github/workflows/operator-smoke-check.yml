@@ -6,11 +6,20 @@ on:
       - '.github/workflows/operator-smoke.yml'
       - '.github/workflows/operator-smoke-check.yml'
       - '.github/workflows/pipeline-run.yml'
+      - 'README.md'
       - 'docs/app-pipeline-audit.md'
       - 'docs/operator-api-contracts.md'
       - 'docs/operator-pipeline-contract.md'
       - 'docs/operator-smoke.md'
       - 'docs/qa-reedit-migration-smoke.md'
+      - 'docs/audit/personal-publishable-reel-completion-plan-20260717.md'
+      - 'web-api/src/lib/operator-draft-approve.ts'
+      - 'web-api/src/lib/draft-publishability.ts'
+      - 'scripts/test_pipeline_logical_consistency_integration.py'
+      - 'pipeline/stages/selector_candidates.py'
+      - 'pipeline/subject_gate_policy.py'
+      - 'pipeline/rendered_timeline.py'
+      - 'docs/audit/cross-layer-logical-consistency-test-basis-20260717.md'
       - 'docs/audit/run-29165422772-four-gap-repair-plan.md'
       - 'integrations/drive.py'
       - 'integrations/r2_storage.py'
@@ -22,6 +31,10 @@ on:
       - 'sitecustomize.py'
       - 'pipeline/athlete_canonicalization.py'
       - 'pipeline/bootstrap.py'
+      - 'pipeline/performance_reel_policy.py'
+      - 'pipeline/publishable_reel_policy.py'
+      - 'pipeline/silent_output_policy.py'
+      - 'pipeline/publishable_qa_evidence.py'
       - 'pipeline/r2_batch_scope.py'
       - 'pipeline/chunk_timeline_runtime.py'
       - 'pipeline/context_qa_gate.py'
@@ -44,6 +57,7 @@ on:
       - 'pipeline/stages/identity.py'
       - 'pipeline/window_policy.py'
       - 'requirements.txt'
+      - 'scripts/check_publishable_reel_manifest.py'
       - 'scripts/check_qa_reedit_schema.py'
       - 'scripts/verify_qa_reedit_tasks.py'
       - 'scripts/operator_smoke.py'
@@ -84,6 +98,7 @@ on:
       - 'scripts/test_pipeline_quality_contract.py'
       - 'scripts/test_pipeline_status_stale_contract.py'
       - 'scripts/test_premature_cut_qa_gate_contract.py'
+      - 'scripts/test_publishable_reel_business_contract.py'
       - 'scripts/test_qa_policy_trace_contract.py'
       - 'scripts/test_qa_reedit_loop_contract.py'
       - 'scripts/test_qa_reedit_reason_fallback_contract.py'
@@ -92,6 +107,7 @@ on:
       - 'scripts/test_qa_reedit_window_contract.py'
       - 'scripts/test_run_quality_report_contract.py'
       - 'scripts/test_selection_decision_audit_contract.py'
+      - 'scripts/test_silent_output_policy_contract.py'
       - 'scripts/test_single_athlete_selection_policy_contract.py'
       - 'scripts/test_source_window_dedup_contract.py'
       - 'scripts/test_storage_contract.py'
@@ -162,49 +178,51 @@ jobs:
           pipeline_screen = Path('mobile/src/app/(operator)/pipeline.tsx').read_text(encoding='utf-8')
 
           required_upload = [
-              'files?: UploadFileInput[]',
-              'normalizeUploadFiles',
-              'uploadFilename',
-              'createR2UploadUrl(file.uploadFilename, batchId)',
-              'createUploadSession(file.uploadFilename, rawFolder, file.mimeType)',
-              'source_filename: file.filename',
-              'storage_key: upload.key',
+            'files?: UploadFileInput[]',
+            'normalizeUploadFiles',
+            'uploadFilename',
+            'createR2UploadUrl(file.uploadFilename, batchId)',
+            'createUploadSession(file.uploadFilename, rawFolder, file.mimeType)',
+            'source_filename: file.filename',
+            'storage_key: upload.key',
           ]
           missing_upload = [token for token in required_upload if token not in upload_route]
           if missing_upload:
-              raise SystemExit(f'multi-upload route missing: {missing_upload}')
+            raise SystemExit(f'multi-upload route missing: {missing_upload}')
           forbidden_upload = [
-              'createR2UploadUrl(file.filename, batchId)',
-              'createUploadSession(file.filename, rawFolder, file.mimeType)',
+            'createR2UploadUrl(file.filename, batchId)',
+            'createUploadSession(file.filename, rawFolder, file.mimeType)',
           ]
           present_upload = [token for token in forbidden_upload if token in upload_route]
           if present_upload:
-              raise SystemExit(f'multi-upload route uses unsafe storage names: {present_upload}')
+            raise SystemExit(f'multi-upload route uses unsafe storage names: {present_upload}')
 
           required_mobile = [
-              'allowsMultipleSelection: true',
-              'UPLOAD_CONCURRENCY_LIMIT',
-              'workerCount',
-              'while (nextIndex < items.length)',
-              'uploadAssetToSession(item, session)',
-              'Upload batch progress',
-              'Retry',
+            'allowsMultipleSelection: true',
+            'UPLOAD_CONCURRENCY_LIMIT',
+            'workerCount',
+            'while (nextIndex < items.length)',
+            'uploadAssetToSession(item, session)',
+            'Upload batch progress',
+            'Retry',
           ]
           missing_mobile = [token for token in required_mobile if token not in pipeline_screen]
           if missing_mobile:
-              raise SystemExit(f'mobile upload missing: {missing_mobile}')
+            raise SystemExit(f'mobile upload missing: {missing_mobile}')
           forbidden_mobile = [
-              'allowsMultipleSelection: false',
-              'const asset = result.assets[0]',
-              'items.map(async (item, index)',
-              'setUploadProgress',
-              'uploadProgress !== null',
+            'allowsMultipleSelection: false',
+            'const asset = result.assets[0]',
+            'items.map(async (item, index)',
+            'setUploadProgress',
+            'uploadProgress !== null',
           ]
           present_mobile = [token for token in forbidden_mobile if token in pipeline_screen]
           if present_mobile:
-              raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
+            raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
           print('Multi-upload batch contract checks passed')
           PY
+      - name: Validate cross-layer logical consistency
+        run: python scripts/test_pipeline_logical_consistency_integration.py
       - name: Validate Bootstrap parity contract
         run: PYTHONPATH=scripts:. python scripts/test_bootstrap_parity_contract.py
       - name: Validate Batch scope contract
@@ -225,10 +243,14 @@ jobs:
         run: python scripts/test_chunk_identity_timeline_contract.py
       - name: Validate Draft identity lineage contract
         run: python scripts/test_draft_identity_lineage_contract.py
-      - name: Validate Primary actor selection policy contract
+      - name: Validate Primary athlete selection policy contract
         run: python scripts/test_single_athlete_selection_policy_contract.py
+      - name: Validate Silent output runtime contract
+        run: python scripts/test_silent_output_policy_contract.py
       - name: Validate Athlete coverage report contract
         run: python scripts/test_athlete_coverage_report_contract.py
+      - name: Validate Publishable reel business contract
+        run: python scripts/test_publishable_reel_business_contract.py
       - name: Validate Selection decision audit contract
         run: python scripts/test_selection_decision_audit_contract.py
       - name: Validate Primary actor continuity gate contract

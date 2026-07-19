@@ -43,12 +43,12 @@ def main() -> int:
         raise SystemExit("duplicate drop was not persisted to artifact")
 
     text = (ROOT / "pipeline/final_duplicate_guard.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     audit = (ROOT / "docs/pipeline-quality-audit-real-run-20260705.md").read_text(encoding="utf-8")
     for token in ["remove_duplicate_events", "_duplicate_reason", "DUPLICATE_MOMENT", "_patch_editor"]:
         if token not in text:
             raise SystemExit(f"missing token: {token}")
-    if "from pipeline.final_duplicate_guard import install" not in boot:
+    if "pipeline.final_duplicate_guard" not in boot:
         raise SystemExit("guard not bootstrapped")
     if "REAL-DUP-001" not in audit:
         raise SystemExit("audit missing REAL-DUP-001")

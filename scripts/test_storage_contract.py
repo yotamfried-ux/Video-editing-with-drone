@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 
 def _read(path: str) -> str:
@@ -40,14 +42,46 @@ def require_upload_queue_contract(pipeline_screen: str) -> None:
 
 
 def require_review_watch_label_contract(review_screen: str) -> None:
-    require_tokens("review watch label", review_screen, ['label="Watch draft"'])
-    require_no_tokens("review legacy storage label", review_screen, ["Watch in Drive"])
+    require_tokens(
+        "review watch label",
+        review_screen,
+        ['label="Watch performance reel"'],
+    )
+    require_no_tokens(
+        "review legacy storage label",
+        review_screen,
+        ["Watch in Drive"],
+    )
+
+
+def require_r2_draft_identity_contract() -> None:
+    """A draft upload returns the same immutable key listed by the operator API."""
+    import integrations.r2_storage as r2
+
+    calls: list[tuple[str, str, str | None]] = []
+    original = r2.upload_object
+
+    def fake_upload(local_path: str, key: str, content_type: str | None = None) -> str:
+        calls.append((local_path, key, content_type))
+        return "https://example.invalid/signed-review-url"
+
+    r2.upload_object = fake_upload
+    try:
+        identity = r2.upload_draft("/tmp/part.mp4", "DRAFT_target.mp4")
+    finally:
+        r2.upload_object = original
+
+    if identity != "review/DRAFT_target.mp4":
+        raise SystemExit(f"R2 draft upload returned a URL/noncanonical identity: {identity!r}")
+    if calls != [("/tmp/part.mp4", "review/DRAFT_target.mp4", "video/mp4")]:
+        raise SystemExit(f"R2 draft upload used an unexpected object key: {calls}")
 
 
 def main() -> int:
     storage = _read("integrations/storage.py")
     r2 = _read("integrations/r2_storage.py")
     run_tracked = _read("scripts/run_tracked.py")
+    bootstrap = _read("pipeline/bootstrap.py")
     deliver = _read("deliver.py")
     pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
     review_screen = _read("mobile/src/app/(operator)/review.tsx")
@@ -79,13 +113,13 @@ def main() -> int:
         "r2 adapter",
         r2,
         [
-            "RAW_PREFIX = \"raw/\"",
-            "PROCESSED_PREFIX = \"processed/\"",
-            "REVIEW_PREFIX = \"review/\"",
-            "APPROVED_PREFIX = \"approved/\"",
-            "PENDING_PAYMENT_PREFIX = \"pending_payment/\"",
-            "PREVIEWS_PREFIX = \"previews/\"",
-            "METADATA_PREFIX = \"metadata/\"",
+            'RAW_PREFIX = "raw/"',
+            'PROCESSED_PREFIX = "processed/"',
+            'REVIEW_PREFIX = "review/"',
+            'APPROVED_PREFIX = "approved/"',
+            'PENDING_PAYMENT_PREFIX = "pending_payment/"',
+            'PREVIEWS_PREFIX = "previews/"',
+            'METADATA_PREFIX = "metadata/"',
             "R2_ACCOUNT_ID",
             "R2_ACCESS_KEY_ID",
             "R2_SECRET_ACCESS_KEY",
@@ -100,6 +134,7 @@ def main() -> int:
             "client.head_object(Bucket=_bucket(), Key=dest_key)",
             "def get_new_videos()",
             "def upload_draft(draft_path: str, draft_name: str)",
+            "return key",
             "def get_pending_payment_drafts()",
             "def move_to_pending_payment(file_id_or_key: str)",
             "def delete_review_drafts()",
@@ -122,16 +157,24 @@ def main() -> int:
     )
 
     require_tokens(
-        "tracked pipeline storage routing",
+        "tracked pipeline canonical storage routing",
         run_tracked,
+        [
+            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+            "install_pre_orchestrator_patches()",
+            "import pipeline.orchestrator as _orchestrator",
+        ],
+    )
+    require_tokens(
+        "canonical storage backend alias",
+        bootstrap,
         [
             "def _install_storage_backend_alias()",
             'os.getenv("STORAGE_BACKEND", "drive")',
-            "if backend == \"drive\":",
+            'if backend == "drive":',
             "import integrations.storage as storage",
             'sys.modules["integrations.drive"] = storage',
             "_install_storage_backend_alias()",
-            "import pipeline.orchestrator as _orchestrator",
         ],
     )
 
@@ -147,6 +190,7 @@ def main() -> int:
         ],
     )
 
+    require_r2_draft_identity_contract()
     require_upload_queue_contract(pipeline_screen)
     require_review_watch_label_contract(review_screen)
 

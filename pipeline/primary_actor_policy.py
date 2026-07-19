@@ -1,8 +1,9 @@
-"""Sport-agnostic primary-actor continuity policy.
+"""Sport-agnostic primary-athlete continuity policy.
 
-People in the background are normal in surfing, football, basketball, cycling,
-and most other sports. A clip is unsafe only when the athlete performing the
-highlight cannot be followed reliably through the action.
+A personal reel is centered on one target athlete; it does not require an empty
+frame or a solo action. Teammates, opponents, officials, bystanders, and even
+another surfer on the same wave are allowed when the target athlete remains the
+clear, continuous subject and the featured action is attributable to them.
 """
 from __future__ import annotations
 
@@ -13,6 +14,7 @@ IDENTITY_SWITCH = "IDENTITY_SWITCH"
 PRIMARY_ACTOR_OCCLUDED = "PRIMARY_ACTOR_OCCLUDED"
 MIN_PRIMARY_ACTOR_CONFIDENCE = 0.55
 FOCUSED_SUBWINDOW_SCOPE = "focused_subwindow"
+FOCUSED_SUBWINDOW_PENDING_SCOPE = "focused_subwindow_pending_validation"
 
 _BAD_STATUS_VALUES = {
     "ambiguous",
@@ -26,6 +28,16 @@ _BAD_STATUS_VALUES = {
     "blocked",
 }
 
+_STABLE_STATUS_VALUES = {
+    "clear",
+    "continuous",
+    "followed",
+    "stable",
+    "tracked",
+}
+
+# These are true identity/continuity failures and remain blocking regardless of
+# how many other people are visible.
 _TRUE_AMBIGUITY_FIELDS = (
     "primary_actor_unclear",
     "actor_ambiguous",
@@ -36,6 +48,11 @@ _TRUE_AMBIGUITY_FIELDS = (
     "target_occluded_at_key_moment",
     "primary_actor_occluded_at_key_moment",
     "critical_occlusion",
+)
+
+# Active people around the target are context, not an automatic identity defect.
+# They become blocking only when the target athlete is not clearly attributable.
+_ACTIVE_CONTEXT_FIELDS = (
     "multiple_active_subjects",
     "competing_active_subjects",
     "competing_primary_actors",
@@ -59,6 +76,10 @@ def _float(value: Any) -> float | None:
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def _status(value: Any) -> str:
+    return str(value or "").strip().lower().replace("-", "_").replace(" ", "_")
 
 
 def primary_actor_id(event: dict[str, Any]) -> str | None:
@@ -92,30 +113,88 @@ def explicit_primary_actor_clear(event: dict[str, Any]) -> bool | None:
     return None
 
 
-def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any]:
-    """Clear broad-window ambiguity flags after selecting a focused sub-window.
+def _identity_statuses(event: dict[str, Any]) -> list[str]:
+    return [
+        _status(event.get(key))
+        for key in ("primary_actor_status", "identity_continuity", "actor_tracking_status")
+        if _status(event.get(key))
+    ]
 
-    The original evidence is retained for audit, but downstream gates evaluate the
-    focused window rather than stale identity/occlusion flags from the wider event.
-    Sidecar continuity and explicit target-presence checks still run afterwards.
+
+def _active_context_present(event: dict[str, Any]) -> bool:
+    return any(_bool(event.get(key)) is True for key in _ACTIVE_CONTEXT_FIELDS)
+
+
+def _target_is_clearly_centered(event: dict[str, Any]) -> bool:
+    """Require positive attribution evidence when other athletes are active.
+
+    An athlete ID by itself is not proof that the camera and action remain centered
+    on that athlete. Group plays and shared waves require all four positive signals:
+    canonical target identity, explicit actor clarity, stable continuity, and a
+    confidence value at or above the policy threshold.
+    """
+    clear = explicit_primary_actor_clear(event)
+    confidence = primary_actor_confidence(event)
+    statuses = _identity_statuses(event)
+    has_bad_status = any(value in _BAD_STATUS_VALUES for value in statuses)
+    has_stable_status = any(value in _STABLE_STATUS_VALUES for value in statuses)
+    has_identity = primary_actor_id(event) is not None
+    return (
+        not has_bad_status
+        and has_identity
+        and clear is True
+        and has_stable_status
+        and confidence is not None
+        and confidence >= MIN_PRIMARY_ACTOR_CONFIDENCE
+    )
+
+
+def _centered_evidence_gaps(event: dict[str, Any]) -> list[str]:
+    gaps: list[str] = []
+    if primary_actor_id(event) is None:
+        gaps.append("primary_actor_id:missing")
+    if explicit_primary_actor_clear(event) is not True:
+        gaps.append("primary_actor_clear:not_proven")
+    statuses = _identity_statuses(event)
+    if not any(value in _STABLE_STATUS_VALUES for value in statuses):
+        gaps.append("identity_continuity:not_proven_stable")
+    confidence = primary_actor_confidence(event)
+    if confidence is None:
+        gaps.append("primary_actor_confidence:missing")
+    elif confidence < MIN_PRIMARY_ACTOR_CONFIDENCE:
+        gaps.append(f"primary_actor_confidence:{confidence:.3f}")
+    return gaps
+
+
+def normalize_focused_subwindow_evidence(event: dict[str, Any]) -> dict[str, Any]:
+    """Scope broad-window defects without manufacturing new identity evidence.
+
+    Selecting a narrower time window is an edit decision, not an observation. Broad
+    ambiguity flags are retained for audit and removed from the focused evaluation,
+    but positive clarity, continuity, and confidence must be recomputed from sidecar
+    detections on the new window before publication.
     """
     normalized = dict(event)
     normalized["broad_window_ambiguity_reasons"] = ambiguity_reasons(event)
-    for key in _TRUE_AMBIGUITY_FIELDS:
+    for key in (*_TRUE_AMBIGUITY_FIELDS, *_ACTIVE_CONTEXT_FIELDS):
         normalized[key] = False
+    for key in (
+        "primary_actor_clear",
+        "target_actor_clear",
+        "main_athlete_clear",
+        "identity_continuity",
+        "primary_actor_status",
+        "actor_tracking_status",
+        "primary_actor_confidence",
+        "target_confidence",
+    ):
+        normalized.pop(key, None)
     normalized.update({
-        "primary_actor_clear": True,
-        "target_actor_clear": True,
-        "main_athlete_clear": True,
-        "identity_continuity": "stable",
-        "primary_actor_status": "stable",
-        "actor_tracking_status": "stable",
+        "primary_actor_evidence_scope": FOCUSED_SUBWINDOW_PENDING_SCOPE,
+        "focused_subwindow_requires_validation": True,
         "competing_active_subjects": False,
         "target_occluded_at_key_moment": False,
-        "primary_actor_evidence_scope": FOCUSED_SUBWINDOW_SCOPE,
     })
-    confidence = primary_actor_confidence(event)
-    normalized["primary_actor_confidence"] = max(0.75, confidence or 0.0)
     return normalized
 
 
@@ -126,7 +205,7 @@ def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
             reasons.append(key)
 
     for key in ("primary_actor_status", "identity_continuity", "actor_tracking_status"):
-        value = str(event.get(key) or "").strip().lower().replace("-", "_").replace(" ", "_")
+        value = _status(event.get(key))
         if value in _BAD_STATUS_VALUES:
             reasons.append(f"{key}:{value}")
 
@@ -138,10 +217,28 @@ def ambiguity_reasons(event: dict[str, Any]) -> list[str]:
     if confidence is not None and confidence < MIN_PRIMARY_ACTOR_CONFIDENCE:
         reasons.append(f"primary_actor_confidence:{confidence:.3f}")
 
-    # A focused sub-window has new scoped evidence. Do not reapply natural-language
-    # ambiguity phrases describing the wider event; deterministic sidecar gates still
-    # verify target presence and continuity in the focused cut itself.
-    if event.get("primary_actor_evidence_scope") != FOCUSED_SUBWINDOW_SCOPE:
+    # Multiple people may all be actively participating in the same play or wave.
+    # Allow that context only with positive centrality/identity evidence. Missing
+    # fields fail closed instead of letting an athlete_id alone imply ownership.
+    if _active_context_present(event) and not _target_is_clearly_centered(event):
+        reasons.extend(_centered_evidence_gaps(event))
+        for key in _ACTIVE_CONTEXT_FIELDS:
+            if _bool(event.get(key)) is True:
+                reasons.append(key)
+
+    pending_focused_validation = (
+        event.get("primary_actor_evidence_scope") == FOCUSED_SUBWINDOW_PENDING_SCOPE
+        or _bool(event.get("focused_subwindow_requires_validation")) is True
+    )
+    if pending_focused_validation:
+        reasons.append("focused_subwindow_validation_required")
+
+    # Do not reapply natural-language ambiguity phrases from the broad source window
+    # after a focused rescue. Deterministic sidecar evidence is still mandatory.
+    if event.get("primary_actor_evidence_scope") not in {
+        FOCUSED_SUBWINDOW_SCOPE,
+        FOCUSED_SUBWINDOW_PENDING_SCOPE,
+    }:
         text = f"{event.get('description', '')} {event.get('notes', '')}".lower()
         phrases = {
             "identity switches": "identity_switch_description",
@@ -174,15 +271,32 @@ def classify_primary_actor(
     visible_subject_count: int = 0,
     primary_continuity_ratio: float | None = None,
 ) -> dict[str, Any]:
-    """Classify whether the athlete performing the action remains followable.
+    """Classify whether the featured athlete remains centered and followable.
 
-    Additional visible people are explicitly non-blocking. The decision only
-    becomes review-required when identity/action attribution is uncertain.
+    Additional visible or active people are explicitly non-blocking. The decision
+    becomes review-required only when identity, continuity, or action attribution
+    to the featured athlete is uncertain.
     """
     reasons = ambiguity_reasons(event)
     actor_id = primary_actor_id(event)
     clear = explicit_primary_actor_clear(event)
     confidence = primary_actor_confidence(event)
+    pending_focused_validation = (
+        event.get("primary_actor_evidence_scope") == FOCUSED_SUBWINDOW_PENDING_SCOPE
+        or _bool(event.get("focused_subwindow_requires_validation")) is True
+    )
+    if (
+        pending_focused_validation
+        and actor_id is not None
+        and primary_continuity_ratio is not None
+        and primary_continuity_ratio >= 0.50
+    ):
+        reasons = [
+            reason for reason in reasons
+            if reason != "focused_subwindow_validation_required"
+        ]
+        clear = True
+        confidence = max(MIN_PRIMARY_ACTOR_CONFIDENCE, confidence or 0.0)
 
     if primary_continuity_ratio is not None and primary_continuity_ratio < 0.50:
         reasons.append(f"primary_continuity_ratio:{primary_continuity_ratio:.3f}")
@@ -198,6 +312,8 @@ def classify_primary_actor(
             "primary_actor_confidence": confidence,
             "primary_continuity_ratio": primary_continuity_ratio,
             "visible_subject_count": visible_subject_count,
+            "primary_athlete_centered": False,
+            "other_people_allowed": False,
             "background_people_allowed": False,
             "ambiguity_reasons": list(dict.fromkeys(reasons)),
         }
@@ -205,12 +321,14 @@ def classify_primary_actor(
     if actor_id or clear is True or (primary_continuity_ratio is not None and primary_continuity_ratio >= 0.50):
         return {
             "decision": "allowed_primary_actor_clear",
-            "reason": "primary_actor_continuous_background_people_allowed",
+            "reason": "primary_athlete_centered_other_people_allowed",
             "primary_actor_id": actor_id,
             "primary_actor_clear": clear,
             "primary_actor_confidence": confidence,
             "primary_continuity_ratio": primary_continuity_ratio,
             "visible_subject_count": visible_subject_count,
+            "primary_athlete_centered": True,
+            "other_people_allowed": visible_subject_count > 1,
             "background_people_allowed": visible_subject_count > 1,
             "ambiguity_reasons": [],
         }
@@ -221,6 +339,8 @@ def classify_primary_actor(
             "reason": "single_visible_subject",
             "primary_actor_id": actor_id,
             "visible_subject_count": visible_subject_count,
+            "primary_athlete_centered": True,
+            "other_people_allowed": False,
             "background_people_allowed": False,
             "ambiguity_reasons": [],
         }
@@ -231,6 +351,8 @@ def classify_primary_actor(
         "defect_type": PRIMARY_ACTOR_UNCLEAR,
         "primary_actor_id": None,
         "visible_subject_count": visible_subject_count,
+        "primary_athlete_centered": False,
+        "other_people_allowed": False,
         "background_people_allowed": False,
         "ambiguity_reasons": ["primary_actor_unknown"],
     }

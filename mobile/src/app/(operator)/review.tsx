@@ -1,14 +1,14 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
-  View,
-  StyleSheet,
+  ActivityIndicator,
+  Alert,
   FlatList,
   Linking,
-  RefreshControl,
   Modal,
+  RefreshControl,
+  StyleSheet,
   TextInput,
-  Alert,
-  ActivityIndicator,
+  View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
@@ -19,26 +19,11 @@ import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import type {
   ApproveDraftResponse,
-  DraftFeedbackResponse,
   DraftRow,
   DraftsResponse,
-  OperatorFeedbackEvent,
   ReprocessSubmitResponse,
 } from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
-
-// Structured feedback the operator can attach to a draft beyond Approve/Send
-// to re-edit — per docs/audit/self-learning-loop-audit-20260706.md Phase 8.
-// Event names mirror pipeline/candidate_ledger.py's OPERATOR_FEEDBACK_EVENTS.
-const FEEDBACK_FLAGS: { event: OperatorFeedbackEvent; label: string }[] = [
-  { event: 'WRONG_ATHLETE', label: 'Wrong athlete' },
-  { event: 'DUPLICATE_ATHLETE', label: 'Duplicate athlete' },
-  { event: 'MULTI_PERSON_CLIP', label: 'Mixed people' },
-  { event: 'CUT_TOO_EARLY', label: 'Cut too early' },
-  { event: 'BAD_CROP', label: 'Bad crop' },
-  { event: 'BORING', label: 'Boring' },
-  { event: 'MISSING_GOOD_MOMENT', label: 'Missed good moment' },
-];
 
 function formatSize(bytes: number | null): string {
   if (!bytes) return '';
@@ -51,15 +36,24 @@ function shortId(id?: string | null): string {
 }
 
 function draftIsApprovalBlocked(draft: DraftRow): boolean {
-  return Boolean(draft.approval_blocked || draft.review_required || draft.reedit_task || draft.name.toUpperCase().includes('QA-FLAGGED'));
+  return Boolean(
+    draft.approval_blocked
+      || draft.review_required
+      || draft.reedit_task
+      || draft.name.toUpperCase().includes('QA-FLAGGED'),
+  );
 }
 
 function approvalReasons(draft: DraftRow): string[] {
-  const taskReasons = Array.isArray(draft.reedit_task?.approval_blocked_reasons) ? draft.reedit_task.approval_blocked_reasons.filter(Boolean) : [];
-  const reasons = Array.isArray(draft.approval_blocked_reasons) ? draft.approval_blocked_reasons.filter(Boolean) : [];
+  const taskReasons = Array.isArray(draft.reedit_task?.approval_blocked_reasons)
+    ? draft.reedit_task.approval_blocked_reasons.filter(Boolean)
+    : [];
+  const reasons = Array.isArray(draft.approval_blocked_reasons)
+    ? draft.approval_blocked_reasons.filter(Boolean)
+    : [];
   if (taskReasons.length) return taskReasons;
   if (!reasons.length && draft.name.toUpperCase().includes('QA-FLAGGED')) {
-    return ['Draft is QA-FLAGGED and must be sent to re-edit or manually reviewed before approval.'];
+    return ['Final QA did not pass. Re-edit or manual review is required before approval.'];
   }
   return reasons;
 }
@@ -75,7 +69,24 @@ function reeditAttemptLabel(draft: DraftRow): string | null {
   if (!task) return null;
   const attempts = Number(task.attempt_count ?? 0);
   const max = Number(task.max_attempts ?? 3);
-  return `Re-edit task ${task.status} · attempt ${attempts}/${max}`;
+  return `Re-edit ${task.status} · attempt ${attempts}/${max}`;
+}
+
+function readableDraftLabel(name: string): { athlete: string; reel: string } {
+  const base = name.replace(/^DRAFT_/i, '').replace(/\.mp4$/i, '');
+  const part = base.match(/(?:^|[\s_(])part\s+(\d+)(?=$|[\s_)])/i)?.[1];
+  const athlete = base
+    .replace(/(?:^|[\s_(])part\s+\d+(?=$|[\s_)])/gi, ' ')
+    .replace(/(?:^|[\s_(])music(?=$|[\s_)])/gi, ' ')
+    .replace(/QA-FLAGGED/gi, ' ')
+    .replace(/(?:^|[_\s])\d{8}(?=$|[_\s])/g, ' ')
+    .replace(/[()_]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return {
+    athlete: athlete || 'Athlete',
+    reel: part ? `Performance reel · Part ${part}` : 'Performance reel',
+  };
 }
 
 function showApprovalResult(result: ApproveDraftResponse) {
@@ -86,10 +97,9 @@ function showApprovalResult(result: ApproveDraftResponse) {
     );
     return;
   }
-
   Alert.alert(
     'Approved, delivery not started',
-    `The draft moved to APPROVED, but no delivery workflow was started. Delivery run: ${shortId(result.delivery_run_id)}. Check Delivery status before retrying.`,
+    `The reel moved to APPROVED, but no delivery workflow was started. Delivery run: ${shortId(result.delivery_run_id)}.`,
   );
 }
 
@@ -103,30 +113,27 @@ export default function OperatorReviewScreen() {
   const [reeditTarget, setReeditTarget] = useState<DraftRow | null>(null);
   const [reeditNotes, setReeditNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
-  const [submittingFlag, setSubmittingFlag] = useState<string | null>(null);
 
-  const handleOperatorError = (e: unknown) => {
-    const msg = e instanceof Error ? e.message : 'Unknown error';
-    if (msg.includes('secret not set')) {
-      Alert.alert('Operator secret required', msg, [
+  const handleOperatorError = (error: unknown) => {
+    const message = error instanceof Error ? error.message : 'Unknown error';
+    if (message.includes('secret not set')) {
+      Alert.alert('Operator secret required', message, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Go to Settings', onPress: () => router.push('/(operator)/settings' as never) },
       ]);
-    } else {
-      Alert.alert('Failed', msg);
+      return;
     }
+    Alert.alert('Failed', message);
   };
 
   const load = useCallback(async () => {
     try {
-      const { drafts: data } = await operatorFetch<DraftsResponse>(
-        '/api/operator/drafts'
-      );
+      const { drafts: data } = await operatorFetch<DraftsResponse>('/api/operator/drafts');
       setDrafts(data ?? []);
       setLoadError(null);
-    } catch (e) {
+    } catch (error) {
       setDrafts([]);
-      setLoadError(e instanceof Error ? e.message : 'Failed to load drafts');
+      setLoadError(error instanceof Error ? error.message : 'Failed to load drafts');
     } finally {
       setLoaded(true);
     }
@@ -146,17 +153,16 @@ export default function OperatorReviewScreen() {
   };
 
   const approve = (draft: DraftRow) => {
-    const blocked = draftIsApprovalBlocked(draft);
-    if (blocked) {
+    if (draftIsApprovalBlocked(draft)) {
       Alert.alert(
         'Approval blocked',
-        `${draft.name} requires review before approval. Send it to re-edit or clear the QA block first.\n\n${approvalReasons(draft).join('\n')}`
+        `${draft.name} did not pass final QA. Send it to re-edit before approval.\n\n${approvalReasons(draft).join('\n')}`,
       );
       return;
     }
     Alert.alert(
-      'Approve this reel?',
-      `"${draft.name}" will move to APPROVED and start the delivery workflow now.`,
+      'Approve this performance reel?',
+      'The reel will move to APPROVED and the delivery workflow will start.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -169,21 +175,18 @@ export default function OperatorReviewScreen() {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                   file_id: draft.id,
-                  file_name: draft.name,
-                  review_required: draft.review_required,
-                  approval_blocked_reasons: draft.approval_blocked_reasons,
                 }),
               });
-              setDrafts((d) => d.filter((x) => x.id !== draft.id));
+              setDrafts((current) => current.filter((item) => item.id !== draft.id));
               showApprovalResult(result);
-            } catch (e) {
-              handleOperatorError(e);
+            } catch (error) {
+              handleOperatorError(error);
             } finally {
               setApproving(null);
             }
           },
         },
-      ]
+      ],
     );
   };
 
@@ -191,7 +194,7 @@ export default function OperatorReviewScreen() {
     if (!reeditTarget) return;
     setSubmitting(true);
     try {
-      const { pipeline_run_id: pipelineRunId } = await operatorFetch<ReprocessSubmitResponse>('/api/operator/reprocess', {
+      const result = await operatorFetch<ReprocessSubmitResponse>('/api/operator/reprocess', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -205,29 +208,12 @@ export default function OperatorReviewScreen() {
       await load();
       Alert.alert(
         'Sent for re-edit',
-        `Pipeline run: ${shortId(pipelineRunId)}. Check Pipeline status for progress.`
+        `Pipeline run: ${shortId(result.pipeline_run_id)}. Check Pipeline status for progress.`,
       );
-    } catch (e) {
-      handleOperatorError(e);
+    } catch (error) {
+      handleOperatorError(error);
     } finally {
       setSubmitting(false);
-    }
-  };
-
-  const submitFlag = async (draft: DraftRow, event: OperatorFeedbackEvent, label: string) => {
-    const flagKey = `${draft.id}:${event}`;
-    setSubmittingFlag(flagKey);
-    try {
-      await operatorFetch<DraftFeedbackResponse>('/api/operator/drafts/feedback', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft_name: draft.name, feedback_event: event }),
-      });
-      Alert.alert('Feedback recorded', `"${label}" noted for ${draft.name}.`);
-    } catch (e) {
-      handleOperatorError(e);
-    } finally {
-      setSubmittingFlag(null);
     }
   };
 
@@ -239,68 +225,77 @@ export default function OperatorReviewScreen() {
         <OperatorNav />
         <FlatList
           data={drafts}
-          keyExtractor={(d) => d.id}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={Colors.accent} />}
-          ListHeaderComponent={
-            <View style={{ marginBottom: Spacing.md, gap: Spacing.sm }}>
+          keyExtractor={(draft) => draft.id}
+          refreshControl={(
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Colors.accent}
+            />
+          )}
+          ListHeaderComponent={(
+            <View style={styles.header}>
               <Text variant="display">Review</Text>
               <Text variant="caption" color={Colors.textSecondary}>
-                Drafts waiting for your approval · pull to refresh
+                Performance reels waiting for review · pull to refresh
               </Text>
               {blockedCount > 0 && (
                 <Card bordered style={styles.operatorAlert}>
-                  <Text variant="title">{blockedCount} draft{blockedCount === 1 ? '' : 's'} require QA re-edit</Text>
+                  <Text variant="title">
+                    {blockedCount} reel{blockedCount === 1 ? '' : 's'} did not pass final QA
+                  </Text>
                   <Text variant="caption" color={Colors.textSecondary}>
-                    Approval is blocked. Open each draft and send the QA notes to re-edit before approving.
+                    Approval is blocked until the reel is regenerated and passes QA.
                   </Text>
                 </Card>
               )}
             </View>
-          }
-          ListEmptyComponent={
+          )}
+          ListEmptyComponent={(
             !loaded ? (
-              <ActivityIndicator color={Colors.accent} style={{ marginTop: Spacing.xl }} />
+              <ActivityIndicator color={Colors.accent} style={styles.loading} />
             ) : loadError ? (
-              <Card bordered style={{ gap: Spacing.sm, borderColor: Colors.danger }}>
+              <Card bordered style={styles.errorCard}>
                 <Text variant="title">Could not load drafts</Text>
                 <Text variant="caption" color={Colors.textSecondary}>{loadError}</Text>
               </Card>
             ) : (
               <Text variant="body" color={Colors.textSecondary}>
-                No drafts waiting for review.
+                No performance reels are waiting for review.
               </Text>
             )
-          }
-          ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
+          )}
+          ItemSeparatorComponent={() => <View style={styles.separator} />}
           renderItem={({ item }) => {
             const blocked = draftIsApprovalBlocked(item);
             const reasons = approvalReasons(item);
             const attemptLabel = reeditAttemptLabel(item);
+            const label = readableDraftLabel(item.name);
             return (
-              <Card bordered style={{ gap: Spacing.sm, borderColor: blocked ? Colors.danger : Colors.cardBorder }}>
-                <Text variant="title" numberOfLines={2}>{item.name}</Text>
+              <Card bordered style={[styles.draftCard, blocked && styles.blockedCard]}>
+                <Text variant="title" numberOfLines={2}>{label.athlete}</Text>
+                <Text variant="body" color={Colors.accent}>{label.reel}</Text>
                 <Text variant="caption" color={Colors.textSecondary}>
                   {new Date(item.created_at).toLocaleString()}
                   {item.size ? ` · ${formatSize(item.size)}` : ''}
                 </Text>
-                {blocked && (
-                  <View style={styles.qaBlock}>
-                    <Text variant="title">QA blocked — re-edit required</Text>
-                    <Text variant="caption" color={Colors.textSecondary}>
-                      This draft has a persistent QA task. Send it to re-edit with the QA notes, then review the regenerated draft.
-                    </Text>
-                    {attemptLabel && <Text variant="caption" color={Colors.textSecondary}>{attemptLabel}</Text>}
-                    {reasons.slice(0, 3).map((r) => (
-                      <Text key={r} variant="caption" color={Colors.textSecondary}>• {r}</Text>
-                    ))}
-                  </View>
-                )}
+
+                <View style={[styles.statusBox, blocked ? styles.statusBlocked : styles.statusReady]}>
+                  <Text variant="title">{blocked ? 'QA failed · re-edit required' : 'QA passed · ready to review'}</Text>
+                  {attemptLabel && (
+                    <Text variant="caption" color={Colors.textSecondary}>{attemptLabel}</Text>
+                  )}
+                  {blocked && reasons.slice(0, 3).map((reason) => (
+                    <Text key={reason} variant="caption" color={Colors.textSecondary}>• {reason}</Text>
+                  ))}
+                </View>
+
                 {item.watch_url && (
                   <Button
-                    label="Watch draft"
+                    label="Watch performance reel"
                     onPress={() => Linking.openURL(item.watch_url!)}
                     variant="ghost"
-                    style={{ height: 44 }}
+                    style={styles.fullButton}
                   />
                 )}
                 <View style={styles.actions}>
@@ -308,26 +303,14 @@ export default function OperatorReviewScreen() {
                     label={blocked ? 'Send QA notes to re-edit' : 'Send to re-edit'}
                     onPress={() => openReedit(item)}
                     variant={blocked ? 'primary' : 'secondary'}
-                    style={{ flex: 1, height: 44 }}
+                    style={styles.fullButton}
                   />
                   <Button
-                    label={blocked ? 'Approval blocked' : approving === item.id ? 'Approving...' : 'Approve'}
+                    label={blocked ? 'Approval blocked' : approving === item.id ? 'Approving…' : 'Approve reel'}
                     onPress={() => approve(item)}
                     disabled={approving !== null || blocked}
-                    style={{ flex: 1, height: 44 }}
+                    style={styles.fullButton}
                   />
-                </View>
-                <View style={styles.flagRow}>
-                  {FEEDBACK_FLAGS.map(({ event, label }) => (
-                    <Button
-                      key={event}
-                      label={label}
-                      onPress={() => submitFlag(item, event, label)}
-                      variant="ghost"
-                      disabled={submittingFlag !== null}
-                      style={styles.flagButton}
-                    />
-                  ))}
                 </View>
               </Card>
             );
@@ -343,18 +326,18 @@ export default function OperatorReviewScreen() {
       >
         <View style={styles.modalBackdrop}>
           <Card bordered style={styles.modalCard}>
-            <Text variant="title">Send draft to re-edit</Text>
-            <Text variant="caption" color={Colors.textSecondary} numberOfLines={1}>
-              {reeditTarget?.name}
+            <Text variant="title">Send performance reel to re-edit</Text>
+            <Text variant="caption" color={Colors.textSecondary} numberOfLines={2}>
+              {reeditTarget ? readableDraftLabel(reeditTarget.name).athlete : ''}
             </Text>
             <Text variant="body" color={Colors.textSecondary}>
-              QA notes are prefilled when this draft is blocked. These notes go straight to the editing AI.
+              QA notes are prefilled when the reel is blocked. Add only instructions that are useful for the next edit.
             </Text>
             <TextInput
               style={styles.notesInput}
               value={reeditNotes}
               onChangeText={setReeditNotes}
-              placeholder="Notes for the re-edit..."
+              placeholder="Notes for the re-edit…"
               placeholderTextColor={Colors.textSecondary}
               multiline
               numberOfLines={4}
@@ -365,14 +348,14 @@ export default function OperatorReviewScreen() {
                 label="Cancel"
                 onPress={() => setReeditTarget(null)}
                 variant="ghost"
-                style={{ flex: 1, height: 44 }}
+                style={styles.fullButton}
               />
               <Button
-                label={submitting ? 'Sending...' : 'Send for re-edit'}
+                label={submitting ? 'Sending…' : 'Send for re-edit'}
                 onPress={submitReedit}
                 disabled={submitting || !reeditNotes.trim()}
                 variant="secondary"
-                style={{ flex: 1, height: 44 }}
+                style={styles.fullButton}
               />
             </View>
           </Card>
@@ -384,20 +367,23 @@ export default function OperatorReviewScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.lg },
-  actions: { flexDirection: 'row', gap: Spacing.sm },
-  flagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: Spacing.xs },
-  flagButton: { height: 32, paddingHorizontal: Spacing.sm },
-  operatorAlert: {
-    borderColor: Colors.danger,
-    gap: Spacing.xs,
-  },
-  qaBlock: {
+  header: { marginBottom: Spacing.md, gap: Spacing.sm },
+  loading: { marginTop: Spacing.xl },
+  separator: { height: Spacing.sm },
+  draftCard: { gap: Spacing.sm },
+  blockedCard: { borderColor: Colors.danger },
+  actions: { gap: Spacing.sm },
+  fullButton: { width: '100%', minHeight: 48 },
+  operatorAlert: { borderColor: Colors.danger, gap: Spacing.xs },
+  errorCard: { gap: Spacing.sm, borderColor: Colors.danger },
+  statusBox: {
     borderWidth: 1,
-    borderColor: Colors.danger,
     borderRadius: 8,
     padding: Spacing.sm,
     gap: Spacing.xs,
   },
+  statusBlocked: { borderColor: Colors.danger },
+  statusReady: { borderColor: Colors.cardBorder },
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(0,0,0,0.7)',

@@ -19,6 +19,7 @@ def main() -> int:
     migration = read("supabase/migrations/20260708_qa_reedit_tasks.sql")
     uploader = read("integrations/supabase_uploader.py")
     qa_policy = read("pipeline/qa_gate_policy.py")
+    performance_policy = read("pipeline/performance_reel_policy.py")
     reprocess_route = read("web-api/src/app/api/operator/reprocess/route.ts")
     drafts_route = read("web-api/src/app/api/operator/drafts/route.ts")
     approve_handler = read("web-api/src/lib/operator-draft-approve.ts")
@@ -58,6 +59,13 @@ def main() -> int:
         require(token, qa_policy, "qa policy task creation")
 
     for token in [
+        "QA_FAIL: Reel did not pass final quality review.",
+        '"qa_review_required": True',
+        '"decision": "blocked_review_required"',
+    ]:
+        require(token, performance_policy, "all final QA failures block approval")
+
+    for token in [
         "reprocess_request_id",
         "findActiveQaTask",
         "IN_FLIGHT_QA_STATUSES",
@@ -86,8 +94,8 @@ def main() -> int:
         require(token, approve_handler, "approval route")
 
     for token in [
-        "require QA re-edit",
-        "QA blocked — re-edit required",
+        "did not pass final QA",
+        "QA failed · re-edit required",
         "Send QA notes to re-edit",
         "reprocess_request_id: reeditTarget.reedit_task?.id",
         "reeditNotesForDraft",

@@ -27,8 +27,8 @@ def _single(rating: int) -> str:
 
 def main() -> int:
     guard_text = (ROOT / "pipeline/analyzer_score_guard.py").read_text(encoding="utf-8")
-    boot_text = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
-    if "MIN_SCORE = 6" not in guard_text or "_install_analyzer_score_guard" not in boot_text:
+    boot_text = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
+    if "MIN_SCORE = 6" not in guard_text or "pipeline.analyzer_score_guard" not in boot_text:
         raise SystemExit("missing PQ006 guard or bootstrap")
 
     _install_import_stubs()

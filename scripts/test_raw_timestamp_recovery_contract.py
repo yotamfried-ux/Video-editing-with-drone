@@ -150,11 +150,13 @@ def main() -> int:
     require((padded_event["interpreted_chunk_start"], padded_event["interpreted_chunk_end"]) == (120.0, 125.0), "parser padding overwrote interpreted evidence")
 
     run_tracked = (ROOT / "scripts/run_tracked.py").read_text(encoding="utf-8")
+    bootstrap = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     sitecustomize = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
     selector_runtime = (ROOT / "pipeline/selector_candidate_runtime.py").read_text(encoding="utf-8")
-    require(run_tracked.rindex("_install_raw_timestamp_recovery()") < run_tracked.rindex("_install_chunk_timeline_runtime()"), "tracked runtime installs recovery after chunk filtering")
-    require(run_tracked.rindex("_install_raw_timestamp_recovery()") < run_tracked.rindex("_install_selector_candidate_runtime()"), "tracked runtime installs recovery after selector capture")
-    require(sitecustomize.rindex("_install_raw_timestamp_recovery()") < sitecustomize.rindex("_install_chunk_timeline_runtime()"), "sitecustomize installs recovery too late")
+    require("install_pre_orchestrator_patches()" in run_tracked, "tracked runtime does not use canonical bootstrap")
+    require(bootstrap.index("pipeline.raw_timestamp_recovery") < bootstrap.index("pipeline.chunk_timeline_runtime"), "canonical bootstrap installs recovery after chunk filtering")
+    require(bootstrap.index("pipeline.raw_timestamp_recovery") < bootstrap.index("pipeline.selector_candidate_runtime"), "canonical bootstrap installs recovery after selector capture")
+    require("from pipeline." not in sitecustomize, "sitecustomize reintroduced fail-silent timestamp patches")
     require("recover_raw_session_payload(raw_text" in selector_runtime, "selector telemetry still reads unrecovered raw timestamps")
     require("return original_parse_session(raw_text)" in selector_runtime, "selector runtime bypasses recovery-aware analyzer parser")
 

@@ -41,6 +41,10 @@ def run_cross_source_dedup_contract() -> None:
 
 def main() -> int:
     runtime = _read("pipeline/runtime_quality.py")
+    performance_policy = _read("pipeline/performance_reel_policy.py")
+    publishable_policy = _read("pipeline/publishable_reel_policy.py")
+    silent_output_policy = _read("pipeline/silent_output_policy.py")
+    publishable_qa_evidence = _read("pipeline/publishable_qa_evidence.py")
     identity_failsafe = _read("pipeline/identity_failsafe.py")
     cross_source_dedup = _read("pipeline/cross_source_dedup.py")
     perception_runtime = _read("pipeline/perception/runtime.py")
@@ -52,11 +56,17 @@ def main() -> int:
     context_qa_long_video = _read("pipeline/context_qa_long_video.py")
     raw_timestamp_recovery = _read("pipeline/raw_timestamp_recovery.py")
     run_tracked = _read("scripts/run_tracked.py")
+    bootstrap = _read("pipeline/bootstrap.py")
+    diagnostics = _read("scripts/run_pipeline_with_diagnostics.sh")
     sitecustomize = _read("scripts/sitecustomize.py")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
     for source in (
         runtime,
+        performance_policy,
+        publishable_policy,
+        silent_output_policy,
+        publishable_qa_evidence,
         identity_failsafe,
         cross_source_dedup,
         perception_runtime,
@@ -68,6 +78,7 @@ def main() -> int:
         context_qa_long_video,
         raw_timestamp_recovery,
         run_tracked,
+        bootstrap,
         sitecustomize,
     ):
         ast.parse(source)
@@ -92,6 +103,70 @@ def main() -> int:
         "runtime quality hardening",
         runtime,
         ["best_score >= 5", "score >= 5", "include their top 2"],
+    )
+
+    require_tokens(
+        "performance reel coverage policy",
+        performance_policy,
+        [
+            "EVERY DISTINCT WAVE RIDE",
+            "MAX_PERFORMANCE_REEL_SEC = 89.0",
+            "PerformanceReelPackingError",
+            "if surf_event and is_explicit_failed_takeoff",
+            "if not _surf_events(event_list)",
+            "remove_duplicate_events(event_list)",
+            "performance_reel_total_wave_count",
+            "QA_FAIL: Reel did not pass final quality review.",
+        ],
+    )
+    require_tokens(
+        "per-athlete publishable business policy",
+        publishable_policy,
+        [
+            "EVERY DISTINCT ATHLETE",
+            "ONE usable action is enough",
+            "MANIFEST_SCHEMA_VERSION",
+            "canonicalize_publishable_variants",
+            "record_athlete_outcome",
+            "one_primary_publishable_reel_per_eligible_athlete_v1",
+            "all_final_failures_block",
+            "duration_over_90_seconds",
+            "aspect_not_9_16",
+        ],
+    )
+    require_tokens(
+        "silent output policy",
+        silent_output_policy,
+        [
+            "video-only, no-audio product contract",
+            "silent_social_ready_issues",
+            "canonicalize_silent_variants",
+            "unexpected_audio",
+            "audio_state_unknown",
+            "editor._pick_music = no_music_picker",
+            "editor.compile_reel = compile_silent",
+            "kwargs[\"music_path\"] = None",
+            "policy.social_ready_issues = silent_social_ready_issues",
+            "policy.canonicalize_publishable_variants = canonicalize_silent_variants",
+        ],
+    )
+    require_no_tokens(
+        "silent output policy",
+        silent_output_policy,
+        ["prefer the audio-capable", "no_audio_variant"],
+    )
+    require_tokens(
+        "explicit publishable QA evidence",
+        publishable_qa_evidence,
+        [
+            "record_qa_result",
+            "apply_final_qa_evidence",
+            "qa_evidence_recorded",
+            "missing_final_qa_evidence",
+            "final_qa_failed",
+            "gate_with_required_evidence",
+            "set(flagged or set()) | evidence_blocked",
+        ],
     )
 
     require_tokens(
@@ -175,7 +250,7 @@ def main() -> int:
     )
 
     require_tokens(
-        "primary actor policy",
+        "primary athlete policy",
         primary_actor_policy,
         [
             "def classify_primary_actor",
@@ -187,7 +262,10 @@ def main() -> int:
             "PRIMARY_ACTOR_UNCLEAR",
             "PRIMARY_ACTOR_OCCLUDED",
             "IDENTITY_SWITCH",
-            "background_people_allowed",
+            "primary_athlete_centered",
+            "other_people_allowed",
+            "_ACTIVE_CONTEXT_FIELDS",
+            "same wave",
             "primary_actor_not_reliably_followable",
         ],
     )
@@ -263,50 +341,67 @@ def main() -> int:
     )
 
     require_tokens(
-        "tracked runner quality install",
+        "tracked runner canonical bootstrap",
         run_tracked,
         [
-            "def _install_perception_runtime()",
-            "from pipeline.perception.runtime import install",
-            "def _install_pipeline_quality_runtime()",
-            "from pipeline.runtime_quality import install",
-            "def _install_raw_timestamp_recovery()",
-            "from pipeline.raw_timestamp_recovery import install",
-            "def _install_identity_failsafe_runtime()",
-            "from pipeline.identity_failsafe import install",
-            "def _install_cross_source_dedup_runtime()",
-            "from pipeline.cross_source_dedup import install",
-            "def _install_draft_diagnostics_runtime()",
-            "from pipeline.draft_diagnostics import install",
-            "def _install_candidate_ledger_runtime()",
-            "from pipeline.candidate_ledger import install",
-            "def _install_athlete_canonicalization_runtime()",
-            "from pipeline.athlete_canonicalization import install",
-            "_install_perception_runtime()\n_install_pipeline_quality_runtime()\n_install_raw_timestamp_recovery()\n_install_chunk_timeline_runtime()\n_install_selector_candidate_runtime()",
-            "_install_identity_failsafe_runtime()",
-            "_install_cross_source_dedup_runtime()",
-            "_install_draft_diagnostics_runtime()",
-            "_install_candidate_ledger_runtime()",
-            "_install_athlete_canonicalization_runtime()\n\nimport pipeline.orchestrator as _orchestrator",
+            "from pipeline.bootstrap import install_post_orchestrator_patches, install_pre_orchestrator_patches",
+            "install_pre_orchestrator_patches()",
+            "install_post_orchestrator_patches()",
+            "import pipeline.orchestrator as _orchestrator",
         ],
     )
     require_tokens(
-        "script bootstrap timestamp install",
-        sitecustomize,
+        "canonical quality policy stack",
+        bootstrap,
         [
-            "def _install_perception_runtime()",
-            "from pipeline.perception.runtime import install",
-            "def _install_raw_timestamp_recovery()",
-            "from pipeline.raw_timestamp_recovery import install",
-            "_install_perception_runtime()\n_install_raw_timestamp_recovery()\n_install_analyzer_score_guard()\n_install_chunk_timeline_runtime()",
+            "pipeline.perception.runtime",
+            "pipeline.runtime_quality",
+            "pipeline.performance_reel_policy",
+            "pipeline.publishable_reel_policy",
+            "pipeline.silent_output_policy",
+            "pipeline.publishable_qa_evidence",
+            "pipeline.raw_timestamp_recovery",
+            "pipeline.identity_failsafe",
+            "pipeline.cross_source_dedup",
+            "pipeline.draft_diagnostics",
+            "pipeline.candidate_ledger",
+            "pipeline.athlete_canonicalization",
         ],
     )
+    require_tokens(
+        "coverage evidence fail-closed production path",
+        diagnostics,
+        [
+            "check_publishable_manifest_empty.py",
+            "athlete coverage report missing for a nonempty or evidenced run",
+            "record_publishable_business_gate_status.py",
+            'exit "$BUSINESS_GATE_STATUS"',
+        ],
+    )
+    require_tokens(
+        "canonical timestamp installation order",
+        bootstrap,
+        [
+            "pipeline.perception.runtime",
+            "pipeline.raw_timestamp_recovery",
+            "pipeline.analyzer_score_guard",
+            "pipeline.chunk_timeline_runtime",
+        ],
+    )
+    require_no_tokens(
+        "path-only script bootstrap",
+        sitecustomize,
+        ["from pipeline.", "except Exception"],
+    )
+
 
     require_tokens(
         "operator smoke workflow quality coverage",
         workflow,
         [
             "pipeline/runtime_quality.py",
+            "pipeline/publishable_reel_policy.py",
+            "pipeline/silent_output_policy.py",
             "pipeline/stages/analyzer.py",
             "pipeline/stages/identity.py",
             "pipeline/cross_source_dedup.py",
@@ -316,7 +411,9 @@ def main() -> int:
             "pipeline/perception/**",
             "pipeline/perception/event_fingerprint.py",
             "scripts/build_athlete_coverage_report.py",
+            "scripts/check_publishable_reel_manifest.py",
             "scripts/test_athlete_coverage_report_contract.py",
+            "scripts/test_publishable_reel_business_contract.py",
             "scripts/test_pipeline_quality_contract.py",
             "scripts/test_cross_source_dedup_contract.py",
             "scripts/test_multi_person_clip_gate_contract.py",

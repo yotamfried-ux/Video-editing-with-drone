@@ -5,6 +5,10 @@ import { moveR2Object, r2Basename, shouldUseR2Storage } from '@/lib/r2-storage';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
 import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
+import {
+  DraftPublishabilityError,
+  requireAuthoritativeDraftPublishability,
+} from '@/lib/draft-publishability';
 import type { ApproveDraftResponse } from '@/types/operator-contracts';
 
 const actionsUrl = (repo: string) => `https://github.com/${repo}/actions/workflows/deliver.yml`;
@@ -23,13 +27,7 @@ async function activeReeditTask(draftName: string) {
 }
 
 type DeliveryRunPatch = { status?: string; stage?: string; error?: string; finished_at?: string };
-
-type ApproveBody = {
-  file_id?: string;
-  review_required?: boolean;
-  qa_review_required?: boolean;
-  approval_blocked_reasons?: unknown;
-};
+type ApproveBody = { file_id?: string };
 
 export async function approveDraftPost(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'draft-approve', 20, 60);
@@ -42,13 +40,32 @@ export async function approveDraftPost(req: NextRequest) {
 
   const useR2 = shouldUseR2Storage();
   const storageBackend = useR2 ? 'r2' : 'drive';
-  let fileName: string | null = null;
+  let fileName: string;
 
   if (useR2) {
     fileName = r2Basename(fileId);
   } else {
     try { fileName = (await getFile(fileId)).name; }
     catch (e) { return NextResponse.json({ error: e instanceof Error ? e.message : 'Drive file lookup failed' }, { status: 502 }); }
+  }
+
+  let authority;
+  try {
+    authority = await requireAuthoritativeDraftPublishability({
+      storageObjectId: fileId,
+      draftName: fileName,
+    });
+  } catch (e) {
+    if (e instanceof DraftPublishabilityError) {
+      return NextResponse.json({
+        error: e.message,
+        approval_blocked: true,
+        authoritative_publishability: e.authority,
+        storage_move_completed: false,
+        delivery_started: false,
+      }, { status: e.status });
+    }
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Could not verify publishability' }, { status: 503 });
   }
 
   let reeditTask: any = null;
@@ -61,14 +78,19 @@ export async function approveDraftPost(req: NextRequest) {
   const taskReasons = Array.isArray(reeditTask?.approval_blocked_reasons) ? reeditTask.approval_blocked_reasons : [];
   const policy = evaluateDraftReviewPolicy({
     name: fileName,
-    review_required: body.review_required || Boolean(reeditTask),
-    qa_review_required: body.qa_review_required || Boolean(reeditTask),
-    approval_blocked_reasons: taskReasons.length ? taskReasons : body.approval_blocked_reasons,
+    review_required: Boolean(reeditTask),
+    qa_review_required: Boolean(reeditTask),
+    qa_gate: {
+      final_verdict: authority.qa_verdict,
+      qa_review_required: false,
+    },
+    approval_blocked_reasons: taskReasons,
   });
   if (policy.approval_blocked) {
     return NextResponse.json({
       error: 'Draft requires review before approval. Send it to re-edit or clear the QA block first.',
       ...policy,
+      authoritative_publishability: authority,
       reedit_task: reeditTask,
       storage_move_completed: false,
       delivery_started: false,
@@ -98,7 +120,12 @@ export async function approveDraftPost(req: NextRequest) {
       stage: useR2 ? 'approved_moved_to_r2' : 'approved_moved_to_drive',
       github_event: 'reel-approved',
       github_run_url: repo ? actionsUrl(repo) : null,
-      meta: { requested_by: 'operator_app', approved_file_name: fileName, storage_backend: storageBackend },
+      meta: {
+        requested_by: 'operator_app',
+        approved_file_name: fileName,
+        storage_backend: storageBackend,
+        publishability_manifest_revision: authority.manifest_revision,
+      },
     })
     .select('id')
     .single();

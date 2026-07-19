@@ -4,6 +4,10 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { listFolder } from '@/lib/google-drive';
 import { createR2SignedGetUrl, listR2Prefix, shouldUseR2Storage } from '@/lib/r2-storage';
 import { evaluateDraftReviewPolicy } from '@/lib/draft-review-policy';
+import {
+  loadAuthoritativeDraftPublishability,
+  type DraftPublishabilityAuthority,
+} from '@/lib/draft-publishability';
 import type { DraftRow, DraftsResponse, ReprocessRow } from '@/types/operator-contracts';
 
 const ACTIVE_REEDIT_STATUSES = ['qa_blocked', 'pending', 'queued'];
@@ -36,18 +40,65 @@ async function activeReeditTasks(draftNames: string[]) {
   return map;
 }
 
-function withReviewPolicy(draft: StorageDraft, task: ReprocessRow | undefined): DraftRow {
+function authorityReasons(authority: DraftPublishabilityAuthority | undefined): string[] {
+  if (!authority) {
+    return ['Authoritative pipeline publishability evidence is missing.'];
+  }
+  const reasons = [...authority.approval_blocked_reasons];
+  if (!authority.qa_evidence_recorded) reasons.push('Final QA evidence is missing.');
+  if (authority.qa_verdict !== 'PASS' || !authority.qa_passed) reasons.push('Final QA did not pass.');
+  for (const issue of authority.technical_issues) reasons.push(`Technical issue: ${issue}`);
+  if (!authority.publishable && !reasons.length) reasons.push('The final business manifest blocked publication.');
+  return [...new Set(reasons)];
+}
+
+function withReviewPolicy(
+  draft: StorageDraft,
+  task: ReprocessRow | undefined,
+  authority: DraftPublishabilityAuthority | undefined,
+): DraftRow {
   const taskReasons = Array.isArray(task?.approval_blocked_reasons) ? task.approval_blocked_reasons : [];
+  const authoritativeReasons = authorityReasons(authority);
+  const authoritativeReady = Boolean(
+    authority?.publishable
+      && authority.qa_evidence_recorded
+      && authority.qa_verdict === 'PASS'
+      && authority.qa_passed
+      && authority.technical_issues.length === 0,
+  );
   const policy = evaluateDraftReviewPolicy({
     name: draft.name,
-    review_required: Boolean(task),
-    approval_blocked_reasons: taskReasons,
+    review_required: Boolean(task) || !authoritativeReady,
+    qa_review_required: !authoritativeReady,
+    qa_gate: authority ? {
+      final_verdict: authority.qa_verdict,
+      qa_review_required: !authoritativeReady,
+      defects: authority.technical_issues.map((issue) => ({
+        severity: 'critical',
+        blocking: true,
+        note: issue,
+      })),
+    } : null,
+    approval_blocked_reasons: [...taskReasons, ...authoritativeReasons],
   });
   return {
     ...draft,
     ...policy,
+    authoritative_publishability: authority ?? null,
     reedit_task: task ?? null,
   };
+}
+
+async function enrichDrafts(drafts: StorageDraft[]): Promise<DraftRow[]> {
+  const [tasks, authorities] = await Promise.all([
+    activeReeditTasks(drafts.map((draft) => draft.name)),
+    loadAuthoritativeDraftPublishability(drafts),
+  ]);
+  return drafts.map((draft) => withReviewPolicy(
+    draft,
+    tasks.get(draft.name),
+    authorities.get(draft.id),
+  ));
 }
 
 // GET /api/operator/drafts — list draft reels waiting for approval.
@@ -69,17 +120,14 @@ export async function GET(req: NextRequest) {
         storage_backend: 'r2',
         storage_key: f.key,
       }));
-      const tasks = await activeReeditTasks(drafts.map((draft) => draft.name));
-      return NextResponse.json<DraftsResponse>({
-        drafts: drafts.map((draft) => withReviewPolicy(draft, tasks.get(draft.name))),
-      });
+      return NextResponse.json<DraftsResponse>({ drafts: await enrichDrafts(drafts) });
     }
 
     const reviewFolder = process.env.REVIEW_FOLDER_ID;
     if (!reviewFolder) {
       return NextResponse.json(
         { error: 'REVIEW_FOLDER_ID not configured' },
-        { status: 503 }
+        { status: 503 },
       );
     }
     const files = await listFolder(reviewFolder);
@@ -91,14 +139,11 @@ export async function GET(req: NextRequest) {
       watch_url: f.webViewLink ?? null,
       storage_backend: 'drive',
     }));
-    const tasks = await activeReeditTasks(drafts.map((draft) => draft.name));
-    return NextResponse.json<DraftsResponse>({
-      drafts: drafts.map((draft) => withReviewPolicy(draft, tasks.get(draft.name))),
-    });
+    return NextResponse.json<DraftsResponse>({ drafts: await enrichDrafts(drafts) });
   } catch (e) {
     return NextResponse.json(
       { error: e instanceof Error ? e.message : 'Storage request failed' },
-      { status: 502 }
+      { status: 502 },
     );
   }
 }

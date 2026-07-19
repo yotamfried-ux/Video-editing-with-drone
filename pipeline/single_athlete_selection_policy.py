@@ -1,10 +1,10 @@
-"""Primary-actor event selection policy for Gemini analysis.
+"""Primary-athlete event selection policy for Gemini analysis.
 
 Despite the historical filename, this policy is sport-agnostic. Personal reels do
 not require an empty frame: football, basketball, surfing, cycling, and other
 sports naturally contain teammates, opponents, officials, and background people.
-The selected action is valid when the intended athlete remains clearly attributable
-from setup through outcome.
+The selected action is valid when the intended athlete remains the clear center
+of the edit and is attributable from setup through outcome.
 """
 from __future__ import annotations
 
@@ -19,13 +19,15 @@ _PARSE_WRAPPED_FLAG = "_sportreel_single_athlete_parse_wrapped"
 
 _SELECTION_POLICY_BLOCK = """
 
-PRIMARY-ACTOR CONTINUITY POLICY — REQUIRED FOR PERSONAL REELS:
-- People around the target athlete are NORMAL and are NOT a reason to omit an event.
-  This applies to team sports, shared playing areas, surf lineups, races, and crowds.
+PRIMARY-ATHLETE CONTINUITY POLICY — REQUIRED FOR PERSONAL REELS:
+- A personal reel is CENTERED ON ONE TARGET ATHLETE; it does not require only one
+  visible or active person. People around the target athlete are NORMAL and are NOT
+  a reason to omit an event. This applies to team sports, shared playing areas, surf
+  lineups, two surfers on the same wave, races, and crowds.
 - Select the complete action when the athlete performing it remains clearly identifiable
   from setup through execution and outcome, even while teammates, opponents, surfers,
-  officials, or bystanders are visible.
-- Block or trim an event only when the primary actor becomes ambiguous, identity switches,
+  officials, or bystanders are visible or actively participating in the same play.
+- Block or trim an event only when the primary athlete becomes ambiguous, identity switches,
   the camera starts following another athlete, the target is lost, or the target is
   materially obscured at the key moment.
 - Classify the top-level source_profile as one of:
@@ -38,12 +40,14 @@ PRIMARY-ACTOR CONTINUITY POLICY — REQUIRED FOR PERSONAL REELS:
     competing_active_subjects: true|false
     target_occluded_at_key_moment: true|false
     primary_actor_reason: one short evidence-based sentence
-- `background_people_present:true` is allowed when `primary_actor_clear:true`,
-  `identity_continuity:"stable"`, and the target action remains readable.
+- `background_people_present:true` and `competing_active_subjects:true` are allowed when
+  `primary_actor_clear:true`, `identity_continuity:"stable"`, and the target athlete's
+  action remains readable and central.
 - In football, attribute the event to the player executing the meaningful action. Other
-  players in the play are context, not defects, unless attribution becomes uncertain.
-- In surfing, another person in the lineup or background is context, not a defect. Block
-  only a genuine identity mix, shared active focus, critical obstruction, or track switch.
+  players in the play are expected context, not defects, unless attribution becomes uncertain.
+- In surfing, another surfer may wait nearby, cross behind, or ride the same wave. Keep the
+  full wave when the target surfer remains the central, continuous subject. Block only a
+  genuine identity mix, target loss, critical obstruction, or camera/track switch.
 - If only part of a wider event has reliable attribution, provide `primary_actor_start`
   and `primary_actor_end` for a complete focused sub-window of at least 6 seconds.
 - Coverage requirement: every distinct athlete with at least one complete score>=6 action
@@ -136,7 +140,7 @@ def _load_json(raw_text: str) -> dict[str, Any]:
 
 
 def rewrite_raw_selection_json(raw_text: str) -> str:
-    """Remove only events with unresolved primary-actor ambiguity."""
+    """Remove only events with unresolved primary-athlete ambiguity."""
     data = _load_json(raw_text)
     for person in data.get("persons", []) or []:
         retained: list[dict[str, Any]] = []
@@ -192,7 +196,7 @@ def install() -> None:
     if not getattr(analyzer, _INSTALLED_FLAG, False):
         marker = "\nEVENT COUNT:"
         prompt = analyzer._IDENTITY_PROMPT
-        if "PRIMARY-ACTOR CONTINUITY POLICY" not in prompt:
+        if "PRIMARY-ATHLETE CONTINUITY POLICY" not in prompt:
             if marker in prompt:
                 prompt = prompt.replace(marker, _SELECTION_POLICY_BLOCK + marker, 1)
             else:

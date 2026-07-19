@@ -125,6 +125,26 @@ def lookup_draft_sources(draft_name: str) -> list[dict]:
     return []
 
 
+def upsert_draft_publishability(record: dict) -> None:
+    """Persist the authoritative server-side approval contract for one REVIEW object.
+
+    This write is product-critical. Callers must convert a failure into a blocked
+    manifest outcome rather than allowing filename/client inference to approve it.
+    """
+    required = {"storage_object_id", "draft_name", "part_index", "manifest_revision"}
+    missing = sorted(key for key in required if not str(record.get(key) or "").strip())
+    if missing:
+        raise ValueError(f"draft publishability record missing required fields: {missing}")
+    payload = {
+        **record,
+        "technical_issues": [str(item) for item in record.get("technical_issues", []) or []],
+        "approval_blocked_reasons": [
+            str(item) for item in record.get("approval_blocked_reasons", []) or []
+        ],
+    }
+    _supabase().table("draft_publishability").upsert(payload).execute()
+
+
 def _qa_defects(qa_gate: dict) -> list[dict]:
     defects = qa_gate.get("defects") or []
     return [item for item in defects if isinstance(item, dict)]

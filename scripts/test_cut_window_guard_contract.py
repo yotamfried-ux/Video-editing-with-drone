@@ -50,14 +50,14 @@ def main() -> int:
 
     text = (ROOT / "pipeline/cut_window_guard.py").read_text(encoding="utf-8")
     diag = (ROOT / "pipeline/draft_diagnostics.py").read_text(encoding="utf-8")
-    boot = (ROOT / "scripts/sitecustomize.py").read_text(encoding="utf-8")
+    boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     audit = (ROOT / "docs/pipeline-quality-audit-real-run-20260705.md").read_text(encoding="utf-8")
     for token in ["apply_cut_window_guard", "apply_to_appearances", "compile_guarded", "cut_clip_guarded"]:
         if token not in text:
             raise SystemExit(f"missing token: {token}")
     if "cut_window_guard" not in diag:
         raise SystemExit("diagnostics must include cut window guard metadata")
-    if "from pipeline.cut_window_guard import install" not in boot:
+    if "pipeline.cut_window_guard" not in boot:
         raise SystemExit("cut window guard is not bootstrapped")
     if "REAL-CUT-001" not in audit:
         raise SystemExit("audit missing REAL-CUT-001")

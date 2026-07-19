@@ -82,9 +82,9 @@ def main() -> int:
     mobile = read("mobile/src/app/(operator)/pipeline.tsx")
     contracts = read("mobile/src/features/operator/types/contracts.ts")
     scope = read("pipeline/r2_batch_scope.py")
-    sitecustomize = read("sitecustomize.py")
+    bootstrap = read("pipeline/bootstrap.py")
 
-    for text in [scope, sitecustomize, read("scripts/test_batch_scope_contract.py")]:
+    for text in [scope, bootstrap, read("scripts/test_batch_scope_contract.py")]:
         ast.parse(text)
 
     require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
@@ -94,7 +94,7 @@ def main() -> int:
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
     require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "batch_id: lastBatchId ?? activeBatchId", "Current upload batch"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
-    require("python startup hook", sitecustomize, ["RAW_BATCH_ID", "pipeline.r2_batch_scope", "_install_r2_batch_scope"])
+    require("canonical batch bootstrap", bootstrap, ["RAW_BATCH_ID", "pipeline.r2_batch_scope", "_install_r2_batch_scope"])
     require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
 
     if "const key = `raw/${storageName}`" in r2_lib:

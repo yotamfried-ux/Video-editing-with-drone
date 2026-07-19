@@ -180,16 +180,30 @@ def get_reel_specs(path: str) -> dict:
     """Technical specs for social-media compliance checks. Best-effort; never raises."""
     info = get_source_info(path)
     dur = get_duration(path)
-    has_audio = False
+    # Tri-state audio evidence: False is reserved for a successful probe that
+    # proves there is no audio stream. Probe failure remains None and therefore
+    # fails closed in the silent-output and final manifest gates.
+    has_audio: bool | None = None
     try:
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-select_streams", "a:0",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", path],
             capture_output=True, text=True, timeout=15,
         )
-        has_audio = "audio" in r.stdout
-    except Exception:
-        pass
+        if r.returncode == 0:
+            has_audio = any(
+                line.strip().lower() == "audio"
+                for line in r.stdout.splitlines()
+            )
+        else:
+            logger.warning(
+                "Audio ffprobe failed for %s with exit %s: %s",
+                path,
+                r.returncode,
+                (r.stderr or "").strip()[-400:],
+            )
+    except Exception as exc:
+        logger.warning("Audio ffprobe unavailable for %s: %s", path, exc)
     w, h = info["width"], info["height"]
     return {
         "width": w, "height": h,
