@@ -7,7 +7,7 @@
 
 create table if not exists public.draft_publishability (
   storage_object_id text primary key,
-  draft_name text not null unique,
+  draft_name text not null,
   pipeline_run_id text,
   athlete_key text,
   part_index integer not null check (part_index > 0),
@@ -24,5 +24,8 @@ create table if not exists public.draft_publishability (
 
 create index if not exists draft_publishability_run_idx
   on public.draft_publishability (pipeline_run_id, updated_at desc);
+
+create index if not exists draft_publishability_name_idx
+  on public.draft_publishability (draft_name, updated_at desc);
 
 alter table public.draft_publishability enable row level security;
