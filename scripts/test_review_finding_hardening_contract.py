@@ -199,13 +199,60 @@ def assert_parent_identity_before_filtering() -> None:
         raise SystemExit("parent ID alone bypassed positive centrality requirements")
 
 
+def assert_storage_authority_identity() -> None:
+    """Operator listing and approval must bind authority to the storage object only."""
+    r2 = (ROOT / "integrations/r2_storage.py").read_text(encoding="utf-8")
+    helper = (ROOT / "web-api/src/lib/draft-publishability.ts").read_text(encoding="utf-8")
+    listing = (ROOT / "web-api/src/app/api/operator/drafts/route.ts").read_text(encoding="utf-8")
+    approval = (ROOT / "web-api/src/lib/operator-draft-approve.ts").read_text(encoding="utf-8")
+    migration = (ROOT / "supabase/migrations/20260717_draft_publishability_authority.sql").read_text(encoding="utf-8")
+
+    required = {
+        "R2 immutable upload identity": (r2, [
+            "return the canonical immutable R2 object key",
+            "upload_object(draft_path, key, \"video/mp4\")",
+            "return key",
+        ]),
+        "authority object lookup": (helper, [
+            ".in('storage_object_id', objectIds)",
+            "authorities.get(input.storageObjectId)",
+            "authority.draft_name !== input.draftName",
+        ]),
+        "operator listing object lookup": (listing, [
+            "authorities.get(draft.id)",
+        ]),
+        "operator approval object lookup": (approval, [
+            "storageObjectId: fileId",
+            "draftName: fileName",
+        ]),
+        "authority schema": (migration, [
+            "storage_object_id text primary key",
+            "draft_name text not null,",
+        ]),
+    }
+    for label, (source, tokens) in required.items():
+        missing = [token for token in tokens if token not in source]
+        if missing:
+            raise SystemExit(f"{label} missing immutable identity tokens: {missing}")
+
+    forbidden = {
+        "authority filename query": (helper, [".in('draft_name'", "`name:${"]),
+        "operator filename fallback": (listing, ["authorities.get(`name:"]),
+        "globally unique draft name": (migration, ["draft_name text not null unique"]),
+    }
+    for label, (source, tokens) in forbidden.items():
+        present = [token for token in tokens if token in source]
+        if present:
+            raise SystemExit(f"{label} survived: {present}")
+
+
 def assert_source_wiring() -> None:
     qa = (ROOT / "pipeline/silent_qa_policy.py").read_text(encoding="utf-8")
     parent = (ROOT / "pipeline/primary_actor_parent_identity.py").read_text(encoding="utf-8")
     install_chain = (ROOT / "pipeline/publishable_qa_evidence.py").read_text(encoding="utf-8")
     required = {
         "silent QA": (qa, ["unexpected audio track", "audio stream state could not prove silence", "no audio track"]),
-        "parent identity": (parent, ["event[\"person_id\"] = person_id", "primary_actor_id(event)", "rewrite_raw_selection_json"]),
+        "parent identity": (parent, ['event["person_id"] = person_id', "primary_actor_id(event)", "rewrite_raw_selection_json"]),
         "install chain": (install_chain, ["install_parent_identity()", "install_silent_qa()"]),
     }
     for label, (source, tokens) in required.items():
@@ -219,6 +266,7 @@ def main() -> int:
     assert_failed_audio_probe_is_unknown()
     assert_complete_action_window_persists_to_qa()
     assert_parent_identity_before_filtering()
+    assert_storage_authority_identity()
     assert_source_wiring()
     print("Final review finding hardening checks passed")
     return 0
