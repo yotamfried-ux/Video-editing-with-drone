@@ -52,6 +52,16 @@ For surfing footage, the unit of coverage is a complete wave ride attributed to 
   - strips positional and keyword `music_path` values before compilation;
   - keeps the silent clean render and deletes legacy music variants;
   - rejects audio-bearing or unknown-audio-state output.
+- `pipeline/publishable_pending_scope.py` and `pipeline/publishable_qa_evidence.py`
+  - bind editor lineage, variant failures, and final QA results to one invocation-unique token;
+  - consume only that invocation's evidence atomically;
+  - prevent a matching athlete label or concurrent gate from clearing another result;
+  - retain one canonical QA-scope implementation by preventing `publishable_runtime_integrity` from replacing it.
+- `integrations/drive.py`, `integrations/r2_storage.py`, and `web-api/src/lib/draft-publishability.ts`
+  - return the immutable Drive file ID or canonical R2 object key after a REVIEW upload;
+  - persist and query publishability authority by that storage identity only;
+  - reject filename fallback and filename/identity mismatches;
+  - allow the same human-readable draft name in later runs without aliasing authority.
 - `scripts/check_publishable_reel_manifest.py`
   - requires every publishable Part to prove `has_audio:false`;
   - fails audio-bearing output, missing identity/coverage, failed QA, invalid duration/aspect/resolution, duplicate ownership, or missing Review upload.
@@ -69,15 +79,32 @@ For surfing footage, the unit of coverage is a complete wave ride attributed to 
   - prove football group plays retain the featured athlete;
   - prove music generation is disabled and silent output is required;
   - prove soft QA defects cannot trigger wave deletion;
+  - prove invocation-scoped QA evidence cannot be overwritten or globally cleared;
+  - prove R2 and Drive authority is bound to the listed storage object rather than a reusable filename;
   - prove the button taxonomy is absent from Review.
+
+## Contract/CI validation — 2026-07-19
+
+The last code-changing head reviewed in this repair pass was `5692368664bfdcea1ca8e32c6618e9f023e8dec3`.
+
+- Performance Reel Contract run `29695393549` passed all 24 validation steps.
+- Operator Smoke Check run `29695393614` passed all 57 validation steps.
+- Mobile Check run `29695393547` passed.
+- All 20 triggered GitHub Actions workflows passed.
+- Vercel and CodeRabbit commit statuses passed.
+- Fallback self-review found and fixed two still-valid cross-layer gaps after the earlier green head:
+  1. process-global/label-derived QA state survived through a later runtime-integrity monkeypatch;
+  2. R2 stored a signed URL while the operator API listed the canonical object key, forcing unsafe filename fallback.
+- All PR review threads are resolved.
+- This is contract/CI evidence only. No merge or new production footage run was performed.
 
 ## Acceptance
 
-- [ ] Performance Reel Contract workflow passes on the revised centered-athlete/silent-output head.
-- [ ] Operator Smoke Check passes with the new runtime and policy tests.
-- [ ] Mobile type-check passes.
-- [ ] Existing CI remains green.
-- [ ] Automated review or documented fallback self-review has no unresolved findings.
+- [x] Performance Reel Contract workflow passes on the revised centered-athlete/silent-output head.
+- [x] Operator Smoke Check passes with the new runtime and policy tests.
+- [x] Mobile type-check passes.
+- [x] Existing CI remains green.
+- [x] Automated review or documented fallback self-review has no unresolved findings.
 - [ ] New production run proves all usable waves are represented exactly once.
 - [ ] Operator verifies a wave is retained when another surfer enters it but the target surfer stays central.
 - [ ] Operator verifies every generated Part is silent, at most 90 seconds, and no wave is cut between Parts.
