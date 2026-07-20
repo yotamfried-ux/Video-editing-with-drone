@@ -130,6 +130,7 @@ on:
       - 'integrations/supabase_uploader.py'
       - 'scripts/test_editorial_value_ranker_contract.py'
       - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/lib/uploadQueue.ts'
       - 'mobile/src/app/(operator)/review.tsx'
       - 'mobile/src/features/operator/hooks/usePipelineStatus.ts'
       - 'mobile/src/features/operator/types/contracts.ts'
@@ -176,6 +177,8 @@ jobs:
 
           upload_route = Path('web-api/src/app/api/operator/upload/route.ts').read_text(encoding='utf-8')
           pipeline_screen = Path('mobile/src/app/(operator)/pipeline.tsx').read_text(encoding='utf-8')
+          upload_queue_lib = Path('mobile/src/features/operator/lib/uploadQueue.ts').read_text(encoding='utf-8')
+          mobile_upload_source = pipeline_screen + upload_queue_lib
 
           required_upload = [
             'files?: UploadFileInput[]',
@@ -206,7 +209,7 @@ jobs:
             'Upload batch progress',
             'Retry',
           ]
-          missing_mobile = [token for token in required_mobile if token not in pipeline_screen]
+          missing_mobile = [token for token in required_mobile if token not in mobile_upload_source]
           if missing_mobile:
             raise SystemExit(f'mobile upload missing: {missing_mobile}')
           forbidden_mobile = [
@@ -216,7 +219,7 @@ jobs:
             'setUploadProgress',
             'uploadProgress !== null',
           ]
-          present_mobile = [token for token in forbidden_mobile if token in pipeline_screen]
+          present_mobile = [token for token in forbidden_mobile if token in mobile_upload_source]
           if present_mobile:
             raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
           print('Multi-upload batch contract checks passed')
