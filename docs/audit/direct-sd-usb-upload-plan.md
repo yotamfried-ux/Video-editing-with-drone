@@ -34,3 +34,18 @@ An operator using the Android app must be able to choose a folder on a connected
 - External-storage uploads use one worker because each source is temporarily copied from its SAF URI before the existing upload task consumes it.
 - The temporary copy is an implementation bridge for Android `content://` access; the operator does not need to import the source into the gallery or manage a permanent phone copy.
 - Selecting a folder scans that folder only. If clips are nested, the operator must choose the folder that directly contains them.
+
+
+## Physical-test finding — 2026-07-19
+
+The Android Storage Access Framework screen grants access to a folder; it does not select individual files. The first implementation immediately uploaded every supported video in that folder. The user's real card-reader test proved this behavior was not sufficient.
+
+Follow-up implementation:
+
+- [x] Keep the folder permission step so the app can access connected SD / USB storage without a new native dependency.
+- [x] Stage the videos found in that folder instead of uploading immediately.
+- [x] Show an in-app checkbox list with Select all, Clear, and Upload selected controls.
+- [x] Preserve the existing sequential external-file cache copy, R2 verification, progress, retry, and manual pipeline-start behavior.
+- [ ] Follow-up CI is green.
+- [ ] Follow-up PR is merged and published through EAS Update.
+- [ ] Physical retest proves only checked videos are uploaded.
