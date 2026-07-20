@@ -1,0 +1,20 @@
+name: Resilient Upload Check
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'web-api/src/app/api/operator/upload/route.ts'
+      - 'web-api/src/lib/r2-storage.ts'
+      - 'scripts/test_resilient_upload_contract.py'
+      - '.github/workflows/resilient-upload-check.yml'
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/test_resilient_upload_contract.py
