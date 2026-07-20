@@ -1,0 +1,60 @@
+name: Apply Specific SD Video Selection
+
+on:
+  push:
+    branches:
+      - fix/select-specific-sd-videos
+    paths:
+      - '.github/workflows/apply-specific-sd-video-selection.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/select-specific-sd-videos
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Apply focused implementation
+        run: python scripts/apply_specific_sd_video_selection.py
+
+      - name: Validate specific external selection contract
+        run: python scripts/test_external_storage_upload_contract.py
+
+      - name: Validate operator contracts
+        run: |
+          python scripts/validate_operator_smoke_workflow.py
+          python scripts/test_operator_smoke_workflow_validator.py
+          python scripts/test_storage_contract.py
+
+      - name: Validate mobile TypeScript
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Commit focused implementation
+        shell: bash
+        run: |
+          rm scripts/apply_specific_sd_video_selection.py
+          rm .github/workflows/apply-specific-sd-video-selection.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Allow selecting specific SD and USB videos'
+          git push origin HEAD:fix/select-specific-sd-videos
