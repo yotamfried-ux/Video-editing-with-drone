@@ -1,10 +1,10 @@
 name: Apply Resilient Upload Retries
 
 on:
-  push:
-    branches:
-      - fix/resilient-r2-upload-retries
+  pull_request:
+    branches: [main]
     paths:
+      - 'scripts/apply_resilient_upload_retries.py'
       - '.github/workflows/apply-resilient-upload-retries.yml'
 
 permissions:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: fix/resilient-r2-upload-retries
+          ref: ${{ github.head_ref }}
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
@@ -66,4 +66,4 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add -A
           git commit -m 'Make R2 uploads resilient to network failures'
-          git push origin HEAD:fix/resilient-r2-upload-retries
+          git push origin "HEAD:${{ github.head_ref }}"
