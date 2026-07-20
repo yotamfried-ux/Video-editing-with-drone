@@ -1,7 +1,7 @@
 # Resilient R2 upload retry plan
 
 Date: 2026-07-20
-Status: implementation prepared; CI, review, merge, EAS publication, and physical retest pending.
+Status: implementation prepared; initial CI is green; two P1 review findings are addressed and final CI/review are pending.
 
 ## Physical finding
 
@@ -13,14 +13,17 @@ During a real 20-file Android SD-card upload, 19 files failed. Most errors were 
 - [x] Request a fresh presigned URL immediately before each file attempt.
 - [x] Retry each failed transfer automatically up to three times with delays.
 - [x] Reuse a stable client upload ID so retries overwrite the same R2 object instead of creating duplicates.
+- [x] Generate and persist a client batch ID before the first initialization request, so a lost response cannot split retries across batches.
+- [x] Prevent a new selection from replacing unresolved failed items and accidentally unblocking the pipeline.
 - [x] Keep one external file active at a time.
 - [x] Add one-tap **Retry all failed** after connectivity is restored.
 - [x] Keep individual Retry controls.
 - [x] Block pipeline start while any selected upload is unverified.
 - [x] Preserve the 20-video batch selection limit.
 - [x] Add deterministic mobile/API/R2 contract coverage.
-- [ ] Mobile and Web API type-checks pass.
-- [ ] Operator Smoke and Resilient Upload checks pass.
+- [x] Initial Mobile and Web API type-checks passed.
+- [x] Initial Operator Smoke, External Storage Upload, and Resilient Upload checks passed.
+- [ ] Final checks pass after the P1 review fixes.
 - [ ] PR review has no unresolved findings.
 - [ ] Merge and EAS publication complete.
 - [ ] Physical retest proves recovery from a temporary network interruption without duplicate R2 objects.

@@ -180,6 +180,11 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function newClientBatchId(): string {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+  return `batch_mobile_${stamp}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export default function PipelineScreen() {
   const router = useRouter();
   const {
@@ -443,8 +448,10 @@ export default function PipelineScreen() {
     startingBatchId: string | null,
     announceResult: boolean
   ) => {
-    let batchId = startingBatchId;
+    const batchIdForAllAttempts = startingBatchId ?? newClientBatchId();
+    let batchId = batchIdForAllAttempts;
     let failedCount = 0;
+    if (!startingBatchId) setActiveBatchId(batchIdForAllAttempts);
 
     for (const item of items) {
       try {
@@ -522,6 +529,13 @@ export default function PipelineScreen() {
   const uploadSelectedItems = async (items: UploadFileState[]) => {
     if (items.length > MAX_UPLOAD_BATCH_FILES) {
       Alert.alert('Too many videos', `Select at most ${MAX_UPLOAD_BATCH_FILES} videos for one batch.`);
+      return;
+    }
+    if (uploadItems.some((item) => item.status !== 'verified')) {
+      Alert.alert(
+        'Resolve current uploads',
+        'Retry or complete every failed upload before adding more footage to this batch.'
+      );
       return;
     }
 
@@ -637,6 +651,17 @@ export default function PipelineScreen() {
     const selectedCandidates = externalCandidates.filter((candidate) => candidate.selected);
     if (!selectedCandidates.length) {
       Alert.alert('Select videos', 'Choose at least one video from the folder before uploading.');
+      return;
+    }
+    if (selectedCandidates.length > MAX_UPLOAD_BATCH_FILES) {
+      Alert.alert('Too many videos', `Select at most ${MAX_UPLOAD_BATCH_FILES} videos for one batch.`);
+      return;
+    }
+    if (uploadItems.some((item) => item.status !== 'verified')) {
+      Alert.alert(
+        'Resolve current uploads',
+        'Retry or complete every failed upload before adding more footage to this batch.'
+      );
       return;
     }
 
@@ -854,6 +879,7 @@ export default function PipelineScreen() {
                       <Button
                         label="Retry"
                         onPress={() => retryUploadItem(item)}
+                        disabled={busy}
                         variant="ghost"
                         style={{ height: 36 }}
                       />
