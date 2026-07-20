@@ -1,7 +1,7 @@
 # Specific SD / USB video selection — follow-up plan
 
 Date: 2026-07-19
-Status: implementation prepared; CI, review, merge, EAS publication, and physical retest pending.
+Status: implementation, trusted validation, and review complete; merge, EAS publication, and physical retest pending.
 
 ## Observed problem
 
@@ -28,9 +28,9 @@ A real Android test with a connected DJI SD card reached the correct external fo
 - [x] Only checked candidates are converted into upload items.
 - [x] Existing temporary-copy cleanup and R2 verification remain in place.
 - [x] No new native dependency is introduced, so the fix remains eligible for EAS Update.
-- [ ] External Storage Upload Check passes.
-- [ ] Mobile Check passes.
-- [ ] Operator Smoke Check passes.
-- [ ] PR review is complete with no unresolved findings.
+- [x] External Storage Upload Check passes in trusted validation for the exact PR head.
+- [x] Mobile Check passes (`npm ci` and TypeScript validation) in trusted validation for the exact PR head.
+- [x] Operator Smoke Check command set passes in trusted validation for the exact PR head.
+- [x] PR review is complete with no unresolved findings; the earlier workflow finding is outdated, fixed by removal, and resolved.
 - [ ] Merge and EAS publication complete.
 - [ ] Physical retest confirms unselected videos are not uploaded.
