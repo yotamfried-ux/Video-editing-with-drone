@@ -1,7 +1,7 @@
 # Resilient R2 upload retry plan
 
 Date: 2026-07-20
-Status: implementation prepared; initial CI is green; two P1 review findings are addressed and final CI/review are pending.
+Status: implementation, final CI, P1 review fixes, and fallback self-review complete; merge, production API deployment, EAS publication, and physical retest pending.
 
 ## Physical finding
 
@@ -21,11 +21,13 @@ During a real 20-file Android SD-card upload, 19 files failed. Most errors were 
 - [x] Block pipeline start while any selected upload is unverified.
 - [x] Preserve the 20-video batch selection limit.
 - [x] Add deterministic mobile/API/R2 contract coverage.
-- [x] Initial Mobile and Web API type-checks passed.
-- [x] Initial Operator Smoke, External Storage Upload, and Resilient Upload checks passed.
-- [ ] Final checks pass after the P1 review fixes.
-- [ ] PR review has no unresolved findings.
-- [ ] Merge and EAS publication complete.
+- [x] Mobile and Web API type-checks passed.
+- [x] Operator Smoke, External Storage Upload, Resilient Upload, Surf Ride, Edit Context, and Source Evidence checks passed for code commit `aced2ce5e3492f13f45c7a7e0e450537eaca5396`.
+- [x] Both P1 review findings were fixed and their outdated review threads were resolved.
+- [x] CodeRabbit's final full review was rate-limited; a focused fallback self-review found no additional blocking issue in the six-file final diff.
+- [ ] PR #188 is merged to `main`.
+- [ ] The Web API change is deployed to production so resilient initialization and stable retry keys are live.
+- [ ] The Android JavaScript update is published through EAS Update.
 - [ ] Physical retest proves recovery from a temporary network interruption without duplicate R2 objects.
 
 ## Safety
