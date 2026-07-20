@@ -46,6 +46,6 @@ Follow-up implementation:
 - [x] Stage the videos found in that folder instead of uploading immediately.
 - [x] Show an in-app checkbox list with Select all, Clear, and Upload selected controls.
 - [x] Preserve the existing sequential external-file cache copy, R2 verification, progress, retry, and manual pipeline-start behavior.
-- [ ] Follow-up CI is green.
+- [x] Follow-up trusted validation is green for the exact PR head, covering the External Storage Upload contract, Mobile TypeScript check, focused workflow contracts, and the full Operator Smoke command set.
 - [ ] Follow-up PR is merged and published through EAS Update.
 - [ ] Physical retest proves only checked videos are uploaded.
