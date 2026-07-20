@@ -18,7 +18,7 @@ jobs:
       - name: Check out exact PR head
         uses: actions/checkout@v4
         with:
-          ref: d4fe9196837f86c90892565bfbc0b0e77b90f6b4
+          ref: 996a09405db926e6a2cd3af3106aee7ae3353385
           fetch-depth: 0
 
       - uses: actions/setup-python@v5
@@ -165,7 +165,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           RESULT: ${{ job.status }}
         run: |
-          printf '# PR 187 trusted validation\n\n- PR head: `d4fe9196837f86c90892565bfbc0b0e77b90f6b4`\n- Result: `%s`\n- Run: `%s`\n' "$RESULT" "$GITHUB_RUN_ID" > /tmp/pr-187-result.md
+          printf '# PR 187 trusted validation\n\n- PR head: `996a09405db926e6a2cd3af3106aee7ae3353385`\n- Result: `%s`\n- Run: `%s`\n' "$RESULT" "$GITHUB_RUN_ID" > /tmp/pr-187-result.md
           content=$(base64 -w0 /tmp/pr-187-result.md)
           gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/validation/pr-187-result.md" \
             -f message='Record PR 187 trusted validation result' \
