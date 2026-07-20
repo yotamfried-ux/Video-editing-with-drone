@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { View, StyleSheet, ScrollView, Alert, Platform } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, Platform, Pressable } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
@@ -63,6 +63,14 @@ type UploadFileState = {
   batch_id?: string | null;
   error?: string | null;
   requiresLocalCopy?: boolean;
+};
+
+type ExternalVideoCandidate = {
+  id: string;
+  uri: string;
+  filename: string;
+  mimeType: string;
+  selected: boolean;
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -192,6 +200,7 @@ export default function PipelineScreen() {
   const [triggering, setTriggering] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [selectingExternalStorage, setSelectingExternalStorage] = useState(false);
+  const [externalCandidates, setExternalCandidates] = useState<ExternalVideoCandidate[]>([]);
   const [uploadItems, setUploadItems] = useState<UploadFileState[]>([]);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
@@ -461,9 +470,40 @@ export default function PipelineScreen() {
     await uploadSelectedItems(items);
   };
 
+  const toggleExternalCandidate = (id: string) => {
+    setExternalCandidates((candidates) =>
+      candidates.map((candidate) =>
+        candidate.id === id ? { ...candidate, selected: !candidate.selected } : candidate
+      )
+    );
+  };
+
+  const uploadSelectedExternalVideos = async () => {
+    const selectedCandidates = externalCandidates.filter((candidate) => candidate.selected);
+    if (!selectedCandidates.length) {
+      Alert.alert('Select videos', 'Choose at least one video from the folder before uploading.');
+      return;
+    }
+
+    const items: UploadFileState[] = selectedCandidates.map((candidate, index) => ({
+      id: `${Date.now()}_external_${index}_${candidate.filename}`,
+      uri: candidate.uri,
+      filename: candidate.filename,
+      mimeType: candidate.mimeType,
+      progress: 0,
+      status: 'queued',
+      batch_id: activeBatchId,
+      error: null,
+      requiresLocalCopy: true,
+    }));
+
+    setExternalCandidates([]);
+    await uploadSelectedItems(items);
+  };
+
   const uploadExternalStorageFolder = async () => {
     if (Platform.OS !== 'android') {
-      Alert.alert('Android only', 'Direct SD / USB folder upload is currently available on Android.');
+      Alert.alert('Android only', 'Direct SD / USB video selection is currently available on Android.');
       return;
     }
 
@@ -479,6 +519,7 @@ export default function PipelineScreen() {
         .sort((left, right) => left.filename.localeCompare(right.filename));
 
       if (!videoDocuments.length) {
+        setExternalCandidates([]);
         Alert.alert(
           'No videos found',
           'Choose the SD / USB folder that directly contains the video clips, then try again.'
@@ -486,20 +527,15 @@ export default function PipelineScreen() {
         return;
       }
 
-      const items: UploadFileState[] = videoDocuments.map((document, index) => ({
-        id: `${Date.now()}_external_${index}_${document.filename}`,
-        uri: document.uri,
-        filename: document.filename,
-        mimeType: mimeTypeForFilename(document.filename),
-        progress: 0,
-        status: 'queued',
-        batch_id: activeBatchId,
-        error: null,
-        requiresLocalCopy: true,
-      }));
-
-      setSelectingExternalStorage(false);
-      await uploadSelectedItems(items);
+      setExternalCandidates(
+        videoDocuments.map((document, index) => ({
+          id: `${permission.directoryUri}_${index}_${document.filename}`,
+          uri: document.uri,
+          filename: document.filename,
+          mimeType: mimeTypeForFilename(document.filename),
+          selected: false,
+        }))
+      );
     } catch (e) {
       handleOperatorError(e);
     } finally {
@@ -562,15 +598,68 @@ export default function PipelineScreen() {
             {Platform.OS === 'android' && (
               <>
                 <Button
-                  label={selectingExternalStorage ? 'Opening SD / USB...' : 'Upload from SD / USB folder'}
+                  label={selectingExternalStorage ? 'Opening SD / USB...' : 'Choose videos from SD / USB'}
                   onPress={uploadExternalStorageFolder}
                   disabled={busy}
                   variant="secondary"
                   style={{ height: 44 }}
                 />
                 <Text variant="caption" color={Colors.textSecondary}>
-                  Select the folder on the connected card or USB drive that directly contains the video clips.
+                  First choose the folder on the card or USB drive. Then select only the videos you want to upload.
                 </Text>
+                {externalCandidates.length > 0 && (
+                  <View style={styles.externalSelectionPanel}>
+                    <View style={styles.metaRow}>
+                      <Text variant="caption" color={Colors.textPrimary}>
+                        Select videos · {externalCandidates.filter((candidate) => candidate.selected).length}/{externalCandidates.length}
+                      </Text>
+                      <Button
+                        label="Clear"
+                        onPress={() => setExternalCandidates((candidates) => candidates.map((candidate) => ({ ...candidate, selected: false })))}
+                        disabled={busy}
+                        variant="ghost"
+                        style={{ height: 34 }}
+                      />
+                    </View>
+                    <Button
+                      label="Select all"
+                      onPress={() => setExternalCandidates((candidates) => candidates.map((candidate) => ({ ...candidate, selected: true })))}
+                      disabled={busy}
+                      variant="ghost"
+                      style={{ height: 36 }}
+                    />
+                    {externalCandidates.map((candidate) => (
+                      <Pressable
+                        key={candidate.id}
+                        onPress={() => toggleExternalCandidate(candidate.id)}
+                        disabled={busy}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: candidate.selected, disabled: busy }}
+                        style={({ pressed }) => [
+                          styles.externalSelectionRow,
+                          candidate.selected && styles.externalSelectionRowSelected,
+                          pressed && !busy && { opacity: 0.75 },
+                        ]}
+                      >
+                        <View style={[styles.selectionIndicator, candidate.selected && styles.selectionIndicatorSelected]}>
+                          <Text variant="caption" color={candidate.selected ? Colors.background : Colors.textSecondary}>
+                            {candidate.selected ? '✓' : ''}
+                          </Text>
+                        </View>
+                        <Text variant="caption" color={Colors.textPrimary} numberOfLines={2} style={{ flex: 1 }}>
+                          {candidate.filename}
+                        </Text>
+                      </Pressable>
+                    ))}
+                    <Button
+                      label={`Upload selected (${externalCandidates.filter((candidate) => candidate.selected).length})`}
+                      onPress={uploadSelectedExternalVideos}
+                      disabled={busy || !externalCandidates.some((candidate) => candidate.selected)}
+                      variant="secondary"
+                      style={{ height: 44 }}
+                    />
+                  </View>
+                )}
               </>
             )}
             <Button label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
@@ -665,6 +754,38 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
     borderRadius: 8,
     padding: Spacing.sm,
+  },
+  externalSelectionPanel: {
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 8,
+    padding: Spacing.sm,
+  },
+  externalSelectionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 8,
+    padding: Spacing.sm,
+  },
+  externalSelectionRowSelected: {
+    borderColor: Colors.accent,
+  },
+  selectionIndicator: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  selectionIndicatorSelected: {
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
   },
   staleNotice: {
     gap: Spacing.xs,
