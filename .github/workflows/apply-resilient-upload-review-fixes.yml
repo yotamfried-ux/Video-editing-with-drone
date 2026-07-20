@@ -35,6 +35,20 @@ jobs:
       - name: Apply P1 review fixes
         run: python scripts/apply_resilient_upload_review_fixes.py
 
+      - name: Commit review fixes
+        shell: bash
+        run: |
+          rm scripts/apply_resilient_upload_review_fixes.py
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add \
+            'mobile/src/app/(operator)/pipeline.tsx' \
+            'scripts/test_resilient_upload_contract.py' \
+            'docs/audit/resilient-r2-upload-retry-plan.md'
+          git add -u scripts/apply_resilient_upload_review_fixes.py
+          git commit -m 'Address resilient upload review findings'
+          git push origin "HEAD:${{ github.head_ref }}"
+
       - name: Validate resilient upload contract
         run: python scripts/test_resilient_upload_contract.py
 
@@ -61,17 +75,3 @@ jobs:
         run: |
           npm ci
           npm run type-check
-
-      - name: Commit review fixes
-        shell: bash
-        run: |
-          rm scripts/apply_resilient_upload_review_fixes.py
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            'mobile/src/app/(operator)/pipeline.tsx' \
-            'scripts/test_resilient_upload_contract.py' \
-            'docs/audit/resilient-r2-upload-retry-plan.md'
-          git add -u scripts/apply_resilient_upload_review_fixes.py
-          git commit -m 'Address resilient upload review findings'
-          git push origin "HEAD:${{ github.head_ref }}"
