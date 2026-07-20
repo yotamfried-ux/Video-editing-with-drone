@@ -1,0 +1,69 @@
+name: Apply Resilient Upload Retries
+
+on:
+  push:
+    branches:
+      - fix/resilient-r2-upload-retries
+    paths:
+      - '.github/workflows/apply-resilient-upload-retries.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  apply-and-validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: fix/resilient-r2-upload-retries
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            web-api/package-lock.json
+
+      - name: Apply focused implementation
+        run: python scripts/apply_resilient_upload_retries.py
+
+      - name: Validate resilient upload contract
+        run: python scripts/test_resilient_upload_contract.py
+
+      - name: Validate external storage and operator contracts
+        run: |
+          python scripts/test_external_storage_upload_contract.py
+          python scripts/test_storage_contract.py
+          python scripts/validate_operator_smoke_workflow.py
+          python scripts/test_operator_smoke_workflow_validator.py
+
+      - name: Validate mobile TypeScript
+        working-directory: mobile
+        run: |
+          npm ci --legacy-peer-deps
+          npm run type-check
+
+      - name: Validate Web API TypeScript
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Commit focused implementation
+        shell: bash
+        run: |
+          rm scripts/apply_resilient_upload_retries.py
+          rm .github/workflows/apply-resilient-upload-retries.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'Make R2 uploads resilient to network failures'
+          git push origin HEAD:fix/resilient-r2-upload-retries
