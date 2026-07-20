@@ -35,13 +35,20 @@ jobs:
       - name: Apply P1 review fixes
         run: python scripts/apply_resilient_upload_review_fixes.py
 
-      - name: Validate upload contracts
-        run: |
-          python scripts/test_resilient_upload_contract.py
-          python scripts/test_external_storage_upload_contract.py
-          python scripts/test_storage_contract.py
-          python scripts/validate_operator_smoke_workflow.py
-          python scripts/test_operator_smoke_workflow_validator.py
+      - name: Validate resilient upload contract
+        run: python scripts/test_resilient_upload_contract.py
+
+      - name: Validate external storage upload contract
+        run: python scripts/test_external_storage_upload_contract.py
+
+      - name: Validate storage contract
+        run: python scripts/test_storage_contract.py
+
+      - name: Validate operator workflow
+        run: python scripts/validate_operator_smoke_workflow.py
+
+      - name: Validate operator workflow validator
+        run: python scripts/test_operator_smoke_workflow_validator.py
 
       - name: Validate mobile TypeScript
         working-directory: mobile
