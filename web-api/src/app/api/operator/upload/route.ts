@@ -10,6 +10,7 @@ const MAX_BATCH_FILES = 20;
 type UploadFileInput = {
   filename?: string;
   mimeType?: string;
+  client_upload_id?: string;
 };
 
 type UploadBody = {
@@ -17,12 +18,15 @@ type UploadBody = {
   mimeType?: string;
   batch_id?: string;
   files?: UploadFileInput[];
+  upload_mode?: 'resilient_batch_item';
+  client_upload_id?: string;
 };
 
 type NormalizedUploadFile = {
   filename: string;
   uploadFilename: string;
   mimeType: string;
+  clientUploadId?: string;
 };
 
 function normalizeUploadFiles(body: UploadBody): NormalizedUploadFile[] {
@@ -30,7 +34,7 @@ function normalizeUploadFiles(body: UploadBody): NormalizedUploadFile[] {
   const rawFiles = Array.isArray(body.files) && body.files.length
     ? body.files
     : (body.filename ?? body.mimeType) !== undefined
-      ? [{ filename: body.filename, mimeType: body.mimeType }]
+      ? [{ filename: body.filename, mimeType: body.mimeType, client_upload_id: body.client_upload_id }]
       : [];
   const isBatch = rawFiles.length > 1;
 
@@ -41,6 +45,7 @@ function normalizeUploadFiles(body: UploadBody): NormalizedUploadFile[] {
       filename,
       uploadFilename: isBatch ? `${uniquePrefix}_${filename}` : filename,
       mimeType: (file.mimeType ?? '').trim() || 'video/mp4',
+      clientUploadId: (file.client_upload_id ?? '').trim() || undefined,
     };
   });
 }
@@ -59,10 +64,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Too many files in one batch. Max is ${MAX_BATCH_FILES}.` }, { status: 413 });
   }
 
+  const resilientBatchItem = body.upload_mode === 'resilient_batch_item' && files.length === 1;
   const limited = await enforceRateLimit(
     req,
-    files.length > 1 ? 'operator-upload-batch' : 'operator-upload',
-    files.length > 1 ? 20 : 10,
+    resilientBatchItem ? 'operator-upload-resilient-batch-item' : files.length > 1 ? 'operator-upload-batch' : 'operator-upload',
+    resilientBatchItem ? 120 : files.length > 1 ? 20 : 10,
     3600,
   );
   if (limited) return limited;
@@ -73,7 +79,9 @@ export async function POST(req: NextRequest) {
   try {
     if (shouldUseR2Storage()) {
       const uploads: UploadFileResult[] = files.map((file) => {
-        const upload = createR2UploadUrl(file.uploadFilename, batchId);
+        const upload = file.clientUploadId
+          ? createR2UploadUrl(file.uploadFilename, batchId, file.clientUploadId)
+          : createR2UploadUrl(file.uploadFilename, batchId);
         return {
           uploadUrl: upload.uploadUrl,
           filename: upload.filename,
