@@ -61,9 +61,15 @@ jobs:
         shell: bash
         run: |
           rm scripts/apply_resilient_upload_retries.py
-          rm .github/workflows/apply-resilient-upload-retries.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add -A
+          git add \
+            'mobile/src/app/(operator)/pipeline.tsx' \
+            'web-api/src/app/api/operator/upload/route.ts' \
+            'web-api/src/lib/r2-storage.ts' \
+            '.github/workflows/operator-smoke-check.yml' \
+            'scripts/test_resilient_upload_contract.py' \
+            'docs/audit/resilient-r2-upload-retry-plan.md'
+          git add -u scripts/apply_resilient_upload_retries.py
           git commit -m 'Make R2 uploads resilient to network failures'
           git push origin "HEAD:${{ github.head_ref }}"
