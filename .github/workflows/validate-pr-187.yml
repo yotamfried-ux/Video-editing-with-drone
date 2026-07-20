@@ -7,6 +7,9 @@ on:
     paths:
       - '.github/workflows/validate-pr-187.yml'
 
+permissions:
+  contents: write
+
 jobs:
   validate:
     runs-on: ubuntu-latest
@@ -155,3 +158,16 @@ jobs:
           python scripts/test_pipeline_status_stale_contract.py
           python scripts/test_drive_upload_contract.py
           python scripts/test_storage_contract.py
+
+      - name: Record validation result
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RESULT: ${{ job.status }}
+        run: |
+          printf '# PR 187 trusted validation\n\n- PR head: `d4fe9196837f86c90892565bfbc0b0e77b90f6b4`\n- Result: `%s`\n- Run: `%s`\n' "$RESULT" "$GITHUB_RUN_ID" > /tmp/pr-187-result.md
+          content=$(base64 -w0 /tmp/pr-187-result.md)
+          gh api --method PUT "repos/${GITHUB_REPOSITORY}/contents/validation/pr-187-result.md" \
+            -f message='Record PR 187 trusted validation result' \
+            -f content="$content" \
+            -f branch='validation/pr-187-safe-merge'
