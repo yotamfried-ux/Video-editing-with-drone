@@ -449,7 +449,7 @@ export default function PipelineScreen() {
     announceResult: boolean
   ) => {
     const batchIdForAllAttempts = startingBatchId ?? newClientBatchId();
-    let batchId = batchIdForAllAttempts;
+    let batchId: string | null = batchIdForAllAttempts;
     let failedCount = 0;
     if (!startingBatchId) setActiveBatchId(batchIdForAllAttempts);
 
