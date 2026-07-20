@@ -27,6 +27,8 @@ import { Colors, Spacing } from '@/shared/constants/theme';
 const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
 const UPLOAD_CONCURRENCY_LIMIT = 3;
 const EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT = 1;
+const MAX_UPLOAD_ATTEMPTS = 3;
+const UPLOAD_RETRY_BACKOFF_MS = [2000, 5000];
 const VIDEO_FILE_EXTENSIONS = new Set([
   '.mp4',
   '.mov',
@@ -63,6 +65,7 @@ type UploadFileState = {
   batch_id?: string | null;
   error?: string | null;
   requiresLocalCopy?: boolean;
+  attempt?: number;
 };
 
 type ExternalVideoCandidate = {
@@ -346,27 +349,94 @@ export default function PipelineScreen() {
     }
   };
 
-  const retryUploadItem = async (item: UploadFileState) => {
-    updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null });
-    try {
-      const uploadInit = await operatorFetch<UploadInit>(
-        '/api/operator/upload',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            filename: item.filename,
-            mimeType: item.mimeType,
-            batch_id: item.batch_id ?? activeBatchId,
-          }),
+  // Fetched immediately before each upload attempt (never reused across a long
+  // queue wait) so a signed URL can't expire before it's used.
+  const requestUploadSession = async (item: UploadFileState): Promise<UploadSession> => {
+    const uploadInit = await operatorFetch<UploadInit>(
+      '/api/operator/upload',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          filename: item.filename,
+          mimeType: item.mimeType,
+          batch_id: item.batch_id ?? activeBatchId,
+        }),
+      }
+    );
+    const session = uploadInit.uploads?.[0] ?? uploadInit;
+    if (session.batch_id) setActiveBatchId(session.batch_id);
+    return session;
+  };
+
+  const uploadItemWithRetry = async (item: UploadFileState): Promise<void> => {
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
+      updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null, attempt });
+      try {
+        const session = await requestUploadSession(item);
+        await uploadAssetToSession(item, session);
+        return;
+      } catch (e) {
+        lastError = e;
+        if (attempt < MAX_UPLOAD_ATTEMPTS) {
+          const delay = UPLOAD_RETRY_BACKOFF_MS[attempt - 1] ?? UPLOAD_RETRY_BACKOFF_MS[UPLOAD_RETRY_BACKOFF_MS.length - 1];
+          await new Promise((resolve) => setTimeout(resolve, delay));
         }
-      );
-      const session = uploadInit.uploads?.[0] ?? uploadInit;
-      if (session.batch_id) setActiveBatchId(session.batch_id);
-      await uploadAssetToSession(item, session);
+      }
+    }
+    const message = lastError instanceof Error ? lastError.message : 'Upload failed';
+    updateUploadItem(item.id, { status: 'failed', error: message });
+    throw lastError instanceof Error ? lastError : new Error(message);
+  };
+
+  const runUploadQueue = async (items: UploadFileState[]): Promise<PromiseSettledResult<void>[]> => {
+    const results: PromiseSettledResult<void>[] = new Array(items.length);
+    let nextIndex = 0;
+    const concurrencyLimit = items.some((item) => item.requiresLocalCopy)
+      ? EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT
+      : UPLOAD_CONCURRENCY_LIMIT;
+    const workerCount = Math.min(concurrencyLimit, items.length);
+    await Promise.all(
+      Array.from({ length: workerCount }, async () => {
+        while (nextIndex < items.length) {
+          const index = nextIndex;
+          nextIndex += 1;
+          const item = items[index];
+          if (!item) continue;
+          try {
+            await uploadItemWithRetry(item);
+            results[index] = { status: 'fulfilled', value: undefined };
+          } catch (reason) {
+            results[index] = { status: 'rejected', reason };
+          }
+        }
+      })
+    );
+    return results;
+  };
+
+  const retryUploadItem = async (item: UploadFileState) => {
+    try {
+      await uploadItemWithRetry(item);
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Upload failed';
-      updateUploadItem(item.id, { status: 'failed', error: message });
+      handleOperatorError(e);
+    }
+  };
+
+  const retryAllFailedUploads = async () => {
+    const failedItems = uploadItems.filter((item) => item.status === 'failed');
+    if (!failedItems.length) return;
+
+    try {
+      const results = await runUploadQueue(failedItems);
+      const stillFailed = results.filter((uploadResult) => uploadResult.status === 'rejected');
+      if (stillFailed.length) {
+        Alert.alert('Some uploads still failing', `${stillFailed.length} of ${failedItems.length} file${failedItems.length === 1 ? '' : 's'} failed again. Check your connection and tap Retry all failed once it's stable.`);
+        return;
+      }
+      Alert.alert('Uploaded to queue', `${failedItems.length} previously failed file${failedItems.length === 1 ? '' : 's'} uploaded and verified.`);
+    } catch (e) {
       handleOperatorError(e);
     }
   };
@@ -375,67 +445,18 @@ export default function PipelineScreen() {
     setUploadItems(items);
 
     try {
-      setUploadItems((current) => current.map((item) => ({ ...item, status: 'initializing' })));
-      const uploadInit = await operatorFetch<UploadInit>(
-        '/api/operator/upload',
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            files: items.map((item) => ({ filename: item.filename, mimeType: item.mimeType })),
-            batch_id: activeBatchId,
-          }),
-        }
-      );
-      const sessions = uploadInit.uploads?.length ? uploadInit.uploads : [uploadInit];
-      const batchId = uploadInit.batch_id ?? sessions[0]?.batch_id ?? activeBatchId;
-      if (batchId) setActiveBatchId(batchId);
-
-      const results: PromiseSettledResult<void>[] = new Array(items.length);
-      let nextIndex = 0;
-      const concurrencyLimit = items.some((item) => item.requiresLocalCopy)
-        ? EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT
-        : UPLOAD_CONCURRENCY_LIMIT;
-      const workerCount = Math.min(concurrencyLimit, items.length);
-      await Promise.all(
-        Array.from({ length: workerCount }, async () => {
-          while (nextIndex < items.length) {
-            const index = nextIndex;
-            nextIndex += 1;
-            const item = items[index];
-            const session = sessions[index];
-            try {
-              if (!item) continue;
-              if (!session) throw new Error(`Missing upload session for ${item.filename}`);
-              await uploadAssetToSession(item, session);
-              results[index] = { status: 'fulfilled', value: undefined };
-            } catch (reason) {
-              results[index] = { status: 'rejected', reason };
-            }
-          }
-        })
-      );
-
+      const results = await runUploadQueue(items);
       const failed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (failed.length) {
-        results.forEach((uploadResult, index) => {
-          if (uploadResult.status === 'rejected') {
-            updateUploadItem(items[index].id, {
-              status: 'failed',
-              error: uploadResult.reason instanceof Error ? uploadResult.reason.message : 'Upload failed',
-            });
-          }
-        });
-        Alert.alert('Some uploads failed', `${failed.length} of ${items.length} files failed. Retry failed files before running the pipeline.`);
+        Alert.alert('Some uploads failed', `${failed.length} of ${items.length} files failed after automatic retries. Fix your connection, then tap Retry all failed.`);
         return;
       }
 
       Alert.alert(
         'Uploaded to queue',
-        `${items.length} file${items.length === 1 ? '' : 's'} verified in RAW batch ${batchId?.slice(0, 16) ?? 'current'}. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
+        `${items.length} file${items.length === 1 ? '' : 's'} verified in RAW batch ${activeBatchId?.slice(0, 16) ?? 'current'}. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
       );
     } catch (e) {
-      setUploadItems((current) => current.map((item) => ({ ...item, status: 'failed', error: e instanceof Error ? e.message : 'Upload failed' })));
       handleOperatorError(e);
     }
   };
@@ -545,6 +566,7 @@ export default function PipelineScreen() {
 
   const uploadBusy = uploadItems.some((item) => ['queued', 'initializing', 'uploading'].includes(item.status));
   const verifiedUploads = uploadItems.filter((item) => item.status === 'verified').length;
+  const failedUploadCount = uploadItems.filter((item) => item.status === 'failed').length;
   const busy = triggering || resetting || selectingExternalStorage || uploadBusy;
 
   return (
@@ -665,13 +687,26 @@ export default function PipelineScreen() {
             <Button label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
             {uploadItems.length > 0 && (
               <View style={{ gap: Spacing.sm }}>
-                <Text variant="caption" color={Colors.textSecondary}>Upload batch progress</Text>
+                <View style={styles.metaRow}>
+                  <Text variant="caption" color={Colors.textSecondary}>Upload batch progress</Text>
+                  {failedUploadCount > 0 && (
+                    <Button
+                      label={busy ? 'Retrying...' : `Retry all failed (${failedUploadCount})`}
+                      onPress={retryAllFailedUploads}
+                      disabled={busy}
+                      variant="ghost"
+                      style={{ height: 34 }}
+                    />
+                  )}
+                </View>
                 {uploadItems.map((item) => (
                   <View key={item.id} style={styles.uploadRow}>
                     <View style={{ flex: 1, gap: 2 }}>
                       <Text variant="caption" color={Colors.textPrimary} numberOfLines={1}>{item.filename}</Text>
                       <Text variant="caption" color={item.status === 'failed' ? Colors.danger : Colors.textSecondary}>
-                        {UPLOAD_STATUS_LABEL[item.status]} · {item.progress}%
+                        {UPLOAD_STATUS_LABEL[item.status]}
+                        {item.attempt && item.attempt > 1 && (item.status === 'initializing' || item.status === 'uploading') ? ` (attempt ${item.attempt}/${MAX_UPLOAD_ATTEMPTS})` : ''}
+                        {' · '}{item.progress}%
                         {item.error ? ` · ${item.error}` : ''}
                       </Text>
                     </View>
