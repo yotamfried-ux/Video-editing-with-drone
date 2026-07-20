@@ -1,6 +1,11 @@
 name: Apply Specific SD Video Selection
 
 on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'scripts/apply_specific_sd_video_selection.py'
+      - '.github/workflows/apply-specific-sd-video-selection.yml'
   push:
     branches:
       - fix/select-specific-sd-videos
