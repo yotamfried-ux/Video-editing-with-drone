@@ -2,7 +2,7 @@
 
 Date: 2026-07-19
 PR: #183
-Status: implementation, targeted contract, mobile type-check, operator smoke validation, and fallback self-review complete; merge, deployment, and physical-device validation pending.
+Status: direct folder access, specific-video selection follow-up, validation, merge, and Android EAS publication complete; final physical selection retest pending.
 
 ## Product requirement
 
@@ -22,9 +22,9 @@ An operator using the Android app must be able to choose a folder on a connected
 - [x] Mobile Check is green (`npm ci`, `npm run type-check`).
 - [x] Operator Smoke Check is green, including the updated shared upload-queue/storage contract.
 - [x] PR review has no unresolved comments. CodeRabbit's full final review was rate-limited, so a focused fallback self-review was completed and all earlier outdated threads were resolved.
-- [ ] Change is merged to `main`.
-- [ ] The installed Android app has received the updated JavaScript bundle.
-- [ ] A physical test with the user's phone, card reader, and SD card proves folder selection and verified upload.
+- [x] PR #183 merged to `main` and the direct-folder Android bundle was published.
+- [x] The installed Android app was eligible to receive the direct-folder JavaScript bundle through EAS Update.
+- [x] The user's physical test proved SD/card-reader folder access and exposed the missing individual-file selection behavior.
 
 ## Safety boundaries
 
@@ -34,7 +34,6 @@ An operator using the Android app must be able to choose a folder on a connected
 - External-storage uploads use one worker because each source is temporarily copied from its SAF URI before the existing upload task consumes it.
 - The temporary copy is an implementation bridge for Android `content://` access; the operator does not need to import the source into the gallery or manage a permanent phone copy.
 - Selecting a folder scans that folder only. If clips are nested, the operator must choose the folder that directly contains them.
-
 
 ## Physical-test finding — 2026-07-19
 
@@ -47,5 +46,6 @@ Follow-up implementation:
 - [x] Show an in-app checkbox list with Select all, Clear, and Upload selected controls.
 - [x] Preserve the existing sequential external-file cache copy, R2 verification, progress, retry, and manual pipeline-start behavior.
 - [x] Follow-up trusted validation is green for the exact PR head, covering the External Storage Upload contract, Mobile TypeScript check, focused workflow contracts, and the full Operator Smoke command set.
-- [ ] Follow-up PR is merged and published through EAS Update.
+- [x] PR #187 merged as `427e95faed7e2fdf523e8c85214083b4faa4e304`.
+- [x] Android EAS updates published successfully to `preview` and `production` on 2026-07-20. Evidence: `docs/audit/eas-update-specific-sd-video-selection-20260720.md`.
 - [ ] Physical retest proves only checked videos are uploaded.
