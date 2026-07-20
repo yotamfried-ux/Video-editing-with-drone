@@ -1,0 +1,157 @@
+name: Validate PR 187 Safe Merge
+
+on:
+  push:
+    branches:
+      - validation/pr-187-safe-merge
+    paths:
+      - '.github/workflows/validate-pr-187.yml'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact PR head
+        uses: actions/checkout@v4
+        with:
+          ref: d4fe9196837f86c90892565bfbc0b0e77b90f6b4
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install perception dependency
+        run: python -m pip install 'supervision>=0.29.0,<0.30.0'
+
+      - name: Validate specific external selection contract
+        run: python scripts/test_external_storage_upload_contract.py
+
+      - name: Validate mobile TypeScript
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Validate focused pull-request workflows
+        run: |
+          python3 scripts/test_surf_ride_continuity_contract.py
+          python3 scripts/test_surf_ride_qa_contract.py
+          python3 scripts/test_source_context_qa_contract.py
+          python3 scripts/test_source_evidence_contract.py
+          python3 scripts/test_source_evidence_upload_contract.py
+
+      - name: Validate Operator Smoke workflow contracts
+        run: |
+          python scripts/validate_operator_smoke_workflow.py
+          python scripts/test_operator_smoke_workflow_validator.py
+
+      - name: Validate Multi-upload batch contract
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+
+          upload_route = Path('web-api/src/app/api/operator/upload/route.ts').read_text(encoding='utf-8')
+          pipeline_screen = Path('mobile/src/app/(operator)/pipeline.tsx').read_text(encoding='utf-8')
+
+          required_upload = [
+            'files?: UploadFileInput[]',
+            'normalizeUploadFiles',
+            'uploadFilename',
+            'createR2UploadUrl(file.uploadFilename, batchId)',
+            'createUploadSession(file.uploadFilename, rawFolder, file.mimeType)',
+            'source_filename: file.filename',
+            'storage_key: upload.key',
+          ]
+          missing_upload = [token for token in required_upload if token not in upload_route]
+          if missing_upload:
+            raise SystemExit(f'multi-upload route missing: {missing_upload}')
+          forbidden_upload = [
+            'createR2UploadUrl(file.filename, batchId)',
+            'createUploadSession(file.filename, rawFolder, file.mimeType)',
+          ]
+          present_upload = [token for token in forbidden_upload if token in upload_route]
+          if present_upload:
+            raise SystemExit(f'multi-upload route uses unsafe storage names: {present_upload}')
+
+          required_mobile = [
+            'allowsMultipleSelection: true',
+            'UPLOAD_CONCURRENCY_LIMIT',
+            'workerCount',
+            'while (nextIndex < items.length)',
+            'uploadAssetToSession(item, session)',
+            'Upload batch progress',
+            'Retry',
+          ]
+          missing_mobile = [token for token in required_mobile if token not in pipeline_screen]
+          if missing_mobile:
+            raise SystemExit(f'mobile upload missing: {missing_mobile}')
+          forbidden_mobile = [
+            'allowsMultipleSelection: false',
+            'const asset = result.assets[0]',
+            'items.map(async (item, index)',
+            'setUploadProgress',
+            'uploadProgress !== null',
+          ]
+          present_mobile = [token for token in forbidden_mobile if token in pipeline_screen]
+          if present_mobile:
+            raise SystemExit(f'mobile upload has unsafe flow: {present_mobile}')
+          print('Multi-upload batch contract checks passed')
+          PY
+
+      - name: Validate complete Operator Smoke suite
+        run: |
+          python scripts/test_pipeline_logical_consistency_integration.py
+          PYTHONPATH=scripts:. python scripts/test_bootstrap_parity_contract.py
+          PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
+          python scripts/test_qa_reedit_loop_contract.py
+          python scripts/test_qa_reedit_reason_fallback_contract.py
+          python scripts/test_qa_reedit_schema_preflight_contract.py
+          python scripts/test_qa_reedit_task_verifier_contract.py
+          python scripts/test_qa_reedit_window_contract.py
+          python scripts/test_long_video_subject_prefilter_contract.py
+          python scripts/test_chunk_identity_timeline_contract.py
+          python scripts/test_draft_identity_lineage_contract.py
+          python scripts/test_single_athlete_selection_policy_contract.py
+          python scripts/test_silent_output_policy_contract.py
+          python scripts/test_athlete_coverage_report_contract.py
+          python scripts/test_publishable_reel_business_contract.py
+          python scripts/test_selection_decision_audit_contract.py
+          PYTHONPATH=scripts:. python scripts/test_multi_person_clip_gate_contract.py
+          python scripts/test_operator_smoke_contract.py
+          python scripts/test_event_window_contract.py
+          python scripts/test_analyzer_phase_time_contract.py
+          python scripts/test_structured_feedback_contract.py
+          PYTHONPATH=scripts:. python scripts/test_missed_moment_report_contract.py
+          python scripts/test_editorial_value_ranker_contract.py
+          python scripts/test_perception_contract.py
+          python scripts/test_explicit_sidecar_validation_contract.py
+          python scripts/test_perception_producer_diagnostics_contract.py
+          python scripts/test_ultralytics_tracker_contract.py
+          python scripts/test_qa_policy_trace_contract.py
+          python scripts/test_premature_cut_qa_gate_contract.py policy
+          python scripts/test_premature_cut_qa_gate_contract.py runtime-predicate
+          python scripts/test_premature_cut_qa_gate_contract.py repair-routing
+          python scripts/test_premature_cut_qa_gate_contract.py runtime-final-block
+          python scripts/test_premature_cut_qa_gate_contract.py visual-family
+          python scripts/test_premature_cut_qa_gate_contract.py runtime-nonblocking
+          python scripts/test_premature_cut_qa_gate_contract.py trace-precedence
+          python scripts/test_premature_cut_qa_gate_contract.py log-summary
+          python scripts/test_premature_cut_qa_gate_contract.py final-trace
+          python scripts/test_premature_cut_qa_gate_contract.py workflow
+          python scripts/test_source_window_dedup_contract.py
+          python scripts/test_pairwise_source_window_overlap_contract.py
+          python scripts/test_teaser_policy_contract.py
+          python scripts/test_run_quality_report_contract.py
+          python scripts/test_cross_source_dedup_contract.py
+          python scripts/test_pipeline_quality_contract.py
+          python scripts/test_pipeline_status_stale_contract.py
+          python scripts/test_drive_upload_contract.py
+          python scripts/test_storage_contract.py
