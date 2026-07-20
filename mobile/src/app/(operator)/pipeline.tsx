@@ -14,6 +14,7 @@ import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCar
 import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatusCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import { runQueue, withRetry } from '@/features/operator/lib/uploadQueue';
 import type {
   OperatorUploadInitResponse,
   PipelineDispatchResponse,
@@ -370,50 +371,30 @@ export default function PipelineScreen() {
   };
 
   const uploadItemWithRetry = async (item: UploadFileState): Promise<void> => {
-    let lastError: unknown;
-    for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
-      updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null, attempt });
-      try {
-        const session = await requestUploadSession(item);
-        await uploadAssetToSession(item, session);
-        return;
-      } catch (e) {
-        lastError = e;
-        if (attempt < MAX_UPLOAD_ATTEMPTS) {
-          const delay = UPLOAD_RETRY_BACKOFF_MS[attempt - 1] ?? UPLOAD_RETRY_BACKOFF_MS[UPLOAD_RETRY_BACKOFF_MS.length - 1];
-          await new Promise((resolve) => setTimeout(resolve, delay));
+    try {
+      await withRetry(
+        async () => {
+          const session = await requestUploadSession(item);
+          await uploadAssetToSession(item, session);
+        },
+        {
+          maxAttempts: MAX_UPLOAD_ATTEMPTS,
+          backoffMs: UPLOAD_RETRY_BACKOFF_MS,
+          onAttempt: (attempt) => updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null, attempt }),
         }
-      }
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Upload failed';
+      updateUploadItem(item.id, { status: 'failed', error: message });
+      throw e;
     }
-    const message = lastError instanceof Error ? lastError.message : 'Upload failed';
-    updateUploadItem(item.id, { status: 'failed', error: message });
-    throw lastError instanceof Error ? lastError : new Error(message);
   };
 
-  const runUploadQueue = async (items: UploadFileState[]): Promise<PromiseSettledResult<void>[]> => {
-    const results: PromiseSettledResult<void>[] = new Array(items.length);
-    let nextIndex = 0;
+  const runUploadQueue = (items: UploadFileState[]): Promise<PromiseSettledResult<void>[]> => {
     const concurrencyLimit = items.some((item) => item.requiresLocalCopy)
       ? EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT
       : UPLOAD_CONCURRENCY_LIMIT;
-    const workerCount = Math.min(concurrencyLimit, items.length);
-    await Promise.all(
-      Array.from({ length: workerCount }, async () => {
-        while (nextIndex < items.length) {
-          const index = nextIndex;
-          nextIndex += 1;
-          const item = items[index];
-          if (!item) continue;
-          try {
-            await uploadItemWithRetry(item);
-            results[index] = { status: 'fulfilled', value: undefined };
-          } catch (reason) {
-            results[index] = { status: 'rejected', reason };
-          }
-        }
-      })
-    );
-    return results;
+    return runQueue(items, (item) => uploadItemWithRetry(item), concurrencyLimit);
   };
 
   const retryUploadItem = async (item: UploadFileState) => {
