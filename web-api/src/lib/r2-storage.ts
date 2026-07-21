@@ -215,7 +215,8 @@ export async function createR2MultipartUpload(
 ): Promise<R2MultipartSession> {
   const identity = objectIdentity(filename, requestedBatchId, clientUploadId);
   const object = await verifyR2Object(identity.key);
-  if (object.exists) {
+  const expectedBytes = Number.isSafeInteger(totalBytes) && Number(totalBytes) > 0 ? Number(totalBytes) : null;
+  if (object.exists && (expectedBytes === null || object.size === expectedBytes)) {
     return {
       ...identity,
       upload_id: '',
@@ -226,6 +227,9 @@ export async function createR2MultipartUpload(
     };
   }
 
+  // A stable key can contain a truncated object from an older single-PUT flow.
+  // Do not treat a wrong-size object as complete; a successful multipart
+  // completion atomically replaces it at the same key.
   const existingUploadId = await findActiveMultipartUpload(identity.key);
   if (existingUploadId) {
     return {
@@ -234,7 +238,7 @@ export async function createR2MultipartUpload(
       part_size_bytes: multipartPartSize(totalBytes),
       reused: true,
       already_complete: false,
-      existing_size_bytes: null,
+      existing_size_bytes: object.exists ? object.size : null,
     };
   }
 
@@ -255,7 +259,7 @@ export async function createR2MultipartUpload(
     part_size_bytes: multipartPartSize(totalBytes),
     reused: false,
     already_complete: false,
-    existing_size_bytes: null,
+    existing_size_bytes: object.exists ? object.size : null,
   };
 }
 
