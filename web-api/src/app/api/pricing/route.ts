@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
+import { PRICING_UNIT } from '@/lib/pricing';
 
 function normalizeMajorIls(value: unknown): number | null {
   const amount = typeof value === 'number' ? value : Number(value);
@@ -14,7 +15,7 @@ function normalizeMajorIls(value: unknown): number | null {
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('pricing')
-    .select('sport, price_ils')
+    .select('sport, price_ils, price_unit')
     .order('sport');
 
   if (error) {
@@ -52,10 +53,15 @@ export async function POST(req: NextRequest) {
 
   const { error } = await supabaseAdmin
     .from('pricing')
-    .upsert({ sport, price_ils: priceIls, updated_at: new Date().toISOString() });
+    .upsert({
+      sport,
+      price_ils: priceIls,
+      price_unit: PRICING_UNIT,
+      updated_at: new Date().toISOString(),
+    });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true, sport, price_ils: priceIls });
+  return NextResponse.json({ ok: true, sport, price_ils: priceIls, price_unit: PRICING_UNIT });
 }
