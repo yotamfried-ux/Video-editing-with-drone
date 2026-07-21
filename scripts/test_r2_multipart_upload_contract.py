@@ -45,8 +45,10 @@ def main() -> int:
     pipeline = read("mobile/src/app/(operator)/pipeline.tsx")
     audit = read("docs/audit/remaining-gaps-official-reference-audit-20260721.md")
     workflow = read(".github/workflows/r2-multipart-upload-contract.yml")
+    live_test = read("scripts/test_r2_multipart_live.py")
 
     ast.parse(read("scripts/test_r2_multipart_upload_contract.py"))
+    ast.parse(live_test)
 
     require("official-reference audit", audit, ["Cloudflare R2", "multipart", "presigned", "Expo", "AWS"])
     require("official limits", r2, [
@@ -55,17 +57,22 @@ def main() -> int:
         "MAX_MULTIPART_PARTS = 10_000",
         "Math.ceil(knownBytes / MAX_MULTIPART_PARTS)",
     ])
-    require("idempotent init", r2, [
+    init_block = block(r2, "export async function createR2MultipartUpload", "export function createR2MultipartPartUrl")
+    require("idempotent init", init_block, [
         "objectIdentity(",
         "verifyR2Object(identity.key)",
+        "const expectedBytes = Number.isSafeInteger(totalBytes)",
+        "object.exists && (expectedBytes === null || object.size === expectedBytes)",
         "findActiveMultipartUpload(identity.key)",
         "new URLSearchParams({ uploads: '' })",
         "already_complete: true",
         "reused: true",
+        "A stable key can contain a truncated object",
+        "existing_size_bytes: object.exists ? object.size : null",
     ])
     ordered(
         "init order",
-        block(r2, "export async function createR2MultipartUpload", "export function createR2MultipartPartUrl"),
+        init_block,
         ["verifyR2Object(identity.key)", "findActiveMultipartUpload(identity.key)", "signedFetch("],
     )
 
@@ -182,12 +189,23 @@ def main() -> int:
         "multipart_upload_id",
         "part_size_bytes",
     ])
+    require("live restart integration", live_test, [
+        "phase_init",
+        "upload_part(state, 1)",
+        "phase_resume",
+        "Server restart did not reuse the original multipart upload_id",
+        "expected_size_bytes': TOTAL_BYTES",
+        "head_object",
+        "phase_cleanup",
+    ])
     require("CI wiring", workflow, [
         "scripts/test_r2_multipart_upload_contract.py",
         "Validate R2 multipart resumable upload contract",
         "Type-check Web API multipart implementation",
         "Type-check mobile multipart implementation",
         "Upload mobile typecheck diagnostics",
+        "Test multipart resume across server restart",
+        "r2-multipart-live-diagnostics",
     ])
 
     print("R2 multipart resumable upload contract checks passed")
