@@ -3,7 +3,8 @@
 
 This test complements the pure policy tests by exercising FFmpeg through the
 quality-first contain renderer and the final reel compiler. It deliberately uses
-a very short synthetic source so the contract remains practical on CPU CI.
+a short synthetic source while still satisfying the editor's real minimum-window
+contract.
 """
 from __future__ import annotations
 
@@ -29,7 +30,7 @@ from pipeline.quality_preserving_framing import (  # noqa: E402
 )
 
 
-def _run(command: list[str], *, timeout: int = 180) -> subprocess.CompletedProcess[str]:
+def _run(command: list[str], *, timeout: int = 300) -> subprocess.CompletedProcess[str]:
     completed = subprocess.run(
         command,
         capture_output=True,
@@ -113,14 +114,14 @@ def main() -> int:
                 "-f",
                 "lavfi",
                 "-i",
-                "testsrc2=size=3840x2160:rate=30:duration=0.80",
+                "testsrc2=size=3840x2160:rate=30:duration=3.20",
                 "-an",
                 "-c:v",
                 "libx264",
                 "-preset",
                 "ultrafast",
                 "-crf",
-                "0",
+                "18",
                 "-pix_fmt",
                 "yuv420p",
                 "-colorspace",
@@ -133,14 +134,14 @@ def main() -> int:
                 "+faststart",
                 str(source),
             ],
-            timeout=180,
+            timeout=300,
         )
 
         event = {
             "event_id": "fixture-readable-surf-ride",
             "type": "surf_ride",
             "start": 0.10,
-            "end": 0.55,
+            "end": 1.00,
             "perception_evidence_status": "tracker_sidecar",
             "track_id": 7,
             "bbox_xyxy": [1200, 500, 2640, 1900],
