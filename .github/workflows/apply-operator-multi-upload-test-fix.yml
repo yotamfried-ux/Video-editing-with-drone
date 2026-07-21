@@ -1,7 +1,9 @@
 name: Apply operator multi-upload contract fix
 
 on:
-  pull_request:
+  push:
+    branches:
+      - audit/end-to-end-hardening-20260721
     paths:
       - '.github/workflows/apply-operator-multi-upload-test-fix.yml'
 
