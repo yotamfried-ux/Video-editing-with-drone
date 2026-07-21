@@ -1,6 +1,7 @@
 import { supabaseAdmin } from './supabase-admin';
 
 const DEFAULT_PRICE_ILS = 29;
+export const MAX_PRICE_ILS = 999.99;
 export const PRICING_UNIT = 'major_ils_v1';
 
 type PricingRow = {
@@ -22,11 +23,15 @@ export class CheckoutEligibilityError extends Error {
  * Stripe and the persisted payment rows use integer minor units (agorot).
  * Operator pricing uses human-readable major ILS and carries an explicit unit
  * version so an old 7900-agorot row can never silently become a ₪7,900 charge.
+ *
+ * The product currently supports prices below ₪1,000. That invariant preserves
+ * a deterministic migration boundary for historical unversioned values where
+ * 7900 meant ₪79 in agorot.
  */
 export function ilsToMinorUnits(value: unknown): number {
   const majorUnits = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(majorUnits) || majorUnits <= 0) {
-    throw new Error('Configured reel price must be a positive ILS amount');
+  if (!Number.isFinite(majorUnits) || majorUnits <= 0 || majorUnits > MAX_PRICE_ILS) {
+    throw new Error(`Configured reel price must be between ₪0.50 and ₪${MAX_PRICE_ILS}`);
   }
 
   const minorUnits = Math.round(majorUnits * 100);
