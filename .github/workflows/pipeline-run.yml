@@ -105,6 +105,7 @@ jobs:
 
       - name: Preflight mandatory perception configuration
         env:
+          SPORTREEL_PERCEPTION_COMMAND: ${{ secrets.SPORTREEL_PERCEPTION_COMMAND || vars.SPORTREEL_PERCEPTION_COMMAND || '' }}
           SPORTREEL_REQUIRE_PERCEPTION: '1'
           SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
           SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || 'config/trackers/sportreel_botsort_reid.yaml' }}
