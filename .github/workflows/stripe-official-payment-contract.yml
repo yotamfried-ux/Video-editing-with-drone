@@ -7,6 +7,7 @@ on:
       - 'docs/audit/stripe-mobile-payment-official-reference-audit-20260721.md'
       - 'scripts/test_stripe_official_payment_contract.py'
       - 'scripts/test_external_payment_store_gate_contract.py'
+      - 'scripts/test_stripe_self_review_hardening_contract.py'
       - 'mobile/app.json'
       - 'mobile/eas.json'
       - 'mobile/package.json'
@@ -45,6 +46,9 @@ jobs:
 
       - name: Validate external payment store gate
         run: python scripts/test_external_payment_store_gate_contract.py
+
+      - name: Validate fallback self-review hardening
+        run: python scripts/test_stripe_self_review_hardening_contract.py
 
       - uses: actions/setup-node@v4
         with:
