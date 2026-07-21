@@ -2,8 +2,9 @@
 
 Date: 2026-07-21  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Branch: `audit/end-to-end-hardening-20260721`  
-Status: **official-reference implementation complete; final CI, migration, deployment, store-policy decision, and real test payment pending**
+Branch: `audit/stripe-official-mobile-payments-20260721`  
+PR: `#192`  
+Status: **official-reference implementation and fallback self-review complete; final-head CI, migration, deployment, store-policy decision, and real test payment pending**
 
 ## 1. Scope
 
@@ -11,7 +12,8 @@ This audit covers the React Native Stripe card-payment path:
 
 ```text
 SportReel React Native checkout
-→ Next.js server calculates the price and creates a PaymentIntent
+→ Next.js server validates reel availability and calculates the price
+→ server creates an idempotent PaymentIntent
 → Stripe PaymentSheet collects and confirms payment
 → redirect/deep-link result returns through the Stripe SDK
 → signed Stripe webhook validates and fulfills the purchase
@@ -116,7 +118,8 @@ Resolution:
 - operator API and UI read/write the same major-unit value;
 - `ilsToMinorUnits` converts exactly once with `Math.round(value * 100)` at each Stripe boundary;
 - `payments.amount_ils` and `purchases.amount_ils` record the Stripe minor-unit amount for reconciliation;
-- analytics revenue converts the confirmed Stripe amount back to major ILS.
+- analytics revenue converts the confirmed Stripe amount back to major ILS;
+- Meshulam already converts the shared minor-unit value back to major ILS when building its provider request, so the shared pricing change preserves that path.
 
 ### Finding B — download tokens could be null
 
@@ -177,6 +180,38 @@ Resolution:
 - keep it out of routes, screenshots, logs and navigation history;
 - delete it after successful download.
 
+### Finding G — the consumer-store payment gate was fail-open
+
+The first implementation enabled Stripe whenever `EXPO_PUBLIC_STRIPE_IN_APP_ENABLED` was not exactly `false`, and Bit was gated separately. A build with a missing variable could therefore expose an external payment path for the digital product.
+
+Resolution:
+
+- all external digital payment paths now require explicit `=== 'true'` opt-in;
+- Card and Bit share the same external-payment gate;
+- production EAS explicitly sets the gate to `false`;
+- a dedicated negative contract rejects fail-open expressions and independently enabled Bit.
+
+### Finding H — PaymentIntent creation did not revalidate product availability
+
+A caller with a valid reel UUID could create a PaymentIntent for a sold, expired, unpublished, or missing-file reel even if the normal UI hid it.
+
+Resolution:
+
+- the server reads `status`, `expires_at`, and `storage_path` before contacting Stripe;
+- only `published` and `viewed` reels with an unexpired timestamp and available file may proceed;
+- sold, expired, unavailable, and missing reels return product-specific non-success responses before PaymentIntent creation.
+
+### Finding I — the live migration could fail on historical duplicate analytics
+
+Creating the unique webhook replay index directly would fail if prior webhook retries had already created duplicate `(payment_id, event_type)` rows.
+
+Resolution:
+
+- the migration ranks existing payment events deterministically;
+- it preserves the oldest event and removes later duplicates;
+- only then does it create the unique index;
+- a regression test verifies ordering of deduplication before index creation.
+
 ## 4. Digital-product store policy blocker
 
 The official `stripe/stripe-react-native` README states that digital products or services unlocked inside an App Store or Google Play app must use the store's in-app purchase APIs. SportReel currently sells a downloadable digital video.
@@ -192,6 +227,7 @@ Current safeguard:
 
 - internal `development` and `preview` builds may use Stripe test mode;
 - the `production` EAS store profile sets `EXPO_PUBLIC_STRIPE_IN_APP_ENABLED=false`;
+- all external provider buttons fail closed unless that variable is explicitly `true`;
 - Apple Pay or Google Pay are not enabled as a workaround, because wallets inside PaymentSheet do not replace store billing requirements for a digital product.
 
 ## 5. Implementation checklist
@@ -200,6 +236,7 @@ Current safeguard:
 
 - [x] Calculate price from the server-side reel/sport pricing table.
 - [x] Convert major ILS to minor units exactly once at Stripe boundaries.
+- [x] Revalidate reel status, expiry, and file availability before contacting Stripe.
 - [x] Create PaymentIntent with `automatic_payment_methods`.
 - [x] Attach payer email and SportReel metadata.
 - [x] Use a persisted Stripe idempotency key.
@@ -218,7 +255,7 @@ Current safeguard:
 - [x] Persist the bearer token and checkout-attempt ID in SecureStore.
 - [x] Avoid putting payment capabilities in navigation URLs.
 - [x] Wait for webhook-backed status before success/download.
-- [x] Disable Stripe digital-content checkout in the store-production profile.
+- [x] Fail closed for Card and Bit in consumer store builds.
 
 ### Webhook and fulfillment
 
@@ -226,7 +263,8 @@ Current safeguard:
 - [x] Validate currency, amount, reel ownership and payment-row identity.
 - [x] Complete payment/reel state only for a valid succeeded intent.
 - [x] Persist failed/canceled terminal state without regressing completed state.
-- [x] Deduplicate analytics events.
+- [x] Deduplicate historical analytics before enforcing the unique replay index.
+- [x] Deduplicate future analytics events.
 - [x] Make receipt email retry-aware.
 - [x] Return 500 for retriable processing failure.
 - [x] Keep download locked until durable completed state.
@@ -234,14 +272,19 @@ Current safeguard:
 ### Tests and deployment
 
 - [x] Add `scripts/test_stripe_official_payment_contract.py`.
-- [x] Add `.github/workflows/stripe-official-payment-contract.yml` with contract, web type-check and mobile type-check.
+- [x] Add `scripts/test_external_payment_store_gate_contract.py`.
+- [x] Add `scripts/test_stripe_self_review_hardening_contract.py`.
+- [x] Add `.github/workflows/stripe-official-payment-contract.yml` with contracts, web type-check and mobile type-check.
+- [x] Perform fallback self-review because CodeRabbit review was rate-limited.
 - [ ] Pass all workflows on the final PR head.
 - [ ] Review and apply `20260721_harden_payment_download_tokens.sql`.
+- [ ] Preflight existing non-empty download tokens and historical analytics rows before APPLY.
 - [ ] Verify new columns/default/indexes in live Supabase.
 - [ ] Deploy the Web API to Vercel.
 - [ ] Publish the correct mobile update/build through EAS.
 - [ ] Execute a Stripe test-mode PaymentSheet purchase in an internal build.
 - [ ] Confirm one PaymentIntent and one payment row after repeated taps/retries.
+- [ ] Confirm sold/expired/missing-file reels cannot create a PaymentIntent.
 - [ ] Confirm webhook signature rejection for an invalid payload.
 - [ ] Confirm succeeded webhook unlocks exactly one purchase and analytics row.
 - [ ] Confirm failed/canceled payment remains locked and can start a fresh attempt.
