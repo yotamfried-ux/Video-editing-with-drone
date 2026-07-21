@@ -8,6 +8,7 @@ import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { apiFetch } from '@/shared/lib/api';
+import { useAuthStore } from '@/shared/hooks/useAuth';
 import {
   clearCheckoutSessionId,
   useDownloadTokenStore,
@@ -25,6 +26,7 @@ type PaymentStatusResponse = {
 export default function SuccessScreen() {
   const { reel_id } = useLocalSearchParams<{ reel_id: string }>();
   const router = useRouter();
+  const payerEmail = useAuthStore((state) => state.user?.email?.trim().toLowerCase() ?? '');
   const cachedToken = useDownloadTokenStore((state) => state.get(reel_id));
   const hydrateToken = useDownloadTokenStore((state) => state.hydrate);
   const [token, setToken] = useState<string | undefined>(cachedToken);
@@ -32,6 +34,10 @@ export default function SuccessScreen() {
   const [checking, setChecking] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [downloaded, setDownloaded] = useState(false);
+
+  const clearCurrentCheckoutSession = useCallback(async () => {
+    if (payerEmail) await clearCheckoutSessionId(reel_id, payerEmail);
+  }, [payerEmail, reel_id]);
 
   const checkPayment = useCallback(async (poll = false) => {
     setChecking(true);
@@ -49,15 +55,15 @@ export default function SuccessScreen() {
         if (delay) await sleep(delay);
         const payment = await apiFetch<PaymentStatusResponse>(`/api/payment-status/${resolvedToken}`);
         if (payment.status === 'completed') {
-          await clearCheckoutSessionId(reel_id);
+          await clearCurrentCheckoutSession();
           setFulfillment('completed');
           return;
         }
         if (payment.status === 'failed') {
           // A terminal PaymentIntent must not be reused as the idempotent source
-          // for a new attempt. Keep the token for support/audit, but rotate the
-          // checkout session when the user returns to checkout.
-          await clearCheckoutSessionId(reel_id);
+          // for a new attempt. Keep the token for support/audit, but rotate only
+          // this payer's checkout session when the user returns to checkout.
+          await clearCurrentCheckoutSession();
           setFulfillment('failed');
           return;
         }
@@ -71,7 +77,7 @@ export default function SuccessScreen() {
     } finally {
       setChecking(false);
     }
-  }, [hydrateToken, reel_id, token]);
+  }, [clearCurrentCheckoutSession, hydrateToken, reel_id, token]);
 
   useEffect(() => {
     checkPayment(true).catch(() => {});
