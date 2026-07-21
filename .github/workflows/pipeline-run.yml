@@ -103,6 +103,18 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python scripts/check_qa_reedit_schema.py
 
+      - name: Preflight mandatory perception configuration
+        env:
+          SPORTREEL_REQUIRE_PERCEPTION: '1'
+          SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+          SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || 'config/trackers/sportreel_botsort_reid.yaml' }}
+          SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '10' }}
+          SPORTREEL_ULTRALYTICS_IMGSZ: ${{ vars.SPORTREEL_ULTRALYTICS_IMGSZ || '640' }}
+          SPORTREEL_ULTRALYTICS_DEVICE: ${{ vars.SPORTREEL_ULTRALYTICS_DEVICE || '' }}
+          SPORTREEL_ULTRALYTICS_FPS: '30'
+          PERCEPTION_PREFLIGHT_OUTPUT: /tmp/dtor/pipeline-debug/perception_preflight.json
+        run: python scripts/print_perception_preflight.py
+
       - name: Reset (optional — manual runs only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset }}
         env:
@@ -155,7 +167,10 @@ jobs:
           SPORTREEL_PERCEPTION_COMMAND: ${{ secrets.SPORTREEL_PERCEPTION_COMMAND || vars.SPORTREEL_PERCEPTION_COMMAND || '' }}
           SPORTREEL_REQUIRE_PERCEPTION: '1'
           SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
-          SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || 'botsort.yaml' }}
+          SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || 'config/trackers/sportreel_botsort_reid.yaml' }}
+          SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '10' }}
+          SPORTREEL_ULTRALYTICS_IMGSZ: ${{ vars.SPORTREEL_ULTRALYTICS_IMGSZ || '640' }}
+          SPORTREEL_ULTRALYTICS_DEVICE: ${{ vars.SPORTREEL_ULTRALYTICS_DEVICE || '' }}
           SPORTREEL_ULTRALYTICS_FPS: '30'
           TMP_DIR: /tmp/dtor
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
