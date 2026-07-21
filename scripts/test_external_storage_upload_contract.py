@@ -20,9 +20,11 @@ required_tokens = [
     'await FileSystem.copyAsync({ from: item.uri, to: temporaryUri })',
     'await FileSystem.deleteAsync(temporaryUri, { idempotent: true })',
     'const uploadItemWithRetries',
-    'const prepared = await prepareUpload(item)',
-    'await uploadPreparedFile(item, session, prepared.uri)',
-    'await prepared.cleanup()',
+    'let prepared: PreparedUpload | null = null',
+    'prepared = await prepareUpload(item)',
+    'await uploadPreparedFile(item, session, prepared!.uri)',
+    'if (prepared) await prepared.cleanup()',
+    "status: 'failed'",
     'EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT = 1',
     'Choose videos from SD / USB',
     'Upload from gallery',
@@ -36,10 +38,11 @@ if missing:
 forbidden_tokens = [
     "import * as DocumentPicker from 'expo-document-picker'",
     'expo-document-picker',
+    'const prepared = await prepareUpload(item);\n    try {',
 ]
 present = [token for token in forbidden_tokens if token in pipeline_screen or token in package_json]
 if present:
-    raise SystemExit(f'external storage upload unexpectedly adds a native picker dependency: {present}')
+    raise SystemExit(f'external storage upload unexpectedly contains unsafe/deprecated flow: {present}')
 
 folder_start = pipeline_screen.index('const uploadExternalStorageFolder')
 folder_end = pipeline_screen.index('const uploadBusy', folder_start)
@@ -67,12 +70,15 @@ if copy_index >= delete_index:
 retry_start = pipeline_screen.index('const uploadItemWithRetries')
 retry_end = pipeline_screen.index('const runUploadQueue', retry_start)
 retry_block = pipeline_screen[retry_start:retry_end]
-prepare_call = retry_block.index('const prepared = await prepareUpload(item)')
-upload_call = retry_block.index('await uploadPreparedFile(item, session, prepared.uri)')
+try_index = retry_block.index('try {')
+prepare_call = retry_block.index('prepared = await prepareUpload(item)')
+upload_call = retry_block.index('await uploadPreparedFile(item, session, prepared!.uri)')
+catch_index = retry_block.index('catch (error)')
+failed_state = retry_block.index("status: 'failed'", catch_index)
 finally_index = retry_block.index('finally')
-cleanup_call = retry_block.index('await prepared.cleanup()', finally_index)
-if not prepare_call < upload_call < finally_index < cleanup_call:
-    raise SystemExit('external files must be prepared once, uploaded/retried, then cleaned in finally')
+cleanup_call = retry_block.index('if (prepared) await prepared.cleanup()', finally_index)
+if not try_index < prepare_call < upload_call < catch_index < failed_state < finally_index < cleanup_call:
+    raise SystemExit('external preparation and upload must share one guarded failed/retry/cleanup lifecycle')
 
 queue_start = pipeline_screen.index('const runUploadQueue')
 queue_end = pipeline_screen.index('const retryUploadItem', queue_start)
@@ -85,4 +91,4 @@ for token in [
     if token not in queue_block:
         raise SystemExit(f'external queue safety missing: {token}')
 
-print('Specific external SD / USB video selection and retry lifecycle checks passed')
+print('Specific external SD / USB video selection and guarded retry lifecycle checks passed')
