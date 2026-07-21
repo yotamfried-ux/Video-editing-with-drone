@@ -68,6 +68,13 @@ def install_pre_orchestrator_patches() -> None:
 
     install_perception()
 
+    # Perception is a production requirement, not an opt-in enhancement. Install
+    # immediately after the runtime adapter so later analyzer/crop/identity layers
+    # can rely on detector/tracker evidence and fail closed when it is missing.
+    from pipeline.required_perception_policy import install as install_required_perception
+
+    install_required_perception()
+
     # Must wrap analyzer._parse_session before chunk/selector runtimes capture
     # it, otherwise MM.SS values are discarded as sub-second fragments first.
     from pipeline.raw_timestamp_recovery import install as install_raw_timestamp_recovery
@@ -164,6 +171,12 @@ def install_pre_orchestrator_patches() -> None:
     from pipeline.publishable_qa_evidence import install as install_publishable_qa_evidence
 
     install_publishable_qa_evidence()
+
+    # Install last among editor policies: this replaces artistic crop/zoom defaults
+    # with a 4K/30 contain-first renderer and adds strict output-spec gates.
+    from pipeline.quality_preserving_framing import install as install_quality_framing
+
+    install_quality_framing()
 
     from pipeline.selector_candidate_runtime import install as install_selector_candidate_runtime
 
