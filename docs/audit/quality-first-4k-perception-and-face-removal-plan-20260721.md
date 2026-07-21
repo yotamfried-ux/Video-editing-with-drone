@@ -155,7 +155,7 @@ If crop appears necessary but evidence is unreliable, the event/run fails closed
 - [x] Run the new Python quality-first contract tests.
 - [x] Run mobile type-check and tests.
 - [x] Run web-api type-check through Operator Smoke.
-- [x] Run all affected GitHub Actions workflows successfully on the final implementation head.
+- [x] Run all affected GitHub Actions workflows successfully on the implementation head.
 - [x] Document fallback self-review because CodeRabbit reached its review limit.
 
 Validation record:
@@ -163,8 +163,9 @@ Validation record:
 - The first PR head exposed a real cross-layer bootstrap-order regression in both Performance Reel Contract and Operator Smoke; the canonical install path was corrected and both workflows returned to green.
 - Fallback self-review found that the historical core migration still created biometric fields and functions for fresh installations. The core schema was cleaned and the no-biometric regression test was extended.
 - CodeRabbit produced a walkthrough but did not complete an inline review because its review limit was reached. No automated inline findings were available to resolve.
-- Final head `991a256808a2c06b9d6c5f7752f25ab5885a5aaf` passed all eight triggered workflows: Quality-first 4K Contract run `29810156567`, Operator Smoke `29810156675`, Performance Reel Contract `29810156583`, Mobile Check `29810156596`, Surf Ride `29810156525`, Edit Context `29810156527`, Source Evidence `29810156615`, and Source Evidence Upload `29810156697`.
+- Validated implementation head `991a256808a2c06b9d6c5f7752f25ab5885a5aaf` passed all eight triggered workflows: Quality-first 4K Contract run `29810156567`, Operator Smoke `29810156675`, Performance Reel Contract `29810156583`, Mobile Check `29810156596`, Surf Ride `29810156525`, Edit Context `29810156527`, Source Evidence `29810156615`, and Source Evidence Upload `29810156697`.
 - The real FFmpeg fixture compiled one 3-second Part and `ffprobe` confirmed 2160x3840, 30 fps, H.264 High Profile, yuv420p, BT.709, no audio stream, and `contain` framing. The final fixture was 6.1 MB.
+- Subsequent audit-only commits do not alter runtime behavior; final PR-head check status is recorded in PR #190.
 - Contract/CI evidence does not close tracker quality, VMAF/SSIM generation loss, deployment, live database cleanup, performance cost, or real-footage output quality.
 
 ### G. Deployment and real-footage experiment
