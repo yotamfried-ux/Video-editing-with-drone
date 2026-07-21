@@ -24,10 +24,16 @@ async function paymentForIntent(intentId: string): Promise<PaymentRow | null> {
   return data;
 }
 
-function checkoutResponse(clientSecret: string | null, amountMinor: number, downloadToken: string) {
+function checkoutResponse(
+  paymentIntentId: string,
+  clientSecret: string | null,
+  amountMinor: number,
+  downloadToken: string,
+) {
   if (!clientSecret) throw new Error('Stripe returned no PaymentIntent client secret');
   return NextResponse.json({
     clientSecret,
+    payment_intent_id: paymentIntentId,
     amount_ils: amountMinor,
     download_token: downloadToken,
   });
@@ -81,7 +87,7 @@ export async function POST(req: NextRequest) {
 
     const existing = await paymentForIntent(intent.id);
     if (existing?.download_token) {
-      return checkoutResponse(intent.client_secret, amountMinor, existing.download_token);
+      return checkoutResponse(intent.id, intent.client_secret, amountMinor, existing.download_token);
     }
 
     const downloadToken = randomUUID();
@@ -104,7 +110,7 @@ export async function POST(req: NextRequest) {
       if (!replayed?.download_token) {
         throw new Error(`Payment persistence failed: ${insertError.message}`);
       }
-      return checkoutResponse(intent.client_secret, amountMinor, replayed.download_token);
+      return checkoutResponse(intent.id, intent.client_secret, amountMinor, replayed.download_token);
     }
 
     if (!payment?.download_token) {
@@ -119,7 +125,7 @@ export async function POST(req: NextRequest) {
       console.warn('checkout_started analytics insert failed', analyticsError.message);
     }
 
-    return checkoutResponse(intent.client_secret, amountMinor, payment.download_token);
+    return checkoutResponse(intent.id, intent.client_secret, amountMinor, payment.download_token);
   } catch (error) {
     console.error('Stripe checkout failed', error);
     return NextResponse.json(
