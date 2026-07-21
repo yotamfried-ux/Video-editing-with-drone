@@ -31,7 +31,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Multipart upload is available only with R2 storage' }, { status: 409 });
   }
 
-  const limited = await enforceRateLimit(req, 'operator-upload-multipart-lifecycle', 1200, 3600);
+  // One 5 TiB object can require up to 10,000 part URLs. Keep the budget
+  // above the official part ceiling while still rate-limiting the operator API.
+  const limited = await enforceRateLimit(req, 'operator-upload-multipart-lifecycle', 25_000, 3600);
   if (limited) return limited;
 
   let body: MultipartBody;
@@ -58,7 +60,7 @@ export async function POST(req: NextRequest) {
         storage_key: key,
         upload_id: uploadId,
         ...status,
-      }, { status: status.state === 'missing' ? 404 : 200 });
+      });
     }
 
     if (action === 'part_url') {
@@ -67,19 +69,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'part_number must be between 1 and 10000' }, { status: 400 });
       }
 
-      const status = await getR2MultipartStatus(key, uploadId);
-      if (status.state === 'missing') {
-        return NextResponse.json({ error: 'Multipart upload no longer exists' }, { status: 409 });
-      }
-      if (status.state === 'completed') {
-        return NextResponse.json({
-          ok: true,
-          already_complete: true,
-          storage_key: key,
-          size: status.objectSize,
-        });
-      }
-
+      // Do not ListParts here. Doing so before every part makes an N-part
+      // upload O(N²). A mismatched/expired upload id is rejected by R2 itself;
+      // the client reconciles with the explicit status endpoint on retry.
       return NextResponse.json({
         ok: true,
         already_complete: false,
