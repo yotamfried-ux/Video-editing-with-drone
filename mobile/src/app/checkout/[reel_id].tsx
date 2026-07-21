@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Modal } from 'react-native';
+import { Alert, View, StyleSheet, Modal } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useStripe } from '@stripe/stripe-react-native';
+import { PaymentSheetError, useStripe } from '@stripe/stripe-react-native';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
@@ -17,24 +17,49 @@ export default function CheckoutScreen() {
   const router = useRouter();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
   const { createStripeCheckout, createMeshulamCheckout, loading, error } = useCheckout(reel_id);
-  const setDownloadToken = useDownloadTokenStore((s) => s.set);
+  const setDownloadToken = useDownloadTokenStore((state) => state.set);
+  const [paymentSheetBusy, setPaymentSheetBusy] = useState(false);
   const [bitUrl, setBitUrl] = useState<string | null>(null);
   const [priceDisplay, setPriceDisplay] = useState<string>('');
 
-  // The download token is stashed in an in-memory store (not the URL) so it
-  // never lands in navigation history, logs, or screenshots.
   const handleStripe = async () => {
-    const checkout = await createStripeCheckout();
-    if (!checkout) return;
-    setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
-    setDownloadToken(reel_id, checkout.download_token);
-    await initPaymentSheet({
-      paymentIntentClientSecret: checkout.clientSecret,
-      merchantDisplayName: 'SportReel',
-    });
-    const { error: presentError } = await presentPaymentSheet();
-    if (!presentError) {
-      router.replace(`/success/${reel_id}`);
+    setPaymentSheetBusy(true);
+    try {
+      const checkout = await createStripeCheckout();
+      if (!checkout) return;
+
+      setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
+      await setDownloadToken(reel_id, checkout.download_token);
+
+      const { error: initError } = await initPaymentSheet({
+        paymentIntentClientSecret: checkout.clientSecret,
+        merchantDisplayName: 'SportReel',
+        returnURL: 'sportreel://stripe-redirect',
+        allowsDelayedPaymentMethods: false,
+      });
+      if (initError) {
+        Alert.alert('Could not open secure checkout', initError.message);
+        return;
+      }
+
+      const { error: presentError } = await presentPaymentSheet();
+      if (!presentError) {
+        // PaymentSheet confirms with Stripe, but durable product fulfillment is
+        // owned by the signed webhook. The next screen waits for that evidence.
+        router.replace(`/success/${reel_id}`);
+        return;
+      }
+
+      if (presentError.code !== PaymentSheetError.Canceled) {
+        Alert.alert('Payment failed', presentError.message);
+      }
+    } catch (paymentError) {
+      Alert.alert(
+        'Payment unavailable',
+        paymentError instanceof Error ? paymentError.message : 'Unable to start payment',
+      );
+    } finally {
+      setPaymentSheetBusy(false);
     }
   };
 
@@ -42,7 +67,7 @@ export default function CheckoutScreen() {
     const checkout = await createMeshulamCheckout();
     if (!checkout) return;
     setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
-    setDownloadToken(reel_id, checkout.download_token);
+    await setDownloadToken(reel_id, checkout.download_token);
     setBitUrl(checkout.paymentUrl);
   };
 
@@ -62,6 +87,8 @@ export default function CheckoutScreen() {
     );
   }
 
+  const busy = loading || paymentSheetBusy;
+
   return (
     <SafeArea>
       <View style={styles.container}>
@@ -75,23 +102,23 @@ export default function CheckoutScreen() {
         <Card bordered style={styles.priceCard}>
           <Text variant="headline" style={{ textAlign: 'center' }}>{priceDisplay || 'One-time purchase'}</Text>
           <Text variant="caption" color={Colors.textSecondary} style={{ textAlign: 'center' }}>
-            HD quality · yours forever
+            4K personal video · yours forever
           </Text>
         </Card>
 
         <Spacer size={Spacing.xl} />
         {error && <Text variant="caption" color={Colors.danger}>{error}</Text>}
 
-        <Button label="Pay with Card" onPress={handleStripe} loading={loading} />
+        <Button label="Pay with Card" onPress={handleStripe} loading={busy} disabled={busy} />
         <Spacer size={Spacing.md} />
         {!!process.env.EXPO_PUBLIC_BIT_ENABLED && (
           <>
-            <Button label="Pay with Bit 📱" onPress={handleBit} loading={loading} variant="secondary" />
+            <Button label="Pay with Bit 📱" onPress={handleBit} loading={loading} disabled={busy} variant="secondary" />
             <Spacer size={Spacing.sm} />
           </>
         )}
         <Spacer size={Spacing.sm} />
-        <Button label="Cancel" onPress={() => router.back()} variant="ghost" />
+        <Button label="Cancel" onPress={() => router.back()} disabled={busy} variant="ghost" />
       </View>
     </SafeArea>
   );
