@@ -17,6 +17,7 @@ on:
       - 'supabase/verify_schema.sql'
       - 'scripts/test_quality_first_4k_policy_contract.py'
       - 'scripts/test_quality_first_4k_media_contract.py'
+      - 'scripts/test_delivery_disk_bound_contract.py'
       - '.github/workflows/pipeline-run.yml'
       - '.github/workflows/quality-first-4k-contract.yml'
   workflow_dispatch:
@@ -67,9 +68,12 @@ jobs:
             pipeline/silent_output_policy.py \
             services/delivery.py \
             scripts/test_quality_first_4k_policy_contract.py \
-            scripts/test_quality_first_4k_media_contract.py
+            scripts/test_quality_first_4k_media_contract.py \
+            scripts/test_delivery_disk_bound_contract.py
       - name: Run quality-first product contract
         run: python scripts/test_quality_first_4k_policy_contract.py
+      - name: Validate bounded delivery disk usage
+        run: python scripts/test_delivery_disk_bound_contract.py
       - name: Render and probe a real 4K/30 fixture
         run: |
           set +e
