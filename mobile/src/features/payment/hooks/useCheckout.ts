@@ -29,7 +29,7 @@ export function useCheckout(reelId: string) {
       if (!payerEmail) {
         throw new Error('Sign in with an email address before paying by card.');
       }
-      const checkoutSessionId = await getOrCreateCheckoutSessionId(reelId);
+      const checkoutSessionId = await getOrCreateCheckoutSessionId(reelId, payerEmail);
       return await apiFetch<StripeCheckout>('/api/checkout/stripe', {
         method: 'POST',
         body: JSON.stringify({
