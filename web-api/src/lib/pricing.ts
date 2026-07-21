@@ -2,6 +2,16 @@ import { supabaseAdmin } from './supabase-admin';
 
 const DEFAULT_PRICE_ILS = 29;
 
+export class CheckoutEligibilityError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = 'CheckoutEligibilityError';
+    this.status = status;
+  }
+}
+
 /**
  * Stripe requires integer amounts in the currency's smallest unit. The pricing
  * table is operator-facing and stores human-readable ILS values (for example
@@ -24,11 +34,20 @@ export function ilsToMinorUnits(value: unknown): number {
 export async function getPriceForReel(reelId: string): Promise<number> {
   const { data: reel, error: reelError } = await supabaseAdmin
     .from('reels')
-    .select('sport')
+    .select('sport, status, expires_at, storage_path')
     .eq('id', reelId)
     .single();
 
-  if (reelError || !reel) throw new Error('Reel not found');
+  if (reelError || !reel) throw new CheckoutEligibilityError('Reel not found', 404);
+  if (reel.status === 'sold') {
+    throw new CheckoutEligibilityError('This clip was already sold', 409);
+  }
+  if (reel.status === 'expired' || !reel.expires_at || new Date(reel.expires_at) < new Date()) {
+    throw new CheckoutEligibilityError('This clip has expired', 410);
+  }
+  if (!reel.storage_path) {
+    throw new CheckoutEligibilityError('File not available', 404);
+  }
 
   const { data: price, error: priceError } = await supabaseAdmin
     .from('pricing')
