@@ -19,7 +19,26 @@ alter table public.payments
 create unique index if not exists payments_download_token_uidx
   on public.payments (download_token);
 
--- Webhook retries must not duplicate the same durable analytics event. PostgreSQL
--- permits multiple NULL payment_id values, so non-payment analytics remain valid.
+-- Older webhook deliveries may already have inserted duplicate payment events.
+-- Retain the newest row for each durable payment/event pair before adding the
+-- uniqueness bar required by idempotent webhook and download replays.
+delete from public.analytics_events
+where id in (
+  select id
+  from (
+    select
+      id,
+      row_number() over (
+        partition by payment_id, event_type
+        order by created_at desc nulls last, id desc
+      ) as duplicate_rank
+    from public.analytics_events
+    where payment_id is not null
+  ) ranked
+  where duplicate_rank > 1
+);
+
+-- PostgreSQL permits multiple NULL payment_id values, so non-payment analytics
+-- remain valid while each payment event becomes unique.
 create unique index if not exists analytics_payment_event_uidx
   on public.analytics_events (payment_id, event_type);
