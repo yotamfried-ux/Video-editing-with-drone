@@ -1,5 +1,5 @@
-import { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { useCallback, useEffect } from 'react';
+import { Linking, Platform } from 'react-native';
 import { Stack, usePathname } from 'expo-router';
 import {
   useFonts,
@@ -13,7 +13,7 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StripeProvider } from '@stripe/stripe-react-native';
+import { StripeProvider, useStripe } from '@stripe/stripe-react-native';
 import { supabase } from '@/shared/lib/supabase';
 import { useAuthStore } from '@/shared/hooks/useAuth';
 import { registerPushToken } from '@/shared/lib/notifications';
@@ -55,6 +55,30 @@ function CrashContextSync() {
   return null;
 }
 
+/**
+ * Stripe's official React Native example forwards both cold-start and live deep
+ * links to handleURLCallback. This is required for 3DS and redirect-based flows
+ * to return control to PaymentSheet safely.
+ */
+function StripeDeepLinkHandler() {
+  const { handleURLCallback } = useStripe();
+
+  const handleDeepLink = useCallback(async (url: string | null) => {
+    if (!url) return;
+    await handleURLCallback(url);
+  }, [handleURLCallback]);
+
+  useEffect(() => {
+    Linking.getInitialURL().then(handleDeepLink).catch(() => {});
+    const subscription = Linking.addEventListener('url', ({ url }) => {
+      handleDeepLink(url).catch(() => {});
+    });
+    return () => subscription.remove();
+  }, [handleDeepLink]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const setSession = useAuthStore((state) => state.setSession);
   const [fontsLoaded] = useFonts({
@@ -90,6 +114,7 @@ export default function RootLayout() {
           publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''}
           urlScheme="sportreel"
         >
+          <StripeDeepLinkHandler />
           <CrashContextSync />
           <Stack screenOptions={{ headerShown: false }} />
         </StripeProvider>
