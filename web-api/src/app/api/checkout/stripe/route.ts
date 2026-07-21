@@ -24,6 +24,15 @@ async function paymentForIntent(intentId: string): Promise<PaymentRow | null> {
   return data;
 }
 
+function checkoutResponse(clientSecret: string | null, amountMinor: number, downloadToken: string) {
+  if (!clientSecret) throw new Error('Stripe returned no PaymentIntent client secret');
+  return NextResponse.json({
+    clientSecret,
+    amount_ils: amountMinor,
+    download_token: downloadToken,
+  });
+}
+
 export async function POST(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'checkout', 10, 60);
   if (limited) return limited;
@@ -52,13 +61,15 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    const amountIls = await getPriceForReel(reelId);
+    const amountMinor = await getPriceForReel(reelId);
     const idempotencyKey = `sportreel_checkout_${checkoutSessionId}`;
     const intent = await stripe.paymentIntents.create(
       {
-        amount: amountIls,
+        amount: amountMinor,
         currency: 'ils',
+        automatic_payment_methods: { enabled: true },
         receipt_email: email,
+        description: `SportReel purchase for reel ${reelId}`,
         metadata: {
           reel_id: reelId,
           payer_email: email,
@@ -70,11 +81,7 @@ export async function POST(req: NextRequest) {
 
     const existing = await paymentForIntent(intent.id);
     if (existing?.download_token) {
-      return NextResponse.json({
-        clientSecret: intent.client_secret,
-        amount_ils: amountIls,
-        download_token: existing.download_token,
-      });
+      return checkoutResponse(intent.client_secret, amountMinor, existing.download_token);
     }
 
     const downloadToken = randomUUID();
@@ -83,7 +90,7 @@ export async function POST(req: NextRequest) {
       .insert({
         reel_id: reelId,
         stripe_payment_intent_id: intent.id,
-        amount_ils: amountIls,
+        amount_ils: amountMinor,
         status: 'pending',
         download_token: downloadToken,
       })
@@ -91,16 +98,13 @@ export async function POST(req: NextRequest) {
       .single();
 
     if (insertError) {
-      // A concurrent replay may have inserted the unique PaymentIntent first.
+      // A replay can race with the first request after Stripe has already
+      // returned the same PaymentIntent for the idempotency key.
       const replayed = await paymentForIntent(intent.id);
       if (!replayed?.download_token) {
         throw new Error(`Payment persistence failed: ${insertError.message}`);
       }
-      return NextResponse.json({
-        clientSecret: intent.client_secret,
-        amount_ils: amountIls,
-        download_token: replayed.download_token,
-      });
+      return checkoutResponse(intent.client_secret, amountMinor, replayed.download_token);
     }
 
     if (!payment?.download_token) {
@@ -115,11 +119,7 @@ export async function POST(req: NextRequest) {
       console.warn('checkout_started analytics insert failed', analyticsError.message);
     }
 
-    return NextResponse.json({
-      clientSecret: intent.client_secret,
-      amount_ils: amountIls,
-      download_token: payment.download_token,
-    });
+    return checkoutResponse(intent.client_secret, amountMinor, payment.download_token);
   } catch (error) {
     console.error('Stripe checkout failed', error);
     return NextResponse.json(
