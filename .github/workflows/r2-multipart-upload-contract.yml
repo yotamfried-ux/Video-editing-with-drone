@@ -61,8 +61,28 @@ jobs:
           npm ci
           npm run type-check
 
-      - name: Type-check mobile multipart implementation
+      - name: Install mobile dependencies
         working-directory: mobile
+        run: npm ci
+
+      - name: Type-check mobile multipart implementation
+        id: mobile-typecheck
+        continue-on-error: true
+        working-directory: mobile
+        shell: bash
         run: |
-          npm ci
-          npm run type-check
+          set -o pipefail
+          npm run type-check 2>&1 | tee ../mobile-typecheck.log
+
+      - name: Upload mobile typecheck diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2-mobile-typecheck
+          path: mobile-typecheck.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Fail when mobile typecheck failed
+        if: steps.mobile-typecheck.outcome == 'failure'
+        run: exit 1
