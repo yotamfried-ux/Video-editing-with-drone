@@ -32,7 +32,9 @@ def require_order(label: str, text: str, first: str, second: str) -> None:
 
 def main() -> int:
     upload_route = _read("web-api/src/app/api/operator/upload/route.ts")
+    r2_storage = _read("web-api/src/lib/r2-storage.ts")
     pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
+    upload_queue = _read("mobile/src/features/operator/lib/uploadQueue.ts")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
     ast.parse(_read("scripts/test_multi_upload_batch_contract.py"))
@@ -46,11 +48,13 @@ def main() -> int:
             "normalizeUploadFiles",
             "uploadFilename",
             "String(index + 1).padStart(3, '0')",
-            "operator-upload-batch",
+            "operator-upload-resilient-batch-item",
             "safeBatchId(requestedBatchId) || newBatchId()",
+            "client_upload_id is required for resilient uploads",
             "const uploads: UploadFileResult[] = files.map",
-            "createR2UploadUrl(file.uploadFilename, batchId)",
-            "await Promise.all(",
+            "createR2UploadUrl(",
+            "file.clientUploadId,",
+            "file.mimeType,",
             "createUploadSession(file.uploadFilename, rawFolder, file.mimeType)",
             "source_filename: file.filename",
             "uploads,",
@@ -64,7 +68,7 @@ def main() -> int:
         "const limited = await enforceRateLimit",
     )
     require_no_tokens(
-        "upload route must not hard-limit every selected file as its own hourly request",
+        "upload route must not hard-limit every selected file as its own legacy request",
         upload_route,
         [
             "enforceRateLimit(req, 'operator-upload', 10, 3600);\n  if (limited) return limited;",
@@ -74,24 +78,50 @@ def main() -> int:
     )
 
     require_tokens(
-        "mobile multi-file upload UX",
+        "stable R2 retry identity",
+        r2_storage,
+        [
+            "safeUploadId",
+            "clientUploadId?: string | null",
+            "stableUploadId",
+            "'content-type': mimeType",
+        ],
+    )
+
+    require_tokens(
+        "mobile resilient multi-file upload UX",
         pipeline_screen,
         [
             "allowsMultipleSelection: true",
             "UploadFileState",
             "uploadItems",
-            "Promise.allSettled",
-            "files: items.map",
-            "uploadInit.uploads?.length",
-            "uploadAssetToSession",
-            "retryUploadItem",
+            "runQueue(items",
+            "withRetry(",
+            "requestUploadSession",
+            "upload_mode: 'resilient_batch_item'",
+            "client_upload_id: item.id",
+            "MAX_UPLOAD_ATTEMPTS",
+            "Retry all failed",
             "Upload batch progress",
-            "Retry",
+            "Pipeline start is blocked until every selected upload is verified.",
             "Uploading ${verifiedUploads}/${uploadItems.length}",
         ],
     )
+    require_tokens(
+        "retry queue semantics",
+        upload_queue,
+        [
+            "isRetryableUploadError",
+            "error.status === 403",
+            "error.status === 429",
+            "error.status >= 500",
+            "retryDelay",
+            "PromiseSettledResult<void>[]",
+            "concurrencyLimit",
+        ],
+    )
     require_no_tokens(
-        "mobile must not select only one asset",
+        "mobile must not select only one asset or use the removed scalar progress state",
         pipeline_screen,
         [
             "allowsMultipleSelection: false",
@@ -107,6 +137,7 @@ def main() -> int:
         [
             "scripts/test_multi_upload_batch_contract.py",
             "web-api/src/app/api/operator/upload/route.ts",
+            "mobile/src/features/operator/lib/uploadQueue.ts",
             "Validate Multi-upload batch contract",
         ],
     )
