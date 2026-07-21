@@ -59,4 +59,19 @@ jobs:
       - name: Run quality-first product contract
         run: python scripts/test_quality_first_4k_policy_contract.py
       - name: Render and probe a real 4K/30 fixture
-        run: python scripts/test_quality_first_4k_media_contract.py
+        run: |
+          set +e
+          python scripts/test_quality_first_4k_media_contract.py > /tmp/quality-first-4k-media.log 2>&1
+          status=$?
+          cat /tmp/quality-first-4k-media.log
+          echo "$status" > /tmp/quality-first-4k-media.status
+          exit "$status"
+      - name: Upload 4K media diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-first-4k-media-${{ github.run_id }}
+          path: |
+            /tmp/quality-first-4k-media.log
+            /tmp/quality-first-4k-media.status
+          if-no-files-found: warn
