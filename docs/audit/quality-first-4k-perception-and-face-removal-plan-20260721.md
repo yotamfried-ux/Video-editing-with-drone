@@ -2,7 +2,7 @@
 
 Date: 2026-07-21  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Status: **implementation and deterministic CI complete on PR #190; migration, deployment, performance measurement, and real-footage validation pending**
+Status: **implementation, deterministic CI, and synthetic 4K/30 media validation complete on PR #190; migration, deployment, performance measurement, and real-footage validation pending**
 
 ## 1. Product decisions
 
@@ -107,7 +107,7 @@ If crop appears necessary but evidence is unreliable, the event/run fails closed
 - [x] Use high-quality Lanczos scaling, High Profile, yuv420p, BT.709, and fast start.
 - [x] Use CRF 12 intermediates, CRF 14 final compile, slow preset, and a 45 Mbps clip max-rate reference.
 - [x] Disable slow-motion in the quality-first clip renderer for 30 fps source footage.
-- [ ] Add a generated 4K fixture and use `ffprobe` to prove width, height, fps, silence, codec/profile, pixel format, and color tags.
+- [x] Add a generated 4K fixture and use `ffprobe` to prove width, height, fps, silence, codec/profile, pixel format, and color tags.
 - [ ] Measure generation loss against source with VMAF/SSIM on contain output and on one emergency-crop fixture.
 
 ### C. Make perception mandatory
@@ -155,7 +155,7 @@ If crop appears necessary but evidence is unreliable, the event/run fails closed
 - [x] Run the new Python quality-first contract tests.
 - [x] Run mobile type-check and tests.
 - [x] Run web-api type-check through Operator Smoke.
-- [x] Run all affected GitHub Actions workflows successfully on the implementation head.
+- [x] Run all affected GitHub Actions workflows successfully on the final implementation head.
 - [x] Document fallback self-review because CodeRabbit reached its review limit.
 
 Validation record:
@@ -163,7 +163,9 @@ Validation record:
 - The first PR head exposed a real cross-layer bootstrap-order regression in both Performance Reel Contract and Operator Smoke; the canonical install path was corrected and both workflows returned to green.
 - Fallback self-review found that the historical core migration still created biometric fields and functions for fresh installations. The core schema was cleaned and the no-biometric regression test was extended.
 - CodeRabbit produced a walkthrough but did not complete an inline review because its review limit was reached. No automated inline findings were available to resolve.
-- Contract/CI evidence does not close tracking quality, 4K generation loss, deployment, live database cleanup, or real-footage output quality.
+- Final head `991a256808a2c06b9d6c5f7752f25ab5885a5aaf` passed all eight triggered workflows: Quality-first 4K Contract run `29810156567`, Operator Smoke `29810156675`, Performance Reel Contract `29810156583`, Mobile Check `29810156596`, Surf Ride `29810156525`, Edit Context `29810156527`, Source Evidence `29810156615`, and Source Evidence Upload `29810156697`.
+- The real FFmpeg fixture compiled one 3-second Part and `ffprobe` confirmed 2160x3840, 30 fps, H.264 High Profile, yuv420p, BT.709, no audio stream, and `contain` framing. The final fixture was 6.1 MB.
+- Contract/CI evidence does not close tracker quality, VMAF/SSIM generation loss, deployment, live database cleanup, performance cost, or real-footage output quality.
 
 ### G. Deployment and real-footage experiment
 
@@ -217,4 +219,4 @@ Closure bar: the audit remains open until a real production-style run proves ide
 
 ## 7. Current closure state
 
-The product decisions, runtime policies, biometric removal, fresh-install schema cleanup, destructive cleanup migration, and deterministic CI are implemented on PR #190. This audit is **not closed**. Remaining closure requirements are explicit merge approval, migration application and live verification, Vercel/EAS deployment, performance and tracking measurements, generated-media quality measurements, and a real-footage production-style run with visual review.
+The product decisions, runtime policies, biometric removal, fresh-install schema cleanup, destructive cleanup migration, deterministic CI, and synthetic 4K/30 media contract are implemented on PR #190. This audit is **not closed**. Remaining closure requirements are explicit merge approval, migration application and live verification, Vercel/EAS deployment, tracker/performance measurements, VMAF/SSIM generation-loss measurement, and a real-footage production-style run with visual review.
