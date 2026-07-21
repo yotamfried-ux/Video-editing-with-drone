@@ -1,7 +1,14 @@
 import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
-const keyForReel = (reelId: string) => `sportreel_download_token_${reelId}`;
+const tokenKey = (reelId: string) => `sportreel.payment.download-token.${reelId}`;
+const checkoutSessionKey = (reelId: string) => `sportreel.payment.checkout-session.${reelId}`;
+
+function newCheckoutSessionId(): string {
+  const stamp = Date.now().toString(36);
+  const random = Math.random().toString(36).slice(2, 14);
+  return `checkout_${stamp}_${random}`;
+}
 
 interface DownloadTokenState {
   tokens: Record<string, string>;
@@ -20,13 +27,13 @@ export const useDownloadTokenStore = create<DownloadTokenState>((set, get) => ({
   tokens: {},
   set: async (reelId, token) => {
     set((state) => ({ tokens: { ...state.tokens, [reelId]: token } }));
-    await SecureStore.setItemAsync(keyForReel(reelId), token);
+    await SecureStore.setItemAsync(tokenKey(reelId), token);
   },
   get: (reelId) => get().tokens[reelId],
   hydrate: async (reelId) => {
     const cached = get().tokens[reelId];
     if (cached) return cached;
-    const stored = await SecureStore.getItemAsync(keyForReel(reelId));
+    const stored = await SecureStore.getItemAsync(tokenKey(reelId));
     if (!stored) return undefined;
     set((state) => ({ tokens: { ...state.tokens, [reelId]: stored } }));
     return stored;
@@ -37,6 +44,25 @@ export const useDownloadTokenStore = create<DownloadTokenState>((set, get) => ({
       delete next[reelId];
       return { tokens: next };
     });
-    await SecureStore.deleteItemAsync(keyForReel(reelId));
+    await SecureStore.deleteItemAsync(tokenKey(reelId));
   },
 }));
+
+/**
+ * Stripe idempotency requires reusing the same key for the same logical
+ * checkout. Persist the client checkout session until the purchase is complete,
+ * including across repeated taps and app restarts.
+ */
+export async function getOrCreateCheckoutSessionId(reelId: string): Promise<string> {
+  const key = checkoutSessionKey(reelId);
+  const existing = await SecureStore.getItemAsync(key);
+  if (existing) return existing;
+
+  const created = newCheckoutSessionId();
+  await SecureStore.setItemAsync(key, created);
+  return created;
+}
+
+export async function clearCheckoutSessionId(reelId: string): Promise<void> {
+  await SecureStore.deleteItemAsync(checkoutSessionKey(reelId));
+}
