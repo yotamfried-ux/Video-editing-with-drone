@@ -1,282 +1,256 @@
 # SportReel — Deployment Guide
 
-This guide covers taking SportReel from source to an operational app-pipeline system.
+This guide covers taking SportReel from source to an operational app, API, pipeline, delivery, payment, and Discover system.
 
-The production architecture has these layers:
+## Architecture
 
 ```text
 Operator mobile app
-  -> web-api on Vercel
+  -> Next.js web-api on Vercel
   -> GitHub Actions workflows
-  -> Python pipeline and delivery scripts
-  -> Google Drive folders + Supabase tracking tables
-  -> Review, Delivery, Discover, checkout, and app status screens
+  -> Python + Gemini + mandatory Ultralytics/BoT-SORT + FFmpeg
+  -> R2 or Drive storage + Supabase tracking tables
+  -> Review, re-edit, delivery, Discover, checkout, and app status screens
 ```
 
-The mobile app is a control surface. Do not move Python, FFmpeg, Gemini, Drive moves, or other heavy processing into mobile code.
+The mobile app is a control surface. Do not move Python, FFmpeg, Gemini, detector/tracker inference, storage moves, or service-role operations into mobile code.
+
+SportReel does **not** collect face photos, create face embeddings, or match a Reel automatically to an app account from a face. Do not provision or restore an `athlete-photos` bucket, biometric RPC, `face_embedding`, `photo_path`, or `matched_athlete` field.
 
 ---
 
-## 0. What's already provisioned / expected
+## 1. Provisioned services
 
-| Piece | Status / purpose |
+| Piece | Purpose |
 |---|---|
-| Supabase project (`bcndgmymnismbxvdeetc`) | Live project used by web-api, mobile RLS flows, and the Python pipeline. |
-| Supabase migrations | Live schema plus migrations in `supabase/migrations/`. Apply new migrations through the migration workflow or Supabase SQL editor. |
-| Storage buckets | Private buckets for reel assets and athlete profile assets. |
-| `web-api` | Next.js API layer deployed from the `web-api` root directory on Vercel. |
-| `mobile` | Expo app for athlete/user flows and the hidden operator console. |
-| Python pipeline | Runs in GitHub Actions or locally for development; writes Drive/Supabase state. |
-| Google Drive folders | Durable pipeline state for RAW, PROCESSED, REVIEW, APPROVED, preview, and pending-payment handoff. |
-| GitHub Actions | Dispatch target for pipeline, delivery, mobile checks, and Supabase migrations. |
+| Supabase | Auth, application state, pipeline/delivery tracking, purchases, diagnostics, and migrations. |
+| Cloudflare R2 or Google Drive | RAW, PROCESSED, REVIEW, APPROVED, preview, and payment/delivery object state. |
+| Vercel | Hosts `web-api/`. |
+| Expo / EAS | Builds and publishes `mobile/`. |
+| GitHub Actions | Runs pipeline, delivery, checks, and tracked migrations. |
+| Gemini | Semantic video understanding and model-assisted QA. |
+| Ultralytics YOLO + BoT-SORT | Mandatory detector/tracker evidence for athlete localization and continuity. |
+| FFmpeg | Silent 2160x3840, 30 fps rendering and media validation. |
+| Stripe | Discover checkout and payment completion. |
+
+The Supabase service-role key belongs only in trusted server and pipeline environments. Never place it in mobile code.
 
 ---
 
-## 1. External accounts and credentials
+## 2. Vercel web-api
 
-These require identity, billing, or dashboard setup:
+Set the Vercel project root to `web-api`.
 
-| Service | Why | Required values |
-|---|---|---|
-| Stripe | Discover checkout and payment completion | `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, publishable key for mobile |
-| Meshulam | Bit/wallet payments where supported | API key, user ID, webhook secret |
-| Cloudflare Stream | Stream hosting / protected playback | Account ID, Stream API token, customer code |
-| Google Cloud | Drive access and service account JSON | `GOOGLE_SERVICE_ACCOUNT_JSON`; Drive API enabled |
-| GitHub | Dispatch workflows from operator API / Apps Script | Dispatch token scoped to this repository |
-| Expo / Apple / Google Play | Mobile builds and store submission | EAS account and store credentials |
-| Supabase | DB, auth, storage, service-role API access | URL, anon key, service-role key, DB URL for migrations |
-
-The Supabase service-role key is used only by trusted server/pipeline contexts: Vercel web-api and GitHub Actions pipeline jobs. Do not put it in mobile code.
-
----
-
-## 2. Deploy the API layer: `web-api` -> Vercel
-
-The Vercel project root directory must be `web-api`.
-
-### Required Vercel environment variables
+Required environment variables depend on the enabled features, but the production baseline is:
 
 ```bash
-SUPABASE_URL=https://bcndgmymnismbxvdeetc.supabase.co
-SUPABASE_SERVICE_KEY=<service_role secret>
+SUPABASE_URL=https://<project-ref>.supabase.co
+SUPABASE_SERVICE_KEY=<service-role-secret>
 
-OPERATOR_SECRET=<shared operator secret entered once in the mobile operator settings>
-UPSTASH_REDIS_REST_URL=<optional rate-limit Redis URL>
-UPSTASH_REDIS_REST_TOKEN=<optional rate-limit Redis token>
+OPERATOR_SECRET=<operator-shared-secret>
+UPSTASH_REDIS_REST_URL=<optional>
+UPSTASH_REDIS_REST_TOKEN=<optional>
 
 GITHUB_REPO=yotamfried-ux/Video-editing-with-drone
-GITHUB_DISPATCH_TOKEN=<fine-grained token for repository/workflow dispatch>
+GITHUB_DISPATCH_TOKEN=<fine-grained-repository-token>
 
-GOOGLE_SERVICE_ACCOUNT_JSON=<single-line service account JSON>
-RAW_FOLDER_ID=<Drive RAW folder id, required by /api/operator/upload>
-REVIEW_FOLDER_ID=<Drive REVIEW folder id>
-APPROVED_FOLDER_ID=<Drive APPROVED folder id>
-
-CLOUDFLARE_ACCOUNT_ID=<...>
-CLOUDFLARE_STREAM_API_TOKEN=<...>
-CLOUDFLARE_CUSTOMER_CODE=<...>
+STORAGE_BACKEND=r2
+R2_ACCOUNT_ID=<...>
+R2_ACCESS_KEY_ID=<...>
+R2_SECRET_ACCESS_KEY=<...>
+R2_BUCKET=sportreel
+R2_ENDPOINT_URL=<optional-explicit-endpoint>
+R2_PUBLIC_BASE_URL=<optional-public-base>
 
 STRIPE_SECRET_KEY=sk_live_...
 STRIPE_WEBHOOK_SECRET=whsec_...
-MESHULAM_API_KEY=<...>
-MESHULAM_USER_ID=<...>
-MESHULAM_WEBHOOK_SECRET=<...>
-
 RESEND_API_KEY=<...>
 RESEND_FROM_EMAIL=<...>
 NEXT_PUBLIC_APP_DOMAIN=sportreel.app
 ```
 
-Use `web-api/.env.example` as the exact API-side checklist.
+Drive-backed deployments additionally need the Google credentials and folder IDs documented in `web-api/.env.example` and `.env.example`.
 
 ### Webhooks
 
-Register these after the first Vercel deployment:
-
-| Provider | Current endpoint | Events / notes |
+| Provider | Endpoint | Events |
 |---|---|---|
-| Stripe Checkout | `https://<deployment>/api/payments/webhook` | `checkout.session.completed`, `checkout.session.expired`. This is the current Discover checkout path backed by `purchases`. |
-| Stripe legacy payment-intent route | `https://<deployment>/api/webhooks/stripe` | Existing legacy handler for `payment_intent.succeeded`; keep only while legacy payment-intent clients need it. |
-| Meshulam | `https://<deployment>/api/webhooks/meshulam` | Meshulam success callbacks. |
+| Stripe Checkout | `https://<deployment>/api/payments/webhook` | `checkout.session.completed`, `checkout.session.expired` |
+| Legacy Stripe PaymentIntent | `https://<deployment>/api/webhooks/stripe` | `payment_intent.succeeded`; remove after legacy clients are retired |
+
+The legacy webhook uses explicit Stripe receipt/customer data. It must not query an inferred athlete owner.
 
 ---
 
-## 3. Mobile app configuration
+## 3. Mobile app
 
 `mobile/.env` should include:
 
 ```bash
-EXPO_PUBLIC_SUPABASE_URL=https://bcndgmymnismbxvdeetc.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon key>
-EXPO_PUBLIC_API_BASE_URL=https://<vercel deployment>
+EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+EXPO_PUBLIC_API_BASE_URL=https://<vercel-deployment>
 EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
 EXPO_PUBLIC_APP_DOMAIN=sportreel.app
 ```
 
-Build and submit through EAS:
+Validation and release:
 
 ```bash
 cd mobile
 npm ci
 npm run type-check
+npm test
 npx eas-cli@latest login
-eas init
 eas build --platform all --profile preview
 eas build --platform all --profile production
 eas submit --platform ios
 eas submit --platform android
 ```
 
-Store requirements:
+Store-review requirements:
 
-- Privacy Policy URL, for example `https://sportreel.app/privacy`.
-- Face/biometric disclosure if app-store review requires it.
-- External payment disclosure for Stripe/Meshulam flows.
-- App Review note explaining the hidden operator section and how reviewers can access it.
+- Provide the current Privacy Policy and Terms URLs.
+- State accurately that the app does not collect facial biometric templates or use face recognition for account matching.
+- Explain that computer vision is used server-side to track a featured athlete inside operator-uploaded sports footage.
+- Disclose external payment flows where required.
+- Explain the hidden operator section and provide review access instructions.
+
+After release, verify the active EAS update/build ID rather than assuming the latest source is live.
 
 ---
 
-## 4. Pipeline and delivery secrets for GitHub Actions
+## 4. GitHub Actions pipeline configuration
 
-Add these under **Settings -> Secrets and variables -> Actions**:
+Add required secrets and variables under **Settings -> Secrets and variables -> Actions**.
+
+### Core pipeline
 
 | Secret / variable | Purpose |
 |---|---|
-| `GEMINI_API_KEY` | Gemini highlight analysis. |
-| `GOOGLE_SERVICE_ACCOUNT_JSON` | Drive API access. |
-| `DRIVE_USER_TOKEN_JSON` | Operator OAuth token required for owner-file uploads/moves. |
-| `RAW_FOLDER_ID` | Incoming footage queue. |
-| `PROCESSED_FOLDER_ID` | Verified archive for processed originals. |
-| `REVIEW_FOLDER_ID` | Draft reels awaiting operator approval. |
-| `APPROVED_FOLDER_ID` | Approved reels ready for delivery. |
-| `PREVIEW_FOLDER_ID` | Optional watermarked preview handoff. |
-| `PENDING_PAYMENT_FOLDER_ID` | Optional full reel handoff before payment. |
-| `OWNER_EMAIL` | Operator notification recipient. |
-| `NOTIFY_EMAIL` | Optional fallback client notification recipient. |
-| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Durable tracking rows and publishing state. |
-| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_STREAM_API_TOKEN` / `CLOUDFLARE_CUSTOMER_CODE` | Stream upload/playback integration. |
-| `APP_DOMAIN` | Public app/web domain used in delivery links. |
-| `SENTRY_DSN` | Optional pipeline observability. |
+| `GEMINI_API_KEY` | Semantic analysis and QA. |
+| `SUPABASE_URL` / `SUPABASE_SERVICE_KEY` | Durable run, QA, delivery, and manifest state. |
+| `OWNER_EMAIL` / `NOTIFY_EMAIL` | Optional notifications. |
+| `SENTRY_DSN` | Optional observability. |
+| Storage credentials | R2 or Drive access according to `STORAGE_BACKEND`. |
 
-Pipeline environment behavior is defined in `config/settings.py`.
+### Mandatory perception
 
----
+Production workflow sets:
 
-## 5. Drive -> GitHub Actions automation
-
-Production-style pipeline runs should be triggered through the app/API boundary or Drive watcher, not by asking mobile to process videos.
-
-```text
-Operator uploads footage or RAW receives footage
-  -> Apps Script watcher or operator API dispatch
-  -> `.github/workflows/pipeline-run.yml`
-  -> `scripts/run_tracked.py` / Python pipeline
-  -> Drive move + Supabase status rows
-  -> operator Pipeline screen
+```bash
+SPORTREEL_REQUIRE_PERCEPTION=1
+SPORTREEL_ULTRALYTICS_MODEL=yolo11s.pt
+SPORTREEL_ULTRALYTICS_TRACKER=botsort.yaml
+SPORTREEL_ULTRALYTICS_FPS=30
 ```
 
-### Apps Script watcher
+`pipeline/required_perception_policy.py` supplies the first-party producer command when no explicit command is configured. A custom `SPORTREEL_PERCEPTION_COMMAND` is allowed only when it still produces the required sidecar schema with usable detections, bbox dimensions, confidence, and track IDs.
 
-1. In `apps_script/trigger.gs`, set `RAW_FOLDER_ID` and repository settings.
-2. Create a GitHub token that can trigger dispatches.
-3. Apps Script -> Project Settings -> Script Properties -> add `GITHUB_TOKEN=<token>`.
-4. Run `setupTrigger()` once and authorize.
+Do not disable required perception to make a failing run green. Fix the detector/tracker configuration or classify the run as blocked.
 
-The watcher waits for uploads to settle before dispatching, so multi-clip sessions are processed as one logical run.
+### 4K/30 resource considerations
 
-### Manual and operator-triggered runs
+Canonical Parts are silent 2160x3840 at 30 fps. Before declaring production ready, measure:
 
-- Operator app run button: `POST /api/operator/pipeline/start`.
-- Legacy alias: `POST /api/operator/pipeline/run` is compatibility-only and governed by `docs/legacy-route-policy.md`.
-- GitHub UI: **Actions -> Run Pipeline -> Run workflow**.
-- Reset/rerun: `POST /api/operator/pipeline/reset` or `python scripts/reset_and_rerun.py` locally for diagnostics.
+- detector/tracker wall time per source video;
+- render and compile wall time per Part;
+- GitHub Actions CPU minutes;
+- temporary disk usage;
+- output object size;
+- upload duration and retry count;
+- timeout behavior.
+
+The tracked audit is `docs/audit/quality-first-4k-perception-and-face-removal-plan-20260721.md`.
 
 ---
 
-## 6. Drive state contract
+## 5. Pipeline dispatch
 
-Drive folder membership is source-of-truth operational state. `processed.json` is runner cache only.
+Production-style runs should be triggered through the operator API or configured storage watcher:
 
-Required folder behavior:
+```text
+Operator selects/uploads footage
+  -> upload verification and batch record
+  -> POST /api/operator/pipeline/start
+  -> .github/workflows/pipeline-run.yml
+  -> scripts/run_tracked.py
+  -> mandatory perception + Gemini + edit + QA + business gate
+  -> REVIEW objects + Supabase status and diagnostics
+```
 
-1. Footage starts in RAW.
-2. The pipeline processes a session and writes draft reels to REVIEW.
-3. Originals are moved RAW -> PROCESSED only after the move can be verified.
-4. Operator approval moves/records delivery into APPROVED / delivery handoff.
-5. Optional preview and pending-payment folders support the Discover/payment handoff.
+Supported actions and tracking rows are defined in `docs/operator-pipeline-contract.md`.
 
-See `docs/drive-move-contract.md` and `docs/operator-pipeline-contract.md` for the exact invariants.
+The workflow must preserve the requested batch boundary. Do not process unrelated RAW objects in the same run.
+
+---
+
+## 6. Storage state
+
+Storage prefix/folder membership is operational state:
+
+1. Footage starts in `raw/` or `RAW_FOLDER_ID`.
+2. Verified processing moves originals to `processed/` or `PROCESSED_FOLDER_ID`.
+3. Canonical silent Parts are uploaded to `review/` or `REVIEW_FOLDER_ID`.
+4. Operator approval moves or records the object under APPROVED state.
+5. Preview/payment/delivery prefixes are optional explicit handoff states.
+
+`processed.json` is a runner cache, not durable truth. See `docs/drive-move-contract.md` and the R2 storage contracts.
 
 ---
 
 ## 7. Supabase migrations
 
-New migrations live under `supabase/migrations/`.
+New migrations live in `supabase/migrations/`.
 
-Required GitHub secret:
+For existing environments, `20260721_remove_face_recognition.sql` is destructive by design. It removes historical face photos, embeddings, inferred athlete ownership, and matching functions.
 
-| Secret | Value |
-|---|---|
-| `SUPABASE_DB_URL` | Postgres connection string with SSL, for example `postgresql://postgres:<DB_PASSWORD>@db.<PROJECT_REF>.supabase.co:5432/postgres?sslmode=require` |
+Required sequence:
 
-Apply through **Actions -> Run Supabase Migration -> Run workflow**:
+1. Review the SQL and confirm that biometric data must be deleted.
+2. Back up only if a legally and operationally valid retention reason exists.
+3. Run the tracked migration workflow with `DRY_RUN`.
+4. Apply only after explicit approval.
+5. Run `supabase/verify_schema.sql` and confirm every result is `ok = true`.
+6. Confirm the `athlete-photos` bucket and objects no longer exist.
+7. Confirm registration, profile, Discover, checkout, payment confirmation, delivery, and support no longer reference removed fields.
 
-1. Set `migration` to the filename, for example `20260702_set_reel_expiry_default.sql`.
-2. Run with `confirm_apply=DRY_RUN` first.
-3. Rerun with `confirm_apply=APPLY` after reviewing the SQL.
-
-The workflow validates the filename and uses `psql -v ON_ERROR_STOP=1` so SQL errors stop the job.
+New environments use the cleaned core schema and should never create the biometric surface.
 
 ---
 
 ## 8. Verification checklist
 
-### API / Vercel
+### API and Vercel
 
-- Vercel deploy succeeds from `web-api`.
-- `GET /api/sessions` returns 200.
-- `GET /api/operator/pipeline/status` rejects missing/invalid operator secret.
-- A valid operator request to `GET /api/operator/pipeline/status` returns the current live status.
-- Operator Smoke passes and stores `operator-smoke-report.md`: see `docs/operator-smoke.md`.
+- [ ] Current `main` is deployed, not merely present in GitHub.
+- [ ] `GET /api/operator/pipeline/status` rejects missing or invalid operator authorization.
+- [ ] Valid operator status and run-history requests return durable state.
+- [ ] Operator Smoke passes.
+- [ ] Stripe webhooks use explicit purchase/customer data.
 
-### Operator app / pipeline
+### Mobile
 
-- `POST /api/operator/pipeline/start` returns `pipeline_run_id` or an actionable dispatch error.
-- `GET /api/operator/pipeline/runs` shows the durable run row.
-- Upload footage smoke loop passes: see `docs/upload-to-run-smoke.md`.
-- Reset/rerun and re-edit responses display returned run IDs, not stale “next run” copy.
+- [ ] Registration contains only account and profile steps.
+- [ ] Profile contains no face-recognition controls.
+- [ ] There is no face-matched My Highlights tab.
+- [ ] Privacy Policy and Terms contain no biometric enrollment or consent flow.
+- [ ] Discover, checkout, payment confirmation, support, and explicit purchased-media access work.
 
-### Review / delivery
+### Pipeline
 
-- Draft approval calls `POST /api/operator/drafts/approve`.
-- Success is shown only when `delivery_started: true`.
-- `GET /api/operator/delivery-status` shows the matching delivery run.
+- [ ] Missing or invalid perception evidence fails before publishable output.
+- [ ] Every analyzed event contains a track ID, bbox, source dimensions, confidence, and tracker-sidecar status.
+- [ ] Default surfing framing is contain.
+- [ ] Every tracked crop is present in `framing_decisions.jsonl` with a measured necessity reason.
+- [ ] Every final Part passes `ffprobe`: 2160x3840, 30 fps, no audio, supported H.264 profile, yuv420p, BT.709, fast start, and <=90 seconds.
+- [ ] Track fragmentation and ID switches are measured on difficult footage.
 
-### Discover / payments
+### Real production-style run
 
-- Apply new Discover/payment migrations before relying on checkout.
-- Run `docs/discover-reels-smoke-loop.md` in Supabase/Stripe Sandbox.
-- `POST /api/checkout/{token}` returns a checkout URL for an active, unexpired reel.
-- Stripe Checkout webhook to `/api/payments/webhook` marks the purchase paid and the reel sold.
+- [ ] Use the same comparison footage identified in the audit.
+- [ ] Inspect all generated videos at native resolution.
+- [ ] Account for every eligible athlete and usable action exactly once or with an explicit rejection.
+- [ ] Verify manifest, coverage, QA trace, framing decisions, GitHub conclusion, Supabase run row, and operator status agree.
 
-### Mobile checks
-
-- Any mobile change must pass `.github/workflows/mobile-check.yml`.
-- Local validation: `cd mobile && npm ci && npm run type-check`.
-
----
-
-## 9. Operational docs to keep aligned
-
-- `README.md` — short current overview.
-- `docs/operator-pipeline-contract.md` — route/workflow/tracking contract.
-- `docs/operator-api-boundary.md` — privileged operator API boundary.
-- `docs/operator-api-contracts.md` — operator API response contracts.
-- `docs/legacy-route-policy.md` — compatibility alias policy and removal conditions.
-- `docs/operator-smoke.md` — repeatable operator smoke gate and report artifact.
-- `docs/drive-move-contract.md` — Drive state invariant.
-- `docs/upload-to-run-smoke.md` — Upload footage smoke loop.
-- `docs/discover-reels-smoke-loop.md` — Discover/checkout smoke loop.
-- `docs/app-pipeline-audit.md` — readiness gaps and repair order.
-
-When a route, workflow, tracking table, or Drive folder behavior changes, update the focused contract first and then keep this guide as the deployment index.
+Do not close the audit from green CI alone.

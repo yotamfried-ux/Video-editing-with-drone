@@ -1,52 +1,52 @@
 # SportReel — Claude Code Context
 
 ## Project overview
-Drone video pipeline → AI editing → athlete highlights marketplace.
 
-- **Pipeline**: GitHub Actions (`pipeline-run.yml`) — triggered by `repository_dispatch: new-raw-video`. Downloads footage from Google Drive, analyzes with Gemini, edits with ffmpeg, uploads drafts back to Drive.
-- **Operator app**: React Native (Expo) in `mobile/` — operator reviews drafts, triggers pipeline, manages pricing.
-- **Web API**: Next.js in `web-api/` — deployed to Vercel. Handles payments, webhooks, sessions, operator auth.
-- **Supabase**: project `bcndgmymnismbxvdeetc` — DB + auth + storage.
+Drone/sports footage → AI-assisted editing → personal athlete reels marketplace.
 
-## Active branch
-`claude/drone-pipeline-bootstrap-Yf0Hs` — open PR against `main`.
+- **Pipeline**: GitHub Actions (`pipeline-run.yml`) dispatches the Python pipeline, mandatory Ultralytics/BoT-SORT perception, Gemini semantic analysis, FFmpeg 4K/30 editing, QA, and diagnostics.
+- **Operator app**: React Native (Expo) in `mobile/` — upload, pipeline status, Review, re-edit, approval, and delivery controls.
+- **Web API**: Next.js in `web-api/` — Vercel boundary for operator actions, uploads, Discover, checkout, webhooks, and protected media access.
+- **Supabase**: DB/auth/tracking state. App-user face recognition is not part of the product.
 
-## What was done this session
-1. Fixed `GITHUB_DISPATCH_TOKEN` env var in Vercel (was empty → 503 → 403 → fixed with Contents:write PAT).
-2. Fixed `GITHUB_REPO` env var in Vercel.
-3. Confirmed pipeline runs end-to-end when triggered from the operator app.
-4. Created Supabase migrations for all missing tables.
-5. Allowed Supabase MCP tools in `.claude/settings.json`.
+## Product source of truth
 
-## What still needs to be done
-### Supabase migrations — NOT YET APPLIED to the live DB
-Run these in order at `https://supabase.com/dashboard/project/bcndgmymnismbxvdeetc/sql/new`:
-1. `supabase/migrations/20260611_add_drafts_and_reprocess_requests.sql`
-2. `supabase/migrations/20260612_add_pipeline_status.sql`
-3. `supabase/migrations/20260612_create_core_schema.sql`
+Read before changing pipeline behavior:
 
-Then verify with `supabase/verify_schema.sql` — every row must return `true`.
+1. `README.md` → **Product vision — source of truth**
+2. `docs/audit/personal-publishable-reel-completion-plan-20260717.md`
+3. `docs/audit/quality-first-4k-perception-and-face-removal-plan-20260721.md`
+4. `docs/operator-pipeline-contract.md`
 
-### Storage bucket
-Create bucket `athlete-photos` (Private) at:
-`https://supabase.com/dashboard/project/bcndgmymnismbxvdeetc/storage/buckets`
+## Non-negotiable runtime rules
 
-### GitHub Actions secrets still needed
-`SUPABASE_URL` and `SUPABASE_SERVICE_KEY` must be added to:
-`https://github.com/yotamfried-ux/Video-editing-with-drone/settings/secrets/actions`
+- Every eligible athlete receives one primary publishable reel or an explicit evidence-backed rejection.
+- Other people may remain visible when the featured athlete stays identifiable, continuous, central, and owns the action.
+- Surfing coverage includes every complete readable usable wave exactly once.
+- Canonical output is silent, vertical 9:16, at most 90 seconds, and contains only complete actions.
+- Production source is 4K/30. Canonical Parts must be 2160x3840 at 30 fps.
+- Framing is `contain` by default. Crop/zoom is an exceptional CV-evidence-backed repair; Gemini hints, scores, event type, or another visible surfer cannot authorize it.
+- Detector/tracker evidence is mandatory for every analyzed event. Never restore a Gemini-only production fallback.
+- Do not add face-photo enrollment, face embeddings, biometric matching RPCs, or automatic account ownership based on a face in footage.
+- Privileged mobile actions go through `operatorFetch` and the web-api boundary.
+- Do not close footage-level gaps from CI alone. Require real-run artifacts and visual review.
 
-Without these, pipeline status updates (progress bar in operator app) will silently fail.
+## Required environment surfaces
 
-## Key env vars
-| Where | Var | Value / note |
-|-------|-----|-------------|
-| Vercel | `GITHUB_DISPATCH_TOKEN` | Fine-grained PAT, Contents:write on this repo |
-| Vercel | `GITHUB_REPO` | `yotamfried-ux/Video-editing-with-drone` |
-| GitHub Secrets | `SUPABASE_URL` | `https://bcndgmymnismbxvdeetc.supabase.co` |
-| GitHub Secrets | `SUPABASE_SERVICE_KEY` | service_role key from Supabase dashboard |
+- GitHub Actions: storage credentials, Gemini, Supabase service role, operator-run correlation, and optional perception overrides.
+- Mandatory perception defaults are installed by `pipeline/required_perception_policy.py`; production may override the command/model only with another working detector/tracker producer.
+- `SPORTREEL_REQUIRE_PERCEPTION` remains enabled in `.github/workflows/pipeline-run.yml`.
 
-## Architecture notes
-- `pipeline/orchestrator.py` → `_write_status()` upserts `pipeline_status` table (id=1). Silent on failure.
-- Mobile app polls `pipeline_status` every 5s via `usePipelineStatus` hook.
-- `match_athlete_face` RPC: cosine similarity over JSONB face embeddings (128-float arrays from `face_recognition`).
-- Auth trigger: `on_auth_user_created` → inserts row in `athlete_profiles` on every new signup.
+## Database state
+
+- Apply tracked migrations in order.
+- `supabase/migrations/20260721_remove_face_recognition.sql` removes historical biometric fields, RPCs, inferred reel ownership, and the `athlete-photos` bucket.
+- The destructive migration requires explicit approval, backup awareness, application, and verification through `supabase/verify_schema.sql`.
+
+## Working method
+
+- Read current files, PRs, and Actions before making claims.
+- Keep changes narrow and update the relevant audit.
+- Add deterministic positive and negative regressions.
+- Fix all CI/review findings before requesting merge.
+- Do not merge without explicit user approval.

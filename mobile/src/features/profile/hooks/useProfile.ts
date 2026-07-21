@@ -5,7 +5,6 @@ interface Profile {
   id: string;
   name: string | null;
   email: string;
-  photo_path: string | null;
   push_token: string | null;
 }
 
@@ -24,7 +23,7 @@ export function useProfile() {
       }
       const { data } = await supabase
         .from('athlete_profiles')
-        .select('id, name, email, photo_path, push_token')
+        .select('id, name, email, push_token')
         .eq('user_id', user.id)
         .single();
       setProfile(data);
@@ -45,19 +44,5 @@ export function useProfile() {
     setProfile((prev) => (prev ? { ...prev, name } : prev));
   };
 
-  const deleteFaceData = async () => {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!user) return;
-    await supabase
-      .from('athlete_profiles')
-      .update({ photo_path: null, face_embedding: null })
-      .eq('user_id', user.id);
-    setProfile((prev) =>
-      prev ? { ...prev, photo_path: null } : prev
-    );
-  };
-
-  return { profile, loading, updateName, deleteFaceData };
+  return { profile, loading, updateName };
 }

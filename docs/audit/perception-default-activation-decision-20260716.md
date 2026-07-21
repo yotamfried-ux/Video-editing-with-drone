@@ -1,71 +1,61 @@
-# Perception layer default-activation decision — 2026-07-16
+# Perception layer default-activation decision — superseded 2026-07-21
 
-Status: addendum to `docs/pipeline-quality-audit.md` (PQ-001) and
-`docs/audit/runtime-bootstrap-wiring-gap-20260715.md`.
+Original decision date: 2026-07-16  
+Superseded by: `docs/audit/quality-first-4k-perception-and-face-removal-plan-20260721.md`  
+Current status: **computer vision is mandatory in production; real-footage tracking validation remains open**
 
-## What this addendum decides
+## Supersession notice
 
-PQ-001's perception foundation (`pipeline/perception/`) is fully built: a real
-Ultralytics YOLO + BoT-SORT producer (`pipeline/perception/producer.py`,
-`scripts/generate_perception_sidecar.py --backend ultralytics`), a normalized
-detection/tracklet schema, and bbox-derived crop math consumed by
-`pipeline/runtime_quality.py::_normalize_event_crop()`. `.github/workflows/pipeline-run.yml`
-already forwards `SPORTREEL_PERCEPTION_COMMAND`, `SPORTREEL_REQUIRE_PERCEPTION`,
-`SPORTREEL_ULTRALYTICS_MODEL`, `SPORTREEL_ULTRALYTICS_TRACKER`, and
-`SPORTREEL_ULTRALYTICS_FPS` from repository secrets/vars. What remained
-undecided was whether perception should be **required by default** (fail
-closed when a video has no usable detections) or stay **opt-in** (silently
-skip and fall back to Gemini-only heuristics, per
-`pipeline/perception/runtime.py::ensure_sidecar_for_video()`'s current
-behavior). This addendum makes that decision explicit instead of leaving it
-as a silent default.
+This document previously decided to keep the perception producer opt-in because the only documented real run showed severe track fragmentation, no runtime/cost benchmark existed, and fail-closed mode had not been exercised.
 
-## Evidence considered
+That product decision changed explicitly on 2026-07-21:
 
-- **Track fragmentation is unresolved.** The only documented real run using
-  this producer (`docs/audit/run-28768826828-roi-repair-plan-20260706.md`,
-  2026-07-06) found 205 unique track ids from a single video: median track
-  duration ~0.42s, roughly 150 of 205 tracks under 2 seconds. That level of
-  fragmentation means the same athlete is likely split across many track
-  ids, which would actively undermine — not strengthen — dedup and identity
-  reliability if perception evidence were trusted by default. The
-  fragmentation-rate/tracker-tuning follow-up that run's own ROI ordering
-  calls for (ROI 4 and ROI 5 in that doc) has not landed.
-- **No cost/runtime benchmark exists.** `pipeline/perception/producer.py`
-  loads a fresh YOLO model per subprocess invocation with no cross-video
-  caching, and `.github/workflows/pipeline-run.yml` runs on `ubuntu-latest`
-  (CPU-only, no GPU provisioned). `vid_stride`/`imgsz` are already tuned down
-  for CPU speed, but no wall-clock or CPU-minute measurement per video has
-  ever been recorded.
-- **Fail-closed mode is unvalidated.** `SPORTREEL_REQUIRE_PERCEPTION=1` has
-  never been exercised in a real production run. Flipping it on by default
-  now would convert an entirely unvalidated failure mode into a hard block
-  on every future run, the first time it is ever exercised for real.
+- every analyzed event must now carry detector/tracker sidecar evidence;
+- production sets `SPORTREEL_REQUIRE_PERCEPTION=1`;
+- skipped, failed, invalid, or zero-detection sidecars fail the run;
+- events without bbox, frame dimensions, and `track_id` fail closed;
+- crop/zoom cannot fall back to Gemini hints;
+- the default renderer is full-frame `contain`, so weak tracking cannot silently authorize a destructive crop.
 
-## Decision
+Do not use the former opt-in conclusion below as current guidance. It is retained only as historical evidence explaining the risks that the new mandatory policy must measure and close.
 
-**Keep perception opt-in.** Do not set `SPORTREEL_REQUIRE_PERCEPTION=1` as a
-default, and do not change `pipeline/perception/runtime.py`'s existing
-skip-when-unset / fail-closed-when-required behavior — that behavior is
-correct as written. The gap this addendum closes is that the choice to stay
-opt-in was previously implicit (a default nobody had explicitly decided or
-recorded), not that the code was wrong.
+## Historical evidence that remains relevant
 
-## Revisit condition
+### Track fragmentation was unresolved
 
-Reconsider flipping to required-by-default only once both of the following
-are true:
+The documented real producer run found 205 unique track IDs from a single video, median track duration of roughly 0.42 seconds, and about 150 of 205 tracks under two seconds. That evidence still means the same athlete may be split into many short tracks.
 
-1. The ROI 4/5 track-fragmentation and tracker-tuning follow-up from
-   `docs/audit/run-28768826828-roi-repair-plan-20260706.md` has landed and a
-   fresh real run shows materially lower fragmentation (a much smaller ratio
-   of tracks under 2 seconds per apparent athlete) than the 2026-07-06 run.
-2. A per-video CPU wall-clock/cost measurement exists for the producer on
-   the `ubuntu-latest` runner, so `SPORTREEL_REQUIRE_PERCEPTION=1` cannot
-   turn an unexpectedly slow or expensive producer into a silent hard block
-   on every production pipeline run.
+Mandatory activation does not prove the tracker is good. It turns missing or unusable evidence into an explicit production failure rather than a silent Gemini-only degradation. Track stitching, ID-switch measurement, occlusion recovery, and difficult-footage tuning remain required before product closure.
 
-Until both hold, `pipeline/perception/runtime.py`'s current default (skip
-silently, degrade to Gemini-only heuristics) remains the correct behavior,
-and PQ-003 (bbox-derived crop) and the track-backed portion of REAL-ID-001
-stay best-effort rather than guaranteed.
+### Runtime and cost were unmeasured
+
+The Ultralytics producer loads a model per subprocess and GitHub Actions currently uses a CPU runner. The project still needs per-video wall time, CPU minutes, output size, and upload-time measurements for 4K/30 footage.
+
+### Fail-closed mode lacked production evidence
+
+The previous warning remains valid: a mandatory producer can block every run if configuration or tracking quality is weak. Therefore the 2026-07-21 audit requires deterministic tests, preflight diagnostics, production deployment verification, and a real footage run before closure.
+
+## Current implementation decision
+
+The active contract is:
+
+1. `pipeline/perception/runtime.py` remains the sidecar adapter.
+2. `pipeline/required_perception_policy.py` forces required mode, provides the first-party Ultralytics/BoT-SORT default command, rejects empty sidecars, and requires event-level track evidence.
+3. `.github/workflows/pipeline-run.yml` sets required mode in production.
+4. `pipeline/quality_preserving_framing.py` consumes that evidence but defaults to non-destructive contain framing.
+5. A tracked crop is allowed only through the necessity and confidence thresholds recorded in the 2026-07-21 audit.
+
+## Closure conditions
+
+Mandatory perception is not considered production-proven until all of the following pass:
+
+- [ ] difficult surfing footage produces usable sidecars for every analyzed action;
+- [ ] track fragmentation is materially lower than the historical run;
+- [ ] ID switches, lost/reacquired intervals, and canonical athlete duplication are measured;
+- [ ] visually similar surfers are not merged;
+- [ ] temporary occlusion, distance, spray, and same-wave surfers do not change the featured identity;
+- [ ] detector/tracker wall time and Actions cost are recorded;
+- [ ] every crop decision is visually reviewed and justified by measured evidence;
+- [ ] a missing/invalid perception run fails clearly in GitHub, Supabase, and the operator app.
+
+Until those items pass, the current state is **mandatory by product contract, contract/CI validated, real-footage validation pending**.

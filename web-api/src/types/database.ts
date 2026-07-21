@@ -45,30 +45,24 @@ export type Database = {
         Row: {
           created_at: string | null
           email: string
-          face_embedding: string | null
           id: string
           name: string | null
-          photo_path: string | null
           push_token: string | null
           user_id: string | null
         }
         Insert: {
           created_at?: string | null
           email: string
-          face_embedding?: string | null
           id?: string
           name?: string | null
-          photo_path?: string | null
           push_token?: string | null
           user_id?: string | null
         }
         Update: {
           created_at?: string | null
           email?: string
-          face_embedding?: string | null
           id?: string
           name?: string | null
-          photo_path?: string | null
           push_token?: string | null
           user_id?: string | null
         }
@@ -142,7 +136,6 @@ export type Database = {
           created_at: string | null
           expires_at: string | null
           id: string
-          matched_athlete: string | null
           recording_date: string | null
           source_video: string | null
           sport: string | null
@@ -156,7 +149,6 @@ export type Database = {
           created_at?: string | null
           expires_at?: string | null
           id?: string
-          matched_athlete?: string | null
           recording_date?: string | null
           source_video?: string | null
           sport?: string | null
@@ -170,7 +162,6 @@ export type Database = {
           created_at?: string | null
           expires_at?: string | null
           id?: string
-          matched_athlete?: string | null
           recording_date?: string | null
           source_video?: string | null
           sport?: string | null
@@ -236,17 +227,6 @@ export type Database = {
         }
       }
     }
-    Functions: {
-      match_athlete_face: {
-        Args: { query_embedding: string; threshold?: number }
-        Returns: {
-          email: string
-          id: string
-          push_token: string
-          similarity: number
-          user_id: string
-        }[]
-      }
-    }
+    Functions: Record<string, never>
   }
 }

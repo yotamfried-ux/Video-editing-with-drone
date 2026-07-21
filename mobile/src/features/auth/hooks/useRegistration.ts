@@ -1,10 +1,9 @@
 import { useEffect, useState } from 'react';
 import { supabase } from '@/shared/lib/supabase';
-import * as ImagePicker from 'expo-image-picker';
 
-type Step = 'credentials' | 'profile' | 'face' | 'done';
+type Step = 'credentials' | 'profile' | 'done';
 
-export function useRegistration(initialStep: Step = 'credentials', skipFace = false) {
+export function useRegistration(initialStep: Step = 'credentials') {
   const [step, setStep] = useState<Step>(initialStep);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -13,8 +12,6 @@ export function useRegistration(initialStep: Step = 'credentials', skipFace = fa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Resuming mid-flow (e.g. login routed here because the profile has no
-  // name yet) — hydrate userId from the stored session instead of signUp.
   useEffect(() => {
     if (initialStep === 'credentials') return;
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -25,7 +22,7 @@ export function useRegistration(initialStep: Step = 'credentials', skipFace = fa
         setStep('credentials');
       }
     });
-  }, []);
+  }, [initialStep]);
 
   const submitCredentials = async () => {
     if (password.length < 6) {
@@ -34,14 +31,13 @@ export function useRegistration(initialStep: Step = 'credentials', skipFace = fa
     }
     setLoading(true);
     setError(null);
-    const { data, error: e } = await supabase.auth.signUp({ email, password });
-    if (e) {
-      setError(e.message);
+    const { data, error: signUpError } = await supabase.auth.signUp({ email, password });
+    if (signUpError) {
+      setError(signUpError.message);
       setLoading(false);
       return;
     }
     if (!data.session) {
-      // Supabase has email confirmation enabled — user must confirm before continuing.
       setError('Check your email and click the confirmation link, then open the app again.');
       setLoading(false);
       return;
@@ -59,44 +55,18 @@ export function useRegistration(initialStep: Step = 'credentials', skipFace = fa
     }
     setLoading(true);
     setError(null);
-    // The DB trigger already inserted the row on signup; we only need to set name.
-    const { error: e } = await supabase
+    const { error: profileError } = await supabase
       .from('athlete_profiles')
       .update({ name: name.trim() })
       .eq('user_id', userId);
-    if (e) {
-      setError(e.message);
+    if (profileError) {
+      setError(profileError.message);
       setLoading(false);
       return;
     }
     setLoading(false);
-    setStep(skipFace ? 'done' : 'face');
+    setStep('done');
   };
-
-  const uploadFacePhoto = async (uri: string) => {
-    if (!userId) return;
-    setLoading(true);
-    setError(null);
-    try {
-      const response = await fetch(uri);
-      const blob = await response.arrayBuffer();
-      const path = `${userId}/photo.jpg`;
-      const { error: upErr } = await supabase.storage
-        .from('athlete-photos')
-        .upload(path, blob, { contentType: 'image/jpeg', upsert: true });
-      if (upErr) throw upErr;
-      await supabase
-        .from('athlete_profiles')
-        .update({ photo_path: path })
-        .eq('user_id', userId);
-    } catch (e: any) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const onSkipFace = () => { setStep('done'); };
 
   return {
     step,
@@ -110,7 +80,5 @@ export function useRegistration(initialStep: Step = 'credentials', skipFace = fa
     error,
     submitCredentials,
     submitProfile,
-    uploadFacePhoto,
-    skipFace: onSkipFace,
   };
 }

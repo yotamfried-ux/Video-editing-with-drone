@@ -4,7 +4,6 @@ import {
   StyleSheet,
   TextInput,
   TouchableOpacity,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
@@ -22,7 +21,7 @@ import { Colors, Spacing } from '@/shared/constants/theme';
 export default function ProfileScreen() {
   const { user } = useAuth();
   const router = useRouter();
-  const { profile, updateName, deleteFaceData } = useProfile();
+  const { profile, updateName } = useProfile();
   const [name, setName] = useState('');
   const [taps, setTaps] = useState(0);
 
@@ -33,7 +32,6 @@ export default function ProfileScreen() {
       setTaps(0);
       const ok = await useOperatorUnlock.getState().unlock();
       if (!ok) return;
-      // First time (no secret yet) — land on settings to configure it.
       const secret = await getOperatorSecret();
       router.push(secret ? '/(operator)/pipeline' : '/(operator)/settings');
     }
@@ -45,10 +43,7 @@ export default function ProfileScreen() {
         <View style={styles.center}>
           <Text variant="headline">Sign in to view your profile</Text>
           <Spacer size={Spacing.lg} />
-          <Button
-            label="Sign In"
-            onPress={() => router.push('/(auth)/login')}
-          />
+          <Button label="Sign In" onPress={() => router.push('/(auth)/login')} />
           <Button
             label="Create Account"
             onPress={() => router.push('/(auth)/register')}
@@ -64,16 +59,12 @@ export default function ProfileScreen() {
     <SafeArea>
       <View style={styles.container}>
         <TouchableOpacity onPress={handleLogoTap} activeOpacity={1}>
-          <Text variant="display" style={{ textAlign: 'center' }}>
-            SR
-          </Text>
+          <Text variant="display" style={{ textAlign: 'center' }}>SR</Text>
         </TouchableOpacity>
         <Spacer size={Spacing.xl} />
 
         <Card bordered>
-          <Text variant="caption" color={Colors.textSecondary}>
-            Name
-          </Text>
+          <Text variant="caption" color={Colors.textSecondary}>Name</Text>
           <TextInput
             value={name || profile?.name || ''}
             onChangeText={setName}
@@ -89,46 +80,6 @@ export default function ProfileScreen() {
         </Card>
 
         <Spacer size={Spacing.md} />
-
-        <Card bordered>
-          <Text variant="title">Face Recognition</Text>
-          <Spacer size={Spacing.sm} />
-          <Text variant="body" color={Colors.textSecondary}>
-            {profile?.photo_path
-              ? "Face photo saved. We'll notify you when you appear in a new clip."
-              : 'No face photo. Add one to get automatic highlight notifications.'}
-          </Text>
-          <Spacer size={Spacing.md} />
-          {profile?.photo_path ? (
-            <Button
-              label="Remove Face Data"
-              onPress={() =>
-                Alert.alert(
-                  'Remove Face Data',
-                  'This will delete your face photo and disable automatic matching.',
-                  [
-                    { text: 'Cancel' },
-                    {
-                      text: 'Delete',
-                      style: 'destructive',
-                      onPress: deleteFaceData,
-                    },
-                  ]
-                )
-              }
-              variant="danger"
-            />
-          ) : (
-            <Button
-              label="Add Face Photo"
-              onPress={() => router.push('/(auth)/register')}
-              variant="secondary"
-            />
-          )}
-        </Card>
-
-        <Spacer size={Spacing.md} />
-
         <Card bordered>
           <Text variant="title">Support</Text>
           <Spacer size={Spacing.sm} />
@@ -146,11 +97,7 @@ export default function ProfileScreen() {
         </Card>
 
         <Spacer size={Spacing.xl} />
-        <Button
-          label="Sign Out"
-          onPress={() => supabase.auth.signOut()}
-          variant="ghost"
-        />
+        <Button label="Sign Out" onPress={() => supabase.auth.signOut()} variant="ghost" />
       </View>
     </SafeArea>
   );

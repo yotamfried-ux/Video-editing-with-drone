@@ -1,0 +1,93 @@
+name: Quality-first 4K Contract
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/quality_preserving_framing.py'
+      - 'pipeline/required_perception_policy.py'
+      - 'pipeline/bootstrap.py'
+      - 'pipeline/silent_output_policy.py'
+      - 'services/delivery.py'
+      - 'requirements.txt'
+      - 'mobile/**'
+      - 'web-api/**'
+      - 'DEPLOYMENT.md'
+      - 'supabase/migrations/20260612_create_core_schema.sql'
+      - 'supabase/migrations/20260721_remove_face_recognition.sql'
+      - 'supabase/verify_schema.sql'
+      - 'scripts/test_quality_first_4k_policy_contract.py'
+      - 'scripts/test_quality_first_4k_media_contract.py'
+      - 'scripts/test_delivery_disk_bound_contract.py'
+      - '.github/workflows/pipeline-run.yml'
+      - '.github/workflows/quality-first-4k-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GEMINI_API_KEY: fixture-not-used
+      GOOGLE_SERVICE_ACCOUNT_JSON: fixture-not-used
+      RAW_FOLDER_ID: fixture-raw
+      PROCESSED_FOLDER_ID: fixture-processed
+      REVIEW_FOLDER_ID: fixture-review
+      APPROVED_FOLDER_ID: fixture-approved
+      OWNER_EMAIL: fixture@example.invalid
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install media-contract dependencies
+        run: pip install --disable-pip-version-check python-dotenv
+      - name: Install and verify ffmpeg tools
+        run: |
+          set -o pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq >/tmp/apt-update.log 2>&1 || {
+              tail -n 100 /tmp/apt-update.log
+              exit 1
+            }
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/tmp/apt-install.log 2>&1 || {
+              tail -n 100 /tmp/apt-install.log
+              exit 1
+            }
+          fi
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version | head -n 1
+      - name: Compile changed Python modules
+        run: |
+          python -m py_compile \
+            pipeline/required_perception_policy.py \
+            pipeline/quality_preserving_framing.py \
+            pipeline/bootstrap.py \
+            pipeline/silent_output_policy.py \
+            services/delivery.py \
+            scripts/test_quality_first_4k_policy_contract.py \
+            scripts/test_quality_first_4k_media_contract.py \
+            scripts/test_delivery_disk_bound_contract.py
+      - name: Run quality-first product contract
+        run: python scripts/test_quality_first_4k_policy_contract.py
+      - name: Validate bounded delivery disk usage
+        run: python scripts/test_delivery_disk_bound_contract.py
+      - name: Render and probe a real 4K/30 fixture
+        run: |
+          set +e
+          python scripts/test_quality_first_4k_media_contract.py > /tmp/quality-first-4k-media.log 2>&1
+          status=$?
+          cat /tmp/quality-first-4k-media.log
+          echo "$status" > /tmp/quality-first-4k-media.status
+          exit "$status"
+      - name: Upload 4K media diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: quality-first-4k-media-${{ github.run_id }}
+          path: |
+            /tmp/quality-first-4k-media.log
+            /tmp/quality-first-4k-media.status
+          if-no-files-found: warn

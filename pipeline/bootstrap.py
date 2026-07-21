@@ -154,9 +154,9 @@ def install_pre_orchestrator_patches() -> None:
 
     install_publishable_reel_policy()
 
-    # The product intentionally outputs video without audio. Install after the
-    # publishable policy so its canonicalization/spec checks are replaced by the
-    # silent contract before the orchestrator captures the editor functions.
+    # The product intentionally outputs video without audio. The silent-output
+    # installer also activates the mandatory-perception and quality-first 4K
+    # sub-policies as one canonical media-output contract.
     from pipeline.silent_output_policy import install as install_silent_output_policy
 
     install_silent_output_policy()
