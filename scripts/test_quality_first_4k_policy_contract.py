@@ -2,17 +2,19 @@
 """Deterministic contract tests for the 4K/perception/no-face product decision."""
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
-from pipeline.quality_preserving_framing import (
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from pipeline.quality_preserving_framing import (  # noqa: E402
     OUTPUT_FPS,
     OUTPUT_HEIGHT,
     OUTPUT_WIDTH,
     decide_framing,
     quality_output_issues,
 )
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 def _event(**overrides):
