@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
-import { PRICING_UNIT } from '@/lib/pricing';
+import { MAX_PRICE_ILS, PRICING_UNIT } from '@/lib/pricing';
 
 function normalizeMajorIls(value: unknown): number | null {
   const amount = typeof value === 'number' ? value : Number(value);
-  if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000) return null;
+  if (!Number.isFinite(amount) || amount < 0.5 || amount > MAX_PRICE_ILS) return null;
   const rounded = Math.round(amount * 100) / 100;
   return Number.isFinite(rounded) ? rounded : null;
 }
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   }
   if (priceIls === null) {
     return NextResponse.json(
-      { error: 'price_ils must be a positive ILS amount, for example 79 or 79.90' },
+      { error: `price_ils must be a major-unit ILS amount between 0.50 and ${MAX_PRICE_ILS}` },
       { status: 400 },
     );
   }
