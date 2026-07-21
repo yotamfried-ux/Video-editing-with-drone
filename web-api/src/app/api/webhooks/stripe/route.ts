@@ -29,19 +29,14 @@ export async function POST(req: NextRequest) {
 
     const { data: reel } = await supabaseAdmin
       .from('reels')
-      .select('sport, recording_date, matched_athlete')
+      .select('sport, recording_date')
       .eq('id', reelId)
       .single();
 
-    if (reel?.matched_athlete) {
-      const { data: profile } = await supabaseAdmin
-        .from('athlete_profiles')
-        .select('email')
-        .eq('id', reel.matched_athlete)
-        .single();
-      if (profile?.email) {
-        sendPaymentConfirmEmail(profile.email, reelId, intent.amount).catch(() => {});
-      }
+    // Delivery ownership is explicit through Stripe/customer and purchase data.
+    // Do not infer an app user from a face in the reel.
+    if (intent.receipt_email) {
+      sendPaymentConfirmEmail(intent.receipt_email, reelId, intent.amount).catch(() => {});
     }
 
     await supabaseAdmin.from('analytics_events').insert({
