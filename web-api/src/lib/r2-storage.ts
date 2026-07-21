@@ -8,7 +8,7 @@ const EXPIRES = 3600;
 
 export type R2Object = { key: string; name: string; size: number | null; created_at: string };
 
-const env = (...names: string[]) => names.map((n) => process.env[n]?.trim() ?? '').find(Boolean) ?? '';
+const env = (...names: string[]) => names.map((name) => process.env[name]?.trim() ?? '').find(Boolean) ?? '';
 const required = (label: string, value: string) => {
   if (!value) throw new Error(`${label} not configured`);
   return value;
@@ -31,10 +31,11 @@ export function shouldUseR2Storage(): boolean {
 
 const hmac = (key: Buffer | string, value: string) => createHmac('sha256', key).update(value).digest();
 const sha256Hex = (value: string) => createHash('sha256').update(value).digest('hex');
-const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
+const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`);
 const encodeKey = (key: string) => key.split('/').map(encode).join('/');
 const safeFilename = (filename: string) => basename(filename).replace(/[\\/]+/g, '_').trim() || `footage_${Date.now()}.mp4`;
 export const safeBatchId = (batchId?: string | null) => (batchId ?? '').replace(/[^A-Za-z0-9_-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
+export const safeUploadId = (uploadId?: string | null) => (uploadId ?? '').replace(/[^A-Za-z0-9_-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 96);
 export const newBatchId = (now = new Date()) => `batch_${now.toISOString().replace(/[:.]/g, '-').slice(0, 19)}_${Math.random().toString(36).slice(2, 8)}`;
 const objectPath = (key = '') => (key ? `/${bucket()}/${encodeKey(key)}` : `/${bucket()}`);
 
@@ -53,7 +54,7 @@ function signingKey(dateStamp: string) {
 }
 
 function canonicalQuery(params: URLSearchParams): string {
-  return [...params.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${encode(k)}=${encode(v)}`).join('&');
+  return [...params.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${encode(key)}=${encode(value)}`).join('&');
 }
 
 function presign(method: 'GET' | 'PUT', key: string, expires = EXPIRES): string {
@@ -77,10 +78,22 @@ export function createR2SignedGetUrl(key: string): string {
   return presign('GET', key);
 }
 
-export function createR2UploadUrl(filename: string, requestedBatchId?: string | null): { uploadUrl: string; key: string; filename: string; batch_id: string } {
+/**
+ * Create a just-in-time upload URL. When a client upload id is supplied the
+ * object key is stable across retries, preventing duplicate/orphaned objects
+ * while still issuing a fresh signed URL for every attempt.
+ */
+export function createR2UploadUrl(
+  filename: string,
+  requestedBatchId?: string | null,
+  clientUploadId?: string | null,
+): { uploadUrl: string; key: string; filename: string; batch_id: string } {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const batchId = safeBatchId(requestedBatchId) || newBatchId();
-  const storageName = `${stamp}_${safeFilename(filename)}`;
+  const stableUploadId = safeUploadId(clientUploadId);
+  const storageName = stableUploadId
+    ? `${stableUploadId}_${safeFilename(filename)}`
+    : `${stamp}_${safeFilename(filename)}`;
   const key = `raw/${batchId}/${storageName}`;
   return { uploadUrl: presign('PUT', key), key, filename: storageName, batch_id: batchId };
 }
@@ -93,10 +106,10 @@ async function signedFetch(method: string, key: string, query = new URLSearchPar
     host,
     'x-amz-content-sha256': 'UNSIGNED-PAYLOAD',
     'x-amz-date': timestamp,
-    ...Object.fromEntries(Object.entries(extraHeaders).map(([k, v]) => [k.toLowerCase(), v])),
+    ...Object.fromEntries(Object.entries(extraHeaders).map(([header, value]) => [header.toLowerCase(), value])),
   };
   const signedHeaders = Object.keys(headers).sort().join(';');
-  const canonicalHeaders = Object.keys(headers).sort().map((k) => `${k}:${headers[k].trim()}\n`).join('');
+  const canonicalHeaders = Object.keys(headers).sort().map((header) => `${header}:${headers[header].trim()}\n`).join('');
   const canonical = [method, objectPath(key), canonicalQuery(query), canonicalHeaders, signedHeaders, 'UNSIGNED-PAYLOAD'].join('\n');
   const stringToSign = ['AWS4-HMAC-SHA256', timestamp, scope, sha256Hex(canonical)].join('\n');
   const signature = createHmac('sha256', signingKey(dateStamp)).update(stringToSign).digest('hex');
@@ -116,9 +129,9 @@ export async function listR2Prefix(prefix: string): Promise<R2Object[]> {
   do {
     const query = new URLSearchParams({ 'list-type': '2', prefix });
     if (token) query.set('continuation-token', token);
-    const res = await signedFetch('GET', '', query);
-    const text = await res.text();
-    if (!res.ok) throw new Error(`R2 list failed (${res.status}): ${text.slice(0, 200)}`);
+    const response = await signedFetch('GET', '', query);
+    const text = await response.text();
+    if (!response.ok) throw new Error(`R2 list failed (${response.status}): ${text.slice(0, 200)}`);
     for (const match of text.matchAll(/<Contents>([\s\S]*?)<\/Contents>/g)) {
       const key = xmlTag(match[1], 'Key');
       if (!key || key.endsWith('/')) continue;
@@ -131,20 +144,20 @@ export async function listR2Prefix(prefix: string): Promise<R2Object[]> {
 
 export async function moveR2Object(sourceKey: string, destinationPrefix: string): Promise<string> {
   const destKey = `${destinationPrefix.replace(/\/+$/, '')}/${r2Basename(sourceKey)}`;
-  const copyRes = await signedFetch('PUT', destKey, new URLSearchParams(), { 'x-amz-copy-source': `/${bucket()}/${encodeKey(sourceKey)}` });
-  const copyText = await copyRes.text();
-  if (!copyRes.ok) throw new Error(`R2 copy failed (${copyRes.status}): ${copyText.slice(0, 200)}`);
-  const deleteRes = await signedFetch('DELETE', sourceKey);
-  const deleteText = await deleteRes.text();
-  if (!deleteRes.ok) throw new Error(`R2 delete failed (${deleteRes.status}): ${deleteText.slice(0, 200)}`);
+  const copyResponse = await signedFetch('PUT', destKey, new URLSearchParams(), { 'x-amz-copy-source': `/${bucket()}/${encodeKey(sourceKey)}` });
+  const copyText = await copyResponse.text();
+  if (!copyResponse.ok) throw new Error(`R2 copy failed (${copyResponse.status}): ${copyText.slice(0, 200)}`);
+  const deleteResponse = await signedFetch('DELETE', sourceKey);
+  const deleteText = await deleteResponse.text();
+  if (!deleteResponse.ok) throw new Error(`R2 delete failed (${deleteResponse.status}): ${deleteText.slice(0, 200)}`);
   return destKey;
 }
 
 export async function verifyR2Object(key: string): Promise<{ exists: boolean; size: number | null; status: number }> {
-  const res = await signedFetch('HEAD', key);
+  const response = await signedFetch('HEAD', key);
   return {
-    exists: res.ok,
-    size: res.ok ? Number(res.headers.get('content-length') ?? '0') : null,
-    status: res.status,
+    exists: response.ok,
+    size: response.ok ? Number(response.headers.get('content-length') ?? '0') : null,
+    status: response.status,
   };
 }
