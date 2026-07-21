@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 
@@ -12,7 +13,9 @@ def require(text: str, tokens: list[str], label: str) -> None:
 
 
 checkout_route = read("web-api/src/app/api/checkout/stripe/route.ts")
+web_checkout_route = read("web-api/src/app/api/checkout/[token]/route.ts")
 pricing = read("web-api/src/lib/pricing.ts")
+pricing_route = read("web-api/src/app/api/pricing/route.ts")
 stripe_client = read("web-api/src/lib/stripe.ts")
 webhook = read("web-api/src/app/api/webhooks/stripe/route.ts")
 status_route = read("web-api/src/app/api/payment-status/[download_token]/route.ts")
@@ -22,6 +25,9 @@ success_screen = read("mobile/src/app/success/[reel_id].tsx")
 checkout_hook = read("mobile/src/features/payment/hooks/useCheckout.ts")
 token_store = read("mobile/src/features/payment/downloadTokenStore.ts")
 root_layout = read("mobile/src/app/_layout.tsx")
+app_json = json.loads(read("mobile/app.json"))
+eas_json = json.loads(read("mobile/eas.json"))
+operator_pricing = read("mobile/src/app/(operator)/pricing.tsx")
 core_schema = read("supabase/migrations/20260612_create_core_schema.sql")
 hardening_migration = read("supabase/migrations/20260721_harden_payment_download_tokens.sql")
 audit = read("docs/audit/stripe-mobile-payment-official-reference-audit-20260721.md")
@@ -31,10 +37,10 @@ require(
     [
         "automatic_payment_methods: { enabled: true }",
         "receipt_email: email",
-        "metadata:",
         "reel_id: reelId",
         "checkout_session_id: checkoutSessionId",
         "{ idempotencyKey }",
+        "payment_intent_id: paymentIntentId",
         "Payment persistence returned no download token",
         "Stripe returned no PaymentIntent client secret",
     ],
@@ -52,6 +58,27 @@ require(
     ],
     "server-side amount conversion",
 )
+require(
+    web_checkout_route,
+    [
+        "import { ilsToMinorUnits } from '@/lib/pricing'",
+        "unit_amount: amountMinor",
+        "amount_ils: amountMinor",
+        "amount_unit: 'agorot'",
+    ],
+    "Discover Checkout minor-unit conversion",
+)
+require(
+    pricing_route,
+    [
+        "positive ILS amount",
+        "Math.round(amount * 100) / 100",
+    ],
+    "operator pricing major-unit API",
+)
+if "priceIls / 100" in operator_pricing or "n * 100" in operator_pricing:
+    raise SystemExit("operator pricing UI must edit human-readable major ILS values")
+
 require(stripe_client, ["maxNetworkRetries: 2", "timeout: 20_000"], "stripe-node client")
 
 require(
@@ -73,6 +100,8 @@ require(
 )
 if webhook.index("const rawBody = await req.text()") > webhook.index("stripe.webhooks.constructEvent"):
     raise SystemExit("webhook signature verification must consume the raw body before parsing")
+if ".catch(() => {})" in webhook:
+    raise SystemExit("webhook must await fulfillment side effects instead of fire-and-forget")
 
 require(
     status_route,
@@ -92,11 +121,12 @@ require(
 require(
     checkout_hook,
     [
-        "checkout_session_id: checkoutSessionId.current",
-        "newCheckoutSessionId(reelId)",
+        "getOrCreateCheckoutSessionId(reelId)",
+        "checkout_session_id: checkoutSessionId",
+        "payment_intent_id: string",
         "payerEmail",
     ],
-    "mobile idempotency key",
+    "mobile persisted idempotency key",
 )
 require(
     checkout_screen,
@@ -104,10 +134,13 @@ require(
         "initPaymentSheet",
         "presentPaymentSheet",
         "paymentIntentClientSecret: checkout.clientSecret",
-        "returnURL: 'sportreel://stripe-redirect'",
+        "returnURL: STRIPE_RETURN_URL",
+        "defaultBillingDetails:",
         "PaymentSheetError.Canceled",
+        "PaymentSheetError.Timeout",
         "await setDownloadToken",
         "router.replace(`/success/${reel_id}`)",
+        "EXPO_PUBLIC_STRIPE_IN_APP_ENABLED",
     ],
     "React Native PaymentSheet",
 )
@@ -121,6 +154,7 @@ require(
         "fulfillment === 'completed'",
         "waiting for the signed server confirmation",
         "await clearToken(reel_id)",
+        "await clearCheckoutSessionId(reel_id)",
     ],
     "webhook-owned mobile fulfillment",
 )
@@ -134,10 +168,35 @@ require(
         "SecureStore.setItemAsync",
         "SecureStore.getItemAsync",
         "SecureStore.deleteItemAsync",
+        "getOrCreateCheckoutSessionId",
+        "clearCheckoutSessionId",
     ],
-    "secure bearer-token storage",
+    "secure payment capability and idempotency storage",
 )
-require(root_layout, ["<StripeProvider", 'urlScheme="sportreel"'], "StripeProvider root config")
+require(
+    root_layout,
+    [
+        "<StripeProvider",
+        'urlScheme="sportreel"',
+        "handleURLCallback",
+        "Linking.getInitialURL()",
+        "Linking.addEventListener('url'",
+    ],
+    "StripeProvider redirect handling",
+)
+
+plugins = app_json["expo"].get("plugins", [])
+if not any(isinstance(plugin, list) and plugin[0] == "@stripe/stripe-react-native" for plugin in plugins):
+    raise SystemExit("Expo app config must install Stripe's official config plugin")
+if app_json["expo"].get("scheme") != "sportreel":
+    raise SystemExit("Expo scheme must match the PaymentSheet return URL")
+
+builds = eas_json.get("build", {})
+if builds.get("production", {}).get("env", {}).get("EXPO_PUBLIC_STRIPE_IN_APP_ENABLED") != "false":
+    raise SystemExit("consumer store build must keep Stripe digital-content checkout disabled")
+for profile in ("development", "preview"):
+    if builds.get(profile, {}).get("distribution") != "internal":
+        raise SystemExit(f"Stripe test profile {profile} must remain internally distributed")
 
 require(
     core_schema + hardening_migration,
@@ -151,7 +210,9 @@ require(
     "Stripe persistence schema",
 )
 if "('surfing',        79)" not in core_schema:
-    raise SystemExit("fixture expects major-unit pricing seed to remain human-readable")
+    raise SystemExit("pricing seed must remain human-readable major ILS")
+if "amount_ils                numeric(10,2), -- Stripe minor units (agorot)" not in core_schema:
+    raise SystemExit("payment amount unit must be explicit in the schema")
 
 require(
     audit,
@@ -159,6 +220,8 @@ require(
         "stripe/stripe-react-native",
         "stripe-samples/accept-a-payment",
         "stripe/stripe-node",
+        "PaymentSheet",
+        "handleURLCallback",
         "digital product",
         "App Store",
         "Google Play",
