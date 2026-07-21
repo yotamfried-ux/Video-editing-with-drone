@@ -8,7 +8,10 @@ import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
 import { apiFetch } from '@/shared/lib/api';
-import { useDownloadTokenStore } from '@/features/payment/downloadTokenStore';
+import {
+  clearCheckoutSessionId,
+  useDownloadTokenStore,
+} from '@/features/payment/downloadTokenStore';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -47,10 +50,15 @@ export default function SuccessScreen() {
         if (delay) await sleep(delay);
         const payment = await apiFetch<PaymentStatusResponse>(`/api/payment-status/${resolvedToken}`);
         if (payment.status === 'completed') {
+          await clearCheckoutSessionId(reel_id);
           setFulfillment('completed');
           return;
         }
         if (payment.status === 'failed') {
+          // A terminal PaymentIntent must not be reused as the idempotent source
+          // for a new attempt. Keep the token for support/audit, but rotate the
+          // checkout session when the user returns to checkout.
+          await clearCheckoutSessionId(reel_id);
           setFulfillment('failed');
           return;
         }
