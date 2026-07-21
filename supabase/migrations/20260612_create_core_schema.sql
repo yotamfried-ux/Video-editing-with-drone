@@ -76,7 +76,7 @@ create table if not exists public.payments (
   status                    text default 'pending',   -- pending | completed | failed
   stripe_payment_intent_id  text unique,
   meshulam_transaction_id   text unique,
-  download_token            text unique,
+  download_token            text unique not null default gen_random_uuid()::text,
   paid_at                   timestamptz,
   created_at                timestamptz default now()
 );
