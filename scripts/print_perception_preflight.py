@@ -2,6 +2,7 @@
 """Validate and record the resolved production perception configuration."""
 from __future__ import annotations
 
+import hashlib
 import importlib.metadata
 import json
 import os
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_MODEL = "yolo11s.pt"
 DEFAULT_TRACKER = "config/trackers/sportreel_botsort_reid.yaml"
 DEFAULT_OUTPUT = "/tmp/dtor/pipeline-debug/perception_preflight.json"
 
@@ -48,6 +50,14 @@ def _positive_int(name: str, default: int) -> int:
     return value
 
 
+def _positive_float(name: str, default: float) -> float:
+    raw = os.getenv(name, "").strip()
+    value = float(raw) if raw else default
+    if value <= 0:
+        raise SystemExit(f"{name} must be positive")
+    return value
+
+
 def _package_version(name: str) -> str | None:
     try:
         return importlib.metadata.version(name)
@@ -55,8 +65,21 @@ def _package_version(name: str) -> str | None:
         return None
 
 
+def _validate_custom_command(command: str, model: str, tracker: str) -> None:
+    if not command:
+        return
+    required_tokens = ["{video_path}", "{sidecar_path}", model, tracker]
+    missing = [token for token in required_tokens if token not in command]
+    if missing:
+        raise SystemExit(
+            "Custom SPORTREEL_PERCEPTION_COMMAND cannot bypass the mandatory "
+            f"model/tracker contract; missing tokens: {missing}"
+        )
+
+
 def main() -> int:
     required = os.getenv("SPORTREEL_REQUIRE_PERCEPTION", "1").strip() == "1"
+    model = os.getenv("SPORTREEL_ULTRALYTICS_MODEL", "").strip() or DEFAULT_MODEL
     tracker_value = os.getenv("SPORTREEL_ULTRALYTICS_TRACKER", "").strip() or DEFAULT_TRACKER
     tracker_path = Path(tracker_value)
     if not tracker_path.is_absolute():
@@ -70,20 +93,26 @@ def main() -> int:
     if required and tracker.get("with_reid") is not True:
         raise SystemExit("Mandatory production perception requires BoT-SORT ReID to be enabled")
 
+    custom_command = os.getenv("SPORTREEL_PERCEPTION_COMMAND", "").strip()
+    if required:
+        _validate_custom_command(custom_command, model, tracker_value)
+
     payload = {
         "schema_version": "sportreel.perception_preflight.v1",
         "required": required,
-        "model": os.getenv("SPORTREEL_ULTRALYTICS_MODEL", "").strip() or "yolo11s.pt",
+        "model": model,
         "tracker": tracker_value,
         "tracker_path": str(tracker_path),
         "tracker_type": tracker.get("tracker_type"),
         "with_reid": tracker.get("with_reid"),
         "reid_model": tracker.get("model"),
         "gmc_method": tracker.get("gmc_method"),
+        "command_source": "custom_validated" if custom_command else "first_party_default",
+        "command_sha256": hashlib.sha256(custom_command.encode("utf-8")).hexdigest() if custom_command else None,
         "vid_stride": _positive_int("SPORTREEL_ULTRALYTICS_VID_STRIDE", 10),
         "imgsz": _positive_int("SPORTREEL_ULTRALYTICS_IMGSZ", 640),
         "device": os.getenv("SPORTREEL_ULTRALYTICS_DEVICE", "").strip() or "auto",
-        "source_fps": float(os.getenv("SPORTREEL_ULTRALYTICS_FPS", "30") or "30"),
+        "source_fps": _positive_float("SPORTREEL_ULTRALYTICS_FPS", 30.0),
         "ultralytics_version": _package_version("ultralytics"),
         "torch_version": _package_version("torch"),
     }
@@ -96,7 +125,8 @@ def main() -> int:
         "Perception preflight: "
         f"model={payload['model']} tracker={payload['tracker']} "
         f"reid={payload['with_reid']} stride={payload['vid_stride']} "
-        f"imgsz={payload['imgsz']} device={payload['device']}"
+        f"imgsz={payload['imgsz']} device={payload['device']} "
+        f"command={payload['command_source']}"
     )
     print(summary)
 
@@ -107,6 +137,7 @@ def main() -> int:
             handle.write(f"- Model: `{payload['model']}`\n")
             handle.write(f"- Tracker: `{payload['tracker']}`\n")
             handle.write(f"- ReID enabled: `{payload['with_reid']}`\n")
+            handle.write(f"- Command source: `{payload['command_source']}`\n")
             handle.write(f"- Frame stride: `{payload['vid_stride']}`\n")
             handle.write(f"- Inference image size: `{payload['imgsz']}`\n")
             handle.write(f"- Device: `{payload['device']}`\n\n")
