@@ -2,8 +2,36 @@ import {
   isRetryableUploadError,
   runQueue,
   UploadHttpError,
+  uploadWithFreshSession,
   withRetry,
 } from './uploadQueue';
+
+describe('uploadWithFreshSession', () => {
+  it('requests one fresh session immediately before uploading the item', async () => {
+    const item = { id: 'video-1' };
+    const session = { uploadUrl: 'https://upload.example/signed' };
+    const requestSession = jest.fn().mockResolvedValue(session);
+    const uploadAssetToSession = jest.fn().mockResolvedValue(undefined);
+
+    await uploadWithFreshSession(item, requestSession, uploadAssetToSession);
+
+    expect(requestSession).toHaveBeenCalledTimes(1);
+    expect(requestSession).toHaveBeenCalledWith(item);
+    expect(uploadAssetToSession).toHaveBeenCalledWith(item, session);
+    expect(requestSession.mock.invocationCallOrder[0]).toBeLessThan(
+      uploadAssetToSession.mock.invocationCallOrder[0],
+    );
+  });
+
+  it('does not upload when session creation fails', async () => {
+    const requestSession = jest.fn().mockRejectedValue(new Error('signed URL unavailable'));
+    const uploadAssetToSession = jest.fn();
+
+    await expect(uploadWithFreshSession('video-1', requestSession, uploadAssetToSession))
+      .rejects.toThrow('signed URL unavailable');
+    expect(uploadAssetToSession).not.toHaveBeenCalled();
+  });
+});
 
 describe('withRetry', () => {
   it('returns the result on first success without waiting', async () => {
