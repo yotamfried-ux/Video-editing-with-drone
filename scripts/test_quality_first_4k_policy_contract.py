@@ -114,6 +114,9 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     workflow = (ROOT / ".github/workflows/pipeline-run.yml").read_text(encoding="utf-8")
     migration = (ROOT / "supabase/migrations/20260721_remove_face_recognition.sql").read_text(encoding="utf-8")
     core_schema = (ROOT / "supabase/migrations/20260612_create_core_schema.sql").read_text(encoding="utf-8")
+    privacy = (ROOT / "mobile/src/shared/legal/privacyPolicy.ts").read_text(encoding="utf-8")
+    terms = (ROOT / "mobile/src/shared/legal/terms.ts").read_text(encoding="utf-8")
+    deployment = (ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
 
     assert "face_recognition" not in requirements
     assert "face_matcher" not in delivery
@@ -132,6 +135,17 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
         "athlete-photos",
     ):
         assert forbidden not in core_schema, f"fresh schema still creates biometric surface: {forbidden}"
+
+    for stale_feature_text in (
+        "Face Biometric Data (Optional)",
+        "FACE_CONSENT_TEXT",
+        "I consent to SportReel collecting and processing my facial biometric data",
+        "FACE RECOGNITION (OPTIONAL)",
+        "Profile → Face Recognition",
+        "Face/biometric disclosure if app-store review requires it",
+    ):
+        combined = "\n".join((privacy, terms, deployment))
+        assert stale_feature_text not in combined, f"stale biometric product text remains: {stale_feature_text}"
 
 
 def main() -> int:
