@@ -29,13 +29,18 @@ export default function CheckoutScreen() {
   const [paymentSheetBusy, setPaymentSheetBusy] = useState(false);
   const [bitUrl, setBitUrl] = useState<string | null>(null);
   const [priceDisplay, setPriceDisplay] = useState<string>('');
-  const stripeEnabled = process.env.EXPO_PUBLIC_STRIPE_IN_APP_ENABLED !== 'false';
+
+  // Consumer store builds must fail closed. Internal/direct builds opt in
+  // explicitly; a missing environment variable never enables an external
+  // payment path for the digital video product.
+  const externalDigitalPaymentsEnabled = process.env.EXPO_PUBLIC_STRIPE_IN_APP_ENABLED === 'true';
+  const bitEnabled = externalDigitalPaymentsEnabled && process.env.EXPO_PUBLIC_BIT_ENABLED === 'true';
 
   const handleStripe = async () => {
-    if (!stripeEnabled) {
+    if (!externalDigitalPaymentsEnabled) {
       Alert.alert(
         'Card payment unavailable in this build',
-        'This store-distributed build cannot sell digital video through Stripe. Use the approved store purchase flow.',
+        'This store-distributed build cannot sell digital video through an external payment provider. Use the approved store purchase flow.',
       );
       return;
     }
@@ -97,6 +102,13 @@ export default function CheckoutScreen() {
   };
 
   const handleBit = async () => {
+    if (!bitEnabled) {
+      Alert.alert(
+        'Bit payment unavailable in this build',
+        'External payment methods are disabled for this store-distributed digital product.',
+      );
+      return;
+    }
     const checkout = await createMeshulamCheckout();
     if (!checkout) return;
     setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
@@ -141,15 +153,15 @@ export default function CheckoutScreen() {
 
         <Spacer size={Spacing.xl} />
         {error && <Text variant="caption" color={Colors.danger}>{error}</Text>}
-        {!stripeEnabled && (
+        {!externalDigitalPaymentsEnabled && (
           <Text variant="caption" color={Colors.textSecondary} style={{ textAlign: 'center' }}>
-            Stripe is disabled in store builds for digital-content compliance.
+            External payment providers are disabled in consumer store builds for digital-content compliance.
           </Text>
         )}
 
-        <Button label="Pay with Card" onPress={handleStripe} loading={busy} disabled={busy || !stripeEnabled} />
+        <Button label="Pay with Card" onPress={handleStripe} loading={busy} disabled={busy || !externalDigitalPaymentsEnabled} />
         <Spacer size={Spacing.md} />
-        {!!process.env.EXPO_PUBLIC_BIT_ENABLED && (
+        {bitEnabled && (
           <>
             <Button label="Pay with Bit 📱" onPress={handleBit} loading={loading} disabled={busy} variant="secondary" />
             <Spacer size={Spacing.sm} />
