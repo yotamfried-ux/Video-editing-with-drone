@@ -15,6 +15,11 @@ import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatu
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import {
+  clearPersistedMultipartBatch,
+  loadActiveMultipartBatch,
+  resumeMultipartUpload,
+} from '@/features/operator/lib/resumableMultipartUpload';
+import {
   isRetryableUploadError,
   runQueue,
   UploadHttpError,
@@ -31,7 +36,7 @@ import type {
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 const STAGES = ['idle', 'downloading', 'analyzing', 'editing', 'qa', 'uploading', 'done'];
-const UPLOAD_CONCURRENCY_LIMIT = 3;
+const UPLOAD_CONCURRENCY_LIMIT = 1;
 const EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT = 1;
 const MAX_UPLOAD_BATCH_FILES = 20;
 const MAX_UPLOAD_ATTEMPTS = 3;
@@ -43,7 +48,13 @@ const VIDEO_FILE_EXTENSIONS = new Set([
 type UploadSession = OperatorUploadInitResponse & {
   mimeType?: string | null;
   storage_key?: string;
-  storage_backend?: string;
+  storage_backend?: 'r2' | 'drive' | string;
+  upload_mode?: 'multipart_resumable' | 'single_put';
+  multipart_upload_id?: string | null;
+  part_size_bytes?: number | null;
+  multipart_reused?: boolean;
+  already_complete?: boolean;
+  existing_size_bytes?: number | null;
 };
 
 type UploadInit = UploadSession & { uploads?: UploadSession[] };
@@ -60,7 +71,9 @@ type UploadFileState = {
   batch_id?: string | null;
   error?: string | null;
   requiresLocalCopy?: boolean;
+  externalSource?: boolean;
   storage_key?: string | null;
+  sourceSizeBytes?: number | null;
   attempt?: number;
 };
 
@@ -125,6 +138,11 @@ function selectedAssetMimeType(asset: ImagePicker.ImagePickerAsset): string {
   return asset.mimeType ?? 'video/mp4';
 }
 
+function selectedAssetSize(asset: ImagePicker.ImagePickerAsset): number | null {
+  const value = Number((asset as ImagePicker.ImagePickerAsset & { fileSize?: number }).fileSize);
+  return Number.isSafeInteger(value) && value > 0 ? value : null;
+}
+
 function filenameFromDocumentUri(uri: string, index: number): string {
   try {
     const decoded = decodeURIComponent(uri.split('?')[0]);
@@ -167,6 +185,11 @@ function cacheSafeFilename(filename: string): string {
 function newClientBatchId(): string {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   return `batch_mobile_${stamp}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function retryableUploadLifecycleError(error: unknown): boolean {
+  if (error instanceof UploadHttpError && error.status === 409 && /no longer exists/i.test(error.message)) return true;
+  return isRetryableUploadError(error);
 }
 
 export default function PipelineScreen() {
@@ -225,6 +248,31 @@ export default function PipelineScreen() {
     return () => clearInterval(timer);
   }, [loadRequests]);
 
+  useEffect(() => {
+    let mounted = true;
+    loadActiveMultipartBatch().then((restored) => {
+      if (!mounted || !restored) return;
+      setActiveBatchId(restored.batchId);
+      setUploadItems(restored.uploads.map((record) => ({
+        id: record.clientUploadId,
+        uri: record.sourceUri,
+        filename: record.filename,
+        mimeType: record.mimeType,
+        progress: Math.min(100, Math.round((record.uploadedBytes / Math.max(record.sourceSizeBytes, 1)) * 100)),
+        status: record.status === 'verified' ? 'verified' : 'failed',
+        batch_id: record.batchId,
+        error: record.status === 'verified' ? null : record.error ?? 'Interrupted upload ready to resume',
+        externalSource: record.externalSource,
+        requiresLocalCopy: record.externalSource,
+        storage_key: record.storageKey,
+        sourceSizeBytes: record.sourceSizeBytes,
+      })));
+    }).catch(() => {
+      // Persistence recovery is best-effort; the operator can select footage again.
+    });
+    return () => { mounted = false; };
+  }, []);
+
   const unresolvedUploads = uploadItems.some((item) => item.status !== 'verified');
 
   const runPipeline = async () => {
@@ -243,6 +291,7 @@ export default function PipelineScreen() {
       setLastRunId(result.pipeline_run_id);
       const finishedBatch = result.batch_id ?? activeBatchId;
       if (finishedBatch) {
+        await clearPersistedMultipartBatch(finishedBatch);
         setLastBatchId(finishedBatch);
         setActiveBatchId(null);
         setUploadItems([]);
@@ -281,12 +330,22 @@ export default function PipelineScreen() {
     }
   };
 
-  const prepareUpload = async (item: UploadFileState): Promise<PreparedUpload> => {
+  const sourceSizeForItem = async (item: UploadFileState): Promise<number> => {
+    if (Number.isSafeInteger(item.sourceSizeBytes) && Number(item.sourceSizeBytes) > 0) return Number(item.sourceSizeBytes);
+    const info = await FileSystem.getInfoAsync(item.uri);
+    if (!info.exists || info.isDirectory || !Number.isSafeInteger(info.size) || info.size <= 0) {
+      throw new Error(`Cannot determine the source size for ${item.filename}`);
+    }
+    updateUploadItem(item.id, { sourceSizeBytes: info.size });
+    return info.size;
+  };
+
+  const prepareLegacyUpload = async (item: UploadFileState): Promise<PreparedUpload> => {
     if (!item.requiresLocalCopy) return { uri: item.uri, cleanup: async () => {} };
     if (!FileSystem.cacheDirectory) throw new Error('App cache is unavailable for the selected SD / USB video.');
 
     const temporaryUri = `${FileSystem.cacheDirectory}sportreel-upload-${Date.now()}-${cacheSafeFilename(item.id)}-${cacheSafeFilename(item.filename)}`;
-    updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null });
+    updateUploadItem(item.id, { status: 'initializing', error: null });
     await FileSystem.copyAsync({ from: item.uri, to: temporaryUri });
     return {
       uri: temporaryUri,
@@ -300,7 +359,7 @@ export default function PipelineScreen() {
     };
   };
 
-  const requestUploadSession = async (item: UploadFileState, batchId: string): Promise<UploadSession> => {
+  const requestUploadSession = async (item: UploadFileState, batchId: string, sourceSizeBytes: number): Promise<UploadSession> => {
     const uploadInit = await operatorFetch<UploadInit>('/api/operator/upload', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -308,18 +367,23 @@ export default function PipelineScreen() {
         filename: item.filename,
         mimeType: item.mimeType,
         batch_id: batchId,
-        upload_mode: 'resilient_batch_item',
+        upload_mode: 'multipart_resumable',
         client_upload_id: item.id,
+        source_size_bytes: sourceSizeBytes,
       }),
     });
     return uploadInit.uploads?.[0] ?? uploadInit;
   };
 
-  const uploadPreparedFile = async (item: UploadFileState, session: UploadSession, uploadUri: string) => {
+  const uploadLegacyPreparedFile = async (
+    item: UploadFileState,
+    session: UploadSession,
+    uploadUri: string,
+    sourceSizeBytes: number,
+  ) => {
     if (!session.uploadUrl) throw new Error(`Missing upload URL for ${item.filename}`);
     updateUploadItem(item.id, {
       status: 'uploading',
-      progress: 0,
       batch_id: session.batch_id,
       storage_key: session.storage_key ?? null,
       error: null,
@@ -347,9 +411,11 @@ export default function PipelineScreen() {
       const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storage_key: session.storage_key }),
+        body: JSON.stringify({ storage_key: session.storage_key, expected_size_bytes: sourceSizeBytes }),
       });
-      if (!verified.exists) throw new Error(`Upload finished but R2 verification failed for ${session.storage_key}`);
+      if (!verified.exists || verified.size !== sourceSizeBytes) {
+        throw new Error(`Upload size verification failed for ${session.storage_key}: expected ${sourceSizeBytes}, found ${verified.size ?? 'missing'}`);
+      }
     }
 
     updateUploadItem(item.id, {
@@ -357,6 +423,7 @@ export default function PipelineScreen() {
       progress: 100,
       batch_id: session.batch_id,
       storage_key: session.storage_key ?? null,
+      sourceSizeBytes,
       error: null,
     });
   };
@@ -364,24 +431,55 @@ export default function PipelineScreen() {
   const uploadItemWithRetries = async (item: UploadFileState, batchId: string): Promise<void> => {
     let prepared: PreparedUpload | null = null;
     try {
-      // Copying a Storage Access Framework URI can fail before any HTTP
-      // request. Keep that preparation inside the guarded lifecycle so
-      // the item becomes retryable instead of remaining "initializing".
-      prepared = await prepareUpload(item);
+      const sourceSizeBytes = await sourceSizeForItem(item);
       await withRetry(
         async () => {
-          const session = await requestUploadSession(item, batchId);
-          await uploadPreparedFile(item, session, prepared!.uri);
+          const session = await requestUploadSession(item, batchId, sourceSizeBytes);
+          if (session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable') {
+            updateUploadItem(item.id, {
+              status: 'uploading',
+              batch_id: session.batch_id ?? batchId,
+              storage_key: session.storage_key ?? null,
+              sourceSizeBytes,
+              error: null,
+            });
+            await resumeMultipartUpload({
+              clientUploadId: item.id,
+              batchId: session.batch_id ?? batchId,
+              sourceUri: item.uri,
+              filename: item.filename,
+              mimeType: item.mimeType,
+              sourceSizeBytes,
+              externalSource: Boolean(item.externalSource),
+              session,
+              onProgress: (sent, total) => updateUploadItem(item.id, {
+                status: 'uploading',
+                progress: Math.min(100, Math.round((sent / Math.max(total, 1)) * 100)),
+                storage_key: session.storage_key ?? null,
+              }),
+            });
+            updateUploadItem(item.id, {
+              status: 'verified',
+              progress: 100,
+              batch_id: session.batch_id ?? batchId,
+              storage_key: session.storage_key ?? null,
+              sourceSizeBytes,
+              error: null,
+            });
+            return;
+          }
+
+          prepared ??= await prepareLegacyUpload(item);
+          await uploadLegacyPreparedFile(item, session, prepared.uri, sourceSizeBytes);
         },
         {
           maxAttempts: MAX_UPLOAD_ATTEMPTS,
           backoffMs: UPLOAD_RETRY_BACKOFF_CAPS_MS,
-          shouldRetry: isRetryableUploadError,
+          shouldRetry: retryableUploadLifecycleError,
           onAttempt: (attempt) => updateUploadItem(item.id, {
             status: 'initializing',
-            progress: 0,
             attempt,
-            error: attempt > 1 ? `Retrying automatically (${attempt}/${MAX_UPLOAD_ATTEMPTS})` : null,
+            error: attempt > 1 ? `Resuming automatically (${attempt}/${MAX_UPLOAD_ATTEMPTS})` : null,
           }),
         },
       );
@@ -399,7 +497,7 @@ export default function PipelineScreen() {
   const runUploadQueue = async (items: UploadFileState[], startingBatchId: string | null) => {
     const stableBatchId = startingBatchId ?? newClientBatchId();
     setActiveBatchId(stableBatchId);
-    const concurrency = items.some((item) => item.requiresLocalCopy)
+    const concurrency = items.some((item) => item.externalSource)
       ? EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT
       : UPLOAD_CONCURRENCY_LIMIT;
     const results = await runQueue(items, (item) => uploadItemWithRetries(item, stableBatchId), concurrency);
@@ -425,7 +523,7 @@ export default function PipelineScreen() {
       if (failedAgain) {
         Alert.alert('Some uploads still failing', `${failedAgain} of ${failedItems.length} files failed again. Check the connection and retry when stable.`);
       } else {
-        Alert.alert('Uploads verified', `${failedItems.length} previously failed files uploaded and verified.`);
+        Alert.alert('Uploads verified', `${failedItems.length} previously failed files resumed and verified.`);
       }
     } finally {
       setRetryingFailedUploads(false);
@@ -446,7 +544,7 @@ export default function PipelineScreen() {
     const { stableBatchId, results } = await runUploadQueue(items, activeBatchId);
     const failed = results.filter((result) => result.status === 'rejected').length;
     if (failed) {
-      Alert.alert('Some uploads failed', `${failed} of ${items.length} files failed after automatic retries. Use Retry all failed before running the pipeline.`);
+      Alert.alert('Some uploads failed', `${failed} of ${items.length} files failed after part-level retries. Use Retry all failed to resume only missing parts.`);
       return;
     }
     Alert.alert('Uploaded to queue', `${items.length} files verified in RAW batch ${stableBatchId.slice(0, 24)}. Run the pipeline only when the batch is complete.`);
@@ -473,10 +571,12 @@ export default function PipelineScreen() {
         uri: asset.uri,
         filename,
         mimeType: selectedAssetMimeType(asset),
+        sourceSizeBytes: selectedAssetSize(asset),
         progress: 0,
         status: 'queued',
         batch_id: activeBatchId,
         error: null,
+        externalSource: false,
       };
     });
     await uploadSelectedItems(items);
@@ -504,6 +604,7 @@ export default function PipelineScreen() {
       status: 'queued',
       batch_id: activeBatchId,
       error: null,
+      externalSource: true,
       requiresLocalCopy: true,
     }));
     setExternalCandidates([]);
@@ -591,7 +692,7 @@ export default function PipelineScreen() {
             {Platform.OS === 'android' && (
               <>
                 <Button label={selectingExternalStorage ? 'Opening SD / USB...' : 'Choose videos from SD / USB'} onPress={uploadExternalStorageFolder} disabled={busy} variant="secondary" style={{ height: 44 }} />
-                <Text variant="caption" color={Colors.textSecondary}>Choose the folder on the card or USB drive, then select only the videos to upload.</Text>
+                <Text variant="caption" color={Colors.textSecondary}>Choose the folder on the card or USB drive, then select only the videos to upload. Completed parts resume after an interruption.</Text>
                 {externalCandidates.length > 0 && (
                   <View style={styles.externalSelectionPanel}>
                     <View style={styles.metaRow}>
@@ -630,7 +731,7 @@ export default function PipelineScreen() {
               <View style={{ gap: Spacing.sm }}>
                 <View style={styles.metaRow}>
                   <Text variant="caption" color={failedUploads.length ? Colors.danger : Colors.textSecondary}>Upload batch progress · {verifiedUploads}/{uploadItems.length} verified</Text>
-                  {failedUploads.length > 0 && <Button label={retryingFailedUploads ? 'Retrying...' : `Retry all failed (${failedUploads.length})`} onPress={retryAllFailedUploads} disabled={busy} variant="ghost" style={{ height: 36 }} />}
+                  {failedUploads.length > 0 && <Button label={retryingFailedUploads ? 'Retrying...' : `Resume all failed (${failedUploads.length})`} onPress={retryAllFailedUploads} disabled={busy} variant="ghost" style={{ height: 36 }} />}
                 </View>
                 {pipelineBlockedByUploads && <Text variant="caption" color={Colors.danger}>Pipeline start is blocked until every selected upload is verified.</Text>}
                 {uploadItems.map((item) => (
@@ -641,7 +742,7 @@ export default function PipelineScreen() {
                         {UPLOAD_STATUS_LABEL[item.status]} · {item.progress}%{item.attempt ? ` · attempt ${item.attempt}/${MAX_UPLOAD_ATTEMPTS}` : ''}{item.error ? ` · ${item.error}` : ''}
                       </Text>
                     </View>
-                    {item.status === 'failed' && <Button label="Retry" onPress={() => retryUploadItem(item)} disabled={busy} variant="ghost" style={{ height: 36 }} />}
+                    {item.status === 'failed' && <Button label="Resume" onPress={() => retryUploadItem(item)} disabled={busy} variant="ghost" style={{ height: 36 }} />}
                   </View>
                 ))}
               </View>
