@@ -57,6 +57,15 @@ def main() -> int:
         "MAX_MULTIPART_PARTS = 10_000",
         "Math.ceil(knownBytes / MAX_MULTIPART_PARTS)",
     ])
+    canonical_query = block(r2, "function canonicalQuery", "function normalizedHeaders")
+    require("SigV4 encoded byte ordering", canonical_query, [
+        ".map(([key, value]) => [encode(key), encode(value)] as const)",
+        "if (leftKey < rightKey) return -1",
+        "if (leftValue < rightValue) return -1",
+        ".map(([key, value]) => `${key}=${value}`)",
+    ])
+    forbid("SigV4 must not use locale ordering", canonical_query, ["localeCompare"])
+
     init_block = block(r2, "export async function createR2MultipartUpload", "export function createR2MultipartPartUrl")
     require("idempotent init", init_block, [
         "objectIdentity(",
