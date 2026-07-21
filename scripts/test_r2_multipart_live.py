@@ -15,6 +15,7 @@ from botocore.exceptions import ClientError
 
 MIB = 1024 * 1024
 TOTAL_BYTES = 17 * MIB + 123
+TRUNCATED_BYTES = b'truncated-single-put'
 TIMEOUT = 60
 
 
@@ -94,6 +95,10 @@ def init_payload(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def expected_storage_key(state: dict[str, Any]) -> str:
+    return f"raw/{state['batch_id']}/{state['client_upload_id']}_{state['filename']}"
+
+
 def phase_init(state_path: Path) -> None:
     run_id = os.environ.get('GITHUB_RUN_ID', 'local')
     attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '1')
@@ -102,10 +107,27 @@ def phase_init(state_path: Path) -> None:
         'batch_id': f'ci_multipart_{run_id}_{attempt}',
         'client_upload_id': f'ci_multipart_upload_{run_id}_{attempt}',
     }
+    state['storage_key'] = expected_storage_key(state)
+
+    # Reproduce a partial legacy single-PUT object at the exact stable key.
+    # Multipart init must reject it as complete and later overwrite it.
+    s3_client().put_object(
+        Bucket=required('R2_BUCKET'),
+        Key=state['storage_key'],
+        Body=TRUNCATED_BYTES,
+        ContentType='video/mp4',
+    )
+
     result = api('/api/operator/upload', init_payload(state))
     upload = (result.get('uploads') or [result])[0]
+    if upload.get('storage_key') != state['storage_key']:
+        raise RuntimeError(f"Stable key mismatch: {upload.get('storage_key')} != {state['storage_key']}")
+    if upload.get('already_complete'):
+        raise RuntimeError('Wrong-size existing object was incorrectly treated as complete')
+    if int(upload.get('existing_size_bytes') or -1) != len(TRUNCATED_BYTES):
+        raise RuntimeError(f"Wrong-size object was not reported: {upload.get('existing_size_bytes')}")
+
     state.update({
-        'storage_key': upload['storage_key'],
         'upload_id': upload['multipart_upload_id'],
         'part_size_bytes': int(upload['part_size_bytes']),
     })
@@ -124,7 +146,7 @@ def phase_init(state_path: Path) -> None:
     if status.get('state') != 'in_progress' or len(parts) != 1 or int(parts[0]['partNumber']) != 1:
         raise RuntimeError(f'Unexpected state after first part: {status}')
     state_path.write_text(json.dumps(state, indent=2), encoding='utf-8')
-    print('Live multipart phase 1 passed: first part persisted in R2')
+    print('Live multipart phase 1 passed: wrong-size object rejected and first part persisted')
 
 
 def phase_resume(state_path: Path) -> None:
