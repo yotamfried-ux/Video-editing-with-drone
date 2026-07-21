@@ -77,8 +77,15 @@ function signingKey(dateStamp: string) {
 
 function canonicalQuery(params: URLSearchParams): string {
   return [...params.entries()]
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) => leftKey.localeCompare(rightKey) || leftValue.localeCompare(rightValue))
-    .map(([key, value]) => `${encode(key)}=${encode(value)}`)
+    .map(([key, value]) => [encode(key), encode(value)] as const)
+    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
+      if (leftKey < rightKey) return -1;
+      if (leftKey > rightKey) return 1;
+      if (leftValue < rightValue) return -1;
+      if (leftValue > rightValue) return 1;
+      return 0;
+    })
+    .map(([key, value]) => `${key}=${value}`)
     .join('&');
 }
 
