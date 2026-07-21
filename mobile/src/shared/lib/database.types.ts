@@ -35,10 +35,12 @@ export interface Database {
         Row: {
           amount_ils: number | null
           created_at: string | null
-          download_token: string | null
+          download_token: string
           id: string
           meshulam_transaction_id: string | null
           paid_at: string | null
+          receipt_email_claimed_at: string | null
+          receipt_email_sent_at: string | null
           reel_id: string | null
           status: string | null
           stripe_payment_intent_id: string | null
