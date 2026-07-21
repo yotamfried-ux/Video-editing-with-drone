@@ -57,18 +57,32 @@ function canonicalQuery(params: URLSearchParams): string {
   return [...params.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([key, value]) => `${encode(key)}=${encode(value)}`).join('&');
 }
 
-function presign(method: 'GET' | 'PUT', key: string, expires = EXPIRES): string {
+function normalizedHeaders(headers: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(headers).map(([name, value]) => [name.toLowerCase().trim(), value.trim().replace(/\s+/g, ' ')]),
+  );
+}
+
+function presign(
+  method: 'GET' | 'PUT',
+  key: string,
+  expires = EXPIRES,
+  requiredHeaders: Record<string, string> = {},
+): string {
   const host = new URL(endpoint()).host;
   const { dateStamp, timestamp } = amzDate();
   const scope = `${dateStamp}/${REGION}/${SERVICE}/aws4_request`;
+  const headers = normalizedHeaders({ host, ...requiredHeaders });
+  const signedHeaders = Object.keys(headers).sort().join(';');
+  const canonicalHeaders = Object.keys(headers).sort().map((header) => `${header}:${headers[header]}\n`).join('');
   const params = new URLSearchParams({
     'X-Amz-Algorithm': 'AWS4-HMAC-SHA256',
     'X-Amz-Credential': `${accessKey()}/${scope}`,
     'X-Amz-Date': timestamp,
     'X-Amz-Expires': String(expires),
-    'X-Amz-SignedHeaders': 'host',
+    'X-Amz-SignedHeaders': signedHeaders,
   });
-  const canonical = [method, objectPath(key), canonicalQuery(params), `host:${host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const canonical = [method, objectPath(key), canonicalQuery(params), canonicalHeaders, signedHeaders, 'UNSIGNED-PAYLOAD'].join('\n');
   const stringToSign = ['AWS4-HMAC-SHA256', timestamp, scope, sha256Hex(canonical)].join('\n');
   params.set('X-Amz-Signature', createHmac('sha256', signingKey(dateStamp)).update(stringToSign).digest('hex'));
   return `${endpoint()}${objectPath(key)}?${canonicalQuery(params)}`;
@@ -81,12 +95,14 @@ export function createR2SignedGetUrl(key: string): string {
 /**
  * Create a just-in-time upload URL. When a client upload id is supplied the
  * object key is stable across retries, preventing duplicate/orphaned objects
- * while still issuing a fresh signed URL for every attempt.
+ * while still issuing a fresh signed URL for every attempt. The declared MIME
+ * type is signed so a leaked URL cannot be reused with different content headers.
  */
 export function createR2UploadUrl(
   filename: string,
   requestedBatchId?: string | null,
   clientUploadId?: string | null,
+  mimeType = 'application/octet-stream',
 ): { uploadUrl: string; key: string; filename: string; batch_id: string } {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const batchId = safeBatchId(requestedBatchId) || newBatchId();
@@ -95,7 +111,12 @@ export function createR2UploadUrl(
     ? `${stableUploadId}_${safeFilename(filename)}`
     : `${stamp}_${safeFilename(filename)}`;
   const key = `raw/${batchId}/${storageName}`;
-  return { uploadUrl: presign('PUT', key), key, filename: storageName, batch_id: batchId };
+  return {
+    uploadUrl: presign('PUT', key, EXPIRES, { 'content-type': mimeType }),
+    key,
+    filename: storageName,
+    batch_id: batchId,
+  };
 }
 
 async function signedFetch(method: string, key: string, query = new URLSearchParams(), extraHeaders: Record<string, string> = {}) {
