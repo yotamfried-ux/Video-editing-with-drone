@@ -113,6 +113,7 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     profile = (ROOT / "mobile/src/app/(tabs)/profile.tsx").read_text(encoding="utf-8")
     workflow = (ROOT / ".github/workflows/pipeline-run.yml").read_text(encoding="utf-8")
     migration = (ROOT / "supabase/migrations/20260721_remove_face_recognition.sql").read_text(encoding="utf-8")
+    core_schema = (ROOT / "supabase/migrations/20260612_create_core_schema.sql").read_text(encoding="utf-8")
 
     assert "face_recognition" not in requirements
     assert "face_matcher" not in delivery
@@ -122,6 +123,15 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     assert "SPORTREEL_REQUIRE_PERCEPTION: '1'" in workflow
     assert "drop column if exists face_embedding" in migration
     assert "drop column if exists matched_athlete" in migration
+    for forbidden in (
+        "face_embedding",
+        "photo_path",
+        "matched_athlete",
+        "match_athlete_face",
+        "cosine_similarity",
+        "athlete-photos",
+    ):
+        assert forbidden not in core_schema, f"fresh schema still creates biometric surface: {forbidden}"
 
 
 def main() -> int:
