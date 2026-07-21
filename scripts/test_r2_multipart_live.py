@@ -99,6 +99,10 @@ def expected_storage_key(state: dict[str, Any]) -> str:
     return f"raw/{state['batch_id']}/{state['client_upload_id']}_{state['filename']}"
 
 
+def save_state(state_path: Path, state: dict[str, Any]) -> None:
+    state_path.write_text(json.dumps(state, indent=2), encoding='utf-8')
+
+
 def phase_init(state_path: Path) -> None:
     run_id = os.environ.get('GITHUB_RUN_ID', 'local')
     attempt = os.environ.get('GITHUB_RUN_ATTEMPT', '1')
@@ -108,6 +112,9 @@ def phase_init(state_path: Path) -> None:
         'client_upload_id': f'ci_multipart_upload_{run_id}_{attempt}',
     }
     state['storage_key'] = expected_storage_key(state)
+    # Persist cleanup identity before the first external write so the workflow
+    # trap can remove the fixture even when initialization itself fails.
+    save_state(state_path, state)
 
     # Reproduce a partial legacy single-PUT object at the exact stable key.
     # Multipart init must reject it as complete and later overwrite it.
@@ -131,6 +138,7 @@ def phase_init(state_path: Path) -> None:
         'upload_id': upload['multipart_upload_id'],
         'part_size_bytes': int(upload['part_size_bytes']),
     })
+    save_state(state_path, state)
     if not state['upload_id']:
         raise RuntimeError('Multipart init did not return upload_id')
     if state['part_size_bytes'] < 5 * MIB:
@@ -145,7 +153,7 @@ def phase_init(state_path: Path) -> None:
     parts = status.get('parts') or []
     if status.get('state') != 'in_progress' or len(parts) != 1 or int(parts[0]['partNumber']) != 1:
         raise RuntimeError(f'Unexpected state after first part: {status}')
-    state_path.write_text(json.dumps(state, indent=2), encoding='utf-8')
+    save_state(state_path, state)
     print('Live multipart phase 1 passed: wrong-size object rejected and first part persisted')
 
 
