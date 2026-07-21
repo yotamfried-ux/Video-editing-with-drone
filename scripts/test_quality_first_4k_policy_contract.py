@@ -2,7 +2,9 @@
 """Deterministic contract tests for the 4K/perception/no-face product decision."""
 from __future__ import annotations
 
+import json
 import sys
+import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -12,14 +14,18 @@ from pipeline.quality_preserving_framing import (  # noqa: E402
     OUTPUT_FPS,
     OUTPUT_HEIGHT,
     OUTPUT_WIDTH,
+    _resolve_track_safe_decision,
     decide_framing,
     quality_output_issues,
 )
+from pipeline.required_perception_policy import _event_has_required_evidence  # noqa: E402
 
 
 def _event(**overrides):
     event = {
         "type": "surf_ride",
+        "start": 0.0,
+        "end": 1.0,
         "edit": {"zoom": 1.8, "focus": "peak"},
         "perception_evidence_status": "tracker_sidecar",
         "track_id": 7,
@@ -32,6 +38,29 @@ def _event(**overrides):
     }
     event.update(overrides)
     return event
+
+
+def _write_sidecar(video_path: Path, detections: list[dict]) -> Path:
+    sidecar = video_path.with_suffix(video_path.suffix + ".perception.json")
+    sidecar.write_text(
+        json.dumps({"source_video": str(video_path), "status": "ok", "detections": detections}),
+        encoding="utf-8",
+    )
+    return sidecar
+
+
+def _detection(time_sec: float, bbox: list[int], track_id: int = 7) -> dict:
+    return {
+        "time_sec": time_sec,
+        "frame_index": int(time_sec * 30),
+        "bbox_xyxy": bbox,
+        "frame_width": 3840,
+        "frame_height": 2160,
+        "confidence": 0.95,
+        "class_id": 0,
+        "class_name": "athlete",
+        "track_id": track_id,
+    }
 
 
 def test_readable_surfing_stays_contain() -> None:
@@ -52,6 +81,60 @@ def test_small_stable_surfer_allows_emergency_crop() -> None:
     assert decision.mode == "tracked_crop"
     assert "athlete_unreadably_small" in decision.reason
     assert 1.0 <= decision.zoom <= 1.30
+
+
+def test_multi_person_evidence_requires_featured_track_binding() -> None:
+    unbound = _event(visible_track_ids=[7, 11])
+    assert not _event_has_required_evidence(unbound)
+
+    bound = _event(visible_track_ids=[7, 11], target_track_id=7)
+    assert _event_has_required_evidence(bound)
+
+    wrong_track = _event(visible_track_ids=[7, 11], target_track_id=11)
+    assert not _event_has_required_evidence(wrong_track)
+
+
+def test_stable_track_trajectory_keeps_emergency_crop() -> None:
+    event = _event(
+        bbox_xyxy=[1810, 970, 1930, 1090],
+        visible_track_ids=[7],
+    )
+    decision = decide_framing(event, sport="surfing")
+    with tempfile.TemporaryDirectory(prefix="sportreel-track-safe-") as temp_dir:
+        video_path = Path(temp_dir) / "stable.mp4"
+        _write_sidecar(
+            video_path,
+            [
+                _detection(0.1, [1800, 960, 1920, 1080]),
+                _detection(0.5, [1820, 970, 1940, 1090]),
+                _detection(0.9, [1810, 965, 1930, 1085]),
+            ],
+        )
+        resolved = _resolve_track_safe_decision(str(video_path), event, decision)
+    assert resolved.mode == "tracked_crop"
+    assert "stable_track_trajectory" in resolved.reason
+
+
+def test_moving_track_falls_back_to_contain() -> None:
+    event = _event(
+        bbox_xyxy=[350, 970, 470, 1090],
+        visible_track_ids=[7],
+    )
+    decision = decide_framing(event, sport="surfing")
+    with tempfile.TemporaryDirectory(prefix="sportreel-track-motion-") as temp_dir:
+        video_path = Path(temp_dir) / "moving.mp4"
+        _write_sidecar(
+            video_path,
+            [
+                _detection(0.1, [300, 960, 420, 1080]),
+                _detection(0.5, [1800, 970, 1920, 1090]),
+                _detection(0.9, [3300, 965, 3420, 1085]),
+            ],
+        )
+        resolved = _resolve_track_safe_decision(str(video_path), event, decision)
+    assert resolved.mode == "contain"
+    assert resolved.zoom == 1.0
+    assert "track_motion_requires_contain" in resolved.reason
 
 
 def test_other_visible_people_do_not_trigger_crop_by_themselves() -> None:
@@ -117,6 +200,9 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     privacy = (ROOT / "mobile/src/shared/legal/privacyPolicy.ts").read_text(encoding="utf-8")
     terms = (ROOT / "mobile/src/shared/legal/terms.ts").read_text(encoding="utf-8")
     deployment = (ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
+    stripe_checkout = (ROOT / "web-api/src/app/api/checkout/stripe/route.ts").read_text(encoding="utf-8")
+    stripe_webhook = (ROOT / "web-api/src/app/api/webhooks/stripe/route.ts").read_text(encoding="utf-8")
+    mobile_checkout = (ROOT / "mobile/src/features/payment/hooks/useCheckout.ts").read_text(encoding="utf-8")
 
     assert "face_recognition" not in requirements
     assert "face_matcher" not in delivery
@@ -126,6 +212,10 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     assert "SPORTREEL_REQUIRE_PERCEPTION: '1'" in workflow
     assert "drop column if exists face_embedding" in migration
     assert "drop column if exists matched_athlete" in migration
+    assert "receipt_email: email" in stripe_checkout
+    assert "payer_email: email" in stripe_checkout
+    assert "intent.receipt_email" in stripe_webhook
+    assert "email: payerEmail" in mobile_checkout
     for forbidden in (
         "face_embedding",
         "photo_path",
