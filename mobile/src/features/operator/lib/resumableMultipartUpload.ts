@@ -134,17 +134,61 @@ function expectedPartSize(totalBytes: number, partSizeBytes: number, partNumber:
   return Math.max(0, Math.min(partSizeBytes, totalBytes - offset));
 }
 
-async function readPart(sourceUri: string, offset: number, length: number): Promise<ArrayBuffer> {
-  const encoded = await FileSystem.readAsStringAsync(sourceUri, {
-    encoding: FileSystem.EncodingType.Base64,
-    position: offset,
-    length,
-  });
-  const bytes = decode(encoded);
-  if (bytes.byteLength !== length) {
-    throw new Error(`Source part read mismatch at byte ${offset}: expected ${length}, read ${bytes.byteLength}`);
+function isStagedExternalSource(record: PersistedMultipartUpload): boolean {
+  return Boolean(
+    record.externalSource
+      && FileSystem.cacheDirectory
+      && record.sourceUri.startsWith(FileSystem.cacheDirectory),
+  );
+}
+
+async function cleanupStagedSource(record: PersistedMultipartUpload): Promise<void> {
+  if (!isStagedExternalSource(record)) return;
+  try {
+    await FileSystem.deleteAsync(record.sourceUri, { idempotent: true });
+  } catch {
+    // A verified or explicitly discarded upload must not fail because cache
+    // cleanup was unavailable. The cache directory remains app-scoped.
   }
-  return bytes;
+}
+
+/**
+ * Read exactly one bounded multipart range. expo-file-system 18 performs a
+ * single native read for each range, and a valid stream may return fewer bytes
+ * than requested. Repeat from the next file offset until the requested range
+ * is full; never materialize the whole video in JavaScript memory.
+ */
+async function readPart(sourceUri: string, offset: number, length: number): Promise<ArrayBuffer> {
+  const chunks: Uint8Array[] = [];
+  let cursor = offset;
+  let remaining = length;
+  let total = 0;
+
+  while (remaining > 0) {
+    const encoded = await FileSystem.readAsStringAsync(sourceUri, {
+      encoding: FileSystem.EncodingType.Base64,
+      position: cursor,
+      length: remaining,
+    });
+    const buffer = decode(encoded);
+    const bytes = new Uint8Array(buffer);
+    if (bytes.byteLength === 0) break;
+    chunks.push(bytes);
+    cursor += bytes.byteLength;
+    remaining -= bytes.byteLength;
+    total += bytes.byteLength;
+  }
+
+  if (total !== length) {
+    throw new Error(`Source part read mismatch at byte ${offset}: expected ${length}, read ${total}`);
+  }
+  const combined = new Uint8Array(length);
+  let targetOffset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, targetOffset);
+    targetOffset += chunk.byteLength;
+  }
+  return combined.buffer;
 }
 
 async function serverStatus(storageKey: string, uploadId: string): Promise<MultipartServerStatus> {
@@ -188,7 +232,12 @@ async function uploadPart(
     if (!signed.upload_url) throw new Error(`Missing signed URL for multipart part ${partNumber}`);
 
     const response = await fetch(signed.upload_url, { method: 'PUT', body: bytes });
-    if (!response.ok) throw new UploadHttpError(response.status, `Multipart part ${partNumber} failed with status ${response.status}`);
+    if (!response.ok) {
+      if (response.status === 404) {
+        throw new UploadHttpError(409, 'Multipart upload no longer exists');
+      }
+      throw new UploadHttpError(response.status, `Multipart part ${partNumber} failed with status ${response.status}`);
+    }
 
     const responseEtag = response.headers.get('etag')?.trim() ?? '';
     if (responseEtag) return { partNumber, etag: responseEtag, size: bytes.byteLength };
@@ -203,7 +252,12 @@ async function uploadPart(
   });
 }
 
-function freshRecord(input: ResumeMultipartUploadInput, storageKey: string, uploadId: string, partSizeBytes: number): PersistedMultipartUpload {
+function freshRecord(
+  input: ResumeMultipartUploadInput,
+  storageKey: string,
+  uploadId: string,
+  partSizeBytes: number,
+): PersistedMultipartUpload {
   return {
     version: 1,
     clientUploadId: input.clientUploadId,
@@ -224,6 +278,19 @@ function freshRecord(input: ResumeMultipartUploadInput, storageKey: string, uplo
   };
 }
 
+async function markVerified(record: PersistedMultipartUpload): Promise<PersistedMultipartUpload> {
+  const verified = {
+    ...record,
+    status: 'verified' as const,
+    uploadedBytes: record.sourceSizeBytes,
+    error: null,
+    updatedAt: nowIso(),
+  };
+  await saveRecord(verified);
+  await cleanupStagedSource(verified);
+  return verified;
+}
+
 export async function resumeMultipartUpload(input: ResumeMultipartUploadInput): Promise<PersistedMultipartUpload> {
   const storageKey = input.session.storage_key?.trim() ?? '';
   const uploadId = input.session.multipart_upload_id?.trim() ?? '';
@@ -237,11 +304,7 @@ export async function resumeMultipartUpload(input: ResumeMultipartUploadInput): 
     if (existingSize !== input.sourceSizeBytes) {
       throw new Error(`Existing R2 object size mismatch: expected ${input.sourceSizeBytes}, found ${existingSize ?? 'unknown'}`);
     }
-    const completeRecord = freshRecord(input, storageKey, uploadId, partSizeBytes);
-    completeRecord.status = 'verified';
-    completeRecord.uploadedBytes = input.sourceSizeBytes;
-    completeRecord.updatedAt = nowIso();
-    await saveRecord(completeRecord);
+    const completeRecord = await markVerified(freshRecord(input, storageKey, uploadId, partSizeBytes));
     input.onProgress?.(input.sourceSizeBytes, input.sourceSizeBytes);
     return completeRecord;
   }
@@ -258,8 +321,7 @@ export async function resumeMultipartUpload(input: ResumeMultipartUploadInput): 
       if (status.objectSize !== input.sourceSizeBytes) {
         throw new Error(`Completed R2 object size mismatch: expected ${input.sourceSizeBytes}, found ${status.objectSize ?? 'unknown'}`);
       }
-      record = { ...record, status: 'verified', uploadedBytes: input.sourceSizeBytes, parts: [], error: null, updatedAt: nowIso() };
-      await saveRecord(record);
+      record = await markVerified({ ...record, parts: [] });
       input.onProgress?.(input.sourceSizeBytes, input.sourceSizeBytes);
       return record;
     }
@@ -299,8 +361,7 @@ export async function resumeMultipartUpload(input: ResumeMultipartUploadInput): 
     const finalStatus = await serverStatus(storageKey, uploadId);
     if (finalStatus.state !== 'in_progress') {
       if (finalStatus.state === 'completed' && finalStatus.objectSize === input.sourceSizeBytes) {
-        record = { ...record, status: 'verified', uploadedBytes: input.sourceSizeBytes, parts: [], error: null, updatedAt: nowIso() };
-        await saveRecord(record);
+        record = await markVerified({ ...record, parts: [] });
         input.onProgress?.(input.sourceSizeBytes, input.sourceSizeBytes);
         return record;
       }
@@ -322,15 +383,7 @@ export async function resumeMultipartUpload(input: ResumeMultipartUploadInput): 
       throw new Error(`Multipart completion verification mismatch for ${storageKey}`);
     }
 
-    record = {
-      ...record,
-      parts: normalizedParts(finalStatus.parts),
-      uploadedBytes: input.sourceSizeBytes,
-      status: 'verified',
-      error: null,
-      updatedAt: nowIso(),
-    };
-    await saveRecord(record);
+    record = await markVerified({ ...record, parts: normalizedParts(finalStatus.parts) });
     input.onProgress?.(input.sourceSizeBytes, input.sourceSizeBytes);
     return record;
   } catch (error) {
@@ -368,15 +421,18 @@ export async function loadActiveMultipartBatch(): Promise<{ batchId: string; upl
 export async function clearPersistedMultipartBatch(batchId: string): Promise<void> {
   const keys = (await AsyncStorage.getAllKeys()).filter((key) => key.startsWith(RECORD_PREFIX));
   const entries = await AsyncStorage.multiGet(keys);
-  const matchingKeys = entries.flatMap(([key, raw]) => {
-    if (!raw) return [];
+  const matching: Array<{ key: string; record: PersistedMultipartUpload | null }> = [];
+  for (const [key, raw] of entries) {
+    if (!raw) continue;
     try {
-      return (JSON.parse(raw) as PersistedMultipartUpload).batchId === batchId ? [key] : [];
+      const record = JSON.parse(raw) as PersistedMultipartUpload;
+      if (record.batchId === batchId) matching.push({ key, record });
     } catch {
-      return [key];
+      matching.push({ key, record: null });
     }
-  });
-  await AsyncStorage.multiRemove(matchingKeys);
+  }
+  await Promise.all(matching.map(({ record }) => record ? cleanupStagedSource(record) : Promise.resolve()));
+  await AsyncStorage.multiRemove(matching.map(({ key }) => key));
   if ((await AsyncStorage.getItem(ACTIVE_BATCH_KEY)) === batchId) {
     await AsyncStorage.removeItem(ACTIVE_BATCH_KEY);
   }
@@ -390,5 +446,6 @@ export async function abortPersistedMultipartUpload(record: PersistedMultipartUp
       upload_id: record.uploadId,
     });
   }
+  await cleanupStagedSource(record);
   await AsyncStorage.removeItem(recordKey(record.clientUploadId));
 }
