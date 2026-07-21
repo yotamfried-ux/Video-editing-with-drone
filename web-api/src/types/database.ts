@@ -126,9 +126,24 @@ export type Database = {
         }
       }
       pricing: {
-        Row: { price_ils: number; sport: string; updated_at: string | null }
-        Insert: { price_ils: number; sport: string; updated_at?: string | null }
-        Update: { price_ils?: number; sport?: string; updated_at?: string | null }
+        Row: {
+          price_ils: number
+          price_unit: 'major_ils_v1'
+          sport: string
+          updated_at: string | null
+        }
+        Insert: {
+          price_ils: number
+          price_unit?: 'major_ils_v1'
+          sport: string
+          updated_at?: string | null
+        }
+        Update: {
+          price_ils?: number
+          price_unit?: 'major_ils_v1'
+          sport?: string
+          updated_at?: string | null
+        }
       }
       reels: {
         Row: {
