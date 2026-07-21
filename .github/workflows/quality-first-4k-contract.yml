@@ -1,0 +1,37 @@
+name: Quality-first 4K Contract
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/quality_preserving_framing.py'
+      - 'pipeline/required_perception_policy.py'
+      - 'pipeline/bootstrap.py'
+      - 'services/delivery.py'
+      - 'requirements.txt'
+      - 'mobile/**'
+      - 'web-api/**'
+      - 'supabase/migrations/20260721_remove_face_recognition.sql'
+      - 'scripts/test_quality_first_4k_policy_contract.py'
+      - '.github/workflows/pipeline-run.yml'
+      - '.github/workflows/quality-first-4k-contract.yml'
+  workflow_dispatch:
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile changed Python modules
+        run: |
+          python -m py_compile \
+            pipeline/required_perception_policy.py \
+            pipeline/quality_preserving_framing.py \
+            pipeline/bootstrap.py \
+            services/delivery.py \
+            scripts/test_quality_first_4k_policy_contract.py
+      - name: Run quality-first product contract
+        run: python scripts/test_quality_first_4k_policy_contract.py
