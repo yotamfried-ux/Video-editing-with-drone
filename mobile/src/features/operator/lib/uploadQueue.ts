@@ -38,6 +38,21 @@ function retryDelay(capMs: number, random: () => number): number {
 }
 
 /**
+ * Obtain a time-sensitive upload session immediately before transferring one
+ * item. Keeping this small unit explicit makes it impossible for a queue to
+ * create all presigned URLs up front and then let later URLs expire while they
+ * wait for earlier uploads.
+ */
+export async function uploadWithFreshSession<Item, Session>(
+  item: Item,
+  requestSession: (item: Item) => Promise<Session>,
+  uploadAssetToSession: (item: Item, session: Session) => Promise<void>,
+): Promise<void> {
+  const session = await requestSession(item);
+  await uploadAssetToSession(item, session);
+}
+
+/**
  * Runs `task` up to `maxAttempts` times. The caller supplies increasing backoff
  * caps and the helper applies full jitter before each retry, matching the retry
  * pattern recommended for transient network and throttling failures. `onAttempt`
