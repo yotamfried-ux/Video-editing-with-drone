@@ -101,6 +101,7 @@ def main() -> int:
         "upload_mode: 'multipart_resumable'",
         "client_upload_id: item.id",
         "source_size_bytes: sourceSizeBytes",
+        "prepareMultipartSource(item)",
         "resumeMultipartUpload({",
         "loadActiveMultipartBatch()",
         "clearPersistedMultipartBatch(finishedBatch)",
@@ -123,8 +124,10 @@ def main() -> int:
         "parts: MultipartUploadPart[]",
         "FileSystem.readAsStringAsync",
         "FileSystem.EncodingType.Base64",
-        "position: offset",
-        "length,",
+        "while (remaining > 0)",
+        "position: cursor",
+        "length: remaining",
+        "const combined = new Uint8Array(length)",
         "action: 'status'",
         "action: 'part_url'",
         "action: 'complete'",
@@ -132,6 +135,7 @@ def main() -> int:
         "authoritativeUploadedPart",
         "loadActiveMultipartBatch",
         "clearPersistedMultipartBatch",
+        "cleanupStagedSource",
         "abortPersistedMultipartUpload",
     ])
     part_loop = block(multipart_mobile, "for (let partNumber = 1", "const finalStatus = await serverStatus")
