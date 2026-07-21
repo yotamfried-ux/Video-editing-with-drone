@@ -14,6 +14,7 @@ import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCar
 import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatusCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import { forgetMultipartUploadSession } from '@/features/operator/lib/multipartUploadRecord';
 import {
   abortPersistedMultipartUpload,
   clearPersistedMultipartBatch,
@@ -170,6 +171,11 @@ function retryableUploadLifecycleError(error: unknown): boolean {
   if (error instanceof UploadHttpError && error.status === 409 && /no longer exists/i.test(error.message)) return true;
   return isRetryableUploadError(error);
 }
+function isExpiredMultipartSession(error: unknown): error is UploadHttpError {
+  return error instanceof UploadHttpError
+    && error.status === 409
+    && /no longer exists/i.test(error.message);
+}
 
 export default function PipelineScreen() {
   const router = useRouter();
@@ -323,6 +329,32 @@ export default function PipelineScreen() {
   };
 
   const requestUploadSession = async (item: UploadFileState, batchId: string, sourceSizeBytes: number): Promise<UploadSession> => {
+    // Cloudflare's official multipart model keeps uploadId outside the stateless
+    // server. Reuse the locally persisted session first after an app restart.
+    const restored = await loadActiveMultipartBatch();
+    const persisted = restored?.batchId === batchId
+      ? restored.uploads.find((upload) => (
+          upload.clientUploadId === item.id
+          && upload.sourceSizeBytes === sourceSizeBytes
+          && upload.uploadId
+        ))
+      : undefined;
+    if (persisted) {
+      return {
+        uploadUrl: '',
+        filename: persisted.filename,
+        batch_id: persisted.batchId,
+        storage_backend: 'r2',
+        storage_key: persisted.storageKey,
+        upload_mode: 'multipart_resumable',
+        multipart_upload_id: persisted.uploadId,
+        part_size_bytes: persisted.partSizeBytes,
+        multipart_reused: true,
+        already_complete: persisted.status === 'verified',
+        existing_size_bytes: persisted.status === 'verified' ? persisted.sourceSizeBytes : null,
+      };
+    }
+
     const uploadInit = await operatorFetch<UploadInit>('/api/operator/upload', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -382,21 +414,28 @@ export default function PipelineScreen() {
             status: 'uploading', batch_id: session.batch_id ?? batchId,
             storage_key: session.storage_key ?? null, sourceSizeBytes: source!.size, error: null,
           });
-          await resumeMultipartUpload({
-            clientUploadId: item.id,
-            batchId: session.batch_id ?? batchId,
-            sourceUri: source!.uri,
-            filename: item.filename,
-            mimeType: item.mimeType,
-            sourceSizeBytes: source!.size,
-            externalSource: Boolean(item.externalSource || source!.staged),
-            session,
-            onProgress: (sent, total) => updateUploadItem(item.id, {
-              status: 'uploading',
-              progress: Math.min(100, Math.round((sent / Math.max(total, 1)) * 100)),
-              storage_key: session.storage_key ?? null,
-            }),
-          });
+          try {
+            await resumeMultipartUpload({
+              clientUploadId: item.id,
+              batchId: session.batch_id ?? batchId,
+              sourceUri: source!.uri,
+              filename: item.filename,
+              mimeType: item.mimeType,
+              sourceSizeBytes: source!.size,
+              externalSource: Boolean(item.externalSource || source!.staged),
+              session,
+              onProgress: (sent, total) => updateUploadItem(item.id, {
+                status: 'uploading',
+                progress: Math.min(100, Math.round((sent / Math.max(total, 1)) * 100)),
+                storage_key: session.storage_key ?? null,
+              }),
+            });
+          } catch (error) {
+            if (isExpiredMultipartSession(error)) {
+              await forgetMultipartUploadSession(item.id);
+            }
+            throw error;
+          }
           updateUploadItem(item.id, {
             status: 'verified', progress: 100, batch_id: session.batch_id ?? batchId,
             storage_key: session.storage_key ?? null, sourceSizeBytes: source!.size, error: null,
