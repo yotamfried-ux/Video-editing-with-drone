@@ -1,12 +1,14 @@
 """Quality-first 4K framing for SportReel.
 
 The default is a non-destructive ``contain`` render: the complete source frame is
-kept inside a 2160x3840 vertical canvas.  A tracked crop is an emergency repair,
-not an artistic default.  It is allowed only when measured detector/tracker
+kept inside a 2160x3840 vertical canvas. A tracked crop is an emergency repair,
+not an artistic default. It is allowed only when measured detector/tracker
 evidence proves that the athlete would otherwise be unreadably small, clipped by
 the frame edge, or ambiguous among multiple tracked people.
 
-Gemini edit hints never authorize crop or zoom on their own.
+Gemini edit hints never authorize crop or zoom on their own. A fixed emergency
+crop is used only when the bound athlete's complete tracker trajectory stays
+inside that crop; moving or insufficiently sampled tracks fall back to contain.
 """
 from __future__ import annotations
 
@@ -16,8 +18,9 @@ import math
 import os
 import subprocess
 import threading
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
+from statistics import median
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -32,6 +35,8 @@ SMALL_ATHLETE_AREA_RATIO = 0.0025
 AMBIGUOUS_ATHLETE_AREA_RATIO = 0.006
 EDGE_MARGIN = 0.08
 MAX_EMERGENCY_ZOOM = 1.30
+MIN_TRAJECTORY_SAMPLES = 2
+TRACK_CROP_PADDING_RATIO = 0.015
 _INSTALLED = False
 _DECISION_LOCK = threading.Lock()
 
@@ -96,6 +101,8 @@ def decide_framing(
 
     ``source_info`` is accepted for call-site symmetry and future diagnostics;
     crop permission is intentionally based on measured per-event CV evidence.
+    The result is later checked against the complete bound-track trajectory before
+    a fixed crop is rendered.
     """
     del source_info
     if event.get("perception_evidence_status") != "tracker_sidecar":
@@ -149,6 +156,144 @@ def decide_framing(
         athlete_height_ratio=height_ratio,
         athlete_area_ratio=area_ratio,
         visible_track_count=track_count,
+    )
+
+
+def _event_window(event: dict[str, Any]) -> tuple[float, float]:
+    start = _number(event.get("start"))
+    end = _number(event.get("end"), start)
+    return min(start, end), max(start, end)
+
+
+def _base_crop_ratios(frame_width: float, frame_height: float) -> tuple[float, float]:
+    base_crop_h = frame_height
+    base_crop_w = frame_height * 9.0 / 16.0
+    if base_crop_w > frame_width:
+        base_crop_w = frame_width
+        base_crop_h = frame_width * 16.0 / 9.0
+    return base_crop_w / frame_width, base_crop_h / frame_height
+
+
+def _track_trajectory(video_path: str, event: dict[str, Any]) -> list[dict[str, float]]:
+    """Return normalized samples for the event's explicitly selected track."""
+    from pipeline.perception.runtime import load_sidecar_detections
+
+    selected_track = str(event.get("track_id") or "").strip()
+    if not selected_track:
+        return []
+    start, end = _event_window(event)
+    samples: list[dict[str, float]] = []
+    try:
+        detections = load_sidecar_detections(video_path)
+    except Exception as exc:
+        logger.warning("Could not load track trajectory for %s: %s", video_path, exc)
+        return []
+
+    for detection in detections:
+        if str(detection.tracker_id) != selected_track:
+            continue
+        if not start <= detection.time_sec <= end:
+            continue
+        frame_w = float(detection.frame_width)
+        frame_h = float(detection.frame_height)
+        x1, y1, x2, y2 = detection.xyxy
+        samples.append({
+            "time_sec": float(detection.time_sec),
+            "frame_width": frame_w,
+            "frame_height": frame_h,
+            "x1": x1 / frame_w,
+            "y1": y1 / frame_h,
+            "x2": x2 / frame_w,
+            "y2": y2 / frame_h,
+            "center_x": ((x1 + x2) / 2.0) / frame_w,
+            "center_y": ((y1 + y2) / 2.0) / frame_h,
+            "confidence": _number(detection.confidence),
+            "visible_ratio": _number(detection.visible_ratio),
+        })
+    return samples
+
+
+def _resolve_track_safe_decision(
+    video_path: str,
+    event: dict[str, Any],
+    decision: FramingDecision,
+) -> FramingDecision:
+    """Use a fixed crop only when the full bound trajectory fits inside it.
+
+    The current FFmpeg path does not animate crop coordinates. When the athlete
+    moves outside a single safe crop, preserving the full frame is safer than
+    pretending a static crop is tracked.
+    """
+    if decision.mode != "tracked_crop":
+        return decision
+
+    samples = _track_trajectory(video_path, event)
+    if len(samples) < MIN_TRAJECTORY_SAMPLES:
+        return replace(
+            decision,
+            mode="contain",
+            reason=f"{decision.reason}+insufficient_track_trajectory_use_contain",
+            zoom=1.0,
+        )
+
+    if any(
+        sample["confidence"] < MIN_TRACK_CONFIDENCE
+        or sample["visible_ratio"] < MIN_VISIBLE_RATIO
+        for sample in samples
+    ):
+        return replace(
+            decision,
+            mode="contain",
+            reason=f"{decision.reason}+unreliable_track_trajectory_use_contain",
+            zoom=1.0,
+        )
+
+    frame_widths = {round(sample["frame_width"], 3) for sample in samples}
+    frame_heights = {round(sample["frame_height"], 3) for sample in samples}
+    if len(frame_widths) != 1 or len(frame_heights) != 1:
+        return replace(
+            decision,
+            mode="contain",
+            reason=f"{decision.reason}+inconsistent_track_geometry_use_contain",
+            zoom=1.0,
+        )
+
+    center_x = float(median(sample["center_x"] for sample in samples))
+    center_y = float(median(sample["center_y"] for sample in samples))
+    base_w_ratio, base_h_ratio = _base_crop_ratios(
+        samples[0]["frame_width"],
+        samples[0]["frame_height"],
+    )
+    crop_w_ratio = base_w_ratio / decision.zoom
+    crop_h_ratio = base_h_ratio / decision.zoom
+    left = max(0.0, min(1.0 - crop_w_ratio, center_x - crop_w_ratio / 2.0))
+    top = max(0.0, min(1.0 - crop_h_ratio, center_y - crop_h_ratio / 2.0))
+    right = left + crop_w_ratio
+    bottom = top + crop_h_ratio
+    padding = TRACK_CROP_PADDING_RATIO
+
+    trajectory_fits = all(
+        sample["x1"] >= left + padding
+        and sample["x2"] <= right - padding
+        and sample["y1"] >= top + padding
+        and sample["y2"] <= bottom - padding
+        for sample in samples
+    )
+    if not trajectory_fits:
+        return replace(
+            decision,
+            mode="contain",
+            reason=f"{decision.reason}+track_motion_requires_contain",
+            zoom=1.0,
+            crop_x=center_x,
+            crop_y=center_y,
+        )
+
+    return replace(
+        decision,
+        reason=f"{decision.reason}+stable_track_trajectory",
+        crop_x=center_x,
+        crop_y=center_y,
     )
 
 
@@ -314,6 +459,7 @@ def install() -> None:
     ) -> str | None:
         del slowmo, session_peak, target_fps
         decision = decide_framing(event, sport=sport, source_info=source_info)
+        decision = _resolve_track_safe_decision(video_path, event, decision)
         _record_decision(video_path, {**event, "sport": sport}, decision)
         return _render_clip(video_path, event, index, decision)
 
