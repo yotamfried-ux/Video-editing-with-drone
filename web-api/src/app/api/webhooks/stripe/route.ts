@@ -2,7 +2,6 @@ import type Stripe from 'stripe';
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { sendPaymentConfirmEmail } from '@/lib/email';
 import { isUuid } from '@/lib/validate';
 
 type PaymentRow = {
@@ -10,14 +9,12 @@ type PaymentRow = {
   reel_id: string | null;
   amount_ils: number | string | null;
   status: string | null;
-  receipt_email_sent_at: string | null;
-  receipt_email_claimed_at: string | null;
 };
 
 async function findPayment(intentId: string): Promise<PaymentRow | null> {
   const { data, error } = await supabaseAdmin
     .from('payments')
-    .select('id, reel_id, amount_ils, status, receipt_email_sent_at, receipt_email_claimed_at')
+    .select('id, reel_id, amount_ils, status')
     .eq('stripe_payment_intent_id', intentId)
     .maybeSingle();
   if (error) throw new Error(`Payment lookup failed: ${error.message}`);
@@ -36,38 +33,6 @@ function validateFulfillment(intent: Stripe.PaymentIntent, payment: PaymentRow):
     throw new Error(`Payment amount mismatch: expected ${expectedAmount}, received ${receivedAmount}`);
   }
   return reelId;
-}
-
-async function claimAndSendReceipt(payment: PaymentRow, intent: Stripe.PaymentIntent, reelId: string) {
-  if (!intent.receipt_email || payment.receipt_email_sent_at) return;
-
-  const now = new Date();
-  const staleBefore = new Date(now.getTime() - 10 * 60 * 1000).toISOString();
-  const { data: claimed, error: claimError } = await supabaseAdmin
-    .from('payments')
-    .update({ receipt_email_claimed_at: now.toISOString() })
-    .eq('id', payment.id)
-    .is('receipt_email_sent_at', null)
-    .or(`receipt_email_claimed_at.is.null,receipt_email_claimed_at.lt.${staleBefore}`)
-    .select('id')
-    .maybeSingle();
-  if (claimError) throw new Error(`Receipt claim failed: ${claimError.message}`);
-  if (!claimed) return;
-
-  try {
-    await sendPaymentConfirmEmail(intent.receipt_email, reelId, intent.amount_received || intent.amount);
-    const { error: sentError } = await supabaseAdmin
-      .from('payments')
-      .update({ receipt_email_sent_at: new Date().toISOString(), receipt_email_claimed_at: null })
-      .eq('id', payment.id);
-    if (sentError) throw new Error(`Receipt state update failed: ${sentError.message}`);
-  } catch (error) {
-    await supabaseAdmin
-      .from('payments')
-      .update({ receipt_email_claimed_at: null })
-      .eq('id', payment.id);
-    throw error;
-  }
 }
 
 async function fulfillPayment(intent: Stripe.PaymentIntent) {
@@ -115,7 +80,9 @@ async function fulfillPayment(intent: Stripe.PaymentIntent) {
     });
   if (analyticsError) throw new Error(`Payment analytics update failed: ${analyticsError.message}`);
 
-  await claimAndSendReceipt(payment, intent, reelId);
+  // The PaymentIntent was created with receipt_email. Stripe owns the compliant
+  // receipt and sends it after successful capture. SportReel deliberately does
+  // not send a second payment-confirmation email from this webhook.
 }
 
 async function failPayment(intent: Stripe.PaymentIntent) {
@@ -163,7 +130,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true });
   } catch (error) {
     console.error(`Stripe webhook ${event.id} processing failed`, error);
-    // A non-2xx response asks Stripe to retry delivery after transient DB/email
+    // A non-2xx response asks Stripe to retry delivery after transient database
     // failures. All mutations above are idempotent across those retries.
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Webhook processing failed' },
