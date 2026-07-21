@@ -57,7 +57,8 @@ require(
     pricing,
     [
         "Math.round(majorUnits * 100)",
-        "Configured reel price must be a positive ILS amount",
+        "MAX_PRICE_ILS = 999.99",
+        "between ₪0.50 and ₪${MAX_PRICE_ILS}",
         "PRICING_UNIT = 'major_ils_v1'",
         "pricingRowToMinorUnits",
         "select('price_ils, price_unit')",
@@ -83,10 +84,11 @@ require(
 require(
     pricing_route,
     [
-        "positive ILS amount",
+        "amount < 0.5 || amount > MAX_PRICE_ILS",
         "Math.round(amount * 100) / 100",
         "price_unit: PRICING_UNIT",
         "select('sport, price_ils, price_unit')",
+        "major-unit ILS amount between 0.50",
     ],
     "operator pricing major-unit API",
 )
