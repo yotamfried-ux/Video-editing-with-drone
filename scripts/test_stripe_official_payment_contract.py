@@ -166,11 +166,14 @@ require(
         "/api/payment-status/",
         "fulfillment === 'completed'",
         "waiting for the signed server confirmation",
-        "await clearToken(reel_id)",
         "await clearCheckoutSessionId(reel_id)",
+        "Download again",
+        "Keep the purchase token in SecureStore",
     ],
-    "webhook-owned mobile fulfillment",
+    "webhook-owned durable mobile fulfillment",
 )
+if "await clearToken(reel_id)" in success_screen:
+    raise SystemExit("a successful download must not erase the only durable purchase capability")
 if "Payment confirmed. Your clip is ready" in success_screen:
     raise SystemExit("mobile must not claim payment success before webhook confirmation")
 
