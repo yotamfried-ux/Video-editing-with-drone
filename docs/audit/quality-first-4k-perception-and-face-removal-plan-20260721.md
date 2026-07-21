@@ -2,7 +2,7 @@
 
 Date: 2026-07-21  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Status: **implementation in branch; CI, migration application, deployment, and real-footage validation pending**
+Status: **implementation and deterministic CI complete on PR #190; migration, deployment, performance measurement, and real-footage validation pending**
 
 ## 1. Product decisions
 
@@ -97,7 +97,8 @@ If crop appears necessary but evidence is unreliable, the event/run fails closed
 - [x] Ignore Gemini zoom requests unless the deterministic necessity gate passes.
 - [x] Record each framing decision and its measured reason in `framing_decisions.jsonl`.
 - [x] Add 2160x3840 and 30 fps to the deterministic publishability gate.
-- [ ] Update top-level README product rules after final review confirms the wording.
+- [x] Update top-level README product rules and link this audit.
+- [x] Mark the prior opt-in perception decision as superseded.
 
 ### B. Preserve source quality
 
@@ -136,7 +137,8 @@ If crop appears necessary but evidence is unreliable, the event/run fails closed
 - [x] Remove Face Recognition controls from Profile.
 - [x] Remove the face-matched My Highlights tab/screen.
 - [x] Remove biometric fields and RPCs from active TypeScript database contracts.
-- [x] Add a migration that drops `face_embedding`, `photo_path`, `matched_athlete`, matching RPCs, and the `athlete-photos` bucket.
+- [x] Remove biometric columns, RPCs, policies, and buckets from the fresh-install core schema.
+- [x] Add a migration that drops historical `face_embedding`, `photo_path`, `matched_athlete`, matching RPCs, and the `athlete-photos` bucket from existing environments.
 - [x] Keep purchase/customer delivery explicit through Discover, Stripe, purchase records, configured client delivery, or share tokens.
 - [ ] Apply the destructive migration only after backup/confirmation.
 - [ ] Verify no stored face photos or embeddings remain in the live project.
@@ -144,17 +146,24 @@ If crop appears necessary but evidence is unreliable, the event/run fails closed
 
 ### F. Deterministic tests and CI
 
-- [ ] Add unit cases for readable surfing -> contain.
-- [ ] Add unit cases for tiny stable surfer -> tracked crop.
-- [ ] Add negative cases for crop needed but low confidence/visibility -> fail closed.
-- [ ] Add a case proving other visible surfers do not trigger crop by themselves.
-- [ ] Add a case proving Gemini `zoom`/event-type hints do not override contain.
-- [ ] Add static regression checks proving face-recognition code and dependencies are absent.
-- [ ] Run Python contract tests.
-- [ ] Run mobile type-check and tests.
-- [ ] Run web-api type-check/build.
-- [ ] Run all affected GitHub Actions workflows on the final head.
-- [ ] Resolve every review finding or document fallback self-review.
+- [x] Add a unit case for readable surfing -> contain.
+- [x] Add a unit case for tiny stable surfer -> tracked crop.
+- [x] Add negative cases for crop needed but low confidence/visibility -> fail closed.
+- [x] Add a case proving other visible surfers do not trigger crop by themselves.
+- [x] Add a case proving Gemini `zoom`/event-type hints do not override contain.
+- [x] Add static regression checks proving face-recognition code, dependencies, and fresh-schema creation are absent.
+- [x] Run the new Python quality-first contract tests.
+- [x] Run mobile type-check and tests.
+- [x] Run web-api type-check through Operator Smoke.
+- [x] Run all affected GitHub Actions workflows successfully on the implementation head.
+- [x] Document fallback self-review because CodeRabbit reached its review limit.
+
+Validation record:
+
+- The first PR head exposed a real cross-layer bootstrap-order regression in both Performance Reel Contract and Operator Smoke; the canonical install path was corrected and both workflows returned to green.
+- Fallback self-review found that the historical core migration still created biometric fields and functions for fresh installations. The core schema was cleaned and the no-biometric regression test was extended.
+- CodeRabbit produced a walkthrough but did not complete an inline review because its review limit was reached. No automated inline findings were available to resolve.
+- Contract/CI evidence does not close tracking quality, 4K generation loss, deployment, live database cleanup, or real-footage output quality.
 
 ### G. Deployment and real-footage experiment
 
@@ -208,4 +217,4 @@ Closure bar: the audit remains open until a real production-style run proves ide
 
 ## 7. Current closure state
 
-Implementation has started and the core policies/removal are present on the working branch. This audit is **not closed**. Remaining closure requirements are deterministic tests, final-head CI/review, destructive migration approval/application, deployment, and real-footage visual evidence.
+The product decisions, runtime policies, biometric removal, fresh-install schema cleanup, destructive cleanup migration, and deterministic CI are implemented on PR #190. This audit is **not closed**. Remaining closure requirements are explicit merge approval, migration application and live verification, Vercel/EAS deployment, performance and tracking measurements, generated-media quality measurements, and a real-footage production-style run with visual review.
