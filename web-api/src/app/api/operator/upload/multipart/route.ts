@@ -69,9 +69,9 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'part_number must be between 1 and 10000' }, { status: 400 });
       }
 
-      // Do not ListParts here. Doing so before every part makes an N-part
-      // upload O(N²). A mismatched/expired upload id is rejected by R2 itself;
-      // the client reconciles with the explicit status endpoint on retry.
+      // Do not enumerate existing parts before every URL. That would make an
+      // N-part upload O(N²). R2 rejects mismatched or expired upload ids, and
+      // the client reconciles through the explicit status endpoint on retry.
       return NextResponse.json({
         ok: true,
         already_complete: false,
