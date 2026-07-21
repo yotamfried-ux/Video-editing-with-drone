@@ -12,46 +12,79 @@ import { useCheckout } from '@/features/payment/hooks/useCheckout';
 import { useDownloadTokenStore } from '@/features/payment/downloadTokenStore';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
+const STRIPE_RETURN_URL = 'sportreel://stripe-redirect';
+
 export default function CheckoutScreen() {
   const { reel_id } = useLocalSearchParams<{ reel_id: string }>();
   const router = useRouter();
   const { initPaymentSheet, presentPaymentSheet } = useStripe();
-  const { createStripeCheckout, createMeshulamCheckout, loading, error } = useCheckout(reel_id);
+  const {
+    createStripeCheckout,
+    createMeshulamCheckout,
+    payerEmail,
+    loading,
+    error,
+  } = useCheckout(reel_id);
   const setDownloadToken = useDownloadTokenStore((state) => state.set);
   const [paymentSheetBusy, setPaymentSheetBusy] = useState(false);
   const [bitUrl, setBitUrl] = useState<string | null>(null);
   const [priceDisplay, setPriceDisplay] = useState<string>('');
+  const stripeEnabled = process.env.EXPO_PUBLIC_STRIPE_IN_APP_ENABLED !== 'false';
 
   const handleStripe = async () => {
+    if (!stripeEnabled) {
+      Alert.alert(
+        'Card payment unavailable in this build',
+        'This store-distributed build cannot sell digital video through Stripe. Use the approved store purchase flow.',
+      );
+      return;
+    }
+
     setPaymentSheetBusy(true);
     try {
       const checkout = await createStripeCheckout();
       if (!checkout) return;
 
       setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
+      // Persist before presenting PaymentSheet. The token cannot unlock the file
+      // until the signed Stripe webhook marks this payment completed.
       await setDownloadToken(reel_id, checkout.download_token);
 
       const { error: initError } = await initPaymentSheet({
         paymentIntentClientSecret: checkout.clientSecret,
         merchantDisplayName: 'SportReel',
-        returnURL: 'sportreel://stripe-redirect',
+        returnURL: STRIPE_RETURN_URL,
         allowsDelayedPaymentMethods: false,
+        defaultBillingDetails: {
+          email: payerEmail,
+        },
       });
       if (initError) {
-        Alert.alert('Could not open secure checkout', initError.message);
+        Alert.alert(
+          `Secure checkout setup failed (${initError.code})`,
+          initError.message,
+        );
         return;
       }
 
       const { error: presentError } = await presentPaymentSheet();
       if (!presentError) {
-        // PaymentSheet confirms with Stripe, but durable product fulfillment is
-        // owned by the signed webhook. The next screen waits for that evidence.
+        // PaymentSheet confirmed with Stripe. Product fulfillment remains owned
+        // by the signed webhook, so the next screen displays processing until
+        // the server reports status='completed'.
         router.replace(`/success/${reel_id}`);
         return;
       }
 
-      if (presentError.code !== PaymentSheetError.Canceled) {
-        Alert.alert('Payment failed', presentError.message);
+      switch (presentError.code) {
+        case PaymentSheetError.Canceled:
+          return;
+        case PaymentSheetError.Timeout:
+          Alert.alert('Payment timed out', 'No purchase was unlocked. Try again with a stable connection.');
+          return;
+        case PaymentSheetError.Failed:
+        default:
+          Alert.alert(`Payment failed (${presentError.code})`, presentError.message);
       }
     } catch (paymentError) {
       Alert.alert(
@@ -108,8 +141,13 @@ export default function CheckoutScreen() {
 
         <Spacer size={Spacing.xl} />
         {error && <Text variant="caption" color={Colors.danger}>{error}</Text>}
+        {!stripeEnabled && (
+          <Text variant="caption" color={Colors.textSecondary} style={{ textAlign: 'center' }}>
+            Stripe is disabled in store builds for digital-content compliance.
+          </Text>
+        )}
 
-        <Button label="Pay with Card" onPress={handleStripe} loading={busy} disabled={busy} />
+        <Button label="Pay with Card" onPress={handleStripe} loading={busy} disabled={busy || !stripeEnabled} />
         <Spacer size={Spacing.md} />
         {!!process.env.EXPO_PUBLIC_BIT_ENABLED && (
           <>
