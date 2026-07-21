@@ -362,12 +362,16 @@ export default function PipelineScreen() {
   };
 
   const uploadItemWithRetries = async (item: UploadFileState, batchId: string): Promise<void> => {
-    const prepared = await prepareUpload(item);
+    let prepared: PreparedUpload | null = null;
     try {
+      // Copying a Storage Access Framework URI can fail before any HTTP
+      // request. Keep that preparation inside the guarded lifecycle so
+      // the item becomes retryable instead of remaining "initializing".
+      prepared = await prepareUpload(item);
       await withRetry(
         async () => {
           const session = await requestUploadSession(item, batchId);
-          await uploadPreparedFile(item, session, prepared.uri);
+          await uploadPreparedFile(item, session, prepared!.uri);
         },
         {
           maxAttempts: MAX_UPLOAD_ATTEMPTS,
@@ -388,7 +392,7 @@ export default function PipelineScreen() {
       });
       throw error;
     } finally {
-      await prepared.cleanup();
+      if (prepared) await prepared.cleanup();
     }
   };
 
