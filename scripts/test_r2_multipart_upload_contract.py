@@ -110,10 +110,11 @@ def main() -> int:
     require("bounded mobile reader", mobile, [
         "FileSystem.readAsStringAsync(sourceUri",
         "FileSystem.EncodingType.Base64",
-        "position: offset",
-        "length,",
-        "const bytes = decode(encoded)",
-        "bytes.byteLength",
+        "while (remaining > 0)",
+        "position: cursor",
+        "length: remaining",
+        "const buffer = decode(encoded)",
+        "const combined = new Uint8Array(length)",
     ])
     forbid("no whole-file multipart materialization", mobile, ["FileSystem.copyAsync", "FileSystem.createUploadTask", ".slice(", ".bytesSync("])
     require("persisted resume", mobile, [
@@ -126,6 +127,8 @@ def main() -> int:
         "AsyncStorage.multiGet(keys)",
         "loadActiveMultipartBatch",
         "clearPersistedMultipartBatch",
+        "cleanupStagedSource",
+        "abortPersistedMultipartUpload",
     ])
     ordered(
         "persist after each part",
@@ -137,10 +140,22 @@ def main() -> int:
         "action: 'part_url'",
         "fetch(signed.upload_url, { method: 'PUT', body: bytes })",
         "PART_UPLOAD_ATTEMPTS = 3",
+        "response.status === 404",
+        "Multipart upload no longer exists",
         "response.headers.get('etag')",
         "authoritativeUploadedPart",
     ])
 
+    require("SAF staging", pipeline, [
+        "const prepareMultipartSource",
+        "expo-file-system 18 reports content:// size through InputStream.available()",
+        "sportreel-multipart-",
+        "FileSystem.copyAsync({ from: item.uri, to: stableUri })",
+        "Cannot determine the exact staged source size",
+        "sourceUri: source!.uri",
+        "sourceSizeBytes: source!.size",
+        "staged copy is kept only until verification or Discard",
+    ])
     require("pipeline integration", pipeline, [
         "loadActiveMultipartBatch()",
         "Interrupted upload ready to resume",
