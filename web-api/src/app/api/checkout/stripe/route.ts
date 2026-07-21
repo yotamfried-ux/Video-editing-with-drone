@@ -2,7 +2,7 @@ import { randomUUID } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { stripe } from '@/lib/stripe';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { getPriceForReel } from '@/lib/pricing';
+import { CheckoutEligibilityError, getPriceForReel } from '@/lib/pricing';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { isUuid } from '@/lib/validate';
 
@@ -67,6 +67,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
+    // Product eligibility and the amount are resolved before contacting Stripe.
+    // A sold, expired, or unavailable reel must never create a PaymentIntent.
     const amountMinor = await getPriceForReel(reelId);
     const idempotencyKey = `sportreel_checkout_${checkoutSessionId}`;
     const intent = await stripe.paymentIntents.create(
@@ -127,6 +129,9 @@ export async function POST(req: NextRequest) {
 
     return checkoutResponse(intent.id, intent.client_secret, amountMinor, payment.download_token);
   } catch (error) {
+    if (error instanceof CheckoutEligibilityError) {
+      return NextResponse.json({ error: error.message }, { status: error.status });
+    }
     console.error('Stripe checkout failed', error);
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Checkout failed' },
