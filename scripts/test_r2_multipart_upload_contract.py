@@ -96,18 +96,16 @@ def main() -> int:
 
     require("authenticated lifecycle", lifecycle_route, [
         "requireOperator(req)",
-        "enforceRateLimit",
+        "enforceRateLimit(req, 'operator-upload-multipart-lifecycle', 25_000, 3600)",
         "isSafeRawR2Key",
         "action === 'status'",
         "action === 'part_url'",
         "action === 'complete'",
         "abortR2MultipartUpload",
     ])
-    ordered(
-        "part URL state check",
-        block(lifecycle_route, "if (action === 'part_url')", "if (action === 'complete')"),
-        ["getR2MultipartStatus(key, uploadId)", "status.state === 'missing'", "status.state === 'completed'", "createR2MultipartPartUrl"],
-    )
+    part_url = block(lifecycle_route, "if (action === 'part_url')", "if (action === 'complete')")
+    require("fresh part URL", part_url, ["createR2MultipartPartUrl(key, uploadId, partNumber)", "expires_in_seconds: 3600"])
+    forbid("part URL must stay O(1)", part_url, ["getR2MultipartStatus", "listR2MultipartParts", "ListParts"])
 
     require("bounded mobile reader", mobile, [
         "FileSystem.readAsStringAsync(sourceUri",
@@ -174,6 +172,7 @@ def main() -> int:
         "Validate R2 multipart resumable upload contract",
         "Type-check Web API multipart implementation",
         "Type-check mobile multipart implementation",
+        "Upload mobile typecheck diagnostics",
     ])
 
     print("R2 multipart resumable upload contract checks passed")
