@@ -1,0 +1,42 @@
+name: Diagnose PR merge contract
+
+on:
+  push:
+    branches:
+      - audit/end-to-end-hardening-20260721
+    paths:
+      - '.github/workflows/diagnose-pr-merge-contract.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: audit/end-to-end-hardening-20260721
+          fetch-depth: 0
+      - name: Capture merge-ref contract result
+        run: |
+          git fetch origin refs/pull/191/merge:refs/remotes/origin/pr-191-merge
+          git worktree add /tmp/pr-191-merge refs/remotes/origin/pr-191-merge
+          set +e
+          (
+            cd /tmp/pr-191-merge
+            python scripts/test_multi_upload_batch_contract.py
+          ) > /tmp/pr-merge-contract.log 2>&1
+          status=$?
+          {
+            echo "exit_code=$status"
+            cat /tmp/pr-merge-contract.log
+          } > docs/audit/tmp-pr-merge-contract-diagnostic.txt
+      - name: Commit diagnostic
+        run: |
+          git config user.name 'sportreel-ci'
+          git config user.email 'sportreel-ci@users.noreply.github.com'
+          git add docs/audit/tmp-pr-merge-contract-diagnostic.txt
+          git commit -m 'Capture PR merge contract diagnostic'
+          git push origin HEAD:audit/end-to-end-hardening-20260721
