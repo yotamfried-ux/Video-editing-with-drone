@@ -25,6 +25,7 @@ def main() -> int:
     tracker = read("config/trackers/sportreel_botsort_reid.yaml")
     policy = read("pipeline/required_perception_policy.py")
     producer = read("scripts/generate_perception_sidecar.py")
+    preflight_source = read("scripts/print_perception_preflight.py")
     workflow = read(".github/workflows/pipeline-run.yml")
     diagnostics = read("scripts/run_pipeline_with_diagnostics.sh")
     r2 = read("web-api/src/lib/r2-storage.ts")
@@ -41,6 +42,13 @@ def main() -> int:
         'config/trackers/sportreel_botsort_reid.yaml',
         'SPORTREEL_REQUIRE_PERCEPTION',
         'featured-athlete track binding',
+    ])
+    require("preflight override protection", preflight_source, [
+        "_validate_custom_command",
+        '"{video_path}"',
+        '"{sidecar_path}"',
+        '"custom_validated"',
+        '"command_sha256"',
     ])
     require("sidecar performance evidence", producer, [
         'time.perf_counter()',
@@ -74,7 +82,7 @@ def main() -> int:
         "Netflix VMAF",
         "Supabase",
         "Vercel",
-        "Expo EAS Update",
+        "EAS Update",
         "BLOCKS MERGE",
     ])
 
@@ -92,6 +100,7 @@ def main() -> int:
         env = {
             **os.environ,
             "SPORTREEL_REQUIRE_PERCEPTION": "1",
+            "SPORTREEL_PERCEPTION_COMMAND": "",
             "SPORTREEL_ULTRALYTICS_TRACKER": "config/trackers/sportreel_botsort_reid.yaml",
             "SPORTREEL_ULTRALYTICS_MODEL": "fixture-model.pt",
             "SPORTREEL_ULTRALYTICS_VID_STRIDE": "10",
@@ -108,6 +117,36 @@ def main() -> int:
         assert payload["required"] is True
         assert payload["with_reid"] is True
         assert payload["tracker_type"] == "botsort"
+        assert payload["command_source"] == "first_party_default"
+
+        bypass = subprocess.run(
+            ["python", "scripts/print_perception_preflight.py"],
+            cwd=ROOT,
+            env={**env, "SPORTREEL_PERCEPTION_COMMAND": "python unsafe.py {video_path} {sidecar_path}"},
+            capture_output=True,
+            text=True,
+        )
+        assert bypass.returncode != 0
+        assert "cannot bypass" in (bypass.stdout + bypass.stderr)
+
+        valid_custom = subprocess.run(
+            ["python", "scripts/print_perception_preflight.py"],
+            cwd=ROOT,
+            env={
+                **env,
+                "SPORTREEL_PERCEPTION_COMMAND": (
+                    "python scripts/generate_perception_sidecar.py {video_path} {sidecar_path} "
+                    "--backend ultralytics --ultralytics-model fixture-model.pt "
+                    "--ultralytics-tracker config/trackers/sportreel_botsort_reid.yaml"
+                ),
+            },
+            capture_output=True,
+            text=True,
+        )
+        assert valid_custom.returncode == 0, valid_custom.stdout + valid_custom.stderr
+        custom_payload = json.loads(preflight.read_text(encoding="utf-8"))
+        assert custom_payload["command_source"] == "custom_validated"
+        assert custom_payload["command_sha256"]
 
         sidecars = temp / "sidecars"
         sidecars.mkdir()
