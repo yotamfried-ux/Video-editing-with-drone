@@ -8,6 +8,7 @@ import { isUuid } from '@/lib/validate';
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const CHECKOUT_SESSION_PATTERN = /^[A-Za-z0-9_-]{16,120}$/;
+const PURCHASABLE_STATUSES = new Set(['published', 'viewed']);
 
 type PaymentRow = {
   download_token: string | null;
@@ -64,6 +65,32 @@ export async function POST(req: NextRequest) {
   }
   if (!CHECKOUT_SESSION_PATTERN.test(checkoutSessionId)) {
     return NextResponse.json({ error: 'A valid checkout_session_id is required' }, { status: 400 });
+  }
+
+  const { data: reel, error: reelError } = await supabaseAdmin
+    .from('reels')
+    .select('status, expires_at, storage_path')
+    .eq('id', reelId)
+    .maybeSingle();
+  if (reelError) {
+    return NextResponse.json({ error: 'Reel availability check failed' }, { status: 503 });
+  }
+  if (!reel) return NextResponse.json({ error: 'Reel not found' }, { status: 404 });
+  if (reel.status === 'sold') {
+    return NextResponse.json({ error: 'This reel was already sold' }, { status: 409 });
+  }
+  if (
+    reel.status === 'expired'
+    || !reel.expires_at
+    || new Date(reel.expires_at).getTime() <= Date.now()
+  ) {
+    return NextResponse.json({ error: 'This reel has expired' }, { status: 410 });
+  }
+  if (!reel.status || !PURCHASABLE_STATUSES.has(reel.status)) {
+    return NextResponse.json({ error: 'This reel is not available for purchase' }, { status: 409 });
+  }
+  if (!reel.storage_path) {
+    return NextResponse.json({ error: 'Reel file is not available' }, { status: 404 });
   }
 
   try {
