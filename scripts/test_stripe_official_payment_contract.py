@@ -43,6 +43,8 @@ require(
         "payment_intent_id: paymentIntentId",
         "Payment persistence returned no download token",
         "Stripe returned no PaymentIntent client secret",
+        "CheckoutEligibilityError",
+        "sold, expired, or unavailable reel must never create a PaymentIntent",
     ],
     "PaymentIntent server route",
 )
@@ -55,8 +57,12 @@ require(
         "Math.round(majorUnits * 100)",
         "Configured reel price must be a positive ILS amount",
         "return ilsToMinorUnits(price.price_ils)",
+        "select('sport, status, expires_at, storage_path')",
+        "This clip was already sold",
+        "This clip has expired",
+        "File not available",
     ],
-    "server-side amount conversion",
+    "server-side amount and eligibility",
 )
 require(
     web_checkout_route,
