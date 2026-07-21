@@ -22,9 +22,6 @@ import { setCrashContext, installJsCrashReporter } from '@/shared/lib/crashRepor
 SplashScreen.preventAutoHideAsync();
 installJsCrashReporter();
 
-// Apply pending OTA updates on cold start so fixes land on the first open,
-// not the one after. Incompatible bundles are filtered out by the
-// fingerprint runtimeVersion, so reloading here is safe.
 async function applyPendingUpdate() {
   if (__DEV__ || !Updates.isEnabled) return;
   try {
@@ -44,13 +41,13 @@ async function syncPushToken(userId: string) {
   if (!token) return;
   await supabase.from('push_tokens').upsert(
     { user_id: userId, token, platform: Platform.OS, updated_at: new Date().toISOString() },
-    { onConflict: 'user_id,platform' }
+    { onConflict: 'user_id,platform' },
   );
 }
 
 function CrashContextSync() {
   const pathname = usePathname();
-  const userId = useAuthStore((s) => s.user?.id);
+  const userId = useAuthStore((state) => state.user?.id);
 
   useEffect(() => { setCrashContext({ screen: pathname }); }, [pathname]);
   useEffect(() => { setCrashContext({ userId }); }, [userId]);
@@ -59,8 +56,7 @@ function CrashContextSync() {
 }
 
 export default function RootLayout() {
-  const setSession = useAuthStore((s) => s.setSession);
-
+  const setSession = useAuthStore((state) => state.setSession);
   const [fontsLoaded] = useFonts({
     PlusJakartaSans_400Regular,
     PlusJakartaSans_500Medium,
@@ -74,14 +70,12 @@ export default function RootLayout() {
       setSession(session);
       if (session) syncPushToken(session.user.id).catch(() => {});
     });
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_, session) => {
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
       setSession(session);
       if (session) syncPushToken(session.user.id).catch(() => {});
     });
     return () => subscription.unsubscribe();
-  }, []);
+  }, [setSession]);
 
   useEffect(() => {
     if (fontsLoaded) SplashScreen.hideAsync();
@@ -93,9 +87,8 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <StripeProvider
-          publishableKey={
-            process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''
-          }
+          publishableKey={process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''}
+          urlScheme="sportreel"
         >
           <CrashContextSync />
           <Stack screenOptions={{ headerShown: false }} />
