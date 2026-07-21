@@ -16,15 +16,16 @@ SportReel React Native checkout
 → redirect/deep-link result returns through the Stripe SDK
 → signed Stripe webhook validates and fulfills the purchase
 → Supabase records payment/reel state
+→ Stripe sends the payment receipt
 → mobile polls durable fulfillment state
 → completed payment unlocks a short-lived download URL
 ```
 
 The implementation is adapted from Stripe-owned repositories. It does not use a third-party tutorial, collect raw card numbers, let the mobile client choose the amount, or let a navigation event unlock digital content.
 
-## 2. Official GitHub sources
+## 2. Official sources
 
-All external implementation evidence is first-party and pinned to inspected commits.
+All implementation examples are from Stripe-owned GitHub repositories and pinned to inspected commits. Stripe's official receipt documentation is used only to resolve which system owns the customer receipt.
 
 ### 2.1 React Native PaymentSheet
 
@@ -104,6 +105,13 @@ Repository: `stripe/stripe-cli`
 
 These commands validate signature delivery and retry behavior. A real SportReel test-mode PaymentSheet purchase is still required for metadata, price, database and fulfillment evidence because a generic generated event does not contain a real SportReel payment row.
 
+### 2.5 Receipt ownership
+
+Official Stripe documentation:  
+https://docs.stripe.com/payments/advanced/receipts
+
+Stripe documents that a PaymentIntent created with `receipt_email` sends a receipt after a successful payment. SportReel therefore uses `receipt_email` as the **single receipt path**. The webhook does not send a second custom payment-confirmation email.
+
 ## 3. Critical findings and resolutions
 
 ### Finding A — price units were inconsistent
@@ -152,9 +160,9 @@ Resolution:
 - only `payments.status='completed'`, written by the signed webhook, displays “Payment confirmed” and enables download;
 - failed/canceled payments remain locked and rotate the next checkout-attempt ID.
 
-### Finding E — webhook retries could duplicate or partially apply side effects
+### Finding E — webhook replay and duplicate email risk
 
-The previous webhook updated state and inserted analytics without amount/currency/ownership reconciliation. Re-delivery could duplicate analytics or payment-confirmation email attempts.
+The previous webhook updated state and inserted analytics without amount/currency/ownership reconciliation. Re-delivery could duplicate analytics. During self-review, a second problem was found: `receipt_email` already asked Stripe to send a compliant receipt, while the webhook also sent a custom payment confirmation, which could produce two customer emails.
 
 Resolution:
 
@@ -162,9 +170,9 @@ Resolution:
 - handle `payment_intent.succeeded`, `payment_intent.payment_failed`, and `payment_intent.canceled`;
 - never regress a completed payment to failed;
 - enforce one `(payment_id, event_type)` analytics row;
-- use durable receipt-email claim/sent timestamps so retries can recover without intentionally duplicating sends;
-- await core mutations and email delivery instead of starting an untracked serverless promise;
-- return HTTP 500 for retriable processing failure.
+- retain `receipt_email` on PaymentIntent creation and let Stripe own the single receipt;
+- remove custom receipt sending and unused receipt-claim database columns from the webhook/schema;
+- return HTTP 500 for retriable database processing failure.
 
 ### Finding F — in-memory token storage lost purchases after restart
 
@@ -201,7 +209,7 @@ Current safeguard:
 - [x] Calculate price from the server-side reel/sport pricing table.
 - [x] Convert major ILS to minor units exactly once at Stripe boundaries.
 - [x] Create PaymentIntent with `automatic_payment_methods`.
-- [x] Attach payer email and SportReel metadata.
+- [x] Attach payer email through `receipt_email` and SportReel metadata.
 - [x] Use a persisted Stripe idempotency key.
 - [x] Persist a non-null UUID download token.
 - [x] Return no secret key or raw payment-method data to mobile.
@@ -227,7 +235,8 @@ Current safeguard:
 - [x] Complete payment/reel state only for a valid succeeded intent.
 - [x] Persist failed/canceled terminal state without regressing completed state.
 - [x] Deduplicate analytics events.
-- [x] Make receipt email retry-aware.
+- [x] Use Stripe's `receipt_email` as the single receipt path.
+- [x] Remove duplicate custom payment-confirmation email delivery.
 - [x] Return 500 for retriable processing failure.
 - [x] Keep download locked until durable completed state.
 
@@ -237,7 +246,7 @@ Current safeguard:
 - [x] Add `.github/workflows/stripe-official-payment-contract.yml` with contract, web type-check and mobile type-check.
 - [ ] Pass all workflows on the final PR head.
 - [ ] Review and apply `20260721_harden_payment_download_tokens.sql`.
-- [ ] Verify new columns/default/indexes in live Supabase.
+- [ ] Verify token default/not-null and analytics uniqueness in live Supabase.
 - [ ] Deploy the Web API to Vercel.
 - [ ] Publish the correct mobile update/build through EAS.
 - [ ] Execute a Stripe test-mode PaymentSheet purchase in an internal build.
@@ -246,6 +255,7 @@ Current safeguard:
 - [ ] Confirm succeeded webhook unlocks exactly one purchase and analytics row.
 - [ ] Confirm failed/canceled payment remains locked and can start a fresh attempt.
 - [ ] Confirm app restart preserves the secure token and resumes status polling.
+- [ ] Confirm Stripe sends one receipt to the payer email and SportReel sends no duplicate.
 - [ ] Confirm download URL expires after 15 minutes.
 - [ ] Resolve App Store / Google Play digital-product billing before consumer release.
 
@@ -257,5 +267,5 @@ This audit is not closed by type-checks or static contracts alone. Closure requi
 - migration applied and live-verified;
 - Vercel/EAS deployment verified;
 - one real Stripe test-mode purchase through an internal app build;
-- webhook, database, email, analytics, restart recovery and download evidence;
+- webhook, database, Stripe receipt, analytics, restart recovery and download evidence;
 - a documented distribution/payment-policy decision for the digital video product.
