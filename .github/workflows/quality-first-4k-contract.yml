@@ -25,6 +25,14 @@ jobs:
   contract:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      GEMINI_API_KEY: fixture-not-used
+      GOOGLE_SERVICE_ACCOUNT_JSON: fixture-not-used
+      RAW_FOLDER_ID: fixture-raw
+      PROCESSED_FOLDER_ID: fixture-processed
+      REVIEW_FOLDER_ID: fixture-review
+      APPROVED_FOLDER_ID: fixture-approved
+      OWNER_EMAIL: fixture@example.invalid
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
