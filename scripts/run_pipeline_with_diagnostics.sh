@@ -15,6 +15,7 @@ ATHLETE_COVERAGE_FILE="$TMP_ROOT/athlete_coverage_report.json"
 PUBLISHABLE_MANIFEST_FILE="${PUBLISHABLE_REEL_MANIFEST_FILE:-$TMP_ROOT/publishable_reel_manifest.json}"
 PUBLISHABLE_GATE_RESULT_FILE="$DEBUG_DIR/publishable_reel_gate_result.json"
 RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
+PERCEPTION_BENCHMARK_FILE="$DEBUG_DIR/perception_benchmark_report.json"
 
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
 cd "$ROOT_DIR" || exit 98
@@ -97,6 +98,7 @@ summary = {
 (out / "summary.json").write_text(json.dumps(summary, indent=2, ensure_ascii=False), encoding="utf-8")
 PY
 
+python scripts/build_perception_benchmark_report.py "$DEBUG_DIR/sidecars" "$PERCEPTION_BENCHMARK_FILE" || true
 python scripts/generate_run_quality_report.py "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" || true
 python scripts/append_pairwise_source_window_overlap_to_report.py "$RUN_QUALITY_REPORT_FILE" "$DRAFT_TRACE_FILE" || true
 if [ -f "$CANDIDATE_LEDGER_FILE" ]; then

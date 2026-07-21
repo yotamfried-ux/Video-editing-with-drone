@@ -36,7 +36,7 @@ select 'table:draft_feedback', count(*) > 0
 from information_schema.tables where table_schema='public' and table_name='draft_feedback'
 union all
 
--- Required non-biometric function/trigger.
+-- Required non-biometric function/trigger and unit contracts.
 select 'function:handle_new_user', count(*) > 0
 from information_schema.routines where routine_schema='public' and routine_name='handle_new_user'
 union all
@@ -44,6 +44,17 @@ select 'trigger:on_auth_user_created', count(*) > 0
 from information_schema.triggers where trigger_name='on_auth_user_created'
 union all
 select 'pricing_seeded', count(*) > 0 from public.pricing
+union all
+select 'pricing:price_unit_column', count(*) > 0
+from information_schema.columns
+where table_schema='public' and table_name='pricing' and column_name='price_unit' and is_nullable='NO'
+union all
+select 'pricing:all_major_ils_v1', count(*) > 0 and bool_and(price_unit = 'major_ils_v1')
+from public.pricing
+union all
+select 'pricing:legacy_agorot_removed', count(*) = 0
+from public.pricing
+where price_unit = 'major_ils_v1' and price_ils >= 1000
 union all
 
 -- Removed biometric contract: these checks pass only when the old surface is absent.

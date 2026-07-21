@@ -3,6 +3,7 @@ name: Quality-first 4K Contract
 on:
   pull_request:
     paths:
+      - 'config/trackers/**'
       - 'pipeline/quality_preserving_framing.py'
       - 'pipeline/required_perception_policy.py'
       - 'pipeline/bootstrap.py'
@@ -12,9 +13,15 @@ on:
       - 'mobile/**'
       - 'web-api/**'
       - 'DEPLOYMENT.md'
+      - 'docs/audit/remaining-gaps-official-reference-audit-20260721.md'
       - 'supabase/migrations/20260612_create_core_schema.sql'
       - 'supabase/migrations/20260721_remove_face_recognition.sql'
       - 'supabase/verify_schema.sql'
+      - 'scripts/generate_perception_sidecar.py'
+      - 'scripts/print_perception_preflight.py'
+      - 'scripts/build_perception_benchmark_report.py'
+      - 'scripts/run_pipeline_with_diagnostics.sh'
+      - 'scripts/test_remaining_gaps_official_contract.py'
       - 'scripts/test_quality_first_4k_policy_contract.py'
       - 'scripts/test_quality_first_4k_media_contract.py'
       - 'scripts/test_delivery_disk_bound_contract.py'
@@ -67,9 +74,15 @@ jobs:
             pipeline/bootstrap.py \
             pipeline/silent_output_policy.py \
             services/delivery.py \
+            scripts/generate_perception_sidecar.py \
+            scripts/print_perception_preflight.py \
+            scripts/build_perception_benchmark_report.py \
+            scripts/test_remaining_gaps_official_contract.py \
             scripts/test_quality_first_4k_policy_contract.py \
             scripts/test_quality_first_4k_media_contract.py \
             scripts/test_delivery_disk_bound_contract.py
+      - name: Run remaining-gap official reference contract
+        run: python scripts/test_remaining_gaps_official_contract.py
       - name: Run quality-first product contract
         run: python scripts/test_quality_first_4k_policy_contract.py
       - name: Validate bounded delivery disk usage

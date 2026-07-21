@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyMeshulamWebhook } from '@/lib/meshulam';
 import { supabaseAdmin } from '@/lib/supabase-admin';
-import { getPriceForReel } from '@/lib/pricing';
+import { getPriceForReel, minorUnitsToIls } from '@/lib/pricing';
 
 export async function POST(req: NextRequest) {
   const body = await req.json();
@@ -29,11 +29,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true });
   }
 
-  // Amount validation: never trust the callback's amount. Confirm it matches
-  // the server-side price for this reel before marking the sale complete.
-  const expectedIls = await getPriceForReel(reelId);
-  const paidIls = Math.round(parseFloat(amount) * 100);
-  if (!Number.isFinite(paidIls) || paidIls !== expectedIls) {
+  // Payment providers and payments.amount_ils use integer agorot. Analytics uses
+  // major ILS, so convert only when writing the reporting event.
+  const expectedMinorUnits = await getPriceForReel(reelId);
+  const paidMinorUnits = Math.round(parseFloat(amount) * 100);
+  if (!Number.isFinite(paidMinorUnits) || paidMinorUnits !== expectedMinorUnits) {
     return NextResponse.json({ error: 'Amount mismatch' }, { status: 400 });
   }
 
@@ -47,12 +47,16 @@ export async function POST(req: NextRequest) {
 
   const { data: reel } = await supabaseAdmin.from('reels').select('sport, recording_date').eq('id', reelId).single();
 
-  await supabaseAdmin.from('analytics_events').insert({
+  await supabaseAdmin.from('analytics_events').upsert({
     event_type: 'payment_completed',
     reel_id: reelId,
+    payment_id: payment.id,
     sport: reel?.sport,
     recording_date: reel?.recording_date,
-    revenue_ils: expectedIls,
+    revenue_ils: minorUnitsToIls(expectedMinorUnits),
+  }, {
+    onConflict: 'payment_id,event_type',
+    ignoreDuplicates: true,
   });
 
   return NextResponse.json({ ok: true });

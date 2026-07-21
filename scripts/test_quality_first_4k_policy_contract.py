@@ -214,7 +214,8 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     assert "drop column if exists matched_athlete" in migration
     assert "receipt_email: email" in stripe_checkout
     assert "payer_email: email" in stripe_checkout
-    assert "intent.receipt_email" in stripe_webhook
+    assert "Stripe owns the compliant" in stripe_webhook
+    assert "sendPaymentConfirmEmail" not in stripe_webhook
     assert "email: payerEmail" in mobile_checkout
     for forbidden in (
         "face_embedding",

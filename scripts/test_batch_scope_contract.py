@@ -87,8 +87,35 @@ def main() -> int:
     for text in [scope, bootstrap, read("scripts/test_batch_scope_contract.py")]:
         ast.parse(text)
 
-    require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
-    require("upload route", upload_route, ["files?: UploadFileInput[]", "normalizeUploadFiles", "uploadFilename", "safeBatchId(requestedBatchId) || newBatchId()", "createR2UploadUrl(file.uploadFilename, batchId)", "batch_id: upload.batch_id", "uploads,"])
+    require(
+        "r2 upload key",
+        r2_lib,
+        [
+            "safeBatchId",
+            "newBatchId",
+            "safeUploadId",
+            "raw/${batchId}/${storageName}",
+            "batch_id: batchId",
+            "'content-type': mimeType",
+        ],
+    )
+    require(
+        "upload route",
+        upload_route,
+        [
+            "files?: UploadFileInput[]",
+            "normalizeUploadFiles",
+            "uploadFilename",
+            "safeBatchId(requestedBatchId) || newBatchId()",
+            "createR2UploadUrl(",
+            "file.uploadFilename,",
+            "batchId,",
+            "file.clientUploadId,",
+            "file.mimeType,",
+            "batch_id: upload.batch_id",
+            "uploads,",
+        ],
+    )
     require("pipeline start route", start_route, ["batch_id?: string", "safeBatchId", "client_payload", "batch_id"])
     require("pipeline reset route", reset_route, ["batch_id", "safeBatchId", "inputs", "pipeline_run_id: run.id"])
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])

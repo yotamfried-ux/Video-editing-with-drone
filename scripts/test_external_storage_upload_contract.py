@@ -2,9 +2,10 @@ from pathlib import Path
 
 
 pipeline_screen = Path('mobile/src/app/(operator)/pipeline.tsx').read_text(encoding='utf-8')
+multipart_mobile = Path('mobile/src/features/operator/lib/resumableMultipartUpload.ts').read_text(encoding='utf-8')
 package_json = Path('mobile/package.json').read_text(encoding='utf-8')
 
-required_tokens = [
+required_pipeline_tokens = [
     'StorageAccessFramework.requestDirectoryPermissionsAsync',
     'StorageAccessFramework.readDirectoryAsync',
     'type ExternalVideoCandidate',
@@ -15,26 +16,61 @@ required_tokens = [
     'accessibilityRole="checkbox"',
     'Select all',
     'Upload selected (',
-    'requiresLocalCopy: true',
-    'FileSystem.copyAsync({ from: item.uri, to: temporaryUploadUri })',
-    'FileSystem.deleteAsync(temporaryUploadUri, { idempotent: true })',
+    'externalSource: true',
+    'const prepareMultipartSource',
+    "item.externalSource || item.uri.startsWith('content://')",
+    'sportreel-multipart-',
+    'await FileSystem.copyAsync({ from: item.uri, to: stableUri })',
+    'Cannot determine the exact staged source size',
+    "session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable'",
+    'resumeMultipartUpload({',
+    'sourceUri: source!.uri',
+    'sourceSizeBytes: source!.size',
     'EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT = 1',
     'Choose videos from SD / USB',
     'Upload from gallery',
     'await uploadSelectedItems(items)',
-    'Retry',
+    'abortPersistedMultipartUpload',
+    'Discard interrupted upload?',
+    'Resume',
 ]
-missing = [token for token in required_tokens if token not in pipeline_screen]
+missing = [token for token in required_pipeline_tokens if token not in pipeline_screen]
 if missing:
     raise SystemExit(f'external storage upload contract missing: {missing}')
 
-forbidden_tokens = [
+required_multipart_tokens = [
+    'FileSystem.readAsStringAsync(sourceUri',
+    'FileSystem.EncodingType.Base64',
+    'position: cursor',
+    'length: remaining',
+    'while (remaining > 0)',
+    'const combined = new Uint8Array(length)',
+    'PART_UPLOAD_ATTEMPTS = 3',
+    'await saveRecord(record)',
+    'loadActiveMultipartBatch',
+    'cleanupStagedSource',
+    'abortPersistedMultipartUpload',
+]
+missing = [token for token in required_multipart_tokens if token not in multipart_mobile]
+if missing:
+    raise SystemExit(f'external multipart reader contract missing: {missing}')
+
+forbidden_global_tokens = [
     "import * as DocumentPicker from 'expo-document-picker'",
     'expo-document-picker',
 ]
-present = [token for token in forbidden_tokens if token in pipeline_screen or token in package_json]
+present = [token for token in forbidden_global_tokens if token in pipeline_screen or token in package_json]
 if present:
-    raise SystemExit(f'external storage upload unexpectedly adds a native picker dependency: {present}')
+    raise SystemExit(f'external storage upload unexpectedly contains unsafe/deprecated flow: {present}')
+
+forbidden_multipart_tokens = [
+    'FileSystem.copyAsync',
+    'FileSystem.createUploadTask',
+    '.slice(',
+]
+present = [token for token in forbidden_multipart_tokens if token in multipart_mobile]
+if present:
+    raise SystemExit(f'multipart reader must not copy or materialize the whole video: {present}')
 
 folder_start = pipeline_screen.index('const uploadExternalStorageFolder')
 folder_end = pipeline_screen.index('const uploadBusy', folder_start)
@@ -47,14 +83,37 @@ if 'setExternalCandidates(' not in folder_block:
 selected_start = pipeline_screen.index('const uploadSelectedExternalVideos')
 selected_end = pipeline_screen.index('const uploadExternalStorageFolder', selected_start)
 selected_block = pipeline_screen[selected_start:selected_end]
-for token in ['candidate.selected', 'requiresLocalCopy: true', 'await uploadSelectedItems(items)']:
+for token in ['candidate.selected', 'externalSource: true', 'await uploadSelectedItems(items)']:
     if token not in selected_block:
         raise SystemExit(f'selected external upload block missing: {token}')
 
-copy_index = pipeline_screen.index('FileSystem.copyAsync({ from: item.uri, to: temporaryUploadUri })')
-upload_index = pipeline_screen.index('FileSystem.createUploadTask(', copy_index)
-delete_index = pipeline_screen.index('FileSystem.deleteAsync(temporaryUploadUri', upload_index)
-if not copy_index < upload_index < delete_index:
-    raise SystemExit('external storage files must be copied before upload and cleaned after upload')
+upload_start = pipeline_screen.index('const uploadItemWithRetries')
+upload_end = pipeline_screen.index('const runUploadQueue', upload_start)
+upload_block = pipeline_screen[upload_start:upload_end]
+prepare_index = upload_block.index('source = await prepareMultipartSource(item)')
+branch_index = upload_block.index("session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable'", prepare_index)
+resume_index = upload_block.index('await resumeMultipartUpload({', branch_index)
+legacy_upload_index = upload_block.index('await uploadLegacyPreparedFile', resume_index)
+if not prepare_index < branch_index < resume_index < legacy_upload_index:
+    raise SystemExit('SAF staging must happen once, then R2 must use bounded multipart reads before the legacy fallback')
 
-print('Specific external SD / USB video selection contract checks passed')
+for token in [
+    'attemptedR2 = true',
+    'if (source?.staged && !attemptedR2) await cleanupPreparedSource(source)',
+    'if (source && usedLegacyFallback) await cleanupPreparedSource(source)',
+]:
+    if token not in upload_block:
+        raise SystemExit(f'staged source lifecycle missing: {token}')
+
+queue_start = pipeline_screen.index('const runUploadQueue')
+queue_end = pipeline_screen.index('const retryUploadItem', queue_start)
+queue_block = pipeline_screen[queue_start:queue_end]
+for token in [
+    'items.some((item) => item.externalSource)',
+    'EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT',
+    'runQueue(items, (item) => uploadItemWithRetries(item, stableBatchId), concurrency)',
+]:
+    if token not in queue_block:
+        raise SystemExit(f'external queue safety missing: {token}')
+
+print('External SD / USB staging and persisted multipart resume checks passed')

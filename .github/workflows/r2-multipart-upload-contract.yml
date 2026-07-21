@@ -1,0 +1,193 @@
+name: R2 Multipart Upload Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r2-multipart-upload-contract.yml'
+      - 'docs/audit/remaining-gaps-official-reference-audit-20260721.md'
+      - 'web-api/src/lib/r2-storage.ts'
+      - 'web-api/src/app/api/operator/upload/route.ts'
+      - 'web-api/src/app/api/operator/upload/multipart/route.ts'
+      - 'web-api/src/app/api/operator/upload/verify/route.ts'
+      - 'web-api/src/types/operator-contracts.ts'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/lib/resumableMultipartUpload.ts'
+      - 'mobile/src/features/operator/lib/uploadQueue.ts'
+      - 'mobile/src/features/operator/types/contracts.ts'
+      - 'scripts/test_r2_multipart_upload_contract.py'
+      - 'scripts/test_r2_multipart_live.py'
+      - 'scripts/test_multi_upload_batch_contract.py'
+      - 'scripts/test_external_storage_upload_contract.py'
+      - 'scripts/test_batch_scope_contract.py'
+      - 'scripts/test_storage_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate R2 multipart resumable upload contract
+        run: python scripts/test_r2_multipart_upload_contract.py
+
+      - name: Validate multi-upload batch contract
+        run: python scripts/test_multi_upload_batch_contract.py
+
+      - name: Validate external SD and USB upload contract
+        run: python scripts/test_external_storage_upload_contract.py
+
+      - name: Validate batch scope contract
+        run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
+
+      - name: Validate storage abstraction contract
+        run: python scripts/test_storage_contract.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            web-api/package-lock.json
+            mobile/package-lock.json
+
+      - name: Type-check Web API multipart implementation
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Type-check mobile multipart implementation
+        id: mobile-typecheck
+        continue-on-error: true
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run type-check 2>&1 | tee ../mobile-typecheck.log
+
+      - name: Upload mobile typecheck diagnostics
+        if: always() && steps.mobile-typecheck.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2-mobile-typecheck
+          path: mobile-typecheck.log
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Fail when mobile typecheck failed
+        if: steps.mobile-typecheck.outcome == 'failure'
+        run: exit 1
+
+  live-r2-restart:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      STORAGE_BACKEND: r2
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      OPERATOR_SECRET: ci-multipart-${{ github.run_id }}-${{ github.run_attempt }}
+      SPORTREEL_TEST_API_URL: http://127.0.0.1:3001
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Require live R2 credentials
+        shell: bash
+        run: |
+          test -n "$R2_ACCESS_KEY_ID"
+          test -n "$R2_SECRET_ACCESS_KEY"
+          test -n "$R2_ACCOUNT_ID"
+          test -n "$R2_BUCKET"
+
+      - name: Install live integration dependencies
+        run: python -m pip install --disable-pip-version-check requests boto3
+
+      - name: Build Web API
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run build
+
+      - name: Test multipart resume across server restart
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATE="$RUNNER_TEMP/r2-multipart-live-state.json"
+          SERVER_LOG="$RUNNER_TEMP/r2-multipart-next.log"
+          CLIENT_LOG="$RUNNER_TEMP/r2-multipart-client.log"
+          SERVER_PID=""
+
+          stop_server() {
+            if [ -n "${SERVER_PID:-}" ]; then
+              kill "$SERVER_PID" 2>/dev/null || true
+              wait "$SERVER_PID" 2>/dev/null || true
+              SERVER_PID=""
+            fi
+          }
+
+          cleanup() {
+            stop_server
+            python scripts/test_r2_multipart_live.py --phase cleanup --state "$STATE" 2>&1 | tee -a "$CLIENT_LOG" || true
+          }
+          trap cleanup EXIT
+
+          start_server() {
+            (cd web-api && npm run start) >>"$SERVER_LOG" 2>&1 &
+            SERVER_PID=$!
+            for _ in $(seq 1 60); do
+              if curl --silent --output /dev/null --max-time 1 http://127.0.0.1:3001/api/operator/upload; then
+                return 0
+              fi
+              sleep 1
+            done
+            cat "$SERVER_LOG"
+            return 1
+          }
+
+          start_server
+          python scripts/test_r2_multipart_live.py --phase init --state "$STATE" 2>&1 | tee -a "$CLIENT_LOG"
+          stop_server
+
+          start_server
+          python scripts/test_r2_multipart_live.py --phase resume --state "$STATE" 2>&1 | tee -a "$CLIENT_LOG"
+          python scripts/test_r2_multipart_live.py --phase cleanup --state "$STATE" 2>&1 | tee -a "$CLIENT_LOG"
+          stop_server
+          trap - EXIT
+
+      - name: Upload live integration diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2-multipart-live-diagnostics
+          path: |
+            ${{ runner.temp }}/r2-multipart-next.log
+            ${{ runner.temp }}/r2-multipart-client.log
+            ${{ runner.temp }}/r2-multipart-live-state.json
+          if-no-files-found: warn
+          retention-days: 7

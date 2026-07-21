@@ -2,12 +2,20 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
+import { MAX_PRICE_ILS, PRICING_UNIT } from '@/lib/pricing';
 
-// GET /api/pricing — public list of sport prices (read-only, safe to expose)
+function normalizeMajorIls(value: unknown): number | null {
+  const amount = typeof value === 'number' ? value : Number(value);
+  if (!Number.isFinite(amount) || amount < 0.5 || amount > MAX_PRICE_ILS) return null;
+  const rounded = Math.round(amount * 100) / 100;
+  return Number.isFinite(rounded) ? rounded : null;
+}
+
+// GET /api/pricing — public list of human-readable ILS prices.
 export async function GET() {
   const { data, error } = await supabaseAdmin
     .from('pricing')
-    .select('sport, price_ils')
+    .select('sport, price_ils, price_unit')
     .order('sport');
 
   if (error) {
@@ -16,7 +24,7 @@ export async function GET() {
   return NextResponse.json({ pricing: data ?? [] });
 }
 
-// POST /api/pricing — operator-only upsert, protected by x-operator-secret header
+// POST /api/pricing — operator-only major-unit ILS upsert.
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
@@ -24,20 +32,36 @@ export async function POST(req: NextRequest) {
   const limited = await enforceRateLimit(req, 'pricing-write', 20, 60);
   if (limited) return limited;
 
-  const { sport, price_ils } = await req.json();
-  if (typeof sport !== 'string' || !sport.trim()) {
+  let body: Record<string, unknown>;
+  try {
+    body = await req.json();
+  } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
+  }
+
+  const sport = typeof body.sport === 'string' ? body.sport.trim().toLowerCase() : '';
+  const priceIls = normalizeMajorIls(body.price_ils);
+  if (!sport) {
     return NextResponse.json({ error: 'sport required' }, { status: 400 });
   }
-  if (!Number.isInteger(price_ils) || price_ils < 0) {
-    return NextResponse.json({ error: 'price_ils must be a non-negative integer (agorot)' }, { status: 400 });
+  if (priceIls === null) {
+    return NextResponse.json(
+      { error: `price_ils must be a major-unit ILS amount between 0.50 and ${MAX_PRICE_ILS}` },
+      { status: 400 },
+    );
   }
 
   const { error } = await supabaseAdmin
     .from('pricing')
-    .upsert({ sport: sport.trim().toLowerCase(), price_ils, updated_at: new Date().toISOString() });
+    .upsert({
+      sport,
+      price_ils: priceIls,
+      price_unit: PRICING_UNIT,
+      updated_at: new Date().toISOString(),
+    });
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, sport, price_ils: priceIls, price_unit: PRICING_UNIT });
 }

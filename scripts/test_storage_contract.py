@@ -26,7 +26,7 @@ def require_no_tokens(label: str, text: str, tokens: list[str]) -> None:
 
 def require_upload_queue_contract(pipeline_screen: str) -> None:
     upload_start = pipeline_screen.index("const uploadSelectedItems")
-    upload_end = pipeline_screen.index("const busy", upload_start)
+    upload_end = pipeline_screen.index("const uploadFootage", upload_start)
     upload_block = pipeline_screen[upload_start:upload_end]
     if "/api/operator/pipeline/start" in upload_block:
         raise SystemExit("Upload footage must only queue RAW footage; it must not auto-run the pipeline")
@@ -35,8 +35,23 @@ def require_upload_queue_contract(pipeline_screen: str) -> None:
         upload_block,
         [
             "Uploaded to queue",
-            "Upload more footage for this athlete/session",
-            "Run pipeline now when the batch is ready",
+            "verified in RAW batch",
+            "Run the pipeline only when the batch is complete",
+            "Some uploads failed",
+            "Retry all failed",
+        ],
+    )
+
+    run_start = pipeline_screen.index("const runPipeline")
+    run_end = pipeline_screen.index("const confirmReset", run_start)
+    run_block = pipeline_screen[run_start:run_end]
+    require_tokens(
+        "manual pipeline start gate",
+        run_block,
+        [
+            "Uploads incomplete",
+            "Pipeline start is blocked until every selected upload is verified",
+            "/api/operator/pipeline/start",
         ],
     )
 

@@ -13,7 +13,7 @@ import sys
 from typing import Any
 
 _DEFAULT_MODEL = "yolo11s.pt"
-_DEFAULT_TRACKER = "botsort.yaml"
+_DEFAULT_TRACKER = "config/trackers/sportreel_botsort_reid.yaml"
 _DEFAULT_COMMAND = (
     f"{sys.executable} scripts/generate_perception_sidecar.py "
     "{video_path} {sidecar_path} --backend ultralytics "

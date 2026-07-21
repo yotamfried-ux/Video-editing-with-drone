@@ -18,8 +18,7 @@
       "bundleIdentifier": "com.sportreel.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "Used to capture your face photo for highlight reel matching.",
-        "NSPhotoLibraryUsageDescription": "Used to select a face photo for highlight reel matching.",
+        "NSPhotoLibraryUsageDescription": "Used to select sport videos for upload.",
         "NSFaceIDUsageDescription": "Used to secure operator access."
       }
     },
@@ -33,7 +32,6 @@
       },
       "permissions": [
         "android.permission.INTERNET",
-        "android.permission.CAMERA",
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
@@ -44,6 +42,7 @@
       "expo-router",
       "expo-screen-capture",
       ["expo-local-authentication", { "faceIDPermission": "Used to secure operator access." }],
+      ["@stripe/stripe-react-native", { "enableGooglePay": false }],
       "expo-font",
       ["expo-build-properties", { "android": { "kotlinVersion": "1.9.25" } }],
       "expo-updates",

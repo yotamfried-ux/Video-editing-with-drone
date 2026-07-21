@@ -35,7 +35,7 @@ export interface Database {
         Row: {
           amount_ils: number | null
           created_at: string | null
-          download_token: string | null
+          download_token: string
           id: string
           meshulam_transaction_id: string | null
           paid_at: string | null
@@ -54,7 +54,7 @@ export interface Database {
         }
       }
       pricing: {
-        Row: { price_ils: number; sport: string; updated_at: string | null }
+        Row: { price_ils: number; price_unit: 'major_ils_v1'; sport: string; updated_at: string | null }
       }
       reels: {
         Row: {
