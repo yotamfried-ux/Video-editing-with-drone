@@ -108,6 +108,28 @@ def main() -> int:
         ],
     )
     require_tokens(
+        "guarded SD and USB preparation lifecycle",
+        pipeline_screen,
+        [
+            "let prepared: PreparedUpload | null = null",
+            "prepared = await prepareUpload(item)",
+            "status: 'failed'",
+            "if (prepared) await prepared.cleanup()",
+            "the item becomes retryable instead of remaining \"initializing\"",
+        ],
+    )
+    require_order(
+        "external preparation is inside guarded lifecycle",
+        pipeline_screen,
+        "try {\n      // Copying a Storage Access Framework URI can fail",
+        "prepared = await prepareUpload(item)",
+    )
+    require_no_tokens(
+        "external preparation must not run before the guarded lifecycle",
+        pipeline_screen,
+        ["const prepared = await prepareUpload(item);\n    try {"],
+    )
+    require_tokens(
         "retry queue semantics",
         upload_queue,
         [
