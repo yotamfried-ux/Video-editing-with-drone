@@ -32,15 +32,17 @@ def require_order(label: str, text: str, first: str, second: str) -> None:
 
 def main() -> int:
     upload_route = _read("web-api/src/app/api/operator/upload/route.ts")
+    multipart_route = _read("web-api/src/app/api/operator/upload/multipart/route.ts")
     r2_storage = _read("web-api/src/lib/r2-storage.ts")
     pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
+    multipart_mobile = _read("mobile/src/features/operator/lib/resumableMultipartUpload.ts")
     upload_queue = _read("mobile/src/features/operator/lib/uploadQueue.ts")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
     ast.parse(_read("scripts/test_multi_upload_batch_contract.py"))
 
     require_tokens(
-        "upload route batch API",
+        "upload route batch and multipart API",
         upload_route,
         [
             "MAX_BATCH_FILES",
@@ -48,16 +50,17 @@ def main() -> int:
             "normalizeUploadFiles",
             "uploadFilename",
             "String(index + 1).padStart(3, '0')",
-            "operator-upload-resilient-batch-item",
+            "upload_mode?: 'resilient_batch_item' | 'multipart_resumable'",
+            "source_size_bytes?: number",
+            "operator-upload-multipart-item",
             "safeBatchId(requestedBatchId) || newBatchId()",
             "client_upload_id is required for resilient uploads",
-            "const uploads: UploadFileResult[] = files.map",
-            "createR2UploadUrl(",
-            "file.clientUploadId,",
-            "file.mimeType,",
-            "createUploadSession(file.uploadFilename, rawFolder, file.mimeType)",
+            "source_size_bytes is required for multipart uploads",
+            "createR2MultipartUpload(",
+            "multipart_upload_id: upload.upload_id",
+            "part_size_bytes: upload.part_size_bytes",
+            "already_complete: upload.already_complete",
             "source_filename: file.filename",
-            "uploads,",
             "storage_key: upload.key",
         ],
     )
@@ -67,29 +70,47 @@ def main() -> int:
         "const files = normalizeUploadFiles(body);",
         "const limited = await enforceRateLimit",
     )
-    require_no_tokens(
-        "upload route must not hard-limit every selected file as its own legacy request",
-        upload_route,
-        [
-            "enforceRateLimit(req, 'operator-upload', 10, 3600);\n  if (limited) return limited;",
-            "createR2UploadUrl(file.filename, batchId)",
-            "createUploadSession(file.filename, rawFolder, file.mimeType)",
-        ],
-    )
 
     require_tokens(
-        "stable R2 retry identity",
+        "R2 multipart lifecycle",
         r2_storage,
         [
-            "safeUploadId",
-            "clientUploadId?: string | null",
-            "stableUploadId",
-            "'content-type': mimeType",
+            "MIN_MULTIPART_PART_SIZE = 5 * MIB",
+            "DEFAULT_MULTIPART_PART_SIZE = 8 * MIB",
+            "MAX_MULTIPART_PARTS = 10_000",
+            "createR2MultipartUpload",
+            "findActiveMultipartUpload",
+            "createR2MultipartPartUrl",
+            "listR2MultipartParts",
+            "getR2MultipartStatus",
+            "validateCompleteParts",
+            "completeR2MultipartUpload",
+            "abortR2MultipartUpload",
+            "All non-final multipart parts must use the same byte size",
+            "Multipart byte total mismatch",
+            "R2 completed-object verification failed",
         ],
     )
 
     require_tokens(
-        "mobile resilient multi-file upload UX",
+        "authenticated multipart route",
+        multipart_route,
+        [
+            "requireOperator(req)",
+            "operator-upload-multipart-lifecycle",
+            "action === 'status'",
+            "action === 'part_url'",
+            "action === 'complete'",
+            "abortR2MultipartUpload",
+            "getR2MultipartStatus",
+            "createR2MultipartPartUrl",
+            "completeR2MultipartUpload",
+            "expected_size_bytes",
+        ],
+    )
+
+    require_tokens(
+        "mobile resumable multi-file upload UX",
         pipeline_screen,
         [
             "allowsMultipleSelection: true",
@@ -98,37 +119,60 @@ def main() -> int:
             "runQueue(items",
             "withRetry(",
             "requestUploadSession",
-            "upload_mode: 'resilient_batch_item'",
+            "upload_mode: 'multipart_resumable'",
             "client_upload_id: item.id",
+            "source_size_bytes: sourceSizeBytes",
+            "resumeMultipartUpload({",
+            "loadActiveMultipartBatch()",
+            "clearPersistedMultipartBatch(finishedBatch)",
             "MAX_UPLOAD_ATTEMPTS",
-            "Retry all failed",
+            "Resume all failed",
             "Upload batch progress",
             "Pipeline start is blocked until every selected upload is verified.",
             "Uploading ${verifiedUploads}/${uploadItems.length}",
         ],
     )
+
     require_tokens(
-        "guarded SD and USB preparation lifecycle",
-        pipeline_screen,
+        "persisted part-level resume",
+        multipart_mobile,
         [
-            "let prepared: PreparedUpload | null = null",
-            "prepared = await prepareUpload(item)",
-            "status: 'failed'",
-            "if (prepared) await prepared.cleanup()",
-            "the item becomes retryable instead of remaining \"initializing\"",
+            "AsyncStorage",
+            "ACTIVE_BATCH_KEY",
+            "uploadId: string",
+            "parts: MultipartUploadPart[]",
+            "FileSystem.readAsStringAsync",
+            "FileSystem.EncodingType.Base64",
+            "position: offset",
+            "length,",
+            "action: 'status'",
+            "action: 'part_url'",
+            "action: 'complete'",
+            "response.headers.get('etag')",
+            "authoritativeUploadedPart",
+            "await saveRecord(record)",
+            "loadActiveMultipartBatch",
+            "clearPersistedMultipartBatch",
+            "abortPersistedMultipartUpload",
         ],
     )
     require_order(
-        "external preparation is inside guarded lifecycle",
-        pipeline_screen,
-        "try {\n      // Copying a Storage Access Framework URI can fail",
-        "prepared = await prepareUpload(item)",
+        "part state is persisted after authoritative upload",
+        multipart_mobile,
+        "const uploaded = await uploadPart",
+        "await saveRecord(record)",
     )
     require_no_tokens(
-        "external preparation must not run before the guarded lifecycle",
-        pipeline_screen,
-        ["const prepared = await prepareUpload(item);\n    try {"],
+        "multipart uploader must not materialize the entire video",
+        multipart_mobile,
+        [
+            ".slice(",
+            "FileSystem.copyAsync",
+            "FileSystem.createUploadTask",
+            "readAsStringAsync(sourceUri, { encoding: FileSystem.EncodingType.Base64 })",
+        ],
     )
+
     require_tokens(
         "retry queue semantics",
         upload_queue,
@@ -143,7 +187,7 @@ def main() -> int:
         ],
     )
     require_no_tokens(
-        "mobile must not select only one asset or use the removed scalar progress state",
+        "mobile must not select only one asset or use removed scalar progress state",
         pipeline_screen,
         [
             "allowsMultipleSelection: false",
@@ -164,7 +208,7 @@ def main() -> int:
         ],
     )
 
-    print("Multi-upload batch contract checks passed")
+    print("Multi-upload multipart resume contract checks passed")
     return 0
 
 
