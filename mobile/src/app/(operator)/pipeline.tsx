@@ -71,7 +71,6 @@ type UploadFileState = {
   status: UploadItemStatus;
   batch_id?: string | null;
   error?: string | null;
-  requiresLocalCopy?: boolean;
   externalSource?: boolean;
   storage_key?: string | null;
   sourceSizeBytes?: number | null;
@@ -86,7 +85,11 @@ type ExternalVideoCandidate = {
   selected: boolean;
 };
 
-type PreparedUpload = { uri: string; cleanup: () => Promise<void> };
+type PreparedMultipartSource = {
+  uri: string;
+  size: number;
+  staged: boolean;
+};
 
 const STATUS_LABEL: Record<string, string> = {
   pending: 'Waiting for next run',
@@ -229,7 +232,6 @@ export default function PipelineScreen() {
         batch_id: record.batchId,
         error: record.status === 'verified' ? null : record.error ?? 'Interrupted upload ready to resume',
         externalSource: record.externalSource,
-        requiresLocalCopy: record.externalSource,
         storage_key: record.storageKey,
         sourceSizeBytes: record.sourceSizeBytes,
       })));
@@ -280,28 +282,46 @@ export default function PipelineScreen() {
     finally { setResetting(false); }
   };
 
-  const sourceSizeForItem = async (item: UploadFileState): Promise<number> => {
-    if (Number.isSafeInteger(item.sourceSizeBytes) && Number(item.sourceSizeBytes) > 0) return Number(item.sourceSizeBytes);
-    const info = await FileSystem.getInfoAsync(item.uri);
-    if (!info.exists || info.isDirectory || !Number.isSafeInteger(info.size) || info.size <= 0) {
-      throw new Error(`Cannot determine the source size for ${item.filename}`);
+  /**
+   * expo-file-system 18 reports content:// size through InputStream.available()
+   * and reads ranges with one native skip/read. Stage SAF/content URIs to a
+   * stable app-cache file before multipart reads so offsets and total size are
+   * deterministic across retries and app restarts.
+   */
+  const prepareMultipartSource = async (item: UploadFileState): Promise<PreparedMultipartSource> => {
+    if (!FileSystem.cacheDirectory && (item.externalSource || item.uri.startsWith('content://'))) {
+      throw new Error('App cache is unavailable for the selected external video.');
     }
-    updateUploadItem(item.id, { sourceSizeBytes: info.size });
-    return info.size;
+
+    const isAlreadyStaged = Boolean(FileSystem.cacheDirectory && item.uri.startsWith(FileSystem.cacheDirectory));
+    const mustStage = item.externalSource || item.uri.startsWith('content://') || isAlreadyStaged;
+    let sourceUri = item.uri;
+    let staged = isAlreadyStaged;
+
+    if (mustStage && !isAlreadyStaged) {
+      const stableUri = `${FileSystem.cacheDirectory}sportreel-multipart-${cacheSafeFilename(item.id)}-${cacheSafeFilename(item.filename)}`;
+      const existing = await FileSystem.getInfoAsync(stableUri);
+      if (!existing.exists || existing.isDirectory) {
+        updateUploadItem(item.id, { status: 'initializing', error: 'Staging external video for reliable resume' });
+        await FileSystem.copyAsync({ from: item.uri, to: stableUri });
+      }
+      sourceUri = stableUri;
+      staged = true;
+    }
+
+    const info = await FileSystem.getInfoAsync(sourceUri);
+    if (!info.exists || info.isDirectory || !Number.isSafeInteger(info.size) || info.size <= 0) {
+      throw new Error(`Cannot determine the exact staged source size for ${item.filename}`);
+    }
+    updateUploadItem(item.id, { uri: sourceUri, sourceSizeBytes: info.size, error: null });
+    return { uri: sourceUri, size: info.size, staged };
   };
-  const prepareLegacyUpload = async (item: UploadFileState): Promise<PreparedUpload> => {
-    if (!item.requiresLocalCopy) return { uri: item.uri, cleanup: async () => {} };
-    if (!FileSystem.cacheDirectory) throw new Error('App cache is unavailable for the selected SD / USB video.');
-    const temporaryUri = `${FileSystem.cacheDirectory}sportreel-upload-${Date.now()}-${cacheSafeFilename(item.id)}-${cacheSafeFilename(item.filename)}`;
-    updateUploadItem(item.id, { status: 'initializing', error: null });
-    await FileSystem.copyAsync({ from: item.uri, to: temporaryUri });
-    return {
-      uri: temporaryUri,
-      cleanup: async () => {
-        try { await FileSystem.deleteAsync(temporaryUri, { idempotent: true }); } catch {}
-      },
-    };
+
+  const cleanupPreparedSource = async (source: PreparedMultipartSource): Promise<void> => {
+    if (!source.staged) return;
+    try { await FileSystem.deleteAsync(source.uri, { idempotent: true }); } catch {}
   };
+
   const requestUploadSession = async (item: UploadFileState, batchId: string, sourceSizeBytes: number): Promise<UploadSession> => {
     const uploadInit = await operatorFetch<UploadInit>('/api/operator/upload', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -313,12 +333,17 @@ export default function PipelineScreen() {
     });
     return uploadInit.uploads?.[0] ?? uploadInit;
   };
-  const uploadLegacyPreparedFile = async (item: UploadFileState, session: UploadSession, uploadUri: string, sourceSizeBytes: number) => {
+
+  const uploadLegacyPreparedFile = async (
+    item: UploadFileState,
+    session: UploadSession,
+    source: PreparedMultipartSource,
+  ) => {
     if (!session.uploadUrl) throw new Error(`Missing upload URL for ${item.filename}`);
     updateUploadItem(item.id, { status: 'uploading', batch_id: session.batch_id, storage_key: session.storage_key ?? null, error: null });
     const task = FileSystem.createUploadTask(
       session.uploadUrl,
-      uploadUri,
+      source.uri,
       { httpMethod: 'PUT', uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT, headers: { 'Content-Type': item.mimeType } },
       (progress) => {
         const expected = progress.totalBytesExpectedToSend || 1;
@@ -331,37 +356,40 @@ export default function PipelineScreen() {
     if (session.storage_key) {
       const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ storage_key: session.storage_key, expected_size_bytes: sourceSizeBytes }),
+        body: JSON.stringify({ storage_key: session.storage_key, expected_size_bytes: source.size }),
       });
-      if (!verified.exists || verified.size !== sourceSizeBytes) {
-        throw new Error(`Upload size verification failed for ${session.storage_key}: expected ${sourceSizeBytes}, found ${verified.size ?? 'missing'}`);
+      if (!verified.exists || verified.size !== source.size) {
+        throw new Error(`Upload size verification failed for ${session.storage_key}: expected ${source.size}, found ${verified.size ?? 'missing'}`);
       }
     }
     updateUploadItem(item.id, {
       status: 'verified', progress: 100, batch_id: session.batch_id,
-      storage_key: session.storage_key ?? null, sourceSizeBytes, error: null,
+      storage_key: session.storage_key ?? null, sourceSizeBytes: source.size, error: null,
     });
   };
 
   const uploadItemWithRetries = async (item: UploadFileState, batchId: string): Promise<void> => {
-    const preparedRef: { current: PreparedUpload | null } = { current: null };
+    let source: PreparedMultipartSource | null = null;
+    let usedLegacyFallback = false;
+    let attemptedR2 = false;
     try {
-      const sourceSizeBytes = await sourceSizeForItem(item);
+      source = await prepareMultipartSource(item);
       await withRetry(async () => {
-        const session = await requestUploadSession(item, batchId, sourceSizeBytes);
+        const session = await requestUploadSession(item, batchId, source!.size);
         if (session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable') {
+          attemptedR2 = true;
           updateUploadItem(item.id, {
             status: 'uploading', batch_id: session.batch_id ?? batchId,
-            storage_key: session.storage_key ?? null, sourceSizeBytes, error: null,
+            storage_key: session.storage_key ?? null, sourceSizeBytes: source!.size, error: null,
           });
           await resumeMultipartUpload({
             clientUploadId: item.id,
             batchId: session.batch_id ?? batchId,
-            sourceUri: item.uri,
+            sourceUri: source!.uri,
             filename: item.filename,
             mimeType: item.mimeType,
-            sourceSizeBytes,
-            externalSource: Boolean(item.externalSource),
+            sourceSizeBytes: source!.size,
+            externalSource: Boolean(item.externalSource || source!.staged),
             session,
             onProgress: (sent, total) => updateUploadItem(item.id, {
               status: 'uploading',
@@ -371,12 +399,12 @@ export default function PipelineScreen() {
           });
           updateUploadItem(item.id, {
             status: 'verified', progress: 100, batch_id: session.batch_id ?? batchId,
-            storage_key: session.storage_key ?? null, sourceSizeBytes, error: null,
+            storage_key: session.storage_key ?? null, sourceSizeBytes: source!.size, error: null,
           });
           return;
         }
-        if (!preparedRef.current) preparedRef.current = await prepareLegacyUpload(item);
-        await uploadLegacyPreparedFile(item, session, preparedRef.current.uri, sourceSizeBytes);
+        usedLegacyFallback = true;
+        await uploadLegacyPreparedFile(item, session, source!);
       }, {
         maxAttempts: MAX_UPLOAD_ATTEMPTS,
         backoffMs: UPLOAD_RETRY_BACKOFF_CAPS_MS,
@@ -388,9 +416,10 @@ export default function PipelineScreen() {
       });
     } catch (error) {
       updateUploadItem(item.id, { status: 'failed', error: error instanceof Error ? error.message : 'Upload failed' });
+      if (source?.staged && !attemptedR2) await cleanupPreparedSource(source);
       throw error;
     } finally {
-      if (preparedRef.current) await preparedRef.current.cleanup();
+      if (source && usedLegacyFallback) await cleanupPreparedSource(source);
     }
   };
 
@@ -406,7 +435,7 @@ export default function PipelineScreen() {
     catch (error) { handleOperatorError(error); }
   };
   const discardUploadItem = (item: UploadFileState) => {
-    Alert.alert('Discard interrupted upload?', 'Uploaded R2 parts will be aborted and removed from the resumable queue.', [
+    Alert.alert('Discard interrupted upload?', 'Uploaded R2 parts and any staged external copy will be removed.', [
       { text: 'Cancel', style: 'cancel' },
       {
         text: 'Discard', style: 'destructive', onPress: async () => {
@@ -475,7 +504,7 @@ export default function PipelineScreen() {
       id: `${Date.now()}_external_${index}_${candidate.filename}`,
       uri: candidate.uri, filename: candidate.filename, mimeType: candidate.mimeType,
       progress: 0, status: 'queued', batch_id: activeBatchId, error: null,
-      externalSource: true, requiresLocalCopy: true,
+      externalSource: true,
     }));
     setExternalCandidates([]);
     await uploadSelectedItems(items);
@@ -541,7 +570,7 @@ export default function PipelineScreen() {
             {Platform.OS === 'android' && (
               <>
                 <Button label={selectingExternalStorage ? 'Opening SD / USB...' : 'Choose videos from SD / USB'} onPress={uploadExternalStorageFolder} disabled={busy} variant="secondary" style={{ height: 44 }} />
-                <Text variant="caption" color={Colors.textSecondary}>Choose the folder on the card or USB drive, then select only the videos to upload. Completed parts resume after an interruption.</Text>
+                <Text variant="caption" color={Colors.textSecondary}>External videos are staged in app cache, then uploaded in resumable parts. The staged copy is kept only until verification or Discard.</Text>
                 {externalCandidates.length > 0 && (
                   <View style={styles.externalSelectionPanel}>
                     <View style={styles.metaRow}>
