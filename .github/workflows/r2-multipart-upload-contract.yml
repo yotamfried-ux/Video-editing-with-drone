@@ -75,12 +75,12 @@ jobs:
           npm run type-check 2>&1 | tee ../mobile-typecheck.log
 
       - name: Upload mobile typecheck diagnostics
-        if: always()
+        if: always() && steps.mobile-typecheck.outcome != 'skipped'
         uses: actions/upload-artifact@v4
         with:
           name: r2-mobile-typecheck
           path: mobile-typecheck.log
-          if-no-files-found: error
+          if-no-files-found: warn
           retention-days: 7
 
       - name: Fail when mobile typecheck failed
