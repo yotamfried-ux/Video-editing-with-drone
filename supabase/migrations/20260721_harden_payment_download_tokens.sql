@@ -12,10 +12,6 @@ where download_token is null or btrim(download_token) = '';
 alter table public.payments
   alter column download_token set not null;
 
-alter table public.payments
-  add column if not exists receipt_email_sent_at timestamptz,
-  add column if not exists receipt_email_claimed_at timestamptz;
-
 create unique index if not exists payments_download_token_uidx
   on public.payments (download_token);
 
