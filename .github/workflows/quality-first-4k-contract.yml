@@ -30,8 +30,19 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Verify ffmpeg tools
+      - name: Install and verify ffmpeg tools
         run: |
+          set -o pipefail
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq >/tmp/apt-update.log 2>&1 || {
+              tail -n 100 /tmp/apt-update.log
+              exit 1
+            }
+            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/tmp/apt-install.log 2>&1 || {
+              tail -n 100 /tmp/apt-install.log
+              exit 1
+            }
+          fi
           command -v ffmpeg
           command -v ffprobe
           ffmpeg -version | head -n 1
