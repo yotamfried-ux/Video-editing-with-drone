@@ -1,0 +1,68 @@
+name: R2 Multipart Upload Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/r2-multipart-upload-contract.yml'
+      - 'docs/audit/remaining-gaps-official-reference-audit-20260721.md'
+      - 'web-api/src/lib/r2-storage.ts'
+      - 'web-api/src/app/api/operator/upload/route.ts'
+      - 'web-api/src/app/api/operator/upload/multipart/route.ts'
+      - 'web-api/src/app/api/operator/upload/verify/route.ts'
+      - 'web-api/src/types/operator-contracts.ts'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/lib/resumableMultipartUpload.ts'
+      - 'mobile/src/features/operator/lib/uploadQueue.ts'
+      - 'mobile/src/features/operator/types/contracts.ts'
+      - 'scripts/test_r2_multipart_upload_contract.py'
+      - 'scripts/test_multi_upload_batch_contract.py'
+      - 'scripts/test_external_storage_upload_contract.py'
+      - 'scripts/test_batch_scope_contract.py'
+      - 'scripts/test_storage_contract.py'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate R2 multipart resumable upload contract
+        run: python scripts/test_r2_multipart_upload_contract.py
+
+      - name: Validate multi-upload batch contract
+        run: python scripts/test_multi_upload_batch_contract.py
+
+      - name: Validate external SD and USB upload contract
+        run: python scripts/test_external_storage_upload_contract.py
+
+      - name: Validate batch scope contract
+        run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
+
+      - name: Validate storage abstraction contract
+        run: python scripts/test_storage_contract.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: |
+            web-api/package-lock.json
+            mobile/package-lock.json
+
+      - name: Type-check Web API multipart implementation
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Type-check mobile multipart implementation
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run type-check
