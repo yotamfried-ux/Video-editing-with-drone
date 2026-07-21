@@ -93,7 +93,7 @@ require(
         "Unexpected PaymentIntent currency",
         "Payment amount mismatch",
         "onConflict: 'payment_id,event_type'",
-        "receipt_email_claimed_at",
+        "Stripe owns the compliant",
         "return NextResponse.json({ received: true })",
     ],
     "signed webhook fulfillment",
@@ -102,6 +102,13 @@ if webhook.index("const rawBody = await req.text()") > webhook.index("stripe.web
     raise SystemExit("webhook signature verification must consume the raw body before parsing")
 if ".catch(() => {})" in webhook:
     raise SystemExit("webhook must await fulfillment side effects instead of fire-and-forget")
+for duplicate_receipt_token in (
+    "sendPaymentConfirmEmail",
+    "receipt_email_sent_at",
+    "receipt_email_claimed_at",
+):
+    if duplicate_receipt_token in webhook:
+        raise SystemExit(f"webhook must not duplicate Stripe receipt delivery: {duplicate_receipt_token}")
 
 require(
     status_route,
@@ -203,12 +210,13 @@ require(
     [
         "download_token",
         "default gen_random_uuid()::text",
-        "receipt_email_sent_at",
-        "receipt_email_claimed_at",
         "analytics_payment_event_uidx",
     ],
     "Stripe persistence schema",
 )
+for dead_receipt_column in ("receipt_email_sent_at", "receipt_email_claimed_at"):
+    if dead_receipt_column in core_schema + hardening_migration:
+        raise SystemExit(f"schema must not retain unused custom-receipt state: {dead_receipt_column}")
 if "('surfing',        79)" not in core_schema:
     raise SystemExit("pricing seed must remain human-readable major ILS")
 if "amount_ils                numeric(10,2), -- Stripe minor units (agorot)" not in core_schema:
@@ -222,6 +230,8 @@ require(
         "stripe/stripe-node",
         "PaymentSheet",
         "handleURLCallback",
+        "receipt_email",
+        "single receipt",
         "digital product",
         "App Store",
         "Google Play",
