@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, ScrollView, TextInput } from 'react-native';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
@@ -9,6 +9,18 @@ import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { usePricing } from '@/features/operator/hooks/usePricing';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
+function displayPrice(value: number): string {
+  return Number.isInteger(value) ? String(value) : value.toFixed(2).replace(/0+$/, '').replace(/\.$/, '');
+}
+
+function parseMajorIls(value: string): number | null {
+  const normalized = value.trim().replace(',', '.');
+  if (!normalized) return null;
+  const amount = Number(normalized);
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  return Math.round(amount * 100) / 100;
+}
+
 function PriceRow({
   sport,
   priceIls,
@@ -18,19 +30,20 @@ function PriceRow({
   sport: string;
   priceIls: number;
   saving: boolean;
-  onSave: (shekels: number) => void;
+  onSave: (majorIls: number) => void;
 }) {
-  // store as shekels (display), persist as agorot
-  const [value, setValue] = useState(String(Math.round(priceIls / 100)));
+  const [value, setValue] = useState(displayPrice(priceIls));
+
+  useEffect(() => {
+    setValue(displayPrice(priceIls));
+  }, [priceIls]);
 
   return (
     <Card bordered style={styles.row}>
       <View style={{ flex: 1 }}>
         <Text variant="title" style={{ textTransform: 'capitalize' }}>{sport}</Text>
         {sport === 'default' && (
-          <Text variant="caption" color={Colors.textSecondary}>
-            Fallback for unlisted sports
-          </Text>
+          <Text variant="caption" color={Colors.textSecondary}>Fallback for unlisted sports</Text>
         )}
       </View>
       <View style={styles.priceInputWrap}>
@@ -38,7 +51,7 @@ function PriceRow({
         <TextInput
           value={value}
           onChangeText={setValue}
-          keyboardType="number-pad"
+          keyboardType="decimal-pad"
           style={styles.priceInput}
           placeholderTextColor={Colors.textSecondary}
         />
@@ -46,8 +59,8 @@ function PriceRow({
       <Button
         label={saving ? '…' : 'Save'}
         onPress={() => {
-          const n = parseInt(value, 10);
-          if (!Number.isNaN(n)) onSave(n * 100);
+          const amount = parseMajorIls(value);
+          if (amount !== null) onSave(amount);
         }}
         loading={saving}
         variant="secondary"
@@ -61,6 +74,7 @@ export default function PricingScreen() {
   const { rows, saving, error, updatePrice, addSport } = usePricing();
   const [newSport, setNewSport] = useState('');
   const [newPrice, setNewPrice] = useState('');
+
   return (
     <SafeArea>
       <View style={styles.container}>
@@ -68,23 +82,21 @@ export default function PricingScreen() {
         <ScrollView contentContainerStyle={{ gap: Spacing.md, paddingBottom: Spacing.xl }}>
           <Text variant="display">Pricing</Text>
           <Text variant="caption" color={Colors.textSecondary}>
-            Set a one-time price per sport. Prices are in shekels (₪).
+            Set a one-time price per sport in shekels. The server converts it to agorot only when creating the Stripe payment.
           </Text>
 
-          {error && (
-            <Text variant="caption" color={Colors.danger}>{error}</Text>
-          )}
+          {error && <Text variant="caption" color={Colors.danger}>{error}</Text>}
 
           {rows
             .slice()
-            .sort((a, b) => (a.sport === 'default' ? 1 : b.sport === 'default' ? -1 : a.sport.localeCompare(b.sport)))
-            .map((r) => (
+            .sort((left, right) => (left.sport === 'default' ? 1 : right.sport === 'default' ? -1 : left.sport.localeCompare(right.sport)))
+            .map((row) => (
               <PriceRow
-                key={r.sport}
-                sport={r.sport}
-                priceIls={r.price_ils}
-                saving={saving === r.sport}
-                onSave={(agorot) => updatePrice(r.sport, agorot)}
+                key={row.sport}
+                sport={row.sport}
+                priceIls={row.price_ils}
+                saving={saving === row.sport}
+                onSave={(majorIls) => updatePrice(row.sport, majorIls)}
               />
             ))}
 
@@ -104,15 +116,16 @@ export default function PricingScreen() {
               onChangeText={setNewPrice}
               placeholder="Price in ₪"
               placeholderTextColor={Colors.textSecondary}
-              keyboardType="number-pad"
+              keyboardType="decimal-pad"
               style={styles.addInput}
             />
             <Button
               label="Add Sport"
               onPress={() => {
-                const n = parseInt(newPrice, 10);
-                if (newSport.trim() && !Number.isNaN(n)) {
-                  addSport(newSport.trim().toLowerCase(), n * 100);
+                const amount = parseMajorIls(newPrice);
+                const sport = newSport.trim().toLowerCase();
+                if (sport && amount !== null) {
+                  addSport(sport, amount);
                   setNewSport('');
                   setNewPrice('');
                 }
@@ -133,7 +146,7 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     fontSize: 18,
     fontWeight: '700',
-    minWidth: 56,
+    minWidth: 72,
     textAlign: 'right',
     paddingVertical: Spacing.xs,
   },
