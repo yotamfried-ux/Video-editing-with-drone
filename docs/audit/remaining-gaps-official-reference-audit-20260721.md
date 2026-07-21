@@ -103,7 +103,7 @@ Official implications:
 | ID | Gap | Official comparison | PR #191 action | Closure state |
 |---|---|---|---|---|
 | CV-001 | Default BoT-SORT had ReID disabled | Ultralytics documents ReID as opt-in and useful for look-alike/occlusion cases | Added `config/trackers/sportreel_botsort_reid.yaml`; production default now uses BoT-SORT, moving-camera compensation, and `with_reid: true` | **Code/CI closable; real identity accuracy still open** |
-| CV-002 | Resolved model/tracker/stride were invisible before processing | Reproducible evaluation requires explicit configuration | Added fail-closed preflight and JSON/job-summary evidence | **Implemented; needs first production artifact** |
+| CV-002 | Resolved model/tracker/stride were invisible before processing | Reproducible evaluation requires explicit configuration | Added fail-closed preflight and JSON/job-summary evidence; custom perception commands must name the same model and tracker | **Implemented; needs first production artifact** |
 | CV-003 | Tracker runtime and fragmentation were not measured automatically | GitHub artifacts and job timing should preserve measurements | Sidecars now record wall time, processed frames, sampling rate, and ReID state; diagnostics build a per-video benchmark/fragmentation report | **Implemented; real run pending** |
 | CV-004 | Default `vid_stride=10` trades away temporal resolution | Ultralytics explicitly states that higher stride skips frames at a temporal-resolution cost | Stride is now printed and preserved as evidence; no unsupported claim that 10 is correct | **OPEN — tune on difficult footage** |
 | CV-005 | ID switches and false merges lack ground truth | Google/NVIDIA describe identity as temporal instance evidence and warn about occlusion/appearance failures | Benchmark report explicitly leaves ID-switch and correctness fields for reviewed/labeled footage | **OPEN — real-footage review required** |
@@ -111,21 +111,38 @@ Official implications:
 | UPLOAD-002 | Presigned upload did not bind declared MIME type | Cloudflare SDK example signs `ContentType`, and client must send the exact header | R2 presigner now includes `content-type` in signed headers; route supplies the normalized MIME type | **Implemented; real R2 request pending** |
 | UPLOAD-003 | Verification checks existence/length returned by R2, not equality with local bytes or checksum | R2 exposes integrity errors such as `BadDigest`; multipart parts have ETags | No false closure recorded | **OPEN — expected-size/checksum contract required** |
 | UPLOAD-004 | No interrupted-network physical-device proof | Cloudflare's resumability distinction and Expo device APIs make this a runtime property | Deterministic retries remain covered; physical Android SD/USB test is not simulated as proof | **OPEN — device/network experiment required** |
+| UPLOAD-005 | SD/USB copy failure could leave an item permanently `initializing` | Expo file access can fail before any network request and must surface a recoverable application state | Preparation now runs inside the guarded lifecycle; copy failures become `failed`, preserve error text, and expose retry | **Implemented; device proof pending** |
 | VIDEO-001 | No measured generation loss on contain and emergency crop | Netflix documents VMAF/SSIM and timestamp alignment | Existing 4K/30 ffprobe fixture proves media format, not perceptual loss | **OPEN — VMAF/SSIM experiment required** |
+| PAY-UNIT-001 | Historical `pricing.price_ils` rows could contain agorot while new code interprets major ILS | Payment boundaries must use unambiguous units; Supabase requires an applied versioned migration | Added `price_unit='major_ils_v1'`, a one-time legacy-agorot migration, fail-closed checkout, a sub-₪1,000 invariant, and schema verification | **Code complete; live migration proof open** |
+| PAY-UNIT-002 | Meshulam analytics could store agorot while Stripe stores major ILS | Shared reporting fields require one unit | Meshulam validates provider minor units, then converts once to major ILS for analytics and uses the same idempotent event key | **Implemented; live payment proof open** |
+| PAY-IDEMP-001 | Stripe checkout idempotency key was scoped only by reel | Reusing one key with different payer parameters can reject a valid new logical checkout | SecureStore key now scopes the checkout session to both reel and normalized payer identity | **Implemented; shared-device test pending** |
 | DB-001 | Pending migrations are not live evidence | Supabase requires migration-history-backed deployment and supports dry run | Migration files remain versioned; no live mutation performed in this audit | **OPEN — dry-run, backup/approval, push, verify** |
 | DEPLOY-001 | Production Vercel commit is not current | Vercel exposes production deployment commit/build/log identity | No deployment claim added | **OPEN — deploy/promote and verify exact SHA** |
 | DEPLOY-002 | Mobile update identity is unverified | Expo recommends staging on matching runtime and promoting the tested bundle/commit | No EAS publication performed | **OPEN — staging device test and production promotion** |
 | REAL-001 | No end-to-end representative-footage proof | All official tracker/quality guidance still requires evaluation on representative data | Required artifact list remains unchanged | **OPEN — production-style run and visual review** |
 | VALUE-001 | Ranking/replay value has no measured baseline | Not closed by infrastructure documentation | No claim of completion | **OPEN — replay evaluation and product metrics** |
 
+## Review findings fixed in this pass
+
+The PR review found four defects that deterministic checks had not previously covered:
+
+1. Existing `7900` pricing rows could be multiplied again and become a ₪7,900 charge.
+2. Meshulam revenue could be recorded 100× larger than Stripe revenue in the shared analytics field.
+3. SD/USB copy failures occurred before the upload error lifecycle and could leave the UI permanently busy.
+4. A shared device could reuse another payer's pending Stripe idempotency key for the same reel.
+
+Each finding now has both a code fix and a regression contract. The database-dependent unit fix remains fail-closed until its migration is applied and verified.
+
 ## Implemented in this pass
 
 1. A project-owned BoT-SORT tracker configuration with ReID enabled.
-2. A mandatory perception preflight that fails when production tracking is not BoT-SORT + ReID and records exact model/tracker/stride/image-size/device/version values.
+2. A mandatory perception preflight that fails when production tracking is not BoT-SORT + ReID, validates custom command overrides, and records exact model/tracker/stride/image-size/device/version values.
 3. Sidecar wall-time, processed-frame, effective-sampling, and ReID evidence.
 4. An automatic `perception_benchmark_report.json` artifact with raw/canonical fragmentation and track-duration statistics.
 5. R2 presigned upload URLs bound to the declared `Content-Type`.
-6. Deterministic contract coverage for the new evidence chain.
+6. Recoverable SD/USB preparation failure handling.
+7. Explicit and migrated pricing units, Meshulam/Stripe reporting parity, and payer-scoped Stripe idempotency.
+8. Deterministic contract coverage for the new evidence chain and the four review findings.
 
 ## Merge decision
 
