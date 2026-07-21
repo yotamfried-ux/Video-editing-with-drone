@@ -87,9 +87,12 @@ export async function POST(req: NextRequest) {
   try {
     if (shouldUseR2Storage()) {
       const uploads: UploadFileResult[] = files.map((file) => {
-        const upload = file.clientUploadId
-          ? createR2UploadUrl(file.uploadFilename, batchId, file.clientUploadId)
-          : createR2UploadUrl(file.uploadFilename, batchId);
+        const upload = createR2UploadUrl(
+          file.uploadFilename,
+          batchId,
+          file.clientUploadId,
+          file.mimeType,
+        );
         return {
           uploadUrl: upload.uploadUrl,
           filename: upload.filename,
