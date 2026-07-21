@@ -1,26 +1,42 @@
+import * as SecureStore from 'expo-secure-store';
 import { create } from 'zustand';
 
-/**
- * Holds the download token for an in-progress purchase, keyed by reel_id, in
- * memory only. Previously the token was passed through the navigation URL
- * (`/success/:id?dt=...`), where it could leak via screenshots, screen
- * recording, or logs. Keeping it in a transient store avoids that exposure.
- */
+const keyForReel = (reelId: string) => `sportreel_download_token_${reelId}`;
+
 interface DownloadTokenState {
   tokens: Record<string, string>;
-  set: (reelId: string, token: string) => void;
+  set: (reelId: string, token: string) => Promise<void>;
   get: (reelId: string) => string | undefined;
-  clear: (reelId: string) => void;
+  hydrate: (reelId: string) => Promise<string | undefined>;
+  clear: (reelId: string) => Promise<void>;
 }
 
+/**
+ * Download tokens are bearer credentials. Keep them out of routes, logs, and
+ * screenshots, while persisting them in the OS-backed secure store so a payment
+ * can still finish after a redirect, process death, or app restart.
+ */
 export const useDownloadTokenStore = create<DownloadTokenState>((set, get) => ({
   tokens: {},
-  set: (reelId, token) => set((s) => ({ tokens: { ...s.tokens, [reelId]: token } })),
+  set: async (reelId, token) => {
+    set((state) => ({ tokens: { ...state.tokens, [reelId]: token } }));
+    await SecureStore.setItemAsync(keyForReel(reelId), token);
+  },
   get: (reelId) => get().tokens[reelId],
-  clear: (reelId) =>
-    set((s) => {
-      const next = { ...s.tokens };
+  hydrate: async (reelId) => {
+    const cached = get().tokens[reelId];
+    if (cached) return cached;
+    const stored = await SecureStore.getItemAsync(keyForReel(reelId));
+    if (!stored) return undefined;
+    set((state) => ({ tokens: { ...state.tokens, [reelId]: stored } }));
+    return stored;
+  },
+  clear: async (reelId) => {
+    set((state) => {
+      const next = { ...state.tokens };
       delete next[reelId];
       return { tokens: next };
-    }),
+    });
+    await SecureStore.deleteItemAsync(keyForReel(reelId));
+  },
 }));
