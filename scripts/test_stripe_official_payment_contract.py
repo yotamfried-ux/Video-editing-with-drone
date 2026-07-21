@@ -18,6 +18,7 @@ pricing = read("web-api/src/lib/pricing.ts")
 pricing_route = read("web-api/src/app/api/pricing/route.ts")
 stripe_client = read("web-api/src/lib/stripe.ts")
 webhook = read("web-api/src/app/api/webhooks/stripe/route.ts")
+meshulam_webhook = read("web-api/src/app/api/webhooks/meshulam/route.ts")
 status_route = read("web-api/src/app/api/payment-status/[download_token]/route.ts")
 download_route = read("web-api/src/app/api/download/[download_token]/route.ts")
 checkout_screen = read("mobile/src/app/checkout/[reel_id].tsx")
@@ -30,6 +31,7 @@ eas_json = json.loads(read("mobile/eas.json"))
 operator_pricing = read("mobile/src/app/(operator)/pricing.tsx")
 core_schema = read("supabase/migrations/20260612_create_core_schema.sql")
 hardening_migration = read("supabase/migrations/20260721_harden_payment_download_tokens.sql")
+pricing_migration = read("supabase/migrations/20260721_normalize_pricing_units.sql")
 audit = read("docs/audit/stripe-mobile-payment-official-reference-audit-20260721.md")
 
 require(
@@ -56,13 +58,17 @@ require(
     [
         "Math.round(majorUnits * 100)",
         "Configured reel price must be a positive ILS amount",
-        "return ilsToMinorUnits(price.price_ils)",
+        "PRICING_UNIT = 'major_ils_v1'",
+        "pricingRowToMinorUnits",
+        "select('price_ils, price_unit')",
+        "apply the pricing-unit migration before checkout",
+        "minorUnitsToIls",
         "select('sport, status, expires_at, storage_path')",
         "This clip was already sold",
         "This clip has expired",
         "File not available",
     ],
-    "server-side amount and eligibility",
+    "server-side amount, unit and eligibility",
 )
 require(
     web_checkout_route,
@@ -79,11 +85,28 @@ require(
     [
         "positive ILS amount",
         "Math.round(amount * 100) / 100",
+        "price_unit: PRICING_UNIT",
+        "select('sport, price_ils, price_unit')",
     ],
     "operator pricing major-unit API",
 )
 if "priceIls / 100" in operator_pricing or "n * 100" in operator_pricing:
     raise SystemExit("operator pricing UI must edit human-readable major ILS values")
+
+require(
+    pricing_migration,
+    [
+        "add column if not exists price_unit text",
+        "price_ils = price_ils / 100",
+        "price_ils >= 1000",
+        "price_unit = 'major_ils_v1'",
+        "alter column price_unit set not null",
+        "pricing_unit_supported",
+    ],
+    "legacy agorot pricing migration",
+)
+if pricing_migration.index("price_ils = price_ils / 100") > pricing_migration.index("price_unit = 'major_ils_v1'"):
+    raise SystemExit("legacy pricing must be normalized before it is marked as major ILS")
 
 require(stripe_client, ["maxNetworkRetries: 2", "timeout: 20_000"], "stripe-node client")
 
@@ -117,6 +140,20 @@ for duplicate_receipt_token in (
         raise SystemExit(f"webhook must not duplicate Stripe receipt delivery: {duplicate_receipt_token}")
 
 require(
+    meshulam_webhook,
+    [
+        "expectedMinorUnits",
+        "paidMinorUnits",
+        "minorUnitsToIls(expectedMinorUnits)",
+        "payment_id: payment.id",
+        "onConflict: 'payment_id,event_type'",
+    ],
+    "Meshulam unit and analytics parity",
+)
+if "revenue_ils: expectedIls" in meshulam_webhook:
+    raise SystemExit("Meshulam analytics must not store agorot in the major-ILS revenue field")
+
+require(
     status_route,
     [
         "eq('download_token', downloadToken)",
@@ -134,12 +171,12 @@ require(
 require(
     checkout_hook,
     [
-        "getOrCreateCheckoutSessionId(reelId)",
+        "getOrCreateCheckoutSessionId(reelId, payerEmail)",
         "checkout_session_id: checkoutSessionId",
         "payment_intent_id: string",
         "payerEmail",
     ],
-    "mobile persisted idempotency key",
+    "mobile persisted payer-scoped idempotency key",
 )
 require(
     checkout_screen,
@@ -166,7 +203,8 @@ require(
         "/api/payment-status/",
         "fulfillment === 'completed'",
         "waiting for the signed server confirmation",
-        "await clearCheckoutSessionId(reel_id)",
+        "clearCheckoutSessionId(reel_id, payerEmail)",
+        "await clearCurrentCheckoutSession()",
         "Download again",
         "Keep the purchase token in SecureStore",
     ],
@@ -184,10 +222,12 @@ require(
         "SecureStore.setItemAsync",
         "SecureStore.getItemAsync",
         "SecureStore.deleteItemAsync",
-        "getOrCreateCheckoutSessionId",
-        "clearCheckoutSessionId",
+        "payerScope",
+        "checkoutSessionKey(reelId, payerEmail)",
+        "getOrCreateCheckoutSessionId(reelId: string, payerEmail: string)",
+        "clearCheckoutSessionId(reelId: string, payerEmail: string)",
     ],
-    "secure payment capability and idempotency storage",
+    "secure payment capability and payer-scoped idempotency storage",
 )
 require(
     root_layout,
@@ -215,20 +255,22 @@ for profile in ("development", "preview"):
         raise SystemExit(f"Stripe test profile {profile} must remain internally distributed")
 
 require(
-    core_schema + hardening_migration,
+    core_schema + hardening_migration + pricing_migration,
     [
         "download_token",
         "default gen_random_uuid()::text",
         "analytics_payment_event_uidx",
+        "price_unit",
+        "major_ils_v1",
     ],
-    "Stripe persistence schema",
+    "payment and pricing persistence schema",
 )
 for dead_receipt_column in ("receipt_email_sent_at", "receipt_email_claimed_at"):
     if dead_receipt_column in core_schema + hardening_migration:
         raise SystemExit(f"schema must not retain unused custom-receipt state: {dead_receipt_column}")
-if "('surfing',        79)" not in core_schema:
-    raise SystemExit("pricing seed must remain human-readable major ILS")
-if "amount_ils                numeric(10,2), -- Stripe minor units (agorot)" not in core_schema:
+if "('surfing',        79, 'major_ils_v1')" not in core_schema:
+    raise SystemExit("pricing seed must remain human-readable and explicitly versioned as major ILS")
+if "amount_ils                numeric(10,2), -- payment-provider minor units (agorot)" not in core_schema:
     raise SystemExit("payment amount unit must be explicit in the schema")
 
 require(
