@@ -27,7 +27,6 @@ export default function SuccessScreen() {
   const router = useRouter();
   const cachedToken = useDownloadTokenStore((state) => state.get(reel_id));
   const hydrateToken = useDownloadTokenStore((state) => state.hydrate);
-  const clearToken = useDownloadTokenStore((state) => state.clear);
   const [token, setToken] = useState<string | undefined>(cachedToken);
   const [fulfillment, setFulfillment] = useState<FulfillmentState>('checking');
   const [checking, setChecking] = useState(false);
@@ -95,8 +94,10 @@ export default function SuccessScreen() {
       const result = await FileSystem.downloadAsync(downloadUrl, destination);
       if (result.status >= 300) throw new Error(`Download failed with status ${result.status}`);
 
+      // Keep the purchase token in SecureStore. The product promises durable
+      // ownership, and this token is the only current way to request another
+      // short-lived download URL on this device.
       setDownloaded(true);
-      await clearToken(reel_id);
       await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       Alert.alert('Downloaded!', 'Your clip has been saved to your device.');
     } catch (error) {
@@ -127,10 +128,18 @@ export default function SuccessScreen() {
         <Text variant="body" color={Colors.textSecondary} style={{ textAlign: 'center' }}>{message}</Text>
         <Spacer size={Spacing.xl} />
 
-        {downloaded ? (
-          <Text variant="title" color={Colors.success} style={{ textAlign: 'center' }}>✓ Saved to your device</Text>
-        ) : fulfillment === 'completed' ? (
-          <Button label={downloading ? 'Downloading…' : 'Download to Phone'} onPress={download} loading={downloading} disabled={downloading} />
+        {fulfillment === 'completed' ? (
+          <>
+            {downloaded && (
+              <Text variant="title" color={Colors.success} style={{ textAlign: 'center' }}>✓ Saved to your device</Text>
+            )}
+            <Button
+              label={downloading ? 'Downloading…' : downloaded ? 'Download again' : 'Download to Phone'}
+              onPress={download}
+              loading={downloading}
+              disabled={downloading}
+            />
+          </>
         ) : fulfillment === 'failed' ? (
           <Button label="Return to checkout" onPress={() => router.replace(`/checkout/${reel_id}`)} variant="secondary" />
         ) : (
