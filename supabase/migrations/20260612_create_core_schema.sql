@@ -70,7 +70,7 @@ create trigger on_auth_user_created
 create table if not exists public.payments (
   id                        uuid primary key default gen_random_uuid(),
   reel_id                   uuid references public.reels on delete set null,
-  amount_ils                numeric(10,2), -- Stripe minor units (agorot)
+  amount_ils                numeric(10,2), -- payment-provider minor units (agorot)
   status                    text default 'pending',   -- pending | completed | failed
   stripe_payment_intent_id  text unique,
   meshulam_transaction_id   text unique,
@@ -86,9 +86,11 @@ alter table public.payments enable row level security;
 -- 4. PRICING
 -- ─────────────────────────────────────────────
 create table if not exists public.pricing (
-  sport       text primary key,
-  price_ils   numeric(10,2) not null, -- human-readable major ILS units
-  updated_at  timestamptz default now()
+  sport        text primary key,
+  price_ils    numeric(10,2) not null, -- human-readable major ILS units
+  price_unit   text not null default 'major_ils_v1',
+  updated_at   timestamptz default now(),
+  constraint pricing_unit_supported check (price_unit = 'major_ils_v1')
 );
 
 alter table public.pricing enable row level security;
@@ -97,19 +99,19 @@ drop policy if exists "public_read_pricing" on public.pricing;
 create policy "public_read_pricing" on public.pricing
   for select using (true);
 
-insert into public.pricing (sport, price_ils) values
-  ('surfing',        79),
-  ('swimming',       79),
-  ('skateboarding',  79),
-  ('skiing',         89),
-  ('snowboarding',   89),
-  ('football',       79),
-  ('soccer',         79),
-  ('basketball',     79),
-  ('cycling',        79),
-  ('motocross',      89),
-  ('parkour',        79),
-  ('sport',          79)
+insert into public.pricing (sport, price_ils, price_unit) values
+  ('surfing',        79, 'major_ils_v1'),
+  ('swimming',       79, 'major_ils_v1'),
+  ('skateboarding',  79, 'major_ils_v1'),
+  ('skiing',         89, 'major_ils_v1'),
+  ('snowboarding',   89, 'major_ils_v1'),
+  ('football',       79, 'major_ils_v1'),
+  ('soccer',         79, 'major_ils_v1'),
+  ('basketball',     79, 'major_ils_v1'),
+  ('cycling',        79, 'major_ils_v1'),
+  ('motocross',      89, 'major_ils_v1'),
+  ('parkour',        79, 'major_ils_v1'),
+  ('sport',          79, 'major_ils_v1')
 on conflict (sport) do nothing;
 
 -- ─────────────────────────────────────────────
