@@ -30,10 +30,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install ffmpeg
+      - name: Verify ffmpeg tools
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          command -v ffmpeg
+          command -v ffprobe
+          ffmpeg -version | head -n 1
       - name: Compile changed Python modules
         run: |
           python -m py_compile \
