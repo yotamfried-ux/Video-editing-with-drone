@@ -6,12 +6,17 @@ on:
       - 'pipeline/quality_preserving_framing.py'
       - 'pipeline/required_perception_policy.py'
       - 'pipeline/bootstrap.py'
+      - 'pipeline/silent_output_policy.py'
       - 'services/delivery.py'
       - 'requirements.txt'
       - 'mobile/**'
       - 'web-api/**'
+      - 'DEPLOYMENT.md'
+      - 'supabase/migrations/20260612_create_core_schema.sql'
       - 'supabase/migrations/20260721_remove_face_recognition.sql'
+      - 'supabase/verify_schema.sql'
       - 'scripts/test_quality_first_4k_policy_contract.py'
+      - 'scripts/test_quality_first_4k_media_contract.py'
       - '.github/workflows/pipeline-run.yml'
       - '.github/workflows/quality-first-4k-contract.yml'
   workflow_dispatch:
@@ -19,19 +24,27 @@ on:
 jobs:
   contract:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install ffmpeg
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg
       - name: Compile changed Python modules
         run: |
           python -m py_compile \
             pipeline/required_perception_policy.py \
             pipeline/quality_preserving_framing.py \
             pipeline/bootstrap.py \
+            pipeline/silent_output_policy.py \
             services/delivery.py \
-            scripts/test_quality_first_4k_policy_contract.py
+            scripts/test_quality_first_4k_policy_contract.py \
+            scripts/test_quality_first_4k_media_contract.py
       - name: Run quality-first product contract
         run: python scripts/test_quality_first_4k_policy_contract.py
+      - name: Render and probe a real 4K/30 fixture
+        run: python scripts/test_quality_first_4k_media_contract.py
