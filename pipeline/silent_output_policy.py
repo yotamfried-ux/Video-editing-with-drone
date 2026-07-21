@@ -161,7 +161,6 @@ def _patch_editor() -> None:
 
     if getattr(editor, _EDITOR_FLAG, False):
         return
-
     original_compile_reel = editor.compile_reel
     original_bookend = editor._add_loop_bookend
 
@@ -200,10 +199,20 @@ def _patch_publishable_policy() -> None:
 
 
 def install() -> None:
-    """Disable audio generation and enforce one silent canonical output per Part."""
+    """Install the canonical silent, mandatory-CV, quality-first media contract."""
     global _INSTALL_DONE
     if _INSTALL_DONE:
         return
     _patch_editor()
     _patch_publishable_policy()
+
+    # These policies belong to the same media-output contract. Activating them
+    # here preserves the repository's canonical bootstrap order while ensuring
+    # every entrypoint requires detector/tracker evidence and renders 4K/30 with
+    # contain-first framing.
+    from pipeline.required_perception_policy import install as install_required_perception
+    from pipeline.quality_preserving_framing import install as install_quality_framing
+
+    install_required_perception()
+    install_quality_framing()
     _INSTALL_DONE = True
