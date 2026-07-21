@@ -253,8 +253,41 @@ def deliver_preview() -> None:
     print(f"\n✅ {len(preview_results)} preview(s) ready in PENDING_PAYMENT folder")
 
 
+def _publish_final_reel(draft: dict, local_path: str) -> None:
+    """Publish one full-quality reel while its bounded local file is available."""
+    if not local_path:
+        logger.warning("SportReel publish skipped for '%s': local download unavailable", draft["name"])
+        return
+    try:
+        from integrations.supabase_uploader import _supabase, publish_reel
+
+        existing = (
+            _supabase()
+            .table("reels")
+            .select("id")
+            .eq("source_video", draft["name"])
+            .limit(1)
+            .execute()
+        )
+        if existing.data:
+            return
+        reel_meta = _load_reel_metadata(draft["name"]) or {}
+        publish_reel(
+            local_path=local_path,
+            athlete_desc=reel_meta.get("description", ""),
+            sport=reel_meta.get("sport", "unknown"),
+            drive_file_id=draft["id"],
+        )
+    except Exception as exc:
+        logger.warning("SportReel publish skipped for '%s': %s", draft["name"], exc)
+
+
 def deliver_final() -> None:
-    """Pending-payment reels -> explicit delivery link -> archive."""
+    """Pending-payment reels -> explicit delivery link -> archive.
+
+    Full-quality 4K files are processed one at a time and removed in ``finally``
+    so batch size cannot multiply temporary disk usage.
+    """
     print("\n💳 D to R Pipeline — Phase 2b: Final Delivery")
     pending = get_pending_payment_drafts()
     if not pending:
@@ -273,31 +306,34 @@ def deliver_final() -> None:
         logger.warning("No webViewLink for '%s' — skipping email", draft["name"])
 
     print(f"\n📋 {len(to_deliver)} reel(s) to deliver")
-    downloaded: dict[str, str] = {}
     sent_to_clients = 0
 
     for draft in to_deliver:
+        local_path = None
         try:
-            downloaded[draft["id"]] = download_video(draft["id"], draft["name"])
-        except Exception as exc:
-            logger.warning("Could not download '%s': %s", draft["name"], exc)
+            local_path = download_video(draft["id"], draft["name"])
+            _publish_final_reel(draft, local_path)
 
-        client = find_client(draft["name"])
-        if not client:
-            continue
-        email = client.get("email", "")
-        if not email or email == config.OWNER_EMAIL:
-            continue
-        try:
-            send_summary_email(
-                recipients=[email],
-                clips_links=[draft["webViewLink"]],
-                sport_type="mixed",
-                video_name=draft["name"],
-            )
-            sent_to_clients += 1
-        except Exception:
-            logger.error("Failed to send final email to %s for %s", email, draft["name"])
+            client = find_client(draft["name"])
+            if not client:
+                continue
+            email = client.get("email", "")
+            if not email or email == config.OWNER_EMAIL:
+                continue
+            try:
+                send_summary_email(
+                    recipients=[email],
+                    clips_links=[draft["webViewLink"]],
+                    sport_type="mixed",
+                    video_name=draft["name"],
+                )
+                sent_to_clients += 1
+            except Exception:
+                logger.error("Failed to send final email to %s for %s", email, draft["name"])
+        except Exception as exc:
+            logger.warning("Could not prepare final delivery for '%s': %s", draft["name"], exc)
+        finally:
+            _remove(local_path)
 
     if to_deliver:
         try:
@@ -320,30 +356,6 @@ def deliver_final() -> None:
         if draft["id"] not in delivered_ids and draft["id"] not in already_delivered:
             logger.warning("Archiving '%s' without a configured client email", draft["name"])
         mark_draft_delivered(draft["id"])
-        try:
-            from integrations.supabase_uploader import _supabase, publish_reel
-
-            existing = (
-                _supabase()
-                .table("reels")
-                .select("id")
-                .eq("source_video", draft["name"])
-                .limit(1)
-                .execute()
-            )
-            if not existing.data:
-                reel_meta = _load_reel_metadata(draft["name"]) or {}
-                publish_reel(
-                    local_path=downloaded.get(draft["id"], ""),
-                    athlete_desc=reel_meta.get("description", ""),
-                    sport=reel_meta.get("sport", "unknown"),
-                    drive_file_id=draft["id"],
-                )
-        except Exception as exc:
-            logger.warning("SportReel publish skipped: %s", exc)
-
-    for local_path in downloaded.values():
-        _remove(local_path)
 
     logger.info(
         "Phase 2b complete. Delivered: %d, client emails: %d",
