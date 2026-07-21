@@ -1,51 +1,51 @@
 export const TERMS_OF_SERVICE = `
 SPORTREEL — TERMS OF SERVICE
-Last updated: June 2026
+Last updated: July 2026
 
 1. ACCEPTANCE OF TERMS
 By downloading, installing, or using the SportReel application ("App"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree, do not use the App.
 
 2. SERVICE DESCRIPTION
-SportReel provides drone-captured sports highlight videos ("Reels") recorded at sporting venues. Athletes may browse, preview, and purchase Reels featuring themselves or others.
+SportReel provides AI-assisted personal sports videos ("Reels") created from shared footage. Athletes and viewers may browse, preview, and purchase available Reels. The App does not identify an account from a face photo or facial biometric template.
 
 3. CONTENT AVAILABILITY
-Reels are available for preview for 48 hours from the time of upload. After 48 hours, unpurchased Reels are permanently deleted from our servers. SportReel is not responsible for Reels that expire before you have the opportunity to purchase them.
+Reel availability and retention depend on the active event, operator, purchase, and delivery policy shown in the service. SportReel is not responsible for content that expires before purchase or download when the applicable expiry was disclosed.
 
 4. PURCHASES & PAYMENT
-All purchases are final subject to the refund policy below. Prices are displayed in Israeli New Shekel (₪). Payment is processed by Stripe (card payments) or Meshulam (Bit wallet payments). SportReel does not store your payment card details.
+Purchases are subject to the checkout terms and refund policy shown at the time of purchase. Prices are displayed in the configured currency. Payments are processed by supported payment providers such as Stripe. SportReel does not store payment card details.
 
 5. REFUND POLICY
-You may request a full refund within 7 days of purchase, provided the Reel has not yet been downloaded to your device. Once a Reel is downloaded, no refund is available. This policy is consistent with Israeli Consumer Protection Law 1981 §14c (digital goods exemption) and EU Consumer Rights Directive 2011/83 Art. 16(m).
+Refund eligibility depends on applicable consumer law, whether the digital Reel has been delivered or downloaded, and the terms presented during checkout. Contact Support to request review of a purchase.
 
 6. CONTENT LICENSE
-Upon completing a purchase, SportReel grants you a non-exclusive, non-transferable, personal-use license to the purchased Reel. You may store and view the Reel on your personal devices. You may not: (a) redistribute the Reel; (b) upload it to social media without crediting the source; (c) sell or sublicense it; (d) use it for commercial purposes without prior written consent from SportReel.
+After a completed purchase, SportReel grants the purchaser a non-exclusive, non-transferable license to use the purchased Reel for personal self-promotion, including publication on social-media accounts controlled by the purchaser. The Reel may not be resold, sublicensed, misrepresented as another person's performance, or used unlawfully.
 
-7. SCREENSHOT & SCREEN RECORDING PROHIBITION
-The App employs technical measures to prevent screenshots and screen recording during Reel playback. Attempting to circumvent these measures and/or capturing Reel content without authorization constitutes copyright infringement and may violate applicable law.
+7. UNAUTHORIZED CAPTURE OR ACCESS
+You may not bypass access controls, obtain protected Reel files without authorization, interfere with payment or delivery safeguards, or use automation to access content in violation of these Terms.
 
-8. FACE RECOGNITION (OPTIONAL)
-You may optionally provide a face photo to enable automatic Reel matching. This feature is entirely optional. Providing a face photo constitutes explicit consent to process your biometric data under GDPR Article 9 and Israeli Privacy Protection Law Amendment 13. You may withdraw consent and delete your biometric data at any time from your Profile screen. See our Privacy Policy for full details.
+8. FOOTAGE ANALYSIS AND ATHLETE TRACKING
+The production pipeline may use computer vision to locate and track athletes within uploaded sports footage so that one featured athlete remains continuous during editing. These production track identifiers are not facial biometric account identifiers and are not used to match a Reel automatically to an App account.
 
 9. FILMING AT VENUES
-By attending a filming venue or scanning a venue QR code, you acknowledge that aerial drone filming is in progress and that highlight Reels may be created from the footage. Attendance does not obligate you to purchase any Reel. If you do not wish to be filmed, please inform venue staff.
+When filming notices, venue terms, operator instructions, or applicable law require acknowledgment, attendees must follow those requirements. Attendance does not obligate anyone to purchase a Reel. Requests concerning filming should be directed to venue staff or SportReel support.
 
 10. INTELLECTUAL PROPERTY
-All raw footage is the property of SportReel or its licensors. Purchased Reels are licensed, not sold. SportReel retains all copyright in the underlying footage.
+Rights in raw footage and generated Reels remain with SportReel, the operator, or the applicable licensors except for the license expressly granted after purchase. Users must respect third-party rights visible in shared sports footage.
 
 11. USER CONDUCT
-You agree not to: (a) access the App with unauthorized automation tools; (b) attempt to download Reels without payment; (c) reverse-engineer the App; (d) use the App for any unlawful purpose.
+You agree not to access the App using unauthorized automation, attempt to obtain Reels without permission, reverse-engineer protected services where prohibited, impersonate another athlete, or use the App for unlawful activity.
 
 12. LIMITATION OF LIABILITY
-To the maximum extent permitted by law, SportReel is not liable for indirect, incidental, special, or consequential damages, including loss of data or business interruption, arising from your use of the App.
+To the maximum extent permitted by law, SportReel is not liable for indirect, incidental, special, or consequential damages arising from use of the App. Nothing in these Terms excludes liability that cannot legally be excluded.
 
 13. GOVERNING LAW
-These Terms are governed by the laws of the State of Israel. For EU users, mandatory consumer protections under your local law also apply.
+These Terms are governed by the law identified in the applicable service or checkout terms, subject to mandatory consumer protections that apply to the user.
 
 14. CHANGES TO TERMS
-We may update these Terms at any time. Continued use of the App after changes constitutes acceptance of the updated Terms.
+We may update these Terms. Material changes will be communicated through an appropriate product or communication channel where required.
 
 15. CONTACT
-For questions about these Terms, contact us through the "Contact Support" option in your Profile screen.
+For questions about these Terms, use the Contact Support option in the Profile screen.
 `.trim();
 
 export const TERMS_ACCEPTANCE_TEXT =
