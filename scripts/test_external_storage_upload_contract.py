@@ -16,8 +16,13 @@ required_tokens = [
     'Select all',
     'Upload selected (',
     'requiresLocalCopy: true',
-    'FileSystem.copyAsync({ from: item.uri, to: temporaryUploadUri })',
-    'FileSystem.deleteAsync(temporaryUploadUri, { idempotent: true })',
+    'const prepareUpload',
+    'await FileSystem.copyAsync({ from: item.uri, to: temporaryUri })',
+    'await FileSystem.deleteAsync(temporaryUri, { idempotent: true })',
+    'const uploadItemWithRetries',
+    'const prepared = await prepareUpload(item)',
+    'await uploadPreparedFile(item, session, prepared.uri)',
+    'await prepared.cleanup()',
     'EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT = 1',
     'Choose videos from SD / USB',
     'Upload from gallery',
@@ -51,10 +56,33 @@ for token in ['candidate.selected', 'requiresLocalCopy: true', 'await uploadSele
     if token not in selected_block:
         raise SystemExit(f'selected external upload block missing: {token}')
 
-copy_index = pipeline_screen.index('FileSystem.copyAsync({ from: item.uri, to: temporaryUploadUri })')
-upload_index = pipeline_screen.index('FileSystem.createUploadTask(', copy_index)
-delete_index = pipeline_screen.index('FileSystem.deleteAsync(temporaryUploadUri', upload_index)
-if not copy_index < upload_index < delete_index:
-    raise SystemExit('external storage files must be copied before upload and cleaned after upload')
+prepare_start = pipeline_screen.index('const prepareUpload')
+prepare_end = pipeline_screen.index('const requestUploadSession', prepare_start)
+prepare_block = pipeline_screen[prepare_start:prepare_end]
+copy_index = prepare_block.index('await FileSystem.copyAsync({ from: item.uri, to: temporaryUri })')
+delete_index = prepare_block.index('await FileSystem.deleteAsync(temporaryUri, { idempotent: true })')
+if copy_index >= delete_index:
+    raise SystemExit('external source must be copied before its cleanup callback is defined')
 
-print('Specific external SD / USB video selection contract checks passed')
+retry_start = pipeline_screen.index('const uploadItemWithRetries')
+retry_end = pipeline_screen.index('const runUploadQueue', retry_start)
+retry_block = pipeline_screen[retry_start:retry_end]
+prepare_call = retry_block.index('const prepared = await prepareUpload(item)')
+upload_call = retry_block.index('await uploadPreparedFile(item, session, prepared.uri)')
+finally_index = retry_block.index('finally')
+cleanup_call = retry_block.index('await prepared.cleanup()', finally_index)
+if not prepare_call < upload_call < finally_index < cleanup_call:
+    raise SystemExit('external files must be prepared once, uploaded/retried, then cleaned in finally')
+
+queue_start = pipeline_screen.index('const runUploadQueue')
+queue_end = pipeline_screen.index('const retryUploadItem', queue_start)
+queue_block = pipeline_screen[queue_start:queue_end]
+for token in [
+    'items.some((item) => item.requiresLocalCopy)',
+    'EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT',
+    'runQueue(items, (item) => uploadItemWithRetries(item, stableBatchId), concurrency)',
+]:
+    if token not in queue_block:
+        raise SystemExit(f'external queue safety missing: {token}')
+
+print('Specific external SD / USB video selection and retry lifecycle checks passed')
