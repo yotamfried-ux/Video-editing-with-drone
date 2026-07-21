@@ -28,6 +28,8 @@ required_pipeline_tokens = [
     'Choose videos from SD / USB',
     'Upload from gallery',
     'await uploadSelectedItems(items)',
+    'abortPersistedMultipartUpload',
+    'Discard interrupted upload?',
     'Resume',
 ]
 missing = [token for token in required_pipeline_tokens if token not in pipeline_screen]
@@ -44,6 +46,7 @@ required_multipart_tokens = [
     'PART_UPLOAD_ATTEMPTS = 3',
     'await saveRecord(record)',
     'loadActiveMultipartBatch',
+    'abortPersistedMultipartUpload',
 ]
 missing = [token for token in required_multipart_tokens if token not in multipart_mobile]
 if missing:
@@ -86,7 +89,7 @@ upload_end = pipeline_screen.index('const runUploadQueue', upload_start)
 upload_block = pipeline_screen[upload_start:upload_end]
 branch_index = upload_block.index("session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable'")
 resume_index = upload_block.index('await resumeMultipartUpload({', branch_index)
-legacy_prepare_index = upload_block.index('prepared ??= await prepareLegacyUpload(item)', resume_index)
+legacy_prepare_index = upload_block.index('await prepareLegacyUpload(item)', resume_index)
 legacy_upload_index = upload_block.index('await uploadLegacyPreparedFile', legacy_prepare_index)
 if not branch_index < resume_index < legacy_prepare_index < legacy_upload_index:
     raise SystemExit('R2 must stream parts directly; whole-file copy is allowed only in the legacy non-R2 fallback')
