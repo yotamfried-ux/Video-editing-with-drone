@@ -17,13 +17,15 @@ required_pipeline_tokens = [
     'Select all',
     'Upload selected (',
     'externalSource: true',
-    'const prepareLegacyUpload',
-    'await FileSystem.copyAsync({ from: item.uri, to: temporaryUri })',
-    'await FileSystem.deleteAsync(temporaryUri, { idempotent: true })',
+    'const prepareMultipartSource',
+    "item.externalSource || item.uri.startsWith('content://')",
+    'sportreel-multipart-',
+    'await FileSystem.copyAsync({ from: item.uri, to: stableUri })',
+    'Cannot determine the exact staged source size',
     "session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable'",
     'resumeMultipartUpload({',
-    'sourceUri: item.uri',
-    'externalSource: Boolean(item.externalSource)',
+    'sourceUri: source!.uri',
+    'sourceSizeBytes: source!.size',
     'EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT = 1',
     'Choose videos from SD / USB',
     'Upload from gallery',
@@ -39,13 +41,14 @@ if missing:
 required_multipart_tokens = [
     'FileSystem.readAsStringAsync(sourceUri',
     'FileSystem.EncodingType.Base64',
-    'position: offset',
-    'length,',
-    'const bytes = decode(encoded)',
-    'bytes.byteLength',
+    'position: cursor',
+    'length: remaining',
+    'while (remaining > 0)',
+    'const combined = new Uint8Array(length)',
     'PART_UPLOAD_ATTEMPTS = 3',
     'await saveRecord(record)',
     'loadActiveMultipartBatch',
+    'cleanupStagedSource',
     'abortPersistedMultipartUpload',
 ]
 missing = [token for token in required_multipart_tokens if token not in multipart_mobile]
@@ -67,7 +70,7 @@ forbidden_multipart_tokens = [
 ]
 present = [token for token in forbidden_multipart_tokens if token in multipart_mobile]
 if present:
-    raise SystemExit(f'multipart SD / USB path must not copy or materialize the whole video: {present}')
+    raise SystemExit(f'multipart reader must not copy or materialize the whole video: {present}')
 
 folder_start = pipeline_screen.index('const uploadExternalStorageFolder')
 folder_end = pipeline_screen.index('const uploadBusy', folder_start)
@@ -87,12 +90,20 @@ for token in ['candidate.selected', 'externalSource: true', 'await uploadSelecte
 upload_start = pipeline_screen.index('const uploadItemWithRetries')
 upload_end = pipeline_screen.index('const runUploadQueue', upload_start)
 upload_block = pipeline_screen[upload_start:upload_end]
-branch_index = upload_block.index("session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable'")
+prepare_index = upload_block.index('source = await prepareMultipartSource(item)')
+branch_index = upload_block.index("session.storage_backend === 'r2' && session.upload_mode === 'multipart_resumable'", prepare_index)
 resume_index = upload_block.index('await resumeMultipartUpload({', branch_index)
-legacy_prepare_index = upload_block.index('await prepareLegacyUpload(item)', resume_index)
-legacy_upload_index = upload_block.index('await uploadLegacyPreparedFile', legacy_prepare_index)
-if not branch_index < resume_index < legacy_prepare_index < legacy_upload_index:
-    raise SystemExit('R2 must stream parts directly; whole-file copy is allowed only in the legacy non-R2 fallback')
+legacy_upload_index = upload_block.index('await uploadLegacyPreparedFile', resume_index)
+if not prepare_index < branch_index < resume_index < legacy_upload_index:
+    raise SystemExit('SAF staging must happen once, then R2 must use bounded multipart reads before the legacy fallback')
+
+for token in [
+    'attemptedR2 = true',
+    'if (source?.staged && !attemptedR2) await cleanupPreparedSource(source)',
+    'if (source && usedLegacyFallback) await cleanupPreparedSource(source)',
+]:
+    if token not in upload_block:
+        raise SystemExit(f'staged source lifecycle missing: {token}')
 
 queue_start = pipeline_screen.index('const runUploadQueue')
 queue_end = pipeline_screen.index('const retryUploadItem', queue_start)
@@ -105,4 +116,4 @@ for token in [
     if token not in queue_block:
         raise SystemExit(f'external queue safety missing: {token}')
 
-print('Specific external SD / USB selection and direct persisted multipart resume checks passed')
+print('External SD / USB staging and persisted multipart resume checks passed')
