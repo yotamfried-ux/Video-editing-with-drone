@@ -1,46 +1,72 @@
--- Run this in Supabase SQL editor to verify all required tables and functions exist.
--- Every query should return at least one row.
+-- Run in Supabase SQL editor after all migrations.
+-- Every `ok` value must be true.
 
--- Tables
-select 'reels'              as item, count(*) > 0 as exists from information_schema.tables where table_schema='public' and table_name='reels'
+-- Required tables.
+select 'table:reels' as item, count(*) > 0 as ok
+from information_schema.tables where table_schema='public' and table_name='reels'
 union all
-select 'athlete_profiles',   count(*) > 0 from information_schema.tables where table_schema='public' and table_name='athlete_profiles'
+select 'table:athlete_profiles', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='athlete_profiles'
 union all
-select 'payments',           count(*) > 0 from information_schema.tables where table_schema='public' and table_name='payments'
+select 'table:payments', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='payments'
 union all
-select 'pricing',            count(*) > 0 from information_schema.tables where table_schema='public' and table_name='pricing'
+select 'table:pricing', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='pricing'
 union all
-select 'analytics_events',   count(*) > 0 from information_schema.tables where table_schema='public' and table_name='analytics_events'
+select 'table:analytics_events', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='analytics_events'
 union all
-select 'suggestions',        count(*) > 0 from information_schema.tables where table_schema='public' and table_name='suggestions'
+select 'table:suggestions', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='suggestions'
 union all
-select 'support_tickets',    count(*) > 0 from information_schema.tables where table_schema='public' and table_name='support_tickets'
+select 'table:support_tickets', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='support_tickets'
 union all
-select 'drafts',             count(*) > 0 from information_schema.tables where table_schema='public' and table_name='drafts'
+select 'table:drafts', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='drafts'
 union all
-select 'reprocess_requests', count(*) > 0 from information_schema.tables where table_schema='public' and table_name='reprocess_requests'
+select 'table:reprocess_requests', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='reprocess_requests'
 union all
-select 'pipeline_status',    count(*) > 0 from information_schema.tables where table_schema='public' and table_name='pipeline_status'
+select 'table:pipeline_status', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='pipeline_status'
 union all
-select 'draft_feedback',     count(*) > 0 from information_schema.tables where table_schema='public' and table_name='draft_feedback'
-
-union all
-
--- Functions
-select 'fn:match_athlete_face', count(*) > 0 from information_schema.routines where routine_schema='public' and routine_name='match_athlete_face'
-union all
-select 'fn:handle_new_user',    count(*) > 0 from information_schema.routines where routine_schema='public' and routine_name='handle_new_user'
-union all
-select 'fn:cosine_similarity',  count(*) > 0 from information_schema.routines where routine_schema='public' and routine_name='cosine_similarity'
-
-union all
-
--- Trigger
-select 'trigger:on_auth_user_created', count(*) > 0 from information_schema.triggers where trigger_name='on_auth_user_created'
-
+select 'table:draft_feedback', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='draft_feedback'
 union all
 
--- Pricing seed data
+-- Required non-biometric function/trigger.
+select 'function:handle_new_user', count(*) > 0
+from information_schema.routines where routine_schema='public' and routine_name='handle_new_user'
+union all
+select 'trigger:on_auth_user_created', count(*) > 0
+from information_schema.triggers where trigger_name='on_auth_user_created'
+union all
 select 'pricing_seeded', count(*) > 0 from public.pricing
+union all
 
+-- Removed biometric contract: these checks pass only when the old surface is absent.
+select 'removed:athlete_profiles.face_embedding', count(*) = 0
+from information_schema.columns
+where table_schema='public' and table_name='athlete_profiles' and column_name='face_embedding'
+union all
+select 'removed:athlete_profiles.photo_path', count(*) = 0
+from information_schema.columns
+where table_schema='public' and table_name='athlete_profiles' and column_name='photo_path'
+union all
+select 'removed:reels.matched_athlete', count(*) = 0
+from information_schema.columns
+where table_schema='public' and table_name='reels' and column_name='matched_athlete'
+union all
+select 'removed:function:match_athlete_face', count(*) = 0
+from information_schema.routines
+where routine_schema='public' and routine_name='match_athlete_face'
+union all
+select 'removed:function:cosine_similarity', count(*) = 0
+from information_schema.routines
+where routine_schema='public' and routine_name='cosine_similarity'
+union all
+select 'removed:storage_bucket:athlete-photos', count(*) = 0
+from storage.buckets where id='athlete-photos'
 order by item;
