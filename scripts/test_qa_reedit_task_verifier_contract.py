@@ -75,8 +75,8 @@ def main() -> int:
         "GAP-021",
         "QA-blocked re-edit reaches a terminal verdict",
         "qa_blocked",
-        "approval_blocked_reasons",
-        "attempt_count",
+        "blocked reasons",
+        "attempt count",
         "max attempts",
     ]:
         require(token, audit, "app pipeline audit")
