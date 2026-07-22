@@ -71,6 +71,14 @@ def main() -> int:
         "schema cache",
     ]:
         require(token, docs, "migration smoke docs")
+
+    for token in [
+        "GAP-021",
+        "QA-blocked re-edit reaches a terminal verdict",
+        "qa_blocked",
+        "blocked reasons",
+        "Supabase migrations",
+    ]:
         require(token, audit, "app pipeline audit")
 
     for token in [

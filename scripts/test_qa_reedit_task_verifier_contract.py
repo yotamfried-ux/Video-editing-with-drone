@@ -70,6 +70,15 @@ def main() -> int:
         "origin='qa_gate'",
     ]:
         require(token, smoke_docs, "QA re-edit migration smoke docs")
+
+    for token in [
+        "GAP-021",
+        "QA-blocked re-edit reaches a terminal verdict",
+        "qa_blocked",
+        "blocked reasons",
+        "attempt count",
+        "max attempts",
+    ]:
         require(token, audit, "app pipeline audit")
 
     print("QA re-edit task verifier contract ok")
