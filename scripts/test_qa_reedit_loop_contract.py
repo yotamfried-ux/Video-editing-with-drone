@@ -126,8 +126,8 @@ def main() -> int:
         require(token, pipeline_docs, "operator pipeline docs")
 
     for token in [
-        "GAP-012",
-        "QA-blocked drafts need a persistent operator re-edit loop",
+        "GAP-021",
+        "QA-blocked re-edit reaches a terminal verdict",
         "qa_blocked",
         "Send QA notes to re-edit",
     ]:
