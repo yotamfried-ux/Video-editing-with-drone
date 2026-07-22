@@ -76,7 +76,7 @@ def main() -> int:
         "GAP-021",
         "QA-blocked re-edit reaches a terminal verdict",
         "qa_blocked",
-        "approval_blocked_reasons",
+        "blocked reasons",
         "Supabase migrations",
     ]:
         require(token, audit, "app pipeline audit")
