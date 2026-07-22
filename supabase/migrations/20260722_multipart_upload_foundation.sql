@@ -14,7 +14,7 @@ create table if not exists public.upload_batches (
   grouping_type text not null default 'session'
     check (grouping_type in ('session', 'athlete', 'mixed', 'other')),
   state text not null default 'collecting'
-    check (state in ('collecting', 'uploading', 'ready', 'dispatched', 'completed', 'blocked', 'aborted')),
+    check (state in ('collecting', 'uploading', 'ready', 'dispatching', 'dispatched', 'completed', 'blocked', 'aborted')),
   expected_file_count integer not null check (expected_file_count between 1 and 20),
   verified_file_count integer not null default 0 check (verified_file_count >= 0),
   owner_metadata jsonb not null default '{}'::jsonb,
@@ -71,6 +71,9 @@ create index if not exists upload_files_batch_state_idx
   on public.upload_files (batch_id, state, updated_at desc);
 create index if not exists upload_files_incomplete_idx
   on public.upload_files (updated_at)
+  where state in ('pending', 'uploading', 'paused', 'source_unavailable', 'completing', 'failed', 'aborting');
+create unique index if not exists upload_files_active_source_fingerprint_idx
+  on public.upload_files (source_fingerprint)
   where state in ('pending', 'uploading', 'paused', 'source_unavailable', 'completing', 'failed', 'aborting');
 create index if not exists upload_parts_file_part_idx
   on public.upload_parts (upload_file_id, part_number);
@@ -131,7 +134,7 @@ begin
          end,
          updated_at = now()
    where batch_id = target_batch_id
-     and state not in ('dispatched', 'completed');
+     and state not in ('dispatching', 'dispatched', 'completed');
 end;
 $$;
 
@@ -193,18 +196,22 @@ begin
 end;
 $$;
 
+drop trigger if exists upload_batches_touch_updated_at on public.upload_batches;
 create trigger upload_batches_touch_updated_at
 before update on public.upload_batches
 for each row execute function public.touch_upload_updated_at();
 
+drop trigger if exists upload_files_touch_updated_at on public.upload_files;
 create trigger upload_files_touch_updated_at
 before update on public.upload_files
 for each row execute function public.touch_upload_updated_at();
 
+drop trigger if exists upload_files_refresh_batch_rollup on public.upload_files;
 create trigger upload_files_refresh_batch_rollup
 after insert or update or delete on public.upload_files
 for each row execute function public.refresh_upload_batch_rollup_trigger();
 
+drop trigger if exists upload_parts_refresh_file_bytes on public.upload_parts;
 create trigger upload_parts_refresh_file_bytes
 after insert or update or delete on public.upload_parts
 for each row execute function public.refresh_upload_file_bytes_trigger();
