@@ -1,0 +1,26 @@
+apply plugin: 'com.android.library'
+
+group = 'expo.modules.sportreelsourcereader'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(':expo-modules-core').projectDir.absolutePath, 'ExpoModulesCorePlugin.gradle')
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+// Keep the SDK values aligned with the host Expo SDK 52 application.
+useDefaultAndroidSdkVersions()
+
+android {
+  namespace 'expo.modules.sportreelsourcereader'
+
+  defaultConfig {
+    versionCode 1
+    versionName '0.1.0'
+  }
+
+  lintOptions {
+    abortOnError false
+  }
+}
