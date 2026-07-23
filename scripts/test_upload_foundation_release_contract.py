@@ -5,6 +5,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/upload-foundation-release.yml"
+R2_PROBE = ROOT / "scripts/test_real_r2_multipart_upload.py"
 
 
 def require_tokens(source: str, tokens: list[str], label: str) -> None:
@@ -21,6 +22,7 @@ def require_order(source: str, tokens: list[str], label: str) -> None:
 
 def main() -> int:
     source = WORKFLOW.read_text(encoding="utf-8")
+    probe = R2_PROBE.read_text(encoding="utf-8")
 
     require_tokens(
         source,
@@ -44,6 +46,19 @@ def main() -> int:
             "if-no-files-found: error",
         ],
         "upload release workflow",
+    )
+
+    require_tokens(
+        probe,
+        [
+            'evidence["cleanup"] = "confirmed" if not cleanup_errors else "failed"',
+            'evidence["probe_succeeded"] = probe_succeeded',
+            "if cleanup_errors:",
+            "raise RuntimeError(message)",
+            'if not probe_succeeded:',
+            'raise RuntimeError("R2 probe did not reach verified completion")',
+        ],
+        "real R2 probe fail-closed cleanup",
     )
 
     require_order(
