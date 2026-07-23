@@ -1,0 +1,44 @@
+name: Apply Gallery Size Patch
+
+on:
+  push:
+    branches: [feat/drone-large-upload-foundation]
+    paths:
+      - '.github/workflows/apply-gallery-size-patch.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/drone-large-upload-foundation
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply deterministic patch
+        run: python scripts/apply_gallery_size_patch.py
+
+      - name: Validate patched mobile code
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Commit target change and remove one-shot patch machinery
+        run: |
+          set -euo pipefail
+          rm scripts/apply_gallery_size_patch.py
+          rm .github/workflows/apply-gallery-size-patch.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add mobile/src/app/'(operator)'/pipeline.tsx scripts/apply_gallery_size_patch.py .github/workflows/apply-gallery-size-patch.yml
+          git diff --cached --check
+          git commit -m 'fix: persist source size for gallery upload verification'
+          git push origin HEAD:feat/drone-large-upload-foundation
