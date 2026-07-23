@@ -15,6 +15,7 @@ on:
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
       - 'supabase/migrations/20260723_source_upload_local_cleanup_evidence.sql'
       - 'supabase/migrations/20260723_upload_batch_verified_gate.sql'
+      - 'supabase/migrations/20260723_upload_start_idempotency.sql'
       - 'web-api/src/app/api/operator/pipeline/start/route.ts'
       - 'web-api/src/app/api/operator/upload/route.ts'
       - 'web-api/src/app/api/operator/upload/batch/route.ts'
