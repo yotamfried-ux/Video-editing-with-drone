@@ -205,7 +205,6 @@ export async function POST(req: NextRequest) {
     // both intact so the same client_upload_id can reconcile and retry safely.
     orphanMultipartUploadId = null;
 
-    await registerMultipartBatchMembership(created.uploadId);
     const session = await getMultipartSession(created.uploadId);
     assertIdempotentSourceMatches({
       session,
@@ -214,6 +213,7 @@ export async function POST(req: NextRequest) {
       sourceSizeBytes,
       sourceFilename,
     });
+    await registerMultipartBatchMembership(created.uploadId);
     return NextResponse.json(sessionResponse(session, !created.created));
   } catch (error) {
     if (orphanMultipartUploadId) {
