@@ -56,8 +56,9 @@ def prepare_canonical_sources(
     """Download, hash, reconcile, and return only canonical source metadata.
 
     Legacy raw objects without a manifest remain eligible with a warning so this
-    focused change does not silently strand pre-migration footage. Every upload
-    created after the migration is fail-closed unless its durable row is verified.
+    focused change does not silently strand pre-migration footage. Tracked rows
+    that are not verified are excluded per-object rather than aborting a batch;
+    this prevents a stale failed upload from blocking a later verified retry.
     GAP-015 stays open until legacy backfill and a real R2 duplicate test exist.
     """
     backend = (storage_backend or os.getenv("STORAGE_BACKEND", "drive")).strip().lower()
@@ -129,8 +130,14 @@ def prepare_canonical_sources(
             continue
 
         if status != "verified" or not upload.get("verified_at"):
+            logger.warning(
+                "Skipping tracked R2 source %s because it is not durably verified (status=%s)",
+                key,
+                status or "missing",
+            )
             _remove_local(path)
-            raise RuntimeError(f"R2 source {key} is not durably verified (status={status or 'missing'})")
+            prepared_by_key.pop(key, None)
+            continue
 
         actual_size = Path(path).stat().st_size
         verified_size = upload.get("verified_size_bytes")
