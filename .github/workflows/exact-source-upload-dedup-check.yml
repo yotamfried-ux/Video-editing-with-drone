@@ -1,0 +1,30 @@
+name: Exact Source Upload Dedup Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exact-source-upload-dedup-check.yml'
+      - 'docs/app-pipeline-audit.md'
+      - 'integrations/source_uploads.py'
+      - 'pipeline/bootstrap.py'
+      - 'pipeline/r2_batch_scope.py'
+      - 'pipeline/source_upload_dedup.py'
+      - 'scripts/test_exact_source_upload_dedup_contract.py'
+      - 'supabase/migrations/20260723_source_upload_exact_dedup.sql'
+      - 'web-api/src/app/api/operator/upload/route.ts'
+      - 'web-api/src/app/api/operator/upload/verify/route.ts'
+      - 'web-api/src/lib/source-upload-manifest.ts'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate exact source-upload dedup contract
+        run: PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py
