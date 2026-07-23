@@ -159,6 +159,66 @@ def test_phone_cleanup_never_targets_sd_source() -> None:
     )
 
 
+def test_android_reader_is_bounded_and_seekable() -> None:
+    config = read("mobile/modules/sportreel-source-reader/expo-module.config.json")
+    kotlin = read("mobile/modules/sportreel-source-reader/android/src/main/java/expo/modules/sportreelsourcereader/SportReelSourceReaderModule.kt")
+    typescript = read("mobile/modules/sportreel-source-reader/src/SportReelSourceReaderModule.ts")
+    workflow = read(".github/workflows/large-upload-foundation-check.yml")
+
+    require(
+        config,
+        [
+            '"platforms": ["android"]',
+            "expo.modules.sportreelsourcereader.SportReelSourceReaderModule",
+        ],
+        "source reader module config",
+    )
+    require(
+        kotlin,
+        [
+            "MAX_RANGE_BYTES = 64 * 1024 * 1024",
+            "ContentResolver.SCHEME_CONTENT",
+            "openFileDescriptor(uri, \"r\")",
+            "Os.lseek",
+            "channel.position(offset)",
+            "ByteArray(length)",
+            "ParcelFileDescriptor.AutoCloseInputStream(descriptor).use",
+            "source_not_seekable",
+            "source_changed_or_truncated",
+        ],
+        "bounded Android source reader",
+    )
+    forbid(
+        kotlin,
+        [
+            "Base64",
+            "copyTo(",
+            "readBytes()",
+            "FileOutputStream",
+        ],
+        "bounded Android source reader",
+    )
+    require(
+        typescript,
+        [
+            "requireNativeModule",
+            "Promise<Uint8Array>",
+            "inspectSource",
+            "readRange",
+        ],
+        "source reader TypeScript bridge",
+    )
+    require(
+        workflow,
+        [
+            "mobile/modules/sportreel-source-reader/**",
+            "expo-modules-autolinking resolve --platform android",
+            "SportReelSourceReaderModule",
+        ],
+        "source reader CI wiring",
+    )
+
+
 def test_plan_uses_verified_primary_sources() -> None:
     plan = read("docs/audit/drone-large-upload-experiment-entry-plan-20260723.md")
     require(
@@ -185,6 +245,7 @@ def main() -> None:
         test_r2_multipart_protocol,
         test_api_requires_durable_completion_and_cleanup,
         test_phone_cleanup_never_targets_sd_source,
+        test_android_reader_is_bounded_and_seekable,
         test_plan_uses_verified_primary_sources,
     ]
     for test in tests:
