@@ -1,4 +1,4 @@
-import { requireNativeModule } from 'expo-modules-core';
+import { requireOptionalNativeModule } from 'expo-modules-core';
 
 export type SourceInspection = {
   uri: string;
@@ -8,9 +8,22 @@ export type SourceInspection = {
   maxRangeBytes: number;
 };
 
-type SportReelSourceReaderNativeModule = {
+export type SportReelSourceReaderNativeModule = {
   inspectSource(uri: string): Promise<SourceInspection>;
   readRange(uri: string, offset: number, length: number): Promise<Uint8Array>;
 };
 
-export default requireNativeModule<SportReelSourceReaderNativeModule>('SportReelSourceReader');
+const nativeModule = requireOptionalNativeModule<SportReelSourceReaderNativeModule>(
+  'SportReelSourceReader'
+);
+
+export function getSportReelSourceReader(): SportReelSourceReaderNativeModule {
+  if (!nativeModule) {
+    throw new Error(
+      'Large SD / USB upload requires a new native SportReel Android build. Install the matching EAS build before uploading drone footage.'
+    );
+  }
+  return nativeModule;
+}
+
+export default nativeModule;
