@@ -120,10 +120,20 @@ def test_api_requires_durable_completion_and_cleanup() -> None:
             "createMultipartSourceManifest",
             "registerMultipartBatchMembership",
             "resumed_existing_start",
+            "orphanMultipartUploadId",
+            "Once the durable source row owns the R2 UploadId",
+            "orphanMultipartUploadId = null",
             "abortR2MultipartUpload",
-            "removeSourceUploadsAfterSetupFailure",
         ],
         "start endpoint",
+    )
+    forbid(
+        start,
+        [
+            "removeSourceUploadsAfterSetupFailure",
+            "delete durable source row after multipart ownership",
+        ],
+        "durable multipart start recovery",
     )
     require(part_url, ["getMultipartSession", "createR2MultipartPartUploadUrl", "size_bytes"], "part URL endpoint")
     require(record_part, ["The exact R2 ETag is required", "recordMultipartPart"], "part record endpoint")
@@ -204,7 +214,7 @@ def test_android_reader_is_bounded_and_seekable() -> None:
         [
             "MAX_RANGE_BYTES = 64 * 1024 * 1024",
             "ContentResolver.SCHEME_CONTENT",
-            "openFileDescriptor(uri, \"r\")",
+            'openFileDescriptor(uri, "r")',
             "Os.lseek",
             "channel.position(offset)",
             "ByteArray(length)",
