@@ -32,6 +32,7 @@ def main() -> int:
             "SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}",
             "psql \"$SUPABASE_DB_URL\" -v ON_ERROR_STOP=1 -f \"$path\"",
             "Verify required tables, columns, and RPCs",
+            "column:source_size_evidence=",
             "real-r2-probe:",
             "needs: migrate-and-verify",
             "python scripts/test_real_r2_multipart_upload.py",
@@ -50,6 +51,7 @@ def main() -> int:
         [
             "20260723_source_upload_exact_dedup.sql",
             "20260723_source_upload_multipart_foundation.sql",
+            "20260723_single_put_size_evidence.sql",
             "20260723_source_upload_local_cleanup_evidence.sql",
             "20260723_upload_batch_verified_gate.sql",
             "20260723_upload_start_idempotency.sql",
