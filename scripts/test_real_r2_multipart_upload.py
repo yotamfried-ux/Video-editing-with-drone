@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Run a real, non-destructive Cloudflare R2 multipart upload probe.
 
-This script is intended for the manual GitHub Actions workflow. It never prints
+This script is intended for the release GitHub Actions workflow. It never prints
 credentials. It creates a deterministic byte stream, uploads it through presigned
 part URLs, retries one part, completes with the exact returned ETags, verifies
-HEAD/download size and SHA-256, then removes the test object.
+HEAD/download size and SHA-256, then removes the test object. Any abort, delete,
+or post-delete verification failure makes the probe fail.
 """
 
 from __future__ import annotations
@@ -90,6 +91,7 @@ def main() -> int:
 
     upload_id: str | None = None
     object_created = False
+    probe_succeeded = False
     started = time.time()
     evidence: dict[str, Any] = {
         "protocol": "r2_multipart_real_probe_v1",
@@ -194,8 +196,8 @@ def main() -> int:
                 "duration_seconds": round(time.time() - started, 3),
             }
         )
+        probe_succeeded = True
         print(f"PASS: real R2 multipart upload, retry, completion, HEAD, and SHA-256 verification for {key}")
-        return 0
     finally:
         cleanup_errors: list[str] = []
         if upload_id:
@@ -218,12 +220,19 @@ def main() -> int:
 
         evidence["cleanup"] = "confirmed" if not cleanup_errors else "failed"
         evidence["cleanup_errors"] = cleanup_errors
+        evidence["probe_succeeded"] = probe_succeeded
         evidence_path = Path(os.getenv("R2_PROBE_EVIDENCE_PATH", "/tmp/r2-multipart-evidence.json"))
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
         print(f"Evidence written to {evidence_path}")
         if cleanup_errors:
-            print("Cleanup failures: " + "; ".join(cleanup_errors), file=sys.stderr)
+            message = "Cleanup failures: " + "; ".join(cleanup_errors)
+            print(message, file=sys.stderr)
+            raise RuntimeError(message)
+
+    if not probe_succeeded:
+        raise RuntimeError("R2 probe did not reach verified completion")
+    return 0
 
 
 if __name__ == "__main__":
