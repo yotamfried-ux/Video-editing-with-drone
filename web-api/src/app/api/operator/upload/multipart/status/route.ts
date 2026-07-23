@@ -36,6 +36,10 @@ export async function POST(req: NextRequest) {
       local_cleanup_status: session.local_cleanup_status,
       local_cleanup_confirmed_at: session.local_cleanup_confirmed_at,
       local_cleanup_error: session.local_cleanup_error,
+      local_cleanup_artifact_count: session.local_cleanup_artifact_count,
+      local_cleanup_reclaimed_bytes: session.local_cleanup_reclaimed_bytes,
+      local_cleanup_source_preserved: session.local_cleanup_source_preserved,
+      local_cleanup_checked_at: session.local_cleanup_checked_at,
       last_error: session.last_error,
     });
   } catch (error) {
