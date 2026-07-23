@@ -26,5 +26,33 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Validate exact source-upload dedup contract
-        run: PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py
+      - name: Validate streaming SHA-256
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_streaming_sha256
+          test_streaming_sha256()
+          PY
+      - name: Validate newest verified canonical selection
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_newest_verified_wins_and_old_is_deleted
+          test_newest_verified_wins_and_old_is_deleted()
+          PY
+      - name: Validate deletion failure isolation
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_delete_failure_never_restores_pipeline_eligibility
+          test_delete_failure_never_restores_pipeline_eligibility()
+          PY
+      - name: Validate stale upload replacement isolation
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_stale_unverified_source_is_excluded_without_blocking_replacement
+          test_stale_unverified_source_is_excluded_without_blocking_replacement()
+          PY
+      - name: Validate exact-upload static contract
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_static_contract
+          test_static_contract()
+          PY
