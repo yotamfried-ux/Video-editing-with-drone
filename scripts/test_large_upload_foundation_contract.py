@@ -201,8 +201,10 @@ def test_android_reader_is_bounded_and_seekable() -> None:
     require(
         typescript,
         [
-            "requireNativeModule",
+            "requireOptionalNativeModule",
             "Promise<Uint8Array>",
+            "getSportReelSourceReader",
+            "matching EAS build",
             "inspectSource",
             "readRange",
         ],
