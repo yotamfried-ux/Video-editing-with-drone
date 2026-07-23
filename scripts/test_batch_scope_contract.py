@@ -90,6 +90,10 @@ def run_scope_probe() -> None:
     if not expected.issubset(set(module.moves)):
         raise SystemExit(f"expected scoped moves, got {module.moves}")
 
+    # The exact-dedup contract below must import the real implementation, not
+    # the isolated batch-scope probe installed above.
+    sys.modules.pop("pipeline.source_upload_dedup", None)
+
 
 def main() -> int:
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
