@@ -76,7 +76,7 @@ def main() -> int:
         "one durable blocked request with defects, reasons, source identities, attempt count, and max attempts",
         "Only the intended canonical source/batch is requeued",
         "explicit manual review/reject at max attempts",
-        "workflow failure leaves recoverable truthful task state",
+        "Workflow failure leaves recoverable truthful task state",
     ]:
         require(token, audit, "app pipeline audit")
 
