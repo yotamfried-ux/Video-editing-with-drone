@@ -17,37 +17,43 @@ export class SourceUploadManifestError extends Error {
   }
 }
 
-export async function createSourceUploadManifest(input: {
+type SourceUploadManifestInput = {
   batchId: string;
   storageKey: string;
   sourceFilename: string;
   mimeType: string;
   sourceSizeBytes?: number | null;
-}): Promise<string> {
-  const sourceSize = Number.isFinite(input.sourceSizeBytes) && (input.sourceSizeBytes ?? 0) >= 0
-    ? Math.trunc(input.sourceSizeBytes as number)
-    : null;
+};
+
+export async function createSourceUploadManifests(
+  inputs: SourceUploadManifestInput[],
+): Promise<Map<string, string>> {
+  if (!inputs.length) return new Map();
+  const now = new Date().toISOString();
+  const rows = inputs.map((input) => ({
+    batch_id: input.batchId,
+    storage_key: input.storageKey,
+    source_filename: input.sourceFilename,
+    mime_type: input.mimeType,
+    source_size_bytes:
+      Number.isFinite(input.sourceSizeBytes) && (input.sourceSizeBytes ?? 0) >= 0
+        ? Math.trunc(input.sourceSizeBytes as number)
+        : null,
+    status: 'uploading',
+    updated_at: now,
+  }));
   const { data, error } = await supabaseAdmin
     .from('source_uploads')
-    .insert({
-      batch_id: input.batchId,
-      storage_key: input.storageKey,
-      source_filename: input.sourceFilename,
-      mime_type: input.mimeType,
-      source_size_bytes: sourceSize,
-      status: 'uploading',
-      updated_at: new Date().toISOString(),
-    })
-    .select('id')
-    .single();
+    .insert(rows)
+    .select('id,storage_key');
 
-  if (error || !data?.id) {
+  if (error || !data || data.length !== rows.length) {
     throw new SourceUploadManifestError(
-      `Could not persist upload manifest: ${error?.message ?? 'missing source upload id'}`,
+      `Could not persist upload manifest: ${error?.message ?? 'incomplete source upload rows'}`,
       503,
     );
   }
-  return String(data.id);
+  return new Map(data.map((row) => [String(row.storage_key), String(row.id)]));
 }
 
 export async function markSourceUploadVerified(storageKey: string, verifiedSizeBytes: number): Promise<{
