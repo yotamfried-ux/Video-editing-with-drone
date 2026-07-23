@@ -125,7 +125,7 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 **Still required for experiment entry/closure**
 
 - [ ] The post-merge real R2 probe passes against the configured production-like bucket and its evidence artifact is retained.
-- [ ] R2 CORS on the exact mobile origin/build exposes the part `ETag` header to the client.
+- [ ] The exact installed React Native client can read the returned part `ETag`; configure R2 CORS to expose `ETag` only for any browser-based upload client.
 - [ ] A real network interruption proves only missing/failed parts are resent.
 - [ ] User cancellation calls abort or reconciles in-flight parts truthfully.
 - [ ] A stale multipart cleanup process handles abandoned durable sessions in addition to R2's lifecycle.
