@@ -24,13 +24,17 @@ def require_order(label: str, source: str, tokens: list[str]) -> None:
 
 def main() -> int:
     migration = read("supabase/migrations/20260723_upload_batch_verified_gate.sql")
+    idempotency = read("supabase/migrations/20260723_upload_start_idempotency.sql")
     helper = read("web-api/src/lib/upload-batch-manifest.ts")
+    multipart_manifest = read("web-api/src/lib/multipart-upload-manifest.ts")
     multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
     multipart_setup = multipart_start[multipart_start.index("r2MultipartUploadId = await"):]
     single_start = read("web-api/src/app/api/operator/upload/route.ts")
     batch_route = read("web-api/src/app/api/operator/upload/batch/route.ts")
     pipeline_start = read("web-api/src/app/api/operator/pipeline/start/route.ts")
     pipeline_post = pipeline_start[pipeline_start.index("export async function POST"):]
+    mobile_ledger = read("mobile/src/features/operator/lib/multipartUploadLedger.ts")
+    mobile_client = read("mobile/src/features/operator/lib/multipartUploadClient.ts")
 
     require(
         "upload batch migration",
@@ -60,6 +64,20 @@ def main() -> int:
     )
 
     require(
+        "idempotent source membership migration",
+        idempotency,
+        [
+            "client_upload_id",
+            "source_uploads_client_upload_id_unique_idx",
+            "batch_membership_registered_at",
+            "register_source_upload_batch_membership",
+            "v_upload.batch_membership_registered_at is null",
+            "register_upload_batch",
+            "refresh_upload_batch_state",
+        ],
+    )
+
+    require(
         "batch resolver helper",
         helper,
         [
@@ -79,15 +97,29 @@ def main() -> int:
     )
 
     require(
+        "atomic multipart manifest",
+        multipart_manifest,
+        [
+            "createMultipartSourceManifest",
+            "client_upload_id: input.clientUploadId",
+            "upload_protocol: 'r2_multipart_v1'",
+            "findMultipartSessionByClientUploadId",
+            "registerMultipartBatchMembership",
+            "register_source_upload_batch_membership",
+            "error?.code === '23505'",
+        ],
+    )
+
+    require(
         "multipart batch registration",
         multipart_start,
         [
+            "client_upload_id",
+            "findMultipartSessionByClientUploadId",
             "resolveUploadBatchId",
-            "createSourceUploadManifests",
-            "attachMultipartSession",
-            "registerUploadBatch",
-            "additionalFileCount: 1",
-            "sourceKind: 'android_external'",
+            "createMultipartSourceManifest",
+            "registerMultipartBatchMembership",
+            "resumed_existing_start",
             "removeSourceUploadsAfterSetupFailure",
         ],
     )
@@ -95,9 +127,21 @@ def main() -> int:
         "multipart setup",
         multipart_setup,
         [
-            "createSourceUploadManifests",
-            "attachMultipartSession",
-            "registerUploadBatch",
+            "createR2MultipartUpload",
+            "createMultipartSourceManifest",
+            "registerMultipartBatchMembership",
+        ],
+    )
+
+    require(
+        "mobile start idempotency",
+        mobile_ledger + mobile_client,
+        [
+            "pendingStarts",
+            "getOrCreatePendingMultipartStart",
+            "removePendingMultipartStart",
+            "client_upload_id: pendingStart.requestId",
+            "started.client_upload_id !== pendingStart.requestId",
         ],
     )
 
