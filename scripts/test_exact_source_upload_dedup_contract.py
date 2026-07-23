@@ -240,6 +240,7 @@ def test_static_contract() -> None:
     verify_route = read("web-api/src/app/api/operator/upload/verify/route.ts")
     manifest = read("web-api/src/lib/source-upload-manifest.ts")
     batch_scope = read("pipeline/r2_batch_scope.py")
+    dedup = read("pipeline/source_upload_dedup.py")
     bootstrap = read("pipeline/bootstrap.py")
     audit = read("docs/app-pipeline-audit.md")
 
@@ -282,7 +283,11 @@ def test_static_contract() -> None:
         "prepare_canonical_sources",
         "canonical = prepare_canonical_sources",
         "return canonical",
+    ])
+    require("stale upload exclusion", dedup, [
         "Skipping tracked R2 source",
+        "status != \"verified\"",
+        "prepared_by_key.pop(key, None)",
     ])
     require("global R2 admission", bootstrap, [
         'if backend != "r2":',
