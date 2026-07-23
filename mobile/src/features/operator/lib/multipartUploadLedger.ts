@@ -28,15 +28,26 @@ export type DurableMultipartUpload = {
   lastError: string | null;
 };
 
+export type PendingMultipartStart = {
+  requestId: string;
+  sourceUri: string;
+  sourceFilename: string;
+  mimeType: string;
+  sourceSizeBytes: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
 type LedgerDocument = {
   version: 1;
   uploads: DurableMultipartUpload[];
+  pendingStarts: PendingMultipartStart[];
 };
 
 let mutationChain: Promise<void> = Promise.resolve();
 
 function emptyLedger(): LedgerDocument {
-  return { version: 1, uploads: [] };
+  return { version: 1, uploads: [], pendingStarts: [] };
 }
 
 function isValidUpload(value: unknown): value is DurableMultipartUpload {
@@ -63,13 +74,33 @@ function isValidUpload(value: unknown): value is DurableMultipartUpload {
     && typeof upload.updatedAt === 'string';
 }
 
+function isValidPendingStart(value: unknown): value is PendingMultipartStart {
+  if (!value || typeof value !== 'object') return false;
+  const pending = value as Partial<PendingMultipartStart>;
+  return typeof pending.requestId === 'string'
+    && /^[A-Za-z0-9_-]{16,128}$/.test(pending.requestId)
+    && typeof pending.sourceUri === 'string'
+    && typeof pending.sourceFilename === 'string'
+    && typeof pending.mimeType === 'string'
+    && Number.isSafeInteger(pending.sourceSizeBytes)
+    && Number(pending.sourceSizeBytes) > 0
+    && typeof pending.createdAt === 'string'
+    && typeof pending.updatedAt === 'string';
+}
+
 async function readLedger(): Promise<LedgerDocument> {
   const raw = await AsyncStorage.getItem(LEDGER_KEY);
   if (!raw) return emptyLedger();
   try {
     const parsed = JSON.parse(raw) as Partial<LedgerDocument>;
     if (parsed.version !== 1 || !Array.isArray(parsed.uploads)) return emptyLedger();
-    return { version: 1, uploads: parsed.uploads.filter(isValidUpload) };
+    return {
+      version: 1,
+      uploads: parsed.uploads.filter(isValidUpload),
+      pendingStarts: Array.isArray(parsed.pendingStarts)
+        ? parsed.pendingStarts.filter(isValidPendingStart)
+        : [],
+    };
   } catch {
     return emptyLedger();
   }
@@ -112,6 +143,46 @@ export async function findDurableMultipartUpload(input: {
     upload.sourceUri === input.sourceUri
     && upload.sourceSizeBytes === input.sourceSizeBytes
   )) ?? null;
+}
+
+export function getOrCreatePendingMultipartStart(input: {
+  sourceUri: string;
+  sourceFilename: string;
+  mimeType: string;
+  sourceSizeBytes: number;
+}): Promise<PendingMultipartStart> {
+  return serializeMutation(async () => {
+    const ledger = await readLedger();
+    const existing = ledger.pendingStarts.find((pending) => (
+      pending.sourceUri === input.sourceUri
+      && pending.sourceSizeBytes === input.sourceSizeBytes
+      && pending.sourceFilename === input.sourceFilename
+    ));
+    if (existing) return existing;
+
+    const now = new Date().toISOString();
+    const requestId = `android_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}_${Math.random().toString(36).slice(2, 10)}`;
+    const pending: PendingMultipartStart = {
+      requestId,
+      sourceUri: input.sourceUri,
+      sourceFilename: input.sourceFilename,
+      mimeType: input.mimeType,
+      sourceSizeBytes: input.sourceSizeBytes,
+      createdAt: now,
+      updatedAt: now,
+    };
+    ledger.pendingStarts.push(pending);
+    await writeLedger(ledger);
+    return pending;
+  });
+}
+
+export function removePendingMultipartStart(requestId: string): Promise<void> {
+  return serializeMutation(async () => {
+    const ledger = await readLedger();
+    ledger.pendingStarts = ledger.pendingStarts.filter((pending) => pending.requestId !== requestId);
+    await writeLedger(ledger);
+  });
 }
 
 export function upsertDurableMultipartUpload(
