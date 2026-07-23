@@ -14,6 +14,10 @@ import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCar
 import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatusCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import {
+  sweepAbandonedUploadCache,
+  uploadLargeExternalSource,
+} from '@/features/operator/lib/multipartUploadClient';
 import { runQueue, withRetry } from '@/features/operator/lib/uploadQueue';
 import type {
   OperatorUploadInitResponse,
@@ -55,6 +59,7 @@ type UploadInit = UploadSession & {
 
 type UploadVerify = { ok: boolean; exists: boolean; size?: number | null; storage_key?: string; r2_status?: number };
 type UploadItemStatus = 'queued' | 'initializing' | 'uploading' | 'verified' | 'failed';
+type UploadMode = 'single_put' | 'multipart';
 
 type UploadFileState = {
   id: string;
@@ -65,7 +70,7 @@ type UploadFileState = {
   status: UploadItemStatus;
   batch_id?: string | null;
   error?: string | null;
-  requiresLocalCopy?: boolean;
+  uploadMode?: UploadMode;
   attempt?: number;
 };
 
@@ -171,10 +176,6 @@ function mimeTypeForFilename(filename: string): string {
   }
 }
 
-function cacheSafeFilename(filename: string): string {
-  return filename.replace(/[^a-zA-Z0-9._-]/g, '_');
-}
-
 export default function PipelineScreen() {
   const router = useRouter();
   const {
@@ -189,7 +190,7 @@ export default function PipelineScreen() {
   const displayStage = globalLiveStale && latestRun ? terminalStageForRun(latestRun) : status?.stage ?? 'idle';
   const displayProgress = globalLiveStale && latestRun ? displayProgressForRun(latestRun) : status?.progress ?? 0;
 
-  const handleOperatorError = (e: unknown) => {
+  const handleOperatorError = useCallback((e: unknown) => {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     if (msg.includes('secret not set')) {
       Alert.alert('Operator secret required', msg, [
@@ -199,7 +200,8 @@ export default function PipelineScreen() {
     } else {
       Alert.alert('Failed', msg);
     }
-  };
+  }, [router]);
+
   const [requests, setRequests] = useState<ReprocessRow[]>([]);
   const [triggering, setTriggering] = useState(false);
   const [resetting, setResetting] = useState(false);
@@ -230,6 +232,19 @@ export default function PipelineScreen() {
     const t = setInterval(loadRequests, 15000);
     return () => clearInterval(t);
   }, [loadRequests]);
+
+  useEffect(() => {
+    if (Platform.OS !== 'android') return;
+    sweepAbandonedUploadCache()
+      .then((result) => {
+        if (result.failures.length) {
+          console.warn('SportReel stale upload cache cleanup had failures', result.failures);
+        }
+      })
+      .catch((error) => {
+        console.warn('SportReel stale upload cache cleanup failed', error);
+      });
+  }, []);
 
   const runPipeline = async () => {
     setTriggering(true);
@@ -287,67 +302,46 @@ export default function PipelineScreen() {
   const uploadAssetToSession = async (item: UploadFileState, session: UploadSession) => {
     if (!session.uploadUrl) throw new Error(`Missing upload URL for ${item.filename}`);
 
-    let uploadUri = item.uri;
-    let temporaryUploadUri: string | null = null;
     updateUploadItem(item.id, {
-      status: item.requiresLocalCopy ? 'initializing' : 'uploading',
+      status: 'uploading',
       progress: 0,
       batch_id: session.batch_id,
       error: null,
       filename: session.filename || item.filename,
     });
 
-    try {
-      if (item.requiresLocalCopy) {
-        if (!FileSystem.cacheDirectory) {
-          throw new Error('App cache is unavailable for the selected SD / USB video.');
-        }
-        temporaryUploadUri = `${FileSystem.cacheDirectory}sportreel-upload-${Date.now()}-${cacheSafeFilename(item.id)}-${cacheSafeFilename(item.filename)}`;
-        await FileSystem.copyAsync({ from: item.uri, to: temporaryUploadUri });
-        uploadUri = temporaryUploadUri;
-        updateUploadItem(item.id, { status: 'uploading' });
+    const task = FileSystem.createUploadTask(
+      session.uploadUrl,
+      item.uri,
+      {
+        httpMethod: 'PUT',
+        uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
+        headers: { 'Content-Type': item.mimeType },
+      },
+      (progress) => {
+        const expected = progress.totalBytesExpectedToSend || 1;
+        const pct = Math.round((progress.totalBytesSent / expected) * 100);
+        updateUploadItem(item.id, { progress: pct });
       }
+    );
+    const uploadResult = await task.uploadAsync();
+    if (!uploadResult || uploadResult.status >= 300) {
+      throw new Error(`Upload failed with status ${uploadResult?.status}`);
+    }
 
-      const task = FileSystem.createUploadTask(
-        session.uploadUrl,
-        uploadUri,
-        {
-          httpMethod: 'PUT',
-          uploadType: FileSystem.FileSystemUploadType.BINARY_CONTENT,
-          headers: { 'Content-Type': item.mimeType },
-        },
-        (progress) => {
-          const expected = progress.totalBytesExpectedToSend || 1;
-          const pct = Math.round((progress.totalBytesSent / expected) * 100);
-          updateUploadItem(item.id, { progress: pct });
-        }
-      );
-      const uploadResult = await task.uploadAsync();
-      if (!uploadResult || uploadResult.status >= 300) {
-        throw new Error(`Upload failed with status ${uploadResult?.status}`);
-      }
-
-      if (session.storage_key) {
-        const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ storage_key: session.storage_key }),
-        });
-        if (!verified.exists) {
-          throw new Error(`Upload finished but R2 verification failed for ${session.storage_key}`);
-        }
-      }
-
-      updateUploadItem(item.id, { status: 'verified', progress: 100, batch_id: session.batch_id, error: null });
-    } finally {
-      if (temporaryUploadUri) {
-        try {
-          await FileSystem.deleteAsync(temporaryUploadUri, { idempotent: true });
-        } catch {
-          // Cache cleanup must not hide the upload result.
-        }
+    if (session.storage_key) {
+      const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storage_key: session.storage_key }),
+      });
+      if (!verified.exists) {
+        throw new Error(`Upload finished but R2 verification failed for ${session.storage_key}`);
       }
     }
+
+    item.batch_id = session.batch_id;
+    updateUploadItem(item.id, { status: 'verified', progress: 100, batch_id: session.batch_id, error: null });
   };
 
   // Fetched immediately before each upload attempt (never reused across a long
@@ -366,12 +360,51 @@ export default function PipelineScreen() {
       }
     );
     const session = uploadInit.uploads?.[0] ?? uploadInit;
-    if (session.batch_id) setActiveBatchId(session.batch_id);
+    if (session.batch_id) {
+      item.batch_id = session.batch_id;
+      setActiveBatchId(session.batch_id);
+    }
     return session;
+  };
+
+  const uploadMultipartItem = async (item: UploadFileState): Promise<void> => {
+    updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null });
+    const result = await uploadLargeExternalSource({
+      sourceUri: item.uri,
+      filename: item.filename,
+      mimeType: item.mimeType,
+      batchId: item.batch_id ?? activeBatchId,
+      onProgress: (progress) => {
+        if (progress.batchId) {
+          item.batch_id = progress.batchId;
+          setActiveBatchId(progress.batchId);
+        }
+        updateUploadItem(item.id, {
+          status: progress.stage === 'inspecting' || progress.stage === 'starting' ? 'initializing' : progress.stage === 'verified' ? 'verified' : 'uploading',
+          progress: Math.round(progress.progress * 100),
+          batch_id: progress.batchId ?? item.batch_id,
+          error: null,
+        });
+      },
+    });
+
+    item.batch_id = result.batchId;
+    setActiveBatchId(result.batchId);
+    updateUploadItem(item.id, {
+      status: 'verified',
+      progress: 100,
+      batch_id: result.batchId,
+      error: null,
+    });
   };
 
   const uploadItemWithRetry = async (item: UploadFileState): Promise<void> => {
     try {
+      if (item.uploadMode === 'multipart') {
+        await uploadMultipartItem(item);
+        return;
+      }
+
       await withRetry(
         async () => {
           const session = await requestUploadSession(item);
@@ -391,7 +424,7 @@ export default function PipelineScreen() {
   };
 
   const runUploadQueue = (items: UploadFileState[]): Promise<PromiseSettledResult<void>[]> => {
-    const concurrencyLimit = items.some((item) => item.requiresLocalCopy)
+    const concurrencyLimit = items.some((item) => item.uploadMode === 'multipart')
       ? EXTERNAL_STORAGE_UPLOAD_CONCURRENCY_LIMIT
       : UPLOAD_CONCURRENCY_LIMIT;
     return runQueue(items, (item) => uploadItemWithRetry(item), concurrencyLimit);
@@ -413,10 +446,10 @@ export default function PipelineScreen() {
       const results = await runUploadQueue(failedItems);
       const stillFailed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (stillFailed.length) {
-        Alert.alert('Some uploads still failing', `${stillFailed.length} of ${failedItems.length} file${failedItems.length === 1 ? '' : 's'} failed again. Check your connection and tap Retry all failed once it's stable.`);
+        Alert.alert('Some uploads still failing', `${stillFailed.length} of ${failedItems.length} file${failedItems.length === 1 ? '' : 's'} failed again. Check your connection and tap Retry all failed once it is stable.`);
         return;
       }
-      Alert.alert('Uploaded to queue', `${failedItems.length} previously failed file${failedItems.length === 1 ? '' : 's'} uploaded and verified.`);
+      Alert.alert('Uploaded to queue', `${failedItems.length} previously failed file${failedItems.length === 1 ? '' : 's'} uploaded, size-verified, and locally cleaned.`);
     } catch (e) {
       handleOperatorError(e);
     }
@@ -429,13 +462,14 @@ export default function PipelineScreen() {
       const results = await runUploadQueue(items);
       const failed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (failed.length) {
-        Alert.alert('Some uploads failed', `${failed.length} of ${items.length} files failed after automatic retries. Fix your connection, then tap Retry all failed.`);
+        Alert.alert('Some uploads failed', `${failed.length} of ${items.length} files failed after automatic part retries. Fix the connection or reconnect the source, then tap Retry all failed.`);
         return;
       }
 
+      const completedBatchId = items.map((item) => item.batch_id).find(Boolean) ?? activeBatchId;
       Alert.alert(
         'Uploaded to queue',
-        `${items.length} file${items.length === 1 ? '' : 's'} verified in RAW batch ${activeBatchId?.slice(0, 16) ?? 'current'}. Upload more footage for this athlete/session, then tap Run pipeline now when the batch is ready.`
+        `${items.length} file${items.length === 1 ? '' : 's'} verified in RAW batch ${completedBatchId?.slice(0, 16) ?? 'current'}. App-owned temporary upload data was removed. The original SD / USB files were preserved.`
       );
     } catch (e) {
       handleOperatorError(e);
@@ -467,6 +501,7 @@ export default function PipelineScreen() {
         status: 'queued',
         batch_id: activeBatchId,
         error: null,
+        uploadMode: 'single_put',
       };
     });
     await uploadSelectedItems(items);
@@ -496,7 +531,7 @@ export default function PipelineScreen() {
       status: 'queued',
       batch_id: activeBatchId,
       error: null,
-      requiresLocalCopy: true,
+      uploadMode: 'multipart',
     }));
 
     setExternalCandidates([]);
@@ -608,7 +643,7 @@ export default function PipelineScreen() {
                   style={{ height: 44 }}
                 />
                 <Text variant="caption" color={Colors.textSecondary}>
-                  First choose the folder on the card or USB drive. Then select only the videos you want to upload.
+                  Large SD / USB videos upload in resumable parts without a full phone copy. The source remains on the card; only app-owned temporary upload data is cleaned after exact R2 verification.
                 </Text>
                 {externalCandidates.length > 0 && (
                   <View style={styles.externalSelectionPanel}>
@@ -686,7 +721,7 @@ export default function PipelineScreen() {
                       <Text variant="caption" color={Colors.textPrimary} numberOfLines={1}>{item.filename}</Text>
                       <Text variant="caption" color={item.status === 'failed' ? Colors.danger : Colors.textSecondary}>
                         {UPLOAD_STATUS_LABEL[item.status]}
-                        {item.attempt && item.attempt > 1 && (item.status === 'initializing' || item.status === 'uploading') ? ` (attempt ${item.attempt}/${MAX_UPLOAD_ATTEMPTS})` : ''}
+                        {item.uploadMode !== 'multipart' && item.attempt && item.attempt > 1 && (item.status === 'initializing' || item.status === 'uploading') ? ` (attempt ${item.attempt}/${MAX_UPLOAD_ATTEMPTS})` : ''}
                         {' · '}{item.progress}%
                         {item.error ? ` · ${item.error}` : ''}
                       </Text>
