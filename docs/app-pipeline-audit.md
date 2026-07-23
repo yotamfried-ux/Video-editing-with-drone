@@ -1,8 +1,8 @@
 # SportReel operational-readiness audit
 
-Date: 2026-07-21  
+Date: 2026-07-22  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Baseline inspected: `main` at merge commit `e853fb843ed34adfdc8692d19ab9a560cb0a2d54` (PR #190)  
+Baseline inspected: `main` at merge commit `c23b819866306980f8ebe454958bf7802d0145a4` (PR #193)  
 Status: **open — implementation foundations exist, but the next production-style experiment still has entry blockers and the product vision is not yet proven end to end**
 
 This file is the authoritative, consolidated readiness audit for the operator app, R2 upload path, GitHub Actions pipeline, Supabase state, perception/tracking, 4K rendering, QA, Review, Delivery, Discover, payments, and the real-footage evidence required by the product vision.
@@ -58,6 +58,7 @@ The following foundations are present on the inspected `main` baseline:
 - The mobile operator app is a control surface; heavy processing remains in GitHub Actions/Python.
 - R2 keys are batch-scoped under `raw/<batch_id>/...`.
 - Upload currently uses one signed `PUT` per complete file, followed by server-side `HEAD` verification.
+- Exact-content duplicate protection is absent on `main`: timestamped R2 keys and existence/size verification allow byte-identical source videos to remain separately eligible for processing.
 - Gallery uploads can run concurrently; SD/USB uploads are copied one complete file at a time into app cache before the same full-file upload.
 - The mobile app is pinned to Expo SDK `~52.0.28` and `expo-file-system ~18.0.10`.
 - `POST /api/operator/pipeline/start` creates a durable `pipeline_runs` row, forwards `pipeline_run_id` and optional `batch_id` through `repository_dispatch`, and marks accepted dispatches as `workflow_dispatched`.
@@ -85,6 +86,7 @@ The following foundations are present on the inspected `main` baseline:
 | GAP-023 — Production deployment, database migration, and environment parity | P0 | Exact live main/EAS/migration state is not fully verified | Yes |
 | GAP-024 — Durable feedback/evaluation/learning loop | P2 | Capture foundation exists; durable replay learning is incomplete | No for next evidence run |
 | GAP-025 — API contract drift and legacy route retirement | P2 | Typed mirrors exist; automatic cross-package drift prevention and alias retirement remain open | No for next evidence run |
+| GAP-026 — Exact-content upload deduplication and newest-verified retention | P0 | No trusted content digest or canonical replacement; byte-identical uploads can both remain eligible | Yes |
 
 ## 5. Entry gate for the next production-style experiment
 
@@ -98,6 +100,7 @@ Do not start the next vision-validation run until all entry items below are chec
 - [ ] The upload path used by the experiment supports durable multipart resume and does not restart a large file from byte zero after a transient failure.
 - [ ] A real Android large-video test proves bounded-memory part reads and no required whole-file cache copy.
 - [ ] Every selected file belongs to one durable batch/session record and reaches `verified` with exact size before pipeline start is enabled.
+- [ ] Every verified source has a trusted versioned exact-content digest; byte-identical uploads resolve to one canonical newest-verified source before dispatch.
 - [ ] Pipeline start is blocked while any intended batch file is pending, uploading, paused, completing, failed, or size-mismatched.
 - [ ] A no-op or small controlled run proves `pipeline_run_id` and `batch_id` correlate app → API → GitHub Actions → Supabase → app status.
 - [ ] The workflow preflight prints the resolved detector model, tracker, stride/image size, storage backend, batch ID, and pipeline run ID without leaking secrets.
@@ -580,12 +583,60 @@ Gemini's default video sampling can miss fast sports detail, so it cannot be the
 - [ ] Negative contract tests cover stale/unknown fields and unsupported old clients.
 - [ ] Evidence is attached: contract artifact, drift-failure test, active-version/call evidence, and alias-removal PR when eligible.
 
+### GAP-026 — Exact-content upload deduplication and newest-verified retention
+
+**Priority:** P0  
+**Area:** mobile hashing, multipart integrity, Supabase canonicalization, R2 cleanup, batch admission.
+
+**Verified current state**
+
+- The production upload path creates a new timestamped R2 key for every upload and verifies only object existence/size.
+- It does not calculate or persist a trusted exact-content digest, so two byte-identical videos can both remain pipeline-eligible.
+- The multipart foundation draft introduces a client-supplied `source_fingerprint` with an active-state partial unique index, but its algorithm/trust boundary is unspecified and verified rows are excluded.
+- There is no atomic newest-verified-wins transition, `superseded` lineage, reference-safe old-object cleanup, or duplicate-free pipeline manifest gate.
+- The detailed implementation basis is recorded in `docs/audit/multipart-upload-foundation-20260722.md`; no implementation or closure is claimed here.
+
+**Official design basis**
+
+- Cloudflare R2 Workers API checksums, metadata, and conditional operations: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/
+- Cloudflare R2 multipart upload behavior and ETag limits: https://developers.cloudflare.com/r2/objects/upload-objects/
+- AWS S3 object-integrity and multipart checksum semantics: https://docs.aws.amazon.com/AmazonS3/latest/userguide/checking-object-integrity-upload.html
+- AWS official multipart SHA-256 reference tool: https://github.com/aws-samples/amazon-s3-checksum-tool
+- Dropbox official server/local content-hash comparison contract: https://www.dropbox.com/developers/reference/content-hash
+- GitHub Git LFS versioned SHA-256 OID and exact-size identity: https://docs.github.com/en/repositories/working-with-files/managing-large-files/about-git-large-file-storage
+- Official Git LFS pointer/content identity specification: https://github.com/git-lfs/git-lfs/blob/main/docs/spec.md
+- PostgreSQL partial unique indexes and atomic `INSERT ... ON CONFLICT`: https://www.postgresql.org/docs/current/indexes-partial.html and https://www.postgresql.org/docs/current/sql-insert.html
+
+Filename, upload ID, R2 key, timestamp, and multipart ETag are not exact-content identity. The initial SportReel identity algorithm is a versioned SHA-256 digest computed incrementally with bounded reads. Provider full/composite checksum semantics must be recorded explicitly, and a client claim alone cannot authorize destructive cleanup.
+
+**Mandatory end-to-end closure checklist**
+
+- [ ] `upload_files` stores immutable `content_digest_algorithm`, `content_digest_version`, `content_digest`, source size, and server `verified_at`.
+- [ ] The digest is computed incrementally while bounded parts are read; hashing does not load or copy the complete 4K source.
+- [ ] Multipart ETag is retained only as provider metadata and is never used as exact-content identity.
+- [ ] Provider checksum type, algorithm, part-boundary/version semantics, and verification result are stored explicitly.
+- [ ] A client-provided digest is bound to exact size and trusted provider/read-back integrity evidence before canonicalization or deletion.
+- [ ] Exact deduplication works across different filenames, batches, sessions, and upload times.
+- [ ] The newest successfully verified upload wins according to durable server `verified_at`, never the device clock or filename.
+- [ ] One atomic transaction/RPC locks competing digest rows, promotes the new canonical row, and supersedes the previous canonical row.
+- [ ] A partial unique index or equivalent constraint guarantees at most one canonical row per versioned digest and size under concurrency.
+- [ ] The older row remains as immutable `superseded` audit lineage with old/new upload IDs, R2 keys, timestamps, and reason `exact_content_duplicate`.
+- [ ] A failed or incomplete replacement leaves the prior verified canonical source unchanged and available.
+- [ ] Old R2 bytes are removed only after the new object is verified, the canonical transition commits, and active references are repointed or proven safe.
+- [ ] R2 cleanup is idempotent, retryable, and visibly records pending/succeeded/failed state without hiding the canonical result.
+- [ ] Batch expected/verified counts and pipeline admission exclude superseded duplicates without silently losing intended membership.
+- [ ] Every pipeline input manifest contains only canonical rows and cannot contain the same exact-content identity twice.
+- [ ] Deterministic tests cover different-name/same-bytes, cross-batch duplicates, concurrent completion, failed replacement, ETag misuse, cleanup failure, and duplicate-free admission.
+- [ ] A real Android/R2 test uploads the same video twice and proves only the newer verified version remains canonical/eligible while lineage and cleanup evidence are preserved.
+- [ ] Evidence is attached: digest/version/size, both upload rows and R2 keys, transaction result, unique-constraint concurrency result, batch roll-up, input manifest, cleanup result, and app/operator state.
+
 ## 7. Required experiment artifact bundle
 
 Every production-style experiment must retain one bundle containing:
 
 - exact repository commit, Vercel deployment, EAS build/update, workflow run, pipeline run, and batch IDs;
 - durable upload batch and file rows, multipart part ledger, source sizes, R2 keys, and final verification;
+- exact-content digest/version, canonical/superseded lineage, and old-object cleanup evidence;
 - frozen expected athlete/action/wave inventory;
 - detector/tracker preflight and sidecars;
 - track fragmentation/identity summary;
@@ -604,7 +655,7 @@ The experiment is invalid for product-closure claims if required artifacts are m
 
 ## 8. Recommended repair order
 
-1. **GAP-013 + GAP-014 + GAP-015** — implement official multipart resume, durable Android source recovery, and a verified durable batch manifest.
+1. **GAP-013 + GAP-014 + GAP-015 + GAP-026** — implement official multipart resume, durable Android source recovery, a verified durable batch manifest, and exact-content newest-verified canonicalization.
 2. **GAP-023** — deploy the exact current stack and apply/verify all live migrations, including biometric removal and upload-state schema.
 3. **GAP-016** — run a controlled app dispatch and prove one correlated transition through GitHub Actions and Supabase.
 4. **GAP-017 + GAP-018 + GAP-019** — preflight, measure, and tune tracking/identity, cross-source grouping, 4K quality, and runtime on difficult representative footage.
