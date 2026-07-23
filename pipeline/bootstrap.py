@@ -42,17 +42,15 @@ def _install_storage_backend_alias() -> None:
 
 
 def _install_r2_batch_scope() -> None:
-    """Scope R2 raw-video listing to a batch prefix when a batch id is set.
+    """Install R2 input admission for both batch-scoped and global R2 runs.
 
-    Previously only installed by the root ``sitecustomize.py``, which never
-    actually runs for ``python scripts/run_tracked.py`` (Python's automatic
-    ``sitecustomize`` import only sees the script's own directory --
-    ``scripts/`` -- not the repository root), so this was silently inactive
-    in the real GitHub Actions production run despite being wired elsewhere.
+    With a batch id, listing is restricted to ``raw/<batch_id>/``. Without one,
+    the same wrapper lists global ``raw/`` but still enforces durable verification
+    and exact-content deduplication before analysis. Previously this installer was
+    also silently inactive in the real ``scripts/run_tracked.py`` entrypoint.
     """
     backend = os.getenv("STORAGE_BACKEND", "drive").strip().lower() or "drive"
-    batch_id = (os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
-    if backend != "r2" or not batch_id:
+    if backend != "r2":
         return
     from pipeline.r2_batch_scope import install
 

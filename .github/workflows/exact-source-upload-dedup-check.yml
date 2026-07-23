@@ -1,0 +1,58 @@
+name: Exact Source Upload Dedup Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/exact-source-upload-dedup-check.yml'
+      - 'docs/app-pipeline-audit.md'
+      - 'integrations/source_uploads.py'
+      - 'pipeline/bootstrap.py'
+      - 'pipeline/r2_batch_scope.py'
+      - 'pipeline/source_upload_dedup.py'
+      - 'scripts/test_exact_source_upload_dedup_contract.py'
+      - 'supabase/migrations/20260723_source_upload_exact_dedup.sql'
+      - 'web-api/src/app/api/operator/upload/route.ts'
+      - 'web-api/src/app/api/operator/upload/verify/route.ts'
+      - 'web-api/src/lib/source-upload-manifest.ts'
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate streaming SHA-256
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_streaming_sha256
+          test_streaming_sha256()
+          PY
+      - name: Validate newest verified canonical selection
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_newest_verified_wins_and_old_is_deleted
+          test_newest_verified_wins_and_old_is_deleted()
+          PY
+      - name: Validate deletion failure isolation
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_delete_failure_never_restores_pipeline_eligibility
+          test_delete_failure_never_restores_pipeline_eligibility()
+          PY
+      - name: Validate stale upload replacement isolation
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_stale_unverified_source_is_excluded_without_blocking_replacement
+          test_stale_unverified_source_is_excluded_without_blocking_replacement()
+          PY
+      - name: Validate exact-upload static contract
+        run: |
+          PYTHONPATH=scripts:. python - <<'PY'
+          from scripts.test_exact_source_upload_dedup_contract import test_static_contract
+          test_static_contract()
+          PY

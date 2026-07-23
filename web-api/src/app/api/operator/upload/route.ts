@@ -3,6 +3,10 @@ import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { createUploadSession } from '@/lib/google-drive';
 import { createR2UploadUrl, newBatchId, safeBatchId, shouldUseR2Storage } from '@/lib/r2-storage';
+import {
+  createSourceUploadManifests,
+  SourceUploadManifestError,
+} from '@/lib/source-upload-manifest';
 import type { UploadFileResult, UploadInitResponse } from '@/types/operator-contracts';
 
 const MAX_BATCH_FILES = 20;
@@ -10,11 +14,13 @@ const MAX_BATCH_FILES = 20;
 type UploadFileInput = {
   filename?: string;
   mimeType?: string;
+  size?: number;
 };
 
 type UploadBody = {
   filename?: string;
   mimeType?: string;
+  size?: number;
   batch_id?: string;
   files?: UploadFileInput[];
 };
@@ -23,24 +29,29 @@ type NormalizedUploadFile = {
   filename: string;
   uploadFilename: string;
   mimeType: string;
+  sourceSizeBytes: number | null;
 };
 
 function normalizeUploadFiles(body: UploadBody): NormalizedUploadFile[] {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const rawFiles = Array.isArray(body.files) && body.files.length
     ? body.files
-    : (body.filename ?? body.mimeType) !== undefined
-      ? [{ filename: body.filename, mimeType: body.mimeType }]
+    : (body.filename ?? body.mimeType ?? body.size) !== undefined
+      ? [{ filename: body.filename, mimeType: body.mimeType, size: body.size }]
       : [];
   const isBatch = rawFiles.length > 1;
 
   return rawFiles.map((file, index) => {
     const filename = (file.filename ?? '').trim() || `footage_${stamp}_${index + 1}.mp4`;
     const uniquePrefix = String(index + 1).padStart(3, '0');
+    const sourceSizeBytes = Number.isFinite(file.size) && (file.size ?? 0) >= 0
+      ? Math.trunc(file.size as number)
+      : null;
     return {
       filename,
       uploadFilename: isBatch ? `${uniquePrefix}_${filename}` : filename,
       mimeType: (file.mimeType ?? '').trim() || 'video/mp4',
+      sourceSizeBytes,
     };
   });
 }
@@ -72,10 +83,20 @@ export async function POST(req: NextRequest) {
 
   try {
     if (shouldUseR2Storage()) {
-      const uploads: UploadFileResult[] = files.map((file) => {
-        const upload = createR2UploadUrl(file.uploadFilename, batchId);
+      const prepared = files.map((file) => ({ file, upload: createR2UploadUrl(file.uploadFilename, batchId) }));
+      const uploadIds = await createSourceUploadManifests(prepared.map(({ file, upload }) => ({
+        batchId,
+        storageKey: upload.key,
+        sourceFilename: file.filename,
+        mimeType: file.mimeType,
+        sourceSizeBytes: file.sourceSizeBytes,
+      })));
+      const uploads: UploadFileResult[] = prepared.map(({ file, upload }) => {
+        const uploadId = uploadIds.get(upload.key);
+        if (!uploadId) throw new SourceUploadManifestError(`Missing upload manifest id for ${upload.key}`, 503);
         return {
           uploadUrl: upload.uploadUrl,
+          upload_id: uploadId,
           filename: upload.filename,
           source_filename: file.filename,
           mimeType: file.mimeType,
@@ -114,6 +135,7 @@ export async function POST(req: NextRequest) {
       storage_backend: 'drive',
     });
   } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : 'Upload init failed' }, { status: 502 });
+    const status = e instanceof SourceUploadManifestError ? e.status : 502;
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Upload init failed' }, { status });
   }
 }

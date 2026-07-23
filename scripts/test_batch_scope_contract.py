@@ -40,6 +40,8 @@ def fake_r2() -> types.SimpleNamespace:
         PROCESSED_PREFIX="processed/",
         list_objects=list_objects,
         move_object=move_object,
+        delete_object=lambda key: None,
+        download_video=lambda key, filename: f"/tmp/{filename}",
         _is_video_key=lambda key: key.endswith(".mp4"),
         _object_to_video=lambda obj: {"key": obj["Key"], "id": obj["Key"], "name": obj["Key"].split("/")[-1]},
         _sportreel_r2_batch_scope_installed=False,
@@ -53,6 +55,20 @@ def fake_r2() -> types.SimpleNamespace:
 def run_scope_probe() -> None:
     os.environ["RAW_BATCH_ID"] = "session one"
     module = fake_r2()
+    dedup_calls: list[list[str]] = []
+
+    def prepare_canonical_sources(videos: list[dict], download_one, **kwargs) -> list[dict]:
+        dedup_calls.append([video["id"] for video in videos])
+        if kwargs.get("storage_backend") != "r2":
+            raise SystemExit("batch scope must explicitly activate R2 exact dedup")
+        if kwargs.get("delete_source") is not module.delete_object:
+            raise SystemExit("batch scope must pass the active R2 delete implementation")
+        return videos
+
+    sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
+        prepare_canonical_sources=prepare_canonical_sources
+    )
+
     import pipeline.r2_batch_scope as batch_scope
 
     batch_scope.install()
@@ -61,6 +77,8 @@ def run_scope_probe() -> None:
         raise SystemExit(f"expected scoped listing, got {module.listed}")
     if [video["key"] for video in videos] != ["raw/session_one/clip.mp4"]:
         raise SystemExit("expected only the scoped video object")
+    if dedup_calls != [["raw/session_one/clip.mp4"]]:
+        raise SystemExit(f"expected exact dedup admission gate, got {dedup_calls}")
 
     module.mark_as_processed("raw/session_one/clip.mp4")
     module.requeue_video("processed/session_one/clip.mp4")
@@ -83,8 +101,9 @@ def main() -> int:
     contracts = read("mobile/src/features/operator/types/contracts.ts")
     scope = read("pipeline/r2_batch_scope.py")
     bootstrap = read("pipeline/bootstrap.py")
+    dedup = read("pipeline/source_upload_dedup.py")
 
-    for text in [scope, bootstrap, read("scripts/test_batch_scope_contract.py")]:
+    for text in [scope, bootstrap, dedup, read("scripts/test_batch_scope_contract.py")]:
         ast.parse(text)
 
     require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
@@ -94,8 +113,10 @@ def main() -> int:
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
     require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "batch_id: lastBatchId ?? activeBatchId", "Current upload batch"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
-    require("canonical batch bootstrap", bootstrap, ["RAW_BATCH_ID", "pipeline.r2_batch_scope", "_install_r2_batch_scope"])
-    require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
+    require("canonical R2 bootstrap", bootstrap, ["pipeline.r2_batch_scope", "_install_r2_batch_scope", 'if backend != "r2":'])
+    if "or not batch_id" in bootstrap:
+        raise SystemExit("global R2 runs must not bypass exact dedup admission")
+    require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "prepare_canonical_sources", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
 
     if "const key = `raw/${storageName}`" in r2_lib:
         raise SystemExit("r2 storage key must include batch id")
