@@ -29,7 +29,7 @@ def main() -> int:
     helper = read("web-api/src/lib/upload-batch-manifest.ts")
     multipart_manifest = read("web-api/src/lib/multipart-upload-manifest.ts")
     multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
-    multipart_setup = multipart_start[multipart_start.index("r2MultipartUploadId = await"):]
+    multipart_setup = multipart_start[multipart_start.index("orphanMultipartUploadId = await"):]
     single_start = read("web-api/src/app/api/operator/upload/route.ts")
     batch_route = read("web-api/src/app/api/operator/upload/batch/route.ts")
     pipeline_start = read("web-api/src/app/api/operator/pipeline/start/route.ts")
