@@ -25,6 +25,7 @@ def require_order(label: str, source: str, tokens: list[str]) -> None:
 def main() -> int:
     migration = read("supabase/migrations/20260723_upload_batch_verified_gate.sql")
     idempotency = read("supabase/migrations/20260723_upload_start_idempotency.sql")
+    size_evidence = read("supabase/migrations/20260723_single_put_size_evidence.sql")
     helper = read("web-api/src/lib/upload-batch-manifest.ts")
     multipart_manifest = read("web-api/src/lib/multipart-upload-manifest.ts")
     multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
@@ -60,6 +61,18 @@ def main() -> int:
             "mark_upload_batch_running",
             "enable row level security",
             "service_role",
+        ],
+    )
+
+    require(
+        "single PUT size evidence migration",
+        size_evidence,
+        [
+            "source_size_evidence",
+            "r2_head_adopted",
+            "v_upload.upload_protocol <> 'single_put'",
+            "source_size_bytes = p_verified_size_bytes",
+            "verified_at = coalesce(verified_at, now())",
         ],
     )
 
@@ -120,9 +133,12 @@ def main() -> int:
             "createMultipartSourceManifest",
             "registerMultipartBatchMembership",
             "resumed_existing_start",
-            "removeSourceUploadsAfterSetupFailure",
+            "orphanMultipartUploadId",
+            "Once the durable source row owns the R2 UploadId",
         ],
     )
+    if "removeSourceUploadsAfterSetupFailure" in multipart_start:
+        raise SystemExit("multipart start must preserve a durable recoverable source row")
     require_order(
         "multipart setup",
         multipart_setup,
