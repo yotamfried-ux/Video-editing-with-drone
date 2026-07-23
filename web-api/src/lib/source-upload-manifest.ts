@@ -1,15 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase-admin';
 
-export type SourceUploadManifestRow = {
-  id: string;
-  storage_key: string;
-  status: string;
-  source_size_bytes: number | null;
-  verified_size_bytes: number | null;
-  verified_at: string | null;
-  canonical_upload_id: string | null;
-};
-
 export class SourceUploadManifestError extends Error {
   constructor(message: string, readonly status: number) {
     super(message);
@@ -23,6 +13,14 @@ type SourceUploadManifestInput = {
   sourceFilename: string;
   mimeType: string;
   sourceSizeBytes?: number | null;
+};
+
+type VerifySourceUploadResult = {
+  upload_id: string;
+  status: 'verified' | 'size_mismatch';
+  source_size_bytes: number | null;
+  verified_size_bytes: number;
+  verified_at: string | null;
 };
 
 export async function createSourceUploadManifests(
@@ -61,56 +59,34 @@ export async function markSourceUploadVerified(storageKey: string, verifiedSizeB
   verifiedAt: string;
   status: 'verified';
 }> {
-  const { data: existing, error: readError } = await supabaseAdmin
-    .from('source_uploads')
-    .select('id,storage_key,status,source_size_bytes,verified_size_bytes,verified_at,canonical_upload_id')
-    .eq('storage_key', storageKey)
-    .limit(1)
-    .maybeSingle<SourceUploadManifestRow>();
+  const { data, error } = await supabaseAdmin.rpc('verify_source_upload', {
+    p_storage_key: storageKey,
+    p_verified_size_bytes: verifiedSizeBytes,
+  });
 
-  if (readError) {
-    throw new SourceUploadManifestError(`Could not read upload manifest: ${readError.message}`, 503);
+  if (error) {
+    const status = /not found|superseded/i.test(error.message) ? 409 : 503;
+    throw new SourceUploadManifestError(`Could not verify upload manifest: ${error.message}`, status);
   }
-  if (!existing) {
-    throw new SourceUploadManifestError(`No upload manifest exists for ${storageKey}`, 409);
+
+  const raw = Array.isArray(data) && data.length === 1 ? data[0] : data;
+  const result = raw as VerifySourceUploadResult | null;
+  if (!result?.upload_id || !result.status) {
+    throw new SourceUploadManifestError('Upload verification returned an invalid manifest result', 503);
   }
-  if (existing.status === 'superseded') {
+  if (result.status === 'size_mismatch') {
     throw new SourceUploadManifestError(
-      `Upload is already superseded by ${existing.canonical_upload_id ?? 'a newer verified source'}`,
+      `Uploaded object size mismatch: expected ${result.source_size_bytes}, got ${result.verified_size_bytes}`,
       409,
     );
   }
-
-  if (existing.source_size_bytes != null && existing.source_size_bytes !== verifiedSizeBytes) {
-    await supabaseAdmin
-      .from('source_uploads')
-      .update({
-        status: 'size_mismatch',
-        verified_size_bytes: verifiedSizeBytes,
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', existing.id);
-    throw new SourceUploadManifestError(
-      `Uploaded object size mismatch: expected ${existing.source_size_bytes}, got ${verifiedSizeBytes}`,
-      409,
-    );
+  if (result.status !== 'verified' || !result.verified_at) {
+    throw new SourceUploadManifestError(`Upload manifest did not reach verified state for ${storageKey}`, 503);
   }
 
-  // Preserve the first successful verification time. Repeating HEAD verification
-  // must never make an older upload appear newer for canonical duplicate selection.
-  const verifiedAt = existing.verified_at ?? new Date().toISOString();
-  const { error: updateError } = await supabaseAdmin
-    .from('source_uploads')
-    .update({
-      status: 'verified',
-      verified_size_bytes: verifiedSizeBytes,
-      verified_at: verifiedAt,
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', existing.id);
-
-  if (updateError) {
-    throw new SourceUploadManifestError(`Could not verify upload manifest: ${updateError.message}`, 503);
-  }
-  return { uploadId: existing.id, verifiedAt, status: 'verified' };
+  return {
+    uploadId: String(result.upload_id),
+    verifiedAt: result.verified_at,
+    status: 'verified',
+  };
 }
