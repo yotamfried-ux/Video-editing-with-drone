@@ -27,6 +27,7 @@ def forbid(source: str, tokens: list[str], label: str) -> None:
 def test_durable_multipart_schema() -> None:
     schema = read("supabase/migrations/20260723_source_upload_multipart_foundation.sql")
     cleanup_schema = read("supabase/migrations/20260723_source_upload_local_cleanup_evidence.sql")
+    idempotency_schema = read("supabase/migrations/20260723_upload_start_idempotency.sql")
     require(
         schema,
         [
@@ -56,6 +57,19 @@ def test_durable_multipart_schema() -> None:
             "record_source_upload_local_cleanup_evidence",
         ],
         "cleanup evidence migration",
+    )
+    require(
+        idempotency_schema,
+        [
+            "client_upload_id",
+            "source_uploads_client_upload_id_unique_idx",
+            "batch_membership_registered_at",
+            "register_source_upload_batch_membership",
+            "v_upload.batch_membership_registered_at is null",
+            "register_upload_batch",
+            "refresh_upload_batch_state",
+        ],
+        "multipart start idempotency migration",
     )
 
 
@@ -98,7 +112,19 @@ def test_api_requires_durable_completion_and_cleanup() -> None:
     cleanup = read("web-api/src/app/api/operator/upload/multipart/cleanup/route.ts")
     status = read("web-api/src/app/api/operator/upload/multipart/status/route.ts")
 
-    require(start, ["sourceSizeBytes", "expectedPartCount", "createR2MultipartUpload", "createSourceUploadManifests", "attachMultipartSession"], "start endpoint")
+    require(
+        start,
+        [
+            "client_upload_id",
+            "findMultipartSessionByClientUploadId",
+            "createMultipartSourceManifest",
+            "registerMultipartBatchMembership",
+            "resumed_existing_start",
+            "abortR2MultipartUpload",
+            "removeSourceUploadsAfterSetupFailure",
+        ],
+        "start endpoint",
+    )
     require(part_url, ["getMultipartSession", "createR2MultipartPartUploadUrl", "size_bytes"], "part URL endpoint")
     require(record_part, ["The exact R2 ETag is required", "recordMultipartPart"], "part record endpoint")
     require(
