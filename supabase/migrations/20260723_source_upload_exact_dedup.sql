@@ -60,6 +60,77 @@ revoke all on table public.source_upload_dedup_audit from anon, authenticated;
 grant select, insert, update on table public.source_upload_dedup_audit to service_role;
 grant usage, select on sequence public.source_upload_dedup_audit_id_seq to service_role;
 
+create or replace function public.verify_source_upload(
+  p_storage_key text,
+  p_verified_size_bytes bigint
+)
+returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_upload public.source_uploads%rowtype;
+begin
+  if p_verified_size_bytes is null or p_verified_size_bytes < 0 then
+    raise exception 'verified size must be a non-negative integer';
+  end if;
+
+  select *
+    into v_upload
+    from public.source_uploads
+   where storage_key = p_storage_key
+   for update;
+
+  if not found then
+    raise exception 'source upload for storage key % not found', p_storage_key;
+  end if;
+
+  if v_upload.status = 'superseded' then
+    raise exception 'source upload % is superseded by %', v_upload.id, v_upload.canonical_upload_id;
+  end if;
+
+  if v_upload.source_size_bytes is not null
+     and v_upload.source_size_bytes <> p_verified_size_bytes then
+    update public.source_uploads
+       set status = 'size_mismatch',
+           verified_size_bytes = p_verified_size_bytes,
+           updated_at = now()
+     where id = v_upload.id
+     returning * into v_upload;
+
+    return jsonb_build_object(
+      'upload_id', v_upload.id,
+      'status', v_upload.status,
+      'source_size_bytes', v_upload.source_size_bytes,
+      'verified_size_bytes', v_upload.verified_size_bytes,
+      'verified_at', v_upload.verified_at
+    );
+  end if;
+
+  update public.source_uploads
+     set status = 'verified',
+         verified_size_bytes = p_verified_size_bytes,
+         verified_at = coalesce(verified_at, now()),
+         updated_at = now()
+   where id = v_upload.id
+   returning * into v_upload;
+
+  return jsonb_build_object(
+    'upload_id', v_upload.id,
+    'status', v_upload.status,
+    'source_size_bytes', v_upload.source_size_bytes,
+    'verified_size_bytes', v_upload.verified_size_bytes,
+    'verified_at', v_upload.verified_at
+  );
+end;
+$$;
+
+revoke all on function public.verify_source_upload(text, bigint) from public;
+revoke all on function public.verify_source_upload(text, bigint) from anon;
+revoke all on function public.verify_source_upload(text, bigint) from authenticated;
+grant execute on function public.verify_source_upload(text, bigint) to service_role;
+
 create or replace function public.resolve_exact_source_duplicate(
   p_upload_id uuid,
   p_content_sha256 text
