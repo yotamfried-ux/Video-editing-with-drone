@@ -1,0 +1,49 @@
+name: Multipart Upload Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/multipart-upload-check.yml'
+      - 'docs/app-pipeline-audit.md'
+      - 'docs/audit/multipart-upload-foundation-20260722.md'
+      - 'supabase/migrations/20260722_multipart_upload_foundation.sql'
+      - 'web-api/src/app/api/operator/upload/multipart/route.ts'
+      - 'web-api/src/app/api/operator/pipeline/start/route.ts'
+      - 'web-api/src/lib/multipart-policy.mjs'
+      - 'web-api/src/lib/multipart-policy.d.ts'
+      - 'web-api/src/lib/r2-storage.ts'
+      - 'web-api/src/lib/upload-batch-admission.ts'
+      - 'web-api/src/types/operator-contracts.ts'
+      - 'scripts/test_multipart_upload_policy.mjs'
+      - 'scripts/test_multipart_upload_foundation_contract.py'
+      - 'scripts/test_batch_scope_contract.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - name: Validate multipart policy behavior
+        run: node scripts/test_multipart_upload_policy.mjs
+      - name: Validate multipart cross-layer contract
+        run: python scripts/test_multipart_upload_foundation_contract.py
+      - name: Validate existing batch scope contract
+        run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
+      - name: Validate web API TypeScript
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
