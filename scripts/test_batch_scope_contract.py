@@ -93,8 +93,10 @@ def run_scope_probe() -> None:
 
 def main() -> int:
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
+    multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
     start_route = read("web-api/src/app/api/operator/pipeline/start/route.ts")
     reset_route = read("web-api/src/app/api/operator/pipeline/reset/route.ts")
+    batch_helper = read("web-api/src/lib/upload-batch-manifest.ts")
     r2_lib = read("web-api/src/lib/r2-storage.ts")
     workflow = read(".github/workflows/pipeline-run.yml")
     mobile = read("mobile/src/app/(operator)/pipeline.tsx")
@@ -107,8 +109,54 @@ def main() -> int:
         ast.parse(text)
 
     require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
-    require("upload route", upload_route, ["files?: UploadFileInput[]", "normalizeUploadFiles", "uploadFilename", "safeBatchId(requestedBatchId) || newBatchId()", "createR2UploadUrl(file.uploadFilename, batchId)", "batch_id: upload.batch_id", "uploads,"])
-    require("pipeline start route", start_route, ["batch_id?: string", "safeBatchId", "client_payload", "batch_id"])
+    require(
+        "durable batch resolver",
+        batch_helper,
+        [
+            "resolveUploadBatchId",
+            "resolveReadyUploadBatchId",
+            "uniqueBatchIdForStates",
+            "Multiple durable upload batches are active",
+            "No unique size-verified upload batch is ready",
+        ],
+    )
+    require(
+        "upload route",
+        upload_route,
+        [
+            "files?: UploadFileInput[]",
+            "normalizeUploadFiles",
+            "uploadFilename",
+            "resolveUploadBatchId",
+            "createR2UploadUrl(file.uploadFilename, batchId)",
+            "registerUploadBatch",
+            "batch_id: upload.batch_id",
+            "uploads,",
+        ],
+    )
+    require(
+        "multipart start route",
+        multipart_start,
+        [
+            "client_upload_id",
+            "resolveUploadBatchId",
+            "registerMultipartBatchMembership",
+            "resumed_existing_start",
+        ],
+    )
+    require(
+        "pipeline start route",
+        start_route,
+        [
+            "batch_id?: string",
+            "safeBatchId",
+            "resolveReadyUploadBatchId",
+            "assertUploadBatchReady",
+            "input_manifest_frozen: true",
+            "client_payload",
+            "batch_id",
+        ],
+    )
     require("pipeline reset route", reset_route, ["batch_id", "safeBatchId", "inputs", "pipeline_run_id: run.id"])
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
     require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "batch_id: lastBatchId ?? activeBatchId", "Current upload batch"])
@@ -124,6 +172,8 @@ def main() -> int:
         raise SystemExit("upload route must use normalized batch files")
     if "createR2UploadUrl(file.filename, batchId)" in upload_route:
         raise SystemExit("upload route must use unique per-file upload names")
+    if "safeBatchId(requestedBatchId) || newBatchId()" in upload_route:
+        raise SystemExit("upload route must recover durable batch state instead of trusting only request/mobile state")
 
     run_scope_probe()
     print("Batch scope contract checks passed")
