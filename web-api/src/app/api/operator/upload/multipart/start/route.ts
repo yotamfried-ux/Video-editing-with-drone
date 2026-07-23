@@ -14,6 +14,11 @@ import {
 } from '@/lib/r2-storage';
 import { attachMultipartSession } from '@/lib/multipart-upload-manifest';
 import {
+  registerUploadBatch,
+  removeSourceUploadsAfterSetupFailure,
+  resolveUploadBatchId,
+} from '@/lib/upload-batch-manifest';
+import {
   createSourceUploadManifests,
   SourceUploadManifestError,
 } from '@/lib/source-upload-manifest';
@@ -78,11 +83,27 @@ export async function POST(req: NextRequest) {
     }, { status: 413 });
   }
 
+  const requestedBatchId = (body.batch_id ?? '').trim();
+  const sanitizedRequestedBatchId = safeBatchId(requestedBatchId);
+  if (requestedBatchId && sanitizedRequestedBatchId !== requestedBatchId) {
+    return NextResponse.json({ error: 'batch_id contains unsupported characters' }, { status: 400 });
+  }
+
   const sourceFilename = (body.filename ?? '').trim() || `drone_footage_${Date.now()}.mp4`;
   const mimeType = (body.mimeType ?? '').trim() || 'video/mp4';
-  const batchId = safeBatchId(body.batch_id) || newBatchId();
+  let batchId: string;
+  try {
+    batchId = await resolveUploadBatchId(sanitizedRequestedBatchId) ?? newBatchId();
+  } catch (error) {
+    const status = error instanceof SourceUploadManifestError ? error.status : 503;
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Could not resolve upload batch',
+    }, { status });
+  }
+
   const target = createR2UploadTarget(sourceFilename, batchId);
   let r2MultipartUploadId: string | null = null;
+  let sourceUploadId: string | null = null;
 
   try {
     r2MultipartUploadId = await createR2MultipartUpload(target.key, mimeType);
@@ -93,23 +114,30 @@ export async function POST(req: NextRequest) {
       mimeType,
       sourceSizeBytes,
     }]);
-    const uploadId = uploadIds.get(target.key);
-    if (!uploadId) {
+    sourceUploadId = uploadIds.get(target.key) ?? null;
+    if (!sourceUploadId) {
       throw new SourceUploadManifestError(`Missing source upload id for ${target.key}`, 503);
     }
 
     await attachMultipartSession({
-      uploadId,
+      uploadId: sourceUploadId,
       multipartUploadId: r2MultipartUploadId,
       partSizeBytes,
       expectedPartCount,
       localCleanupRequired: body.local_cleanup_required !== false,
     });
 
+    await registerUploadBatch({
+      batchId: target.batch_id,
+      additionalFileCount: 1,
+      sourceKind: 'android_external',
+      groupingKind: 'unassigned',
+    });
+
     return NextResponse.json({
       ok: true,
       protocol: 'r2_multipart_v1',
-      upload_id: uploadId,
+      upload_id: sourceUploadId,
       batch_id: target.batch_id,
       storage_key: target.key,
       filename: target.filename,
@@ -125,8 +153,14 @@ export async function POST(req: NextRequest) {
       try {
         await abortR2MultipartUpload(target.key, r2MultipartUploadId);
       } catch {
-        // The original failure is returned. R2's lifecycle remains the final fallback,
-        // while the durable stale-upload cleanup job is implemented separately.
+        // Preserve the original setup failure. R2 lifecycle is the final fallback.
+      }
+    }
+    if (sourceUploadId) {
+      try {
+        await removeSourceUploadsAfterSetupFailure([sourceUploadId]);
+      } catch {
+        // Preserve the original setup failure; cleanup reconciliation remains visible.
       }
     }
     const status = error instanceof SourceUploadManifestError ? error.status : 502;
