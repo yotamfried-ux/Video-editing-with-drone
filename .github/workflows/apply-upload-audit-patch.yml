@@ -5,9 +5,14 @@ on:
     branches: [feat/drone-large-upload-foundation]
     paths:
       - '.github/workflows/apply-upload-audit-patch.yml'
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: apply-upload-audit-patch
+  cancel-in-progress: false
 
 jobs:
   patch:
