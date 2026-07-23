@@ -20,10 +20,7 @@ import {
   registerMultipartBatchMembership,
   type MultipartSession,
 } from '@/lib/multipart-upload-manifest';
-import {
-  removeSourceUploadsAfterSetupFailure,
-  resolveUploadBatchId,
-} from '@/lib/upload-batch-manifest';
+import { resolveUploadBatchId } from '@/lib/upload-batch-manifest';
 import { SourceUploadManifestError } from '@/lib/source-upload-manifest';
 
 const DEFAULT_PART_SIZE_BYTES = 16 * 1024 * 1024;
@@ -184,12 +181,10 @@ export async function POST(req: NextRequest) {
   }
 
   const target = createR2UploadTarget(sourceFilename, batchId);
-  let r2MultipartUploadId: string | null = null;
-  let sourceUploadId: string | null = null;
-  let createdSource = false;
+  let orphanMultipartUploadId: string | null = null;
 
   try {
-    r2MultipartUploadId = await createR2MultipartUpload(target.key, mimeType);
+    orphanMultipartUploadId = await createR2MultipartUpload(target.key, mimeType);
     const created = await createMultipartSourceManifest({
       clientUploadId,
       batchId: target.batch_id,
@@ -197,21 +192,21 @@ export async function POST(req: NextRequest) {
       sourceFilename,
       mimeType,
       sourceSizeBytes,
-      multipartUploadId: r2MultipartUploadId,
+      multipartUploadId: orphanMultipartUploadId,
       partSizeBytes,
       expectedPartCount,
       localCleanupRequired: body.local_cleanup_required !== false,
     });
-    sourceUploadId = created.uploadId;
-    createdSource = created.created;
 
-    if (!createdSource) {
-      await abortR2MultipartUpload(target.key, r2MultipartUploadId);
-      r2MultipartUploadId = null;
+    if (!created.created) {
+      await abortR2MultipartUpload(target.key, orphanMultipartUploadId);
     }
+    // Once the durable source row owns the R2 UploadId, later failures must leave
+    // both intact so the same client_upload_id can reconcile and retry safely.
+    orphanMultipartUploadId = null;
 
-    await registerMultipartBatchMembership(sourceUploadId);
-    const session = await getMultipartSession(sourceUploadId);
+    await registerMultipartBatchMembership(created.uploadId);
+    const session = await getMultipartSession(created.uploadId);
     assertIdempotentSourceMatches({
       session,
       clientUploadId,
@@ -219,20 +214,13 @@ export async function POST(req: NextRequest) {
       sourceSizeBytes,
       sourceFilename,
     });
-    return NextResponse.json(sessionResponse(session, !createdSource));
+    return NextResponse.json(sessionResponse(session, !created.created));
   } catch (error) {
-    if (r2MultipartUploadId) {
+    if (orphanMultipartUploadId) {
       try {
-        await abortR2MultipartUpload(target.key, r2MultipartUploadId);
+        await abortR2MultipartUpload(target.key, orphanMultipartUploadId);
       } catch {
         // Preserve the original setup failure. R2 lifecycle is the final fallback.
-      }
-    }
-    if (sourceUploadId && createdSource) {
-      try {
-        await removeSourceUploadsAfterSetupFailure([sourceUploadId]);
-      } catch {
-        // Preserve the original setup failure; cleanup reconciliation remains visible.
       }
     }
     const status = error instanceof SourceUploadManifestError ? error.status : 502;
