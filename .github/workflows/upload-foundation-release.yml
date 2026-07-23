@@ -11,6 +11,7 @@ on:
       - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
       - 'scripts/test_real_r2_multipart_upload.py'
+      - 'scripts/test_real_web_api_r2_signer.cjs'
       - 'supabase/migrations/20260723_source_upload_exact_dedup.sql'
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
       - 'supabase/migrations/20260723_single_put_size_evidence.sql'
@@ -26,7 +27,7 @@ on:
   workflow_dispatch:
     inputs:
       confirm_release:
-        description: 'Type RELEASE to re-run the live migration, R2 probe, and Android preview build'
+        description: 'Type RELEASE to re-run the live migration, R2 probes, and Android preview build'
         required: true
         default: 'DRY_RUN'
         type: string
@@ -105,15 +106,106 @@ jobs:
     name: Verify real R2 multipart behavior
     needs: migrate-and-verify
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
       - name: Install probe dependencies
         run: python -m pip install --disable-pip-version-check boto3 requests
-      - name: Upload, retry, complete, hash-check, and remove probe object
+      - name: Compile the actual Web API R2 signer
+        working-directory: web-api
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc src/lib/r2-storage.ts \
+            --target ES2022 \
+            --module commonjs \
+            --moduleResolution node \
+            --esModuleInterop \
+            --skipLibCheck \
+            --rootDir src/lib \
+            --outDir "$RUNNER_TEMP/web-api-r2-signer"
+          test -f "$RUNNER_TEMP/web-api-r2-signer/r2-storage.js"
+      - name: Probe R2 through SportReel Web API signing code
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_STORAGE_MODULE: ${{ runner.temp }}/web-api-r2-signer/r2-storage.js
+          R2_WEB_API_EVIDENCE_PATH: ${{ runner.temp }}/web-api-r2-signer-evidence.json
+        run: node scripts/test_real_web_api_r2_signer.cjs
+      - name: Remove and verify absence of the Web API signer probe object
+        if: always()
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_WEB_API_EVIDENCE_PATH: ${{ runner.temp }}/web-api-r2-signer-evidence.json
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import boto3
+          from botocore.config import Config
+          from botocore.exceptions import ClientError
+
+          evidence_path = Path(os.environ['R2_WEB_API_EVIDENCE_PATH'])
+          if not evidence_path.exists():
+              raise RuntimeError('Web API signer evidence file is missing')
+          evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
+          key = str(evidence.get('key') or '').strip()
+          if not key:
+              raise RuntimeError('Web API signer evidence contains no object key')
+          endpoint = os.environ.get('R2_ENDPOINT_URL', '').strip().rstrip('/')
+          if not endpoint:
+              endpoint = f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          client = boto3.client(
+              's3',
+              endpoint_url=endpoint,
+              aws_access_key_id=os.environ['R2_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['R2_SECRET_ACCESS_KEY'],
+              region_name='auto',
+              config=Config(signature_version='s3v4', retries={'max_attempts': 3, 'mode': 'standard'}),
+          )
+          errors = []
+          try:
+              client.delete_object(Bucket=os.environ.get('R2_BUCKET', '').strip() or 'sportreel', Key=key)
+              try:
+                  client.head_object(Bucket=os.environ.get('R2_BUCKET', '').strip() or 'sportreel', Key=key)
+                  errors.append('object still exists after delete')
+              except ClientError as error:
+                  status = error.response.get('ResponseMetadata', {}).get('HTTPStatusCode')
+                  if status != 404:
+                      errors.append(f'post-delete HEAD returned {status}')
+          except Exception as error:
+              errors.append(f'{type(error).__name__}: {error}')
+          evidence['object_cleanup'] = 'confirmed' if not errors else 'failed'
+          evidence['object_cleanup_errors'] = errors
+          evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding='utf-8')
+          if errors:
+              raise RuntimeError('; '.join(errors))
+          PY
+      - name: Publish Web API signer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-api-r2-signer-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/web-api-r2-signer-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload, retry, complete, hash-check, and remove independent probe object
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -123,7 +215,7 @@ jobs:
           R2_PROBE_SIZE_MIB: '11'
           R2_PROBE_EVIDENCE_PATH: ${{ runner.temp }}/r2-multipart-evidence.json
         run: python scripts/test_real_r2_multipart_upload.py
-      - name: Publish R2 evidence
+      - name: Publish independent R2 evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
