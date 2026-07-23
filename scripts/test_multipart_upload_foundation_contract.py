@@ -124,7 +124,14 @@ def main() -> int:
         "FileBlob.slice()",
         "ContentResolver",
         "Do not hide the SDK 52 limitation by copying the complete external video to cache",
-        "No foundation code or green CI result closes GAP-013, GAP-014, or GAP-015",
+        "GAP-026",
+        "aws-samples/amazon-s3-checksum-tool",
+        "dropbox.com/developers/reference/content-hash",
+        "git-lfs/git-lfs/blob/main/docs/spec.md",
+        "postgresql.org/docs/current/indexes-partial.html",
+        "newest successfully verified upload wins",
+        "multipart ETag are not exact-content identity",
+        "No foundation code or green CI result closes GAP-013, GAP-014, GAP-015, or GAP-026",
     ]:
         require(token, focused_audit, "multipart focused audit")
 
