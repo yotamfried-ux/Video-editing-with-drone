@@ -11,11 +11,17 @@ on:
       - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
       - 'scripts/test_large_upload_foundation_contract.py'
+      - 'scripts/test_upload_batch_verified_gate_contract.py'
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
       - 'supabase/migrations/20260723_source_upload_local_cleanup_evidence.sql'
+      - 'supabase/migrations/20260723_upload_batch_verified_gate.sql'
+      - 'web-api/src/app/api/operator/pipeline/start/route.ts'
+      - 'web-api/src/app/api/operator/upload/route.ts'
+      - 'web-api/src/app/api/operator/upload/batch/route.ts'
       - 'web-api/src/app/api/operator/upload/multipart/**'
       - 'web-api/src/lib/multipart-upload-manifest.ts'
       - 'web-api/src/lib/r2-storage.ts'
+      - 'web-api/src/lib/upload-batch-manifest.ts'
   workflow_dispatch:
 
 permissions:
@@ -33,6 +39,9 @@ jobs:
 
       - name: Validate multipart, cleanup, and source-preservation contracts
         run: python scripts/test_large_upload_foundation_contract.py
+
+      - name: Validate durable verified upload batch gate
+        run: python scripts/test_upload_batch_verified_gate_contract.py
 
       - uses: actions/setup-node@v4
         with:
