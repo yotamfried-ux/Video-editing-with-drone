@@ -8,6 +8,7 @@ import {
   assertUploadBatchReady,
   markUploadBatchRunning,
   releaseUploadBatchAfterDispatchFailure,
+  resolveReadyUploadBatchId,
 } from '@/lib/upload-batch-manifest';
 import { SourceUploadManifestError } from '@/lib/source-upload-manifest';
 import type { PipelineDispatchResponse } from '@/types/operator-contracts';
@@ -44,12 +45,20 @@ export async function POST(req: NextRequest) {
   let body: { batch_id?: string } = {};
   try { body = await req.json(); } catch {}
   const requestedBatchId = (body.batch_id ?? '').trim();
-  const batchId = safeBatchId(requestedBatchId);
-  if (!requestedBatchId) {
-    return NextResponse.json({ error: 'A durable verified batch_id is required' }, { status: 400 });
-  }
-  if (!batchId || batchId !== requestedBatchId) {
+  const sanitizedRequestedBatchId = safeBatchId(requestedBatchId);
+  if (requestedBatchId && sanitizedRequestedBatchId !== requestedBatchId) {
     return NextResponse.json({ error: 'batch_id contains unsupported characters' }, { status: 400 });
+  }
+
+  let batchId: string;
+  try {
+    batchId = await resolveReadyUploadBatchId(sanitizedRequestedBatchId);
+  } catch (error) {
+    const status = error instanceof SourceUploadManifestError ? error.status : 503;
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Could not resolve a ready upload batch',
+      batch_id: sanitizedRequestedBatchId || null,
+    }, { status });
   }
 
   const token = process.env.GITHUB_DISPATCH_TOKEN;
