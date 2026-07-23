@@ -66,6 +66,7 @@ type UploadFileState = {
   uri: string;
   filename: string;
   mimeType: string;
+  sourceSizeBytes?: number;
   progress: number;
   status: UploadItemStatus;
   batch_id?: string | null;
@@ -347,6 +348,16 @@ export default function PipelineScreen() {
   // Fetched immediately before each upload attempt (never reused across a long
   // queue wait) so a signed URL can't expire before it's used.
   const requestUploadSession = async (item: UploadFileState): Promise<UploadSession> => {
+    let sourceSizeBytes = item.sourceSizeBytes;
+    if (!Number.isSafeInteger(sourceSizeBytes) || Number(sourceSizeBytes) <= 0) {
+      const info = await FileSystem.getInfoAsync(item.uri, { size: true });
+      if (!info.exists || info.isDirectory || !Number.isSafeInteger(info.size) || Number(info.size) <= 0) {
+        throw new Error(`Cannot determine a stable positive source size for ${item.filename}.`);
+      }
+      sourceSizeBytes = Number(info.size);
+      item.sourceSizeBytes = sourceSizeBytes;
+    }
+
     const uploadInit = await operatorFetch<UploadInit>(
       '/api/operator/upload',
       {
@@ -355,6 +366,7 @@ export default function PipelineScreen() {
         body: JSON.stringify({
           filename: item.filename,
           mimeType: item.mimeType,
+          size: sourceSizeBytes,
           batch_id: item.batch_id ?? activeBatchId,
         }),
       }
@@ -497,6 +509,7 @@ export default function PipelineScreen() {
         uri: asset.uri,
         filename,
         mimeType: selectedAssetMimeType(asset),
+        sourceSizeBytes: asset.fileSize ?? undefined,
         progress: 0,
         status: 'queued',
         batch_id: activeBatchId,
