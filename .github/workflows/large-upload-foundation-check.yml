@@ -5,6 +5,7 @@ on:
     paths:
       - '.github/workflows/large-upload-foundation-check.yml'
       - 'docs/audit/drone-large-upload-experiment-entry-plan-20260723.md'
+      - 'mobile/modules/sportreel-source-reader/**'
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
       - 'scripts/test_large_upload_foundation_contract.py'
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
@@ -42,8 +43,10 @@ jobs:
           npm ci
           npm run type-check
 
-      - name: Type-check mobile cleanup helper
+      - name: Type-check mobile helpers and verify native module autolinking
         working-directory: mobile
         run: |
           npm ci
           npm run type-check
+          npx expo-modules-autolinking resolve --platform android > /tmp/expo-modules-android.json
+          grep -q 'SportReelSourceReaderModule' /tmp/expo-modules-android.json
