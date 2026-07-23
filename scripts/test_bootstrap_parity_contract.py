@@ -51,6 +51,8 @@ def fake_r2() -> types.SimpleNamespace:
         PROCESSED_PREFIX="processed/",
         list_objects=list_objects,
         move_object=move_object,
+        delete_object=lambda key: None,
+        download_video=lambda key, filename: f"/tmp/{filename}",
         _is_video_key=lambda key: key.endswith(".mp4"),
         _object_to_video=lambda obj: {
             "key": obj["Key"],
@@ -69,7 +71,20 @@ def run_r2_batch_scope_via_bootstrap() -> None:
     os.environ["STORAGE_BACKEND"] = "r2"
     os.environ["RAW_BATCH_ID"] = "session two"
     sys.modules.pop("pipeline.bootstrap", None)
+    sys.modules.pop("pipeline.r2_batch_scope", None)
     module = fake_r2()
+    dedup_calls: list[list[str]] = []
+
+    def prepare_canonical_sources(videos: list[dict], download_one, **kwargs) -> list[dict]:
+        dedup_calls.append([video["id"] for video in videos])
+        if kwargs.get("storage_backend") != "r2":
+            raise SystemExit("bootstrap must activate the R2 exact dedup gate")
+        return videos
+
+    sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
+        prepare_canonical_sources=prepare_canonical_sources
+    )
+
     import pipeline.bootstrap as bootstrap
 
     bootstrap._install_r2_batch_scope()
@@ -78,9 +93,13 @@ def run_r2_batch_scope_via_bootstrap() -> None:
         raise SystemExit(f"bootstrap did not scope R2 listing to the batch id, got {module.listed}")
     if [video["key"] for video in videos] != ["raw/session_two/clip.mp4"]:
         raise SystemExit("bootstrap did not install scoped get_new_videos")
+    if dedup_calls != [["raw/session_two/clip.mp4"]]:
+        raise SystemExit(f"bootstrap did not install exact dedup admission, got {dedup_calls}")
 
     del os.environ["RAW_BATCH_ID"]
     sys.modules.pop("pipeline.bootstrap", None)
+    sys.modules.pop("pipeline.r2_batch_scope", None)
+    sys.modules.pop("pipeline.source_upload_dedup", None)
     module2 = fake_r2()
     import pipeline.bootstrap as bootstrap2
 
