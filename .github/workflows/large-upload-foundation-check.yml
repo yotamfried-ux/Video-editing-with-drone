@@ -15,6 +15,7 @@ on:
       - 'scripts/test_upload_batch_verified_gate_contract.py'
       - 'scripts/test_upload_foundation_release_contract.py'
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
+      - 'supabase/migrations/20260723_single_put_size_evidence.sql'
       - 'supabase/migrations/20260723_source_upload_local_cleanup_evidence.sql'
       - 'supabase/migrations/20260723_upload_batch_verified_gate.sql'
       - 'supabase/migrations/20260723_upload_start_idempotency.sql'
