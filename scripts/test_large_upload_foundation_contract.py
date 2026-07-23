@@ -173,7 +173,7 @@ def test_plan_uses_verified_primary_sources() -> None:
             "Expo SDK 52 compatibility decision",
             "ContentResolver",
             "Uint8Array",
-            "real Android memory profile",
+            "Prove phone storage does not grow by the full source size",
         ],
         "experiment-entry plan",
     )
