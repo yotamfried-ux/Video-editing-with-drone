@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - '.github/workflows/large-upload-foundation-check.yml'
+      - '.github/workflows/upload-foundation-release.yml'
       - 'docs/audit/drone-large-upload-experiment-entry-plan-20260723.md'
       - 'mobile/modules/sportreel-source-reader/**'
       - 'mobile/src/app/(operator)/pipeline.tsx'
@@ -12,6 +13,7 @@ on:
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
       - 'scripts/test_large_upload_foundation_contract.py'
       - 'scripts/test_upload_batch_verified_gate_contract.py'
+      - 'scripts/test_upload_foundation_release_contract.py'
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
       - 'supabase/migrations/20260723_source_upload_local_cleanup_evidence.sql'
       - 'supabase/migrations/20260723_upload_batch_verified_gate.sql'
@@ -43,6 +45,9 @@ jobs:
 
       - name: Validate durable verified upload batch gate
         run: python scripts/test_upload_batch_verified_gate_contract.py
+
+      - name: Validate migration, R2 probe, and Android release order
+        run: python scripts/test_upload_foundation_release_contract.py
 
       - uses: actions/setup-node@v4
         with:
