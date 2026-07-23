@@ -29,6 +29,7 @@ def main() -> int:
     single_start = read("web-api/src/app/api/operator/upload/route.ts")
     batch_route = read("web-api/src/app/api/operator/upload/batch/route.ts")
     pipeline_start = read("web-api/src/app/api/operator/pipeline/start/route.ts")
+    pipeline_post = pipeline_start[pipeline_start.index("export async function POST"):]
 
     require(
         "upload batch migration",
@@ -138,7 +139,7 @@ def main() -> int:
     )
     require_order(
         "pipeline admission",
-        pipeline_start,
+        pipeline_post,
         [
             "resolveReadyUploadBatchId",
             "assertUploadBatchReady",
