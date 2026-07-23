@@ -24,6 +24,10 @@ export type MultipartSession = {
   local_cleanup_status: 'not_required' | 'pending' | 'confirmed' | 'failed';
   local_cleanup_confirmed_at: string | null;
   local_cleanup_error: string | null;
+  local_cleanup_artifact_count: number | null;
+  local_cleanup_reclaimed_bytes: number | null;
+  local_cleanup_source_preserved: boolean | null;
+  local_cleanup_checked_at: string | null;
   last_error: string | null;
   parts: MultipartPartRecord[];
 };
@@ -40,7 +44,7 @@ function oneRpcObject(data: unknown, operation: string): RpcJson {
 
 function rpcErrorStatus(message: string): number {
   if (/not found/i.test(message)) return 404;
-  if (/status|incomplete|mismatch|outside|already|requires|cannot|invalid/i.test(message)) return 409;
+  if (/status|incomplete|mismatch|outside|already|requires|cannot|invalid|preserved/i.test(message)) return 409;
   return 503;
 }
 
@@ -70,7 +74,7 @@ export async function attachMultipartSession(input: {
 export async function getMultipartSession(uploadId: string): Promise<MultipartSession> {
   const { data: upload, error: uploadError } = await supabaseAdmin
     .from('source_uploads')
-    .select('id,batch_id,storage_key,source_filename,mime_type,source_size_bytes,status,upload_protocol,multipart_upload_id,part_size_bytes,expected_part_count,completed_part_count,local_cleanup_required,local_cleanup_status,local_cleanup_confirmed_at,local_cleanup_error,last_error')
+    .select('id,batch_id,storage_key,source_filename,mime_type,source_size_bytes,status,upload_protocol,multipart_upload_id,part_size_bytes,expected_part_count,completed_part_count,local_cleanup_required,local_cleanup_status,local_cleanup_confirmed_at,local_cleanup_error,local_cleanup_artifact_count,local_cleanup_reclaimed_bytes,local_cleanup_source_preserved,local_cleanup_checked_at,last_error')
     .eq('id', uploadId)
     .maybeSingle();
 
@@ -114,6 +118,10 @@ export async function getMultipartSession(uploadId: string): Promise<MultipartSe
     local_cleanup_status: upload.local_cleanup_status as MultipartSession['local_cleanup_status'],
     local_cleanup_confirmed_at: upload.local_cleanup_confirmed_at == null ? null : String(upload.local_cleanup_confirmed_at),
     local_cleanup_error: upload.local_cleanup_error == null ? null : String(upload.local_cleanup_error),
+    local_cleanup_artifact_count: upload.local_cleanup_artifact_count == null ? null : Number(upload.local_cleanup_artifact_count),
+    local_cleanup_reclaimed_bytes: upload.local_cleanup_reclaimed_bytes == null ? null : Number(upload.local_cleanup_reclaimed_bytes),
+    local_cleanup_source_preserved: upload.local_cleanup_source_preserved == null ? null : Boolean(upload.local_cleanup_source_preserved),
+    local_cleanup_checked_at: upload.local_cleanup_checked_at == null ? null : String(upload.local_cleanup_checked_at),
     last_error: upload.last_error == null ? null : String(upload.last_error),
     parts: (parts ?? []).map((part) => ({
       part_number: Number(part.part_number),
@@ -210,11 +218,17 @@ export async function markMultipartAborted(uploadId: string, message?: string | 
 export async function recordLocalCleanup(input: {
   uploadId: string;
   status: 'not_required' | 'confirmed' | 'failed';
+  artifactCount: number;
+  reclaimedBytes: number;
+  sourcePreserved: boolean;
   error?: string | null;
 }): Promise<RpcJson> {
-  const { data, error } = await supabaseAdmin.rpc('record_source_upload_local_cleanup', {
+  const { data, error } = await supabaseAdmin.rpc('record_source_upload_local_cleanup_evidence', {
     p_upload_id: input.uploadId,
     p_status: input.status,
+    p_artifact_count: input.artifactCount,
+    p_reclaimed_bytes: input.reclaimedBytes,
+    p_source_preserved: input.sourcePreserved,
     p_error: input.error ?? null,
   });
   if (error) {
@@ -223,5 +237,5 @@ export async function recordLocalCleanup(input: {
       rpcErrorStatus(error.message),
     );
   }
-  return oneRpcObject(data, 'Local cleanup record');
+  return oneRpcObject(data, 'Local cleanup evidence');
 }
