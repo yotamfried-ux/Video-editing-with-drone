@@ -14,13 +14,6 @@ import os
 from pathlib import Path
 from typing import Any, Callable
 
-from integrations.source_uploads import (
-    get_source_upload,
-    mark_source_removal_error,
-    mark_source_removed,
-    resolve_exact_source_duplicate,
-)
-
 logger = logging.getLogger(__name__)
 _HASH_CHUNK_BYTES = 8 * 1024 * 1024
 
@@ -54,11 +47,11 @@ def prepare_canonical_sources(
     download_one: Callable[[dict[str, Any]], dict[str, Any] | None],
     *,
     storage_backend: str | None = None,
-    get_upload: Callable[[str], dict[str, Any] | None] = get_source_upload,
-    resolve_duplicate: Callable[[str, str], dict[str, Any]] = resolve_exact_source_duplicate,
+    get_upload: Callable[[str], dict[str, Any] | None] | None = None,
+    resolve_duplicate: Callable[[str, str], dict[str, Any]] | None = None,
     delete_source: Callable[[str], None] | None = None,
-    mark_removed: Callable[[str, str], None] = mark_source_removed,
-    mark_removal_error: Callable[[str, str, str], None] = mark_source_removal_error,
+    mark_removed: Callable[[str, str], None] | None = None,
+    mark_removal_error: Callable[[str, str, str], None] | None = None,
 ) -> list[dict[str, Any]]:
     """Download, hash, reconcile, and return only canonical source metadata.
 
@@ -71,10 +64,29 @@ def prepare_canonical_sources(
     if backend != "r2" or not videos:
         return videos
 
+    if any(callback is None for callback in (get_upload, resolve_duplicate, mark_removed, mark_removal_error)):
+        from integrations.source_uploads import (
+            get_source_upload,
+            mark_source_removal_error,
+            mark_source_removed,
+            resolve_exact_source_duplicate,
+        )
+
+        get_upload = get_upload or get_source_upload
+        resolve_duplicate = resolve_duplicate or resolve_exact_source_duplicate
+        mark_removed = mark_removed or mark_source_removed
+        mark_removal_error = mark_removal_error or mark_source_removal_error
+
     if delete_source is None:
         from integrations.r2_storage import delete_object
 
         delete_source = delete_object
+
+    assert get_upload is not None
+    assert resolve_duplicate is not None
+    assert mark_removed is not None
+    assert mark_removal_error is not None
+    assert delete_source is not None
 
     prepared_by_key: dict[str, dict[str, Any]] = {}
     order: list[str] = []
