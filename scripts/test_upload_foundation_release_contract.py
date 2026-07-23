@@ -6,6 +6,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/upload-foundation-release.yml"
 R2_PROBE = ROOT / "scripts/test_real_r2_multipart_upload.py"
+WEB_API_SIGNER_PROBE = ROOT / "scripts/test_real_web_api_r2_signer.cjs"
 
 
 def require_tokens(source: str, tokens: list[str], label: str) -> None:
@@ -23,6 +24,7 @@ def require_order(source: str, tokens: list[str], label: str) -> None:
 def main() -> int:
     source = WORKFLOW.read_text(encoding="utf-8")
     probe = R2_PROBE.read_text(encoding="utf-8")
+    signer_probe = WEB_API_SIGNER_PROBE.read_text(encoding="utf-8")
 
     require_tokens(
         source,
@@ -37,6 +39,13 @@ def main() -> int:
             "column:source_size_evidence=",
             "real-r2-probe:",
             "needs: migrate-and-verify",
+            "Compile the actual Web API R2 signer",
+            "src/lib/r2-storage.ts",
+            "R2_STORAGE_MODULE:",
+            "node scripts/test_real_web_api_r2_signer.cjs",
+            "Remove and verify absence of the Web API signer probe object",
+            "object still exists after delete",
+            "web-api-r2-signer-evidence-${{ github.run_id }}",
             "python scripts/test_real_r2_multipart_upload.py",
             "build-android-preview:",
             "needs: [migrate-and-verify, real-r2-probe]",
@@ -49,6 +58,24 @@ def main() -> int:
     )
 
     require_tokens(
+        signer_probe,
+        [
+            "createR2MultipartUpload",
+            "createR2MultipartPartUploadUrl",
+            "completeR2MultipartUpload",
+            "verifyR2Object",
+            "createR2SignedGetUrl",
+            "abortR2MultipartUpload",
+            "expected_sha256",
+            "download_sha256",
+            "probe_succeeded",
+            "R2_STORAGE_MODULE",
+            "R2_WEB_API_EVIDENCE_PATH",
+        ],
+        "actual Web API R2 signer probe",
+    )
+
+    require_tokens(
         probe,
         [
             'evidence["cleanup"] = "confirmed" if not cleanup_errors else "failed"',
@@ -58,7 +85,7 @@ def main() -> int:
             'if not probe_succeeded:',
             'raise RuntimeError("R2 probe did not reach verified completion")',
         ],
-        "real R2 probe fail-closed cleanup",
+        "independent R2 probe fail-closed cleanup",
     )
 
     require_order(
@@ -77,6 +104,17 @@ def main() -> int:
         source,
         ["migrate-and-verify:", "real-r2-probe:", "build-android-preview:"],
         "release job order",
+    )
+    require_order(
+        source,
+        [
+            "Compile the actual Web API R2 signer",
+            "Probe R2 through SportReel Web API signing code",
+            "Remove and verify absence of the Web API signer probe object",
+            "Publish Web API signer evidence",
+            "Upload, retry, complete, hash-check, and remove independent probe object",
+        ],
+        "R2 signer and independent probe order",
     )
 
     forbidden = [
