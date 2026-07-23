@@ -1,0 +1,52 @@
+name: Real R2 Multipart Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      size_mib:
+        description: 'Probe object size in MiB (11-64)'
+        required: true
+        default: '11'
+        type: string
+      confirm_cleanup:
+        description: 'Type PROBE to confirm creation and deletion of a temporary R2 integration-test object'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    if: inputs.confirm_cleanup == 'PROBE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install real-service probe dependencies
+        run: python -m pip install --disable-pip-version-check boto3 requests
+
+      - name: Upload, independently retry one part, complete, verify, and clean up
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PROBE_SIZE_MIB: ${{ inputs.size_mib }}
+          R2_PROBE_EVIDENCE_PATH: ${{ runner.temp }}/r2-multipart-evidence.json
+        run: python scripts/test_real_r2_multipart_upload.py
+
+      - name: Upload evidence even when verification or cleanup fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-r2-multipart-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/r2-multipart-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
