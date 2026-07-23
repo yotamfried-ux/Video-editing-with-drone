@@ -35,8 +35,8 @@ def require_upload_queue_contract(pipeline_screen: str) -> None:
         upload_block,
         [
             "Uploaded to queue",
-            "Upload more footage for this athlete/session",
-            "Run pipeline now when the batch is ready",
+            "App-owned temporary upload data was removed",
+            "The original SD / USB files were preserved",
         ],
     )
 
