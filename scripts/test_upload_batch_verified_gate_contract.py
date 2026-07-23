@@ -26,6 +26,7 @@ def main() -> int:
     migration = read("supabase/migrations/20260723_upload_batch_verified_gate.sql")
     helper = read("web-api/src/lib/upload-batch-manifest.ts")
     multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
+    multipart_setup = multipart_start[multipart_start.index("r2MultipartUploadId = await"):]
     single_start = read("web-api/src/app/api/operator/upload/route.ts")
     batch_route = read("web-api/src/app/api/operator/upload/batch/route.ts")
     pipeline_start = read("web-api/src/app/api/operator/pipeline/start/route.ts")
@@ -92,7 +93,7 @@ def main() -> int:
     )
     require_order(
         "multipart setup",
-        multipart_start,
+        multipart_setup,
         [
             "createSourceUploadManifests",
             "attachMultipartSession",
