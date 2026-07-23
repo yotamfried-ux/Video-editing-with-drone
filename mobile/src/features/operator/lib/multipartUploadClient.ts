@@ -4,7 +4,9 @@ import { withRetry } from './uploadQueue';
 import {
   activeMultipartTemporaryUris,
   findDurableMultipartUpload,
+  getOrCreatePendingMultipartStart,
   removeDurableMultipartUpload,
+  removePendingMultipartStart,
   upsertDurableMultipartUpload,
   type DurableMultipartPart,
   type DurableMultipartUpload,
@@ -21,13 +23,17 @@ type MultipartStartResponse = {
   ok: boolean;
   protocol: 'r2_multipart_v1';
   upload_id: string;
+  client_upload_id: string;
   batch_id: string;
   storage_key: string;
   source_filename: string;
   source_size_bytes: number;
   part_size_bytes: number;
   expected_part_count: number;
+  completed_part_count: number;
+  upload_status: string;
   local_cleanup_required: boolean;
+  resumed_existing_start: boolean;
 };
 
 type MultipartStatusResponse = {
@@ -395,6 +401,13 @@ export async function uploadLargeExternalSource(
   });
   if (existing) return resumeUpload(input, existing);
 
+  const pendingStart = await getOrCreatePendingMultipartStart({
+    sourceUri: input.sourceUri,
+    sourceFilename: input.filename,
+    mimeType: input.mimeType,
+    sourceSizeBytes: source.sizeBytes,
+  });
+
   emit(input, null, 'starting', 0, 0);
   const started = await operatorFetch<MultipartStartResponse>(
     '/api/operator/upload/multipart/start',
@@ -402,6 +415,7 @@ export async function uploadLargeExternalSource(
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        client_upload_id: pendingStart.requestId,
         filename: input.filename,
         mimeType: input.mimeType,
         size: source.sizeBytes,
@@ -410,6 +424,9 @@ export async function uploadLargeExternalSource(
       }),
     }
   );
+  if (started.client_upload_id !== pendingStart.requestId) {
+    throw new Error('Multipart start returned a different idempotency identifier.');
+  }
 
   const now = new Date().toISOString();
   const ledger = await upsertDurableMultipartUpload({
@@ -431,6 +448,7 @@ export async function uploadLargeExternalSource(
     updatedAt: now,
     lastError: null,
   });
+  await removePendingMultipartStart(pendingStart.requestId);
 
   return resumeUpload(input, ledger);
 }
