@@ -139,6 +139,8 @@ def main() -> int:
         "GAP-013 — Resumable multipart R2 upload",
         "GAP-014 — Durable Android source access and restart recovery",
         "GAP-015 — Durable batch/session/athlete upload manifest and verified-run gate",
+        "GAP-026 — Exact-content upload deduplication and newest-verified retention",
+        "byte-identical uploads resolve to one canonical newest-verified source before dispatch",
         "multipart-upload-foundation-20260722.md",
     ]:
         require(token, main_audit, "consolidated audit")
