@@ -4,6 +4,11 @@ import { enforceRateLimit } from '@/lib/ratelimit';
 import { createUploadSession } from '@/lib/google-drive';
 import { createR2UploadUrl, newBatchId, safeBatchId, shouldUseR2Storage } from '@/lib/r2-storage';
 import {
+  registerUploadBatch,
+  removeSourceUploadsAfterSetupFailure,
+  resolveUploadBatchId,
+} from '@/lib/upload-batch-manifest';
+import {
   createSourceUploadManifests,
   SourceUploadManifestError,
 } from '@/lib/source-upload-manifest';
@@ -79,7 +84,20 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   const requestedBatchId = (body.batch_id ?? '').trim();
-  const batchId = safeBatchId(requestedBatchId) || newBatchId();
+  const sanitizedRequestedBatchId = safeBatchId(requestedBatchId);
+  if (requestedBatchId && sanitizedRequestedBatchId !== requestedBatchId) {
+    return NextResponse.json({ error: 'batch_id contains unsupported characters' }, { status: 400 });
+  }
+
+  let batchId: string;
+  try {
+    batchId = await resolveUploadBatchId(sanitizedRequestedBatchId) ?? newBatchId();
+  } catch (error) {
+    const status = error instanceof SourceUploadManifestError ? error.status : 503;
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Could not resolve upload batch',
+    }, { status });
+  }
 
   try {
     if (shouldUseR2Storage()) {
@@ -91,6 +109,24 @@ export async function POST(req: NextRequest) {
         mimeType: file.mimeType,
         sourceSizeBytes: file.sourceSizeBytes,
       })));
+      const manifestIds = [...uploadIds.values()];
+
+      try {
+        await registerUploadBatch({
+          batchId,
+          additionalFileCount: files.length,
+          sourceKind: 'gallery',
+          groupingKind: 'unassigned',
+        });
+      } catch (error) {
+        try {
+          await removeSourceUploadsAfterSetupFailure(manifestIds);
+        } catch {
+          // Preserve the batch registration failure; orphan cleanup remains visible.
+        }
+        throw error;
+      }
+
       const uploads: UploadFileResult[] = prepared.map(({ file, upload }) => {
         const uploadId = uploadIds.get(upload.key);
         if (!uploadId) throw new SourceUploadManifestError(`Missing upload manifest id for ${upload.key}`, 503);
