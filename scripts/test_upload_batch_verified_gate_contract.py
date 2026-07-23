@@ -36,6 +36,7 @@ def main() -> int:
     pipeline_post = pipeline_start[pipeline_start.index("export async function POST"):]
     mobile_ledger = read("mobile/src/features/operator/lib/multipartUploadLedger.ts")
     mobile_client = read("mobile/src/features/operator/lib/multipartUploadClient.ts")
+    audit = read("docs/app-pipeline-audit.md")
 
     require(
         "upload batch migration",
@@ -131,6 +132,8 @@ def main() -> int:
             "findMultipartSessionByClientUploadId",
             "resolveUploadBatchId",
             "createMultipartSourceManifest",
+            "getMultipartSession",
+            "assertIdempotentSourceMatches",
             "registerMultipartBatchMembership",
             "resumed_existing_start",
             "orphanMultipartUploadId",
@@ -145,6 +148,8 @@ def main() -> int:
         [
             "createR2MultipartUpload",
             "createMultipartSourceManifest",
+            "getMultipartSession",
+            "assertIdempotentSourceMatches",
             "registerMultipartBatchMembership",
         ],
     )
@@ -209,6 +214,17 @@ def main() -> int:
             "api.github.com/repos",
         ],
     )
+
+    require(
+        "audit ETag client distinction",
+        audit,
+        [
+            "The exact installed React Native client can read the returned part `ETag`",
+            "configure R2 CORS to expose `ETag` only for any browser-based upload client",
+        ],
+    )
+    if "mobile origin/build" in audit:
+        raise SystemExit("native React Native upload must not be modeled as a browser CORS origin")
 
     print("Durable verified upload batch gate contract checks passed")
     return 0
