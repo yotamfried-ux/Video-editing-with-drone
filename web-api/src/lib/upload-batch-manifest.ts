@@ -13,8 +13,65 @@ function rpcObject(data: unknown, operation: string): JsonObject {
 
 function statusForRpcError(message: string): number {
   if (/not found/i.test(message)) return 404;
-  if (/not ready|cannot accept|cannot run|invalid|exceed|mismatch|between/i.test(message)) return 409;
+  if (/not ready|cannot accept|cannot run|invalid|exceed|mismatch|between|multiple/i.test(message)) return 409;
   return 503;
+}
+
+async function uniqueBatchIdForStates(states: string[]): Promise<string | null> {
+  const { data, error } = await supabaseAdmin
+    .from('upload_batches')
+    .select('batch_id,state')
+    .in('state', states)
+    .is('pipeline_run_id', null)
+    .order('updated_at', { ascending: false })
+    .limit(2);
+  if (error) {
+    throw new SourceUploadManifestError(`Could not resolve durable upload batch: ${error.message}`, 503);
+  }
+  if (!data?.length) return null;
+  if (data.length > 1) {
+    throw new SourceUploadManifestError(
+      `Multiple durable upload batches are active (${data.map((row) => row.batch_id).join(', ')}); choose an explicit batch before continuing`,
+      409,
+    );
+  }
+  return String(data[0].batch_id);
+}
+
+export async function resolveUploadBatchId(
+  requestedBatchId?: string | null,
+): Promise<string | null> {
+  const requested = (requestedBatchId ?? '').trim();
+  if (requested) return requested;
+  return uniqueBatchIdForStates(['collecting', 'uploading', 'ready']);
+}
+
+export async function resolveReadyUploadBatchId(
+  requestedBatchId?: string | null,
+): Promise<string> {
+  const requested = (requestedBatchId ?? '').trim();
+  if (requested) return requested;
+  const resolved = await uniqueBatchIdForStates(['ready']);
+  if (!resolved) {
+    throw new SourceUploadManifestError(
+      'No unique size-verified upload batch is ready. Finish or repair the current uploads before starting the pipeline.',
+      409,
+    );
+  }
+  return resolved;
+}
+
+export async function refreshUploadBatch(batchId: string): Promise<JsonObject> {
+  const { data, error } = await supabaseAdmin.rpc('refresh_upload_batch_state', {
+    p_batch_id: batchId,
+  });
+  if (error) {
+    throw new SourceUploadManifestError(
+      `Could not refresh upload batch: ${error.message}`,
+      statusForRpcError(error.message),
+    );
+  }
+  return rpcObject(data, 'Upload batch refresh');
 }
 
 export async function registerUploadBatch(input: {
@@ -35,7 +92,22 @@ export async function registerUploadBatch(input: {
       statusForRpcError(error.message),
     );
   }
-  return rpcObject(data, 'Upload batch registration');
+  rpcObject(data, 'Upload batch registration');
+  return refreshUploadBatch(input.batchId);
+}
+
+export async function removeSourceUploadsAfterSetupFailure(uploadIds: string[]): Promise<void> {
+  if (!uploadIds.length) return;
+  const { error } = await supabaseAdmin
+    .from('source_uploads')
+    .delete()
+    .in('id', uploadIds);
+  if (error) {
+    throw new SourceUploadManifestError(
+      `Could not remove failed source upload setup rows: ${error.message}`,
+      503,
+    );
+  }
 }
 
 export async function assertUploadBatchReady(batchId: string): Promise<{
