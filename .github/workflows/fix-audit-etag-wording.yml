@@ -1,0 +1,40 @@
+name: Fix Audit ETag Wording
+
+on:
+  push:
+    branches: [feat/drone-large-upload-foundation]
+    paths:
+      - '.github/workflows/fix-audit-etag-wording.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/drone-large-upload-foundation
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Apply exact audit correction
+        run: python scripts/fix_audit_etag_client_wording.py
+      - name: Validate corrected semantics
+        run: |
+          set -euo pipefail
+          grep -q 'exact installed React Native client can read the returned part `ETag`' docs/app-pipeline-audit.md
+          ! grep -q 'mobile origin/build' docs/app-pipeline-audit.md
+      - name: Commit correction and remove one-shot helpers
+        run: |
+          set -euo pipefail
+          rm scripts/fix_audit_etag_client_wording.py
+          rm .github/workflows/fix-audit-etag-wording.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add docs/app-pipeline-audit.md scripts/fix_audit_etag_client_wording.py .github/workflows/fix-audit-etag-wording.yml
+          git diff --cached --check
+          git commit -m 'docs: clarify ETag visibility for native and browser clients'
+          git push origin HEAD:feat/drone-large-upload-foundation
