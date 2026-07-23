@@ -9,6 +9,7 @@ export type MultipartPartRecord = {
 
 export type MultipartSession = {
   upload_id: string;
+  client_upload_id: string | null;
   batch_id: string;
   storage_key: string;
   source_filename: string;
@@ -71,10 +72,89 @@ export async function attachMultipartSession(input: {
   return oneRpcObject(data, 'Multipart session attach');
 }
 
+export async function createMultipartSourceManifest(input: {
+  clientUploadId: string;
+  batchId: string;
+  storageKey: string;
+  sourceFilename: string;
+  mimeType: string;
+  sourceSizeBytes: number;
+  multipartUploadId: string;
+  partSizeBytes: number;
+  expectedPartCount: number;
+  localCleanupRequired: boolean;
+}): Promise<{ uploadId: string; created: boolean }> {
+  const now = new Date().toISOString();
+  const { data, error } = await supabaseAdmin
+    .from('source_uploads')
+    .insert({
+      client_upload_id: input.clientUploadId,
+      batch_id: input.batchId,
+      storage_key: input.storageKey,
+      source_filename: input.sourceFilename,
+      mime_type: input.mimeType,
+      source_size_bytes: input.sourceSizeBytes,
+      status: 'uploading',
+      upload_protocol: 'r2_multipart_v1',
+      multipart_upload_id: input.multipartUploadId,
+      part_size_bytes: input.partSizeBytes,
+      expected_part_count: input.expectedPartCount,
+      completed_part_count: 0,
+      last_activity_at: now,
+      local_cleanup_required: input.localCleanupRequired,
+      local_cleanup_status: input.localCleanupRequired ? 'pending' : 'not_required',
+      updated_at: now,
+    })
+    .select('id')
+    .single();
+
+  if (!error && data?.id) return { uploadId: String(data.id), created: true };
+
+  if (error?.code === '23505') {
+    const existing = await findMultipartSessionByClientUploadId(input.clientUploadId);
+    if (existing) return { uploadId: existing.upload_id, created: false };
+  }
+
+  throw new SourceUploadManifestError(
+    `Could not persist atomic multipart source manifest: ${error?.message ?? 'missing source upload id'}`,
+    503,
+  );
+}
+
+export async function findMultipartSessionByClientUploadId(
+  clientUploadId: string,
+): Promise<MultipartSession | null> {
+  const { data, error } = await supabaseAdmin
+    .from('source_uploads')
+    .select('id')
+    .eq('client_upload_id', clientUploadId)
+    .maybeSingle();
+  if (error) {
+    throw new SourceUploadManifestError(`Could not resolve idempotent multipart source: ${error.message}`, 503);
+  }
+  if (!data?.id) return null;
+  return getMultipartSession(String(data.id));
+}
+
+export async function registerMultipartBatchMembership(uploadId: string): Promise<RpcJson> {
+  const { data, error } = await supabaseAdmin.rpc('register_source_upload_batch_membership', {
+    p_upload_id: uploadId,
+    p_source_kind: 'android_external',
+    p_grouping_kind: 'unassigned',
+  });
+  if (error) {
+    throw new SourceUploadManifestError(
+      `Could not register multipart batch membership: ${error.message}`,
+      rpcErrorStatus(error.message),
+    );
+  }
+  return oneRpcObject(data, 'Multipart batch membership');
+}
+
 export async function getMultipartSession(uploadId: string): Promise<MultipartSession> {
   const { data: upload, error: uploadError } = await supabaseAdmin
     .from('source_uploads')
-    .select('id,batch_id,storage_key,source_filename,mime_type,source_size_bytes,status,upload_protocol,multipart_upload_id,part_size_bytes,expected_part_count,completed_part_count,local_cleanup_required,local_cleanup_status,local_cleanup_confirmed_at,local_cleanup_error,local_cleanup_artifact_count,local_cleanup_reclaimed_bytes,local_cleanup_source_preserved,local_cleanup_checked_at,last_error')
+    .select('id,client_upload_id,batch_id,storage_key,source_filename,mime_type,source_size_bytes,status,upload_protocol,multipart_upload_id,part_size_bytes,expected_part_count,completed_part_count,local_cleanup_required,local_cleanup_status,local_cleanup_confirmed_at,local_cleanup_error,local_cleanup_artifact_count,local_cleanup_reclaimed_bytes,local_cleanup_source_preserved,local_cleanup_checked_at,last_error')
     .eq('id', uploadId)
     .maybeSingle();
 
@@ -103,6 +183,7 @@ export async function getMultipartSession(uploadId: string): Promise<MultipartSe
 
   return {
     upload_id: String(upload.id),
+    client_upload_id: upload.client_upload_id == null ? null : String(upload.client_upload_id),
     batch_id: String(upload.batch_id),
     storage_key: String(upload.storage_key),
     source_filename: String(upload.source_filename),
