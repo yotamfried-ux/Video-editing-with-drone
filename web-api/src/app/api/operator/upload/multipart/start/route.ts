@@ -6,29 +6,82 @@ import {
   createR2MultipartUpload,
   createR2UploadTarget,
   newBatchId,
+  r2Basename,
   R2_MAX_MULTIPART_PARTS,
   R2_MAX_MULTIPART_PART_SIZE,
   R2_MIN_MULTIPART_PART_SIZE,
   safeBatchId,
   shouldUseR2Storage,
 } from '@/lib/r2-storage';
-import { attachMultipartSession } from '@/lib/multipart-upload-manifest';
 import {
-  registerUploadBatch,
+  createMultipartSourceManifest,
+  findMultipartSessionByClientUploadId,
+  getMultipartSession,
+  registerMultipartBatchMembership,
+  type MultipartSession,
+} from '@/lib/multipart-upload-manifest';
+import {
   removeSourceUploadsAfterSetupFailure,
   resolveUploadBatchId,
 } from '@/lib/upload-batch-manifest';
-import {
-  createSourceUploadManifests,
-  SourceUploadManifestError,
-} from '@/lib/source-upload-manifest';
+import { SourceUploadManifestError } from '@/lib/source-upload-manifest';
 
 const DEFAULT_PART_SIZE_BYTES = 16 * 1024 * 1024;
 const MAX_SOURCE_SIZE_BYTES = 5 * 1024 * 1024 * 1024 * 1024;
+const CLIENT_UPLOAD_ID_PATTERN = /^[A-Za-z0-9_-]{16,128}$/;
 
 function positiveSafeInteger(value: unknown): number | null {
   const parsed = typeof value === 'number' ? value : Number(value);
   return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function sessionResponse(session: MultipartSession, resumed: boolean) {
+  return {
+    ok: true,
+    protocol: 'r2_multipart_v1' as const,
+    upload_id: session.upload_id,
+    client_upload_id: session.client_upload_id,
+    batch_id: session.batch_id,
+    storage_key: session.storage_key,
+    filename: r2Basename(session.storage_key),
+    source_filename: session.source_filename,
+    mimeType: session.mime_type ?? 'video/mp4',
+    source_size_bytes: session.source_size_bytes,
+    part_size_bytes: session.part_size_bytes,
+    expected_part_count: session.expected_part_count,
+    completed_part_count: session.completed_part_count,
+    upload_status: session.status,
+    local_cleanup_required: session.local_cleanup_required,
+    local_cleanup_status: session.local_cleanup_status,
+    resumed_existing_start: resumed,
+  };
+}
+
+function assertIdempotentSourceMatches(input: {
+  session: MultipartSession;
+  clientUploadId: string;
+  requestedBatchId: string;
+  sourceSizeBytes: number;
+  sourceFilename: string;
+}): void {
+  if (input.session.client_upload_id !== input.clientUploadId) {
+    throw new SourceUploadManifestError('Idempotent multipart source identifier mismatch', 409);
+  }
+  if (input.session.source_size_bytes !== input.sourceSizeBytes) {
+    throw new SourceUploadManifestError(
+      `Idempotent multipart source size changed: expected ${input.session.source_size_bytes}, got ${input.sourceSizeBytes}`,
+      409,
+    );
+  }
+  if (input.session.source_filename !== input.sourceFilename) {
+    throw new SourceUploadManifestError('Idempotent multipart source filename changed', 409);
+  }
+  if (input.requestedBatchId && input.session.batch_id !== input.requestedBatchId) {
+    throw new SourceUploadManifestError(
+      `Idempotent multipart source belongs to batch ${input.session.batch_id}, not ${input.requestedBatchId}`,
+      409,
+    );
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -38,6 +91,7 @@ export async function POST(req: NextRequest) {
   if (limited) return limited;
 
   let body: {
+    client_upload_id?: string;
     filename?: string;
     mimeType?: string;
     size?: number;
@@ -53,6 +107,13 @@ export async function POST(req: NextRequest) {
 
   if (!shouldUseR2Storage()) {
     return NextResponse.json({ error: 'Multipart upload requires R2 storage' }, { status: 409 });
+  }
+
+  const clientUploadId = (body.client_upload_id ?? '').trim();
+  if (!CLIENT_UPLOAD_ID_PATTERN.test(clientUploadId)) {
+    return NextResponse.json({
+      error: 'client_upload_id must be a stable 16-128 character identifier',
+    }, { status: 400 });
   }
 
   const sourceSizeBytes = positiveSafeInteger(body.size);
@@ -91,6 +152,27 @@ export async function POST(req: NextRequest) {
 
   const sourceFilename = (body.filename ?? '').trim() || `drone_footage_${Date.now()}.mp4`;
   const mimeType = (body.mimeType ?? '').trim() || 'video/mp4';
+
+  try {
+    const existing = await findMultipartSessionByClientUploadId(clientUploadId);
+    if (existing) {
+      assertIdempotentSourceMatches({
+        session: existing,
+        clientUploadId,
+        requestedBatchId: sanitizedRequestedBatchId,
+        sourceSizeBytes,
+        sourceFilename,
+      });
+      await registerMultipartBatchMembership(existing.upload_id);
+      return NextResponse.json(sessionResponse(existing, true));
+    }
+  } catch (error) {
+    const status = error instanceof SourceUploadManifestError ? error.status : 503;
+    return NextResponse.json({
+      error: error instanceof Error ? error.message : 'Could not recover multipart start',
+    }, { status });
+  }
+
   let batchId: string;
   try {
     batchId = await resolveUploadBatchId(sanitizedRequestedBatchId) ?? newBatchId();
@@ -104,50 +186,40 @@ export async function POST(req: NextRequest) {
   const target = createR2UploadTarget(sourceFilename, batchId);
   let r2MultipartUploadId: string | null = null;
   let sourceUploadId: string | null = null;
+  let createdSource = false;
 
   try {
     r2MultipartUploadId = await createR2MultipartUpload(target.key, mimeType);
-    const uploadIds = await createSourceUploadManifests([{
+    const created = await createMultipartSourceManifest({
+      clientUploadId,
       batchId: target.batch_id,
       storageKey: target.key,
       sourceFilename,
       mimeType,
       sourceSizeBytes,
-    }]);
-    sourceUploadId = uploadIds.get(target.key) ?? null;
-    if (!sourceUploadId) {
-      throw new SourceUploadManifestError(`Missing source upload id for ${target.key}`, 503);
-    }
-
-    await attachMultipartSession({
-      uploadId: sourceUploadId,
       multipartUploadId: r2MultipartUploadId,
       partSizeBytes,
       expectedPartCount,
       localCleanupRequired: body.local_cleanup_required !== false,
     });
+    sourceUploadId = created.uploadId;
+    createdSource = created.created;
 
-    await registerUploadBatch({
-      batchId: target.batch_id,
-      additionalFileCount: 1,
-      sourceKind: 'android_external',
-      groupingKind: 'unassigned',
-    });
+    if (!createdSource) {
+      await abortR2MultipartUpload(target.key, r2MultipartUploadId);
+      r2MultipartUploadId = null;
+    }
 
-    return NextResponse.json({
-      ok: true,
-      protocol: 'r2_multipart_v1',
-      upload_id: sourceUploadId,
-      batch_id: target.batch_id,
-      storage_key: target.key,
-      filename: target.filename,
-      source_filename: sourceFilename,
-      mimeType,
-      source_size_bytes: sourceSizeBytes,
-      part_size_bytes: partSizeBytes,
-      expected_part_count: expectedPartCount,
-      local_cleanup_required: body.local_cleanup_required !== false,
+    await registerMultipartBatchMembership(sourceUploadId);
+    const session = await getMultipartSession(sourceUploadId);
+    assertIdempotentSourceMatches({
+      session,
+      clientUploadId,
+      requestedBatchId: sanitizedRequestedBatchId,
+      sourceSizeBytes,
+      sourceFilename,
     });
+    return NextResponse.json(sessionResponse(session, !createdSource));
   } catch (error) {
     if (r2MultipartUploadId) {
       try {
@@ -156,7 +228,7 @@ export async function POST(req: NextRequest) {
         // Preserve the original setup failure. R2 lifecycle is the final fallback.
       }
     }
-    if (sourceUploadId) {
+    if (sourceUploadId && createdSource) {
       try {
         await removeSourceUploadsAfterSetupFailure([sourceUploadId]);
       } catch {
