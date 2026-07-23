@@ -117,7 +117,9 @@ def main() -> int:
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
     require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "batch_id: lastBatchId ?? activeBatchId", "Current upload batch"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
-    require("canonical batch bootstrap", bootstrap, ["RAW_BATCH_ID", "pipeline.r2_batch_scope", "_install_r2_batch_scope"])
+    require("canonical R2 bootstrap", bootstrap, ["pipeline.r2_batch_scope", "_install_r2_batch_scope", 'if backend != "r2":'])
+    if "or not batch_id" in bootstrap:
+        raise SystemExit("global R2 runs must not bypass exact dedup admission")
     require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "prepare_canonical_sources", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
 
     if "const key = `raw/${storageName}`" in r2_lib:
