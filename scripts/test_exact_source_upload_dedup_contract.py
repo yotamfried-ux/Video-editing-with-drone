@@ -296,8 +296,9 @@ def test_static_contract() -> None:
     if "or not batch_id" in bootstrap:
         raise SystemExit("global R2 run must not bypass exact upload dedup")
     require("authoritative audit", audit, [
-        "Two byte-identical verified uploads must resolve to one canonical source.",
-        "exact_content_duplicate",
+        "Exact byte-identical verified sources are reconciled by SHA-256",
+        "Older exact duplicates remain pipeline-ineligible even if R2 deletion fails",
+        "Re-exported/recompressed/perceptually similar files are not auto-deleted",
     ])
 
 
