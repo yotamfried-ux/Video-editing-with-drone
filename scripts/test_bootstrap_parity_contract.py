@@ -67,16 +67,9 @@ def fake_r2() -> types.SimpleNamespace:
     return module
 
 
-def run_r2_batch_scope_via_bootstrap() -> None:
-    os.environ["STORAGE_BACKEND"] = "r2"
-    os.environ["RAW_BATCH_ID"] = "session two"
-    sys.modules.pop("pipeline.bootstrap", None)
-    sys.modules.pop("pipeline.r2_batch_scope", None)
-    module = fake_r2()
-    dedup_calls: list[list[str]] = []
-
+def install_fake_dedup(calls: list[list[str]]) -> None:
     def prepare_canonical_sources(videos: list[dict], download_one, **kwargs) -> list[dict]:
-        dedup_calls.append([video["id"] for video in videos])
+        calls.append([video["id"] for video in videos])
         if kwargs.get("storage_backend") != "r2":
             raise SystemExit("bootstrap must activate the R2 exact dedup gate")
         return videos
@@ -84,6 +77,24 @@ def run_r2_batch_scope_via_bootstrap() -> None:
     sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
         prepare_canonical_sources=prepare_canonical_sources
     )
+
+
+def clear_r2_bootstrap_modules() -> None:
+    for name in (
+        "pipeline.bootstrap",
+        "pipeline.r2_batch_scope",
+        "pipeline.source_upload_dedup",
+    ):
+        sys.modules.pop(name, None)
+
+
+def run_r2_batch_scope_via_bootstrap() -> None:
+    os.environ["STORAGE_BACKEND"] = "r2"
+    os.environ["RAW_BATCH_ID"] = "session two"
+    clear_r2_bootstrap_modules()
+    module = fake_r2()
+    scoped_calls: list[list[str]] = []
+    install_fake_dedup(scoped_calls)
 
     import pipeline.bootstrap as bootstrap
 
@@ -93,19 +104,28 @@ def run_r2_batch_scope_via_bootstrap() -> None:
         raise SystemExit(f"bootstrap did not scope R2 listing to the batch id, got {module.listed}")
     if [video["key"] for video in videos] != ["raw/session_two/clip.mp4"]:
         raise SystemExit("bootstrap did not install scoped get_new_videos")
-    if dedup_calls != [["raw/session_two/clip.mp4"]]:
-        raise SystemExit(f"bootstrap did not install exact dedup admission, got {dedup_calls}")
+    if scoped_calls != [["raw/session_two/clip.mp4"]]:
+        raise SystemExit(f"bootstrap did not install exact dedup admission, got {scoped_calls}")
 
     del os.environ["RAW_BATCH_ID"]
-    sys.modules.pop("pipeline.bootstrap", None)
-    sys.modules.pop("pipeline.r2_batch_scope", None)
-    sys.modules.pop("pipeline.source_upload_dedup", None)
+    clear_r2_bootstrap_modules()
     module2 = fake_r2()
+    global_calls: list[list[str]] = []
+    install_fake_dedup(global_calls)
     import pipeline.bootstrap as bootstrap2
 
     bootstrap2._install_r2_batch_scope()
-    if getattr(module2, "_sportreel_r2_batch_scope_installed", False):
-        raise SystemExit("bootstrap must not install batch scoping without a batch id")
+    if not getattr(module2, "_sportreel_r2_batch_scope_installed", False):
+        raise SystemExit("global R2 runs must still install exact dedup admission")
+    global_videos = module2.get_new_videos()
+    if module2.listed != ["raw/"]:
+        raise SystemExit(f"global R2 run must list raw/, got {module2.listed}")
+    if [video["key"] for video in global_videos] != ["raw/clip.mp4"]:
+        raise SystemExit("global R2 run did not retain the unscoped raw object")
+    if global_calls != [["raw/clip.mp4"]]:
+        raise SystemExit(f"global R2 run bypassed exact dedup admission, got {global_calls}")
+
+    clear_r2_bootstrap_modules()
 
 
 def main() -> int:
@@ -172,6 +192,16 @@ def main() -> int:
             *canonical_post_orchestrator_patches,
         ],
     )
+    require(
+        "global R2 admission install",
+        bootstrap,
+        [
+            'if backend != "r2":',
+            "from pipeline.r2_batch_scope import install",
+        ],
+    )
+    if "or not batch_id" in bootstrap:
+        raise SystemExit("global R2 runs must not bypass exact dedup when batch id is absent")
 
     pre_start = bootstrap.index("def install_pre_orchestrator_patches")
     post_start = bootstrap.index("def install_post_orchestrator_patches")
