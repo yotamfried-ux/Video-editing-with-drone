@@ -1,0 +1,65 @@
+name: Apply Final Upload Review Fixes
+
+on:
+  push:
+    branches: [feat/drone-large-upload-foundation]
+    paths:
+      - '.github/workflows/apply-final-upload-review-fixes.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: apply-final-upload-review-fixes
+  cancel-in-progress: false
+
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feat/drone-large-upload-foundation
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Apply deterministic P1 fixes
+        run: python scripts/apply_final_upload_review_fixes.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Validate Web API
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Validate mobile
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Validate focused contracts
+        run: |
+          python scripts/test_large_upload_foundation_contract.py
+          python scripts/test_upload_batch_verified_gate_contract.py
+          python scripts/test_exact_source_upload_dedup_contract.py
+          PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
+
+      - name: Commit fixes and remove one-shot machinery
+        run: |
+          set -euo pipefail
+          rm scripts/apply_final_upload_review_fixes.py
+          rm .github/workflows/apply-final-upload-review-fixes.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .
+          git diff --cached --check
+          git commit -m 'fix: close final large-upload review findings'
+          git push origin HEAD:feat/drone-large-upload-foundation
