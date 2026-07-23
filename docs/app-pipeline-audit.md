@@ -1,8 +1,8 @@
 # SportReel operational-readiness audit
 
-Date: 2026-07-21  
+Date: 2026-07-23  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Baseline inspected: `main` at merge commit `e853fb843ed34adfdc8692d19ab9a560cb0a2d54` (PR #190)  
+Baseline inspected: `main` at merge commit `c23b819866306980f8ebe454958bf7802d0145a4` (PR #193)  
 Status: **open — implementation foundations exist, but the next production-style experiment still has entry blockers and the product vision is not yet proven end to end**
 
 This file is the authoritative, consolidated readiness audit for the operator app, R2 upload path, GitHub Actions pipeline, Supabase state, perception/tracking, 4K rendering, QA, Review, Delivery, Discover, payments, and the real-footage evidence required by the product vision.
@@ -74,7 +74,7 @@ The following foundations are present on the inspected `main` baseline:
 |---|---:|---|---|
 | GAP-013 — Resumable multipart R2 upload | P0 | Single full-file PUT; retry restarts the file | Yes |
 | GAP-014 — Durable Android source access and restart recovery | P0 | SD/USB file is copied in full to cache; upload state is not durable | Yes |
-| GAP-015 — Durable batch/session/athlete upload manifest and verified-run gate | P0 | `batch_id` exists, but durable upload membership and semantic grouping are incomplete | Yes |
+| GAP-015 — Durable batch/session/athlete upload manifest and verified-run gate | P0 | Exact-content upload dedup foundation exists in this PR; durable batch readiness and grouping remain incomplete | Yes |
 | GAP-016 — Dispatch, workflow, run, and operator-status correlation | P0 | Dispatch acceptance is explicit; real correlated transition is not yet proven | Yes |
 | GAP-017 — Real perception/tracker quality and identity stability | P0 | Mandatory CV exists; difficult-footage metrics and tuning are pending | Yes |
 | GAP-018 — Cross-source athlete grouping and duplicate control | P0 | Canonical IDs/diagnostics exist; real grouping and `reel_group_id` lineage are incomplete | Yes |
@@ -198,6 +198,11 @@ The current app is below the pinned Expo documentation version used for the prop
 **Verified current state**
 
 - R2 objects are scoped by `batch_id`.
+- This PR adds one durable `source_uploads` row per new R2 upload and preserves the first successful `verified_at` after server-side `HEAD` size verification.
+- This PR adds a streaming SHA-256 pre-analysis gate. Postgres atomically chooses the newest verified byte-identical source by `verified_at`, marks older rows `superseded`, writes `source_upload_dedup_audit`, and removes older keys from pipeline eligibility before analysis.
+- R2 deletion happens only after the newer source is already verified and selected as canonical. A deletion failure is durably recorded and never restores the superseded source to pipeline eligibility.
+- The exact-content foundation has deterministic coverage only. The migration has not yet been verified in the live Supabase project and two real byte-identical R2 uploads have not yet proved canonical retention and old-key deletion.
+- Legacy R2 objects created before the manifest migration remain eligible with an explicit warning until a safe backfill/cleanup decision exists.
 - `activeBatchId` lives in mobile component state and can be lost.
 - A batch does not yet have a durable authoritative manifest describing intended files, source sizes, upload states, session purpose, or athlete grouping.
 - `batch_id` is a transport boundary, but it is not yet a complete `session_id`/`athlete_id` business grouping contract.
@@ -209,7 +214,10 @@ The current app is below the pinned Expo documentation version used for the prop
 - Supabase Row Level Security: https://supabase.com/docs/guides/database/postgres/row-level-security
 - Supabase secure backend/service-role boundary: https://supabase.com/docs/guides/database/secure-data
 - Cloudflare R2 prefixes and object upload behavior: https://developers.cloudflare.com/r2/objects/upload-objects/
+- Cloudflare R2 S3 compatibility and checksum support: https://developers.cloudflare.com/r2/api/s3/api/
 - GitHub `repository_dispatch` payload contract: https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event
+
+Exact SHA-256 is intentionally a byte-identity control, not perceptual similarity. Re-exported, trimmed, recompressed, or metadata-modified video can receive a different hash even when it looks similar. Perceptual duplicate detection remains a separate evidence-based mechanism and must not automatically delete source footage without a high-confidence policy.
 
 **Mandatory end-to-end closure checklist**
 
@@ -220,6 +228,11 @@ The current app is below the pinned Expo documentation version used for the prop
 - [ ] Adding more files to the same batch is explicit and preserves existing verified membership.
 - [ ] A file cannot belong to two active batches accidentally.
 - [ ] Filename reuse cannot overwrite or impersonate another source; canonical R2 keys remain immutable.
+- [ ] Two byte-identical verified uploads must resolve to one canonical source. The newest verified upload is retained, the older source is marked superseded and removed from pipeline eligibility, and the decision is recorded with SHA-256 evidence and reason `exact_content_duplicate`.
+- [ ] Canonical choice is based on the first successful `verified_at`, never filename, R2 key order, client clock, or a repeated verification request.
+- [ ] The older R2 object is deleted only after the newer object is fully verified; deletion failure remains visible and the old source remains ineligible.
+- [ ] A real R2 test uploads the exact same video twice, proves only the newer verified key enters the input manifest, verifies the older key is absent from `raw/`, and captures both source rows plus the dedup audit row.
+- [ ] Re-exported or perceptually similar video is not auto-deleted by the exact-content SHA-256 rule.
 - [ ] The server calculates batch readiness from durable rows, not mobile state.
 - [ ] `Run pipeline now` is rejected with an actionable response unless all intended files are `verified` and size-matched.
 - [ ] The dispatch payload contains the authoritative `batch_id` and `pipeline_run_id`.
@@ -227,7 +240,7 @@ The current app is below the pinned Expo documentation version used for the prop
 - [ ] An unrelated batch remains untouched by run, reset, re-edit, and cleanup operations.
 - [ ] A real 2–3 video batch proves one dispatch processes every intended file exactly once and no unrelated file.
 - [ ] The experiment records whether the batch represents one athlete, one session with multiple athletes, or another explicit grouping; the pipeline never infers this from filenames.
-- [ ] Evidence is attached: batch row, upload rows, R2 listing before/after, dispatch payload fields, run artifact input manifest, and reset isolation result.
+- [ ] Evidence is attached: batch row, upload rows, content SHA-256, canonical/superseded decision audit, R2 listing before/after, dispatch payload fields, run artifact input manifest, and reset isolation result.
 
 ### GAP-016 — Dispatch, workflow, run, and operator-status correlation
 
@@ -585,7 +598,7 @@ Gemini's default video sampling can miss fast sports detail, so it cannot be the
 Every production-style experiment must retain one bundle containing:
 
 - exact repository commit, Vercel deployment, EAS build/update, workflow run, pipeline run, and batch IDs;
-- durable upload batch and file rows, multipart part ledger, source sizes, R2 keys, and final verification;
+- durable upload batch and file rows, source content SHA-256, exact-duplicate canonical/superseded audit, multipart part ledger, source sizes, R2 keys, and final verification;
 - frozen expected athlete/action/wave inventory;
 - detector/tracker preflight and sidecars;
 - track fragmentation/identity summary;
