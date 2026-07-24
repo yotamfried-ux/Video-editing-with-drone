@@ -107,17 +107,18 @@ def main() -> int:
         "upload queue batch-race protection",
         upload_queue,
         [
-            "items are primed serially until one succeeds",
-            "const processItem = async",
-            "if (normalizedLimit > 1)",
-            "if (await processItem(index)) break;",
-            "const workerCount = Math.min(normalizedLimit",
+            "createClientBatchId",
+            "assignSharedUploadBatchId",
+            "Selected uploads span multiple durable batches",
+            "items.length > 0 && items.every(isBatchScopedUpload)",
+            "assignSharedUploadBatchId(items);",
+            "const workerCount = Math.min(Math.max(concurrencyLimit, 1), items.length)",
         ],
     )
     require_order(
-        "batch priming happens before concurrent workers",
+        "shared batch assignment happens before concurrent workers",
         upload_queue,
-        "if (normalizedLimit > 1)",
+        "assignSharedUploadBatchId(items);",
         "await Promise.all(",
     )
 
@@ -127,6 +128,7 @@ def main() -> int:
         [
             "scripts/test_multi_upload_batch_contract.py",
             "mobile/src/features/operator/lib/uploadQueue.ts",
+            "mobile/src/features/operator/lib/uploadQueue.test.ts",
             "web-api/src/app/api/operator/upload/route.ts",
             "Validate Multi-upload batch contract",
         ],
