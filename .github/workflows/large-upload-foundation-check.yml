@@ -13,6 +13,7 @@ on:
       - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
       - 'scripts/apply_final_upload_review_fixes.py'
+      - 'scripts/fix_final_upload_patch_type_errors.py'
       - 'scripts/test_large_upload_foundation_contract.py'
       - 'scripts/test_upload_batch_verified_gate_contract.py'
       - 'scripts/test_upload_foundation_release_contract.py'
@@ -57,6 +58,10 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Correct patch type contracts
+        if: steps.patch.outputs.apply == 'true'
+        run: python scripts/fix_final_upload_patch_type_errors.py
+
       - name: Apply deterministic P1 fixes
         if: steps.patch.outputs.apply == 'true'
         run: python scripts/apply_final_upload_review_fixes.py
@@ -93,6 +98,7 @@ jobs:
         run: |
           set -euo pipefail
           rm scripts/apply_final_upload_review_fixes.py
+          rm scripts/fix_final_upload_patch_type_errors.py
           rm .github/workflows/apply-final-upload-review-fixes.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
