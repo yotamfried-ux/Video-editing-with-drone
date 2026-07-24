@@ -93,6 +93,57 @@ describe('runQueue', () => {
     expect((results[2] as PromiseRejectedResult).reason.message).toBe('item 3 failed');
   });
 
+  it('primes one successful item before starting later items concurrently', async () => {
+    const items = [0, 1, 2, 3];
+    let releaseFirst: (() => void) | null = null;
+    const firstDone = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const started: number[] = [];
+
+    const queuePromise = runQueue(
+      items,
+      async (item) => {
+        started.push(item);
+        if (item === 0) await firstDone;
+      },
+      3
+    );
+
+    await Promise.resolve();
+    expect(started).toEqual([0]);
+    releaseFirst?.();
+    await queuePromise;
+    expect(started[0]).toBe(0);
+    expect(started.slice(1).sort()).toEqual([1, 2, 3]);
+  });
+
+  it('keeps priming serially after failures until one item succeeds', async () => {
+    const started: number[] = [];
+    let inFlight = 0;
+    let maxBeforeSuccess = 0;
+
+    const results = await runQueue(
+      [0, 1, 2, 3],
+      async (item) => {
+        started.push(item);
+        inFlight += 1;
+        if (item < 2) maxBeforeSuccess = Math.max(maxBeforeSuccess, inFlight);
+        try {
+          if (item < 2) throw new Error(`item ${item} failed before batch setup`);
+          await new Promise((resolve) => setTimeout(resolve, 1));
+        } finally {
+          inFlight -= 1;
+        }
+      },
+      3
+    );
+
+    expect(started.slice(0, 3)).toEqual([0, 1, 2]);
+    expect(maxBeforeSuccess).toBe(1);
+    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected', 'fulfilled', 'fulfilled']);
+  });
+
   it('never runs more than concurrencyLimit workers at once', async () => {
     const items = Array.from({ length: 6 }, (_, i) => i);
     let inFlight = 0;
