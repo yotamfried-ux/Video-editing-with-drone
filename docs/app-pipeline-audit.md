@@ -2,16 +2,16 @@
 
 Date: 2026-07-23  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Baseline inspected: `main` at merge commit `c23b819866306980f8ebe454958bf7802d0145a4` (PR #193)  
-Status: **open — implementation foundations exist, but the next production-style experiment still has entry blockers and the product vision is not yet proven end to end**
+Validated baseline: `main` at `f0ce8d742110a2101dd86fa37a07d54409b01bc2` (merged PR #195), plus the upload implementation under review in PR #196.  
+Status: **open — the safe large-upload foundation is implemented, but live release/device evidence and the broader product gaps remain open**
 
 This file is the authoritative, consolidated readiness audit for the operator app, R2 upload path, GitHub Actions pipeline, Supabase state, perception/tracking, 4K rendering, QA, Review, Delivery, Discover, payments, and the real-footage evidence required by the product vision.
 
-Historical implementation details remain in the focused audits under `docs/audit/` and in Git history. When a focused audit conflicts with this file about whether a gap is still open, this file controls until both are updated in the same PR.
+Historical implementation details remain in focused files under `docs/audit/` and in Git history. When a focused audit conflicts with this file about whether a gap is still open, this file controls until both are reconciled in the same PR.
 
 ## 1. Product outcome and closure rule
 
-The source of truth remains `README.md` → **Product vision — source of truth**:
+The product source of truth remains:
 
 > Every distinct athlete with at least one complete, visible, usable action receives a personal, silent, publishable social-media reel centered on that athlete, or an explicit evidence-backed hard rejection.
 
@@ -19,91 +19,88 @@ For surfing, every complete readable usable wave must appear exactly once. Other
 
 Three readiness levels are used:
 
-1. **Foundation implemented** — code and deterministic checks exist.
-2. **Experiment entry ready** — the exact deployed app/API/workflow/database/storage stack can safely run the next evidence-producing experiment.
-3. **Product gap closed** — the end-to-end checklist passed with real services, real Android behavior where applicable, real footage, preserved artifacts, and visual review.
+1. **Foundation implemented** — code, schema, deterministic tests, and review evidence exist.
+2. **Experiment entry ready** — the exact deployed API/database/storage/mobile stack can safely execute the next evidence-producing experiment.
+3. **Product gap closed** — the mandatory end-to-end checklist passed with real services, an installed Android build where applicable, real footage, preserved artifacts, and visual review.
 
-A gap may be marked closed only when every checkbox in its **Mandatory end-to-end closure checklist** is checked and linked evidence is recorded beneath it. Green CI alone never closes a mobile-storage, external-service, footage-quality, identity, delivery, or payment gap.
+Green CI alone never closes a mobile-storage, external-service, footage-quality, identity, delivery, or payment gap.
 
-## 2. Evidence rules for checking a box
+## 2. Evidence rules
 
-Every checked item must name the evidence that proves it. Acceptable evidence includes:
+Acceptable evidence includes:
 
-- PR and exact commit SHA.
-- CI workflow URL and final conclusion.
-- Vercel production deployment tied to the exact commit.
-- EAS update/build ID installed on the tested Android device.
-- Supabase migration record plus read-only schema/data verification.
-- R2 object key, `HEAD` result, object size, multipart upload metadata, or lifecycle evidence.
-- GitHub Actions run ID, jobs, and relevant log excerpts.
-- Durable `pipeline_runs`, `delivery_runs`, upload, QA, or payment row identifiers without exposing secrets.
-- Android physical-test record, including network interruption/app restart/SD or USB behavior.
-- Pipeline diagnostic artifact and direct visual inspection of final videos.
+- PR number and exact commit SHA;
+- final-head CI workflow/run URL and conclusion;
+- Vercel Production deployment tied to the exact commit;
+- EAS build/upload ID and the exact APK installed on the tested Android device;
+- Supabase migration output plus read-only schema/data verification;
+- R2 key, multipart upload metadata, exact part ledger, `HEAD` result, hash, size, retry, abort, and deletion evidence;
+- durable `source_uploads`, `upload_batches`, `pipeline_runs`, `delivery_runs`, QA, feedback, or purchase row identifiers without secrets;
+- Android physical-test record including storage before/after, network interruption, app restart, and SD/USB behavior;
+- pipeline diagnostic artifacts and direct visual inspection of final videos.
 
 Not acceptable as closure evidence:
 
-- “The code looks correct.”
-- A preview deployment when production behavior is being claimed.
-- A single successful HTTP response without downstream state verification.
-- A screenshot without the corresponding endpoint/workflow/database/storage evidence.
-- A synthetic fixture standing in for a required real-footage or real-device test.
-- A successful upload response without object-size verification.
-- A successful dispatch response without a correlated workflow run.
-- Any secret value pasted into an audit, PR, issue, screenshot, or log.
+- “the code looks correct”;
+- a PR Preview when Production behavior is claimed;
+- one successful HTTP response without downstream state verification;
+- a screenshot without correlated API/database/storage/workflow evidence;
+- a synthetic fixture standing in for a required real-device, real-service, or real-footage test;
+- upload success without final object-size verification;
+- dispatch acceptance without a correlated workflow run;
+- any secret value in an audit, PR, screenshot, artifact, or log.
 
-## 3. Current verified baseline
+## 3. Current verified foundation
 
-The following foundations are present on the inspected `main` baseline:
+The following statements are supported by code and deterministic checks in merged PR #195 and PR #196:
 
-- The mobile operator app is a control surface; heavy processing remains in GitHub Actions/Python.
-- R2 keys are batch-scoped under `raw/<batch_id>/...`.
-- Upload currently uses one signed `PUT` per complete file, followed by server-side `HEAD` verification.
-- Gallery uploads can run concurrently; SD/USB uploads are copied one complete file at a time into app cache before the same full-file upload.
-- The mobile app is pinned to Expo SDK `~52.0.28` and `expo-file-system ~18.0.10`.
-- `POST /api/operator/pipeline/start` creates a durable `pipeline_runs` row, forwards `pipeline_run_id` and optional `batch_id` through `repository_dispatch`, and marks accepted dispatches as `workflow_dispatched`.
-- `.github/workflows/pipeline-run.yml` scopes R2 processing by `RAW_BATCH_ID`, requires perception, uploads diagnostics, and verifies QA re-edit task persistence.
-- The centered-athlete, silent-output, publishable-manifest, final-QA, 4K/30, contain-first, mandatory-perception, and no-app-biometrics contracts have deterministic coverage.
-- PR #190 is merged, but its focused audit still records live migration, deployment, performance, tracker-quality, and real-footage closure work as pending.
-- The QA-blocked operator action exists, but a fresh real re-edit run after the R2 requeue fix has not yet proved a terminal QA verdict.
-- Direct SD/USB individual selection is implemented and published, but the final physical retest proving that only checked files upload is still open.
-- Structured operator feedback exists, but the real feedback-to-database-to-next-run learning loop is not production-validated.
+- R2 source objects are scoped under immutable `raw/<batch_id>/...` keys.
+- PR #195 adds durable source-upload manifests and exact byte-duplicate reconciliation using streaming SHA-256. The newest first-successfully-verified source is canonical; older exact duplicates become ineligible and their deletion result is audited.
+- Android SD/USB upload no longer requires a complete phone-cache copy. A focused Expo SDK 52 local module reads bounded ranges from a seekable `content://` descriptor.
+- Multipart upload records exact R2 part ETags, retries only missing parts, completes in ascending part order, and verifies final `HEAD Content-Length` before `verified`.
+- A stable `client_upload_id` is persisted before multipart start, making lost-response and concurrent-retry recovery idempotent.
+- AsyncStorage and Supabase preserve source identity, upload ID, batch ID, part size, completed parts, ETags, retry state, and cleanup state.
+- App-owned temporary upload artifacts are removed only after durable R2 verification. The application refuses to delete the original SD/USB URI, verifies absence of deleted artifacts, and records reclaimed bytes and cleanup errors.
+- `upload_batches` calculates readiness from durable server state. Pipeline admission is rejected until every intended source is present, size-matched `verified`, and any required local cleanup is confirmed.
+- Gallery uploads send a stable local size where available. The legacy single-PUT fallback records weaker size evidence explicitly as `r2_head_adopted` instead of treating it as client-declared evidence.
+- Expo SDK 52's official Storage Access Framework implementation persists granted directory-tree permission using `takePersistableUriPermission`.
+- TypeScript checks, Expo module autolinking, Android prebuild, and Kotlin compilation cover the native upload foundation.
+- `.github/workflows/upload-foundation-release.yml` is fail-closed: migrations and schema verification must pass, then a real R2 multipart/hash/cleanup probe must pass, and only then may the installable Android preview APK be built.
+
+These statements prove **foundation implemented**. They do not yet prove the exact live Supabase/R2/Vercel/EAS/device stack.
 
 ## 4. Readiness summary
 
-| Gap | Priority | Current state | Blocks the next production-style evidence run? |
+| Gap | Priority | Current state | Blocks the next production-style experiment? |
 |---|---:|---|---|
-| GAP-013 — Resumable multipart R2 upload | P0 | Single full-file PUT; retry restarts the file | Yes |
-| GAP-014 — Durable Android source access and restart recovery | P0 | SD/USB file is copied in full to cache; upload state is not durable | Yes |
-| GAP-015 — Durable batch/session/athlete upload manifest and verified-run gate | P0 | Exact-content upload dedup foundation exists in this PR; durable batch readiness and grouping remain incomplete | Yes |
-| GAP-016 — Dispatch, workflow, run, and operator-status correlation | P0 | Dispatch acceptance is explicit; real correlated transition is not yet proven | Yes |
-| GAP-017 — Real perception/tracker quality and identity stability | P0 | Mandatory CV exists; difficult-footage metrics and tuning are pending | Yes |
-| GAP-018 — Cross-source athlete grouping and duplicate control | P0 | Canonical IDs/diagnostics exist; real grouping and `reel_group_id` lineage are incomplete | Yes |
-| GAP-019 — 4K/30 visual-quality and performance budget | P0 | Synthetic media contract passes; measured generation loss and production cost are pending | Yes |
-| GAP-020 — Product-vision real-run proof | P0 | Contract/CI implemented; real visual production evidence pending | The evidence run closes it |
-| GAP-021 — QA-blocked re-edit reaches a terminal verdict | P1 | App/task path exists; post-R2-fix terminal rerun unconfirmed | Required before claiming robust Review |
-| GAP-022 — Review → Approve → Delivery → Discover → payment fulfillment | P1 | Components exist; full immutable-key/idempotent flow unproven | No for editing-only experiment; yes for full product readiness |
-| GAP-023 — Production deployment, database migration, and environment parity | P0 | Exact live main/EAS/migration state is not fully verified | Yes |
-| GAP-024 — Durable feedback/evaluation/learning loop | P2 | Capture foundation exists; durable replay learning is incomplete | No for next evidence run |
-| GAP-025 — API contract drift and legacy route retirement | P2 | Typed mirrors exist; automatic cross-package drift prevention and alias retirement remain open | No for next evidence run |
+| GAP-013 — Resumable multipart R2 upload | P0 | Foundation implemented; live R2/interruption evidence pending | Yes, until release/device evidence passes |
+| GAP-014 — Durable Android source access and restart recovery | P0 | Native bounded reader and durable ledger implemented; installed-device evidence pending | Yes, until APK/device evidence passes |
+| GAP-015 — Durable batch/session/athlete upload manifest and verified-run gate | P0 | Source/batch manifest and admission gate implemented; business grouping and real-batch evidence remain open | Yes for the full experiment |
+| GAP-016 — Dispatch, workflow, run, and operator-status correlation | P0 | Dispatch acceptance is explicit; one real correlated transition is not yet proven | Yes |
+| GAP-017 — Real perception/tracker quality and identity stability | P0 | Mandatory CV and diagnostics exist; difficult-footage quality/tuning remains unproven | Yes |
+| GAP-018 — Cross-source athlete grouping and duplicate control | P0 | Diagnostics exist; durable reel-group lineage and real grouping proof remain open | Yes |
+| GAP-019 — 4K/30 visual-quality and performance budget | P0 | Synthetic media contract passes; real quality/runtime/cost evidence is pending | Yes |
+| GAP-020 — Product-vision real-run proof | P0 | Deterministic contracts exist; real visual production evidence is pending | The experiment closes it |
+| GAP-021 — QA-blocked re-edit reaches a terminal verdict | P1 | App/task path exists; a current real terminal rerun is unconfirmed | Required before robust Review claim |
+| GAP-022 — Review → Approve → Delivery → Discover → payment fulfillment | P1 | Components exist; full immutable/idempotent flow is unproven | Not for editing-only upload test; yes for product readiness |
+| GAP-023 — Production deployment, database migration, and environment parity | P0 | Release workflow exists; exact live deployment/migration/build evidence is pending | Yes |
+| GAP-024 — Durable feedback/evaluation/learning loop | P2 | Capture foundations exist; durable replay learning is incomplete | No for upload test |
+| GAP-025 — API contract drift and legacy route retirement | P2 | Typed mirrors exist; automated drift detection and alias retirement remain open | No for upload test |
 
-## 5. Entry gate for the next production-style experiment
+## 5. Entry gate for starting controlled uploads
 
-Do not start the next vision-validation run until all entry items below are checked:
+The user may begin a controlled real upload only after all items below are evidenced:
 
-- [ ] The audit PR is merged and `main` contains the current gap/closure definitions.
-- [ ] The exact `main` commit under test is deployed to Vercel Production and the production domain resolves to that commit.
-- [ ] The exact mobile build/update under test is installed and its EAS build/update ID is recorded.
-- [ ] Required Supabase migrations are applied in version order and verified against the live project.
-- [ ] The live project no longer contains the app-user biometric fields/buckets/RPCs scheduled for removal.
-- [ ] The upload path used by the experiment supports durable multipart resume and does not restart a large file from byte zero after a transient failure.
-- [ ] A real Android large-video test proves bounded-memory part reads and no required whole-file cache copy.
-- [ ] Every selected file belongs to one durable batch/session record and reaches `verified` with exact size before pipeline start is enabled.
-- [ ] Pipeline start is blocked while any intended batch file is pending, uploading, paused, completing, failed, or size-mismatched.
-- [ ] A no-op or small controlled run proves `pipeline_run_id` and `batch_id` correlate app → API → GitHub Actions → Supabase → app status.
-- [ ] The workflow preflight prints the resolved detector model, tracker, stride/image size, storage backend, batch ID, and pipeline run ID without leaking secrets.
-- [ ] All affected deterministic checks and final-head CI are green.
-- [ ] CodeRabbit actionable findings are resolved, or a documented focused self-review is complete.
-- [ ] The source footage, expected athletes/actions/waves, and required artifact list are frozen before the run so success criteria cannot be changed afterward.
+- [ ] PR #196 is merged and the exact merge commit is recorded.
+- [ ] Vercel Production is READY on that merge commit and the production domain resolves to it.
+- [ ] `Upload Foundation Release` applies all upload migrations in dependency order and the schema-verification artifact contains no `false` result.
+- [ ] The real R2 multipart probe succeeds: create, upload parts, repeat one part, complete with exact ETags, verify size/hash, delete, and prove absence.
+- [ ] The Android preview APK containing `SportReelSourceReader` is built and published only after the database and R2 jobs pass.
+- [ ] That exact APK is installed on the target Android phone. An OTA JavaScript update is not sufficient for a new native module.
+- [ ] The production operator app can authenticate and reach the production upload endpoints.
+- [ ] A small non-critical SD/USB video completes upload, R2 verification, local cleanup evidence, and durable batch readiness before irreplaceable footage is selected.
+
+The first large upload is itself an evidence-producing test for GAP-013/GAP-014. It must not begin with irreplaceable footage until the small controlled smoke passes.
 
 ## 6. Detailed open gaps
 
@@ -112,532 +109,317 @@ Do not start the next vision-validation run until all entry items below are chec
 **Priority:** P0  
 **Area:** mobile upload, Vercel web-api, Cloudflare R2, retry/abort/verification.
 
-**Verified current state**
+**Foundation implemented**
 
-- `web-api/src/lib/r2-storage.ts` creates a single signed `PUT` URL.
-- `mobile/src/app/(operator)/pipeline.tsx` uploads the whole file with `createUploadTask`.
-- Automatic retry requests a new upload session and resends the whole file.
-- `POST /api/operator/upload/verify` verifies object existence, but the current mobile request does not provide the original source size as a required equality check.
-- Large 4K video can therefore lose all progress after a network interruption.
+- [x] Tracked Supabase schema stores multipart protocol, upload ID, part size/count, exact part ETags, errors, and completion state.
+- [x] Web API implements create, part URL, part record, status, complete, abort, and cleanup-confirmation endpoints.
+- [x] Part URLs are limited to one raw key, upload ID, and part number and use short expiry.
+- [x] Part size and count enforce R2's 5 MiB non-final minimum and 10,000-part maximum.
+- [x] The client records exact returned ETags and ascending part numbers.
+- [x] Successful parts are reconciled from durable server state and are not retransmitted after restart.
+- [x] Completion verifies final R2 size before source status becomes `verified`.
+- [x] Multipart final ETag is not treated as source MD5.
+- [x] Deterministic checks cover order, ETags, size mismatch, retry, completion, cleanup, and idempotent start.
+- [x] The release workflow contains a real R2 create/retry/complete/hash/delete probe and fails if cleanup fails.
 
-**Official design basis**
+**Still required for experiment entry/closure**
 
-- Cloudflare R2 upload methods and multipart limits: https://developers.cloudflare.com/r2/objects/upload-objects/
-- Cloudflare R2 multipart object API: https://developers.cloudflare.com/r2/api/workers/workers-api-reference/
-- Cloudflare R2 S3 compatibility: https://developers.cloudflare.com/r2/api/s3/api/
-- AWS SDK multipart uploader configuration: https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/Package/-aws-sdk-lib-storage/Interface/Configuration/
-- AWS S3 multipart commands: `CreateMultipartUploadCommand`, `UploadPartCommand`, `CompleteMultipartUploadCommand`, and `AbortMultipartUploadCommand` from https://docs.aws.amazon.com/AWSJavaScriptSDK/v3/latest/client/s3/
-
-Cloudflare defines multipart as the appropriate path for video, large files, parallelism, and resumability. Parts must be 5 MiB–5 GiB, all non-final parts must be the same size, at most 10,000 parts are allowed, and only failed parts should be retried. Exact part `ETag` values are required for completion. AWS documents the same command sequence and that memory use is bounded approximately by `queueSize × partSize`.
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] A tracked Supabase migration creates the durable multipart upload schema.
-- [ ] The web-api creates multipart uploads through the official R2 S3-compatible API and returns `upload_id`, canonical `r2_key`, `part_size_bytes`, and protocol version.
-- [ ] The server issues short-lived signed URLs scoped to one `upload_id` and `part_number`.
-- [ ] Every non-final part is the configured uniform size and at least 5 MiB.
-- [ ] The total part count cannot exceed 10,000.
-- [ ] The client stores the exact returned `ETag` and `part_number` for every completed part.
-- [ ] Completion sends all parts sorted by ascending `PartNumber`.
-- [ ] A failed part is retried without retransmitting successful parts.
-- [ ] Client cancellation and unrecoverable failure call abort.
-- [ ] Abort waits for or reconciles in-flight part requests and verifies that no active parts remain.
-- [ ] Incomplete uploads have an explicit cleanup policy in addition to R2's default lifecycle.
-- [ ] `HEAD Content-Length` equals `source_size_bytes` before the upload becomes `verified`.
-- [ ] Multipart final ETag is not incorrectly treated as the source-file MD5.
-- [ ] A deterministic contract test covers part sizing, ordering, exact ETags, single-part retry, complete, abort, and size mismatch.
-- [ ] A real R2 integration test uploads and reconstructs a large video successfully.
-- [ ] A network interruption proves only the missing/failed part is resent.
-- [ ] Evidence is attached: R2 key, upload ID prefix, part ledger, retries, final size, cleanup result, CI run, and Android test record.
+- [ ] The post-merge real R2 probe passes against the configured production-like bucket and its evidence artifact is retained.
+- [ ] The exact installed React Native client can read the returned part `ETag`; configure R2 CORS to expose `ETag` only for any browser-based upload client.
+- [ ] A real network interruption proves only missing/failed parts are resent.
+- [ ] User cancellation calls abort or reconciles in-flight parts truthfully.
+- [ ] A stale multipart cleanup process handles abandoned durable sessions in addition to R2's lifecycle.
+- [ ] Evidence records R2 key, upload ID prefix, part ledger, retries, final size/hash, abort/cleanup result, release run, and device test.
 
 ### GAP-014 — Durable Android source access and restart recovery
 
 **Priority:** P0  
-**Area:** Expo FileSystem, Android Storage Access Framework, SD/USB, process restart, memory.
+**Area:** Expo SDK 52, Android SAF, SD/USB, process restart, memory, phone storage.
 
-**Verified current state**
+**Foundation implemented**
 
-- The installed code uses Expo SDK 52 and legacy `FileSystem.copyAsync`/`createUploadTask`.
-- SD/USB `content://` sources are copied in full into app cache before upload.
-- Upload state is held in React component state, so process death or app restart cannot reliably resume.
-- The physical retest proving only selected external videos are uploaded remains open.
+- [x] Compatibility decision is explicit: retain Expo SDK 52 and add a focused Expo local module rather than assuming newer `FileHandle` behavior.
+- [x] The native module opens `content://` through `ContentResolver`, verifies seekability, reads from an explicit offset, and limits one read to 64 MiB.
+- [x] Default upload parts are 16 MiB; the normal path has no Base64 or complete-file cache copy.
+- [x] Descriptors/channels are closed through scoped `use` paths.
+- [x] AsyncStorage restores upload identity, completed parts, ETags, and the next missing part.
+- [x] Server state remains authoritative during reconciliation.
+- [x] The official Expo SAF directory permission path persists the selected tree URI permission where the provider supports it.
+- [x] Removed/unavailable/non-seekable sources fail truthfully without deleting completed remote parts.
+- [x] App-owned temporary artifacts are deleted only after verification; absence and reclaimed bytes are checked, and the original source URI is preserved.
+- [x] Expo autolinking, prebuild, TypeScript, and Android Kotlin compilation pass in deterministic checks.
 
-**Official design basis**
+**Still required for experiment entry/closure**
 
-- Expo FileSystem `FileHandle`, offset, repeated `readBytes`, and `close`: https://docs.expo.dev/versions/v55.0.0/sdk/filesystem/
-- Expo latest FileSystem architecture and legacy API status: https://docs.expo.dev/versions/latest/sdk/filesystem/
-- Android shared documents and directory access: https://developer.android.com/training/data-storage/shared/documents-files
-- Android persistable URI permissions: https://developer.android.com/reference/android/content/Intent#FLAG_GRANT_PERSISTABLE_URI_PERMISSION
-- Expo DocumentPicker cache-copy behavior: https://docs.expo.dev/versions/latest/sdk/document-picker/
+- [ ] The exact generated APK is installed on the target phone.
+- [ ] A small SD/USB upload proves the selected provider grants usable persistent access.
+- [ ] A representative 4K file proves phone storage does not grow by the complete source size.
+- [ ] Network loss, force-close, restart, SD removal, reconnection, and completion are exercised on the installed build.
+- [ ] Selecting a different file with the same name is rejected by stable size/source identity evidence.
+- [ ] The physical selection retest proves unchecked external files are not uploaded.
+- [ ] Memory and temporary-storage measurements are attached with device/build ID, URI class, restart log, part ledger, and final R2 size.
 
-The current app is below the pinned Expo documentation version used for the proposed `FileHandle` design. The implementation must first prove that the required random-access API works on the project's pinned SDK, or perform a controlled Expo upgrade with a new native build. It must not assume that current documentation is available in Expo 52.
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] An explicit compatibility decision is recorded: either prove `FileHandle` behavior on Expo 52 or upgrade Expo through a dedicated, tested PR.
-- [ ] Any Expo upgrade passes native dependency compatibility review, mobile tests, Android build, and installed-device smoke.
-- [ ] Large source files are read in bounded parts using an official random-access/stream API rather than `bytes()`, `bytesSync()`, base64, or a whole-file cache copy.
-- [ ] The file handle offset is set deterministically for each part.
-- [ ] Each read returns at most the configured part size.
-- [ ] Every handle is closed in `finally` on success, retry, pause, cancellation, and error.
-- [ ] Durable state survives app restart and restores the same source, upload ID, completed-part ledger, and next missing part.
-- [ ] Android persistable URI permission is requested/stored where the source provider supports it.
-- [ ] If the SD/USB device is removed, state becomes `source_unavailable` without aborting or losing completed parts.
-- [ ] Reconnecting the same source resumes; selecting a different file with the same name is rejected by fingerprint/size checks.
-- [ ] The final physical selection retest proves unchecked external videos are not uploaded.
-- [ ] A real Android memory profile shows that memory does not scale with complete video size.
-- [ ] A 4K video test covers: pause, network loss, force-close, app restart, device removal, reconnection, and completion.
-- [ ] Temporary files, if any are still needed for a limited compatibility fallback, are bounded, documented, and removed in `finally`.
-- [ ] Evidence is attached: Expo/EAS version, device/build ID, source URI class, memory measurement, restart log, part ledger, and final R2 size.
-
-### GAP-015 — Durable batch/session/athlete upload manifest and verified-run gate
+### GAP-015 — Durable batch/session/athlete manifest and verified-run gate
 
 **Priority:** P0  
-**Area:** upload model, Supabase, mobile session state, R2 key layout, pipeline admission.
+**Area:** upload model, Supabase, mobile session state, R2 keys, pipeline admission.
 
-**Verified current state**
+**Foundation implemented**
 
-- R2 objects are scoped by `batch_id`.
-- This PR adds one durable `source_uploads` row per new R2 upload and preserves the first successful `verified_at` after server-side `HEAD` size verification.
-- This PR adds a streaming SHA-256 pre-analysis gate. Postgres atomically chooses the newest verified byte-identical source by `verified_at`, marks older rows `superseded`, writes `source_upload_dedup_audit`, and removes older keys from pipeline eligibility before analysis.
-- R2 deletion happens only after the newer source is already verified and selected as canonical. A deletion failure is durably recorded and never restores the superseded source to pipeline eligibility.
-- The exact-content foundation has deterministic coverage only. The migration has not yet been verified in the live Supabase project and two real byte-identical R2 uploads have not yet proved canonical retention and old-key deletion.
-- Legacy R2 objects created before the manifest migration remain eligible with an explicit warning until a safe backfill/cleanup decision exists.
-- `activeBatchId` lives in mobile component state and can be lost.
-- A batch does not yet have a durable authoritative manifest describing intended files, source sizes, upload states, session purpose, or athlete grouping.
-- `batch_id` is a transport boundary, but it is not yet a complete `session_id`/`athlete_id` business grouping contract.
-- Pipeline start can be requested without a server-side proof that all intended files are verified.
+- [x] Every new upload has a durable `source_uploads` row with immutable storage key and server-only service-role writes.
+- [x] RLS is enabled for upload, part, batch, and dedup audit tables.
+- [x] `client_upload_id` prevents duplicate multipart source creation and duplicate batch membership after lost responses/concurrent retries.
+- [x] `upload_batches` records intended, actual, verified, and cleanup-pending counts.
+- [x] The app/server can recover a unique active/ready batch after restart instead of trusting only React state.
+- [x] Pipeline start is rejected before run creation unless all intended sources are size-matched verified and cleanup-complete.
+- [x] The exact input manifest is frozen before dispatch.
+- [x] Dispatch carries authoritative batch and pipeline run IDs, and R2 processing remains scoped to `raw/<batch_id>/`.
+- [x] Filename reuse cannot overwrite another source; generated R2 keys remain immutable.
+- [x] Exact byte-identical verified sources are reconciled by SHA-256, first-successful verification time, and deterministic canonical selection.
+- [x] Older exact duplicates remain pipeline-ineligible even if R2 deletion fails; the failure remains auditable.
+- [x] Re-exported/recompressed/perceptually similar files are not auto-deleted by the exact-byte rule.
+- [x] Gallery source size is client-declared when available; the weaker legacy fallback is explicitly labeled `r2_head_adopted`.
 
-**Official design basis**
+**Still required for experiment entry/closure**
 
-- Supabase database migrations: https://supabase.com/docs/guides/deployment/database-migrations
-- Supabase Row Level Security: https://supabase.com/docs/guides/database/postgres/row-level-security
-- Supabase secure backend/service-role boundary: https://supabase.com/docs/guides/database/secure-data
-- Cloudflare R2 prefixes and object upload behavior: https://developers.cloudflare.com/r2/objects/upload-objects/
-- Cloudflare R2 S3 compatibility and checksum support: https://developers.cloudflare.com/r2/api/s3/api/
-- GitHub `repository_dispatch` payload contract: https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event
-
-Exact SHA-256 is intentionally a byte-identity control, not perceptual similarity. Re-exported, trimmed, recompressed, or metadata-modified video can receive a different hash even when it looks similar. Perceptual duplicate detection remains a separate evidence-based mechanism and must not automatically delete source footage without a high-confidence policy.
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] A durable `upload_batches` record exists with `batch_id`, optional `session_id`, optional explicit `athlete_id`/operator grouping, state, expected file count, verified file count, created/updated timestamps, and owner/operator metadata.
-- [ ] Each selected source has one durable upload record containing the fields required by GAP-013/014.
-- [ ] RLS is enabled for exposed tables; service-role writes remain server-side only.
-- [ ] The app restores an unfinished batch after restart instead of silently creating a new one.
-- [ ] Adding more files to the same batch is explicit and preserves existing verified membership.
-- [ ] A file cannot belong to two active batches accidentally.
-- [ ] Filename reuse cannot overwrite or impersonate another source; canonical R2 keys remain immutable.
-- [ ] Two byte-identical verified uploads must resolve to one canonical source. The newest verified upload is retained, the older source is marked superseded and removed from pipeline eligibility, and the decision is recorded with SHA-256 evidence and reason `exact_content_duplicate`.
-- [ ] Canonical choice is based on the first successful `verified_at`, never filename, R2 key order, client clock, or a repeated verification request.
-- [ ] The older R2 object is deleted only after the newer object is fully verified; deletion failure remains visible and the old source remains ineligible.
-- [ ] A real R2 test uploads the exact same video twice, proves only the newer verified key enters the input manifest, verifies the older key is absent from `raw/`, and captures both source rows plus the dedup audit row.
-- [ ] Re-exported or perceptually similar video is not auto-deleted by the exact-content SHA-256 rule.
-- [ ] The server calculates batch readiness from durable rows, not mobile state.
-- [ ] `Run pipeline now` is rejected with an actionable response unless all intended files are `verified` and size-matched.
-- [ ] The dispatch payload contains the authoritative `batch_id` and `pipeline_run_id`.
-- [ ] The workflow lists only `raw/<batch_id>/` and records the exact input object list before processing.
-- [ ] An unrelated batch remains untouched by run, reset, re-edit, and cleanup operations.
-- [ ] A real 2–3 video batch proves one dispatch processes every intended file exactly once and no unrelated file.
-- [ ] The experiment records whether the batch represents one athlete, one session with multiple athletes, or another explicit grouping; the pipeline never infers this from filenames.
-- [ ] Evidence is attached: batch row, upload rows, content SHA-256, canonical/superseded decision audit, R2 listing before/after, dispatch payload fields, run artifact input manifest, and reset isolation result.
+- [ ] Live upload migrations and RPCs pass post-merge schema verification.
+- [ ] A real exact-duplicate upload proves canonical retention, old-key removal, and a complete dedup audit row.
+- [ ] A real two-to-three-file batch proves every intended source enters one run exactly once and an unrelated batch remains untouched.
+- [ ] The business grouping contract adds optional explicit session, athlete/group, owner/operator, and purpose metadata rather than inferring identity from filenames.
+- [ ] One file cannot accidentally belong to two active business sessions.
+- [ ] Reset, re-edit, cleanup, and processing isolation are proven against unrelated batches.
+- [ ] Evidence includes batch/source rows, size evidence, content hashes, canonical/superseded decision, R2 listing, dispatch payload, frozen input manifest, and isolation result.
 
 ### GAP-016 — Dispatch, workflow, run, and operator-status correlation
 
 **Priority:** P0  
 **Area:** Vercel endpoint, GitHub API/Actions, Supabase `pipeline_runs`, mobile status.
 
-**Verified current state**
+**Current state**
 
-- PR #83 makes GitHub's 204 response visible as `workflow_dispatched`.
-- A 204 proves GitHub accepted the event; it does not prove that a workflow run was created or started.
-- The row initially links to the workflow page, not a specific GitHub Actions run URL/ID.
-- The latest real app-triggered transition after the fix has not been recorded in this consolidated audit.
+- Dispatch acceptance and `workflow_dispatched` state are implemented.
+- A 204 proves GitHub accepted an event; it does not prove a workflow run reached terminal truth.
 
-**Official design basis**
+**Remaining closure bar**
 
-- GitHub create repository dispatch event and token permissions: https://docs.github.com/en/rest/repos/repos#create-a-repository-dispatch-event
-- GitHub `repository_dispatch` workflow behavior: https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#repository_dispatch
-- GitHub Actions workflow concurrency: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
-- Vercel deployment checks for repository-dispatch workflows: https://vercel.com/docs/deployment-checks
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] Vercel Production has `GITHUB_REPO` and a token with the documented minimum working repository permission; only variable names are recorded.
-- [ ] The workflow file exists on the default branch and listens to the exact event type.
-- [ ] API timeout, non-204, 404, 422, and network-error paths produce durable actionable terminal states.
-- [ ] A successful dispatch changes `dispatching` → `workflow_dispatched`.
-- [ ] The actual workflow writes its `github.run_id`, run URL, attempt, and commit SHA back to the same `pipeline_runs` row.
-- [ ] The same row changes to `running` before expensive processing.
-- [ ] Stage/progress updates remain attached to the same run ID.
-- [ ] Concurrency queueing is represented honestly; a queued run is not shown as processing.
-- [ ] Completion writes one terminal state: `succeeded`, `failed`, `no_input`, or another documented terminal result.
-- [ ] `pipeline_status` stale detection falls back to the latest durable run without rewriting history.
-- [ ] App, API response, GitHub run, durable row, live status, and diagnostic artifact agree on run ID, batch ID, commit, and outcome.
-- [ ] A forced dispatch failure and a forced workflow failure both surface correctly in the app.
-- [ ] Evidence is attached: production deployment commit, pipeline run row snapshots, GitHub Actions run URL, logs, app screenshots, and stale-status test.
+- [ ] Vercel Production has the required repository/token variable names and minimum permissions.
+- [ ] One controlled app action correlates app response → API → `pipeline_runs` → exact GitHub run ID/URL/attempt/commit → running/progress → terminal state → app status.
+- [ ] Queueing is represented as queued, not processing.
+- [ ] Forced dispatch failure and forced workflow failure surface durably and recoverably in the app.
+- [ ] Stale live status falls back to durable history without rewriting it.
+- [ ] Evidence contains production commit, row snapshots, Actions run, logs, and app screenshots.
 
 ### GAP-017 — Real perception/tracker quality and identity stability
 
 **Priority:** P0  
-**Area:** Ultralytics, BoT-SORT, detector/tracker sidecars, identity, crop authority.
+**Area:** Ultralytics, BoT-SORT, sidecars, identity, crop authority.
 
-**Verified current state**
+**Current state**
 
 - Production workflow requires perception and defaults to Ultralytics plus BoT-SORT.
-- Synthetic contracts prove required fields and fail-closed behavior.
-- Difficult real footage has not yet established acceptable fragmentation, identity continuity, or runtime cost.
-- Prior audits record severe track fragmentation and unresolved same-athlete split/two-athlete merge risk.
+- Synthetic schemas/fail-closed checks exist.
+- Difficult real footage has not established acceptable fragmentation, identity continuity, or runtime cost.
 
-**Official design basis**
+**Remaining closure bar**
 
-- Ultralytics tracking mode, BoT-SORT, camera-motion compensation, and optional Re-ID: https://docs.ultralytics.com/modes/track/
-- NVIDIA DeepStream tracker/Re-ID and occlusion/ID-switch limits: https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvtracker.html
-- Google Gemini video sampling limitations for fast motion: https://ai.google.dev/gemini-api/docs/video-understanding
-- Google Cloud Video Intelligence object tracking: https://cloud.google.com/video-intelligence/docs/feature-object-tracking
-
-Gemini's default video sampling can miss fast sports detail, so it cannot be the sole identity/crop proof. Tracker IDs also are not automatically ground truth: occlusion, spray, distance, moving cameras, and look-alike athletes can produce ID switches or new IDs.
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] Workflow preflight records detector model, tracker config, confidence thresholds, stride/image size, FPS assumption, device, and Re-ID setting.
-- [ ] Sidecar schema records frame/time, bbox, confidence, track ID, visibility, and source dimensions for every analyzed event.
-- [ ] Missing/invalid/zero-detection evidence fails closed with a clear diagnostic.
-- [ ] A representative difficult surfing set includes distance, spray, occlusion, same-wave surfers, camera motion, entry/exit, and visually similar athletes.
-- [ ] Raw track count, stitched track count, median track duration, tracks under two seconds, lost/reacquired intervals, and ID switches are measured.
-- [ ] One athlete is not split into multiple canonical athletes without explicit unresolved evidence.
-- [ ] Two different athletes are not merged.
-- [ ] Featured-athlete ownership remains stable through temporary occlusion and another surfer entering the action.
-- [ ] Crop decisions use measured tracker evidence and never an LLM hint alone.
-- [ ] Every false merge, false split, ID switch, and uncertain interval is included in the artifact.
-- [ ] Frame stride, input size, thresholds, camera-motion compensation, and optional Re-ID are tuned from measured evidence rather than guessed.
-- [ ] Detector/tracker wall time, CPU minutes, memory, and failure rate per source video are recorded.
-- [ ] A negative fixture and real negative case prove the pipeline blocks unsafe identity instead of guessing.
-- [ ] Evidence is attached: sidecars, fragmentation summary, visual overlays/sample frames, tuning record, runtime metrics, and final identity decisions.
+- [ ] Freeze a difficult representative surfing set: distance, spray, occlusion, same-wave surfers, camera motion, entry/exit, and similar athletes.
+- [ ] Record detector/tracker model/config, thresholds, stride/input size, FPS, device, camera-motion compensation, and Re-ID setting.
+- [ ] Measure raw/stiched tracks, duration distribution, lost/reacquired intervals, ID switches, false split/merge, runtime, memory, and failure rate.
+- [ ] Prove one athlete is not silently split and two athletes are not merged.
+- [ ] Crop authority uses measured tracker evidence, not an LLM hint alone.
+- [ ] Negative real cases block unsafe identity rather than guessing.
+- [ ] Evidence contains sidecars, overlays, metrics, tuning record, runtime, and final identity decisions.
 
 ### GAP-018 — Cross-source athlete grouping and duplicate control
 
 **Priority:** P0  
 **Area:** multiple clips per athlete, canonical identity, reel grouping, duplicate moments/drafts.
 
-**Verified current state**
+**Current state**
 
-- Stable athlete IDs, candidate ledger, duplicate diagnostics, and final manifest checks exist.
-- The duplicate metric can still false-positive because drafts do not carry a durable `cluster_id`/`reel_group_id`.
-- Detection currently reports likely duplicates but does not safely merge/drop them.
-- The desired product behavior is one primary reel per eligible athlete, with additional Parts only for real duration pressure.
+- Stable athlete IDs, candidate ledger, duplicate diagnostics, and final-manifest checks exist.
+- Durable `cluster_id`/`reel_group_id` lineage and safe real grouping remain incomplete.
 
-**Official design basis**
+**Remaining closure bar**
 
-- Ultralytics tracking and Re-ID concepts: https://docs.ultralytics.com/modes/track/
-- NVIDIA target re-association limits: https://docs.nvidia.com/metropolis/deepstream/dev-guide/text/DS_plugin_gst-nvtracker.html
-- Google Cloud instance-level tracking: https://cloud.google.com/video-intelligence/docs/feature-object-tracking
-- OpenAI evaluation resources for explicit datasets/graders: https://developers.openai.com/api/reference/resources/evals
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] A durable run-scoped `cluster_id` or `reel_group_id` is written into draft metadata, candidate ledger, coverage report, and publishable manifest.
-- [ ] All source appearances contributing to one primary reel trace to that group ID.
-- [ ] Same-athlete clips across multiple files merge only with strong evidence; labels or filenames are never identity proof.
-- [ ] Distinct athletes with similar appearance remain separate.
-- [ ] Same physical action uploaded twice is represented once.
-- [ ] Distinct actions/waves by the same athlete remain separate.
-- [ ] Multiple Parts share the same athlete/group identity and exist only because complete actions exceed 90 seconds.
-- [ ] Duplicate detection distinguishes intentional Parts from duplicate primary outputs.
-- [ ] Any automatic merge/drop rule is introduced only after tracker-fragmentation evidence passes GAP-017.
-- [ ] Positive and negative cross-source eval fixtures define expected grouping and duplicate outcomes.
-- [ ] A real multi-file same-athlete batch produces one primary reel without duplicate actions.
-- [ ] A real multi-athlete session produces separate primary reels with no identity crossover.
-- [ ] Evidence is attached: input list, group lineage, similarity/track evidence, duplicate decisions, manifest, and visual output review.
+- [ ] Write a durable run-scoped reel/group ID into draft metadata, candidate ledger, coverage report, and publishable manifest.
+- [ ] Trace all source appearances contributing to one primary reel.
+- [ ] Merge same-athlete clips only with strong measured evidence; never use filename/label as identity proof.
+- [ ] Preserve distinct athletes with similar appearance and distinct actions by the same athlete.
+- [ ] Represent the same physical action once across files.
+- [ ] Distinguish intentional Parts from duplicate primary outputs.
+- [ ] Positive and negative eval fixtures define expected grouping.
+- [ ] Real same-athlete and multi-athlete batches prove one primary reel per eligible athlete without crossover.
 
 ### GAP-019 — 4K/30 visual-quality and performance budget
 
 **Priority:** P0  
 **Area:** FFmpeg rendering, 4K output, Actions runtime, R2 transfer.
 
-**Verified current state**
+**Current state**
 
-- Synthetic FFmpeg validation proves 2160x3840, 30 fps, H.264 High Profile, yuv420p, BT.709, silent output, and contain framing.
-- Generation loss, emergency-crop quality, Actions time/cost, output size, and transfer reliability are not measured on representative footage.
+- Synthetic FFmpeg checks cover vertical 2160×3840, 30 fps, H.264 High Profile, yuv420p, BT.709, silent output, and contain framing.
+- Representative generation loss, emergency-crop quality, runtime/cost, output size, and transfer reliability are not measured.
 
-**Official design basis**
+**Remaining closure bar**
 
-- YouTube recommended upload encoding settings: https://support.google.com/youtube/answer/1722171
-- FFmpeg filters, including scale/pad/crop, SSIM, PSNR, and libvmaf: https://ffmpeg.org/ffmpeg-filters.html
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] Every final Part is verified by `ffprobe`: 2160x3840, 30 fps, progressive H.264 High Profile, yuv420p, BT.709, MP4 fast-start, and no audio stream.
-- [ ] Source and output frame rates match the product contract.
-- [ ] Default `contain` output preserves the complete sharp source frame.
-- [ ] Every tracked crop records measured necessity and never exceeds the documented zoom cap.
-- [ ] VMAF and SSIM are measured for representative contain output.
-- [ ] VMAF/SSIM or an explicitly justified equivalent comparison is measured for at least one emergency-crop case.
-- [ ] Any metric threshold used for blocking is calibrated with visual review; no universal threshold is invented.
-- [ ] Per-stage wall time, total Actions minutes, CPU/memory, source size, output size, download duration, upload duration, and retry count are recorded.
-- [ ] No hidden downscale, frame-rate reduction, skipped perception, or shortened action occurs to meet runtime.
-- [ ] Workflow timeout has measured headroom for the representative batch.
-- [ ] R2 multipart upload handles the resulting large files without full restart.
-- [ ] Final files are reviewed at native resolution on a representative display.
-- [ ] Evidence is attached: ffprobe report, VMAF/SSIM output, framing decisions, timing/cost report, R2 sizes, and visual review notes.
+- [ ] Verify every final Part with `ffprobe`, including dimensions, frame rate, progressive profile, pixel/color metadata, fast-start, and no audio.
+- [ ] Preserve source frame rate and default contain framing without hidden downscale.
+- [ ] Record necessity and zoom cap for every tracked crop.
+- [ ] Measure VMAF/SSIM or a justified equivalent for representative contain and emergency-crop cases, calibrated by visual review.
+- [ ] Record per-stage time, total Actions minutes, CPU/memory, source/output sizes, transfer duration/retries, and cost.
+- [ ] Prove workflow timeout headroom and real multipart reliability for large source/output files.
+- [ ] Review final files at native resolution.
 
 ### GAP-020 — Product-vision real-run proof
 
 **Priority:** P0  
 **Area:** analyzer, identity, selection, editor, QA, manifest, app status, visual output.
 
-**Verified current state**
+**Remaining closure bar**
 
-- The business contract and deterministic gates are implemented and merged.
-- Real footage has not yet proved the complete vision after the latest 4K/perception/biometric changes.
-
-**Official design basis**
-
-- Gemini video understanding and timestamp limitations: https://ai.google.dev/gemini-api/docs/video-understanding
-- Gemini structured output and application-side semantic validation: https://ai.google.dev/gemini-api/docs/structured-output
-- OpenAI Evals and graders: https://developers.openai.com/api/reference/resources/evals and https://developers.openai.com/api/reference/resources/graders
-- Anthropic evaluation guidance: https://docs.anthropic.com/en/docs/test-and-evaluate/eval-tool
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] The exact comparison footage and expected athlete/action/wave inventory are recorded before execution.
-- [ ] The run uses the exact production-deployed commit and records it in durable state/artifacts.
-- [ ] Every distinct eligible athlete receives exactly one primary publishable reel or an explicit evidence-backed hard rejection.
-- [ ] Every complete readable usable surf wave appears exactly once or has an explicit hard-reject reason.
-- [ ] Another surfer on the same wave does not remove a valid ride while the target remains central and continuous.
-- [ ] Team-sport group context remains allowed while action ownership stays attributable.
-- [ ] No reel changes featured athlete mid-action or mixes identity ownership.
-- [ ] No physical action appears twice across files, drafts, or Parts.
-- [ ] Good social/editorial moments are not silently lost; every detected candidate has a selected/rejected decision reason.
-- [ ] No complete action is cut at the beginning, peak, or outcome.
+- [ ] Freeze comparison footage and expected athlete/action/wave inventory before execution.
+- [ ] Use the exact production-deployed commit and record all run/batch/build/deployment identifiers.
+- [ ] Every eligible athlete receives exactly one primary publishable reel or explicit evidence-backed hard rejection.
+- [ ] Every complete usable surf wave appears exactly once or has an explicit hard-reject reason.
+- [ ] No reel changes featured athlete, duplicates a physical action, loses a valuable detected moment silently, or cuts an action before its outcome.
 - [ ] Every Part is independently understandable, silent, vertical, 4K/30, at most 90 seconds, and technically publishable.
-- [ ] Final QA has explicit real evidence and every FAIL blocks approval.
-- [ ] `publishable_reel_manifest.json`, athlete coverage, candidate ledger, selection audit, source evidence, draft trace, QA trace, media report, and status snapshots are present and mutually consistent.
-- [ ] GitHub conclusion, durable `pipeline_runs`, live operator state, R2 objects, and app UI agree.
-- [ ] Every final video is visually inspected, not only metadata-checked.
-- [ ] False positives, false negatives, identity splits/merges, crop errors, missed moments, and repairs are recorded.
-- [ ] A deliberate business-gate failure proves stale success cannot survive in GitHub/Supabase/app state.
-- [ ] Evidence is attached: run URL, commit, batch, complete artifact bundle, R2 keys, status rows, screenshots, and visual review record.
+- [ ] Final QA has real evidence and every FAIL blocks approval.
+- [ ] Manifest, coverage, candidate/selection ledgers, source/draft/QA traces, media report, durable status, R2 objects, and UI agree.
+- [ ] Every final video is visually inspected and all false positives/negatives, identity errors, crop errors, missed moments, and repairs are recorded.
 
 ### GAP-021 — QA-blocked re-edit reaches a terminal verdict
 
 **Priority:** P1  
 **Area:** QA task persistence, Review UI, R2 requeue, rerun, max attempts.
 
-**Verified current state**
+**Current state**
 
-- A QA-blocked task can appear in Review, block approval, and be promoted to `pending`.
-- A prior real run exposed the R2 `processed/` → `raw/` requeue key bug.
-- The fix has deterministic coverage, but a fresh real run has not yet proved source requeue, note injection, QA rerun, and terminal result.
+- QA-blocked tasks, approval blocking, operator notes, and R2 requeue foundations exist.
+- A current real rerun has not proved a terminal PASS, another blocked iteration, or manual reject.
 
-**Official design basis**
+**Remaining closure bar**
 
-- Supabase migrations and durable schema history: https://supabase.com/docs/guides/deployment/database-migrations
-- Supabase secure service-role boundary: https://supabase.com/docs/guides/database/secure-data
-- Cloudflare R2 object/S3 operations: https://developers.cloudflare.com/r2/api/s3/api/
-- GitHub workflow concurrency: https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/control-workflow-concurrency
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] A final QA FAIL writes one durable `qa_blocked` request with defects, blocked reasons, source identities, attempt count, and max attempts.
-- [ ] Review lists the task, disables approval, shows actionable reasons, and preserves operator notes.
-- [ ] “Send QA notes to re-edit” promotes the same task atomically and creates one correlated pipeline run.
-- [ ] Requeue resolves the source from its actual canonical current R2 key, not a stale prefix or filename.
-- [ ] Only the intended source/batch is requeued.
-- [ ] The next run consumes the pending request once and records injected QA/operator notes.
-- [ ] Re-edit applies a traceable repair rather than silently rerunning unchanged output.
-- [ ] QA reruns on the regenerated file.
-- [ ] PASS becomes normal approvable Review state.
-- [ ] FAIL creates/updates the next blocked task with incremented attempts.
-- [ ] Reaching max attempts becomes explicit manual review/reject, not an infinite loop.
-- [ ] Workflow failure leaves a recoverable truthful task state.
-- [ ] A real end-to-end app-triggered re-edit reaches PASS, another QA-blocked state, or manual reject with complete evidence.
-- [ ] Evidence is attached: original draft/key, task row snapshots, dispatch/run URL, requeue log, notes, repair trace, QA trace, final state, and app screenshots.
+- [ ] A final QA FAIL writes one durable blocked request with defects, reasons, source identities, attempt count, and max attempts.
+- [ ] Review displays it, blocks approval, and preserves actionable operator notes.
+- [ ] Sending notes promotes the same task atomically and creates one correlated pipeline run.
+- [ ] Only the intended canonical source/batch is requeued and the next run consumes the request once.
+- [ ] Re-edit applies a traceable repair, reruns QA, and reaches PASS, another blocked state, or explicit manual review/reject at max attempts.
+- [ ] Workflow failure leaves recoverable truthful task state.
+- [ ] Evidence contains keys, task rows, notes, repair trace, run, QA trace, final state, and UI screenshots.
 
 ### GAP-022 — Review → Approve → Delivery → Discover → payment fulfillment
 
 **Priority:** P1  
-**Area:** Review approval, immutable storage identity, delivery workflow, Discover, Stripe.
+**Area:** approval, immutable storage identity, delivery, Discover, Stripe.
 
-**Verified current state**
+**Remaining closure bar**
 
-- Review, approval, delivery runs, Discover, checkout, webhook, and purchase foundations exist.
-- The complete R2-backed flow has not been proven in one current-production end-to-end run.
-- A success page or redirect alone cannot prove payment fulfillment.
-
-**Official design basis**
-
-- Stripe webhook signature verification and retries: https://docs.stripe.com/webhooks
-- Stripe Checkout fulfillment and “perform only once” guidance: https://docs.stripe.com/checkout/fulfillment
-- Stripe idempotent requests: https://docs.stripe.com/api/idempotent_requests
-- Vercel Production versus Preview environments: https://vercel.com/docs/deployments/environments
-- Supabase RLS/service-role security: https://supabase.com/docs/guides/database/postgres/row-level-security and https://supabase.com/docs/guides/database/secure-data
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] Review lists the exact canonical `review/` R2 object key and protected watch URL.
-- [ ] Missing, mismatched, QA-failed, or non-publishable authority blocks approval in API and app.
-- [ ] Approval moves/copies the exact object from `review/` to `approved/` without filename-only authority.
-- [ ] One durable `delivery_runs` row correlates approval, storage key, reel, run, and operator response.
-- [ ] Delivery creates the intended Discover/preview/pending-payment state without exposing the full unpurchased file.
+- [ ] Review authority is the exact canonical protected R2 key; missing/mismatched/QA-failed/non-publishable inputs block approval.
+- [ ] Approval moves/copies the exact object and creates one durable correlated delivery run.
+- [ ] Delivery creates the intended protected Discover/preview/payment state without exposing the full unpurchased reel.
 - [ ] Checkout uses the correct reel/purchase identity.
-- [ ] Webhook verifies Stripe's signature from the raw request body.
-- [ ] Fulfillment is idempotent for retries and concurrent calls.
-- [ ] A Checkout Session is fulfilled only after confirmed paid state.
-- [ ] Repeated webhook delivery does not duplicate purchase, delivery, email, or sold-state transitions.
-- [ ] Failed webhook/delivery remains observable and recoverable.
-- [ ] The purchased athlete can access the correct final reel; another user cannot.
-- [ ] Expiry/download/share behavior matches the product contract.
-- [ ] A Stripe sandbox test proves checkout, webhook, purchase, sold/fulfilled state, protected access, and retry idempotency.
-- [ ] Evidence is attached: Review/approved R2 keys, delivery row, Discover reel, Stripe event/session IDs, purchase row, webhook delivery attempts, access-control tests, and app screenshots.
+- [ ] Webhook verifies the raw-body Stripe signature and fulfills only confirmed paid state.
+- [ ] Fulfillment is idempotent under retries/concurrency and does not duplicate purchase, delivery, email, or sold-state transitions.
+- [ ] Failed webhook/delivery remains observable/recoverable and access control prevents another user from receiving the reel.
+- [ ] Stripe sandbox evidence covers checkout, webhook retries, purchase, fulfillment, protected access, and UI.
 
 ### GAP-023 — Production deployment, database migration, and environment parity
 
 **Priority:** P0  
-**Area:** Vercel Production, EAS, GitHub Actions, Supabase, secrets/config names.
+**Area:** Vercel Production, EAS, GitHub Actions, Supabase, configuration.
 
-**Verified current state**
+**Foundation implemented**
 
-- PR #190 is merged.
-- Its audit records the destructive face-recognition-removal migration, exact Vercel/EAS deployment verification, live cleanup, and no-biometric smoke as pending.
-- Vercel Preview success is not proof that Production uses the same commit or environment values.
-- GitHub Actions secrets and Vercel environment variables are independent.
+- [x] Upload release workflow enforces migration → schema verification → real R2 probe → Android build order.
+- [x] Required upload tables use RLS and server-only service-role writes.
+- [x] The workflow records schema/R2/APK artifacts without exposing secret values.
 
-**Official design basis**
+**Still required for experiment entry/closure**
 
-- Vercel environments: https://vercel.com/docs/deployments/environments
-- Vercel deployment checks: https://vercel.com/docs/deployment-checks
-- Vercel production deployment management: https://vercel.com/docs/deployments/managing-deployments
-- Expo EAS Update: https://docs.expo.dev/eas-update/introduction/
-- Supabase migrations: https://supabase.com/docs/guides/deployment/database-migrations
-- Supabase RLS and service-role security: https://supabase.com/docs/guides/database/postgres/row-level-security and https://supabase.com/docs/guides/database/secure-data
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] The exact `main` commit intended for testing is identified.
-- [ ] Vercel Production is READY and the production domain is aliased to that exact commit.
-- [ ] Production API smoke tests run against the production domain, not a PR Preview.
-- [ ] Required Vercel variable names exist in Production: storage backend/R2, GitHub dispatch, Supabase, operator auth, Stripe, and other route dependencies; values are never exposed.
-- [ ] Required GitHub Actions secret/variable names exist independently and storage preflight passes.
-- [ ] The mobile build/update channel and runtime version are documented.
-- [ ] The exact EAS update/build is installed on the Android device and verified from app metadata.
-- [ ] Every tracked Supabase migration is applied in order and migration history is reconciled.
-- [ ] `20260721_remove_face_recognition.sql` is backed up/approved, applied, and verified.
-- [ ] Live tables, columns, RPCs, policies, and storage buckets contain no removed app-user biometric path.
-- [ ] Registration, login, profile, Discover, checkout, payment, support, and delivery work without biometric fields.
-- [ ] New upload-state tables have RLS and server-only service-role writes.
-- [ ] Deployment rollback steps are documented and tested at least as a dry procedure.
-- [ ] Evidence is attached: commit, Vercel production deployment, domain response, EAS ID, migration list/verification, schema checks, and no-biometric smoke results.
+- [ ] PR #196 merge commit is deployed to Vercel Production and the production domain aliases that exact deployment.
+- [ ] Production API smoke tests run against the production domain.
+- [ ] Required Vercel variable names and independent GitHub Actions secret/variable names exist and preflight passes.
+- [ ] Every upload migration is applied in order and verified live.
+- [ ] The exact Android build/upload ID and runtime/channel are recorded and installed.
+- [ ] The previously planned biometric-removal migration and live no-biometric verification are completed.
+- [ ] Registration, login, profile, Discover, checkout, support, and delivery work without removed biometric paths.
+- [ ] Rollback steps are documented and dry-validated.
 
 ### GAP-024 — Durable feedback/evaluation/learning loop
 
 **Priority:** P2  
 **Area:** operator feedback, candidate ledger, replay evals, ranking, historical learning.
 
-**Verified current state**
+**Current state**
 
-- Structured feedback buttons, API storage, prompt injection, missed-moment report, and additive editorial score exist.
-- Real feedback-to-row-to-next-run prompt behavior is unverified.
-- Candidate ledger is not durably queryable across historical runs.
-- Feedback lacks precise source time-window linkage and does not yet safely alter selection/ranking behavior.
+- Structured feedback controls, API storage, prompt injection, missed-moment report, and additive editorial scoring exist.
+- Durable cross-run decision history and safe replay-driven learning remain incomplete.
 
-**Official design basis**
+**Remaining closure bar**
 
-- OpenAI Evals and graders: https://developers.openai.com/api/reference/resources/evals and https://developers.openai.com/api/reference/resources/graders
-- Anthropic evaluation tooling: https://docs.anthropic.com/en/docs/test-and-evaluate/eval-tool
-- Supabase migrations/security: https://supabase.com/docs/guides/deployment/database-migrations and https://supabase.com/docs/guides/database/secure-data
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] A real operator feedback action writes the expected durable row.
-- [ ] The next eligible run records the exact normalized feedback evidence injected into analysis.
-- [ ] Feedback is linked to immutable draft/storage identity, pipeline run, athlete/group, and source time window when known.
-- [ ] Candidate ledger and selection decisions are stored durably across runs.
-- [ ] Operator cards expose enough evidence to understand primary track, source window, duplicate risk, mixed-subject risk, and selection/rejection reason.
-- [ ] A versioned evaluation dataset contains positive and negative examples from reviewed real runs.
-- [ ] Deterministic graders cover identity, coverage, duplicates, technical compliance, and status truth.
-- [ ] Model graders are limited to editorial/social-quality dimensions after deterministic gates.
-- [ ] Ranker or selection changes are tested in replay before production activation.
-- [ ] Offline comparison proves a change improves target metrics without reducing athlete/action recall.
-- [ ] Rollback/version fields allow restoring the prior policy.
-- [ ] Real-run monitoring records false positives, false negatives, missed moments, QA bypass, duplicate athletes, and operator corrections.
-- [ ] Evidence is attached: feedback rows, prompt trace, durable ledger rows, eval dataset/version, grader results, before/after replay, and policy version.
+- [ ] Real operator feedback writes the expected row and the next run records exact normalized injected evidence.
+- [ ] Feedback links to immutable draft/storage identity, run, athlete/group, and source time window.
+- [ ] Candidate and selection decisions are durable/queryable across runs.
+- [ ] Operator UI exposes source/track/duplicate/mixed-subject/selection evidence.
+- [ ] A versioned real-run evaluation dataset and deterministic graders cover identity, coverage, duplicates, technical compliance, and status truth.
+- [ ] Model graders are limited to editorial quality after deterministic gates.
+- [ ] Ranking/policy changes pass offline replay with no athlete/action recall regression and have version/rollback fields.
+- [ ] Monitoring records false positives/negatives, missed moments, QA bypass, duplicates, and operator corrections.
 
 ### GAP-025 — API contract drift and legacy route retirement
 
 **Priority:** P2  
-**Area:** web-api/mobile TypeScript contracts, compatibility alias.
+**Area:** web-api/mobile TypeScript contracts, compatibility aliases.
 
-**Verified current state**
+**Current state**
 
-- web-api and mobile have typed mirrored operator contracts.
-- They remain manually synchronized because the repository has no shared workspace/package.
-- `/api/operator/pipeline/run` remains a compatibility alias without a complete retirement record.
+- Web API and mobile have typed mirrored contracts but no shared generated source of truth.
+- `/api/operator/pipeline/run` remains a compatibility alias without complete retirement evidence.
 
-**Official design basis**
+**Remaining closure bar**
 
-- TypeScript project references: https://www.typescriptlang.org/docs/handbook/project-references.html
-- npm workspaces: https://docs.npmjs.com/cli/v11/using-npm/workspaces
-- Next.js route handlers: https://nextjs.org/docs/app/building-your-application/routing/route-handlers
-
-**Mandatory end-to-end closure checklist**
-
-- [ ] Every operator route and mobile consumer is listed in one machine-checkable contract inventory.
-- [ ] Success, partial, and error response schemas are explicit.
-- [ ] A build/test detects drift between mobile and web-api rather than relying only on a comment.
-- [ ] The chosen solution is proportionate: shared package/workspace, generated schema/client, or deterministic mirror comparison.
-- [ ] Authentication and rate-limit error contracts are included.
-- [ ] Compatibility aliases have owner, purpose, callers, telemetry, and removal condition.
-- [ ] Active mobile versions are checked before alias removal.
-- [ ] `/api/operator/pipeline/run` is removed only after the documented release window and no-call evidence.
-- [ ] Negative contract tests cover stale/unknown fields and unsupported old clients.
-- [ ] Evidence is attached: contract artifact, drift-failure test, active-version/call evidence, and alias-removal PR when eligible.
+- [ ] Maintain one machine-checkable inventory of every operator route and mobile consumer.
+- [ ] Success, partial, authentication, rate-limit, stale-client, and error schemas are explicit.
+- [ ] Build/test detects mobile/server drift through a proportionate shared package, generated client/schema, or deterministic mirror comparison.
+- [ ] Compatibility aliases have owner, callers, telemetry, and removal condition.
+- [ ] Active mobile versions and no-call evidence justify retirement before alias removal.
+- [ ] Negative tests cover unknown fields and unsupported old clients.
 
 ## 7. Required experiment artifact bundle
 
-Every production-style experiment must retain one bundle containing:
+Every production-style experiment must retain one correlated bundle containing:
 
-- exact repository commit, Vercel deployment, EAS build/update, workflow run, pipeline run, and batch IDs;
-- durable upload batch and file rows, source content SHA-256, exact-duplicate canonical/superseded audit, multipart part ledger, source sizes, R2 keys, and final verification;
+- repository commit, Vercel deployment, EAS build/upload, installed-app build identity, workflow run, pipeline run, and batch IDs;
+- durable upload batch/source rows, source-size evidence, SHA-256, exact-duplicate audit, multipart part ledger, R2 keys, final size/hash, retry, abort, and cleanup evidence;
 - frozen expected athlete/action/wave inventory;
-- detector/tracker preflight and sidecars;
-- track fragmentation/identity summary;
-- candidate decision ledger and selection audit;
-- cross-source group/duplicate lineage;
-- framing decisions;
-- source evidence, draft trace, repair trace, and QA trace;
-- athlete coverage and publishable reel manifest/gate result;
+- detector/tracker preflight, sidecars, overlays, and identity/fragmentation summary;
+- candidate ledger, selection audit, cross-source group/duplicate lineage, framing decisions, source evidence, draft/repair/QA traces, coverage, and publishable manifest;
 - ffprobe and visual-quality reports;
 - per-stage runtime, resource, size, transfer, retry, and cost metrics;
-- `pipeline_runs`, live status, reprocess task, delivery run, Discover/payment rows when applicable;
+- durable status, reprocess, delivery, Discover/payment rows when applicable;
 - final videos and written visual review;
 - observed defects and the next result-loop decision.
 
-The experiment is invalid for product-closure claims if required artifacts are missing, stale, or cannot be tied to the same commit/run/batch.
+The experiment is invalid for closure claims if required artifacts are missing, stale, or cannot be tied to the same commit/run/batch.
 
-## 8. Recommended repair order
+## 8. Recommended work order after upload release
 
-1. **GAP-013 + GAP-014 + GAP-015** — implement official multipart resume, durable Android source recovery, and a verified durable batch manifest.
-2. **GAP-023** — deploy the exact current stack and apply/verify all live migrations, including biometric removal and upload-state schema.
-3. **GAP-016** — run a controlled app dispatch and prove one correlated transition through GitHub Actions and Supabase.
-4. **GAP-017 + GAP-018 + GAP-019** — preflight, measure, and tune tracking/identity, cross-source grouping, 4K quality, and runtime on difficult representative footage.
-5. **GAP-020** — execute the frozen production-style experiment and review every artifact/video against the product vision.
-6. **GAP-021** — exercise the QA-blocked re-edit loop to a real terminal verdict if the experiment produces a blocked draft; otherwise run a controlled blocked fixture against real services.
-7. **GAP-022** — prove Review, approval, Delivery, Discover, Stripe fulfillment, and protected access end to end.
-8. **GAP-024** — accumulate reviewed runs and activate durable replay learning only after evaluation evidence exists.
-9. **GAP-025** — automate contract drift detection and retire the legacy route when active-client evidence permits it.
+1. Complete GAP-023's post-merge release evidence and install the generated APK.
+2. Execute the small controlled upload smoke, then the real GAP-013/GAP-014 interruption/restart/storage test.
+3. Prove GAP-015 with exact duplicate and two-to-three-file batch/isolation evidence; add explicit session/athlete grouping metadata.
+4. Prove GAP-016 with one correlated app → API → Actions → Supabase → app transition.
+5. Measure/tune GAP-017, GAP-018, and GAP-019 on difficult representative footage.
+6. Execute GAP-020's frozen production-style experiment and review every video/artifact.
+7. Exercise GAP-021 to a real terminal QA verdict.
+8. Prove GAP-022 end to end through Stripe sandbox and protected delivery.
+9. Build GAP-024's durable replay/evaluation loop from reviewed runs.
+10. Automate GAP-025 contract drift detection and retire legacy routes when client evidence permits.
 
 ## 9. Audit maintenance rule
 
 Every PR that changes upload, storage, batch semantics, dispatch, status, perception, identity, selection, rendering, QA, Review, Delivery, Discover, payment, deployment, database schema, or feedback behavior must update this file in the same PR.
 
-A gap can move to **closed** only when:
+A gap can move to **closed** only when every mandatory item has direct evidence, final-head CI/review passed, relevant production deployment/migration is verified, required real-device/service/footage validation passed, and no contradictory audit remains open without explanation.
 
-- every mandatory checkbox is checked;
-- each checkbox has direct evidence;
-- final-head CI/review passed;
-- the relevant production deployment/migration is verified;
-- required real-device/real-service/real-footage validation passed;
-- no contradictory audit remains open without an explicit explanation.
-
-Do not delete closed gap history. Move it to a dated **Closed gaps** section with the closing PR, commit, evidence links, and any remaining monitoring obligation.
+Do not delete closed history. Move it to a dated **Closed gaps** section with the closing PR, commit, evidence links, and remaining monitoring obligation.

@@ -263,9 +263,11 @@ def test_static_contract() -> None:
     if "order by storage_key" in migration or "order by source_filename" in migration:
         raise SystemExit("canonical duplicate choice must not use a filename or R2 key")
     require("upload init manifest", upload_route, [
-        "createSourceUploadManifests",
-        "sourceSizeBytes: file.sourceSizeBytes",
-        "upload_id: uploadId",
+        "client_upload_id",
+        "createSinglePutSourceManifest",
+        "sourceSizeBytes: file.sourceSizeBytes as number",
+        "upload_id: session.uploadId",
+        "registerSourceUploadBatchMembership",
     ])
     require("verified upload manifest", verify_route, [
         "markSourceUploadVerified",
@@ -296,8 +298,9 @@ def test_static_contract() -> None:
     if "or not batch_id" in bootstrap:
         raise SystemExit("global R2 run must not bypass exact upload dedup")
     require("authoritative audit", audit, [
-        "Two byte-identical verified uploads must resolve to one canonical source.",
-        "exact_content_duplicate",
+        "Exact byte-identical verified sources are reconciled by SHA-256",
+        "Older exact duplicates remain pipeline-ineligible even if R2 deletion fails",
+        "Re-exported/recompressed/perceptually similar files are not auto-deleted",
     ])
 
 

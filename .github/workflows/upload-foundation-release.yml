@@ -1,0 +1,265 @@
+name: Upload Foundation Release
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/upload-foundation-release.yml'
+      - 'mobile/modules/sportreel-source-reader/**'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/lib/multipartUploadClient.ts'
+      - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
+      - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
+      - 'scripts/test_real_r2_multipart_upload.py'
+      - 'scripts/test_real_web_api_r2_signer.cjs'
+      - 'supabase/migrations/20260723_source_upload_exact_dedup.sql'
+      - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
+      - 'supabase/migrations/20260723_single_put_size_evidence.sql'
+      - 'supabase/migrations/20260723_source_upload_local_cleanup_evidence.sql'
+      - 'supabase/migrations/20260723_upload_batch_verified_gate.sql'
+      - 'supabase/migrations/20260723_upload_start_idempotency.sql'
+      - 'web-api/src/app/api/operator/upload/**'
+      - 'web-api/src/app/api/operator/pipeline/start/route.ts'
+      - 'web-api/src/lib/multipart-upload-manifest.ts'
+      - 'web-api/src/lib/source-upload-manifest.ts'
+      - 'web-api/src/lib/upload-batch-manifest.ts'
+      - 'web-api/src/lib/r2-storage.ts'
+  workflow_dispatch:
+    inputs:
+      confirm_release:
+        description: 'Type RELEASE to re-run the live migration, R2 probes, and Android preview build'
+        required: true
+        default: 'DRY_RUN'
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upload-foundation-release
+  cancel-in-progress: false
+
+jobs:
+  migrate-and-verify:
+    name: Apply and verify upload schema
+    if: github.event_name == 'push' || inputs.confirm_release == 'RELEASE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Require live database connection
+        run: |
+          set -euo pipefail
+          test -n "${SUPABASE_DB_URL:-}" || { echo 'Missing GitHub secret SUPABASE_DB_URL.' >&2; exit 1; }
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Apply upload migrations in dependency order
+        run: |
+          set -euo pipefail
+          migrations=(
+            20260723_source_upload_exact_dedup.sql
+            20260723_source_upload_multipart_foundation.sql
+            20260723_single_put_size_evidence.sql
+            20260723_source_upload_local_cleanup_evidence.sql
+            20260723_upload_batch_verified_gate.sql
+            20260723_upload_start_idempotency.sql
+          )
+          for migration in "${migrations[@]}"; do
+            path="supabase/migrations/$migration"
+            test -f "$path"
+            echo "Applying $migration"
+            psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -f "$path"
+          done
+      - name: Verify required tables, columns, and RPCs
+        run: |
+          set -euo pipefail
+          psql "$SUPABASE_DB_URL" -v ON_ERROR_STOP=1 -At <<'SQL' > "$RUNNER_TEMP/upload-schema-evidence.txt"
+          select 'table:source_uploads=' || (to_regclass('public.source_uploads') is not null);
+          select 'table:source_upload_parts=' || (to_regclass('public.source_upload_parts') is not null);
+          select 'table:upload_batches=' || (to_regclass('public.upload_batches') is not null);
+          select 'column:client_upload_id=' || exists (select 1 from information_schema.columns where table_schema='public' and table_name='source_uploads' and column_name='client_upload_id');
+          select 'column:local_cleanup_status=' || exists (select 1 from information_schema.columns where table_schema='public' and table_name='source_uploads' and column_name='local_cleanup_status');
+          select 'column:source_size_evidence=' || exists (select 1 from information_schema.columns where table_schema='public' and table_name='source_uploads' and column_name='source_size_evidence');
+          select 'rpc:record_source_upload_part=' || (to_regprocedure('public.record_source_upload_part(uuid,integer,text,bigint)') is not null);
+          select 'rpc:assert_upload_batch_ready=' || (to_regprocedure('public.assert_upload_batch_ready(text)') is not null);
+          select 'rpc:register_source_upload_batch_membership=' || (to_regprocedure('public.register_source_upload_batch_membership(uuid,text,text)') is not null);
+          SQL
+          cat "$RUNNER_TEMP/upload-schema-evidence.txt"
+          if grep -q '=f$' "$RUNNER_TEMP/upload-schema-evidence.txt"; then
+            echo 'Upload schema verification failed.' >&2
+            exit 1
+          fi
+      - name: Publish migration evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upload-schema-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/upload-schema-evidence.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+  real-r2-probe:
+    name: Verify real R2 multipart behavior
+    needs: migrate-and-verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install probe dependencies
+        run: python -m pip install --disable-pip-version-check boto3 requests
+      - name: Compile the actual Web API R2 signer
+        working-directory: web-api
+        run: |
+          set -euo pipefail
+          npm ci
+          npx tsc src/lib/r2-storage.ts \
+            --target ES2022 \
+            --module commonjs \
+            --moduleResolution node \
+            --esModuleInterop \
+            --skipLibCheck \
+            --rootDir src/lib \
+            --outDir "$RUNNER_TEMP/web-api-r2-signer"
+          test -f "$RUNNER_TEMP/web-api-r2-signer/r2-storage.js"
+      - name: Probe R2 through SportReel Web API signing code
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_STORAGE_MODULE: ${{ runner.temp }}/web-api-r2-signer/r2-storage.js
+          R2_WEB_API_EVIDENCE_PATH: ${{ runner.temp }}/web-api-r2-signer-evidence.json
+        run: node scripts/test_real_web_api_r2_signer.cjs
+      - name: Remove and verify absence of the Web API signer probe object
+        if: always()
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_WEB_API_EVIDENCE_PATH: ${{ runner.temp }}/web-api-r2-signer-evidence.json
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+          import boto3
+          from botocore.config import Config
+          from botocore.exceptions import ClientError
+
+          evidence_path = Path(os.environ['R2_WEB_API_EVIDENCE_PATH'])
+          if not evidence_path.exists():
+              raise RuntimeError('Web API signer evidence file is missing')
+          evidence = json.loads(evidence_path.read_text(encoding='utf-8'))
+          key = str(evidence.get('key') or '').strip()
+          if not key:
+              raise RuntimeError('Web API signer evidence contains no object key')
+          endpoint = os.environ.get('R2_ENDPOINT_URL', '').strip().rstrip('/')
+          if not endpoint:
+              endpoint = f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          client = boto3.client(
+              's3',
+              endpoint_url=endpoint,
+              aws_access_key_id=os.environ['R2_ACCESS_KEY_ID'],
+              aws_secret_access_key=os.environ['R2_SECRET_ACCESS_KEY'],
+              region_name='auto',
+              config=Config(signature_version='s3v4', retries={'max_attempts': 3, 'mode': 'standard'}),
+          )
+          errors = []
+          try:
+              client.delete_object(Bucket=os.environ.get('R2_BUCKET', '').strip() or 'sportreel', Key=key)
+              try:
+                  client.head_object(Bucket=os.environ.get('R2_BUCKET', '').strip() or 'sportreel', Key=key)
+                  errors.append('object still exists after delete')
+              except ClientError as error:
+                  status = error.response.get('ResponseMetadata', {}).get('HTTPStatusCode')
+                  if status != 404:
+                      errors.append(f'post-delete HEAD returned {status}')
+          except Exception as error:
+              errors.append(f'{type(error).__name__}: {error}')
+          evidence['object_cleanup'] = 'confirmed' if not errors else 'failed'
+          evidence['object_cleanup_errors'] = errors
+          evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding='utf-8')
+          if errors:
+              raise RuntimeError('; '.join(errors))
+          PY
+      - name: Publish Web API signer evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-api-r2-signer-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/web-api-r2-signer-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+      - name: Upload, retry, complete, hash-check, and remove independent probe object
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PROBE_SIZE_MIB: '11'
+          R2_PROBE_EVIDENCE_PATH: ${{ runner.temp }}/r2-multipart-evidence.json
+        run: python scripts/test_real_r2_multipart_upload.py
+      - name: Publish independent R2 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: real-r2-multipart-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/r2-multipart-evidence.json
+          if-no-files-found: error
+          retention-days: 30
+
+  build-android-preview:
+    name: Build installable Android preview
+    needs: [migrate-and-verify, real-r2-probe]
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci --legacy-peer-deps
+      - name: Setup EAS from Expo's official GitHub Action
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Build Android preview with the native source reader
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: eas build --platform android --profile preview --non-interactive --local --output /tmp/sportreel-upload-ready.apk
+      - name: Publish install link to Expo
+        working-directory: mobile
+        run: eas upload --platform android --build-path /tmp/sportreel-upload-ready.apk --non-interactive
+      - name: Publish APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sportreel-upload-ready-${{ github.sha }}
+          path: /tmp/sportreel-upload-ready.apk
+          if-no-files-found: error
+          retention-days: 30

@@ -79,6 +79,9 @@ export type UploadFileResult = {
   batch_id: string;
   storage_backend: 'r2' | 'drive';
   storage_key?: string;
+  upload_id?: string;
+  client_upload_id?: string;
+  upload_status?: string;
 };
 
 export type UploadInitResponse = UploadFileResult & {
