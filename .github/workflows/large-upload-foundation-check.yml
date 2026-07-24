@@ -96,36 +96,31 @@ jobs:
       - name: Validate exact-source contract
         id: exact
         if: steps.patch.outputs.apply == 'true'
-        run: |
-          set +e
-          PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py > /tmp/exact-source-contract.log 2>&1
-          status=$?
-          cat /tmp/exact-source-contract.log
-          exit "$status"
-
-      - name: Publish exact-source diagnostics
-        if: always() && steps.patch.outputs.apply == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: exact-source-contract-diagnostics-${{ github.run_id }}
-          path: /tmp/exact-source-contract.log
-          if-no-files-found: warn
-          retention-days: 3
+        run: PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py
 
       - name: Validate batch-scope contract
         if: steps.patch.outputs.apply == 'true' && steps.exact.outcome == 'success'
         run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
 
-      - name: Commit fixes and remove one-shot machinery
+      - name: Commit product and regression-test fixes
         if: steps.patch.outputs.apply == 'true' && steps.exact.outcome == 'success'
         run: |
           set -euo pipefail
-          rm scripts/apply_final_upload_review_fixes.py
-          rm scripts/fix_final_upload_patch_type_errors.py
-          rm .github/workflows/apply-final-upload-review-fixes.yml
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add .
+          git add \
+            web-api/src/lib/r2-storage.ts \
+            web-api/src/lib/source-upload-manifest.ts \
+            web-api/src/lib/ratelimit.ts \
+            web-api/src/app/api/operator/upload/route.ts \
+            web-api/src/app/api/operator/upload/multipart/part-url/route.ts \
+            web-api/src/types/operator-contracts.ts \
+            mobile/src/app/'(operator)'/pipeline.tsx \
+            mobile/src/features/operator/types/contracts.ts \
+            scripts/test_batch_scope_contract.py \
+            scripts/test_exact_source_upload_dedup_contract.py \
+            scripts/test_upload_batch_verified_gate_contract.py \
+            scripts/test_large_upload_foundation_contract.py
           git diff --cached --check
           git commit -m 'fix: close final large-upload review findings'
           git push origin HEAD:${{ github.event.pull_request.head.ref }}
