@@ -5,12 +5,14 @@ on:
     paths:
       - '.github/workflows/large-upload-foundation-check.yml'
       - '.github/workflows/upload-foundation-release.yml'
+      - '.github/workflows/apply-final-upload-review-fixes.yml'
       - 'docs/audit/drone-large-upload-experiment-entry-plan-20260723.md'
       - 'mobile/modules/sportreel-source-reader/**'
       - 'mobile/src/app/(operator)/pipeline.tsx'
       - 'mobile/src/features/operator/lib/multipartUploadClient.ts'
       - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
+      - 'scripts/apply_final_upload_review_fixes.py'
       - 'scripts/test_large_upload_foundation_contract.py'
       - 'scripts/test_upload_batch_verified_gate_contract.py'
       - 'scripts/test_upload_foundation_release_contract.py'
@@ -29,9 +31,76 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
+  apply-final-review-fixes:
+    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          fetch-depth: 0
+
+      - name: Detect one-shot patch
+        id: patch
+        run: |
+          if [ -f scripts/apply_final_upload_review_fixes.py ]; then
+            echo 'apply=true' >> "$GITHUB_OUTPUT"
+          else
+            echo 'apply=false' >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-python@v5
+        if: steps.patch.outputs.apply == 'true'
+        with:
+          python-version: '3.11'
+
+      - name: Apply deterministic P1 fixes
+        if: steps.patch.outputs.apply == 'true'
+        run: python scripts/apply_final_upload_review_fixes.py
+
+      - uses: actions/setup-node@v4
+        if: steps.patch.outputs.apply == 'true'
+        with:
+          node-version: '20'
+
+      - name: Validate Web API
+        if: steps.patch.outputs.apply == 'true'
+        working-directory: web-api
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Validate mobile
+        if: steps.patch.outputs.apply == 'true'
+        working-directory: mobile
+        run: |
+          npm ci
+          npm run type-check
+
+      - name: Validate focused contracts
+        if: steps.patch.outputs.apply == 'true'
+        run: |
+          python scripts/test_large_upload_foundation_contract.py
+          python scripts/test_upload_batch_verified_gate_contract.py
+          python scripts/test_exact_source_upload_dedup_contract.py
+          PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
+
+      - name: Commit fixes and remove one-shot machinery
+        if: steps.patch.outputs.apply == 'true'
+        run: |
+          set -euo pipefail
+          rm scripts/apply_final_upload_review_fixes.py
+          rm .github/workflows/apply-final-upload-review-fixes.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add .
+          git diff --cached --check
+          git commit -m 'fix: close final large-upload review findings'
+          git push origin HEAD:${{ github.event.pull_request.head.ref }}
+
   validate:
     runs-on: ubuntu-latest
     steps:
