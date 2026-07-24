@@ -41,6 +41,10 @@ export function assignSharedUploadBatchId<T extends BatchScopedUpload>(
   return batchId;
 }
 
+function isBatchScopedUpload(value: unknown): value is BatchScopedUpload {
+  return typeof value === 'object' && value !== null && 'batch_id' in value;
+}
+
 /**
  * Runs `task` up to `maxAttempts` times, waiting `backoffMs[attempt - 1]` (or the
  * last configured backoff, once exhausted) between attempts. `onAttempt` fires
@@ -76,6 +80,10 @@ export async function runQueue<T>(
   worker: (item: T, index: number) => Promise<void>,
   concurrencyLimit: number
 ): Promise<PromiseSettledResult<void>[]> {
+  if (items.length > 0 && items.every(isBatchScopedUpload)) {
+    assignSharedUploadBatchId(items);
+  }
+
   const results: PromiseSettledResult<void>[] = new Array(items.length);
   let nextIndex = 0;
   const workerCount = Math.min(Math.max(concurrencyLimit, 1), items.length);
