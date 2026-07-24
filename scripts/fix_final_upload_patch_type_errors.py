@@ -35,8 +35,16 @@ replacements = [
         'Supabase row cast',
     ),
     (
-        '"sourceSizeBytes: file.sourceSizeBytes",',
-        '"sourceSizeBytes: file.sourceSizeBytes as number",',
+        """        \"client_upload_id\",
+        \"createSinglePutSourceManifest\",
+        \"sourceSizeBytes: file.sourceSizeBytes\",
+        \"upload_id: session.uploadId\",
+""",
+        """        \"client_upload_id\",
+        \"createSinglePutSourceManifest\",
+        \"sourceSizeBytes: file.sourceSizeBytes as number\",
+        \"upload_id: session.uploadId\",
+""",
         'exact-source narrowed size contract',
     ),
 ]
