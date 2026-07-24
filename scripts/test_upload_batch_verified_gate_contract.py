@@ -171,11 +171,12 @@ def main() -> int:
         single_start,
         [
             "resolveUploadBatchId",
-            "createSourceUploadManifests",
-            "registerUploadBatch",
-            "additionalFileCount: files.length",
-            "sourceKind: 'gallery'",
-            "removeSourceUploadsAfterSetupFailure",
+            "client_upload_id",
+            "findSourceUploadByClientUploadId",
+            "createSinglePutSourceManifest",
+            "registerSourceUploadBatchMembership",
+            "createR2UploadUrlForKey(session.storageKey)",
+            "upload_status: session.status",
         ],
     )
 

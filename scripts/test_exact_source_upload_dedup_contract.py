@@ -263,9 +263,11 @@ def test_static_contract() -> None:
     if "order by storage_key" in migration or "order by source_filename" in migration:
         raise SystemExit("canonical duplicate choice must not use a filename or R2 key")
     require("upload init manifest", upload_route, [
-        "createSourceUploadManifests",
-        "sourceSizeBytes: file.sourceSizeBytes",
-        "upload_id: uploadId",
+        "client_upload_id",
+        "createSinglePutSourceManifest",
+        "sourceSizeBytes: file.sourceSizeBytes as number",
+        "upload_id: session.uploadId",
+        "registerSourceUploadBatchMembership",
     ])
     require("verified upload manifest", verify_route, [
         "markSourceUploadVerified",

@@ -58,11 +58,21 @@ function signingKey(dateStamp: string) {
   return hmac(kService, 'aws4_request');
 }
 
+function compareSigV4Encoded(left: string, right: string): number {
+  if (left < right) return -1;
+  if (left > right) return 1;
+  return 0;
+}
+
 function canonicalQuery(params: URLSearchParams): string {
-  return [...params.entries()].sort(([a, aValue], [b, bValue]) => {
-    const keyOrder = a.localeCompare(b);
-    return keyOrder || aValue.localeCompare(bValue);
-  }).map(([k, v]) => `${encode(k)}=${encode(v)}`).join('&');
+  return [...params.entries()]
+    .map(([name, value]) => [encode(name), encode(value)] as const)
+    .sort(([leftName, leftValue], [rightName, rightValue]) => (
+      compareSigV4Encoded(leftName, rightName)
+      || compareSigV4Encoded(leftValue, rightValue)
+    ))
+    .map(([name, value]) => `${name}=${value}`)
+    .join('&');
 }
 
 function presign(
@@ -104,6 +114,11 @@ export function createR2UploadTarget(
 export function createR2UploadUrl(filename: string, requestedBatchId?: string | null): { uploadUrl: string; key: string; filename: string; batch_id: string } {
   const target = createR2UploadTarget(filename, requestedBatchId);
   return { uploadUrl: presign('PUT', target.key), ...target };
+}
+
+export function createR2UploadUrlForKey(key: string): string {
+  if (!key.startsWith('raw/')) throw new Error('Single-PUT upload URLs are limited to raw/ keys');
+  return presign('PUT', key);
 }
 
 export function createR2MultipartPartUploadUrl(

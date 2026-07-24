@@ -1,15 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
-import { createR2MultipartPartUploadUrl } from '@/lib/r2-storage';
+import {
+  createR2MultipartPartUploadUrl,
+  R2_MAX_MULTIPART_PARTS,
+} from '@/lib/r2-storage';
 import { getMultipartSession } from '@/lib/multipart-upload-manifest';
 import { SourceUploadManifestError } from '@/lib/source-upload-manifest';
 
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-
-  const limited = await enforceRateLimit(req, 'operator-multipart-part-url', 600, 3600);
-  if (limited) return limited;
 
   let body: { upload_id?: string; part_number?: number };
   try {
@@ -27,6 +27,15 @@ export async function POST(req: NextRequest) {
 
   try {
     const session = await getMultipartSession(uploadId);
+    const limited = await enforceRateLimit(
+      req,
+      'operator-multipart-part-url',
+      R2_MAX_MULTIPART_PARTS * 2,
+      3600,
+      uploadId,
+    );
+    if (limited) return limited;
+
     if (!['uploading', 'paused'].includes(session.status)) {
       return NextResponse.json({
         error: `Multipart part URL is unavailable while upload is ${session.status}`,

@@ -90,6 +90,9 @@ def test_r2_multipart_protocol() -> None:
             "Duplicate multipart part number",
             "<CompleteMultipartUpload>",
             "x-amz-content-sha256",
+            "compareSigV4Encoded",
+            ".map(([name, value]) => [encode(name), encode(value)] as const)",
+            "createR2UploadUrlForKey",
         ],
         "R2 multipart implementation",
     )
@@ -98,6 +101,7 @@ def test_r2_multipart_protocol() -> None:
         [
             "multipartEtag === sourceMd5",
             "multipart_etag_is_source_md5: true",
+            "localeCompare",
         ],
         "R2 checksum policy",
     )
@@ -135,7 +139,7 @@ def test_api_requires_durable_completion_and_cleanup() -> None:
         ],
         "durable multipart start recovery",
     )
-    require(part_url, ["getMultipartSession", "createR2MultipartPartUploadUrl", "size_bytes"], "part URL endpoint")
+    require(part_url, ["getMultipartSession", "createR2MultipartPartUploadUrl", "R2_MAX_MULTIPART_PARTS * 2", "uploadId", "size_bytes"], "part URL endpoint")
     require(record_part, ["The exact R2 ETag is required", "recordMultipartPart"], "part record endpoint")
     require(
         complete,

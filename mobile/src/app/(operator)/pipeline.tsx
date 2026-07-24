@@ -51,6 +51,8 @@ type UploadSession = OperatorUploadInitResponse & {
   mimeType?: string | null;
   storage_key?: string;
   storage_backend?: string;
+  client_upload_id?: string;
+  upload_status?: string;
 };
 
 type UploadInit = UploadSession & {
@@ -67,6 +69,7 @@ type UploadFileState = {
   filename: string;
   mimeType: string;
   sourceSizeBytes?: number;
+  clientUploadId?: string;
   progress: number;
   status: UploadItemStatus;
   batch_id?: string | null;
@@ -301,6 +304,16 @@ export default function PipelineScreen() {
   };
 
   const uploadAssetToSession = async (item: UploadFileState, session: UploadSession) => {
+    if (session.upload_status === 'verified') {
+      item.batch_id = session.batch_id;
+      updateUploadItem(item.id, {
+        status: 'verified',
+        progress: 100,
+        batch_id: session.batch_id,
+        error: null,
+      });
+      return;
+    }
     if (!session.uploadUrl) throw new Error(`Missing upload URL for ${item.filename}`);
 
     updateUploadItem(item.id, {
@@ -348,6 +361,10 @@ export default function PipelineScreen() {
   // Fetched immediately before each upload attempt (never reused across a long
   // queue wait) so a signed URL can't expire before it's used.
   const requestUploadSession = async (item: UploadFileState): Promise<UploadSession> => {
+    const clientUploadId = item.clientUploadId
+      ?? `gallery_${Date.now()}_${Math.random().toString(36).slice(2, 12)}`;
+    item.clientUploadId = clientUploadId;
+
     let sourceSizeBytes = item.sourceSizeBytes;
     if (!Number.isSafeInteger(sourceSizeBytes) || Number(sourceSizeBytes) <= 0) {
       const info = await FileSystem.getInfoAsync(item.uri, { size: true });
@@ -364,6 +381,7 @@ export default function PipelineScreen() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          client_upload_id: clientUploadId,
           filename: item.filename,
           mimeType: item.mimeType,
           size: sourceSizeBytes,
@@ -510,6 +528,7 @@ export default function PipelineScreen() {
         filename,
         mimeType: selectedAssetMimeType(asset),
         sourceSizeBytes: asset.fileSize ?? undefined,
+        clientUploadId: `gallery_${Date.now()}_${index}_${Math.random().toString(36).slice(2, 12)}`,
         progress: 0,
         status: 'queued',
         batch_id: activeBatchId,
