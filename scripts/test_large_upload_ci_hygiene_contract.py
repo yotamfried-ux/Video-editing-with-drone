@@ -22,8 +22,10 @@ def main() -> int:
         "python scripts/test_large_upload_foundation_contract.py",
         "python scripts/test_upload_batch_verified_gate_contract.py",
         "python scripts/test_upload_foundation_release_contract.py",
+        "python scripts/test_multi_upload_batch_contract.py",
         "python scripts/test_exact_source_upload_dedup_contract.py",
         "python scripts/test_batch_scope_contract.py",
+        "npm test -- --runInBand src/features/operator/lib/uploadQueue.test.ts",
         "expo-modules-autolinking resolve --platform android",
         "./gradlew :app:compileDebugKotlin --no-daemon --stacktrace",
     ]
