@@ -1,4 +1,41 @@
-import { runQueue, withRetry } from './uploadQueue';
+import {
+  assignSharedUploadBatchId,
+  createClientBatchId,
+  runQueue,
+  withRetry,
+} from './uploadQueue';
+
+describe('upload batch identity', () => {
+  it('creates a safe stable client batch ID', () => {
+    expect(createClientBatchId(new Date('2026-07-24T12:34:56.000Z'), 0.25)).toMatch(
+      /^batch_2026-07-24T12-34-56_[a-z0-9]+$/
+    );
+  });
+
+  it('assigns one generated batch to every item before upload starts', () => {
+    const items = [{ batch_id: null }, { batch_id: undefined }, { batch_id: null }];
+
+    const batchId = assignSharedUploadBatchId(items, null, () => 'batch_shared_test');
+
+    expect(batchId).toBe('batch_shared_test');
+    expect(items.map((item) => item.batch_id)).toEqual([
+      'batch_shared_test',
+      'batch_shared_test',
+      'batch_shared_test',
+    ]);
+  });
+
+  it('preserves an existing durable batch and rejects conflicting batches', () => {
+    const items = [{ batch_id: 'batch_existing' }, { batch_id: null }];
+    expect(assignSharedUploadBatchId(items)).toBe('batch_existing');
+    expect(items[1].batch_id).toBe('batch_existing');
+
+    expect(() => assignSharedUploadBatchId([
+      { batch_id: 'batch_a' },
+      { batch_id: 'batch_b' },
+    ])).toThrow('Selected uploads span multiple durable batches');
+  });
+});
 
 describe('withRetry', () => {
   it('returns the result on first success without waiting', async () => {
@@ -41,13 +78,12 @@ describe('withRetry', () => {
     await expect(withRetry(task, { maxAttempts: 3, backoffMs: [2000, 5000], wait })).rejects.toBe(error3);
 
     expect(task).toHaveBeenCalledTimes(3);
-    // No wait after the final (exhausted) attempt.
     expect(wait).toHaveBeenCalledTimes(2);
     expect(wait).toHaveBeenNthCalledWith(1, 2000);
     expect(wait).toHaveBeenNthCalledWith(2, 5000);
   });
 
-  it('calls onAttempt before every attempt, including the first — this is the hook the app uses to fetch a fresh signed URL right before each try', async () => {
+  it('calls onAttempt before every attempt, including the first', async () => {
     const wait = jest.fn().mockResolvedValue(undefined);
     const onAttempt = jest.fn();
     const task = jest
@@ -60,7 +96,7 @@ describe('withRetry', () => {
     expect(onAttempt.mock.calls.map((call) => call[0])).toEqual([1, 2]);
   });
 
-  it('reuses the last backoff value once the backoff list is shorter than maxAttempts - 1', async () => {
+  it('reuses the last backoff value once the backoff list is exhausted', async () => {
     const wait = jest.fn().mockResolvedValue(undefined);
     const task = jest.fn().mockRejectedValue(new Error('always fails'));
 
@@ -74,6 +110,35 @@ describe('withRetry', () => {
 });
 
 describe('runQueue', () => {
+  it('assigns one batch before concurrent workers inspect their items', async () => {
+    const items = [
+      { id: 1, batch_id: null as string | null },
+      { id: 2, batch_id: null as string | null },
+      { id: 3, batch_id: null as string | null },
+    ];
+    const seenBatchIds: Array<string | null> = [];
+
+    const results = await runQueue(items, async (item) => {
+      seenBatchIds.push(item.batch_id);
+    }, 3);
+
+    expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
+    expect(new Set(seenBatchIds).size).toBe(1);
+    expect(seenBatchIds[0]).toMatch(/^batch_/);
+    expect(items.every((item) => item.batch_id === seenBatchIds[0])).toBe(true);
+  });
+
+  it('fails closed before workers run when selected items conflict on batch identity', async () => {
+    const worker = jest.fn();
+
+    await expect(runQueue([
+      { batch_id: 'batch_a' },
+      { batch_id: 'batch_b' },
+    ], worker, 2)).rejects.toThrow('Selected uploads span multiple durable batches');
+
+    expect(worker).not.toHaveBeenCalled();
+  });
+
   it('settles every item independently so one failure does not stop the rest of the batch', async () => {
     const items = [1, 2, 3, 4, 5];
     const worker = jest.fn(async (item: number) => {
@@ -93,57 +158,6 @@ describe('runQueue', () => {
     expect((results[2] as PromiseRejectedResult).reason.message).toBe('item 3 failed');
   });
 
-  it('primes one successful item before starting later items concurrently', async () => {
-    const items = [0, 1, 2, 3];
-    let releaseFirst!: () => void;
-    const firstDone = new Promise<void>((resolve) => {
-      releaseFirst = resolve;
-    });
-    const started: number[] = [];
-
-    const queuePromise = runQueue(
-      items,
-      async (item) => {
-        started.push(item);
-        if (item === 0) await firstDone;
-      },
-      3
-    );
-
-    await Promise.resolve();
-    expect(started).toEqual([0]);
-    releaseFirst();
-    await queuePromise;
-    expect(started[0]).toBe(0);
-    expect(started.slice(1).sort()).toEqual([1, 2, 3]);
-  });
-
-  it('keeps priming serially after failures until one item succeeds', async () => {
-    const started: number[] = [];
-    let inFlight = 0;
-    let maxBeforeSuccess = 0;
-
-    const results = await runQueue(
-      [0, 1, 2, 3],
-      async (item) => {
-        started.push(item);
-        inFlight += 1;
-        if (item < 2) maxBeforeSuccess = Math.max(maxBeforeSuccess, inFlight);
-        try {
-          if (item < 2) throw new Error(`item ${item} failed before batch setup`);
-          await new Promise((resolve) => setTimeout(resolve, 1));
-        } finally {
-          inFlight -= 1;
-        }
-      },
-      3
-    );
-
-    expect(started.slice(0, 3)).toEqual([0, 1, 2]);
-    expect(maxBeforeSuccess).toBe(1);
-    expect(results.map((r) => r.status)).toEqual(['rejected', 'rejected', 'fulfilled', 'fulfilled']);
-  });
-
   it('never runs more than concurrencyLimit workers at once', async () => {
     const items = Array.from({ length: 6 }, (_, i) => i);
     let inFlight = 0;
@@ -161,7 +175,7 @@ describe('runQueue', () => {
     expect(maxInFlight).toBeLessThanOrEqual(2);
   });
 
-  it('processes SD/USB-style single-file-at-a-time batches (concurrencyLimit 1) strictly in order', async () => {
+  it('processes SD/USB-style single-file-at-a-time batches strictly in order', async () => {
     const items = ['a', 'b', 'c'];
     const order: string[] = [];
 
@@ -177,7 +191,7 @@ describe('runQueue', () => {
     expect(order).toEqual(['a', 'b', 'c']);
   });
 
-  it('supports retrying only the previously-failed subset — the "Retry all failed" flow', async () => {
+  it('supports retrying only the previously-failed subset', async () => {
     const items = ['ok1', 'bad1', 'ok2', 'bad2'];
     let failFirstPass = true;
 
