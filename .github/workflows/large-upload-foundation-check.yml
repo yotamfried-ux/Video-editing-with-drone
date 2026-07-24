@@ -85,13 +85,21 @@ jobs:
           npm ci
           npm run type-check
 
-      - name: Validate focused contracts
+      - name: Validate large-upload contract
         if: steps.patch.outputs.apply == 'true'
-        run: |
-          python scripts/test_large_upload_foundation_contract.py
-          python scripts/test_upload_batch_verified_gate_contract.py
-          python scripts/test_exact_source_upload_dedup_contract.py
-          PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
+        run: python scripts/test_large_upload_foundation_contract.py
+
+      - name: Validate verified-batch contract
+        if: steps.patch.outputs.apply == 'true'
+        run: python scripts/test_upload_batch_verified_gate_contract.py
+
+      - name: Validate exact-source contract
+        if: steps.patch.outputs.apply == 'true'
+        run: python scripts/test_exact_source_upload_dedup_contract.py
+
+      - name: Validate batch-scope contract
+        if: steps.patch.outputs.apply == 'true'
+        run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
 
       - name: Commit fixes and remove one-shot machinery
         if: steps.patch.outputs.apply == 'true'
