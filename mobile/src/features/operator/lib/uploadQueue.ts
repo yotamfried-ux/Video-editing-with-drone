@@ -36,6 +36,12 @@ export async function withRetry<T>(task: () => Promise<T>, options: RetryOptions
  * Runs `worker` over `items` with at most `concurrencyLimit` in flight at once.
  * Each item's success/failure is isolated (PromiseSettledResult) so one
  * failure doesn't stop the rest of the queue from being processed.
+ *
+ * For concurrent upload batches, items are primed serially until one succeeds.
+ * This gives the first durable upload session time to establish the shared
+ * server-side batch before later files initialize in parallel, preventing a
+ * no-batch initialization race from splitting one user selection into several
+ * durable batches.
  */
 export async function runQueue<T>(
   items: T[],
@@ -44,20 +50,37 @@ export async function runQueue<T>(
 ): Promise<PromiseSettledResult<void>[]> {
   const results: PromiseSettledResult<void>[] = new Array(items.length);
   let nextIndex = 0;
-  const workerCount = Math.min(Math.max(concurrencyLimit, 1), items.length);
+
+  const processItem = async (index: number): Promise<boolean> => {
+    const item = items[index];
+    if (item === undefined) return false;
+    try {
+      await worker(item, index);
+      results[index] = { status: 'fulfilled', value: undefined };
+      return true;
+    } catch (reason) {
+      results[index] = { status: 'rejected', reason };
+      return false;
+    }
+  };
+
+  const normalizedLimit = Math.max(concurrencyLimit, 1);
+  if (normalizedLimit > 1) {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      if (await processItem(index)) break;
+    }
+  }
+
+  const remaining = items.length - nextIndex;
+  const workerCount = Math.min(normalizedLimit, Math.max(remaining, 0));
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
       while (nextIndex < items.length) {
         const index = nextIndex;
         nextIndex += 1;
-        const item = items[index];
-        if (item === undefined) continue;
-        try {
-          await worker(item, index);
-          results[index] = { status: 'fulfilled', value: undefined };
-        } catch (reason) {
-          results[index] = { status: 'rejected', reason };
-        }
+        await processItem(index);
       }
     })
   );
