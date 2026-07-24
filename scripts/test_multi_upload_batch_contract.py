@@ -110,15 +110,16 @@ def main() -> int:
             "createClientBatchId",
             "assignSharedUploadBatchId",
             "Selected uploads span multiple durable batches",
-            "items.length > 0 && items.every(isBatchScopedUpload)",
-            "assignSharedUploadBatchId(items);",
+            "const batchScopedItems = items.filter(isBatchScopedUpload)",
+            "batchScopedItems.length === items.length",
+            "assignSharedUploadBatchId(batchScopedItems);",
             "const workerCount = Math.min(Math.max(concurrencyLimit, 1), items.length)",
         ],
     )
     require_order(
         "shared batch assignment happens before concurrent workers",
         upload_queue,
-        "assignSharedUploadBatchId(items);",
+        "assignSharedUploadBatchId(batchScopedItems);",
         "await Promise.all(",
     )
 
