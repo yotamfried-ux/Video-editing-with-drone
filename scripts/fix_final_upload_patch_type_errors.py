@@ -34,6 +34,11 @@ replacements = [
         "sourceUploadSession(data as unknown as SourceUploadRow)",
         'Supabase row cast',
     ),
+    (
+        '"sourceSizeBytes: file.sourceSizeBytes",',
+        '"sourceSizeBytes: file.sourceSizeBytes as number",',
+        'exact-source narrowed size contract',
+    ),
 ]
 
 for old, new, label in replacements:
