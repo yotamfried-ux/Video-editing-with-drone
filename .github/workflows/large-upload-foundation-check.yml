@@ -94,15 +94,30 @@ jobs:
         run: python scripts/test_upload_batch_verified_gate_contract.py
 
       - name: Validate exact-source contract
+        id: exact
         if: steps.patch.outputs.apply == 'true'
-        run: python scripts/test_exact_source_upload_dedup_contract.py
+        run: |
+          set +e
+          python scripts/test_exact_source_upload_dedup_contract.py > /tmp/exact-source-contract.log 2>&1
+          status=$?
+          cat /tmp/exact-source-contract.log
+          exit "$status"
+
+      - name: Publish exact-source diagnostics
+        if: always() && steps.patch.outputs.apply == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: exact-source-contract-diagnostics-${{ github.run_id }}
+          path: /tmp/exact-source-contract.log
+          if-no-files-found: warn
+          retention-days: 3
 
       - name: Validate batch-scope contract
-        if: steps.patch.outputs.apply == 'true'
+        if: steps.patch.outputs.apply == 'true' && steps.exact.outcome == 'success'
         run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
 
       - name: Commit fixes and remove one-shot machinery
-        if: steps.patch.outputs.apply == 'true'
+        if: steps.patch.outputs.apply == 'true' && steps.exact.outcome == 'success'
         run: |
           set -euo pipefail
           rm scripts/apply_final_upload_review_fixes.py
