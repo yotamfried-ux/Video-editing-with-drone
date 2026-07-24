@@ -18,7 +18,7 @@ def main() -> int:
     required = [
         "permissions:\n  contents: read",
         "github.event.pull_request.head.sha",
-        'git diff --check "$BASE_SHA"...HEAD',
+        'git diff --check "$BASE_SHA"...HEAD -- . \' :(exclude)*.md\''.replace("' :", "':"),
         "python scripts/test_large_upload_foundation_contract.py",
         "python scripts/test_upload_batch_verified_gate_contract.py",
         "python scripts/test_upload_foundation_release_contract.py",
