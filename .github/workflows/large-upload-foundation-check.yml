@@ -98,7 +98,7 @@ jobs:
         if: steps.patch.outputs.apply == 'true'
         run: |
           set +e
-          python scripts/test_exact_source_upload_dedup_contract.py > /tmp/exact-source-contract.log 2>&1
+          PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py > /tmp/exact-source-contract.log 2>&1
           status=$?
           cat /tmp/exact-source-contract.log
           exit "$status"
