@@ -1,9 +1,11 @@
 import { useState } from 'react';
 import { apiFetch } from '@/shared/lib/api';
 import { useAuthStore } from '@/shared/hooks/useAuth';
+import { getOrCreateCheckoutSessionId } from '@/features/payment/downloadTokenStore';
 
-interface StripeCheckout {
+export interface StripeCheckout {
   clientSecret: string;
+  payment_intent_id: string;
   amount_ils: number;
   download_token: string;
 }
@@ -27,12 +29,17 @@ export function useCheckout(reelId: string) {
       if (!payerEmail) {
         throw new Error('Sign in with an email address before paying by card.');
       }
+      const checkoutSessionId = await getOrCreateCheckoutSessionId(reelId);
       return await apiFetch<StripeCheckout>('/api/checkout/stripe', {
         method: 'POST',
-        body: JSON.stringify({ reel_id: reelId, email: payerEmail }),
+        body: JSON.stringify({
+          reel_id: reelId,
+          email: payerEmail,
+          checkout_session_id: checkoutSessionId,
+        }),
       });
-    } catch (e: any) {
-      setError(e.message);
+    } catch (checkoutError) {
+      setError(checkoutError instanceof Error ? checkoutError.message : 'Checkout failed');
       return null;
     } finally {
       setLoading(false);
@@ -47,13 +54,19 @@ export function useCheckout(reelId: string) {
         method: 'POST',
         body: JSON.stringify({ reel_id: reelId }),
       });
-    } catch (e: any) {
-      setError(e.message);
+    } catch (checkoutError) {
+      setError(checkoutError instanceof Error ? checkoutError.message : 'Checkout failed');
       return null;
     } finally {
       setLoading(false);
     }
   };
 
-  return { createStripeCheckout, createMeshulamCheckout, loading, error };
+  return {
+    createStripeCheckout,
+    createMeshulamCheckout,
+    payerEmail,
+    loading,
+    error,
+  };
 }

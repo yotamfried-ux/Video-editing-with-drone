@@ -41,7 +41,6 @@ create table if not exists public.athlete_profiles (
 
 alter table public.athlete_profiles enable row level security;
 
--- Athletes read and update only their own non-biometric profile row.
 drop policy if exists "athletes_read_own_profile" on public.athlete_profiles;
 create policy "athletes_read_own_profile" on public.athlete_profiles
   for select using (user_id = auth.uid());
@@ -50,7 +49,6 @@ drop policy if exists "athletes_update_own_profile" on public.athlete_profiles;
 create policy "athletes_update_own_profile" on public.athlete_profiles
   for update using (user_id = auth.uid());
 
--- Trigger: create a profile row the moment a user signs up.
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
@@ -72,11 +70,13 @@ create trigger on_auth_user_created
 create table if not exists public.payments (
   id                        uuid primary key default gen_random_uuid(),
   reel_id                   uuid references public.reels on delete set null,
-  amount_ils                numeric(10,2),
+  amount_ils                numeric(10,2), -- Stripe minor units (agorot)
   status                    text default 'pending',   -- pending | completed | failed
   stripe_payment_intent_id  text unique,
   meshulam_transaction_id   text unique,
-  download_token            text unique,
+  download_token            text unique not null default gen_random_uuid()::text,
+  receipt_email_sent_at     timestamptz,
+  receipt_email_claimed_at  timestamptz,
   paid_at                   timestamptz,
   created_at                timestamptz default now()
 );
@@ -89,7 +89,7 @@ alter table public.payments enable row level security;
 -- ─────────────────────────────────────────────
 create table if not exists public.pricing (
   sport       text primary key,
-  price_ils   numeric(10,2) not null,
+  price_ils   numeric(10,2) not null, -- human-readable major ILS units
   updated_at  timestamptz default now()
 );
 
@@ -99,7 +99,6 @@ drop policy if exists "public_read_pricing" on public.pricing;
 create policy "public_read_pricing" on public.pricing
   for select using (true);
 
--- Seed default prices (no-op if rows already exist).
 insert into public.pricing (sport, price_ils) values
   ('surfing',        79),
   ('swimming',       79),
@@ -120,14 +119,17 @@ on conflict (sport) do nothing;
 -- ─────────────────────────────────────────────
 create table if not exists public.analytics_events (
   id              uuid primary key default gen_random_uuid(),
-  event_type      text not null,   -- reel_published | payment_completed | reel_viewed | etc.
+  event_type      text not null,
   reel_id         uuid,
   payment_id      uuid,
   sport           text,
   recording_date  date,
-  revenue_ils     numeric(10,2),
+  revenue_ils     numeric(10,2), -- major ILS units for reporting
   created_at      timestamptz default now()
 );
+
+create unique index if not exists analytics_payment_event_uidx
+  on public.analytics_events (payment_id, event_type);
 
 alter table public.analytics_events enable row level security;
 -- Service role only.
@@ -158,7 +160,7 @@ create table if not exists public.support_tickets (
   user_id         uuid references auth.users on delete set null,
   message         text not null,
   operator_reply  text,
-  status          text default 'open',  -- open | replied | closed
+  status          text default 'open',
   replied_at      timestamptz,
   created_at      timestamptz default now()
 );
