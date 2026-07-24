@@ -95,7 +95,7 @@ describe('runQueue', () => {
 
   it('primes one successful item before starting later items concurrently', async () => {
     const items = [0, 1, 2, 3];
-    let releaseFirst: (() => void) | null = null;
+    let releaseFirst!: () => void;
     const firstDone = new Promise<void>((resolve) => {
       releaseFirst = resolve;
     });
@@ -112,7 +112,7 @@ describe('runQueue', () => {
 
     await Promise.resolve();
     expect(started).toEqual([0]);
-    releaseFirst?.();
+    releaseFirst();
     await queuePromise;
     expect(started[0]).toBe(0);
     expect(started.slice(1).sort()).toEqual([1, 2, 3]);
