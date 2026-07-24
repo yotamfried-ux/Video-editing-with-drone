@@ -1,11 +1,11 @@
 # SportReel operational-readiness audit
 
-Date: 2026-07-23  
+Date: 2026-07-24  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Validated baseline: `main` at `f0ce8d742110a2101dd86fa37a07d54409b01bc2` (merged PR #195), plus the upload implementation under review in PR #196.  
+Validated baseline: `main` at `9a686ee1d1a13d658d20123d455bc39674c11ce0` (merged PR #196).  
 Status: **open — the safe large-upload foundation is implemented, but live release/device evidence and the broader product gaps remain open**
 
-This file is the authoritative, consolidated readiness audit for the operator app, R2 upload path, GitHub Actions pipeline, Supabase state, perception/tracking, 4K rendering, QA, Review, Delivery, Discover, payments, and the real-footage evidence required by the product vision.
+This file is the authoritative, consolidated readiness audit for the operator app, R2 upload path, GitHub Actions pipeline, Supabase state, perception/tracking, 4K rendering, QA, Review, Delivery, Discover, payments, ground-truth evaluation, and the real-footage evidence required by the product vision.
 
 Historical implementation details remain in focused files under `docs/audit/` and in Git history. When a focused audit conflicts with this file about whether a gap is still open, this file controls until both are reconciled in the same PR.
 
@@ -23,7 +23,7 @@ Three readiness levels are used:
 2. **Experiment entry ready** — the exact deployed API/database/storage/mobile stack can safely execute the next evidence-producing experiment.
 3. **Product gap closed** — the mandatory end-to-end checklist passed with real services, an installed Android build where applicable, real footage, preserved artifacts, and visual review.
 
-Green CI alone never closes a mobile-storage, external-service, footage-quality, identity, delivery, or payment gap.
+Green CI alone never closes a mobile-storage, external-service, footage-quality, identity, delivery, payment, or ground-truth gap.
 
 ## 2. Evidence rules
 
@@ -35,9 +35,9 @@ Acceptable evidence includes:
 - EAS build/upload ID and the exact APK installed on the tested Android device;
 - Supabase migration output plus read-only schema/data verification;
 - R2 key, multipart upload metadata, exact part ledger, `HEAD` result, hash, size, retry, abort, and deletion evidence;
-- durable `source_uploads`, `upload_batches`, `pipeline_runs`, `delivery_runs`, QA, feedback, or purchase row identifiers without secrets;
+- durable `source_uploads`, `upload_batches`, `pipeline_runs`, `delivery_runs`, QA, feedback, evaluation, or purchase row identifiers without secrets;
 - Android physical-test record including storage before/after, network interruption, app restart, and SD/USB behavior;
-- pipeline diagnostic artifacts and direct visual inspection of final videos.
+- pipeline diagnostic artifacts, frozen ground-truth dataset/version identity, post-run comparison artifacts, and direct visual inspection of final videos.
 
 Not acceptable as closure evidence:
 
@@ -48,6 +48,7 @@ Not acceptable as closure evidence:
 - a synthetic fixture standing in for a required real-device, real-service, or real-footage test;
 - upload success without final object-size verification;
 - dispatch acceptance without a correlated workflow run;
+- an evaluation that cannot prove the pipeline was blind to the human labels;
 - any secret value in an audit, PR, screenshot, artifact, or log.
 
 ## 3. Current verified foundation
@@ -86,12 +87,13 @@ These statements prove **foundation implemented**. They do not yet prove the exa
 | GAP-023 — Production deployment, database migration, and environment parity | P0 | Release workflow exists; exact live deployment/migration/build evidence is pending | Yes |
 | GAP-024 — Durable feedback/evaluation/learning loop | P2 | Capture foundations exist; durable replay learning is incomplete | No for upload test |
 | GAP-025 — API contract drift and legacy route retirement | P2 | Typed mirrors exist; automated drift detection and alias retirement remain open | No for upload test |
+| GAP-027 — Blind ground-truth annotation and post-run evaluation | P1 | Industrial design complete; no schema/API/UI/evaluator implementation has started | No for upload validation; yes for GAP-017/GAP-018/GAP-020 quality closure |
 
 ## 5. Entry gate for starting controlled uploads
 
 The user may begin a controlled real upload only after all items below are evidenced:
 
-- [ ] PR #196 is merged and the exact merge commit is recorded.
+- [x] PR #196 is merged and the exact merge commit `9a686ee1d1a13d658d20123d455bc39674c11ce0` is recorded.
 - [ ] Vercel Production is READY on that merge commit and the production domain resolves to it.
 - [ ] `Upload Foundation Release` applies all upload migrations in dependency order and the schema-verification artifact contains no `false` result.
 - [ ] The real R2 multipart probe succeeds: create, upload parts, repeat one part, complete with exact ETags, verify size/hash, delete, and prove absence.
@@ -224,11 +226,12 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 
 - [ ] Freeze a difficult representative surfing set: distance, spray, occlusion, same-wave surfers, camera motion, entry/exit, and similar athletes.
 - [ ] Record detector/tracker model/config, thresholds, stride/input size, FPS, device, camera-motion compensation, and Re-ID setting.
-- [ ] Measure raw/stiched tracks, duration distribution, lost/reacquired intervals, ID switches, false split/merge, runtime, memory, and failure rate.
+- [ ] Measure raw/stitched tracks, duration distribution, lost/reacquired intervals, ID switches, false split/merge, runtime, memory, and failure rate.
 - [ ] Prove one athlete is not silently split and two athletes are not merged.
 - [ ] Crop authority uses measured tracker evidence, not an LLM hint alone.
 - [ ] Negative real cases block unsafe identity rather than guessing.
 - [ ] Evidence contains sidecars, overlays, metrics, tuning record, runtime, and final identity decisions.
+- [ ] Quality-closure claims use a frozen GAP-027 ground-truth version and a post-run evaluator that proves blind execution.
 
 ### GAP-018 — Cross-source athlete grouping and duplicate control
 
@@ -250,6 +253,7 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 - [ ] Distinguish intentional Parts from duplicate primary outputs.
 - [ ] Positive and negative eval fixtures define expected grouping.
 - [ ] Real same-athlete and multi-athlete batches prove one primary reel per eligible athlete without crossover.
+- [ ] False-merge and false-split rates are computed against a frozen GAP-027 identity graph.
 
 ### GAP-019 — 4K/30 visual-quality and performance budget
 
@@ -278,7 +282,8 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 
 **Remaining closure bar**
 
-- [ ] Freeze comparison footage and expected athlete/action/wave inventory before execution.
+- [ ] Freeze comparison footage and expected athlete/action/wave inventory as an immutable GAP-027 dataset version before execution.
+- [ ] Prove the pipeline could not read any human annotation before or during the run.
 - [ ] Use the exact production-deployed commit and record all run/batch/build/deployment identifiers.
 - [ ] Every eligible athlete receives exactly one primary publishable reel or explicit evidence-backed hard rejection.
 - [ ] Every complete usable surf wave appears exactly once or has an explicit hard-reject reason.
@@ -287,6 +292,7 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 - [ ] Final QA has real evidence and every FAIL blocks approval.
 - [ ] Manifest, coverage, candidate/selection ledgers, source/draft/QA traces, media report, durable status, R2 objects, and UI agree.
 - [ ] Every final video is visually inspected and all false positives/negatives, identity errors, crop errors, missed moments, and repairs are recorded.
+- [ ] A separate post-run evaluator produces identity, false merge/split, selection, coverage, and event metrics against the frozen version.
 
 ### GAP-021 — QA-blocked re-edit reaches a terminal verdict
 
@@ -337,7 +343,7 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 
 **Still required for experiment entry/closure**
 
-- [ ] PR #196 merge commit is deployed to Vercel Production and the production domain aliases that exact deployment.
+- [ ] PR #196 merge commit `9a686ee1d1a13d658d20123d455bc39674c11ce0` is deployed to Vercel Production and the production domain aliases that exact deployment.
 - [ ] Production API smoke tests run against the production domain.
 - [ ] Required Vercel variable names and independent GitHub Actions secret/variable names exist and preflight passes.
 - [ ] Every upload migration is applied in order and verified live.
@@ -355,6 +361,7 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 
 - Structured feedback controls, API storage, prompt injection, missed-moment report, and additive editorial scoring exist.
 - Durable cross-run decision history and safe replay-driven learning remain incomplete.
+- `draft_feedback` affects later Gemini prompts and therefore cannot be reused as blind ground truth.
 
 **Remaining closure bar**
 
@@ -363,6 +370,7 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 - [ ] Candidate and selection decisions are durable/queryable across runs.
 - [ ] Operator UI exposes source/track/duplicate/mixed-subject/selection evidence.
 - [ ] A versioned real-run evaluation dataset and deterministic graders cover identity, coverage, duplicates, technical compliance, and status truth.
+- [ ] GAP-027 ground truth remains separate from monitoring and feedback data; promotion of a finding into replay/training is explicit and reviewed.
 - [ ] Model graders are limited to editorial quality after deterministic gates.
 - [ ] Ranking/policy changes pass offline replay with no athlete/action recall regression and have version/rollback fields.
 - [ ] Monitoring records false positives/negatives, missed moments, QA bypass, duplicates, and operator corrections.
@@ -386,6 +394,111 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 - [ ] Active mobile versions and no-call evidence justify retirement before alias removal.
 - [ ] Negative tests cover unknown fields and unsupported old clients.
 
+### GAP-027 — Blind ground-truth annotation and post-run evaluation
+
+**Priority:** P1  
+**Area:** raw-source annotation, operator mobile UX, dedicated API/security boundary, dataset versioning, post-run evaluation.  
+**Status:** open — design and official-source research are complete; implementation is intentionally blocked.  
+**Source of truth:** `docs/ground-truth-annotation-system-design.md`
+
+**Goal**
+
+Create a SportReel-specific, mobile-first human annotation system that establishes immutable truth for raw videos and measures a completed pipeline run without exposing human labels to that run.
+
+**Scope**
+
+- raw verified canonical source videos only;
+- anonymous dataset-scoped identity (`SURFER-001`, `SURFER-002`, ...);
+- usability and structured reasons;
+- primary athlete;
+- event start/end/key moments;
+- human confidence and `Needs Review`;
+- Inbox Zero, immediate autosave, exact resume, one-step undo, progress, auto-advance, and explicit Completed editing;
+- append-only revisions, audit trail, validation, freeze, version lineage;
+- separate post-run evaluator and deterministic metrics;
+- operator/admin access only.
+
+**Explicitly out of scope**
+
+- general-purpose labeling platform;
+- live training or prompt injection;
+- model-assisted prelabels in the blind queue;
+- drafts, generated outputs, Review media, approved reels, or pipeline predictions as annotation input;
+- face enrollment, real names, face embeddings, biometric matching, or account ownership inference;
+- code, schema, API, route, or UI implementation in the design PR.
+
+**Planning checklist completed**
+
+- [x] Current repository architecture, upload identity, operator boundary, feedback loop, and audit were read.
+- [x] Official Google Vertex AI Data Labeling, dataset-versioning, HITL/deprecation, and evaluation-isolation guidance was reviewed.
+- [x] Official AWS Ground Truth video, verification/adjustment, save/resume, worker-instruction, and A2I guidance was reviewed.
+- [x] Official Azure Machine Learning project, queue, review, consensus, uncertainty, export, and access guidance was reviewed.
+- [x] Official Android touch-target, Supabase RLS/secret, and Cloudflare R2 signed-read guidance was reviewed.
+- [x] Architecture, logical data model, mobile UX, operator workflow, security model, blind contract, metrics, phases, and migration plan are documented.
+
+**Future implementation checklist**
+
+- [ ] Define explicit server-side operator/admin role claims and allowlist.
+- [ ] Create a dedicated non-exposed ground-truth trust domain, schema/roles, API namespace, and secret family.
+- [ ] Prove pipeline roles and workflows cannot read ground-truth data or secrets.
+- [ ] Register annotation items only from verified canonical `source_uploads` and exact `raw/<batch_id>/...` objects.
+- [ ] Implement mobile Inbox, one-pass annotation, immediate idempotent autosave, server cursor/resume, one-step undo, progress, auto-advance, `Needs Review`, and Completed revision flow.
+- [ ] Implement versioned taxonomy/instructions, anonymous person lineage, temporal events, append-only revisions, validation, audit trail, and immutable freeze.
+- [ ] Implement exact-object short-lived raw `GET` access without bucket listing or non-raw access.
+- [ ] Implement a separate evaluator that starts only after durable terminal run/output state.
+- [ ] Compute identity accuracy, pairwise precision/recall/F1, false merge/split, primary-athlete accuracy, usability/selection precision/recall, athlete/action/wave coverage, duplicate action, event detection, temporal IoU, and boundary errors.
+- [ ] Add positive and negative contract tests, static cross-zone scans, secret/grant inventory, and a label-leak canary.
+- [ ] Validate on an installed Android phone with interruption, restart, offline action replay, conflict, review, completion, and revision evidence.
+- [ ] Freeze a pilot dataset version and compare it with one correlated production-style terminal run.
+- [ ] Keep any promotion to replay/training/feedback explicit, reviewed, versioned, and outside the evaluated run.
+
+**Acceptance criteria**
+
+- [ ] Only authorized operator/admin users can discover or invoke the feature.
+- [ ] Only verified canonical raw sources can be annotated; every non-raw/cross-batch/mismatched source request fails closed.
+- [ ] The default queue excludes completed and review items and reaches Inbox Zero.
+- [ ] Every semantic action is durably autosaved and idempotent; resume returns to the exact item, revision, and playback position.
+- [ ] Undo, `Needs Review`, auto-advance, progress, and Completed editing behave correctly on the installed phone.
+- [ ] Usability, reasons, anonymous identity, primary athlete, events, and confidence are complete, versioned, and auditable.
+- [ ] Frozen dataset versions are immutable, content-addressed, reproducible, and corrected only through successor versions.
+- [ ] Pipeline credentials, code, dispatch, workflow inputs, raw metadata, prompts, logs, caches, and artifacts contain no ground-truth data.
+- [ ] A canary label proves no leakage before or during the pipeline run.
+- [ ] Evaluator rejects non-terminal runs, mutable datasets, source mismatches, and incomplete prediction manifests.
+- [ ] One frozen version and one terminal run produce denominated identity, merge/split, selection, coverage, and event metrics plus per-item evidence.
+- [ ] Evaluation cannot mutate the run, dataset, or production behavior.
+- [ ] Final-head CI/review, production migration verification, security review, and real-device evidence pass.
+
+**Dependencies**
+
+- GAP-013, GAP-014, GAP-015, GAP-016, and GAP-023 closure evidence;
+- stable canonical `source_upload_id`, raw key, hash, size, batch, and retention;
+- durable terminal pipeline/output correlation;
+- product-approved taxonomy/instructions/tolerances;
+- explicit operator/admin authorization;
+- durable candidate, selection, identity, coverage, and output manifests for evaluation.
+
+**Blocking conditions**
+
+- Do not implement while the upload/infrastructure dependencies above remain open.
+- Do not start the GAP-020 quality experiment without a frozen comparison version.
+- Do not reuse `draft_feedback` or any feedback path that can influence Gemini/pipeline behavior.
+- Do not show prelabels, predictions, draft titles, track clusters, or pipeline decisions to the annotator.
+- Do not expose service-role credentials or ground-truth grants to the mobile client or pipeline workflow.
+- Do not mark the gap done from schema, CI, mocks, or a design review alone.
+
+**Official references**
+
+The complete official-source list and decision mapping are maintained in `docs/ground-truth-annotation-system-design.md`, including:
+
+- Google Vertex AI Data Labeling, annotation resources, managed video datasets, and dataset versions;
+- Google ML dataset/test isolation and Document AI HITL deprecation;
+- AWS SageMaker Ground Truth video labeling, verification/adjustment, worker UX, save/resume, and output manifests;
+- AWS A2I workflow, instructions, monitoring, workforce, and security;
+- Azure Machine Learning labeling projects, queues, review, uncertainty, consensus, export, and labeler access;
+- Android mobile accessibility;
+- Supabase RLS/secret/API security;
+- Cloudflare R2 exact-object presigned access.
+
 ## 7. Required experiment artifact bundle
 
 Every production-style experiment must retain one correlated bundle containing:
@@ -393,15 +506,17 @@ Every production-style experiment must retain one correlated bundle containing:
 - repository commit, Vercel deployment, EAS build/upload, installed-app build identity, workflow run, pipeline run, and batch IDs;
 - durable upload batch/source rows, source-size evidence, SHA-256, exact-duplicate audit, multipart part ledger, R2 keys, final size/hash, retry, abort, and cleanup evidence;
 - frozen expected athlete/action/wave inventory;
+- for quality-closure experiments: frozen GAP-027 dataset version, manifest hash, accepted revision IDs, taxonomy/instruction versions, and blind-boundary proof;
 - detector/tracker preflight, sidecars, overlays, and identity/fragmentation summary;
 - candidate ledger, selection audit, cross-source group/duplicate lineage, framing decisions, source evidence, draft/repair/QA traces, coverage, and publishable manifest;
+- post-run evaluation identity, merge/split, selection, coverage, event, mismatch, denominator, and evaluator-version artifacts;
 - ffprobe and visual-quality reports;
 - per-stage runtime, resource, size, transfer, retry, and cost metrics;
 - durable status, reprocess, delivery, Discover/payment rows when applicable;
 - final videos and written visual review;
 - observed defects and the next result-loop decision.
 
-The experiment is invalid for closure claims if required artifacts are missing, stale, or cannot be tied to the same commit/run/batch.
+The experiment is invalid for closure claims if required artifacts are missing, stale, cannot be tied to the same commit/run/batch/dataset version, or cannot prove that human ground truth was unavailable during pipeline execution.
 
 ## 8. Recommended work order after upload release
 
@@ -409,16 +524,17 @@ The experiment is invalid for closure claims if required artifacts are missing, 
 2. Execute the small controlled upload smoke, then the real GAP-013/GAP-014 interruption/restart/storage test.
 3. Prove GAP-015 with exact duplicate and two-to-three-file batch/isolation evidence; add explicit session/athlete grouping metadata.
 4. Prove GAP-016 with one correlated app → API → Actions → Supabase → app transition.
-5. Measure/tune GAP-017, GAP-018, and GAP-019 on difficult representative footage.
-6. Execute GAP-020's frozen production-style experiment and review every video/artifact.
-7. Exercise GAP-021 to a real terminal QA verdict.
-8. Prove GAP-022 end to end through Stripe sandbox and protected delivery.
-9. Build GAP-024's durable replay/evaluation loop from reviewed runs.
-10. Automate GAP-025 contract drift detection and retire legacy routes when client evidence permits.
+5. Implement GAP-027 only after those infrastructure/upload dependencies close; validate the mobile workflow and freeze a pilot dataset version.
+6. Measure/tune GAP-017, GAP-018, and GAP-019 on separate development footage without exposing the frozen holdout truth to the pipeline.
+7. Execute GAP-020 against the frozen GAP-027 version, then run the separate post-run evaluator and review every video/artifact.
+8. Exercise GAP-021 to a real terminal QA verdict.
+9. Prove GAP-022 end to end through Stripe sandbox and protected delivery.
+10. Build GAP-024's durable replay/evaluation/learning loop from reviewed results without merging blind truth into feedback automatically.
+11. Automate GAP-025 contract drift detection and retire legacy routes when client evidence permits.
 
 ## 9. Audit maintenance rule
 
-Every PR that changes upload, storage, batch semantics, dispatch, status, perception, identity, selection, rendering, QA, Review, Delivery, Discover, payment, deployment, database schema, or feedback behavior must update this file in the same PR.
+Every PR that changes upload, storage, batch semantics, dispatch, status, perception, identity, selection, rendering, QA, Review, Delivery, Discover, payment, deployment, database schema, feedback, annotation, dataset versioning, or evaluation behavior must update this file in the same PR.
 
 A gap can move to **closed** only when every mandatory item has direct evidence, final-head CI/review passed, relevant production deployment/migration is verified, required real-device/service/footage validation passed, and no contradictory audit remains open without explanation.
 
