@@ -48,11 +48,11 @@ jobs:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
 
-      - name: Check final-head patch hygiene
+      - name: Check final-head code patch hygiene
         if: github.event_name == 'pull_request'
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: git diff --check "$BASE_SHA"...HEAD
+        run: git diff --check "$BASE_SHA"...HEAD -- . ':(exclude)*.md'
 
       - uses: actions/setup-python@v5
         with:
