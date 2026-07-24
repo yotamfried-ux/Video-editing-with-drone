@@ -72,12 +72,11 @@ def main() -> int:
         require(token, smoke_docs, "QA re-edit migration smoke docs")
 
     for token in [
-        "GAP-021",
-        "QA-blocked re-edit reaches a terminal verdict",
-        "qa_blocked",
-        "blocked reasons",
-        "attempt count",
-        "max attempts",
+        "GAP-021 — QA-blocked re-edit reaches a terminal verdict",
+        "one durable blocked request with defects, reasons, source identities, attempt count, and max attempts",
+        "Only the intended canonical source/batch is requeued",
+        "explicit manual review/reject at max attempts",
+        "Workflow failure leaves recoverable truthful task state",
     ]:
         require(token, audit, "app pipeline audit")
 

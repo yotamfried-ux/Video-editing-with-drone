@@ -73,11 +73,11 @@ def main() -> int:
         require(token, docs, "migration smoke docs")
 
     for token in [
-        "GAP-021",
-        "QA-blocked re-edit reaches a terminal verdict",
-        "qa_blocked",
-        "blocked reasons",
-        "Supabase migrations",
+        "GAP-021 — QA-blocked re-edit reaches a terminal verdict",
+        "one durable blocked request with defects, reasons, source identities",
+        "approval blocking, operator notes",
+        "Sending notes promotes the same task atomically",
+        "Supabase migration output",
     ]:
         require(token, audit, "app pipeline audit")
 

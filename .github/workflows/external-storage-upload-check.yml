@@ -3,7 +3,11 @@ name: External Storage Upload Check
 on:
   pull_request:
     paths:
+      - 'mobile/modules/sportreel-source-reader/**'
       - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/lib/multipartUploadClient.ts'
+      - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
+      - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
       - 'scripts/test_external_storage_upload_contract.py'
       - '.github/workflows/external-storage-upload-check.yml'
 

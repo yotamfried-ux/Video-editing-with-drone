@@ -33,28 +33,27 @@ def require_order(label: str, text: str, first: str, second: str) -> None:
 def main() -> int:
     upload_route = _read("web-api/src/app/api/operator/upload/route.ts")
     pipeline_screen = _read("mobile/src/app/(operator)/pipeline.tsx")
+    upload_queue = _read("mobile/src/features/operator/lib/uploadQueue.ts")
     workflow = _read(".github/workflows/operator-smoke-check.yml")
 
     ast.parse(_read("scripts/test_multi_upload_batch_contract.py"))
 
     require_tokens(
-        "upload route batch API",
+        "durable upload route",
         upload_route,
         [
             "MAX_BATCH_FILES",
+            "client_upload_id?: string",
             "files?: UploadFileInput[]",
             "normalizeUploadFiles",
-            "uploadFilename",
-            "String(index + 1).padStart(3, '0')",
-            "operator-upload-batch",
-            "safeBatchId(requestedBatchId) || newBatchId()",
-            "const uploads: UploadFileResult[] = files.map",
-            "createR2UploadUrl(file.uploadFilename, batchId)",
-            "await Promise.all(",
-            "createUploadSession(file.uploadFilename, rawFolder, file.mimeType)",
-            "source_filename: file.filename",
+            "resolveSinglePutBatchId",
+            "findSourceUploadByClientUploadId",
+            "createSinglePutSourceManifest",
+            "registerSourceUploadBatchMembership",
+            "createR2UploadUrlForKey(session.storageKey)",
+            "source_filename: session.sourceFilename",
             "uploads,",
-            "storage_key: upload.key",
+            "storage_key: session.storageKey",
         ],
     )
     require_order(
@@ -64,10 +63,10 @@ def main() -> int:
         "const limited = await enforceRateLimit",
     )
     require_no_tokens(
-        "upload route must not hard-limit every selected file as its own hourly request",
+        "upload route must not recreate timestamped sources on every retry",
         upload_route,
         [
-            "enforceRateLimit(req, 'operator-upload', 10, 3600);\n  if (limited) return limited;",
+            "createR2UploadUrl(file.uploadFilename, batchId)",
             "createR2UploadUrl(file.filename, batchId)",
             "createUploadSession(file.filename, rawFolder, file.mimeType)",
         ],
@@ -80,18 +79,21 @@ def main() -> int:
             "allowsMultipleSelection: true",
             "UploadFileState",
             "uploadItems",
-            "Promise.allSettled",
-            "files: items.map",
-            "uploadInit.uploads?.length",
+            "clientUploadId",
+            "requestUploadSession",
+            "sourceSizeBytes",
+            "batch_id: item.batch_id ?? activeBatchId",
+            "uploadInit.uploads?.[0] ?? uploadInit",
             "uploadAssetToSession",
+            "runUploadQueue",
             "retryUploadItem",
+            "Retry all failed",
             "Upload batch progress",
-            "Retry",
             "Uploading ${verifiedUploads}/${uploadItems.length}",
         ],
     )
     require_no_tokens(
-        "mobile must not select only one asset",
+        "mobile must not select only one asset or reuse an anonymous upload session",
         pipeline_screen,
         [
             "allowsMultipleSelection: false",
@@ -102,10 +104,33 @@ def main() -> int:
     )
 
     require_tokens(
+        "upload queue batch-race protection",
+        upload_queue,
+        [
+            "createClientBatchId",
+            "assignSharedUploadBatchId",
+            "Selected uploads span multiple durable batches",
+            "const batchScopedItems: BatchScopedUpload[] = []",
+            "if (isBatchScopedUpload(item)) batchScopedItems.push(item)",
+            "batchScopedItems.length === items.length",
+            "assignSharedUploadBatchId(batchScopedItems);",
+            "const workerCount = Math.min(Math.max(concurrencyLimit, 1), items.length)",
+        ],
+    )
+    require_order(
+        "shared batch assignment happens before concurrent workers",
+        upload_queue,
+        "assignSharedUploadBatchId(batchScopedItems);",
+        "await Promise.all(",
+    )
+
+    require_tokens(
         "operator smoke workflow trigger",
         workflow,
         [
             "scripts/test_multi_upload_batch_contract.py",
+            "mobile/src/features/operator/lib/uploadQueue.ts",
+            "mobile/src/features/operator/lib/uploadQueue.test.ts",
             "web-api/src/app/api/operator/upload/route.ts",
             "Validate Multi-upload batch contract",
         ],

@@ -60,6 +60,8 @@ export type OperatorUploadInitResponse = {
   uploadUrl: string;
   filename: string;
   batch_id?: string | null;
+  client_upload_id?: string;
+  upload_status?: string;
 };
 
 export type ReprocessRow = {
