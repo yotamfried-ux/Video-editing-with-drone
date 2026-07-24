@@ -12,11 +12,14 @@ on:
       - 'mobile/src/features/operator/lib/multipartUploadClient.ts'
       - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
+      - 'mobile/src/features/operator/lib/uploadQueue.ts'
+      - 'mobile/src/features/operator/lib/uploadQueue.test.ts'
       - 'mobile/src/features/operator/types/contracts.ts'
       - 'scripts/test_batch_scope_contract.py'
       - 'scripts/test_exact_source_upload_dedup_contract.py'
       - 'scripts/test_large_upload_ci_hygiene_contract.py'
       - 'scripts/test_large_upload_foundation_contract.py'
+      - 'scripts/test_multi_upload_batch_contract.py'
       - 'scripts/test_upload_batch_verified_gate_contract.py'
       - 'scripts/test_upload_foundation_release_contract.py'
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
@@ -64,6 +67,7 @@ jobs:
           python scripts/test_large_upload_foundation_contract.py
           python scripts/test_upload_batch_verified_gate_contract.py
           python scripts/test_upload_foundation_release_contract.py
+          python scripts/test_multi_upload_batch_contract.py
           PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py
           PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
 
@@ -79,11 +83,12 @@ jobs:
           npm ci
           npm run type-check
 
-      - name: Type-check mobile helpers and verify native module autolinking
+      - name: Validate mobile upload queue and native module autolinking
         working-directory: mobile
         run: |
           npm ci
           npm run type-check
+          npm test -- --runInBand src/features/operator/lib/uploadQueue.test.ts
           npx expo-modules-autolinking resolve --platform android > /tmp/expo-modules-android.json
           grep -q 'SportReelSourceReaderModule' /tmp/expo-modules-android.json
 
