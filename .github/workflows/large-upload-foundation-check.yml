@@ -5,15 +5,17 @@ on:
     paths:
       - '.github/workflows/large-upload-foundation-check.yml'
       - '.github/workflows/upload-foundation-release.yml'
-      - '.github/workflows/apply-final-upload-review-fixes.yml'
+      - 'docs/app-pipeline-audit.md'
       - 'docs/audit/drone-large-upload-experiment-entry-plan-20260723.md'
       - 'mobile/modules/sportreel-source-reader/**'
       - 'mobile/src/app/(operator)/pipeline.tsx'
       - 'mobile/src/features/operator/lib/multipartUploadClient.ts'
       - 'mobile/src/features/operator/lib/multipartUploadLedger.ts'
       - 'mobile/src/features/operator/lib/uploadLocalCleanup.ts'
-      - 'scripts/apply_final_upload_review_fixes.py'
-      - 'scripts/fix_final_upload_patch_type_errors.py'
+      - 'mobile/src/features/operator/types/contracts.ts'
+      - 'scripts/test_batch_scope_contract.py'
+      - 'scripts/test_exact_source_upload_dedup_contract.py'
+      - 'scripts/test_large_upload_ci_hygiene_contract.py'
       - 'scripts/test_large_upload_foundation_contract.py'
       - 'scripts/test_upload_batch_verified_gate_contract.py'
       - 'scripts/test_upload_foundation_release_contract.py'
@@ -28,120 +30,42 @@ on:
       - 'web-api/src/app/api/operator/upload/multipart/**'
       - 'web-api/src/lib/multipart-upload-manifest.ts'
       - 'web-api/src/lib/r2-storage.ts'
+      - 'web-api/src/lib/ratelimit.ts'
+      - 'web-api/src/lib/source-upload-manifest.ts'
       - 'web-api/src/lib/upload-batch-manifest.ts'
+      - 'web-api/src/types/operator-contracts.ts'
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  apply-final-review-fixes:
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.pull_request.head.ref }}
-          fetch-depth: 0
-
-      - name: Detect one-shot patch
-        id: patch
-        run: |
-          if [ -f scripts/apply_final_upload_review_fixes.py ]; then
-            echo 'apply=true' >> "$GITHUB_OUTPUT"
-          else
-            echo 'apply=false' >> "$GITHUB_OUTPUT"
-          fi
-
-      - uses: actions/setup-python@v5
-        if: steps.patch.outputs.apply == 'true'
-        with:
-          python-version: '3.11'
-
-      - name: Correct patch type contracts
-        if: steps.patch.outputs.apply == 'true'
-        run: python scripts/fix_final_upload_patch_type_errors.py
-
-      - name: Apply deterministic P1 fixes
-        if: steps.patch.outputs.apply == 'true'
-        run: python scripts/apply_final_upload_review_fixes.py
-
-      - uses: actions/setup-node@v4
-        if: steps.patch.outputs.apply == 'true'
-        with:
-          node-version: '20'
-
-      - name: Validate Web API
-        if: steps.patch.outputs.apply == 'true'
-        working-directory: web-api
-        run: |
-          npm ci
-          npm run type-check
-
-      - name: Validate mobile
-        if: steps.patch.outputs.apply == 'true'
-        working-directory: mobile
-        run: |
-          npm ci
-          npm run type-check
-
-      - name: Validate large-upload contract
-        if: steps.patch.outputs.apply == 'true'
-        run: python scripts/test_large_upload_foundation_contract.py
-
-      - name: Validate verified-batch contract
-        if: steps.patch.outputs.apply == 'true'
-        run: python scripts/test_upload_batch_verified_gate_contract.py
-
-      - name: Validate exact-source contract
-        id: exact
-        if: steps.patch.outputs.apply == 'true'
-        run: PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py
-
-      - name: Validate batch-scope contract
-        if: steps.patch.outputs.apply == 'true' && steps.exact.outcome == 'success'
-        run: PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
-
-      - name: Commit product and regression-test fixes
-        if: steps.patch.outputs.apply == 'true' && steps.exact.outcome == 'success'
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add \
-            web-api/src/lib/r2-storage.ts \
-            web-api/src/lib/source-upload-manifest.ts \
-            web-api/src/lib/ratelimit.ts \
-            web-api/src/app/api/operator/upload/route.ts \
-            web-api/src/app/api/operator/upload/multipart/part-url/route.ts \
-            web-api/src/types/operator-contracts.ts \
-            mobile/src/app/'(operator)'/pipeline.tsx \
-            mobile/src/features/operator/types/contracts.ts \
-            scripts/test_batch_scope_contract.py \
-            scripts/test_exact_source_upload_dedup_contract.py \
-            scripts/test_upload_batch_verified_gate_contract.py \
-            scripts/test_large_upload_foundation_contract.py
-          git diff --cached --check
-          git commit -m 'fix: close final large-upload review findings'
-          git push origin HEAD:${{ github.event.pull_request.head.ref }}
-
   validate:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+
+      - name: Check final-head patch hygiene
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: git diff --check "$BASE_SHA"...HEAD
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Validate multipart, cleanup, and source-preservation contracts
-        run: python scripts/test_large_upload_foundation_contract.py
-
-      - name: Validate durable verified upload batch gate
-        run: python scripts/test_upload_batch_verified_gate_contract.py
-
-      - name: Validate migration, R2 probe, and Android release order
-        run: python scripts/test_upload_foundation_release_contract.py
+      - name: Validate upload foundation contracts
+        run: |
+          python scripts/test_large_upload_ci_hygiene_contract.py
+          python scripts/test_large_upload_foundation_contract.py
+          python scripts/test_upload_batch_verified_gate_contract.py
+          python scripts/test_upload_foundation_release_contract.py
+          PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py
+          PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py
 
       - uses: actions/setup-node@v4
         with:
@@ -168,6 +92,8 @@ jobs:
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
       - uses: actions/setup-node@v4
         with:
