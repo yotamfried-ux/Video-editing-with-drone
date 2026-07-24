@@ -80,7 +80,10 @@ export async function runQueue<T>(
   worker: (item: T, index: number) => Promise<void>,
   concurrencyLimit: number
 ): Promise<PromiseSettledResult<void>[]> {
-  const batchScopedItems = items.filter(isBatchScopedUpload);
+  const batchScopedItems: BatchScopedUpload[] = [];
+  for (const item of items) {
+    if (isBatchScopedUpload(item)) batchScopedItems.push(item);
+  }
   if (items.length > 0 && batchScopedItems.length === items.length) {
     assignSharedUploadBatchId(batchScopedItems);
   }
