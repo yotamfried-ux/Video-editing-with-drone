@@ -408,8 +408,21 @@ jobs:
       - name: Setup EAS from Expo's official GitHub Action
         uses: expo/expo-github-action@v8
         with:
-          eas-version: 18.8.1
+          eas-version: 18.9.1
           token: ${{ secrets.EXPO_TOKEN }}
+      - name: Verify pinned EAS CLI supports exact build-ID download
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          EAS_VERSION=$(eas --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          [[ "$EAS_VERSION" == '18.9.1' ]] || {
+            echo "Expected EAS CLI 18.9.1, got ${EAS_VERSION:-unknown}." >&2
+            exit 1
+          }
+          eas build:download --help | grep -q -- '--build-id' || {
+            echo 'Pinned EAS CLI does not support build:download --build-id.' >&2
+            exit 1
+          }
       - name: Build Android preview in EAS and capture build ID
         id: eas-build
         working-directory: mobile
