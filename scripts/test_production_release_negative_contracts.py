@@ -47,8 +47,10 @@ def main() -> int:
         "needs: migrate-and-verify",
         "needs: real-r2-probe",
         "needs: production-api-smoke",
+        "Expected EAS CLI 18.9.1",
+        "Pinned EAS CLI does not support build:download --build-id.",
         "if-no-files-found: error",
-    ], "workflow fail-closed ordering")
+    ], "workflow fail-closed ordering and EAS compatibility")
     require(schema, [
         "constraint:source_uploads_status_check",
         "rls:source_uploads",
