@@ -6,7 +6,7 @@ import { SourceUploadManifestError } from '@/lib/source-upload-manifest';
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  let body: { upload_id?: string };
+  let body: { upload_id?: string; batch_id?: string; storage_key?: string };
   try {
     body = await req.json();
   } catch {
@@ -14,10 +14,18 @@ export async function POST(req: NextRequest) {
   }
 
   const uploadId = (body.upload_id ?? '').trim();
+  const expectedBatchId = (body.batch_id ?? '').trim();
+  const expectedStorageKey = (body.storage_key ?? '').trim();
   if (!uploadId) return NextResponse.json({ error: 'upload_id required' }, { status: 400 });
 
   try {
     const session = await getMultipartSession(uploadId);
+    if (expectedBatchId && expectedBatchId !== session.batch_id) {
+      return NextResponse.json({ error: 'Multipart upload batch mismatch' }, { status: 409 });
+    }
+    if (expectedStorageKey && expectedStorageKey !== session.storage_key) {
+      return NextResponse.json({ error: 'Multipart upload storage key mismatch' }, { status: 409 });
+    }
     return NextResponse.json({
       ok: true,
       protocol: session.upload_protocol,
