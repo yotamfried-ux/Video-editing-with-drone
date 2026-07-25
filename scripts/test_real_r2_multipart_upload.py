@@ -1,13 +1,11 @@
 #!/usr/bin/env python3
 """Run a real, non-destructive Cloudflare R2 multipart upload probe.
 
-This script is intended for the release GitHub Actions workflow. It never prints
-credentials. It creates a deterministic byte stream, uploads it through presigned
-part URLs, retries one part, completes with the exact returned ETags, verifies
-HEAD/download size and SHA-256, then removes the test object. Any abort, delete,
-or post-delete verification failure makes the probe fail.
+The probe creates deterministic bytes, uploads several parts through presigned URLs,
+retries one part, completes with the exact latest response ETags in ascending order,
+verifies HEAD/download size and SHA-256, proves the completed multipart ETag is not the
+whole-file MD5, then deletes the object and verifies absence. Cleanup failure is fatal.
 """
-
 from __future__ import annotations
 
 import hashlib
@@ -55,6 +53,13 @@ def sha256_bytes(chunks: list[bytes]) -> str:
     return digest.hexdigest()
 
 
+def md5_bytes(chunks: list[bytes]) -> str:  # nosec B324 - comparison evidence, not security
+    digest = hashlib.md5(usedforsecurity=False)
+    for chunk in chunks:
+        digest.update(chunk)
+    return digest.hexdigest()
+
+
 def safe_etag(value: str | None) -> str:
     etag = (value or "").strip()
     if not etag:
@@ -62,6 +67,10 @@ def safe_etag(value: str | None) -> str:
     if len(etag) > 1024:
         raise RuntimeError("R2 part ETag is unexpectedly long")
     return etag
+
+
+def unquote_etag(value: str) -> str:
+    return value.strip().strip('"')
 
 
 def main() -> int:
@@ -94,7 +103,7 @@ def main() -> int:
     probe_succeeded = False
     started = time.time()
     evidence: dict[str, Any] = {
-        "protocol": "r2_multipart_real_probe_v1",
+        "protocol": "r2_multipart_real_probe_v2",
         "bucket": bucket,
         "key": key,
         "total_size_bytes": total_size,
@@ -112,6 +121,7 @@ def main() -> int:
 
         source_chunks = [deterministic_part(index + 1, size) for index, size in enumerate(part_sizes)]
         expected_sha256 = sha256_bytes(source_chunks)
+        source_md5 = md5_bytes(source_chunks)
         completed_parts: list[dict[str, Any]] = []
 
         for part_number, payload in enumerate(source_chunks, start=1):
@@ -125,7 +135,6 @@ def main() -> int:
                 },
                 ExpiresIn=900,
             )
-
             response = requests.put(
                 presigned_url,
                 data=payload,
@@ -133,11 +142,10 @@ def main() -> int:
                 timeout=180,
             )
             response.raise_for_status()
-            etag = safe_etag(response.headers.get("ETag"))
+            first_etag = safe_etag(response.headers.get("ETag"))
+            latest_etag = first_etag
             attempts = 1
 
-            # Prove a single part can be retried independently and that completion
-            # uses the exact ETag from the latest successful upload of that part.
             if part_number == 2:
                 retry = requests.put(
                     presigned_url,
@@ -146,20 +154,22 @@ def main() -> int:
                     timeout=180,
                 )
                 retry.raise_for_status()
-                etag = safe_etag(retry.headers.get("ETag"))
+                latest_etag = safe_etag(retry.headers.get("ETag"))
                 attempts = 2
 
-            completed_parts.append({"PartNumber": part_number, "ETag": etag})
+            completed_parts.append({"PartNumber": part_number, "ETag": latest_etag})
             evidence["parts"].append(
                 {
                     "part_number": part_number,
                     "size_bytes": len(payload),
                     "attempts": attempts,
-                    "etag_present": True,
+                    "first_etag": first_etag,
+                    "completion_etag": latest_etag,
+                    "latest_successful_etag_used": True,
                 }
             )
 
-        client.complete_multipart_upload(
+        completion = client.complete_multipart_upload(
             Bucket=bucket,
             Key=key,
             UploadId=upload_id,
@@ -172,6 +182,15 @@ def main() -> int:
         actual_size = int(head["ContentLength"])
         if actual_size != total_size:
             raise RuntimeError(f"R2 HEAD size mismatch: expected {total_size}, got {actual_size}")
+        completed_etag = safe_etag(str(head.get("ETag") or completion.get("ETag") or ""))
+        normalized_completed_etag = unquote_etag(completed_etag)
+        if normalized_completed_etag == source_md5:
+            raise RuntimeError("Completed multipart ETag was incorrectly equal to the whole-file MD5")
+        expected_suffix = f"-{len(part_sizes)}"
+        if len(part_sizes) > 1 and not normalized_completed_etag.endswith(expected_suffix):
+            raise RuntimeError(
+                f"Completed multipart ETag does not expose expected part-count suffix {expected_suffix}"
+            )
 
         digest = hashlib.sha256()
         with tempfile.NamedTemporaryFile(prefix="sportreel-r2-probe-", delete=True) as target:
@@ -193,11 +212,17 @@ def main() -> int:
                 "source_sha256": expected_sha256,
                 "download_sha256": actual_sha256,
                 "download_matches_source": True,
+                "source_file_md5": source_md5,
+                "completed_multipart_etag": completed_etag,
+                "multipart_etag_is_not_file_md5": True,
+                "multipart_etag_part_count_suffix_verified": True,
+                "completion_part_numbers": [part["PartNumber"] for part in completed_parts],
+                "completion_part_numbers_ascending": True,
                 "duration_seconds": round(time.time() - started, 3),
             }
         )
         probe_succeeded = True
-        print(f"PASS: real R2 multipart upload, retry, completion, HEAD, and SHA-256 verification for {key}")
+        print(f"PASS: real R2 multipart retry, ETag, HEAD, hash, and cleanup probe for {key}")
     finally:
         cleanup_errors: list[str] = []
         if upload_id:
