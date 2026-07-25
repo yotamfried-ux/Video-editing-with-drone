@@ -6,7 +6,7 @@ Baseline: `main` at `5408818ac2fa6615ae54ebe6073fa792f998f2f7`
 Contained upload foundation: PR #196 merge commit `9a686ee1d1a13d658d20123d455bc39674c11ce0`  
 Contained blind-ground-truth design: PR #197 merge commit `5408818ac2fa6615ae54ebe6073fa792f998f2f7`  
 Working branch: `fix/production-release-gate`  
-PR: pending at document creation  
+PR: #198  
 Result: **blocked with exact evidence — the release gate implementation is prepared, but the protected live workflow has not run from merged `main`**
 
 This record distinguishes implementation evidence from live-service evidence. It does not claim that an APK is installed, that a physical SD/USB source was tested, or that GAP-013, GAP-014, GAP-015, GAP-016, or GAP-027 is closed.
