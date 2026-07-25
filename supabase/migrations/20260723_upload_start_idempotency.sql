@@ -31,6 +31,9 @@ set search_path = public
 as $$
 declare
   v_upload public.source_uploads%rowtype;
+  v_batch public.upload_batches%rowtype;
+  v_actual_file_count integer;
+  v_unreserved_count integer;
   v_result jsonb;
 begin
   select * into v_upload
@@ -43,12 +46,39 @@ begin
   end if;
 
   if v_upload.batch_membership_registered_at is null then
-    perform public.register_upload_batch(
-      v_upload.batch_id,
-      1,
-      p_source_kind,
-      p_grouping_kind
-    );
+    -- Serialize creation/reservation for this batch. A caller may reserve the exact
+    -- intended file count through /upload/batch before individual source starts.
+    -- Membership must consume that reservation rather than incrementing it twice.
+    perform pg_advisory_xact_lock(hashtextextended(v_upload.batch_id, 0));
+
+    select count(*)::integer
+      into v_actual_file_count
+      from public.source_uploads
+     where batch_id = v_upload.batch_id;
+
+    select * into v_batch
+      from public.upload_batches
+     where batch_id = v_upload.batch_id
+     for update;
+
+    if not found then
+      perform public.register_upload_batch(
+        v_upload.batch_id,
+        greatest(v_actual_file_count, 1),
+        p_source_kind,
+        p_grouping_kind
+      );
+    else
+      v_unreserved_count := greatest(v_actual_file_count - v_batch.expected_file_count, 0);
+      if v_unreserved_count > 0 then
+        perform public.register_upload_batch(
+          v_upload.batch_id,
+          v_unreserved_count,
+          p_source_kind,
+          p_grouping_kind
+        );
+      end if;
+    end if;
 
     update public.source_uploads
        set batch_membership_registered_at = now(),

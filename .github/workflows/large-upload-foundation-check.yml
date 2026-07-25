@@ -7,6 +7,8 @@ on:
       - '.github/workflows/upload-foundation-release.yml'
       - 'docs/app-pipeline-audit.md'
       - 'docs/audit/drone-large-upload-experiment-entry-plan-20260723.md'
+      - 'docs/audit/production-release-gate-20260724.md'
+      - 'mobile/app.json'
       - 'mobile/modules/sportreel-source-reader/**'
       - 'mobile/src/app/(operator)/pipeline.tsx'
       - 'mobile/src/features/operator/lib/multipartUploadClient.ts'
@@ -15,13 +17,25 @@ on:
       - 'mobile/src/features/operator/lib/uploadQueue.ts'
       - 'mobile/src/features/operator/lib/uploadQueue.test.ts'
       - 'mobile/src/features/operator/types/contracts.ts'
+      - 'scripts/apply_upload_release_migrations.py'
+      - 'scripts/record_eas_build_evidence.py'
       - 'scripts/test_batch_scope_contract.py'
       - 'scripts/test_exact_source_upload_dedup_contract.py'
       - 'scripts/test_large_upload_ci_hygiene_contract.py'
       - 'scripts/test_large_upload_foundation_contract.py'
       - 'scripts/test_multi_upload_batch_contract.py'
+      - 'scripts/test_production_release_gate_contract.py'
+      - 'scripts/test_production_release_negative_contracts.py'
+      - 'scripts/test_production_upload_api_smoke.py'
+      - 'scripts/test_real_r2_multipart_upload.py'
       - 'scripts/test_upload_batch_verified_gate_contract.py'
       - 'scripts/test_upload_foundation_release_contract.py'
+      - 'scripts/verify_production_deployment.py'
+      - 'scripts/verify_no_biometric_runtime_dependencies.py'
+      - 'scripts/verify_r2_cors.py'
+      - 'scripts/verify_upload_release_schema.sql'
+      - 'supabase/migrations/20260721_remove_face_recognition.sql'
+      - 'supabase/migrations/20260723_source_upload_exact_dedup.sql'
       - 'supabase/migrations/20260723_source_upload_multipart_foundation.sql'
       - 'supabase/migrations/20260723_single_put_size_evidence.sql'
       - 'supabase/migrations/20260723_source_upload_local_cleanup_evidence.sql'
@@ -61,12 +75,22 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Validate upload foundation contracts
+      - name: Validate upload foundation and production release contracts
         run: |
+          python -m py_compile \
+            scripts/apply_upload_release_migrations.py \
+            scripts/record_eas_build_evidence.py \
+            scripts/test_production_upload_api_smoke.py \
+            scripts/test_real_r2_multipart_upload.py \
+            scripts/verify_production_deployment.py \
+            scripts/verify_r2_cors.py \
+            scripts/verify_no_biometric_runtime_dependencies.py
           python scripts/test_large_upload_ci_hygiene_contract.py
           python scripts/test_large_upload_foundation_contract.py
           python scripts/test_upload_batch_verified_gate_contract.py
           python scripts/test_upload_foundation_release_contract.py
+          python scripts/test_production_release_gate_contract.py
+          python scripts/test_production_release_negative_contracts.py
           python scripts/test_multi_upload_batch_contract.py
           PYTHONPATH=scripts:. python scripts/test_exact_source_upload_dedup_contract.py
           PYTHONPATH=scripts:. python scripts/test_batch_scope_contract.py

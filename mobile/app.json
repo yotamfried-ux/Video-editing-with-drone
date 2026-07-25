@@ -18,8 +18,8 @@
       "bundleIdentifier": "com.sportreel.app",
       "buildNumber": "1",
       "infoPlist": {
-        "NSCameraUsageDescription": "Used to capture your face photo for highlight reel matching.",
-        "NSPhotoLibraryUsageDescription": "Used to select a face photo for highlight reel matching.",
+        "NSCameraUsageDescription": "Used when an operator captures sports media for upload.",
+        "NSPhotoLibraryUsageDescription": "Used when an operator selects sports videos for upload.",
         "NSFaceIDUsageDescription": "Used to secure operator access."
       }
     },

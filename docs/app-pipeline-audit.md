@@ -2,8 +2,8 @@
 
 Date: 2026-07-24  
 Repository: `yotamfried-ux/Video-editing-with-drone`  
-Validated baseline: `main` at `9a686ee1d1a13d658d20123d455bc39674c11ce0` (merged PR #196).  
-Status: **open — the safe large-upload foundation is implemented, but live release/device evidence and the broader product gaps remain open**
+Validated baseline: `main` at `5408818ac2fa6615ae54ebe6073fa792f998f2f7` (merged PR #197), containing PR #196 merge commit `9a686ee1d1a13d658d20123d455bc39674c11ce0`.  
+Status: **open — production-release gate hardening is under review; no live Supabase/R2/Vercel/EAS/device evidence has been claimed**
 
 This file is the authoritative, consolidated readiness audit for the operator app, R2 upload path, GitHub Actions pipeline, Supabase state, perception/tracking, 4K rendering, QA, Review, Delivery, Discover, payments, ground-truth evaluation, and the real-footage evidence required by the product vision.
 
@@ -79,12 +79,12 @@ These statements prove **foundation implemented**. They do not yet prove the exa
 | GAP-015 — Durable batch/session/athlete upload manifest and verified-run gate | P0 | Source/batch manifest and admission gate implemented; business grouping and real-batch evidence remain open | Yes for the full experiment |
 | GAP-016 — Dispatch, workflow, run, and operator-status correlation | P0 | Dispatch acceptance is explicit; one real correlated transition is not yet proven | Yes |
 | GAP-017 — Real perception/tracker quality and identity stability | P0 | Mandatory CV and diagnostics exist; difficult-footage quality/tuning remains unproven | Yes |
-| GAP-018 — Cross-source athlete grouping and duplicate control | P0 | Diagnostics exist; durable reel-group lineage and real grouping proof remain open | Yes |
+| GAP-018 — Cross-source athlete grouping and duplicate control | P0 | Diagnostics exist; durable reel-group lineage and safe real grouping remain incomplete | Yes |
 | GAP-019 — 4K/30 visual-quality and performance budget | P0 | Synthetic media contract passes; real quality/runtime/cost evidence is pending | Yes |
 | GAP-020 — Product-vision real-run proof | P0 | Deterministic contracts exist; real visual production evidence is pending | The experiment closes it |
 | GAP-021 — QA-blocked re-edit reaches a terminal verdict | P1 | App/task path exists; a current real terminal rerun is unconfirmed | Required before robust Review claim |
 | GAP-022 — Review → Approve → Delivery → Discover → payment fulfillment | P1 | Components exist; full immutable/idempotent flow is unproven | Not for editing-only upload test; yes for product readiness |
-| GAP-023 — Production deployment, database migration, and environment parity | P0 | Release workflow exists; exact live deployment/migration/build evidence is pending | Yes |
+| GAP-023 — Production deployment, database migration, and environment parity | P0 | Fail-closed release-gate hardening is under review; exact live deployment/migration/smoke/build evidence is pending | Yes |
 | GAP-024 — Durable feedback/evaluation/learning loop | P2 | Capture foundations exist; durable replay learning is incomplete | No for upload test |
 | GAP-025 — API contract drift and legacy route retirement | P2 | Typed mirrors exist; automated drift detection and alias retirement remain open | No for upload test |
 | GAP-027 — Blind ground-truth annotation and post-run evaluation | P1 | Industrial design complete; no schema/API/UI/evaluator implementation has started | No for upload validation; yes for GAP-017/GAP-018/GAP-020 quality closure |
@@ -94,7 +94,8 @@ These statements prove **foundation implemented**. They do not yet prove the exa
 The user may begin a controlled real upload only after all items below are evidenced:
 
 - [x] PR #196 is merged and the exact merge commit `9a686ee1d1a13d658d20123d455bc39674c11ce0` is recorded.
-- [ ] Vercel Production is READY on that merge commit and the production domain resolves to it.
+- [x] PR #197 is merged at `5408818ac2fa6615ae54ebe6073fa792f998f2f7`; it closes design only and leaves GAP-027 open.
+- [ ] The approved production-release head is merged to `main`, Vercel Production contains that exact SHA, and the production domain resolves to the same deployment.
 - [ ] `Upload Foundation Release` applies all upload migrations in dependency order and the schema-verification artifact contains no `false` result.
 - [ ] The real R2 multipart probe succeeds: create, upload parts, repeat one part, complete with exact ETags, verify size/hash, delete, and prove absence.
 - [ ] The Android preview APK containing `SportReelSourceReader` is built and published only after the database and R2 jobs pass.
@@ -340,17 +341,22 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 - [x] Upload release workflow enforces migration → schema verification → real R2 probe → Android build order.
 - [x] Required upload tables use RLS and server-only service-role writes.
 - [x] The workflow records schema/R2/APK artifacts without exposing secret values.
+- [x] Release-gate hardening under review adds exact Vercel commit/alias verification, protected secret-name preflight, a checksum migration ledger, comprehensive schema/RLS/grant verification, biometric-removal execution and runtime scans, exact R2 retry/ETag/hash/delete evidence, production API lifecycle smoke, and authoritative EAS cloud-build metadata.
+- [x] The batch-membership migration under review fixes reserved-capacity double counting so the first source does not inflate a pre-created one-file batch from one expected file to two.
+- [x] Focused implementation and blocked-state evidence is maintained in `docs/audit/production-release-gate-20260724.md`.
 
 **Still required for experiment entry/closure**
 
-- [ ] PR #196 merge commit `9a686ee1d1a13d658d20123d455bc39674c11ce0` is deployed to Vercel Production and the production domain aliases that exact deployment.
-- [ ] Production API smoke tests run against the production domain.
-- [ ] Required Vercel variable names and independent GitHub Actions secret/variable names exist and preflight passes.
-- [ ] Every upload migration is applied in order and verified live.
-- [ ] The exact Android build/upload ID and runtime/channel are recorded and installed.
-- [ ] The previously planned biometric-removal migration and live no-biometric verification are completed.
-- [ ] Registration, login, profile, Discover, checkout, support, and delivery work without removed biometric paths.
-- [ ] Rollback steps are documented and dry-validated.
+- [ ] The release-gate PR is approved and merged; the protected workflow runs from the resulting exact `main` SHA.
+- [ ] Vercel Production is `READY`, contains that exact approved SHA, and the production domain aliases the same deployment ID.
+- [ ] Production API smoke passes against that domain with correlated batch/source/session/database state and negative authorization/scope cases.
+- [ ] Required Vercel variable names and independent GitHub Actions secret names exist and preflight passes without revealing values.
+- [ ] Every release migration is applied in order, the checksum ledger matches, an idempotent rerun passes, and comprehensive schema/RLS/policy/grant verification contains no `false`.
+- [ ] The biometric-removal migration and live no-biometric schema/runtime verification pass; registration, login, profile, Discover, checkout, support, and delivery remain operational.
+- [ ] Both real R2 probes pass with exact ETags, retry, ascending completion, size/SHA-256 checks, non-MD5 multipart ETag proof, deletion, and post-delete absence.
+- [ ] The exact EAS cloud build ID, commit, profile, runtime version, channel, distribution, APK SHA-256, and artifact identity are retained.
+- [ ] That exact APK is installed on the target Android phone; installation and SD/USB behavior remain GAP-014/device evidence.
+- [ ] Rollback steps are documented; destructive database recovery remains unverified until the actual Supabase backup/PITR path is dry-validated.
 
 ### GAP-024 — Durable feedback/evaluation/learning loop
 
