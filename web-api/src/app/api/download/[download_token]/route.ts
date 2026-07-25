@@ -5,26 +5,30 @@ import { isUuid } from '@/lib/validate';
 
 export async function GET(
   req: NextRequest,
-  { params }: { params: Promise<{ download_token: string }> }
+  { params }: { params: Promise<{ download_token: string }> },
 ) {
   const limited = await enforceRateLimit(req, 'download', 30, 60);
   if (limited) return limited;
 
-  const { download_token } = await params;
-  if (!isUuid(download_token)) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  const { download_token: downloadToken } = await params;
+  if (!isUuid(downloadToken)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 });
+  }
 
-  const { data: payment } = await supabaseAdmin
+  const { data: payment, error: paymentError } = await supabaseAdmin
     .from('payments')
     .select('id, reel_id, status, reels(storage_path)')
-    .eq('download_token', download_token)
-    .single();
+    .eq('download_token', downloadToken)
+    .maybeSingle();
 
+  if (paymentError) {
+    return NextResponse.json({ error: 'Download authorization unavailable' }, { status: 503 });
+  }
   if (!payment) return NextResponse.json({ error: 'Not found' }, { status: 404 });
   if (payment.status !== 'completed') {
     return NextResponse.json({ error: 'Payment not completed' }, { status: 403 });
   }
 
-  // Supabase infers a joined relation as an array; normalize to a single row.
   const reel = (payment.reels as unknown) as
     | { storage_path: string | null }
     | { storage_path: string | null }[]
@@ -32,19 +36,27 @@ export async function GET(
   const storagePath = Array.isArray(reel) ? reel[0]?.storage_path : reel?.storage_path;
   if (!storagePath) return NextResponse.json({ error: 'File not available' }, { status: 404 });
 
-  const { data: signed } = await supabaseAdmin.storage
+  const { data: signed, error: signedError } = await supabaseAdmin.storage
     .from('reels')
-    .createSignedUrl(storagePath, 900); // 15 minutes — short-lived to limit URL-leak window
+    .createSignedUrl(storagePath, 900);
 
-  if (!signed?.signedUrl) {
+  if (signedError || !signed?.signedUrl) {
     return NextResponse.json({ error: 'Could not generate download URL' }, { status: 500 });
   }
 
-  await supabaseAdmin.from('analytics_events').insert({
-    event_type: 'download_completed',
-    reel_id: payment.reel_id,
-    payment_id: payment.id,
-  });
+  const { error: analyticsError } = await supabaseAdmin
+    .from('analytics_events')
+    .upsert({
+      event_type: 'download_completed',
+      reel_id: payment.reel_id,
+      payment_id: payment.id,
+    }, {
+      onConflict: 'payment_id,event_type',
+      ignoreDuplicates: true,
+    });
+  if (analyticsError) {
+    console.warn('download_completed analytics upsert failed', analyticsError.message);
+  }
 
-  return NextResponse.json({ downloadUrl: signed.signedUrl });
+  return NextResponse.json({ downloadUrl: signed.signedUrl, expires_in_seconds: 900 });
 }
