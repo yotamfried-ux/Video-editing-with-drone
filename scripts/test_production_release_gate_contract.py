@@ -77,6 +77,38 @@ def main() -> int:
     forbid(workflow, ["continue-on-error: true", "|| true", "if-no-files-found: ignore"], "release workflow")
 
     require(
+        workflow,
+        [
+            "eas-version: 18.9.1",
+            "Verify pinned EAS CLI supports exact build-ID download",
+            '[[ "$EAS_VERSION" == \'18.9.1\' ]]',
+            "Expected EAS CLI 18.9.1",
+            "eas build:download --help | grep -q -- '--build-id'",
+            "Pinned EAS CLI does not support build:download --build-id.",
+            'eas build:download --build-id "${{ steps.eas-build.outputs.build_id }}"',
+        ],
+        "supported EAS build-ID download pairing",
+    )
+    forbid(
+        workflow,
+        [
+            "eas-version: 18.8.1",
+            "eas build:download --id ",
+        ],
+        "unsupported EAS build download pairing",
+    )
+    require_order(
+        workflow,
+        [
+            "Setup EAS from Expo's official GitHub Action",
+            "Verify pinned EAS CLI supports exact build-ID download",
+            "Build Android preview in EAS and capture build ID",
+            "Download exact EAS APK by build ID",
+        ],
+        "EAS compatibility preflight order",
+    )
+
+    require(
         migration_runner,
         [
             'required("SUPABASE_DB_URL")',
