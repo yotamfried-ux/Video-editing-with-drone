@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -76,10 +77,24 @@ def main() -> int:
             row,
             ("runtimeVersion",),
             ("runtime_version",),
+            ("runtime", "version"),
             ("metadata", "runtimeVersion"),
         ) or "").strip()
-        channel = str(nested(row, ("channel",), ("metadata", "channel")) or "").strip()
+        channel = str(nested(
+            row,
+            ("channel",),
+            ("updateChannel", "name"),
+            ("update_channel", "name"),
+            ("metadata", "channel"),
+        ) or "").strip()
         distribution = str(row.get("distribution") or "").upper()
+        artifact_url = str(nested(
+            row,
+            ("artifacts", "applicationArchiveUrl"),
+            ("artifacts", "buildUrl"),
+            ("applicationArchiveUrl",),
+            ("buildUrl",),
+        ) or "").strip()
 
         if not build_id:
             raise RuntimeError("EAS build output has no build ID")
@@ -97,6 +112,16 @@ def main() -> int:
             raise RuntimeError(f"EAS build channel mismatch: expected preview, got {channel or 'missing'}")
         if distribution != "INTERNAL":
             raise RuntimeError(f"EAS build distribution is not internal: {distribution or 'missing'}")
+        parsed_artifact_url = urllib.parse.urlsplit(artifact_url)
+        if parsed_artifact_url.scheme != "https" or not parsed_artifact_url.netloc or not parsed_artifact_url.path:
+            raise RuntimeError("EAS build output has no valid HTTPS application archive URL")
+        redacted_artifact_url = urllib.parse.urlunsplit((
+            parsed_artifact_url.scheme,
+            parsed_artifact_url.netloc,
+            parsed_artifact_url.path,
+            "",
+            "",
+        ))
 
         apk = Path(args.apk)
         if not apk.is_file() or apk.stat().st_size <= 0:
@@ -114,6 +139,8 @@ def main() -> int:
             "artifact_filename": apk.name,
             "artifact_size_bytes": apk.stat().st_size,
             "artifact_sha256": digest,
+            "artifact_url_redacted": redacted_artifact_url,
+            "artifact_url_query_recorded": False,
             "result": "success",
         })
         write_evidence(evidence_path, evidence)
