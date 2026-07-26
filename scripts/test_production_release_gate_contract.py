@@ -29,6 +29,12 @@ def require_order(source: str, tokens: list[str], label: str) -> None:
         raise AssertionError(f"{label} has unsafe order: {tokens}")
 
 
+def require_min_count(source: str, token: str, minimum: int, label: str) -> None:
+    count = source.count(token)
+    if count < minimum:
+        raise AssertionError(f"{label} expected at least {minimum} occurrences of {token!r}, got {count}")
+
+
 def main() -> int:
     workflow = read(".github/workflows/upload-foundation-release.yml")
     migration_runner = read("scripts/apply_upload_release_migrations.py")
@@ -41,6 +47,7 @@ def main() -> int:
     eas = read("scripts/record_eas_build_evidence.py")
     status_route = read("web-api/src/app/api/operator/upload/multipart/status/route.ts")
     app = read("mobile/app.json")
+    failure_audit = read("docs/audit/production-release-preflight-failure-20260726.md")
 
     require(
         workflow,
@@ -75,6 +82,94 @@ def main() -> int:
         "release job order",
     )
     forbid(workflow, ["continue-on-error: true", "|| true", "if-no-files-found: ignore"], "release workflow")
+
+    require(
+        workflow,
+        [
+            "${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}",
+            "${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}",
+            "${{ secrets.R2_BUCKET || 'sportreel' }}",
+            "${{ secrets.VERCEL_PROJECT_ID || 'video-editing-with-drone' }}",
+            "${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}",
+            "PREFLIGHT_ERRORS",
+            "PREFLIGHT_MISSING_NAMES",
+            "'missing_required_names': sorted(missing)",
+            "'configuration_resolution': {",
+            "'SUPABASE_DB_URL': ['SUPABASE_DB_URL']",
+            "'result': 'failure' if errors or missing else 'success'",
+            "release-preflight.json",
+        ],
+        "release configuration resolution and failure evidence",
+    )
+    require_min_count(
+        workflow,
+        "${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}",
+        4,
+        "R2 access-key fallback coverage",
+    )
+    require_min_count(
+        workflow,
+        "${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}",
+        4,
+        "R2 secret-key fallback coverage",
+    )
+    require_min_count(
+        workflow,
+        "${{ secrets.R2_BUCKET || 'sportreel' }}",
+        5,
+        "R2 bucket fallback coverage",
+    )
+    require_min_count(
+        workflow,
+        "${{ secrets.VERCEL_PROJECT_ID || 'video-editing-with-drone' }}",
+        2,
+        "Vercel project fallback coverage",
+    )
+    require_min_count(
+        workflow,
+        "${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}",
+        2,
+        "operator-secret fallback coverage",
+    )
+    require_min_count(
+        workflow,
+        "SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}",
+        3,
+        "Supabase database URL remains explicit",
+    )
+    forbid(
+        workflow,
+        [
+            "R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}",
+            "R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}",
+            "R2_BUCKET: ${{ secrets.R2_BUCKET }}",
+            "VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}",
+            "PRODUCTION_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET }}",
+        ],
+        "unresolved direct-only production configuration",
+    )
+    require_order(
+        workflow,
+        [
+            "PREFLIGHT_MISSING_NAMES=$(IFS=','; echo",
+            "Path(os.environ['RUNNER_TEMP'], 'release-preflight.json').write_text",
+            "if (( ${#errors[@]} > 0 || ${#missing[@]} > 0 )); then",
+            "exit 1",
+        ],
+        "preflight failure artifact before blocking exit",
+    )
+
+    require(
+        failure_audit,
+        [
+            "30186532868",
+            "27e0b2625b5379ff35c00434102ba226d7246c6d",
+            "SUPABASE_DB_URL",
+            "No production mutation occurred",
+            "GAP-023 remains open",
+        ],
+        "failed production preflight audit",
+    )
 
     require(
         workflow,

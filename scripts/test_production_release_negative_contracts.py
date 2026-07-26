@@ -22,6 +22,12 @@ def require(source: str, tokens: list[str], label: str) -> None:
         raise AssertionError(f"{label} missing negative gates: {missing}")
 
 
+def require_order(source: str, tokens: list[str], label: str) -> None:
+    positions = [source.index(token) for token in tokens]
+    if positions != sorted(positions):
+        raise AssertionError(f"{label} has unsafe order: {tokens}")
+
+
 def expect_failure(command: list[str], env: dict[str, str], label: str) -> None:
     completed = subprocess.run(command, cwd=ROOT, env=env, text=True, capture_output=True, check=False)
     if completed.returncode == 0:
@@ -41,6 +47,10 @@ def main() -> int:
         "Missing required GitHub Actions secret/variable names",
         "confirm_release must equal RELEASE",
         "confirm_biometric_removal must equal REMOVE_BIOMETRICS",
+        "'missing_required_names': sorted(missing)",
+        "'validation_errors': errors",
+        "'result': 'failure' if errors or missing else 'success'",
+        "'secret_values_recorded': False",
         "Upload release schema verifier returned false",
         "Core schema or biometric-removal verifier returned false",
         "needs: verify-production-deployment",
@@ -50,7 +60,14 @@ def main() -> int:
         "Expected EAS CLI 18.9.1",
         "Pinned EAS CLI does not support build:download --build-id.",
         "if-no-files-found: error",
-    ], "workflow fail-closed ordering and EAS compatibility")
+    ], "workflow fail-closed ordering, evidence, and EAS compatibility")
+    require_order(workflow, [
+        "PREFLIGHT_MISSING_NAMES=$(IFS=','; echo",
+        "Path(os.environ['RUNNER_TEMP'], 'release-preflight.json').write_text",
+        "if (( ${#errors[@]} > 0 || ${#missing[@]} > 0 )); then",
+        "exit 1",
+        "Publish preflight evidence",
+    ], "preflight evidence is written before the blocking exit and artifact publication")
     require(schema, [
         "constraint:source_uploads_status_check",
         "rls:source_uploads",
