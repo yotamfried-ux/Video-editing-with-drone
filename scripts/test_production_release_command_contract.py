@@ -34,7 +34,7 @@ def require(source: str, tokens: list[str], label: str) -> None:
 def forbid(source: str, tokens: list[str], label: str) -> None:
     present = [token for token in tokens if token in source]
     if present:
-        raise AssertionError(f"{label} contains unsafe patterns: {present}")
+        raise AssertionError(f"{label} contains forbidden patterns: {present}")
 
 
 def valid_payload(sha: str) -> dict:
@@ -87,7 +87,8 @@ def main() -> int:
             "contents: read",
             "issues: write",
             "actions: write",
-            "group: upload-foundation-production-release",
+            "group: sportreel-production-release-command",
+            "queue: max",
             "cancel-in-progress: false",
             "github.event.issue.number == 199",
             "github.event.issue.pull_request == null",
@@ -126,8 +127,10 @@ def main() -> int:
             "/git/ref/heads/main",
             "/actions/workflows/{RELEASE_WORKFLOW}/dispatches",
             "/actions/runs/{run_id}/cancel",
-            "ALLOWED_HELD_STATUSES",
-            "shared production concurrency group",
+            "ALLOWED_ACTIVE_STATUSES",
+            "active_release_runs",
+            "another protected production release is already active",
+            "update_issue_comment",
             '"secret_values_recorded": False',
         ],
         "command implementation",
@@ -137,7 +140,7 @@ def main() -> int:
         [
             "Issue #199",
             "workflow_dispatch",
-            "shared concurrency group",
+            "queue: max",
             "GAP-023 remains open",
         ],
         "focused audit",
@@ -151,6 +154,7 @@ def main() -> int:
             "GITHUB_DISPATCH_TOKEN",
             "continue-on-error: true",
             "|| true",
+            "/issues/{issue_number}/comments",
         ],
         "release command surface",
     )
@@ -219,27 +223,27 @@ def main() -> int:
         "path": ".github/workflows/upload-foundation-release.yml@refs/heads/main",
         "html_url": "https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/123",
     }
-    verified = module.verify_held_release_run(good_run, sha)
+    verified = module.verify_release_run(good_run, sha)
     if verified["run_id"] != 123:
-        raise AssertionError("valid held release run was not preserved")
+        raise AssertionError("valid active release run was not preserved")
 
     for field, value in [
         ("head_sha", "b" * 40),
         ("head_branch", "feature"),
         ("event", "push"),
-        ("status", "in_progress"),
+        ("status", "completed"),
         ("conclusion", "success"),
         ("path", ".github/workflows/other.yml@refs/heads/main"),
     ]:
         bad = dict(good_run)
         bad[field] = value
         try:
-            module.verify_held_release_run(bad, sha)
+            module.verify_release_run(bad, sha)
         except module.CommandError:
             continue
         raise AssertionError(f"unsafe release run was accepted: {field}={value}")
 
-    print("PASS: owner-only production release command is exact-main, fixed-input, and fail-closed")
+    print("PASS: owner-only production release command is exact-main, serialized, fixed-input, and fail-closed")
     return 0
 
 
