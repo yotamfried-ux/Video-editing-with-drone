@@ -10,7 +10,8 @@ permissions:
   actions: write
 
 concurrency:
-  group: upload-foundation-production-release
+  group: sportreel-production-release-command
+  queue: max
   cancel-in-progress: false
 
 jobs:
