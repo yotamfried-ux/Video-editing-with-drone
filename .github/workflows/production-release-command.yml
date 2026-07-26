@@ -1,0 +1,53 @@
+name: SportReel Production Release Command
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: upload-foundation-production-release
+  cancel-in-progress: false
+
+jobs:
+  authorize-and-dispatch:
+    if: >-
+      github.repository == 'yotamfried-ux/Video-editing-with-drone' &&
+      github.event.issue.number == 199 &&
+      github.event.issue.pull_request == null &&
+      startsWith(github.event.comment.body, '/sportreel-production-release ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate command implementation syntax
+        run: python -m py_compile scripts/production_release_command.py
+
+      - name: Authorize exact-main command and dispatch protected release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          python scripts/production_release_command.py
+          --event "$GITHUB_EVENT_PATH"
+          --evidence "$RUNNER_TEMP/production-release-command-evidence.json"
+
+      - name: Publish sanitized command evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-release-command-${{ github.event.comment.id }}
+          path: ${{ runner.temp }}/production-release-command-evidence.json
+          if-no-files-found: error
+          retention-days: 30
