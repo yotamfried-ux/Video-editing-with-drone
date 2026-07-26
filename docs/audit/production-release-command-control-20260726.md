@@ -43,17 +43,11 @@ No PAT, new secret family, secret value, bypass, or alternate workflow is introd
 
 ## Race and concurrency contract
 
-The command workflow and the production release workflow share the exact concurrency group `upload-foundation-production-release` with `cancel-in-progress: false`.
+The command workflow uses its own `sportreel-production-release-command` concurrency group with `queue: max`, so command attempts are serialized instead of replacing one another. Before dispatch, it lists the protected release workflow runs and fails closed if any release is already active.
 
-The dispatcher holds that group while it:
+After dispatch, it verifies the correlated run uses `workflow_dispatch`, `main`, the authorized exact SHA, the protected workflow path, an active status, and no conclusion. Any mismatch cancels the dispatched run and fails.
 
-1. dispatches the release;
-2. obtains the resulting workflow run ID;
-3. verifies the run uses `workflow_dispatch`, `main`, the authorized exact SHA, and the protected workflow path;
-4. verifies the release is still queued/pending/requested/waiting and has not started while the dispatcher owns the shared concurrency group;
-5. cancels the release and fails if any identity or held-state check does not match.
-
-Only after successful verification does the dispatcher finish and release the concurrency lock, allowing the protected release workflow to begin.
+The command result is written by editing the original command comment. The workflow listens only for newly created comments, so its acknowledgement cannot create another dispatcher run or displace a pending release.
 
 ## Evidence
 
@@ -63,7 +57,7 @@ Every command attempt on the control issue that reaches validation writes a 30-d
 - authorized exact main SHA;
 - fixed non-secret inputs;
 - current-main verification;
-- correlated workflow run ID, URL, path, event, branch, head SHA, and held status;
+- active-run precheck plus correlated workflow run ID, URL, path, event, branch, head SHA, and post-dispatch status;
 - sanitized failure and cancellation evidence when applicable;
 - `secret_values_recorded=false`.
 
@@ -76,4 +70,4 @@ This control surface is foundation and operational-access work only. **GAP-023 r
 - GitHub Actions `issue_comment` events execute from the default branch and require the workflow file to exist on that branch.
 - GitHub's workflow-dispatch REST endpoint requires Actions write permission and accepts the workflow ref and declared inputs.
 - Events created with `GITHUB_TOKEN` normally do not start workflows, but `workflow_dispatch` and `repository_dispatch` are documented exceptions.
-- Repository-wide concurrency groups hold workflows from different files when they use the same group name.
+- GitHub concurrency `queue: max` serializes multiple pending command runs instead of replacing an existing pending run.
