@@ -4,9 +4,11 @@ on:
   pull_request:
     paths:
       - '.github/workflows/large-upload-foundation-check.yml'
+      - '.github/workflows/production-release-command.yml'
       - '.github/workflows/upload-foundation-release.yml'
       - 'docs/app-pipeline-audit.md'
       - 'docs/audit/drone-large-upload-experiment-entry-plan-20260723.md'
+      - 'docs/audit/production-release-command-control-20260726.md'
       - 'docs/audit/production-release-gate-20260724.md'
       - 'mobile/app.json'
       - 'mobile/modules/sportreel-source-reader/**'
@@ -18,12 +20,14 @@ on:
       - 'mobile/src/features/operator/lib/uploadQueue.test.ts'
       - 'mobile/src/features/operator/types/contracts.ts'
       - 'scripts/apply_upload_release_migrations.py'
+      - 'scripts/production_release_command.py'
       - 'scripts/record_eas_build_evidence.py'
       - 'scripts/test_batch_scope_contract.py'
       - 'scripts/test_exact_source_upload_dedup_contract.py'
       - 'scripts/test_large_upload_ci_hygiene_contract.py'
       - 'scripts/test_large_upload_foundation_contract.py'
       - 'scripts/test_multi_upload_batch_contract.py'
+      - 'scripts/test_production_release_command_contract.py'
       - 'scripts/test_production_release_gate_contract.py'
       - 'scripts/test_production_release_negative_contracts.py'
       - 'scripts/test_production_upload_api_smoke.py'
@@ -79,6 +83,7 @@ jobs:
         run: |
           python -m py_compile \
             scripts/apply_upload_release_migrations.py \
+            scripts/production_release_command.py \
             scripts/record_eas_build_evidence.py \
             scripts/test_production_upload_api_smoke.py \
             scripts/test_real_r2_multipart_upload.py \
@@ -89,6 +94,7 @@ jobs:
           python scripts/test_large_upload_foundation_contract.py
           python scripts/test_upload_batch_verified_gate_contract.py
           python scripts/test_upload_foundation_release_contract.py
+          python scripts/test_production_release_command_contract.py
           python scripts/test_production_release_gate_contract.py
           python scripts/test_production_release_negative_contracts.py
           python scripts/test_multi_upload_batch_contract.py
