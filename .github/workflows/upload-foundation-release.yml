@@ -41,13 +41,13 @@ jobs:
     env:
       SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
       R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID || 'video-editing-with-drone' }}
       VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
-      PRODUCTION_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET }}
+      PRODUCTION_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       R2_BROWSER_UPLOAD_ORIGIN: ${{ inputs.browser_upload_origin }}
@@ -60,10 +60,12 @@ jobs:
       - name: Verify required secret and variable names without printing values
         run: |
           set -euo pipefail
-          [[ "${{ github.ref }}" == 'refs/heads/main' ]] || { echo 'Release must run from main.' >&2; exit 1; }
-          [[ "${{ inputs.confirm_release }}" == 'RELEASE' ]] || { echo 'confirm_release must equal RELEASE.' >&2; exit 1; }
-          [[ "${{ inputs.confirm_biometric_removal }}" == 'REMOVE_BIOMETRICS' ]] || { echo 'confirm_biometric_removal must equal REMOVE_BIOMETRICS.' >&2; exit 1; }
-          [[ "$(git rev-parse HEAD)" == "${GITHUB_SHA}" ]] || { echo 'Checked-out commit does not match GITHUB_SHA.' >&2; exit 1; }
+
+          errors=()
+          [[ "${{ github.ref }}" == 'refs/heads/main' ]] || errors+=('Release must run from main.')
+          [[ "${{ inputs.confirm_release }}" == 'RELEASE' ]] || errors+=('confirm_release must equal RELEASE.')
+          [[ "${{ inputs.confirm_biometric_removal }}" == 'REMOVE_BIOMETRICS' ]] || errors+=('confirm_biometric_removal must equal REMOVE_BIOMETRICS.')
+          [[ "$(git rev-parse HEAD)" == "${GITHUB_SHA}" ]] || errors+=('Checked-out commit does not match GITHUB_SHA.')
 
           required=(
             SUPABASE_DB_URL
@@ -83,34 +85,60 @@ jobs:
           if [[ -n "${R2_BROWSER_UPLOAD_ORIGIN}" && -z "${CLOUDFLARE_API_TOKEN}" ]]; then
             missing+=(CLOUDFLARE_API_TOKEN)
           fi
-          if (( ${#missing[@]} > 0 )); then
-            printf 'Missing required GitHub Actions secret/variable names: %s\n' "${missing[*]}" >&2
-            exit 1
-          fi
+
+          export PREFLIGHT_ERRORS
+          export PREFLIGHT_MISSING_NAMES
+          PREFLIGHT_ERRORS=$(IFS='|'; echo "${errors[*]}")
+          PREFLIGHT_MISSING_NAMES=$(IFS=','; echo "${missing[*]}")
 
           python - <<'PY'
-          import json, os
+          import json
+          import os
           from pathlib import Path
-          names = [
+
+          errors = [item for item in os.environ.get('PREFLIGHT_ERRORS', '').split('|') if item]
+          missing = [item for item in os.environ.get('PREFLIGHT_MISSING_NAMES', '').split(',') if item]
+          required = [
               'SUPABASE_DB_URL', 'R2_ACCOUNT_ID', 'R2_ACCESS_KEY_ID',
               'R2_SECRET_ACCESS_KEY', 'R2_BUCKET', 'VERCEL_TOKEN',
               'VERCEL_PROJECT_ID', 'PRODUCTION_OPERATOR_SECRET', 'EXPO_TOKEN',
           ]
           if os.environ.get('R2_BROWSER_UPLOAD_ORIGIN'):
-              names.append('CLOUDFLARE_API_TOKEN')
+              required.append('CLOUDFLARE_API_TOKEN')
+          present = sorted(set(required) - set(missing))
           evidence = {
               'protocol': 'production_release_preflight_v1',
               'commit': os.environ['GITHUB_SHA'],
               'ref': os.environ['GITHUB_REF'],
-              'required_names_present': sorted(names),
+              'required_names_present': present,
+              'missing_required_names': sorted(missing),
+              'validation_errors': errors,
+              'configuration_resolution': {
+                  'R2_ACCESS_KEY_ID': ['R2_ACCESS_KEY_ID', 'ACCESS_KEY_ID'],
+                  'R2_SECRET_ACCESS_KEY': ['R2_SECRET_ACCESS_KEY', 'SECRET_KEY_ID'],
+                  'R2_BUCKET': ['R2_BUCKET', 'default:sportreel'],
+                  'VERCEL_PROJECT_ID': ['VERCEL_PROJECT_ID', 'default:video-editing-with-drone'],
+                  'PRODUCTION_OPERATOR_SECRET': ['PRODUCTION_OPERATOR_SECRET', 'OPERATOR_SECRET'],
+                  'SUPABASE_DB_URL': ['SUPABASE_DB_URL'],
+              },
               'secret_values_recorded': False,
               'browser_upload_origin_configured': bool(os.environ.get('R2_BROWSER_UPLOAD_ORIGIN')),
-              'result': 'success',
+              'result': 'failure' if errors or missing else 'success',
           }
           Path(os.environ['RUNNER_TEMP'], 'release-preflight.json').write_text(
               json.dumps(evidence, indent=2, sort_keys=True), encoding='utf-8'
           )
           PY
+
+          if (( ${#errors[@]} > 0 )); then
+            printf '%s\n' "${errors[@]}" >&2
+          fi
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing required GitHub Actions secret/variable names: %s\n' "${missing[*]}" >&2
+          fi
+          if (( ${#errors[@]} > 0 || ${#missing[@]} > 0 )); then
+            exit 1
+          fi
 
       - name: Publish preflight evidence
         if: always()
@@ -138,7 +166,7 @@ jobs:
       - name: Verify production deployment and alias
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID || 'video-editing-with-drone' }}
           VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
           VERCEL_PRODUCTION_DOMAIN: ${{ inputs.production_domain }}
           EXPECTED_MINIMUM_COMMIT: ${{ github.sha }}
@@ -242,7 +270,7 @@ jobs:
       - name: Verify narrow R2 CORS only when a browser origin is configured
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           R2_BROWSER_UPLOAD_ORIGIN: ${{ inputs.browser_upload_origin }}
           R2_CORS_EVIDENCE_PATH: ${{ runner.temp }}/r2-cors-evidence.json
@@ -264,10 +292,10 @@ jobs:
       - name: Probe R2 through SportReel Web API signing code
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           R2_STORAGE_MODULE: ${{ runner.temp }}/web-api-r2-signer/r2-storage.js
           R2_WEB_API_EVIDENCE_PATH: ${{ runner.temp }}/web-api-r2-signer-evidence.json
         run: node scripts/test_real_web_api_r2_signer.cjs
@@ -275,10 +303,10 @@ jobs:
         if: always()
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           R2_WEB_API_EVIDENCE_PATH: ${{ runner.temp }}/web-api-r2-signer-evidence.json
         run: |
           python - <<'PY'
@@ -327,10 +355,10 @@ jobs:
       - name: Upload, retry, complete, hash-check, and remove independent probe object
         env:
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           R2_PROBE_SIZE_MIB: '11'
           R2_PROBE_EVIDENCE_PATH: ${{ runner.temp }}/r2-multipart-evidence.json
         run: python scripts/test_real_r2_multipart_upload.py
@@ -364,7 +392,7 @@ jobs:
       - name: Run authenticated, negative, correlation, abort, DB, and cleanup smoke
         env:
           PRODUCTION_API_BASE_URL: https://${{ inputs.production_domain }}
-          PRODUCTION_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET }}
+          PRODUCTION_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
           SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
           PRODUCTION_SMOKE_EVIDENCE_PATH: ${{ runner.temp }}/production-upload-smoke.json
         run: python scripts/test_production_upload_api_smoke.py
