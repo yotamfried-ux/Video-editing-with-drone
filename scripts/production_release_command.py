@@ -12,7 +12,6 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import asdict, dataclass
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +25,7 @@ RELEASE_WORKFLOW = "upload-foundation-release.yml"
 API_VERSION = "2026-03-10"
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 ALLOWED_ACTIVE_STATUSES = {"in_progress", "pending", "queued", "requested", "waiting"}
+ALLOWED_RUN_STATUSES = ALLOWED_ACTIVE_STATUSES | {"completed"}
 
 
 class CommandError(RuntimeError):
@@ -196,71 +196,67 @@ class GitHubClient:
             and str(row.get("status") or "") in ALLOWED_ACTIVE_STATUSES
         ]
 
-    def dispatch_release(self) -> tuple[int | None, datetime]:
-        started_at = datetime.now(timezone.utc)
-        status, payload = self.request(
+    def dispatch_release(self) -> int:
+        _, payload = self.request(
             "POST",
             f"/repos/{self.repository}/actions/workflows/{RELEASE_WORKFLOW}/dispatches",
-            body={"ref": "main", "inputs": release_inputs()},
-            expected=(200, 204),
+            body={
+                "ref": "main",
+                "inputs": release_inputs(),
+                "return_run_details": True,
+            },
+            expected=(200,),
         )
-        if status == 200:
-            response = _as_dict(payload, "workflow dispatch response")
-            run_id = _as_int(response.get("workflow_run_id"), "workflow_run_id")
-            if run_id <= 0:
-                raise CommandError("workflow dispatch returned an invalid run ID")
-            return run_id, started_at
-        return None, started_at
-
-    def find_dispatched_run(self, *, expected_sha: str, started_at: datetime) -> int:
-        threshold = started_at - timedelta(seconds=5)
-        query = urllib.parse.urlencode(
-            {"event": "workflow_dispatch", "branch": "main", "per_page": "20"}
-        )
-        for _ in range(15):
-            _, payload = self.request(
-                "GET",
-                f"/repos/{self.repository}/actions/workflows/{RELEASE_WORKFLOW}/runs?{query}",
-            )
-            rows = _as_dict(payload, "workflow runs response").get("workflow_runs")
-            if not isinstance(rows, list):
-                raise CommandError("workflow runs response has no workflow_runs list")
-            candidates: list[dict[str, Any]] = []
-            for row in rows:
-                if not isinstance(row, dict):
-                    continue
-                created_raw = str(row.get("created_at") or "")
-                try:
-                    created_at = datetime.fromisoformat(created_raw.replace("Z", "+00:00"))
-                except ValueError:
-                    continue
-                if created_at < threshold:
-                    continue
-                if str(row.get("head_sha") or "").lower() != expected_sha:
-                    continue
-                if row.get("event") != "workflow_dispatch":
-                    continue
-                candidates.append(row)
-            if len(candidates) == 1:
-                return _as_int(candidates[0].get("id"), "workflow run id")
-            if len(candidates) > 1:
-                raise CommandError("workflow dispatch fallback found multiple matching runs")
-            time.sleep(2)
-        raise CommandError("workflow dispatch did not expose a correlated run ID")
+        response = _as_dict(payload, "workflow dispatch response")
+        run_id = _as_int(response.get("workflow_run_id"), "workflow_run_id")
+        if run_id <= 0:
+            raise CommandError("workflow dispatch returned an invalid run ID")
+        return run_id
 
     def get_run(self, run_id: int) -> dict[str, Any]:
         _, payload = self.request("GET", f"/repos/{self.repository}/actions/runs/{run_id}")
         return _as_dict(payload, "workflow run response")
 
-    def cancel_run(self, run_id: int) -> None:
-        try:
-            self.request(
-                "POST",
-                f"/repos/{self.repository}/actions/runs/{run_id}/cancel",
-                expected=(202, 409),
-            )
-        except CommandError:
-            pass
+    def cancel_and_verify(self, run_id: int) -> dict[str, Any]:
+        request_errors: list[str] = []
+        poll_errors: list[str] = []
+        for attempt in range(1, 4):
+            try:
+                self.request(
+                    "POST",
+                    f"/repos/{self.repository}/actions/runs/{run_id}/cancel",
+                    expected=(202, 409),
+                )
+            except CommandError as exc:
+                request_errors.append(f"attempt {attempt}: {exc}")
+
+            for poll in range(1, 11):
+                try:
+                    run = self.get_run(run_id)
+                except CommandError as exc:
+                    poll_errors.append(f"attempt {attempt} poll {poll}: {exc}")
+                    time.sleep(2)
+                    continue
+                status = str(run.get("status") or "")
+                conclusion = run.get("conclusion")
+                if status == "completed":
+                    if conclusion != "cancelled":
+                        raise CommandError(
+                            f"release run {run_id} completed as {conclusion!r} instead of cancelled"
+                        )
+                    return {
+                        "run_id": run_id,
+                        "verified": True,
+                        "status": status,
+                        "conclusion": conclusion,
+                        "cancel_request_errors": request_errors,
+                        "poll_errors": poll_errors,
+                    }
+                time.sleep(2)
+
+        errors = request_errors + poll_errors
+        detail = "; ".join(errors) if errors else "cancel never reached terminal state"
+        raise CommandError(f"release run {run_id} cancellation was not verified: {detail}")
 
     def add_reaction(self, comment_id: int) -> None:
         self.request(
@@ -297,8 +293,12 @@ def verify_release_run(run: dict[str, Any], expected_sha: str) -> dict[str, Any]
         raise CommandError("dispatched release run event is not workflow_dispatch")
     if RELEASE_WORKFLOW not in path:
         raise CommandError("dispatched run does not use the protected release workflow")
-    if status not in ALLOWED_ACTIVE_STATUSES or conclusion is not None:
-        raise CommandError("dispatched release run is not active or already has a conclusion")
+    if status not in ALLOWED_RUN_STATUSES:
+        raise CommandError("dispatched release run has an unknown status")
+    if status == "completed" and conclusion is None:
+        raise CommandError("completed release run has no conclusion")
+    if status != "completed" and conclusion is not None:
+        raise CommandError("active release run already has a conclusion")
     if not html_url.startswith("https://github.com/"):
         raise CommandError("dispatched release run has no canonical GitHub URL")
 
@@ -362,12 +362,7 @@ def main() -> int:
         if active_before:
             raise CommandError("another protected production release is already active")
 
-        run_id, started_at = client.dispatch_release()
-        if run_id is None:
-            run_id = client.find_dispatched_run(
-                expected_sha=command.expected_main_sha,
-                started_at=started_at,
-            )
+        run_id = client.dispatch_release()
 
         run: dict[str, Any] | None = None
         for _ in range(15):
@@ -380,25 +375,48 @@ def main() -> int:
 
         release = verify_release_run(run, command.expected_main_sha)
         evidence["release_run"] = release
+
+        acknowledgement: dict[str, Any] = {}
+        try:
+            client.add_reaction(command.comment_id)
+            acknowledgement["reaction"] = "success"
+        except Exception as exc:
+            acknowledgement["reaction"] = "failed"
+            acknowledgement["reaction_error"] = f"{type(exc).__name__}: {exc}"
+
+        try:
+            client.update_issue_comment(
+                command.comment_id,
+                f"{command.command}\n\n"
+                "✅ Protected production release command accepted.\n\n"
+                f"Workflow run: {release['run_url']}\n\n"
+                "The existing release workflow retains its fixed inputs and all fail-closed gates.",
+            )
+            acknowledgement["comment_update"] = "success"
+        except Exception as exc:
+            acknowledgement["comment_update"] = "failed"
+            acknowledgement["comment_update_error"] = f"{type(exc).__name__}: {exc}"
+
+        evidence["acknowledgement"] = acknowledgement
         evidence["result"] = "success"
         write_evidence(args.evidence, evidence)
 
-        client.add_reaction(command.comment_id)
-        client.update_issue_comment(
-            command.comment_id,
-            f"{command.command}\n\n"
-            "✅ Protected production release command accepted.\n\n"
-            f"Workflow run: {release['run_url']}\n\n"
-            "The existing release workflow retains its fixed inputs and all fail-closed gates.",
-        )
         print(f"Dispatched protected production release run {run_id} for {command.expected_main_sha}")
         return 0
     except Exception as exc:
-        if run_id is not None and client is not None:
-            client.cancel_run(run_id)
-            evidence["cancel_requested_for_run_id"] = run_id
+        evidence["result"] = "failed"
         evidence["error_type"] = type(exc).__name__
         evidence["error"] = str(exc)
+        if run_id is not None and client is not None:
+            try:
+                evidence["cancellation"] = client.cancel_and_verify(run_id)
+            except Exception as cancel_exc:
+                evidence["cancellation"] = {
+                    "run_id": run_id,
+                    "verified": False,
+                    "error_type": type(cancel_exc).__name__,
+                    "error": str(cancel_exc),
+                }
         write_evidence(args.evidence, evidence)
         if command is not None and client is not None:
             try:
