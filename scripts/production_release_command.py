@@ -25,7 +25,7 @@ EXPECTED_REF = "refs/heads/main"
 RELEASE_WORKFLOW = "upload-foundation-release.yml"
 API_VERSION = "2026-03-10"
 SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
-ALLOWED_HELD_STATUSES = {"queued", "pending", "requested", "waiting"}
+ALLOWED_ACTIVE_STATUSES = {"in_progress", "pending", "queued", "requested", "waiting"}
 
 
 class CommandError(RuntimeError):
@@ -180,6 +180,22 @@ class GitHubClient:
             raise CommandError("GitHub main ref returned an invalid commit SHA")
         return value
 
+    def active_release_runs(self) -> list[dict[str, Any]]:
+        query = urllib.parse.urlencode({"per_page": "20"})
+        _, payload = self.request(
+            "GET",
+            f"/repos/{self.repository}/actions/workflows/{RELEASE_WORKFLOW}/runs?{query}",
+        )
+        rows = _as_dict(payload, "workflow runs response").get("workflow_runs")
+        if not isinstance(rows, list):
+            raise CommandError("workflow runs response has no workflow_runs list")
+        return [
+            row
+            for row in rows
+            if isinstance(row, dict)
+            and str(row.get("status") or "") in ALLOWED_ACTIVE_STATUSES
+        ]
+
     def dispatch_release(self) -> tuple[int | None, datetime]:
         started_at = datetime.now(timezone.utc)
         status, payload = self.request(
@@ -198,7 +214,9 @@ class GitHubClient:
 
     def find_dispatched_run(self, *, expected_sha: str, started_at: datetime) -> int:
         threshold = started_at - timedelta(seconds=5)
-        query = urllib.parse.urlencode({"event": "workflow_dispatch", "branch": "main", "per_page": "20"})
+        query = urllib.parse.urlencode(
+            {"event": "workflow_dispatch", "branch": "main", "per_page": "20"}
+        )
         for _ in range(15):
             _, payload = self.request(
                 "GET",
@@ -252,16 +270,16 @@ class GitHubClient:
             expected=(200, 201),
         )
 
-    def add_issue_comment(self, issue_number: int, body: str) -> None:
+    def update_issue_comment(self, comment_id: int, body: str) -> None:
         self.request(
-            "POST",
-            f"/repos/{self.repository}/issues/{issue_number}/comments",
+            "PATCH",
+            f"/repos/{self.repository}/issues/comments/{comment_id}",
             body={"body": body},
-            expected=(201,),
+            expected=(200,),
         )
 
 
-def verify_held_release_run(run: dict[str, Any], expected_sha: str) -> dict[str, Any]:
+def verify_release_run(run: dict[str, Any], expected_sha: str) -> dict[str, Any]:
     run_id = _as_int(run.get("id"), "workflow run id")
     head_sha = str(run.get("head_sha") or "").lower()
     head_branch = run.get("head_branch")
@@ -279,8 +297,8 @@ def verify_held_release_run(run: dict[str, Any], expected_sha: str) -> dict[str,
         raise CommandError("dispatched release run event is not workflow_dispatch")
     if RELEASE_WORKFLOW not in path:
         raise CommandError("dispatched run does not use the protected release workflow")
-    if status not in ALLOWED_HELD_STATUSES or conclusion is not None:
-        raise CommandError("dispatched release run was not held by the shared production concurrency group")
+    if status not in ALLOWED_ACTIVE_STATUSES or conclusion is not None:
+        raise CommandError("dispatched release run is not active or already has a conclusion")
     if not html_url.startswith("https://github.com/"):
         raise CommandError("dispatched release run has no canonical GitHub URL")
 
@@ -290,8 +308,8 @@ def verify_held_release_run(run: dict[str, Any], expected_sha: str) -> dict[str,
         "head_sha": head_sha,
         "head_branch": head_branch,
         "event": event,
-        "status_while_dispatcher_held_lock": status,
-        "conclusion_while_dispatcher_held_lock": conclusion,
+        "status_after_dispatch": status,
+        "conclusion_after_dispatch": conclusion,
         "workflow_path": path,
     }
 
@@ -337,6 +355,13 @@ def main() -> int:
         if main_sha != command.expected_main_sha:
             raise CommandError("main changed after the command comment was created")
 
+        active_before = client.active_release_runs()
+        evidence["active_release_run_ids_before_dispatch"] = [
+            _as_int(row.get("id"), "active workflow run id") for row in active_before
+        ]
+        if active_before:
+            raise CommandError("another protected production release is already active")
+
         run_id, started_at = client.dispatch_release()
         if run_id is None:
             run_id = client.find_dispatched_run(
@@ -353,16 +378,16 @@ def main() -> int:
         if run is None:
             raise CommandError("dispatched release run could not be read")
 
-        release = verify_held_release_run(run, command.expected_main_sha)
+        release = verify_release_run(run, command.expected_main_sha)
         evidence["release_run"] = release
         evidence["result"] = "success"
         write_evidence(args.evidence, evidence)
 
         client.add_reaction(command.comment_id)
-        client.add_issue_comment(
-            command.issue_number,
-            "✅ Protected production release command accepted for "
-            f"`{command.expected_main_sha}`.\n\n"
+        client.update_issue_comment(
+            command.comment_id,
+            f"{command.command}\n\n"
+            "✅ Protected production release command accepted.\n\n"
             f"Workflow run: {release['run_url']}\n\n"
             "The existing release workflow retains its fixed inputs and all fail-closed gates.",
         )
@@ -377,11 +402,11 @@ def main() -> int:
         write_evidence(args.evidence, evidence)
         if command is not None and client is not None:
             try:
-                client.add_issue_comment(
-                    command.issue_number,
-                    "❌ Protected production release command failed closed for "
-                    f"`{command.expected_main_sha}`. No validation was bypassed. "
-                    "Inspect the command-dispatch workflow artifact and logs.",
+                client.update_issue_comment(
+                    command.comment_id,
+                    f"{command.command}\n\n"
+                    "❌ Protected production release command failed closed. "
+                    "No validation was bypassed. Inspect the command-dispatch workflow artifact and logs.",
                 )
             except Exception:
                 pass
