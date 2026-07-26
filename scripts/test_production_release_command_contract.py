@@ -127,10 +127,14 @@ def main() -> int:
             "/git/ref/heads/main",
             "/actions/workflows/{RELEASE_WORKFLOW}/dispatches",
             "/actions/runs/{run_id}/cancel",
+            '"return_run_details": True',
+            "cancel_and_verify",
             "ALLOWED_ACTIVE_STATUSES",
             "active_release_runs",
             "another protected production release is already active",
             "update_issue_comment",
+            'evidence["result"] = "failed"',
+            'evidence["result"] = "success"',
             '"secret_values_recorded": False',
         ],
         "command implementation",
@@ -141,6 +145,7 @@ def main() -> int:
             "Issue #199",
             "workflow_dispatch",
             "queue: max",
+            "return_run_details=true",
             "GAP-023 remains open",
         ],
         "focused audit",
@@ -155,6 +160,8 @@ def main() -> int:
             "continue-on-error: true",
             "|| true",
             "/issues/{issue_number}/comments",
+            "find_dispatched_run",
+            "cancel_requested_for_run_id",
         ],
         "release command surface",
     )
@@ -231,7 +238,7 @@ def main() -> int:
         ("head_sha", "b" * 40),
         ("head_branch", "feature"),
         ("event", "push"),
-        ("status", "completed"),
+        ("status", "unknown"),
         ("conclusion", "success"),
         ("path", ".github/workflows/other.yml@refs/heads/main"),
     ]:
@@ -242,6 +249,42 @@ def main() -> int:
         except module.CommandError:
             continue
         raise AssertionError(f"unsafe release run was accepted: {field}={value}")
+
+    completed = dict(good_run)
+    completed["status"] = "completed"
+    completed["conclusion"] = "failure"
+    if module.verify_release_run(completed, sha)["conclusion_after_dispatch"] != "failure":
+        raise AssertionError("correlated fast terminal release was not retained")
+
+    class CancelClient:
+        def __init__(self, terminal_conclusion: str) -> None:
+            self.repository = "yotamfried-ux/Video-editing-with-drone"
+            self.calls = 0
+            self.terminal_conclusion = terminal_conclusion
+
+        def request(self, method, path, *, expected):
+            self.calls += 1
+            if self.calls == 1:
+                raise module.CommandError("transient cancel failure")
+            return 202, None
+
+        def get_run(self, run_id):
+            return {"id": run_id, "status": "completed", "conclusion": self.terminal_conclusion}
+
+    original_sleep = module.time.sleep
+    module.time.sleep = lambda _: None
+    try:
+        cancellation = module.GitHubClient.cancel_and_verify(CancelClient("cancelled"), 123)
+        if not cancellation["verified"] or not cancellation["cancel_request_errors"]:
+            raise AssertionError("verified cancellation did not retain transient request evidence")
+        try:
+            module.GitHubClient.cancel_and_verify(CancelClient("success"), 124)
+        except module.CommandError:
+            pass
+        else:
+            raise AssertionError("non-cancelled terminal release was accepted as cancelled")
+    finally:
+        module.time.sleep = original_sleep
 
     print("PASS: owner-only production release command is exact-main, serialized, fixed-input, and fail-closed")
     return 0
