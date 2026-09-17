@@ -20,8 +20,7 @@ import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import type { OperatorReelRow, OperatorReelsResponse, ReprocessSubmitResponse } from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
-
-const APP_DOMAIN = process.env.EXPO_PUBLIC_APP_DOMAIN ?? 'sportreel.app';
+import { APP_DOMAIN } from '@/shared/lib/publicEnv';
 
 function shortId(id?: string): string {
   return id ? id.slice(0, 8) : 'unknown';
