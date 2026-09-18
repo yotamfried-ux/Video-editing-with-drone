@@ -1,0 +1,20 @@
+name: SportReel Tool Qualification
+run_name: Tool qualification ${{ inputs.build_id }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_id:
+        type: string
+        required: true
+        description: Exact Android EAS build ID tied to the tested commit
+
+jobs:
+  android_maestro:
+    name: Android emulator UI qualification
+    type: maestro
+    image: latest
+    params:
+      build_id: ${{ inputs.build_id }}
+      flow_path:
+        - .maestro/tool-qualification.yaml
