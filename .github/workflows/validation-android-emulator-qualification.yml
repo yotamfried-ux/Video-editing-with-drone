@@ -47,7 +47,7 @@ jobs:
         run: |
           set -euo pipefail
           eas build:download --build-id "$BUILD_ID" --non-interactive
-          APK=$(find /tmp "$RUNNER_TEMP" -type f -name "*$BUILD_ID*.apk" -print -quit 2>/dev/null)
+          APK=$(find /tmp/runner/eas-cli-nodejs/eas-build-run-cache -maxdepth 1 -type f -name "*_$BUILD_ID.apk" -print -quit)
           test -n "$APK"
           cp "$APK" "$RUNNER_TEMP/sportreel.apk"
           sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
