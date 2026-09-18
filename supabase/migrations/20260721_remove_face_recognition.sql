@@ -1,5 +1,9 @@
 -- Remove user face recognition and automatic biometric reel ownership.
 -- This migration is intentionally destructive for biometric data.
+--
+-- NOTE: Storage objects/buckets are removed by scripts/remove_biometric_storage.py
+-- through the supported Supabase Storage API before this SQL migration runs.
+-- The storage schema is intentionally treated as read-only here.
 
 begin;
 
@@ -16,9 +20,5 @@ alter table public.athlete_profiles
 
 alter table public.reels
   drop column if exists matched_athlete cascade;
-
--- Remove uploaded face photos and the dedicated bucket when present.
-delete from storage.objects where bucket_id = 'athlete-photos';
-delete from storage.buckets where id = 'athlete-photos';
 
 commit;

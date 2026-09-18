@@ -38,6 +38,7 @@ def require_min_count(source: str, token: str, minimum: int, label: str) -> None
 def main() -> int:
     workflow = read(".github/workflows/upload-foundation-release.yml")
     migration_runner = read("scripts/apply_upload_release_migrations.py")
+    biometric_storage = read("scripts/remove_biometric_storage.py")
     schema = read("scripts/verify_upload_release_schema.sql")
     membership = read("supabase/migrations/20260723_upload_start_idempotency.sql")
     deploy = read("scripts/verify_production_deployment.py")
@@ -64,6 +65,8 @@ def main() -> int:
             "production-api-smoke:",
             "build-android-preview:",
             "needs: production-api-smoke",
+            "Remove legacy biometric Storage bucket through supported API",
+            "python scripts/remove_biometric_storage.py",
             "if-no-files-found: error",
             "retention-days: 30",
         ],
@@ -201,6 +204,26 @@ def main() -> int:
             "Download exact EAS APK by build ID",
         ],
         "EAS compatibility preflight order",
+    )
+
+    require(
+        biometric_storage,
+        [
+            'BUCKET = "athlete-photos"',
+            'CONFIRMATION = "REMOVE_BIOMETRICS"',
+            '/storage/v1/bucket/',
+            '"POST", empty_url',
+            '"DELETE", bucket_url',
+            '"GET", bucket_url',
+            '"secret_values_recorded": False',
+            "bucket still exists after deletion",
+        ],
+        "biometric Storage API removal",
+    )
+    forbid(
+        read("supabase/migrations/20260721_remove_face_recognition.sql"),
+        ["delete from storage.objects", "delete from storage.buckets"],
+        "biometric migration direct storage mutations",
     )
 
     require(
