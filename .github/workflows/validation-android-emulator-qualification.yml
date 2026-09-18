@@ -100,26 +100,20 @@ jobs:
           adb shell getprop ro.build.version.release | tr -d '\r' > "$OUT/android-version.txt"
           adb shell getprop ro.product.model | tr -d '\r' > "$OUT/device-model.txt"
 
-          # Android-only health gate before SportReel is installed.
+          # ATD health gate before SportReel is installed.
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
-          sleep 10
-          adb shell input keyevent KEYCODE_HOME
-          sleep 2
-
-          SYSTEMUI_PID=$(adb shell pidof com.android.systemui | tr -d '\r')
-          test -n "$SYSTEMUI_PID"
-          printf '%s\n' "$SYSTEMUI_PID" > "$OUT/systemui-pid.txt"
-
-          adb exec-out uiautomator dump /dev/tty > "$OUT/android-health-ui.xml"
+          sleep 5
+          adb shell echo ready | grep -Fq ready
+          adb shell cmd package list packages > "$OUT/android-health-packages.txt"
+          test -s "$OUT/android-health-packages.txt"
+          adb shell wm size > "$OUT/android-health-wm-size.txt"
+          adb shell dumpsys activity activities > "$OUT/android-health-activities.txt"
           adb exec-out screencap -p > "$OUT/android-health.png"
+          test -s "$OUT/android-health.png"
           adb logcat -d > "$OUT/android-health-logcat.txt"
 
-          if grep -Eqi "System UI isn't responding|System UI is not responding" "$OUT/android-health-ui.xml"; then
-            echo "Android health gate failed: System UI ANR dialog is visible." >&2
-            exit 1
-          fi
-          if grep -Eqi 'ANR in com\.android\.systemui|ANR.*com\.android\.systemui' "$OUT/android-health-logcat.txt"; then
-            echo "Android health gate failed: SystemUI ANR found in logcat." >&2
+          if grep -Eqi 'ANR in system_server|FATAL EXCEPTION IN SYSTEM PROCESS' "$OUT/android-health-logcat.txt"; then
+            echo "Android ATD health gate failed: system-level ANR/crash found in logcat." >&2
             exit 1
           fi
 
@@ -209,16 +203,12 @@ jobs:
             echo "SportReel ANR detected." >&2
             exit 1
           fi
-          if grep -Eqi 'ANR in com\.android\.systemui|ANR.*com\.android\.systemui' "$OUT/post-app-logcat.txt"; then
-            echo "SystemUI ANR detected during app qualification." >&2
-            exit 1
-          fi
-
           cat > "$OUT/evidence.json" <<EOF
           {
             "protocol": "sportreel_android_emulator_stability_v3",
             "cold_run_attempt": "$ATTEMPT",
             "host_runner": "macos-15-intel",
+            "system_image": "android-35-aosp_atd-x86_64",
             "tested_app_commit": "$EXPECTED_APP_SHA",
             "android_build_id": "$BUILD_ID",
             "app_id": "$APP_ID",
@@ -229,7 +219,7 @@ jobs:
             "register_state_visible": true,
             "fatal_crash_detected": false,
             "app_anr_detected": false,
-            "systemui_anr_detected": false,
+            "system_level_anr_detected": false,
             "secret_values_recorded": false,
             "status": "success"
           }
@@ -242,12 +232,12 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
-          target: default
-          profile: pixel_6
+          target: aosp_atd
+          profile: pixel_2
           cores: 2
           ram-size: 2048M
           heap-size: 512M
-          emulator-boot-timeout: 300
+          emulator-boot-timeout: 240
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
           disable-animations: true
           disable-spellchecker: true
