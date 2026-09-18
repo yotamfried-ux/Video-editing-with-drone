@@ -13,6 +13,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.parse
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +30,21 @@ MIGRATIONS = [
 BIOMETRIC_MIGRATION = "20260721_remove_face_recognition.sql"
 CONFIRMATION = "REMOVE_BIOMETRICS"
 
+_LIBPQ_QUERY_ENV = {
+    "sslmode": "PGSSLMODE",
+    "sslcert": "PGSSLCERT",
+    "sslkey": "PGSSLKEY",
+    "sslrootcert": "PGSSLROOTCERT",
+    "sslcrl": "PGSSLCRL",
+    "sslcrldir": "PGSSLCRLDIR",
+    "channel_binding": "PGCHANNELBINDING",
+    "target_session_attrs": "PGTARGETSESSIONATTRS",
+    "application_name": "PGAPPNAME",
+    "options": "PGOPTIONS",
+    "connect_timeout": "PGCONNECT_TIMEOUT",
+    "gssencmode": "PGGSSENCMODE",
+}
+
 
 def required(name: str) -> str:
     value = os.getenv(name, "").strip()
@@ -37,20 +53,61 @@ def required(name: str) -> str:
     return value
 
 
+def libpq_environment(db_url: str) -> dict[str, str]:
+    """Translate a PostgreSQL URI into libpq environment variables.
+
+    Passing the credential-bearing URI on the psql command line risks leaking it through
+    process listings or CalledProcessError text. PGDATABASE cannot be relied on to interpret
+    a full URI consistently across runner/libpq combinations, so populate the individual
+    libpq variables instead.
+    """
+    parsed = urllib.parse.urlsplit(db_url)
+    if parsed.scheme not in {"postgres", "postgresql"}:
+        raise RuntimeError("SUPABASE_DB_URL must use the postgres:// or postgresql:// scheme")
+
+    try:
+        host = parsed.hostname or ""
+        port = parsed.port or 5432
+    except ValueError:
+        raise RuntimeError("SUPABASE_DB_URL contains an invalid host or port") from None
+
+    user = urllib.parse.unquote(parsed.username or "")
+    password = urllib.parse.unquote(parsed.password or "")
+    database = urllib.parse.unquote(parsed.path.lstrip("/"))
+
+    if not host or not user or not password or not database:
+        raise RuntimeError(
+            "SUPABASE_DB_URL must include host, user, password, and database name"
+        )
+
+    environment = {key: value for key, value in os.environ.items() if key != "SUPABASE_DB_URL"}
+    environment.update(
+        {
+            "PGHOST": host,
+            "PGPORT": str(port),
+            "PGUSER": user,
+            "PGPASSWORD": password,
+            "PGDATABASE": database,
+            "PGCONNECT_TIMEOUT": os.getenv("PGCONNECT_TIMEOUT", "15"),
+        }
+    )
+
+    for key, value in urllib.parse.parse_qsl(parsed.query, keep_blank_values=True):
+        env_name = _LIBPQ_QUERY_ENV.get(key)
+        if env_name and value:
+            environment[env_name] = value
+
+    return environment
+
+
 def psql(db_url: str, *args: str, capture: bool = False) -> str:
-    # Keep the credential-bearing URL out of the process argument list and exception text.
-    environment = {
-        **os.environ,
-        "PGDATABASE": db_url,
-        "PGCONNECT_TIMEOUT": os.getenv("PGCONNECT_TIMEOUT", "15"),
-    }
     completed = subprocess.run(
         ["psql", "-v", "ON_ERROR_STOP=1", *args],
         check=True,
         text=True,
         stdout=subprocess.PIPE if capture else None,
         stderr=subprocess.PIPE if capture else None,
-        env=environment,
+        env=libpq_environment(db_url),
     )
     return (completed.stdout or "").strip()
 
@@ -167,11 +224,13 @@ def main() -> int:
         print(f"Migration release gate passed for {len(MIGRATIONS)} tracked files")
         return 0
     except Exception as error:
-        evidence.update({
-            "result": "failure",
-            "error_type": type(error).__name__,
-            "error": str(error),
-        })
+        evidence.update(
+            {
+                "result": "failure",
+                "error_type": type(error).__name__,
+                "error": str(error),
+            }
+        )
         write_evidence(evidence_path, evidence)
         raise
 
