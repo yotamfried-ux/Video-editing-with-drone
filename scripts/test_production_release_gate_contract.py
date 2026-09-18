@@ -235,8 +235,10 @@ def main() -> int:
             "Migration checksum drift",
             "check=True",
             "--check-only",
+            "20260716_add_draft_feedback.sql",
             "20260721_remove_face_recognition.sql",
             "20260723_upload_start_idempotency.sql",
+            "20260918_remove_residual_biometric_functions.sql",
             "sportreel_release_migrations",
         ],
         "migration runner",
@@ -244,6 +246,7 @@ def main() -> int:
     require_order(
         migration_runner,
         [
+            '"20260716_add_draft_feedback.sql"',
             '"20260721_remove_face_recognition.sql"',
             '"20260723_source_upload_exact_dedup.sql"',
             '"20260723_source_upload_multipart_foundation.sql"',
@@ -251,8 +254,20 @@ def main() -> int:
             '"20260723_source_upload_local_cleanup_evidence.sql"',
             '"20260723_upload_batch_verified_gate.sql"',
             '"20260723_upload_start_idempotency.sql"',
+            '"20260918_remove_residual_biometric_functions.sql"',
         ],
         "migration dependency order",
+    )
+
+    require(
+        read("supabase/migrations/20260918_remove_residual_biometric_functions.sql"),
+        [
+            "pg_proc",
+            "pg_namespace",
+            "p.proname = 'match_athlete_face'",
+            "drop function if exists",
+        ],
+        "residual biometric overload cleanup",
     )
 
     require(

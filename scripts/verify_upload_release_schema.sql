@@ -142,15 +142,17 @@ with checks(item, ok) as (
     ('rpc:register_source_upload_batch_membership', to_regprocedure('public.register_source_upload_batch_membership(uuid,text,text)') is not null),
 
     ('migration-ledger:all-release-files', (
-      select count(*) = 7 from public.sportreel_release_migrations
+      select count(*) = 9 from public.sportreel_release_migrations
       where filename in (
+        '20260716_add_draft_feedback.sql',
         '20260721_remove_face_recognition.sql',
         '20260723_source_upload_exact_dedup.sql',
         '20260723_source_upload_multipart_foundation.sql',
         '20260723_single_put_size_evidence.sql',
         '20260723_source_upload_local_cleanup_evidence.sql',
         '20260723_upload_batch_verified_gate.sql',
-        '20260723_upload_start_idempotency.sql'
+        '20260723_upload_start_idempotency.sql',
+        '20260918_remove_residual_biometric_functions.sql'
       )
     )),
 
@@ -163,7 +165,10 @@ with checks(item, ok) as (
     ('removed:reels.matched_athlete', not exists (
       select 1 from information_schema.columns where table_schema='public' and table_name='reels' and column_name='matched_athlete'
     )),
-    ('removed:function:match_athlete_face', to_regprocedure('public.match_athlete_face(jsonb,double precision)') is null),
+    ('removed:function:match_athlete_face', not exists (
+      select 1 from information_schema.routines
+      where routine_schema='public' and routine_name='match_athlete_face'
+    )),
     ('removed:function:cosine_similarity', not exists (
       select 1 from information_schema.routines where routine_schema='public' and routine_name='cosine_similarity'
     )),
