@@ -27,6 +27,7 @@ MIGRATIONS = [
     "20260723_source_upload_local_cleanup_evidence.sql",
     "20260723_upload_batch_verified_gate.sql",
     "20260723_upload_start_idempotency.sql",
+    "20260918_supabase_rate_limit.sql",
     "20260918_remove_residual_biometric_functions.sql",
 ]
 BIOMETRIC_MIGRATIONS = {
