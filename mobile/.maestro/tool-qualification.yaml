@@ -1,0 +1,13 @@
+appId: com.sportreel.app
+---
+- launchApp:
+    clearState: true
+- assertVisible: "Welcome Back"
+- takeScreenshot: tool-01-login
+- tapOn: "Create Account"
+- assertVisible: "Create Account"
+- assertVisible: "Already have an account?"
+- takeScreenshot: tool-01-register
+- tapOn: "Already have an account?"
+- assertVisible: "Welcome Back"
+- takeScreenshot: tool-01-returned-login
