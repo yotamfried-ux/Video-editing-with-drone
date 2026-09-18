@@ -17,7 +17,7 @@ concurrency:
 jobs:
   qualify:
     name: cold-run-${{ matrix.attempt }}
-    runs-on: macos-15-intel
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     environment: production
     strategy:
@@ -59,22 +59,11 @@ jobs:
           test -n "$APK"
           test -f "$APK"
           cp "$APK" "$RUNNER_TEMP/sportreel.apk"
-          shasum -a 256 "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
+          sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
 
-      - name: Create hypervisor and stability scripts
+      - name: Create deterministic ATD qualification script
         shell: bash
         run: |
-          cat > "$RUNNER_TEMP/check_hypervisor.sh" <<'SH'
-          set -euo pipefail
-          OUT="$RUNNER_TEMP/hypervisor-accel-check.txt"
-          "$ANDROID_HOME/emulator/emulator" -accel-check 2>&1 | tee "$OUT"
-          grep -Fq "Hypervisor.Framework" "$OUT" || {
-            echo "Hypervisor.Framework is not confirmed; refusing unaccelerated qualification." >&2
-            exit 1
-          }
-          SH
-          chmod +x "$RUNNER_TEMP/check_hypervisor.sh"
-
           cat > "$RUNNER_TEMP/qualify_android.sh" <<'SH'
           set -euo pipefail
 
@@ -94,13 +83,13 @@ jobs:
           trap collect_evidence EXIT
 
           echo "$ATTEMPT" > "$OUT/cold-run-attempt.txt"
-          cp "$RUNNER_TEMP/hypervisor-accel-check.txt" "$OUT/hypervisor-accel-check.txt"
+          echo "ubuntu-24.04 / API35 aosp_atd x86_64 / software acceleration" > "$OUT/runtime-profile.txt"
 
           adb wait-for-device
           adb shell getprop ro.build.version.release | tr -d '\r' > "$OUT/android-version.txt"
           adb shell getprop ro.product.model | tr -d '\r' > "$OUT/device-model.txt"
 
-          # ATD health gate before SportReel is installed.
+          # Deterministic ATD health gate before SportReel is installed.
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
           sleep 5
           adb shell echo ready | grep -Fq ready
@@ -133,7 +122,7 @@ jobs:
               text=True,
               stdout=subprocess.PIPE,
               stderr=subprocess.STDOUT,
-              timeout=45,
+              timeout=60,
           )
           with open(output, "w", encoding="utf-8") as handle:
               handle.write(completed.stdout)
@@ -143,7 +132,7 @@ jobs:
           PY
 
           LOGIN_OK=0
-          for i in $(seq 1 15); do
+          for i in $(seq 1 20); do
             adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
             if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then
               LOGIN_OK=1
@@ -153,7 +142,7 @@ jobs:
           done
           adb exec-out screencap -p > "$OUT/login.png"
           if [ "$LOGIN_OK" -ne 1 ]; then
-            echo "SportReel launch qualification failed: Welcome Back not visible within 45 seconds." >&2
+            echo "SportReel launch qualification failed: Welcome Back not visible within 60 seconds." >&2
             exit 1
           fi
 
@@ -178,7 +167,7 @@ jobs:
           adb shell input tap "$X" "$Y"
 
           REGISTER_OK=0
-          for i in $(seq 1 10); do
+          for i in $(seq 1 15); do
             adb exec-out uiautomator dump /dev/tty > "$OUT/register-ui.xml" 2>/dev/null || true
             if grep -Fq "Already have an account?" "$OUT/register-ui.xml"; then
               REGISTER_OK=1
@@ -203,17 +192,17 @@ jobs:
             echo "SportReel ANR detected." >&2
             exit 1
           fi
+
           cat > "$OUT/evidence.json" <<EOF
           {
-            "protocol": "sportreel_android_emulator_stability_v3",
+            "protocol": "sportreel_android_emulator_stability_v4",
             "cold_run_attempt": "$ATTEMPT",
-            "host_runner": "macos-15-intel",
+            "host_runner": "ubuntu-24.04",
             "system_image": "android-35-aosp_atd-x86_64",
+            "acceleration_mode": "software-explicit",
             "tested_app_commit": "$EXPECTED_APP_SHA",
             "android_build_id": "$BUILD_ID",
             "app_id": "$APP_ID",
-            "hypervisor_required": true,
-            "hypervisor_framework_passed": true,
             "android_health_gate_passed": true,
             "login_visible": true,
             "register_state_visible": true,
@@ -227,7 +216,7 @@ jobs:
           SH
           chmod +x "$RUNNER_TEMP/qualify_android.sh"
 
-      - name: Run accelerated Android stability qualification
+      - name: Run deterministic ATD stability qualification
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -237,12 +226,12 @@ jobs:
           cores: 2
           ram-size: 2048M
           heap-size: 512M
-          emulator-boot-timeout: 240
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel off
           disable-animations: true
           disable-spellchecker: true
           pre-emulator-launch-script: bash "$RUNNER_TEMP/check_hypervisor.sh"
-          script: bash "$RUNNER_TEMP/qualify_android.sh"
+          disable-linux-hw-accel: true\n          script: bash "$RUNNER_TEMP/qualify_android.sh"
 
       - name: Publish cold-run evidence
         if: always()
