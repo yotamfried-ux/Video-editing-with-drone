@@ -1,0 +1,218 @@
+name: Validation EAS Maestro Qualification
+
+on:
+  push:
+    branches:
+      - validation/eas-maestro-tool-qualification
+    paths:
+      - .github/workflows/validation-eas-maestro-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-eas-maestro-tool-qualification
+  cancel-in-progress: false
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    environment: production
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPECTED_APP_SHA: 356d5812097ba935401ecf3a145a2608cda68cb9
+      EAS_PROJECT_ID: 5c03988f-3dae-4763-953a-672717dedda2
+      VALIDATION_GIT_REF: validation/eas-maestro-tool-qualification
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup pinned EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.9.1
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Wait for exact finished Android preview build
+        id: exact-build
+        working-directory: mobile
+        shell: python
+        run: |
+          import json
+          import os
+          import subprocess
+          import time
+          from pathlib import Path
+
+          expected = os.environ["EXPECTED_APP_SHA"].lower()
+          output = Path(os.environ["RUNNER_TEMP"]) / "eas-build-list.json"
+          deadline = time.time() + 25 * 60
+
+          def pick(rows):
+              if not isinstance(rows, list):
+                  rows = [rows]
+              for row in rows:
+                  if not isinstance(row, dict):
+                      continue
+                  sha = str(
+                      row.get("gitCommitHash")
+                      or row.get("gitCommit", {}).get("hash")
+                      or ""
+                  ).lower()
+                  profile = str(row.get("buildProfile") or row.get("profile") or "")
+                  platform = str(row.get("platform") or "").upper()
+                  status = str(row.get("status") or "").upper()
+                  build_id = str(row.get("id") or "").strip()
+                  if (
+                      sha == expected
+                      and profile == "preview"
+                      and platform == "ANDROID"
+                      and status == "FINISHED"
+                      and build_id
+                  ):
+                      return build_id
+              return None
+
+          while time.time() < deadline:
+              completed = subprocess.run(
+                  [
+                      "eas", "build:list",
+                      "--platform", "android",
+                      "--build-profile", "preview",
+                      "--limit", "20",
+                      "--json",
+                      "--non-interactive",
+                  ],
+                  check=True,
+                  text=True,
+                  stdout=subprocess.PIPE,
+                  stderr=subprocess.PIPE,
+              )
+              output.write_text(completed.stdout, encoding="utf-8")
+              build_id = pick(json.loads(completed.stdout))
+              if build_id:
+                  with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as handle:
+                      handle.write(f"build_id={build_id}\n")
+                  print(f"Exact finished preview build found: {build_id}")
+                  raise SystemExit(0)
+              print("Exact build is not FINISHED yet; waiting 30 seconds.")
+              time.sleep(30)
+
+          raise SystemExit("Timed out waiting for the exact EAS Android preview build.")
+
+      - name: Dispatch and monitor Maestro qualification
+        env:
+          BUILD_ID: ${{ steps.exact-build.outputs.build_id }}
+        shell: python
+        run: |
+          import json
+          import os
+          import time
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          token = os.environ["EXPO_TOKEN"]
+          build_id = os.environ["BUILD_ID"]
+          app_id = os.environ["EAS_PROJECT_ID"]
+          git_ref = os.environ["VALIDATION_GIT_REF"]
+          evidence_path = Path(os.environ["RUNNER_TEMP"]) / "tool-01-eas-maestro.json"
+
+          def request(method, url, body=None):
+              payload = None if body is None else json.dumps(body).encode("utf-8")
+              req = urllib.request.Request(
+                  url,
+                  data=payload,
+                  method=method,
+                  headers={
+                      "Authorization": f"Bearer {token}",
+                      "Content-Type": "application/json",
+                      "Accept": "application/json",
+                  },
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      return json.load(response)
+              except urllib.error.HTTPError as exc:
+                  detail = exc.read().decode("utf-8", errors="replace")[:1000]
+                  raise RuntimeError(f"EAS API {method} failed with HTTP {exc.code}: {detail}") from None
+
+          dispatched = request(
+              "POST",
+              "https://api.expo.dev/v2/workflows/dispatch",
+              {
+                  "appId": app_id,
+                  "gitRef": git_ref,
+                  "fileName": "tool-qualification.yml",
+                  "inputs": {"build_id": build_id},
+              },
+          )
+          data = dispatched.get("data") or {}
+          run_id = str(data.get("id") or "")
+          run_url = str(data.get("url") or "")
+          if not run_id:
+              raise RuntimeError("EAS workflow dispatch returned no run ID")
+
+          evidence = {
+              "protocol": "sportreel_tool_01_eas_maestro_v1",
+              "tested_app_commit": os.environ["EXPECTED_APP_SHA"],
+              "validation_git_ref": git_ref,
+              "android_build_id": build_id,
+              "workflow_run_id": run_id,
+              "workflow_run_url": run_url,
+              "secret_values_recorded": False,
+              "status": "new",
+          }
+          evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
+          print(f"Maestro qualification dispatched: {run_id}")
+
+          deadline = time.time() + 25 * 60
+          terminal = {"success", "failure", "canceled"}
+          while time.time() < deadline:
+              current = request("GET", f"https://api.expo.dev/v2/workflows/runs/{run_id}")
+              row = current.get("data") or {}
+              status = str(row.get("status") or "")
+              jobs = []
+              for job in row.get("jobs") or []:
+                  if not isinstance(job, dict):
+                      continue
+                  jobs.append({
+                      "id": job.get("id"),
+                      "key": job.get("key"),
+                      "name": job.get("name"),
+                      "type": job.get("type"),
+                      "status": job.get("status"),
+                      "buildId": job.get("buildId"),
+                      "errors": job.get("errors") or [],
+                  })
+              evidence.update({
+                  "status": status,
+                  "workflow_run_url": row.get("url") or run_url,
+                  "workflow_git_commit_hash": row.get("gitCommitHash"),
+                  "requested_git_ref": row.get("requestedGitRef"),
+                  "jobs": jobs,
+                  "updated_at": row.get("updatedAt"),
+              })
+              evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
+              print(f"Maestro workflow status: {status}")
+              if status in terminal:
+                  if status != "success":
+                      raise RuntimeError(f"Maestro qualification finished as {status}")
+                  print("TOOL-01 EAS/Maestro qualification succeeded.")
+                  raise SystemExit(0)
+              time.sleep(15)
+
+          raise SystemExit("Timed out waiting for Maestro qualification workflow.")
+
+      - name: Publish qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tool-01-eas-maestro-${{ github.run_id }}
+          path: ${{ runner.temp }}/tool-01-eas-maestro.json
+          if-no-files-found: error
+          retention-days: 30
