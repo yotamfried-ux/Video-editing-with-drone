@@ -22,6 +22,7 @@ on:
       - 'scripts/apply_upload_release_migrations.py'
       - 'scripts/production_release_command.py'
       - 'scripts/record_eas_build_evidence.py'
+      - 'scripts/remove_biometric_storage.py'
       - 'scripts/test_batch_scope_contract.py'
       - 'scripts/test_exact_source_upload_dedup_contract.py'
       - 'scripts/test_large_upload_ci_hygiene_contract.py'
@@ -85,6 +86,7 @@ jobs:
             scripts/apply_upload_release_migrations.py \
             scripts/production_release_command.py \
             scripts/record_eas_build_evidence.py \
+            scripts/remove_biometric_storage.py \
             scripts/test_production_upload_api_smoke.py \
             scripts/test_real_r2_multipart_upload.py \
             scripts/verify_production_deployment.py \
