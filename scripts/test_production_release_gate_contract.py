@@ -39,6 +39,7 @@ def main() -> int:
     workflow = read(".github/workflows/upload-foundation-release.yml")
     migration_runner = read("scripts/apply_upload_release_migrations.py")
     biometric_storage = read("scripts/remove_biometric_storage.py")
+    rate_limit = read("web-api/src/lib/ratelimit.ts")
     schema = read("scripts/verify_upload_release_schema.sql")
     membership = read("supabase/migrations/20260723_upload_start_idempotency.sql")
     deploy = read("scripts/verify_production_deployment.py")
@@ -238,6 +239,7 @@ def main() -> int:
             "20260716_add_draft_feedback.sql",
             "20260721_remove_face_recognition.sql",
             "20260723_upload_start_idempotency.sql",
+            "20260918_supabase_rate_limit.sql",
             "20260918_remove_residual_biometric_functions.sql",
             "sportreel_release_migrations",
         ],
@@ -254,9 +256,34 @@ def main() -> int:
             '"20260723_source_upload_local_cleanup_evidence.sql"',
             '"20260723_upload_batch_verified_gate.sql"',
             '"20260723_upload_start_idempotency.sql"',
+            '"20260918_supabase_rate_limit.sql"',
             '"20260918_remove_residual_biometric_functions.sql"',
         ],
         "migration dependency order",
+    )
+
+    require(
+        read("supabase/migrations/20260918_supabase_rate_limit.sql"),
+        [
+            "create table if not exists public.api_rate_limit_windows",
+            "create or replace function public.consume_api_rate_limit",
+            "on conflict (limiter_key, window_start)",
+            "enable row level security",
+            "grant execute on function public.consume_api_rate_limit",
+        ],
+        "Supabase-backed rate-limit migration",
+    )
+    require(
+        rate_limit,
+        [
+            "RATE_LIMIT_BACKEND ?? 'supabase'",
+            "consume_api_rate_limit",
+            "falling back to Supabase",
+            "Rate limit service unavailable",
+            "{ status: 503 }",
+            "{ status: 429 }",
+        ],
+        "resilient API rate-limit backend",
     )
 
     require(
@@ -298,6 +325,11 @@ def main() -> int:
             "grant:client:no_upload_rpc_execute",
             "grant:service_role:upload_rpc_execute",
             "migration-ledger:all-release-files",
+            "table:api_rate_limit_windows",
+            "rls:api_rate_limit_windows",
+            "rpc:consume_api_rate_limit",
+            "grant:api_rate_limit:no_client_rpc_execute",
+            "grant:api_rate_limit:service_role_rpc_execute",
             "removed:athlete_profiles.face_embedding",
             "removed:storage_bucket:athlete-photos",
             "case when ok then 'true' else 'false' end",

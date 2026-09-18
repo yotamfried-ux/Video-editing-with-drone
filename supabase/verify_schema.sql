@@ -35,10 +35,16 @@ union all
 select 'table:draft_feedback', count(*) > 0
 from information_schema.tables where table_schema='public' and table_name='draft_feedback'
 union all
+select 'table:api_rate_limit_windows', count(*) > 0
+from information_schema.tables where table_schema='public' and table_name='api_rate_limit_windows'
+union all
 
 -- Required non-biometric function/trigger.
 select 'function:handle_new_user', count(*) > 0
 from information_schema.routines where routine_schema='public' and routine_name='handle_new_user'
+union all
+select 'function:consume_api_rate_limit', count(*) > 0
+from information_schema.routines where routine_schema='public' and routine_name='consume_api_rate_limit'
 union all
 select 'trigger:on_auth_user_created', count(*) > 0
 from information_schema.triggers where trigger_name='on_auth_user_created'
