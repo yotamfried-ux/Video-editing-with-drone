@@ -492,10 +492,9 @@ jobs:
         working-directory: mobile
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/eas-download"
-          cd "$RUNNER_TEMP/eas-download"
-          eas build:download --build-id "${{ steps.eas-build.outputs.build_id }}"
-          APK=$(find . -type f -name '*.apk' -print -quit)
+          find . -maxdepth 1 -type f -name '*.apk' -delete
+          eas build:download --build-id "${{ steps.eas-build.outputs.build_id }}" --non-interactive
+          APK=$(find . -maxdepth 1 -type f -name '*.apk' -print -quit)
           test -n "$APK"
           cp "$APK" "$RUNNER_TEMP/sportreel-upload-ready.apk"
       - name: Verify build ID, commit, profile, runtime, channel, native identity, and APK hash

@@ -188,7 +188,9 @@ def main() -> int:
             "Expected EAS CLI 18.9.1",
             "eas build:download --help | grep -q -- '--build-id'",
             "Pinned EAS CLI does not support build:download --build-id.",
-            'eas build:download --build-id "${{ steps.eas-build.outputs.build_id }}"',
+            'eas build:download --build-id "${{ steps.eas-build.outputs.build_id }}" --non-interactive',
+            "find . -maxdepth 1 -type f -name '*.apk' -delete",
+            "find . -maxdepth 1 -type f -name '*.apk' -print -quit",
         ],
         "supported EAS build-ID download pairing",
     )
@@ -197,6 +199,7 @@ def main() -> int:
         [
             "eas-version: 18.8.1",
             "eas build:download --id ",
+            'cd "$RUNNER_TEMP/eas-download"',
         ],
         "unsupported EAS build download pairing",
     )
