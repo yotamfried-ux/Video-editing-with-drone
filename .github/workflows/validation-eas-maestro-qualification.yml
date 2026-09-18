@@ -73,7 +73,6 @@ jobs:
 
           set +e
           eas workflow:run .eas/workflows/tool-qualification.yml \
-            --ref "$VALIDATION_GIT_REF" \
             -F "build_id=$BUILD_ID" \
             --wait \
             --non-interactive \
