@@ -1,0 +1,80 @@
+name: Ops Inspect Vercel Redis Env Names
+
+on:
+  push:
+    branches:
+      - ops/inspect-vercel-redis-envs
+    paths:
+      - .github/workflows/ops-inspect-vercel-redis-envs.yml
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID || 'video-editing-with-drone' }}
+      VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+    steps:
+      - name: Inspect Redis-like Vercel Production variable names only
+        shell: python
+        run: |
+          import json
+          import os
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ["VERCEL_TOKEN"].strip()
+          project = os.environ["VERCEL_PROJECT_ID"].strip()
+          team = os.environ.get("VERCEL_TEAM_ID", "").strip()
+
+          params = {}
+          if team:
+              params["teamId"] = team
+          query = "?" + urllib.parse.urlencode(params) if params else ""
+          url = f"https://api.vercel.com/v10/projects/{urllib.parse.quote(project)}/env{query}"
+          req = urllib.request.Request(
+              url,
+              headers={
+                  "Authorization": f"Bearer {token}",
+                  "Accept": "application/json",
+              },
+          )
+          with urllib.request.urlopen(req, timeout=30) as resp:
+              payload = json.load(resp)
+
+          rows = []
+          if isinstance(payload, dict):
+              for field in ("envs", "environmentVariables", "data"):
+                  if isinstance(payload.get(field), list):
+                      rows = payload[field]
+                      break
+
+          def production(row):
+              target = row.get("target")
+              return target == "production" or (
+                  isinstance(target, list) and "production" in target
+              )
+
+          matched = []
+          for row in rows:
+              if not isinstance(row, dict) or not production(row):
+                  continue
+              key = str(row.get("key") or "")
+              upper = key.upper()
+              if any(token in upper for token in ("UPSTASH", "REDIS", "KV_REST", "KV_URL")):
+                  matched.append({
+                      "key": key,
+                      "type": row.get("type"),
+                      "target": row.get("target"),
+                      "source": row.get("source"),
+                  })
+
+          if not matched:
+              raise SystemExit("No Redis/Upstash/KV-like Production environment variable names found.")
+
+          print(json.dumps(sorted(matched, key=lambda x: x["key"]), indent=2))
+          print("Only variable names/metadata were printed; no values were requested.")
