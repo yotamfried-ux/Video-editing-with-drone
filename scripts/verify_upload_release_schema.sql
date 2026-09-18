@@ -8,6 +8,7 @@ with checks(item, ok) as (
     ('table:source_upload_dedup_audit', to_regclass('public.source_upload_dedup_audit') is not null),
     ('table:upload_batches', to_regclass('public.upload_batches') is not null),
     ('table:sportreel_release_migrations', to_regclass('public.sportreel_release_migrations') is not null),
+    ('table:api_rate_limit_windows', to_regclass('public.api_rate_limit_windows') is not null),
 
     ('column:source_uploads.id:uuid', exists (
       select 1 from information_schema.columns
@@ -83,6 +84,30 @@ with checks(item, ok) as (
     ('rls:source_upload_dedup_audit', coalesce((select relrowsecurity from pg_class where oid='public.source_upload_dedup_audit'::regclass), false)),
     ('rls:upload_batches', coalesce((select relrowsecurity from pg_class where oid='public.upload_batches'::regclass), false)),
     ('rls:sportreel_release_migrations', coalesce((select relrowsecurity from pg_class where oid='public.sportreel_release_migrations'::regclass), false)),
+    ('rls:api_rate_limit_windows', coalesce((select relrowsecurity from pg_class where oid='public.api_rate_limit_windows'::regclass), false)),
+
+    ('policy:api_rate_limit:no_client_policies', not exists (
+      select 1 from pg_policies
+      where schemaname='public' and tablename='api_rate_limit_windows'
+    )),
+    ('grant:api_rate_limit:no_client_table_access',
+      not has_table_privilege('anon','public.api_rate_limit_windows','SELECT')
+      and not has_table_privilege('authenticated','public.api_rate_limit_windows','SELECT')
+      and not has_table_privilege('anon','public.api_rate_limit_windows','INSERT')
+      and not has_table_privilege('authenticated','public.api_rate_limit_windows','INSERT')
+      and not has_table_privilege('anon','public.api_rate_limit_windows','UPDATE')
+      and not has_table_privilege('authenticated','public.api_rate_limit_windows','UPDATE')),
+    ('grant:api_rate_limit:service_role_table_access',
+      has_table_privilege('service_role','public.api_rate_limit_windows','SELECT')
+      and has_table_privilege('service_role','public.api_rate_limit_windows','INSERT')
+      and has_table_privilege('service_role','public.api_rate_limit_windows','UPDATE')
+      and has_table_privilege('service_role','public.api_rate_limit_windows','DELETE')),
+    ('rpc:consume_api_rate_limit', to_regprocedure('public.consume_api_rate_limit(text,integer,integer)') is not null),
+    ('grant:api_rate_limit:no_client_rpc_execute',
+      not has_function_privilege('anon','public.consume_api_rate_limit(text,integer,integer)','EXECUTE')
+      and not has_function_privilege('authenticated','public.consume_api_rate_limit(text,integer,integer)','EXECUTE')),
+    ('grant:api_rate_limit:service_role_rpc_execute',
+      has_function_privilege('service_role','public.consume_api_rate_limit(text,integer,integer)','EXECUTE')),
 
     ('policy:upload_tables:no_client_policies', not exists (
       select 1 from pg_policies where schemaname='public'
@@ -142,7 +167,7 @@ with checks(item, ok) as (
     ('rpc:register_source_upload_batch_membership', to_regprocedure('public.register_source_upload_batch_membership(uuid,text,text)') is not null),
 
     ('migration-ledger:all-release-files', (
-      select count(*) = 9 from public.sportreel_release_migrations
+      select count(*) = 10 from public.sportreel_release_migrations
       where filename in (
         '20260716_add_draft_feedback.sql',
         '20260721_remove_face_recognition.sql',
@@ -152,6 +177,7 @@ with checks(item, ok) as (
         '20260723_source_upload_local_cleanup_evidence.sql',
         '20260723_upload_batch_verified_gate.sql',
         '20260723_upload_start_idempotency.sql',
+        '20260918_supabase_rate_limit.sql',
         '20260918_remove_residual_biometric_functions.sql'
       )
     )),
