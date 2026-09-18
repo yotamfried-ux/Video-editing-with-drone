@@ -1,5 +1,6 @@
 import { Platform, AppState } from 'react-native';
 import Constants from 'expo-constants';
+import { API_BASE_URL } from './publicEnv';
 
 export interface CrashContext {
   userId?: string;
@@ -9,9 +10,7 @@ export interface CrashContext {
   permissions?: Record<string, boolean>;
 }
 
-const ENDPOINT =
-  (process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://video-editing-with-drone.vercel.app') +
-  '/api/crash';
+const ENDPOINT = API_BASE_URL + '/api/crash';
 
 let _context: CrashContext = {};
 

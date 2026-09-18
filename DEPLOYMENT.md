@@ -84,15 +84,43 @@ The legacy webhook uses explicit Stripe receipt/customer data. It must not query
 
 ## 3. Mobile app
 
-`mobile/.env` should include:
+### Local run
+
+The committed defaults in `mobile/src/shared/lib/publicEnv.ts` point at the
+production Supabase project and the deployed web-api, so a fresh clone runs
+with no setup:
+
+```bash
+cd mobile
+npm install
+npx expo start
+```
+
+To point a local run somewhere else (a staging ref, a local `supabase start`
+stack), copy the template and edit it:
+
+```bash
+cp mobile/.env.example mobile/.env
+```
+
+`mobile/.env` is gitignored and is read only by local runs. It overrides the
+committed defaults per variable; a blank value is treated as unset and keeps
+the default.
 
 ```bash
 EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
-EXPO_PUBLIC_SUPABASE_ANON_KEY=<anon-key>
+EXPO_PUBLIC_SUPABASE_ANON_KEY=<publishable-or-anon-key>
 EXPO_PUBLIC_API_BASE_URL=https://<vercel-deployment>
 EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
 EXPO_PUBLIC_APP_DOMAIN=sportreel.app
 ```
+
+Only public client values belong in `mobile/.env` — it is bundled into the
+app. The Supabase service-role key and `OPERATOR_SECRET` never go here.
+
+EAS builds ignore `mobile/.env` and read the `env` block of the matching
+profile in `mobile/eas.json`. `publicEnv.test.ts` fails if the committed
+defaults and the `eas.json` profiles drift apart.
 
 Validation and release:
 
