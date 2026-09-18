@@ -1,4 +1,4 @@
-name: Validation Android Emulator Qualification
+name: Validation Android Emulator Stability Gate
 
 on:
   push:
@@ -11,25 +11,55 @@ permissions:
   contents: read
 
 concurrency:
-  group: validation-android-emulator-qualification
+  group: validation-android-emulator-stability
   cancel-in-progress: true
 
 jobs:
   qualify:
-    runs-on: ubuntu-latest
-    timeout-minutes: 35
+    name: cold-run-${{ matrix.attempt }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1, 2, 3]
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EXPECTED_APP_SHA: 356d5812097ba935401ecf3a145a2608cda68cb9
       BUILD_ID: 3884d669-850c-4b76-bba5-5e57ffcd2245
       APP_ID: com.sportreel.app
+      ATTEMPT: ${{ matrix.attempt }}
+
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
+      - name: Enable KVM
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -e /dev/kvm
+          test -r /dev/kvm
+          test -w /dev/kvm
+          stat -c '%A %U %G %n' /dev/kvm
+
+      - name: KVM fail-closed preflight
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/kvm-accel-check.txt"
+          "$ANDROID_HOME/emulator/emulator" -accel-check 2>&1 | tee "$OUT"
+          grep -Eqi 'KVM.*(installed and usable|is installed and usable)' "$OUT" || {
+            echo "KVM is not confirmed usable; refusing software-emulated qualification." >&2
+            exit 1
+          }
 
       - name: Setup EAS CLI
         uses: expo/expo-github-action@v8
@@ -52,7 +82,7 @@ jobs:
           cp "$APK" "$RUNNER_TEMP/sportreel.apk"
           sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
 
-      - name: Create UI qualification script
+      - name: Create stability qualification script
         shell: bash
         run: |
           cat > "$RUNNER_TEMP/qualify_android.sh" <<'SH'
@@ -61,32 +91,72 @@ jobs:
           OUT="$RUNNER_TEMP/android-qualification"
           mkdir -p "$OUT"
 
+          collect_evidence() {
+            set +e
+            adb exec-out screencap -p > "$OUT/final-screen.png" 2>/dev/null
+            adb exec-out uiautomator dump /dev/tty > "$OUT/final-ui.xml" 2>/dev/null
+            adb shell dumpsys window windows > "$OUT/dumpsys-window.txt" 2>/dev/null
+            adb shell dumpsys activity activities > "$OUT/dumpsys-activity.txt" 2>/dev/null
+            adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
+            adb logcat -b crash -d > "$OUT/crash-logcat.txt" 2>/dev/null
+            set -e
+          }
+          trap collect_evidence EXIT
+
+          echo "$ATTEMPT" > "$OUT/cold-run-attempt.txt"
+          cp "$RUNNER_TEMP/kvm-accel-check.txt" "$OUT/kvm-accel-check.txt"
           adb wait-for-device
           adb shell getprop ro.build.version.release | tr -d '\r' > "$OUT/android-version.txt"
           adb shell getprop ro.product.model | tr -d '\r' > "$OUT/device-model.txt"
 
-          adb install -r "$RUNNER_TEMP/sportreel.apk"
+          # Android-only health gate. The app is not installed until this passes.
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          sleep 12
+          adb shell input keyevent KEYCODE_HOME
+          sleep 2
+
+          SYSTEMUI_PID=$(adb shell pidof com.android.systemui | tr -d '\r')
+          test -n "$SYSTEMUI_PID"
+          printf '%s\n' "$SYSTEMUI_PID" > "$OUT/systemui-pid.txt"
+
+          adb exec-out uiautomator dump /dev/tty > "$OUT/android-health-ui.xml"
+          adb exec-out screencap -p > "$OUT/android-health.png"
+          adb logcat -d > "$OUT/android-health-logcat.txt"
+
+          if grep -Eqi "System UI isn't responding|System UI is not responding" "$OUT/android-health-ui.xml"; then
+            echo "Android health gate failed: System UI ANR dialog is visible." >&2
+            exit 1
+          fi
+          if grep -Eqi 'ANR in com\.android\.systemui|ANR.*com\.android\.systemui' "$OUT/android-health-logcat.txt"; then
+            echo "Android health gate failed: SystemUI ANR found in logcat." >&2
+            exit 1
+          fi
+
+          # Only now install and exercise SportReel.
+          adb install -r "$RUNNER_TEMP/sportreel.apk" | tee "$OUT/install.txt"
           adb shell pm clear "$APP_ID" >/dev/null
           adb logcat -c
 
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
           test -n "$ACTIVITY"
           printf '%s\n' "$ACTIVITY" > "$OUT/resolved-activity.txt"
-          adb shell am start -n "$ACTIVITY"
-          sleep 6
 
-          adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml"
+          timeout 45s adb shell am start -W -n "$ACTIVITY" | tee "$OUT/app-launch.txt"
+
+          LOGIN_OK=0
+          for i in $(seq 1 15); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
+            if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then
+              LOGIN_OK=1
+              break
+            fi
+            sleep 3
+          done
           adb exec-out screencap -p > "$OUT/login.png"
-
-          python - "$OUT/login-ui.xml" "Welcome Back" <<'PY'
-          import sys
-          from pathlib import Path
-          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
-          needle = sys.argv[2]
-          if needle not in text:
-              raise SystemExit(f"UI assertion failed: {needle!r} not present")
-          print(f"UI assertion passed: {needle}")
-          PY
+          if [ "$LOGIN_OK" -ne 1 ]; then
+            echo "SportReel launch qualification failed: Welcome Back not visible within 45 seconds." >&2
+            exit 1
+          fi
 
           python - "$OUT/login-ui.xml" "Create Account" > "$OUT/tap.txt" <<'PY'
           import re, sys
@@ -99,47 +169,61 @@ jobs:
               m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
               if not m:
                   continue
-              x1,y1,x2,y2 = map(int,m.groups())
-              print((x1+x2)//2, (y1+y2)//2)
+              x1, y1, x2, y2 = map(int, m.groups())
+              print((x1 + x2) // 2, (y1 + y2) // 2)
               raise SystemExit(0)
           raise SystemExit(f"Could not locate tappable UI node containing {needle!r}")
           PY
 
           read X Y < "$OUT/tap.txt"
           adb shell input tap "$X" "$Y"
-          sleep 3
 
-          adb exec-out uiautomator dump /dev/tty > "$OUT/register-ui.xml"
+          REGISTER_OK=0
+          for i in $(seq 1 10); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/register-ui.xml" 2>/dev/null || true
+            if grep -Fq "Already have an account?" "$OUT/register-ui.xml"; then
+              REGISTER_OK=1
+              break
+            fi
+            sleep 2
+          done
           adb exec-out screencap -p > "$OUT/register.png"
+          if [ "$REGISTER_OK" -ne 1 ]; then
+            echo "SportReel navigation qualification failed: Register state not visible." >&2
+            exit 1
+          fi
 
-          python - "$OUT/register-ui.xml" "Already have an account?" <<'PY'
-          import sys
-          from pathlib import Path
-          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
-          needle = sys.argv[2]
-          if needle not in text:
-              raise SystemExit(f"UI assertion failed after tap: {needle!r} not present")
-          print(f"UI state-change assertion passed: {needle}")
-          PY
+          adb logcat -d > "$OUT/post-app-logcat.txt"
+          adb logcat -b crash -d > "$OUT/post-app-crash-logcat.txt" || true
 
-          adb logcat -d > "$OUT/logcat.txt"
-          adb logcat -b crash -d > "$OUT/crash-logcat.txt" || true
-
-          if grep -q "FATAL EXCEPTION" "$OUT/crash-logcat.txt"; then
-            echo "Fatal Android crash detected." >&2
+          if grep -q "FATAL EXCEPTION" "$OUT/post-app-crash-logcat.txt"; then
+            echo "Fatal Android exception detected after SportReel launch." >&2
+            exit 1
+          fi
+          if grep -Eqi "ANR in $APP_ID|ANR.*$APP_ID" "$OUT/post-app-logcat.txt"; then
+            echo "SportReel ANR detected." >&2
+            exit 1
+          fi
+          if grep -Eqi 'ANR in com\.android\.systemui|ANR.*com\.android\.systemui' "$OUT/post-app-logcat.txt"; then
+            echo "SystemUI ANR detected during app qualification." >&2
             exit 1
           fi
 
           cat > "$OUT/evidence.json" <<EOF
           {
-            "protocol": "sportreel_tool_01b_android_emulator_v1",
+            "protocol": "sportreel_android_emulator_stability_v2",
+            "cold_run_attempt": "$ATTEMPT",
             "tested_app_commit": "$EXPECTED_APP_SHA",
             "android_build_id": "$BUILD_ID",
             "app_id": "$APP_ID",
+            "kvm_required": true,
+            "kvm_preflight_passed": true,
+            "android_health_gate_passed": true,
             "login_visible": true,
-            "tap_target": "Create Account",
             "register_state_visible": true,
             "fatal_crash_detected": false,
+            "app_anr_detected": false,
+            "systemui_anr_detected": false,
             "secret_values_recorded": false,
             "status": "success"
           }
@@ -147,22 +231,49 @@ jobs:
           SH
           chmod +x "$RUNNER_TEMP/qualify_android.sh"
 
-      - name: Run Android emulator qualification
+      - name: Run hardware-accelerated Android stability qualification
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
+          target: default
           profile: pixel_6
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 360
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
           disable-animations: true
+          disable-spellchecker: true
+          disable-linux-hw-accel: false
           script: bash "$RUNNER_TEMP/qualify_android.sh"
 
-      - name: Publish Android qualification evidence
+      - name: Publish cold-run evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: tool-01b-android-emulator-${{ github.run_id }}
+          name: android-stability-cold-run-${{ matrix.attempt }}-${{ github.run_id }}
           path: |
             ${{ runner.temp }}/android-qualification/
             ${{ runner.temp }}/apk.sha256
+            ${{ runner.temp }}/kvm-accel-check.txt
           if-no-files-found: error
           retention-days: 30
+
+  stability-verdict:
+    name: stability-verdict
+    runs-on: ubuntu-24.04
+    needs: [qualify]
+    if: always()
+    steps:
+      - name: Require all three cold runs
+        shell: bash
+        env:
+          QUALIFY_RESULT: ${{ needs.qualify.result }}
+        run: |
+          set -euo pipefail
+          test "$QUALIFY_RESULT" = "success" || {
+            echo "STABILITY NOT PROVEN: at least one cold qualification run failed." >&2
+            exit 1
+          }
+          echo "STABILITY PROVEN: 3/3 independent cold Android qualification runs passed."
