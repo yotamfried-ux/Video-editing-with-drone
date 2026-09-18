@@ -175,6 +175,10 @@ def main() -> int:
         "failed production preflight audit",
     )
 
+    build_android = workflow.split("  build-android-preview:", 1)[1]
+    require(build_android, ["node-version: '22'"], "EAS Node runtime")
+    forbid(build_android, ["node-version: '20'"], "obsolete EAS Node runtime")
+
     require(
         workflow,
         [
