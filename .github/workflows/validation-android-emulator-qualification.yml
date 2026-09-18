@@ -154,7 +154,7 @@ jobs:
           arch: x86_64
           profile: pixel_6
           disable-animations: true
-          script: "$RUNNER_TEMP/qualify_android.sh"
+          script: bash "$RUNNER_TEMP/qualify_android.sh"
 
       - name: Publish Android qualification evidence
         if: always()
