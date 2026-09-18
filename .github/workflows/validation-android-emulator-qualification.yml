@@ -101,7 +101,7 @@ jobs:
             test -s "$OUT/${label}.png"
             adb logcat -d > "$OUT/${label}-logcat.txt"
 
-            if grep -Eqi "Process system isn\'t responding|System UI isn\'t responding|System UI is not responding" "$OUT/${label}-ui.xml"; then
+            if grep -Eqi "Process system isn't responding|System UI isn't responding|System UI is not responding" "$OUT/${label}-ui.xml"; then
               echo "Android ATD health gate failed: system ANR dialog is visible during ${label}." >&2
               return 1
             fi
@@ -111,8 +111,7 @@ jobs:
             fi
           }
 
-          # Require three consecutive healthy probes after boot before stressing the device.
-          test "$(adb shell getprop sys.boot_completed | tr -d '\\r')" = "1"
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
           sleep 20
           for probe in 1 2 3; do
             system_health_probe "post-boot-health-${probe}"
@@ -124,11 +123,14 @@ jobs:
           system_health_probe "post-install-health"
           adb shell pm clear "$APP_ID" >/dev/null
           adb logcat -c
+
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
           test -n "$ACTIVITY"
           printf '%s\n' "$ACTIVITY" > "$OUT/resolved-activity.txt"
 
-          system_health_probe "pre-launch-health"\n\n          python - "$ACTIVITY" "$OUT/app-launch.txt" <<'PY'
+          system_health_probe "pre-launch-health"
+
+          python - "$ACTIVITY" "$OUT/app-launch.txt" <<'PY'
           import subprocess, sys
           activity, output = sys.argv[1], sys.argv[2]
           completed = subprocess.run(
@@ -148,7 +150,7 @@ jobs:
           LOGIN_OK=0
           for i in $(seq 1 20); do
             adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
-            if grep -Eqi "Process system isn\'t responding|System UI isn\'t responding|System UI is not responding" "$OUT/login-ui.xml"; then
+            if grep -Eqi "Process system isn't responding|System UI isn't responding|System UI is not responding" "$OUT/login-ui.xml"; then
               echo "Android system ANR appeared during SportReel launch." >&2
               exit 1
             fi
