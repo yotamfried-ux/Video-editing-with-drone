@@ -17,7 +17,7 @@ concurrency:
 jobs:
   qualify:
     name: cold-run-${{ matrix.attempt }}
-    runs-on: ubuntu-24.04
+    runs-on: macos-15-intel
     timeout-minutes: 30
     environment: production
     strategy:
@@ -38,29 +38,6 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Enable KVM
-        shell: bash
-        run: |
-          set -euo pipefail
-          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          test -e /dev/kvm
-          test -r /dev/kvm
-          test -w /dev/kvm
-          stat -c '%A %U %G %n' /dev/kvm
-
-      - name: KVM fail-closed preflight
-        shell: bash
-        run: |
-          set -euo pipefail
-          OUT="$RUNNER_TEMP/kvm-accel-check.txt"
-          "$ANDROID_HOME/emulator/emulator" -accel-check 2>&1 | tee "$OUT"
-          grep -Eqi 'KVM.*(installed and usable|is installed and usable)' "$OUT" || {
-            echo "KVM is not confirmed usable; refusing software-emulated qualification." >&2
-            exit 1
-          }
-
       - name: Setup EAS CLI
         uses: expo/expo-github-action@v8
         with:
@@ -76,15 +53,28 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          eas build:download --build-id "$BUILD_ID" --non-interactive
-          APK=$(find /tmp/runner/eas-cli-nodejs/eas-build-run-cache -maxdepth 1 -type f -name "*_$BUILD_ID.apk" -print -quit)
+          LOG="$RUNNER_TEMP/eas-download.log"
+          eas build:download --build-id "$BUILD_ID" --non-interactive 2>&1 | tee "$LOG"
+          APK=$(sed -n 's/^Build downloaded to //p' "$LOG" | tail -n1)
           test -n "$APK"
+          test -f "$APK"
           cp "$APK" "$RUNNER_TEMP/sportreel.apk"
-          sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
+          shasum -a 256 "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
 
-      - name: Create stability qualification script
+      - name: Create hypervisor and stability scripts
         shell: bash
         run: |
+          cat > "$RUNNER_TEMP/check_hypervisor.sh" <<'SH'
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/hypervisor-accel-check.txt"
+          "$ANDROID_HOME/emulator/emulator" -accel-check 2>&1 | tee "$OUT"
+          grep -Fq "Hypervisor.Framework" "$OUT" || {
+            echo "Hypervisor.Framework is not confirmed; refusing unaccelerated qualification." >&2
+            exit 1
+          }
+          SH
+          chmod +x "$RUNNER_TEMP/check_hypervisor.sh"
+
           cat > "$RUNNER_TEMP/qualify_android.sh" <<'SH'
           set -euo pipefail
 
@@ -104,14 +94,15 @@ jobs:
           trap collect_evidence EXIT
 
           echo "$ATTEMPT" > "$OUT/cold-run-attempt.txt"
-          cp "$RUNNER_TEMP/kvm-accel-check.txt" "$OUT/kvm-accel-check.txt"
+          cp "$RUNNER_TEMP/hypervisor-accel-check.txt" "$OUT/hypervisor-accel-check.txt"
+
           adb wait-for-device
           adb shell getprop ro.build.version.release | tr -d '\r' > "$OUT/android-version.txt"
           adb shell getprop ro.product.model | tr -d '\r' > "$OUT/device-model.txt"
 
-          # Android-only health gate. The app is not installed until this passes.
+          # Android-only health gate before SportReel is installed.
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
-          sleep 12
+          sleep 10
           adb shell input keyevent KEYCODE_HOME
           sleep 2
 
@@ -132,7 +123,6 @@ jobs:
             exit 1
           fi
 
-          # Only now install and exercise SportReel.
           adb install -r "$RUNNER_TEMP/sportreel.apk" | tee "$OUT/install.txt"
           adb shell pm clear "$APP_ID" >/dev/null
           adb logcat -c
@@ -141,7 +131,22 @@ jobs:
           test -n "$ACTIVITY"
           printf '%s\n' "$ACTIVITY" > "$OUT/resolved-activity.txt"
 
-          timeout 45s adb shell am start -W -n "$ACTIVITY" | tee "$OUT/app-launch.txt"
+          python - "$ACTIVITY" "$OUT/app-launch.txt" <<'PY'
+          import subprocess, sys
+          activity, output = sys.argv[1], sys.argv[2]
+          completed = subprocess.run(
+              ["adb", "shell", "am", "start", "-W", "-n", activity],
+              text=True,
+              stdout=subprocess.PIPE,
+              stderr=subprocess.STDOUT,
+              timeout=45,
+          )
+          with open(output, "w", encoding="utf-8") as handle:
+              handle.write(completed.stdout)
+          print(completed.stdout, end="")
+          if completed.returncode != 0:
+              raise SystemExit(completed.returncode)
+          PY
 
           LOGIN_OK=0
           for i in $(seq 1 15); do
@@ -211,13 +216,14 @@ jobs:
 
           cat > "$OUT/evidence.json" <<EOF
           {
-            "protocol": "sportreel_android_emulator_stability_v2",
+            "protocol": "sportreel_android_emulator_stability_v3",
             "cold_run_attempt": "$ATTEMPT",
+            "host_runner": "macos-15-intel",
             "tested_app_commit": "$EXPECTED_APP_SHA",
             "android_build_id": "$BUILD_ID",
             "app_id": "$APP_ID",
-            "kvm_required": true,
-            "kvm_preflight_passed": true,
+            "hypervisor_required": true,
+            "hypervisor_framework_passed": true,
             "android_health_gate_passed": true,
             "login_visible": true,
             "register_state_visible": true,
@@ -231,7 +237,7 @@ jobs:
           SH
           chmod +x "$RUNNER_TEMP/qualify_android.sh"
 
-      - name: Run hardware-accelerated Android stability qualification
+      - name: Run accelerated Android stability qualification
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -241,11 +247,11 @@ jobs:
           cores: 2
           ram-size: 2048M
           heap-size: 512M
-          emulator-boot-timeout: 360
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          emulator-boot-timeout: 300
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
           disable-animations: true
           disable-spellchecker: true
-          disable-linux-hw-accel: false
+          pre-emulator-launch-script: bash "$RUNNER_TEMP/check_hypervisor.sh"
           script: bash "$RUNNER_TEMP/qualify_android.sh"
 
       - name: Publish cold-run evidence
@@ -256,7 +262,7 @@ jobs:
           path: |
             ${{ runner.temp }}/android-qualification/
             ${{ runner.temp }}/apk.sha256
-            ${{ runner.temp }}/kvm-accel-check.txt
+            ${{ runner.temp }}/hypervisor-accel-check.txt
           if-no-files-found: error
           retention-days: 30
 
@@ -276,4 +282,4 @@ jobs:
             echo "STABILITY NOT PROVEN: at least one cold qualification run failed." >&2
             exit 1
           }
-          echo "STABILITY PROVEN: 3/3 independent cold Android qualification runs passed."
+          echo "STABILITY PROVEN: 3/3 independent cold accelerated Android qualification runs passed."
