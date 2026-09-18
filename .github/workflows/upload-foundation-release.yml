@@ -208,10 +208,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install PostgreSQL client
+      - name: Install release dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends postgresql-client
+          python -m pip install --disable-pip-version-check 'supabase>=2.0.0'
       - name: Remove legacy biometric Storage bucket through supported API
         env:
           BIOMETRIC_STORAGE_EVIDENCE_PATH: ${{ runner.temp }}/biometric-storage-evidence.json
