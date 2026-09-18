@@ -1,0 +1,164 @@
+name: Validation Android Emulator Qualification
+
+on:
+  push:
+    branches:
+      - validation/eas-maestro-tool-qualification
+    paths:
+      - .github/workflows/validation-android-emulator-qualification.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-android-emulator-qualification
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: production
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPECTED_APP_SHA: 356d5812097ba935401ecf3a145a2608cda68cb9
+      BUILD_ID: 3884d669-850c-4b76-bba5-5e57ffcd2245
+      APP_ID: com.sportreel.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.9.1
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Download exact completed APK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          eas build:download --build-id "$BUILD_ID" --non-interactive
+          APK=$(find /tmp "$RUNNER_TEMP" -type f -name "*$BUILD_ID*.apk" -print -quit 2>/dev/null)
+          test -n "$APK"
+          cp "$APK" "$RUNNER_TEMP/sportreel.apk"
+          sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
+
+      - name: Create UI qualification script
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/qualify_android.sh" <<'SH'
+          set -euo pipefail
+
+          OUT="$RUNNER_TEMP/android-qualification"
+          mkdir -p "$OUT"
+
+          adb wait-for-device
+          adb shell getprop ro.build.version.release | tr -d '\r' > "$OUT/android-version.txt"
+          adb shell getprop ro.product.model | tr -d '\r' > "$OUT/device-model.txt"
+
+          adb install -r "$RUNNER_TEMP/sportreel.apk"
+          adb shell pm clear "$APP_ID" >/dev/null
+          adb logcat -c
+
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
+          test -n "$ACTIVITY"
+          printf '%s\n' "$ACTIVITY" > "$OUT/resolved-activity.txt"
+          adb shell am start -n "$ACTIVITY"
+          sleep 6
+
+          adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml"
+          adb exec-out screencap -p > "$OUT/login.png"
+
+          python - "$OUT/login-ui.xml" "Welcome Back" <<'PY'
+          import sys
+          from pathlib import Path
+          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          needle = sys.argv[2]
+          if needle not in text:
+              raise SystemExit(f"UI assertion failed: {needle!r} not present")
+          print(f"UI assertion passed: {needle}")
+          PY
+
+          python - "$OUT/login-ui.xml" "Create Account" > "$OUT/tap.txt" <<'PY'
+          import re, sys
+          from pathlib import Path
+          xml = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          needle = sys.argv[2]
+          for node in re.findall(r'<node\b[^>]*>', xml):
+              if needle not in node:
+                  continue
+              m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+              if not m:
+                  continue
+              x1,y1,x2,y2 = map(int,m.groups())
+              print((x1+x2)//2, (y1+y2)//2)
+              raise SystemExit(0)
+          raise SystemExit(f"Could not locate tappable UI node containing {needle!r}")
+          PY
+
+          read X Y < "$OUT/tap.txt"
+          adb shell input tap "$X" "$Y"
+          sleep 3
+
+          adb exec-out uiautomator dump /dev/tty > "$OUT/register-ui.xml"
+          adb exec-out screencap -p > "$OUT/register.png"
+
+          python - "$OUT/register-ui.xml" "Already have an account?" <<'PY'
+          import sys
+          from pathlib import Path
+          text = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          needle = sys.argv[2]
+          if needle not in text:
+              raise SystemExit(f"UI assertion failed after tap: {needle!r} not present")
+          print(f"UI state-change assertion passed: {needle}")
+          PY
+
+          adb logcat -d > "$OUT/logcat.txt"
+          adb logcat -b crash -d > "$OUT/crash-logcat.txt" || true
+
+          if grep -q "FATAL EXCEPTION" "$OUT/crash-logcat.txt"; then
+            echo "Fatal Android crash detected." >&2
+            exit 1
+          fi
+
+          cat > "$OUT/evidence.json" <<EOF
+          {
+            "protocol": "sportreel_tool_01b_android_emulator_v1",
+            "tested_app_commit": "$EXPECTED_APP_SHA",
+            "android_build_id": "$BUILD_ID",
+            "app_id": "$APP_ID",
+            "login_visible": true,
+            "tap_target": "Create Account",
+            "register_state_visible": true,
+            "fatal_crash_detected": false,
+            "secret_values_recorded": false,
+            "status": "success"
+          }
+          EOF
+          SH
+          chmod +x "$RUNNER_TEMP/qualify_android.sh"
+
+      - name: Run Android emulator qualification
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          profile: pixel_6
+          disable-animations: true
+          script: "$RUNNER_TEMP/qualify_android.sh"
+
+      - name: Publish Android qualification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tool-01b-android-emulator-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/android-qualification/
+            ${{ runner.temp }}/apk.sha256
+          if-no-files-found: error
+          retention-days: 30
