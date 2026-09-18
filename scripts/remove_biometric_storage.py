@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
-"""Remove the legacy biometric Storage bucket through the supported Supabase Storage API."""
+"""Remove the legacy biometric Storage bucket through the official Supabase SDK."""
 from __future__ import annotations
 
 import json
 import os
 import sys
-import urllib.error
-import urllib.parse
-import urllib.request
 from pathlib import Path
+
+from supabase import create_client
 
 BUCKET = "athlete-photos"
 CONFIRMATION = "REMOVE_BIOMETRICS"
@@ -21,53 +20,36 @@ def required(name: str) -> str:
     return value
 
 
-def request(method: str, url: str, key: str) -> tuple[int, bytes]:
-    req = urllib.request.Request(
-        url,
-        method=method,
-        headers={
-            "Authorization": f"Bearer {key}",
-            "apikey": key,
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-        },
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as response:
-            return response.status, response.read()
-    except urllib.error.HTTPError as exc:
-        body = exc.read()
-        if exc.code == 404:
-            return 404, body
-        # Never print the response body. It may contain sensitive diagnostics.
-        raise RuntimeError(f"Supabase Storage API {method} failed with HTTP {exc.code}") from None
+def bucket_id(row: object) -> str:
+    if isinstance(row, dict):
+        return str(row.get("id") or row.get("name") or "")
+    return str(getattr(row, "id", "") or getattr(row, "name", ""))
 
 
 def main() -> int:
-    base = required("SUPABASE_URL").rstrip("/")
+    url = required("SUPABASE_URL")
     key = required("SUPABASE_SERVICE_KEY")
     confirmation = required("CONFIRM_BIOMETRIC_REMOVAL")
     if confirmation != CONFIRMATION:
-        raise RuntimeError(
-            f"CONFIRM_BIOMETRIC_REMOVAL must equal {CONFIRMATION}"
-        )
+        raise RuntimeError(f"CONFIRM_BIOMETRIC_REMOVAL must equal {CONFIRMATION}")
 
     evidence_path = Path(
         os.getenv("BIOMETRIC_STORAGE_EVIDENCE_PATH", "/tmp/biometric-storage-evidence.json")
     )
     evidence = {
-        "protocol": "supabase_biometric_storage_removal_v1",
+        "protocol": "supabase_biometric_storage_removal_v2",
         "bucket": BUCKET,
+        "sdk": "supabase-py",
         "secret_values_recorded": False,
         "result": "pending",
     }
 
-    bucket_id = urllib.parse.quote(BUCKET, safe="")
-    bucket_url = f"{base}/storage/v1/bucket/{bucket_id}"
-
     try:
-        status, _ = request("GET", bucket_url, key)
-        if status == 404:
+        client = create_client(url, key)
+        buckets = client.storage.list_buckets()
+        exists = any(bucket_id(row) == BUCKET for row in buckets)
+
+        if not exists:
             evidence.update(
                 {
                     "bucket_existed": False,
@@ -81,18 +63,11 @@ def main() -> int:
             print("Biometric Storage bucket already absent.")
             return 0
 
-        # Use the official Storage API to remove any remaining files before deleting the bucket.
-        empty_url = f"{bucket_url}/empty"
-        empty_status, _ = request("POST", empty_url, key)
-        if empty_status not in {200, 201}:
-            raise RuntimeError(f"Unexpected empty-bucket status {empty_status}")
+        client.storage.empty_bucket(BUCKET)
+        client.storage.delete_bucket(BUCKET)
 
-        delete_status, _ = request("DELETE", bucket_url, key)
-        if delete_status not in {200, 204}:
-            raise RuntimeError(f"Unexpected delete-bucket status {delete_status}")
-
-        verify_status, _ = request("GET", bucket_url, key)
-        if verify_status != 404:
+        remaining = client.storage.list_buckets()
+        if any(bucket_id(row) == BUCKET for row in remaining):
             raise RuntimeError("Biometric Storage bucket still exists after deletion")
 
         evidence.update(
@@ -105,7 +80,7 @@ def main() -> int:
         )
         evidence_path.parent.mkdir(parents=True, exist_ok=True)
         evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
-        print("Biometric Storage bucket removed through Supabase Storage API.")
+        print("Biometric Storage bucket removed through Supabase SDK.")
         return 0
     except Exception as error:
         evidence.update(
