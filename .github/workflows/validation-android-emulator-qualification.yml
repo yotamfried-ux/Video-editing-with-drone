@@ -230,8 +230,8 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel off
           disable-animations: true
           disable-spellchecker: true
-          pre-emulator-launch-script: bash "$RUNNER_TEMP/check_hypervisor.sh"
-          disable-linux-hw-accel: true\n          script: bash "$RUNNER_TEMP/qualify_android.sh"
+          disable-linux-hw-accel: true
+          script: bash "$RUNNER_TEMP/qualify_android.sh"
 
       - name: Publish cold-run evidence
         if: always()
@@ -241,7 +241,6 @@ jobs:
           path: |
             ${{ runner.temp }}/android-qualification/
             ${{ runner.temp }}/apk.sha256
-            ${{ runner.temp }}/hypervisor-accel-check.txt
           if-no-files-found: error
           retention-days: 30
 
