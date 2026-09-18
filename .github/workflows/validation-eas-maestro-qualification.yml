@@ -12,7 +12,7 @@ permissions:
 
 concurrency:
   group: validation-eas-maestro-tool-qualification
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   qualify:
