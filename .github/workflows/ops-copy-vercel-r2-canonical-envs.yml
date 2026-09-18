@@ -1,0 +1,130 @@
+name: Ops Copy Vercel R2 Canonical Env Names
+
+on:
+  push:
+    branches:
+      - ops/copy-vercel-r2-canonical-envs
+    paths:
+      - .github/workflows/ops-copy-vercel-r2-canonical-envs.yml
+
+permissions:
+  contents: read
+
+jobs:
+  copy-env-aliases:
+    name: Copy legacy R2 aliases to canonical Vercel Production names
+    runs-on: ubuntu-24.04
+    environment: production
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_PROJECT_ID: video-editing-with-drone
+    steps:
+      - name: Copy aliases without logging secret values
+        shell: python
+        run: |
+          import json
+          import os
+          import sys
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ.get("VERCEL_TOKEN", "").strip()
+          project = os.environ.get("VERCEL_PROJECT_ID", "").strip()
+          if not token or not project:
+              raise SystemExit("Missing VERCEL_TOKEN or VERCEL_PROJECT_ID")
+
+          api = "https://api.vercel.com"
+          headers = {
+              "Authorization": f"Bearer {token}",
+              "Accept": "application/json",
+              "Content-Type": "application/json",
+          }
+
+          def request_json(method, path, body=None):
+              data = None if body is None else json.dumps(body).encode("utf-8")
+              req = urllib.request.Request(api + path, data=data, headers=headers, method=method)
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as resp:
+                      return json.load(resp)
+              except urllib.error.HTTPError as exc:
+                  # Never print response bodies: they can contain environment values.
+                  raise RuntimeError(f"Vercel API {method} {path.split('?')[0]} failed with HTTP {exc.code}") from None
+
+          payload = request_json(
+              "GET",
+              f"/v10/projects/{urllib.parse.quote(project)}/env?decrypt=true",
+          )
+          rows = []
+          if isinstance(payload, dict):
+              for key in ("envs", "environmentVariables", "data"):
+                  if isinstance(payload.get(key), list):
+                      rows = payload[key]
+                      break
+
+          def is_production(row):
+              target = row.get("target")
+              return target == "production" or (isinstance(target, list) and "production" in target)
+
+          def find_source(key):
+              candidates = [
+                  row for row in rows
+                  if isinstance(row, dict)
+                  and row.get("key") == key
+                  and is_production(row)
+              ]
+              if not candidates:
+                  raise RuntimeError(f"Missing legacy Vercel Production variable name: {key}")
+              row = candidates[0]
+              value = row.get("value")
+              if not isinstance(value, str) or not value:
+                  raise RuntimeError(f"Legacy Vercel Production variable {key} is not decryptable with the configured token")
+              return value
+
+          mappings = {
+              "R2_ACCESS_KEY_ID": "ACCESS_KEY_ID",
+              "R2_SECRET_ACCESS_KEY": "SECRET_KEY_ID",
+          }
+
+          create_rows = []
+          for canonical, legacy in mappings.items():
+              create_rows.append({
+                  "key": canonical,
+                  "value": find_source(legacy),
+                  "type": "sensitive",
+                  "target": ["production"],
+                  "comment": f"Canonical R2 name copied from legacy {legacy}; value intentionally never logged",
+              })
+
+          result = request_json(
+              "POST",
+              f"/v10/projects/{urllib.parse.quote(project)}/env?upsert=true",
+              create_rows,
+          )
+
+          failed = result.get("failed", []) if isinstance(result, dict) else []
+          if failed:
+              raise RuntimeError("Vercel reported one or more environment-variable writes failed")
+
+          verify = request_json(
+              "GET",
+              f"/v10/projects/{urllib.parse.quote(project)}/env?decrypt=false",
+          )
+          verify_rows = []
+          if isinstance(verify, dict):
+              for key in ("envs", "environmentVariables", "data"):
+                  if isinstance(verify.get(key), list):
+                      verify_rows = verify[key]
+                      break
+
+          present = {
+              str(row.get("key"))
+              for row in verify_rows
+              if isinstance(row, dict) and is_production(row)
+          }
+          missing = sorted(set(mappings) - present)
+          if missing:
+              raise RuntimeError("Canonical Vercel Production variables were not visible after write: " + ", ".join(missing))
+
+          print("Created/verified canonical Vercel Production variables: R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY")
+          print("Secret values were not printed.")
