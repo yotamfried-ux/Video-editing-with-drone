@@ -22,7 +22,6 @@ jobs:
     env:
       EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
       EXPECTED_APP_SHA: 356d5812097ba935401ecf3a145a2608cda68cb9
-      EAS_PROJECT_ID: 5c03988f-3dae-4763-953a-672717dedda2
       VALIDATION_GIT_REF: validation/eas-maestro-tool-qualification
     steps:
       - uses: actions/checkout@v4
@@ -31,7 +30,7 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Setup pinned EAS CLI
+      - name: Setup EAS CLI
         uses: expo/expo-github-action@v8
         with:
           eas-version: 24.7.0
@@ -45,108 +44,74 @@ jobs:
           echo "Using exact completed build tied to $EXPECTED_APP_SHA."
 
       - name: Dispatch and monitor Maestro qualification
+        working-directory: mobile
         env:
           BUILD_ID: ${{ steps.exact-build.outputs.build_id }}
-        shell: python
+        shell: bash
         run: |
-          import json
-          import os
-          import time
-          import urllib.error
-          import urllib.request
+          set -uo pipefail
+
+          EVIDENCE="$RUNNER_TEMP/tool-01-eas-maestro.json"
+          OUTPUT="$RUNNER_TEMP/eas-workflow-run.json"
+
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          Path(os.environ["RUNNER_TEMP"], "tool-01-eas-maestro.json").write_text(
+              json.dumps({
+                  "protocol": "sportreel_tool_01_eas_maestro_v1",
+                  "tested_app_commit": os.environ["EXPECTED_APP_SHA"],
+                  "validation_git_ref": os.environ["VALIDATION_GIT_REF"],
+                  "android_build_id": os.environ["BUILD_ID"],
+                  "transport": "eas-cli-workflow-run",
+                  "secret_values_recorded": False,
+                  "status": "dispatching",
+              }, indent=2, sort_keys=True),
+              encoding="utf-8",
+          )
+          PY
+
+          set +e
+          eas workflow:run .eas/workflows/tool-qualification.yml \
+            --ref "$VALIDATION_GIT_REF" \
+            -F "build_id=$BUILD_ID" \
+            --wait \
+            --non-interactive \
+            --json > "$OUTPUT"
+          CODE=$?
+          set -e
+          export CLI_EXIT_CODE="$CODE"
+
+          python - <<'PY'
+          import json, os
           from pathlib import Path
 
-          token = os.environ["EXPO_TOKEN"]
-          build_id = os.environ["BUILD_ID"]
-          app_id = os.environ["EAS_PROJECT_ID"]
-          git_ref = os.environ["VALIDATION_GIT_REF"]
-          evidence_path = Path(os.environ["RUNNER_TEMP"]) / "tool-01-eas-maestro.json"
+          evidence_path = Path(os.environ["RUNNER_TEMP"], "tool-01-eas-maestro.json")
+          output_path = Path(os.environ["RUNNER_TEMP"], "eas-workflow-run.json")
+          evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+          raw = output_path.read_text(encoding="utf-8").strip() if output_path.exists() else ""
 
-          def request(method, url, body=None):
-              payload = None if body is None else json.dumps(body).encode("utf-8")
-              req = urllib.request.Request(
-                  url,
-                  data=payload,
-                  method=method,
-                  headers={
-                      "Authorization": f"Bearer {token}",
-                      "Content-Type": "application/json",
-                      "Accept": "application/json",
-                  },
-              )
+          if raw:
               try:
-                  with urllib.request.urlopen(req, timeout=30) as response:
-                      return json.load(response)
-              except urllib.error.HTTPError as exc:
-                  detail = exc.read().decode("utf-8", errors="replace")[:1000]
-                  raise RuntimeError(f"EAS API {method} failed with HTTP {exc.code}: {detail}") from None
+                  evidence["cli_result"] = json.loads(raw)
+              except json.JSONDecodeError:
+                  evidence["cli_result"] = {"unparsed_cli_output_tail": raw[-4000:]}
 
-          dispatched = request(
-              "POST",
-              "https://api.expo.dev/v2/workflows/dispatch",
-              {
-                  "appId": app_id,
-                  "gitRef": git_ref,
-                  "fileName": "tool-qualification.yml",
-                  "inputs": {"build_id": build_id},
-              },
+          code = int(os.environ["CLI_EXIT_CODE"])
+          evidence["cli_exit_code"] = code
+          evidence["status"] = "success" if code == 0 else "failure"
+          evidence_path.write_text(
+              json.dumps(evidence, indent=2, sort_keys=True),
+              encoding="utf-8",
           )
-          data = dispatched.get("data") or {}
-          run_id = str(data.get("id") or "")
-          run_url = str(data.get("url") or "")
-          if not run_id:
-              raise RuntimeError("EAS workflow dispatch returned no run ID")
+          PY
 
-          evidence = {
-              "protocol": "sportreel_tool_01_eas_maestro_v1",
-              "tested_app_commit": os.environ["EXPECTED_APP_SHA"],
-              "validation_git_ref": git_ref,
-              "android_build_id": build_id,
-              "workflow_run_id": run_id,
-              "workflow_run_url": run_url,
-              "secret_values_recorded": False,
-              "status": "new",
-          }
-          evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
-          print(f"Maestro qualification dispatched: {run_id}")
+          if [ "$CODE" -ne 0 ]; then
+            echo "EAS Maestro qualification failed with CLI exit code $CODE." >&2
+            exit "$CODE"
+          fi
 
-          deadline = time.time() + 25 * 60
-          terminal = {"success", "failure", "canceled"}
-          while time.time() < deadline:
-              current = request("GET", f"https://api.expo.dev/v2/workflows/runs/{run_id}")
-              row = current.get("data") or {}
-              status = str(row.get("status") or "")
-              jobs = []
-              for job in row.get("jobs") or []:
-                  if not isinstance(job, dict):
-                      continue
-                  jobs.append({
-                      "id": job.get("id"),
-                      "key": job.get("key"),
-                      "name": job.get("name"),
-                      "type": job.get("type"),
-                      "status": job.get("status"),
-                      "buildId": job.get("buildId"),
-                      "errors": job.get("errors") or [],
-                  })
-              evidence.update({
-                  "status": status,
-                  "workflow_run_url": row.get("url") or run_url,
-                  "workflow_git_commit_hash": row.get("gitCommitHash"),
-                  "requested_git_ref": row.get("requestedGitRef"),
-                  "jobs": jobs,
-                  "updated_at": row.get("updatedAt"),
-              })
-              evidence_path.write_text(json.dumps(evidence, indent=2, sort_keys=True), encoding="utf-8")
-              print(f"Maestro workflow status: {status}")
-              if status in terminal:
-                  if status != "success":
-                      raise RuntimeError(f"Maestro qualification finished as {status}")
-                  print("TOOL-01 EAS/Maestro qualification succeeded.")
-                  raise SystemExit(0)
-              time.sleep(15)
-
-          raise SystemExit("Timed out waiting for Maestro qualification workflow.")
+          echo "TOOL-01 EAS/Maestro qualification succeeded."
 
       - name: Publish qualification evidence
         if: always()
