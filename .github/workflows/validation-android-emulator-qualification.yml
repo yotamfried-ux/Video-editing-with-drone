@@ -33,21 +33,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
       - name: Setup EAS CLI
         uses: expo/expo-github-action@v8
         with:
           eas-version: 18.9.1
           token: ${{ secrets.EXPO_TOKEN }}
-
       - name: Install mobile dependencies
         working-directory: mobile
         run: npm ci
-
       - name: Download exact completed APK
         working-directory: mobile
         shell: bash
@@ -60,16 +56,13 @@ jobs:
           test -f "$APK"
           cp "$APK" "$RUNNER_TEMP/sportreel.apk"
           sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
-
       - name: Create deterministic ATD qualification script
         shell: bash
         run: |
           cat > "$RUNNER_TEMP/qualify_android.sh" <<'SH'
           set -euo pipefail
-
           OUT="$RUNNER_TEMP/android-qualification"
           mkdir -p "$OUT"
-
           collect_evidence() {
             set +e
             adb exec-out screencap -p > "$OUT/final-screen.png" 2>/dev/null
@@ -81,14 +74,11 @@ jobs:
             set -e
           }
           trap collect_evidence EXIT
-
           echo "$ATTEMPT" > "$OUT/cold-run-attempt.txt"
           echo "ubuntu-24.04 / API35 aosp_atd x86_64 / software acceleration" > "$OUT/runtime-profile.txt"
-
           adb wait-for-device
           adb shell getprop ro.build.version.release | tr -d '\r' > "$OUT/android-version.txt"
           adb shell getprop ro.product.model | tr -d '\r' > "$OUT/device-model.txt"
-
           system_health_probe() {
             local label="$1"
             adb shell echo ready | grep -Fq ready
@@ -100,7 +90,6 @@ jobs:
             adb exec-out screencap -p > "$OUT/${label}.png"
             test -s "$OUT/${label}.png"
             adb logcat -d > "$OUT/${label}-logcat.txt"
-
             if grep -Eqi "Process system isn't responding|System UI isn't responding|System UI is not responding" "$OUT/${label}-ui.xml"; then
               echo "Android ATD health gate failed: system ANR dialog is visible during ${label}." >&2
               return 1
@@ -110,43 +99,31 @@ jobs:
               return 1
             fi
           }
-
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
           sleep 20
           for probe in 1 2 3; do
             system_health_probe "post-boot-health-${probe}"
             sleep 10
           done
-
           adb install -r "$RUNNER_TEMP/sportreel.apk" | tee "$OUT/install.txt"
           sleep 20
           system_health_probe "post-install-health"
           adb shell pm clear "$APP_ID" >/dev/null
           adb logcat -c
-
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
           test -n "$ACTIVITY"
           printf '%s\n' "$ACTIVITY" > "$OUT/resolved-activity.txt"
-
           system_health_probe "pre-launch-health"
-
           python - "$ACTIVITY" "$OUT/app-launch.txt" <<'PY'
           import subprocess, sys
           activity, output = sys.argv[1], sys.argv[2]
-          completed = subprocess.run(
-              ["adb", "shell", "am", "start", "-W", "-n", activity],
-              text=True,
-              stdout=subprocess.PIPE,
-              stderr=subprocess.STDOUT,
-              timeout=60,
-          )
+          completed = subprocess.run(["adb", "shell", "am", "start", "-W", "-n", activity], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
           with open(output, "w", encoding="utf-8") as handle:
               handle.write(completed.stdout)
           print(completed.stdout, end="")
           if completed.returncode != 0:
               raise SystemExit(completed.returncode)
           PY
-
           LOGIN_OK=0
           for i in $(seq 1 20); do
             adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
@@ -165,7 +142,6 @@ jobs:
             echo "SportReel launch qualification failed: Welcome Back not visible within 60 seconds." >&2
             exit 1
           fi
-
           python - "$OUT/login-ui.xml" "Create Account" > "$OUT/tap.txt" <<'PY'
           import re, sys
           from pathlib import Path
@@ -182,10 +158,8 @@ jobs:
               raise SystemExit(0)
           raise SystemExit(f"Could not locate tappable UI node containing {needle!r}")
           PY
-
           read X Y < "$OUT/tap.txt"
           adb shell input tap "$X" "$Y"
-
           REGISTER_OK=0
           for i in $(seq 1 15); do
             adb exec-out uiautomator dump /dev/tty > "$OUT/register-ui.xml" 2>/dev/null || true
@@ -200,10 +174,8 @@ jobs:
             echo "SportReel navigation qualification failed: Register state not visible." >&2
             exit 1
           fi
-
           adb logcat -d > "$OUT/post-app-logcat.txt"
           adb logcat -b crash -d > "$OUT/post-app-crash-logcat.txt" || true
-
           if grep -q "FATAL EXCEPTION" "$OUT/post-app-crash-logcat.txt"; then
             echo "Fatal Android exception detected after SportReel launch." >&2
             exit 1
@@ -212,30 +184,11 @@ jobs:
             echo "SportReel ANR detected." >&2
             exit 1
           fi
-
           cat > "$OUT/evidence.json" <<EOF
-          {
-            "protocol": "sportreel_android_emulator_stability_v5",
-            "cold_run_attempt": "$ATTEMPT",
-            "host_runner": "ubuntu-24.04",
-            "system_image": "android-35-aosp_atd-x86_64",
-            "acceleration_mode": "software-explicit",
-            "tested_app_commit": "$EXPECTED_APP_SHA",
-            "android_build_id": "$BUILD_ID",
-            "app_id": "$APP_ID",
-            "android_health_gate_passed": true,
-            "login_visible": true,
-            "register_state_visible": true,
-            "fatal_crash_detected": false,
-            "app_anr_detected": false,
-            "system_level_anr_detected": false,
-            "secret_values_recorded": false,
-            "status": "success"
-          }
+          {"protocol":"sportreel_android_emulator_stability_v6","cold_run_attempt":"$ATTEMPT","host_runner":"ubuntu-24.04","system_image":"android-35-aosp_atd-x86_64","acceleration_mode":"software-explicit","tested_app_commit":"$EXPECTED_APP_SHA","android_build_id":"$BUILD_ID","app_id":"$APP_ID","android_health_gate_passed":true,"login_visible":true,"register_state_visible":true,"fatal_crash_detected":false,"app_anr_detected":false,"system_level_anr_detected":false,"secret_values_recorded":false,"status":"success"}
           EOF
           SH
           chmod +x "$RUNNER_TEMP/qualify_android.sh"
-
       - name: Run deterministic ATD stability qualification
         uses: reactivecircus/android-emulator-runner@v2
         with:
@@ -243,16 +196,15 @@ jobs:
           arch: x86_64
           target: aosp_atd
           profile: pixel_2
-          cores: 4
-          ram-size: 4096M
-          heap-size: 768M
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
           emulator-boot-timeout: 480
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel off
-          disable-animations: true
-          disable-spellchecker: true
+          disable-animations: false
+          disable-spellchecker: false
           disable-linux-hw-accel: true
           script: bash "$RUNNER_TEMP/qualify_android.sh"
-
       - name: Publish cold-run evidence
         if: always()
         uses: actions/upload-artifact@v4
