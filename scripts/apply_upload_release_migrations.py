@@ -19,6 +19,7 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 MIGRATIONS = [
+    "20260716_add_draft_feedback.sql",
     "20260721_remove_face_recognition.sql",
     "20260723_source_upload_exact_dedup.sql",
     "20260723_source_upload_multipart_foundation.sql",
@@ -26,8 +27,12 @@ MIGRATIONS = [
     "20260723_source_upload_local_cleanup_evidence.sql",
     "20260723_upload_batch_verified_gate.sql",
     "20260723_upload_start_idempotency.sql",
+    "20260918_remove_residual_biometric_functions.sql",
 ]
-BIOMETRIC_MIGRATION = "20260721_remove_face_recognition.sql"
+BIOMETRIC_MIGRATIONS = {
+    "20260721_remove_face_recognition.sql",
+    "20260918_remove_residual_biometric_functions.sql",
+}
 CONFIRMATION = "REMOVE_BIOMETRICS"
 
 _LIBPQ_QUERY_ENV = {
@@ -206,7 +211,7 @@ def main() -> int:
 
             if args.check_only:
                 raise RuntimeError(f"Migration is not recorded as applied: {filename}")
-            if filename == BIOMETRIC_MIGRATION and confirmation != CONFIRMATION:
+            if filename in BIOMETRIC_MIGRATIONS and confirmation != CONFIRMATION:
                 raise RuntimeError(
                     "Biometric-removal migration is pending; set "
                     f"CONFIRM_BIOMETRIC_REMOVAL={CONFIRMATION} after explicit approval"
