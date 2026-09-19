@@ -50,14 +50,53 @@ jobs:
         working-directory: mobile
         shell: bash
         run: |
-          set -euo pipefail
-          eas build:view "$BUILD_ID" --json --non-interactive > "$RUNNER_TEMP/build.json"
+          set -uo pipefail
+          # build:view is not reliable on the pinned CLI (18.9.1): it exits 1
+          # with a bare "build:view command failed." Fall back to build:list and
+          # select the record by id. Show the real stderr either way.
+          echo "--- attempt: build:view ---"
+          if eas build:view "$BUILD_ID" --json --non-interactive \
+               > "$RUNNER_TEMP/build.json" 2> "$RUNNER_TEMP/view.err"; then
+            echo "BUILD01_SOURCE=build:view"
+          else
+            echo "BUILD01_VIEW_FAILED=true"
+            sed -n '1,20p' "$RUNNER_TEMP/view.err" || true
+            echo "--- fallback: build:list ---"
+            eas build:list --json --non-interactive --limit 50 \
+              > "$RUNNER_TEMP/list.json" 2> "$RUNNER_TEMP/list.err" || {
+                echo "BUILD01_LIST_FAILED=true"
+                sed -n '1,20p' "$RUNNER_TEMP/list.err" || true
+              }
+            python3 - <<'SEL'
+          import json, os, pathlib
+          tmp = pathlib.Path(os.environ["RUNNER_TEMP"])
+          src = tmp / "list.json"
+          if not src.exists():
+              raise SystemExit(0)
+          try:
+              rows = json.loads(src.read_text())
+          except json.JSONDecodeError:
+              print("BUILD01_LIST_PARSE=failed"); raise SystemExit(0)
+          want = os.environ["BUILD_ID"]
+          hit = next((r for r in rows if r.get("id") == want), None)
+          print(f"BUILD01_LIST_ROWS={len(rows)} BUILD01_LIST_HIT={hit is not None}")
+          (tmp / "build.json").write_text(json.dumps(hit or {}))
+          SEL
+            echo "BUILD01_SOURCE=build:list"
+          fi
+          set -e
           python3 - <<'PY'
           import json, os, pathlib
-          raw = pathlib.Path(os.environ["RUNNER_TEMP"], "build.json").read_text()
-          data = json.loads(raw)
+          p = pathlib.Path(os.environ["RUNNER_TEMP"], "build.json")
+          if not p.exists() or not p.read_text().strip():
+              print("BUILD01_VERDICT=UNPROVABLE: no build record could be retrieved")
+              raise SystemExit(0)
+          data = json.loads(p.read_text())
           if isinstance(data, list):
               data = data[0] if data else {}
+          if not data:
+              print("BUILD01_VERDICT=UNPROVABLE: build record empty or id not listed")
+              raise SystemExit(0)
           expected = os.environ["EXPECTED_APP_SHA"]
           actual = data.get("gitCommitHash") or ""
           # Print only non-sensitive build metadata.
