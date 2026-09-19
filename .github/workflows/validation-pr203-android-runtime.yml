@@ -1,0 +1,114 @@
+name: Validation PR203 Android Runtime
+
+on:
+  push:
+    branches: [validation/pr203-app-runtime]
+    paths: [.github/workflows/validation-pr203-android-runtime.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  app-runtime:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      APP_ID: com.sportreel.app
+      TESTED_SHA: c37c7c10fbb68a040a530a024e091d089925d5f1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install
+        working-directory: mobile
+        run: npm ci
+      - name: Generate native Android project
+        working-directory: mobile
+        run: npx expo prebuild --platform android --no-install --non-interactive
+      - name: Build exact debug APK
+        working-directory: mobile/android
+        run: ./gradlew assembleDebug --no-daemon
+      - name: Record APK provenance
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK=mobile/android/app/build/outputs/apk/debug/app-debug.apk
+          test -f "$APK"
+          sha256sum "$APK" | tee "$RUNNER_TEMP/apk.sha256"
+          echo "$TESTED_SHA" > "$RUNNER_TEMP/tested-commit.txt"
+          cp "$APK" "$RUNNER_TEMP/sportreel-pr203.apk"
+      - name: Create APP-01 runtime script
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/app01.sh" <<'SH'
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/app01"
+          mkdir -p "$OUT"
+          collect() {
+            set +e
+            adb exec-out screencap -p > "$OUT/final.png" 2>/dev/null
+            adb exec-out uiautomator dump /dev/tty > "$OUT/final-ui.xml" 2>/dev/null
+            adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
+            adb logcat -b crash -d > "$OUT/crash-logcat.txt" 2>/dev/null
+          }
+          trap collect EXIT
+          adb wait-for-device
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          adb install -r "$RUNNER_TEMP/sportreel-pr203.apk" | tee "$OUT/install.txt"
+          adb shell pm clear "$APP_ID" >/dev/null
+          adb logcat -c
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
+          test -n "$ACTIVITY"
+          echo "$ACTIVITY" > "$OUT/activity.txt"
+          adb shell am force-stop "$APP_ID"
+          adb shell am start -W -n "$ACTIVITY" | tee "$OUT/launch.txt"
+          OK=0
+          for i in $(seq 1 30); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
+            if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then OK=1; break; fi
+            sleep 2
+          done
+          adb exec-out screencap -p > "$OUT/login.png"
+          adb logcat -d > "$OUT/post-launch-logcat.txt"
+          if grep -Fq "supabaseUrl is required" "$OUT/post-launch-logcat.txt"; then
+            echo "APP-01 FAIL: legacy Supabase configuration crash observed" >&2
+            exit 1
+          fi
+          if grep -q "FATAL EXCEPTION" "$OUT/post-launch-logcat.txt"; then
+            echo "APP-01 FAIL: fatal exception observed" >&2
+            exit 1
+          fi
+          test "$OK" = "1" || { echo "APP-01 FAIL: Welcome Back not visible" >&2; exit 1; }
+          cat > "$OUT/evidence.json" <<EOF
+          {"experiment":"APP-01","tested_commit":"$TESTED_SHA","app_id":"$APP_ID","expected_screen":"Welcome Back","legacy_supabase_crash":false,"status":"PASS"}
+          EOF
+          SH
+          chmod +x "$RUNNER_TEMP/app01.sh"
+      - name: Run APP-01 on Android emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: aosp_atd
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel off
+          disable-linux-hw-accel: true
+          script: bash "$RUNNER_TEMP/app01.sh"
+      - name: Publish evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pr203-app01-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/app01/
+            ${{ runner.temp }}/apk.sha256
+            ${{ runner.temp }}/tested-commit.txt
+          if-no-files-found: warn
+          retention-days: 30
