@@ -1,0 +1,270 @@
+name: Validation Accelerated UI Evidence
+
+# UI-01 / APP-01: capture real rendered SportReel UI evidence.
+#
+# Why this workflow exists. The capability probe (run 35436000030) recorded:
+#     dev_kvm_present=true
+#     dev_kvm_perms=crw-rw---- root:kvm
+#     dev_kvm_rw_for_runner=false
+#     cpu_virt_flags=svm
+# The runner host DOES expose hardware virtualization; the runner user simply is
+# not a member of the "kvm" group, so /dev/kvm is not writable. The existing
+# qualification workflows concluded acceleration was unavailable and forced
+# "-accel off" + disable-linux-hw-accel, which is why aosp_atd produced black
+# screencaps and google_apis system-ANRed before ever reaching the app.
+#
+# This workflow applies the documented udev fix, proves KVM became usable, and
+# only then boots a google_apis image with hardware acceleration.
+#
+# Non-destructive: downloads an already-built APK, installs it on a throwaway
+# emulator, and reads UI state. It starts no pipeline, uploads nothing to
+# storage, signs in as nobody, and mutates no product state.
+
+on:
+  push:
+    branches:
+      - claude/sportreel-validation-execution-b9thw3
+    paths:
+      - .github/workflows/validation-accelerated-ui.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-accelerated-ui
+  cancel-in-progress: true
+
+jobs:
+  rendered-ui:
+    name: accelerated-rendered-ui
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPECTED_APP_SHA: 356d5812097ba935401ecf3a145a2608cda68cb9
+      BUILD_ID: 3884d669-850c-4b76-bba5-5e57ffcd2245
+      APP_ID: com.sportreel.app
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install screenshot inspection dependency
+        run: python -m pip install --quiet Pillow
+
+      - name: Enable KVM for the runner user
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          echo "post-fix perms: $(stat -c '%A %U:%G' /dev/kvm)"
+          test -r /dev/kvm && test -w /dev/kvm
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq cpu-checker >/dev/null 2>&1 || true
+          kvm-ok
+          echo "KVM_FIX_APPLIED=true"
+
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.9.1
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Download exact completed APK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="$RUNNER_TEMP/eas-download.log"
+          eas build:download --build-id "$BUILD_ID" --non-interactive 2>&1 | tee "$LOG"
+          APK=$(sed -n 's/^Build downloaded to //p' "$LOG" | tail -n1)
+          test -n "$APK" && test -f "$APK"
+          cp "$APK" "$RUNNER_TEMP/sportreel.apk"
+          sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
+          echo "APK_SHA256_MARKER $(sha256sum "$RUNNER_TEMP/sportreel.apk" | cut -d' ' -f1)"
+
+      - name: Record APK provenance against the expected commit
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          # eas build:view exposes the git commit the binary was actually built
+          # from. The existing gates asserted tested_app_commit from a hardcoded
+          # env var without ever checking it, so provenance was unproven.
+          eas build:view "$BUILD_ID" --json > "$RUNNER_TEMP/eas-build.json" 2>/dev/null || \
+            eas build:view "$BUILD_ID" --json --non-interactive > "$RUNNER_TEMP/eas-build.json"
+          python - <<'PY'
+          import json, os, pathlib
+          raw = pathlib.Path(os.environ["RUNNER_TEMP"], "eas-build.json").read_text()
+          try:
+              data = json.loads(raw)
+          except json.JSONDecodeError:
+              print("PROVENANCE_PARSE=failed"); raise SystemExit(0)
+          if isinstance(data, list):
+              data = data[0] if data else {}
+          expected = os.environ["EXPECTED_APP_SHA"]
+          actual = (data.get("gitCommitHash") or "")
+          print(f"PROVENANCE_BUILD_ID={data.get('id')}")
+          print(f"PROVENANCE_PLATFORM={data.get('platform')}")
+          print(f"PROVENANCE_STATUS={data.get('status')}")
+          print(f"PROVENANCE_EXPECTED_SHA={expected}")
+          print(f"PROVENANCE_ACTUAL_SHA={actual or 'unreported'}")
+          print(f"PROVENANCE_MATCH={str(actual == expected).lower()}")
+          PY
+
+      - name: Create accelerated rendered-UI script
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/rendered_ui.sh" <<'SH'
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/ui-evidence"
+          mkdir -p "$OUT"
+          collect() {
+            set +e
+            adb exec-out screencap -p > "$OUT/final-screen.png" 2>/dev/null
+            adb exec-out uiautomator dump /dev/tty > "$OUT/final-ui.xml" 2>/dev/null
+            adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
+            adb logcat -b crash -d > "$OUT/crash-logcat.txt" 2>/dev/null
+            set -e
+          }
+          trap collect EXIT
+
+          adb wait-for-device
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          adb shell getprop ro.build.version.release | tr -d '\r' | tee "$OUT/android-version.txt"
+          adb shell getprop ro.product.model | tr -d '\r' | tee "$OUT/device-model.txt"
+          adb shell wm size | tee "$OUT/wm-size.txt"
+          adb shell wm density | tee "$OUT/wm-density.txt"
+          sleep 10
+
+          # Prove the emulator renders at all before blaming the app.
+          adb exec-out screencap -p > "$OUT/00-home.png"
+          adb install -r "$RUNNER_TEMP/sportreel.apk" | tee "$OUT/install.txt"
+          adb shell pm clear "$APP_ID" >/dev/null
+          adb logcat -c
+
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
+          test -n "$ACTIVITY"
+          echo "$ACTIVITY" | tee "$OUT/resolved-activity.txt"
+          adb shell am start -W -n "$ACTIVITY" | tee "$OUT/app-launch.txt"
+
+          # Wait for the login surface.
+          LOGIN_OK=0
+          for i in $(seq 1 25); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
+            if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then LOGIN_OK=1; break; fi
+            sleep 3
+          done
+          adb exec-out screencap -p > "$OUT/01-login.png"
+          echo "LOGIN_VISIBLE=$LOGIN_OK"
+
+          # Navigate to Register using the real rendered control.
+          if [ "$LOGIN_OK" -eq 1 ]; then
+            python - "$OUT/login-ui.xml" "Create Account" > "$OUT/tap.txt" <<'PY'
+          import re, sys
+          from pathlib import Path
+          xml = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          for node in re.findall(r'<node\b[^>]*>', xml):
+              if sys.argv[2] not in node:
+                  continue
+              m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+              if m:
+                  x1, y1, x2, y2 = map(int, m.groups())
+                  print((x1 + x2) // 2, (y1 + y2) // 2)
+                  raise SystemExit(0)
+          raise SystemExit("Create Account node not found")
+          PY
+            read X Y < "$OUT/tap.txt"
+            adb shell input tap "$X" "$Y"
+            for i in $(seq 1 15); do
+              adb exec-out uiautomator dump /dev/tty > "$OUT/register-ui.xml" 2>/dev/null || true
+              if grep -Fq "Already have an account?" "$OUT/register-ui.xml"; then break; fi
+              sleep 2
+            done
+            adb exec-out screencap -p > "$OUT/02-register.png"
+          fi
+
+          # Background / kill / relaunch state-restoration probe (UI-03).
+          adb shell input keyevent KEYCODE_HOME
+          sleep 3
+          adb exec-out screencap -p > "$OUT/03-backgrounded.png"
+          adb shell am force-stop "$APP_ID"
+          sleep 2
+          adb shell am start -W -n "$ACTIVITY" > "$OUT/relaunch.txt"
+          sleep 8
+          adb exec-out uiautomator dump /dev/tty > "$OUT/relaunch-ui.xml" 2>/dev/null || true
+          adb exec-out screencap -p > "$OUT/04-relaunch.png"
+
+          adb logcat -d > "$OUT/post-app-logcat.txt"
+          adb logcat -b crash -d > "$OUT/post-app-crash-logcat.txt" || true
+          SH
+          chmod +x "$RUNNER_TEMP/rendered_ui.sh"
+
+      - name: Run accelerated emulator and capture rendered UI
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          cores: 4
+          ram-size: 6144M
+          heap-size: 1024M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: bash "$RUNNER_TEMP/rendered_ui.sh"
+
+      - name: Analyse captured frames and emit inline visual evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, io, os, pathlib
+          from PIL import Image
+          out = pathlib.Path(os.environ["RUNNER_TEMP"], "ui-evidence")
+          for png in sorted(out.glob("*.png")):
+              try:
+                  im = Image.open(png).convert("RGB")
+              except Exception as exc:
+                  print(f"FRAME {png.name} unreadable: {exc}")
+                  continue
+              colors = im.getcolors(maxcolors=1_000_000) or []
+              px = list(im.getdata())
+              mean = sum(sum(p) for p in px) / (len(px) * 3)
+              nonblack = sum(1 for p in px if sum(p) > 30)
+              print(
+                  f"FRAME {png.name} size={im.size} unique_colors={len(colors)} "
+                  f"mean_luma={mean:.2f} nonblack_ratio={nonblack/len(px):.4f} "
+                  f"rendered={'yes' if len(colors) > 12 and nonblack/len(px) > 0.02 else 'NO-BLACK'}"
+              )
+              # Inline thumbnail so the captured frame can be reviewed directly
+              # from the run log; artifact blob storage is unreachable from the
+              # validation workstation.
+              thumb = im.copy()
+              thumb.thumbnail((300, 640))
+              buf = io.BytesIO()
+              thumb.save(buf, format="JPEG", quality=55)
+              print(f"THUMB_B64 {png.name} {base64.b64encode(buf.getvalue()).decode()}")
+          PY
+
+      - name: Publish rendered UI evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: accelerated-ui-${{ github.run_id }}
+          path: ${{ runner.temp }}/ui-evidence/
+          if-no-files-found: error
+          retention-days: 30
