@@ -171,7 +171,8 @@ jobs:
           PASSWORD="SrV$(date +%s)9x"
           # Resolve the two EditText nodes by their bounds. Tapping placeholder
           # text is unreliable once React Native focus/keyboard state changes.
-          mapfile -t EDIT_BOUNDS < <(grep -o 'class="android.widget.EditText"[^>]*bounds="[^"]*"' "$APP02/register.xml" | sed -n 's/.*bounds="\\[\\([0-9]*\\),\\([0-9]*\\)\\]\\[\\([0-9]*\\),\\([0-9]*\\)\\]".*/\\1 \\2 \\3 \\4/p')
+          mapfile -t EDIT_BOUNDS < <(grep -o 'class="android.widget.EditText"[^>]*bounds="[^"]*"' "$APP02/register.xml" | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p')
+          printf '%s\\n' "${EDIT_BOUNDS[@]}" > "$APP02/edittext-bounds.txt"
           test "${#EDIT_BOUNDS[@]}" -ge 2 || { echo 'APP-02 HARNESS FAIL: expected two EditText fields' >&2; exit 1; }
           read EX1 EY1 EX2 EY2 <<< "${EDIT_BOUNDS[0]}"
           adb shell input tap $(((EX1+EX2)/2)) $(((EY1+EY2)/2))
