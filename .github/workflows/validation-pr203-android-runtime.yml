@@ -40,6 +40,14 @@ jobs:
           sha256sum "$APK" | tee "$RUNNER_TEMP/apk.sha256"
           echo "$TESTED_SHA" > "$RUNNER_TEMP/tested-commit.txt"
           cp "$APK" "$RUNNER_TEMP/sportreel-pr203.apk"
+      - name: Enable KVM acceleration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -e /dev/kvm
+          sudo chmod 666 /dev/kvm
+          ls -l /dev/kvm
+
       - name: Create APP-01 runtime script
         shell: bash
         run: |
@@ -92,14 +100,14 @@ jobs:
         with:
           api-level: 35
           arch: x86_64
-          target: aosp_atd
+          target: google_apis
           profile: pixel_2
           cores: 2
           ram-size: 2048M
           heap-size: 512M
           emulator-boot-timeout: 480
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel off
-          disable-linux-hw-accel: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          disable-linux-hw-accel: false
           script: bash "$RUNNER_TEMP/app01.sh"
       - name: Publish evidence
         if: always()
