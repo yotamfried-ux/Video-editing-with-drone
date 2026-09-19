@@ -20,12 +20,12 @@ below is against criteria reconstructed from the task description and the
 | **BASE-01** | **PASS** | Recorded `main` HEAD `356d581`, both validation branch HEADs, and the diff: all three validation branches are **workflow-only**, no product code differs. Built the dependency map from route handlers and workflow files. Qualified both execution surfaces. Re-verified stability run `35398470732` and found it green at **attempt 2**, not 3/3 cold. | `validation-evidence/BASE-01/BASE-01.md`; runs `35436000030`, `35398470732` | GAP-002, GAP-003 |
 | **TOOL-01** | **PASS (re-qualified)** | Prior harness was mis-qualified. Capability probe showed `/dev/kvm` present, `svm` flags, runner lacking group access. Applying the udev rule let a `google_apis` API-35 emulator boot, install the APK and capture UI in **4m24s** — the same runner class where software emulation had failed outright. | Runs `35436000030` (probe), `35436104913` (accelerated) | GAP-001 fixed; GAP-002 open (3 accelerated cold runs not yet measured) |
 | **TOOL-02** | **PASS** | Agent push → automatic workflow trigger proven. R2 credentials valid (`head_bucket_status: 200`, bucket `sportreel`). Supabase service-role reads working. GitHub MCP run/job/log reads working. Workstation limits recorded: no Android, no ffmpeg, no KVM, egress denies non-allowlisted hosts. | Runs `35436000030`, `35422757493`, `35436291908` | GAP-010 (artifact download blocked) |
-| **BUILD-01** | **PARTIAL** | The exact APK (`BUILD_ID 3884d669-850c-4b76-bba5-5e57ffcd2245`) downloads and installs successfully on a clean emulator, and its SHA-256 is recorded per run. Provenance verification against `356d581` was **added** by this campaign because the existing gate never performed it. | Runs `35436104913`, `35436407331` | GAP-003; confirm `PROVENANCE_MATCH` output |
-| **APP-01** | **PENDING** | Accelerated run reached app launch; frame capture and analysis committed to the branch. | run `35436407331` | Read committed frames |
-| **APP-02** | **PENDING** | Background → force-stop → relaunch sequence executed in the accelerated script. | run `35436407331` | Read committed frames |
-| **UI-01** | **PENDING** | Login and Register surfaces captured with per-frame render statistics (unique colours, mean luma, non-black ratio) to distinguish real rendering from the previously observed black frames. | run `35436407331` | Read committed frames |
-| **UI-02** | **PENDING** | Navigation via the real rendered "Create Account" control, located from the live uiautomator dump. | run `35436407331` | — |
-| **UI-03** | **PENDING** | State restoration after background/kill/relaunch captured. | run `35436407331` | — |
+| **BUILD-01** | **PASS** | EAS build record reports `gitCommitHash=356d5812097ba935401ecf3a145a2608cda68cb9`, matching the expected commit exactly (`BUILD01_MATCH=true`). APK SHA-256 `997c3b4c…daa47789`, 84 409 443 bytes, reproducible across runs. The check the existing gate never performed was added and passed. | `validation-evidence/BUILD-01/BUILD-01.md`; run `35437001884` | GAP-003 closed as a verification gap; APK signing identity still unexamined |
+| **APP-01** | **PASS** | Clean install (`Success`) onto a fresh API-35 emulator, `pm clear` to first-run state, cold launch via the real launcher intent: `Status: ok`, `LaunchState: COLD`, **TotalTime 3210 ms**. No fatal exception, no ANR. | `validation-evidence/UI-01/UI-01.md`; run `35436648784` | — |
+| **APP-02** | **PASS** | HOME → `am force-stop` → relaunch: `Status: ok`, **TotalTime 2311 ms**, no crash on the kill/restart path. | `validation-evidence/UI-01/UI-01.md`; run `35436648784` | — |
+| **UI-01** | **PASS** | Login surface captured and **visually reviewed**: "Welcome Back", email/password fields, Sign In, Create Account. No clipping, overlap or truncation; safe areas respected at 1080×2400/420 dpi. All six frames measured RENDERED (e.g. login: 1009 colours, non-black 0.9739); launcher frames ~30k colours prove the render pipeline independently. | `validation-evidence/UI-01/` (frames committed); run `35436648784` | GAP-001 fixed |
+| **UI-02** | **PASS** | "Create Account" located in the live uiautomator dump and tapped at its true rendered centre **(540, 1702)**. App navigated to the registration surface: title, email, "Password (min 6 chars)", Continue, "Already have an account?", two-step progress indicator. | `validation-evidence/UI-01/`; run `35436648784` | — |
+| **UI-03** | **PASS** | After force-stop the app returns to the **login** screen rather than the half-completed registration screen — correct reset for an unauthenticated session, no stale partial-signup state. | `validation-evidence/UI-01/`; run `35436648784` | — |
 | **UPL-01** | **BLOCKED** | Normal upload not executed. Requires real media and creates durable R2 + Supabase state. | — | BLOCKER-002, BLOCKER-003 |
 | **UPL-02** | **BLOCKED** | Network-interruption upload not executed. | — | BLOCKER-002/003. Note PR 188 (upload resilience) is **unmerged**, so `main` is the un-hardened path |
 | **UPL-03** | **BLOCKED** | Resume-after-interruption not executed. | — | BLOCKER-002/003. PR 194 (multipart foundation) unmerged |
@@ -67,9 +67,8 @@ below is against criteria reconstructed from the task description and the
 
 | Outcome | Count | IDs |
 | --- | --- | --- |
-| PASS | 6 | BASE-01, TOOL-01, TOOL-02, DATA-01, PIPE-02, SEC-01 |
-| PARTIAL | 5 | BUILD-01, R2-01, QA-01, QA-02, INSTALL-01 |
-| PENDING (in flight) | 5 | APP-01, APP-02, UI-01, UI-02, UI-03 |
+| PASS | 12 | BASE-01, TOOL-01, TOOL-02, BUILD-01, APP-01, APP-02, UI-01, UI-02, UI-03, DATA-01, PIPE-02, SEC-01 |
+| PARTIAL | 4 | R2-01, QA-01, QA-02, INSTALL-01 |
 | NOT RUN (executable) | 3 | DEV-02, PERM-01, NET-01 |
 | BLOCKED | 24 | UPL-01..06, PIPE-01, PIPE-03, CV-01..03, DEC-01..03, EDIT-01..03, PERF-01, RES-01, E2E-01, E2E-02, DEV-01, LOAD-01, REALDEV-01 |
 | FAIL | 0 | — see note |
