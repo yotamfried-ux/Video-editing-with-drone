@@ -1,0 +1,1 @@
+com.sportreel.app/.MainActivity

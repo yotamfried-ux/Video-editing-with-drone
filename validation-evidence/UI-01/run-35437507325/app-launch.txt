@@ -1,0 +1,7 @@
+Starting: Intent { cmp=com.sportreel.app/.MainActivity }
+Status: ok
+LaunchState: COLD
+Activity: com.sportreel.app/.MainActivity
+TotalTime: 2821
+WaitTime: 2825
+Complete

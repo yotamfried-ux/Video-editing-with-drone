@@ -1,0 +1,546 @@
+ACTIVITY MANAGER ACTIVITIES (dumpsys activity activities)
+Display #0 (activities from top to bottom):
+  Stack #9: type=standard mode=fullscreen
+  isSleeping=false
+  mBounds=Rect(0, 0 - 0, 0)
+    mResumedActivity: ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+    * Task{75a4826 #9 visible=true type=standard mode=fullscreen translucent=false A=10167:com.sportreel.app U=0 StackId=9 sz=1}
+      mBounds=Rect(0, 0 - 0, 0)
+      mMinWidth=-1 mMinHeight=-1
+      userId=0 effectiveUid=u0a167 mCallingUid=2000 mUserSetupComplete=true mCallingPackage=com.android.shell mCallingFeatureId=null
+      affinity=10167:com.sportreel.app
+      intent={flg=0x10000000 cmp=com.sportreel.app/.MainActivity}
+      mActivityComponent=com.sportreel.app/.MainActivity
+      autoRemoveRecents=false isPersistable=true activityType=1
+      rootWasReset=false mNeverRelinquishIdentity=true mReuseTask=false mLockTaskAuth=LOCK_TASK_AUTH_PINNABLE
+      Activities=[ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}]
+      askedCompatMode=false inRecents=true isAvailable=true
+      mRootProcess=ProcessRecord{ab31db9 5504:com.sportreel.app/u0a167}
+      taskId=9 stackId=9
+      mHasBeenVisible=true
+      mResizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION mSupportsPictureInPicture=false isResizeable=true
+      lastActiveTime=58235 (inactive for 39s)
+      * Hist #0: ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+          packageName=com.sportreel.app processName=com.sportreel.app
+          launchedFromUid=2000 launchedFromPackage=com.android.shell launchedFromFeature=null userId=0
+          app=ProcessRecord{ab31db9 5504:com.sportreel.app/u0a167}
+          Intent { flg=0x10000000 cmp=com.sportreel.app/.MainActivity }
+          rootOfTask=true task=Task{75a4826 #9 visible=true type=standard mode=fullscreen translucent=false A=10167:com.sportreel.app U=0 StackId=9 sz=1}
+          taskAffinity=10167:com.sportreel.app
+          mActivityComponent=com.sportreel.app/.MainActivity
+          baseDir=/data/app/~~qfeGZSO874tgIQw_7F5fDg==/com.sportreel.app-XBJnMKdAAVibHkDXOXlAcg==/base.apk
+          dataDir=/data/user/0/com.sportreel.app
+          stateNotNeeded=false componentSpecified=false mActivityType=standard
+          compat={420dpi} labelRes=0x7f13001d icon=0x7f100002 theme=0x7f140280
+          mLastReportedConfigurations:
+            mGlobalConfig={1.0 310mcc260mnc [en_US] ldltr sw411dp w411dp h842dp 420dpi nrml long port finger qwerty/v/v -nav/h winConfig={ mBounds=Rect(0, 0 - 1080, 2400) mAppBounds=Rect(0, 0 - 1080, 2274) mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=undefined mAlwaysOnTop=undefined mRotation=ROTATION_0} s.9}
+            mOverrideConfig={1.0 310mcc260mnc [en_US] ldltr sw411dp w411dp h842dp 420dpi nrml long port finger qwerty/v/v -nav/h winConfig={ mBounds=Rect(0, 0 - 1080, 2400) mAppBounds=Rect(0, 0 - 1080, 2274) mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1}
+          CurrentConfiguration={1.0 310mcc260mnc [en_US] ldltr sw411dp w411dp h842dp 420dpi nrml long port finger qwerty/v/v -nav/h winConfig={ mBounds=Rect(0, 0 - 1080, 2400) mAppBounds=Rect(0, 0 - 1080, 2274) mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=standard mAlwaysOnTop=undefined mRotation=ROTATION_0} s.1}
+          taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=fff5f5f5
+            backgroundColor=fffafafa statusBarColor=ff0a0e1a navigationBarColor=ff000000
+          launchFailed=false launchCount=1 lastLaunchTime=-38s979ms
+          mHaveState=false mIcicle=null
+          state=RESUMED stopped=false delayedResume=false finishing=false
+          keysPaused=false inHistory=true setToSleep=false idle=true mStartingWindowState=STARTING_WINDOW_SHOWN
+          occludesParent=true noDisplay=false immersive=false launchMode=2
+          frozenBeforeDestroy=false forceNewConfig=false
+          mActivityType=standard
+          windows=[Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}]
+          windowType=2 hasVisible=true
+          mOccludesParent=true mOrientation=1
+          mVisibleRequested=true mVisible=true mClientVisible=true reportedDrawn=true reportedVisible=true
+          mNumInterestingWindows=1 mNumDrawnWindows=1 allDrawn=true lastAllDrawn=true)
+          startingData=null firstWindowDrawn=true mIsExiting=false
+          nowVisible=true lastVisibleTime=-37s472ms
+          resizeMode=RESIZE_MODE_RESIZEABLE_VIA_SDK_VERSION
+          mLastReportedMultiWindowMode=false mLastReportedPictureInPictureMode=false
+
+  Stack #1: type=home mode=fullscreen
+  isSleeping=false
+  mBounds=Rect(0, 0 - 0, 0)
+    mLastPausedActivity: ActivityRecord{b7fe7c1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t8}
+    * Task{3456c7b #8 visible=true type=home mode=fullscreen translucent=false I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 StackId=1 sz=1}
+      mBounds=Rect(0, 0 - 0, 0)
+      mMinWidth=-1 mMinHeight=-1
+      userId=0 effectiveUid=u0a153 mCallingUid=u0a153 mUserSetupComplete=true mCallingPackage=com.google.android.apps.nexuslauncher mCallingFeatureId=null
+      intent={act=android.intent.action.MAIN cat=[android.intent.category.HOME] flg=0x10010000 pkg=com.google.android.apps.nexuslauncher cmp=com.google.android.apps.nexuslauncher/.NexusLauncherActivity}
+      mActivityComponent=com.google.android.apps.nexuslauncher/.NexusLauncherActivity
+      autoRemoveRecents=false isPersistable=true activityType=2
+      rootWasReset=false mNeverRelinquishIdentity=true mReuseTask=false mLockTaskAuth=LOCK_TASK_AUTH_PINNABLE
+      Activities=[ActivityRecord{b7fe7c1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t8}]
+      askedCompatMode=false inRecents=true isAvailable=true
+      mRootProcess=ProcessRecord{8574663 974:com.google.android.apps.nexuslauncher/u0a153}
+      taskId=8 stackId=1
+      mHasBeenVisible=true
+      mResizeMode=RESIZE_MODE_RESIZEABLE mSupportsPictureInPicture=false isResizeable=true
+      lastActiveTime=58127 (inactive for 39s)
+      * Hist #0: ActivityRecord{b7fe7c1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t8}
+          packageName=com.google.android.apps.nexuslauncher processName=com.google.android.apps.nexuslauncher
+          launchedFromUid=10153 launchedFromPackage=com.google.android.apps.nexuslauncher launchedFromFeature=null userId=0
+          app=ProcessRecord{8574663 974:com.google.android.apps.nexuslauncher/u0a153}
+          Intent { act=android.intent.action.MAIN cat=[android.intent.category.HOME] flg=0x10010000 pkg=com.google.android.apps.nexuslauncher cmp=com.google.android.apps.nexuslauncher/.NexusLauncherActivity (has extras) }
+          rootOfTask=true task=Task{3456c7b #8 visible=true type=home mode=fullscreen translucent=false I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 StackId=1 sz=1}
+          taskAffinity=null
+          mActivityComponent=com.google.android.apps.nexuslauncher/.NexusLauncherActivity
+          baseDir=/system_ext/priv-app/NexusLauncherRelease/NexusLauncherRelease.apk
+          dataDir=/data/user/0/com.google.android.apps.nexuslauncher
+          stateNotNeeded=true componentSpecified=false mActivityType=home
+          compat={420dpi} labelRes=0x7f10004f icon=0x7f080208 theme=0x7f11000a
+          mLastReportedConfigurations:
+            mGlobalConfig={1.0 310mcc260mnc [en_US] ldltr sw411dp w411dp h842dp 420dpi nrml long port finger qwerty/v/v -nav/h winConfig={ mBounds=Rect(0, 0 - 1080, 2400) mAppBounds=Rect(0, 0 - 1080, 2274) mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=home mAlwaysOnTop=undefined mRotation=ROTATION_0} s.24}
+            mOverrideConfig={1.0 310mcc260mnc [en_US] ldltr sw411dp w411dp h842dp 420dpi nrml long port finger qwerty/v/v -nav/h winConfig={ mBounds=Rect(0, 0 - 1080, 2400) mAppBounds=Rect(0, 0 - 1080, 2274) mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=home mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2}
+          CurrentConfiguration={1.0 310mcc260mnc [en_US] ldltr sw411dp w411dp h842dp 420dpi nrml long port finger qwerty/v/v -nav/h winConfig={ mBounds=Rect(0, 0 - 1080, 2400) mAppBounds=Rect(0, 0 - 1080, 2274) mWindowingMode=fullscreen mDisplayWindowingMode=fullscreen mActivityType=home mAlwaysOnTop=undefined mRotation=ROTATION_0} s.2}
+          RequestedOverrideConfiguration={0.0 ?mcc?mnc ?localeList ?layoutDir ?swdp ?wdp ?hdp ?density ?lsize ?long ?ldr ?wideColorGamut ?orien ?uimode ?night ?touch ?keyb/?/? ?nav/? winConfig={ mBounds=Rect(0, 0 - 0, 0) mAppBounds=null mWindowingMode=undefined mDisplayWindowingMode=undefined mActivityType=home mAlwaysOnTop=undefined mRotation=undefined}}
+          taskDescription: label="null" icon=null iconResource=/0 iconFilename=null primaryColor=fff5f5f5
+            backgroundColor=fffafafa statusBarColor=0 navigationBarColor=0
+          launchFailed=false launchCount=0 lastLaunchTime=-1m4s575ms
+          mHaveState=true mIcicle=Bundle[mParcelledData.dataSize=3712]
+          state=STOPPED stopped=true delayedResume=false finishing=false
+          keysPaused=false inHistory=true setToSleep=false idle=true mStartingWindowState=STARTING_WINDOW_NOT_SHOWN
+          occludesParent=true noDisplay=false immersive=false launchMode=2
+          frozenBeforeDestroy=false forceNewConfig=false
+          mActivityType=home
+          windows=[Window{1eff9b u0 com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity}, Window{cb62048 u0 com.google.android.apps.nexuslauncher/com.google.android.apps.nexuslauncher.NexusLauncherActivity}]
+          windowType=2 hasVisible=true
+          mOccludesParent=true mOrientation=5
+          mVisibleRequested=false mVisible=false mClientVisible=false reportedDrawn=false reportedVisible=false
+          mAppStopped=true
+          mNumInterestingWindows=2 mNumDrawnWindows=2 allDrawn=true lastAllDrawn=true)
+          startingData=null firstWindowDrawn=true mIsExiting=false
+          nowVisible=false lastVisibleTime=-1m1s130ms
+          connections={}
+          resizeMode=RESIZE_MODE_RESIZEABLE
+          mLastReportedMultiWindowMode=false mLastReportedPictureInPictureMode=false
+
+  Stack #4: type=undefined mode=split-screen-primary
+  isSleeping=false
+  mBounds=Rect(0, 0 - 1080, 1155)
+
+  Stack #5: type=undefined mode=split-screen-secondary
+  isSleeping=false
+  mBounds=Rect(0, 1181 - 1080, 2400)
+
+  Resumed activities in task display areas (from top to bottom):
+    Resumed: ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+
+  ResumedActivity: ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+
+ActivityStackSupervisor state:
+  topDisplayFocusedStack=Task{75a4826 #9 visible=true type=standard mode=fullscreen translucent=false A=10167:com.sportreel.app U=0 StackId=9 sz=1}
+  mLastOrientationSource=ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+  Display: mDisplayId=0 stacks=4
+    init=1080x2400 420dpi cur=1080x2400 app=1080x2274 rng=1080x1017-2274x2211
+    deferred=false mLayoutNeeded=false mTouchExcludeRegion=SkRegion((0,0,1080,2400))
+
+  mLayoutSeq=119
+  mCurrentFocus=Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}
+  mFocusedApp=ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+  mLastStatusBarVisibility=0xa008
+
+  displayId=0
+  mWallpaperTarget=null
+  mLastWallpaperX=0.0 mLastWallpaperY=0.5
+
+  Task display areas in top down Z order:
+    TaskDisplayArea DefaultTaskDisplayArea
+      mLastOrientationSource=Task{75a4826 #9 visible=true type=standard mode=fullscreen translucent=false A=10167:com.sportreel.app U=0 StackId=9 sz=1}
+      mPreferredTopFocusableStack=Task{75a4826 #9 visible=true type=standard mode=fullscreen translucent=false A=10167:com.sportreel.app U=0 StackId=9 sz=1}
+      mLastFocusedStack=Task{75a4826 #9 visible=true type=standard mode=fullscreen translucent=false A=10167:com.sportreel.app U=0 StackId=9 sz=1}
+      Application tokens in top down Z order:
+      * Task{75a4826 #9 visible=true type=standard mode=fullscreen translucent=false A=10167:com.sportreel.app U=0 StackId=9 sz=1}
+        mLastOrientationSource=ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+        bounds=[0,0][1080,2400]
+        * ActivityRecord{bbedf68 u0 com.sportreel.app/.MainActivity t9}
+      * Task{1781db4 #1 visible=false type=home mode=fullscreen translucent=true I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 StackId=1 sz=1}
+        mLastOrientationSource=Task{3456c7b #8 visible=true type=home mode=fullscreen translucent=false I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 StackId=1 sz=1}
+        bounds=[0,0][1080,2400]
+        * Task{3456c7b #8 visible=true type=home mode=fullscreen translucent=false I=com.google.android.apps.nexuslauncher/.NexusLauncherActivity U=0 StackId=1 sz=1}
+          mLastOrientationSource=ActivityRecord{b7fe7c1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t8}
+          bounds=[0,0][1080,2400]
+          * ActivityRecord{b7fe7c1 u0 com.google.android.apps.nexuslauncher/.NexusLauncherActivity t8}
+      * Task{ddb304f #4 visible=false type=undefined mode=split-screen-primary translucent=true ?? U=0 StackId=4 sz=0}
+        bounds=[0,0][1080,1155]
+      * Task{10a53ba #5 visible=false type=undefined mode=split-screen-secondary translucent=true ?? U=0 StackId=5 sz=0}
+        bounds=[0,1181][1080,2400]
+
+  no ScreenRotationAnimation 
+
+  homeStack=Task=1
+  splitScreenPrimaryStack=Task=4
+
+  PinnedStackController
+    mIsImeShowing=false
+    mImeHeight=0
+    mAspectRatio=-1.0
+    mMinAspectRatio=0.41841003
+    mMaxAspectRatio=2.39
+    mActions=[]
+    mDisplayInfo=DisplayInfo{"Built-in Screen", displayId 0, FLAG_SECURE, FLAG_SUPPORTS_PROTECTED_BUFFERS, FLAG_TRUSTED, real 1080 x 2400, largest app 2274 x 2211, smallest app 1080 x 1017, appVsyncOff 1000000, presDeadline 16666666, mode 1, defaultMode 1, modes [{id=1, width=1080, height=2400, fps=60.000004}], hdrCapabilities HdrCapabilities{mSupportedHdrTypes=[], mMaxLuminance=500.0, mMaxAverageLuminance=500.0, mMinLuminance=0.0}, minimalPostProcessingSupported false, rotation 0, state ON, type INTERNAL, uniqueId "local:8141241408256768", app 1080 x 2274, density 420 (420.0 x 420.0) dpi, layerStack 0, colorMode 0, supportedColorModes [0], address {port=0, model=0x1cec6a7a2b7b}, deviceProductInfo DeviceProductInfo{name=EMU_display_0, manufacturerPnpId=GGL, productId=1, modelYear=null, manufactureDate=ManufactureDate{week=27, year=2006}, relativeAddress=null}, removeMode 0}
+
+  DisplayFrames w=1080 h=2400 r=0
+    mStable=[0,63][1080,2274]
+    mStableFullscreen=[0,0][1080,2274]
+    mDock=[0,63][1080,2274]
+    mCurrent=[0,63][1080,2274]
+    mSystem=[0,0][1080,2400]
+    mContent=[0,63][1080,2274]
+    mVoiceContent=[0,63][1080,2274]
+    mRestricted=[0,0][1080,2274]
+    mUnrestricted=[0,0][1080,2400]
+    mDisplayCutout=WmDisplayCutout{DisplayCutout{insets=Rect(0, 0 - 0, 0) waterfall=Insets{left=0, top=0, right=0, bottom=0} boundingRect={Bounds=[Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0), Rect(0, 0 - 0, 0)]}}, mFrameSize=null}
+
+  DisplayPolicy
+    mCarDockEnablesAccelerometer=true mDeskDockEnablesAccelerometer=true
+    mDockMode=EXTRA_DOCK_STATE_UNDOCKED mLidState=LID_OPEN
+    mAwake=true mScreenOnEarly=true mScreenOnFully=true
+    mKeyguardDrawComplete=true mWindowManagerDrawComplete=true
+    mHdmiPlugged=false
+    mLastSystemUiFlags=0xa008 mResettingSystemUiFlags=0x0 mForceClearedSystemUiFlags=0x0
+    mShowingDream=false mDreamingLockscreen=false    mStatusBar=Window{64446e1 u0 StatusBar}    mExpandedPanel=Window{a54425c u0 NotificationShade} isKeyguardShowing=false
+    mNavigationBar=Window{f4684fb u0 NavigationBar0}
+    mNavBarOpacityMode=0
+    mNavigationBarCanMove=true
+    mNavigationBarPosition=4
+    mFocusedWindow=Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}
+    mTopFullscreenOpaqueWindowState=Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}
+    mTopFullscreenOpaqueOrDimmingWindowState=Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}
+    mTopIsFullscreen=false
+    mForceStatusBar=true    mForceShowSystemBarsFromExternal=false mAllowLockscreenWhenOn=false
+    Looper state:
+      Looper (android.ui, tid 20) {8bd120b}
+        (Total messages: 0, polling=true, quitting=false)
+
+  DisplayRotation
+    mCurrentAppOrientation=SCREEN_ORIENTATION_PORTRAIT
+    mLastOrientation=1
+    mRotation=0 mDeferredRotationPauseCount=0
+    mLandscapeRotation=ROTATION_90 mSeascapeRotation=ROTATION_270
+    mPortraitRotation=ROTATION_0 mUpsideDownRotation=ROTATION_180
+    mSupportAutoRotation=true
+    WindowOrientationListener
+      mEnabled=true
+      mCurrentRotation=ROTATION_0
+      mSensorType=null
+      mSensor={Sensor name="Goldfish 3-axis Accelerometer", vendor="The Android Open Source Project", version=1, type=1, maxRange=39.300007, resolution=2.480159E-4, power=3.0, minDelay=10000}
+      mRate=2
+      AccelSensorJudge
+        mProposedRotation=0
+        mPredictedRotation=0
+        mLastFilteredX=0.0
+        mLastFilteredY=9.776321
+        mLastFilteredZ=0.812345
+        mLastFilteredTimestampNanos=97201531596 (40.35235ms ago)
+        mTiltHistory={last: 5.0}
+        mFlat=false
+        mSwinging=false
+        mAccelerating=false
+        mOverhead=false
+        mTouched=false
+        mTiltToleranceConfig=[[-25, 70], [-25, 65], [-25, 60], [-25, 65]]
+
+    mCarDockRotation=-1 mDeskDockRotation=-1
+    mUserRotationMode=USER_ROTATION_FREE mUserRotation=ROTATION_0 mAllowAllRotations=unknown
+    mDemoHdmiRotation=ROTATION_90 mDemoHdmiRotationLock=false mUndockedHdmiRotation=-1
+    mLidOpenRotation=-1
+    mFixedToUserRotation=false
+
+  InputConsumers:
+    name=recents_animation_input_consumer pid=974 user=UserHandle{0}
+
+  WindowInsetsStateController
+    InsetsState
+      InsetsSource type=ITYPE_STATUS_BAR frame=[0,0][1080,63] visible=true
+      InsetsSource type=ITYPE_NAVIGATION_BAR frame=[0,2274][1080,2400] visible=true
+      InsetsSource type=ITYPE_TOP_GESTURES frame=[0,0][1080,63] visible=true
+      InsetsSource type=ITYPE_BOTTOM_GESTURES frame=[0,2274][1080,2400] visible=true
+      InsetsSource type=ITYPE_LEFT_GESTURES frame=[0,0][0,2400] visible=true
+      InsetsSource type=ITYPE_RIGHT_GESTURES frame=[1080,0][1080,2400] visible=true
+      InsetsSource type=ITYPE_TOP_TAPPABLE_ELEMENT frame=[0,0][1080,63] visible=true
+      InsetsSource type=ITYPE_BOTTOM_TAPPABLE_ELEMENT frame=[0,2274][1080,2400] visible=true
+      InsetsSource type=ITYPE_IME frame=[0,0][0,0] visibleFrame=[0,1533][1080,2400] visible=false
+    Control map:
+    ITYPE_IME -> Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}
+    ITYPE_NAVIGATION_BAR -> Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}
+    ITYPE_STATUS_BAR -> Window{cc94fe5 u0 com.sportreel.app/com.sportreel.app.MainActivity}
+    InsetsSourceProviders map:
+    ITYPE_IME -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_IME frame=[0,0][0,0] visibleFrame=[0,1533][1080,2400] visible=false
+   mControl=    InsetsSourceControl type=ITYPE_IME mLeash=Surface(name=Surface(name=de73ba9 InputMethod)/@0xcd6725c - animation-leash)/@0x38238e8 mSurfacePosition=Point(0, 63)
+   mFakeControl=    InsetsSourceControl type=ITYPE_IME mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{7220ce2 1669:u0a10132} mClient=android.os.BinderProxy@7975330
+    mOwnerUid=10132 showForAllUsers=false package=com.google.android.inputmethod.latin appop=NONE
+    mAttrs={(0,0)(fillxfill) gr=BOTTOM CENTER_VERTICAL sim={adjust=pan} ty=INPUT_METHOD fmt=TRANSPARENT wanim=0x1030056
+      fl=NOT_FOCUSABLE LAYOUT_IN_SCREEN SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=FIT_INSETS_CONTROLLED
+      vsysui=LIGHT_NAVIGATION_BAR
+      apr=LIGHT_NAVIGATION_BARS
+      fitTypes=STATUS_BARS NAVIGATION_BARS
+      fitSides=LEFT TOP RIGHT
+      fitIgnoreVis}
+    Requested w=1080 h=2337 mLayoutSeq=116
+    mIsImWindow=true mIsWallpaper=false mIsFloatingLayer=true mWallpaperVisible=false
+    mHasSurface=false isReadyForDisplay()=false mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=de73ba9 InputMethod)/@0xcd6725c - animation-leash)/@0x38238e8 mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@8b3b783
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=de73ba9 InputMethod)/@0xcd6725c - animation-leash)/@0x38238e8    WindowStateAnimator{8c13d00 InputMethod}:
+       mAnimationIsEntrance=true    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=false
+    isVisible=false
+   mAdapter=    ControlAdapter
+     mCapturedLeash=Surface(name=Surface(name=de73ba9 InputMethod)/@0xcd6725c - animation-leash)/@0x38238e8   mControlTarget=    mDisplayId=0 rootTaskId=9 mSession=Session{4d771ae 5504:u0a10167} mClient=android.os.BinderProxy@6b862dc
+    mOwnerUid=10167 showForAllUsers=false package=com.sportreel.app appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=BASE_APPLICATION wanim=0x10302fe
+      fl=LAYOUT_IN_SCREEN FORCE_NOT_FULLSCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=FORCE_DRAW_STATUS_BAR_BACKGROUND FIT_INSETS_CONTROLLED
+      vsysui=LIGHT_STATUS_BAR
+      apr=LIGHT_STATUS_BARS
+      fitSides=}
+    Requested w=1080 h=2400 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    WindowStateAnimator{8dd2939 com.sportreel.app/com.sportreel.app.MainActivity}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 2400 transform=(1.0, 0.0, 1.0, 0.0)
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_BOTTOM_TAPPABLE_ELEMENT -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_BOTTOM_TAPPABLE_ELEMENT frame=[0,2274][1080,2400] visible=true
+   mFakeControl=    InsetsSourceControl type=ITYPE_BOTTOM_TAPPABLE_ELEMENT mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@84268f5
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=pan} ty=NAVIGATION_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE NOT_TOUCH_MODAL TOUCHABLE_WHEN_WAKING WATCH_OUTSIDE_TOUCH SPLIT_TOUCH HARDWARE_ACCELERATED FLAG_SLIPPERY
+      pfl=COLOR_SPACE_AGNOSTIC
+      fitTypes=STATUS_BARS NAVIGATION_BARS CAPTION_BAR IME}
+    Requested w=1080 h=126 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@97048df
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e    WindowStateAnimator{67d292c NavigationBar0}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 126 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s966ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_TOP_TAPPABLE_ELEMENT -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_TOP_TAPPABLE_ELEMENT frame=[0,0][1080,63] visible=true
+   mFakeControl=    InsetsSourceControl type=ITYPE_TOP_TAPPABLE_ELEMENT mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@c3ea2eb
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillx63) gr=TOP CENTER_VERTICAL sim={adjust=pan} layoutInDisplayCutoutMode=always ty=STATUS_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=COLOR_SPACE_AGNOSTIC FIT_INSETS_CONTROLLED}
+    Requested w=1080 h=63 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5 mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@dce718a
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5    WindowStateAnimator{23a93fb StatusBar}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 63 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s953ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_RIGHT_GESTURES -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_RIGHT_GESTURES frame=[1080,0][1080,2400] visible=true
+   mFakeControl=    InsetsSourceControl type=ITYPE_RIGHT_GESTURES mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@84268f5
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=pan} ty=NAVIGATION_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE NOT_TOUCH_MODAL TOUCHABLE_WHEN_WAKING WATCH_OUTSIDE_TOUCH SPLIT_TOUCH HARDWARE_ACCELERATED FLAG_SLIPPERY
+      pfl=COLOR_SPACE_AGNOSTIC
+      fitTypes=STATUS_BARS NAVIGATION_BARS CAPTION_BAR IME}
+    Requested w=1080 h=126 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@97048df
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e    WindowStateAnimator{67d292c NavigationBar0}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 126 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s966ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_LEFT_GESTURES -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_LEFT_GESTURES frame=[0,0][0,2400] visible=true
+   mFakeControl=    InsetsSourceControl type=ITYPE_LEFT_GESTURES mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@84268f5
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=pan} ty=NAVIGATION_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE NOT_TOUCH_MODAL TOUCHABLE_WHEN_WAKING WATCH_OUTSIDE_TOUCH SPLIT_TOUCH HARDWARE_ACCELERATED FLAG_SLIPPERY
+      pfl=COLOR_SPACE_AGNOSTIC
+      fitTypes=STATUS_BARS NAVIGATION_BARS CAPTION_BAR IME}
+    Requested w=1080 h=126 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@97048df
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e    WindowStateAnimator{67d292c NavigationBar0}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 126 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s966ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_BOTTOM_GESTURES -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_BOTTOM_GESTURES frame=[0,2274][1080,2400] visible=true
+   mFakeControl=    InsetsSourceControl type=ITYPE_BOTTOM_GESTURES mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@84268f5
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=pan} ty=NAVIGATION_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE NOT_TOUCH_MODAL TOUCHABLE_WHEN_WAKING WATCH_OUTSIDE_TOUCH SPLIT_TOUCH HARDWARE_ACCELERATED FLAG_SLIPPERY
+      pfl=COLOR_SPACE_AGNOSTIC
+      fitTypes=STATUS_BARS NAVIGATION_BARS CAPTION_BAR IME}
+    Requested w=1080 h=126 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@97048df
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e    WindowStateAnimator{67d292c NavigationBar0}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 126 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s966ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_TOP_GESTURES -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_TOP_GESTURES frame=[0,0][1080,63] visible=true
+   mFakeControl=    InsetsSourceControl type=ITYPE_TOP_GESTURES mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@c3ea2eb
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillx63) gr=TOP CENTER_VERTICAL sim={adjust=pan} layoutInDisplayCutoutMode=always ty=STATUS_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=COLOR_SPACE_AGNOSTIC FIT_INSETS_CONTROLLED}
+    Requested w=1080 h=63 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5 mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@dce718a
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5    WindowStateAnimator{23a93fb StatusBar}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 63 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s953ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_NAVIGATION_BAR -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_NAVIGATION_BAR frame=[0,2274][1080,2400] visible=true
+   mControl=    InsetsSourceControl type=ITYPE_NAVIGATION_BAR mLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e mSurfacePosition=Point(0, 2274)
+   mFakeControl=    InsetsSourceControl type=ITYPE_NAVIGATION_BAR mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 2274 - 1080, 2400)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@84268f5
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=pan} ty=NAVIGATION_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE NOT_TOUCH_MODAL TOUCHABLE_WHEN_WAKING WATCH_OUTSIDE_TOUCH SPLIT_TOUCH HARDWARE_ACCELERATED FLAG_SLIPPERY
+      pfl=COLOR_SPACE_AGNOSTIC
+      fitTypes=STATUS_BARS NAVIGATION_BARS CAPTION_BAR IME}
+    Requested w=1080 h=126 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@97048df
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e    WindowStateAnimator{67d292c NavigationBar0}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 126 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s966ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+   mAdapter=    ControlAdapter
+     mCapturedLeash=Surface(name=Surface(name=f4684fb NavigationBar0)/@0xaa52285 - animation-leash)/@0x3d01b7e   mControlTarget=    mDisplayId=0 rootTaskId=9 mSession=Session{4d771ae 5504:u0a10167} mClient=android.os.BinderProxy@6b862dc
+    mOwnerUid=10167 showForAllUsers=false package=com.sportreel.app appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=BASE_APPLICATION wanim=0x10302fe
+      fl=LAYOUT_IN_SCREEN FORCE_NOT_FULLSCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=FORCE_DRAW_STATUS_BAR_BACKGROUND FIT_INSETS_CONTROLLED
+      vsysui=LIGHT_STATUS_BAR
+      apr=LIGHT_STATUS_BARS
+      fitSides=}
+    Requested w=1080 h=2400 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    WindowStateAnimator{8dd2939 com.sportreel.app/com.sportreel.app.MainActivity}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 2400 transform=(1.0, 0.0, 1.0, 0.0)
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+    ITYPE_STATUS_BAR -> 
+  InsetsSourceProvider
+   mSource=    InsetsSource type=ITYPE_STATUS_BAR frame=[0,0][1080,63] visible=true
+   mControl=    InsetsSourceControl type=ITYPE_STATUS_BAR mLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5 mSurfacePosition=Point(0, 0)
+   mFakeControl=    InsetsSourceControl type=ITYPE_STATUS_BAR mLeash=null mSurfacePosition=Point(0, 0)
+ mIsLeashReadyForDispatching=true mImeOverrideFrame=Rect(0, 0 - 0, 0)   mWin=    mDisplayId=0 rootTaskId=1 mSession=Session{e4b2da 755:u0a10157} mClient=android.os.BinderProxy@c3ea2eb
+    mOwnerUid=10157 showForAllUsers=true package=com.android.systemui appop=NONE
+    mAttrs={(0,0)(fillx63) gr=TOP CENTER_VERTICAL sim={adjust=pan} layoutInDisplayCutoutMode=always ty=STATUS_BAR fmt=TRANSLUCENT
+      fl=NOT_FOCUSABLE SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=COLOR_SPACE_AGNOSTIC FIT_INSETS_CONTROLLED}
+    Requested w=1080 h=63 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    ContainerAnimator:
+      mLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5 mAnimationType=32
+      Animation: com.android.server.wm.InsetsSourceProvider$ControlAdapter@dce718a
+        ControlAdapter
+         mCapturedLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5    WindowStateAnimator{23a93fb StatusBar}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 63 transform=(1.0, 0.0, 1.0, 0.0)
+    mLastFreezeDuration=+25s953ms
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+   mAdapter=    ControlAdapter
+     mCapturedLeash=Surface(name=Surface(name=64446e1 StatusBar)/@0xe6b5bfc - animation-leash)/@0x9de1ff5   mControlTarget=    mDisplayId=0 rootTaskId=9 mSession=Session{4d771ae 5504:u0a10167} mClient=android.os.BinderProxy@6b862dc
+    mOwnerUid=10167 showForAllUsers=false package=com.sportreel.app appop=NONE
+    mAttrs={(0,0)(fillxfill) sim={adjust=resize forwardNavigation} ty=BASE_APPLICATION wanim=0x10302fe
+      fl=LAYOUT_IN_SCREEN FORCE_NOT_FULLSCREEN LAYOUT_INSET_DECOR SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS
+      pfl=FORCE_DRAW_STATUS_BAR_BACKGROUND FIT_INSETS_CONTROLLED
+      vsysui=LIGHT_STATUS_BAR
+      apr=LIGHT_STATUS_BARS
+      fitSides=}
+    Requested w=1080 h=2400 mLayoutSeq=119
+    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false
+    WindowStateAnimator{8dd2939 com.sportreel.app/com.sportreel.app.MainActivity}:
+      Surface: shown=true layer=0 alpha=1.0 rect=(0.0,0.0) 1080 x 2400 transform=(1.0, 0.0, 1.0, 0.0)
+    mForceSeamlesslyRotate=false seamlesslyRotate: pending=null finishedFrameNumber=0
+    isOnScreen=true
+    isVisible=true
+
+  KeyguardController:
+    mKeyguardShowing=false
+    mAodShowing=false
+    mKeyguardGoingAway=false
+    Occluded=false DismissingKeyguardActivity=null at display=0
+    mDismissalRequested=false
+
+  LockTaskController:
+    mLockTaskModeState=NONE
+    mLockTaskModeTasks=
+    mLockTaskPackages (userId:packages)=
+      u0:[]
+
+  mCurTaskIdForUser={0=9}
+  mUserStackInFront={}
+  mVisibilityTransactionDepth=0
+  isHomeRecentsComponent=true
+
+  TaskOrganizerController:
+    Per windowing mode:
+      pinned:
+        android.window.ITaskOrganizer$Stub$Proxy@b29ac18 uid=10157:
+      split-screen-primary:
+        android.window.ITaskOrganizer$Stub$Proxy@5bdc671 uid=10157:
+          Task{ddb304f #4 visible=false type=undefined mode=split-screen-primary translucent=true ?? U=0 StackId=4 sz=0}
+          Task{10a53ba #5 visible=false type=undefined mode=split-screen-secondary translucent=true ?? U=0 StackId=5 sz=0}
+      split-screen-secondary:
+        android.window.ITaskOrganizer$Stub$Proxy@5bdc671 uid=10157:
+          Task{ddb304f #4 visible=false type=undefined mode=split-screen-primary translucent=true ?? U=0 StackId=4 sz=0}
+          Task{10a53ba #5 visible=false type=undefined mode=split-screen-secondary translucent=true ?? U=0 StackId=5 sz=0}
+

@@ -1,0 +1,16 @@
+SEC-01 unauthorized-access probes  2026-09-19T09:59:53Z
+target: https://video-editing-with-drone.vercel.app (production, commit 356d581)
+no x-operator-secret header sent on any request below
+---
+read: pipeline status                                      GET    /api/operator/pipeline/status                  -> HTTP 000ERR | 
+read: pipeline runs                                        GET    /api/operator/pipeline/runs                    -> HTTP 000ERR | 
+read: operator reels                                       GET    /api/operator/reels                            -> HTTP 000ERR | 
+read: operator drafts                                      GET    /api/operator/drafts                           -> HTTP 000ERR | 
+read: discover diagnostics                                 GET    /api/operator/discover-diagnostics             -> HTTP 000ERR | 
+MUTATION: pipeline start                                   POST   /api/operator/pipeline/start                   -> HTTP 000ERR | 
+MUTATION: pipeline reset                                   POST   /api/operator/pipeline/reset                   -> HTTP 000ERR | 
+MUTATION: draft approve                                    POST   /api/operator/drafts/approve                   -> HTTP 000ERR | 
+MUTATION: reprocess                                        POST   /api/operator/reprocess                        -> HTTP 000ERR | 
+MUTATION: upload multipart                                 POST   /api/operator/upload/multipart/start           -> HTTP 000ERR | 
+---
+public: pricing (expected open)                            GET    /api/pricing                                   -> HTTP 000ERR | 
