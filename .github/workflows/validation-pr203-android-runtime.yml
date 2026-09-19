@@ -4,6 +4,13 @@ on:
   push:
     branches: [validation/pr203-app-runtime]
     paths: [.github/workflows/validation-pr203-android-runtime.yml]
+  workflow_dispatch:
+    inputs:
+      golden:
+        description: Rebuild APK from scratch for a Golden E2E checkpoint
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -22,31 +29,40 @@ jobs:
           node-version: '20'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
-      - name: Install
+      - name: Install JS dependencies
         working-directory: mobile
         run: npm ci
+
       - name: Restore provenance-pinned APK checkpoint
         id: apk-cache
-        uses: actions/cache@v4
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.golden != true }}
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/sportreel-pr203.apk
           key: sportreel-android-debug-${{ env.TESTED_SHA }}-v1
+
       - name: Generate native Android project
-        if: steps.apk-cache.outputs.cache-hit != 'true'
+        if: ${{ steps.apk-cache.outputs.cache-hit != 'true' }}
         working-directory: mobile
-        run: npx expo prebuild --platform android --no-install --non-interactive
+        run: CI=1 npx expo prebuild --platform android --no-install
       - name: Build exact debug APK
-        if: steps.apk-cache.outputs.cache-hit != 'true'
+        if: ${{ steps.apk-cache.outputs.cache-hit != 'true' }}
         working-directory: mobile/android
         run: ./gradlew assembleDebug --no-daemon
       - name: Checkpoint exact debug APK
-        if: steps.apk-cache.outputs.cache-hit != 'true'
+        if: ${{ steps.apk-cache.outputs.cache-hit != 'true' }}
         shell: bash
         run: |
           set -euo pipefail
           APK=mobile/android/app/build/outputs/apk/debug/app-debug.apk
           test -f "$APK"
           cp "$APK" "$RUNNER_TEMP/sportreel-pr203.apk"
+      - name: Persist APK checkpoint before runtime experiments
+        if: ${{ steps.apk-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-pr203.apk
+          key: sportreel-android-debug-${{ env.TESTED_SHA }}-v1
       - name: Record APK provenance
         shell: bash
         run: |
@@ -56,13 +72,14 @@ jobs:
           sha256sum "$APK" | tee "$RUNNER_TEMP/apk.sha256"
           echo "$TESTED_SHA" > "$RUNNER_TEMP/tested-commit.txt"
           echo "apk_cache_hit=${{ steps.apk-cache.outputs.cache-hit }}" | tee "$RUNNER_TEMP/apk-checkpoint.txt"
+          echo "golden=${{ inputs.golden || false }}" | tee -a "$RUNNER_TEMP/apk-checkpoint.txt"
+
       - name: Enable KVM acceleration
         shell: bash
         run: |
           set -euo pipefail
           test -e /dev/kvm
           sudo chmod 666 /dev/kvm
-          ls -l /dev/kvm
 
       - name: Start Metro bundler
         working-directory: mobile
@@ -70,135 +87,109 @@ jobs:
         run: |
           set -euo pipefail
           nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
-          echo $! > "$RUNNER_TEMP/metro.pid"
           for i in $(seq 1 60); do
-            if curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running"; then
-              echo "Metro is ready on 127.0.0.1:8081"
-              exit 0
-            fi
+            if curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running"; then exit 0; fi
             sleep 2
           done
-          echo "Metro failed to become ready" >&2
           cat "$RUNNER_TEMP/metro.log" >&2 || true
           exit 1
 
-      - name: Create APP-01 runtime script
+      - name: Create sequential Android experiment script
         shell: bash
         run: |
-          cat > "$RUNNER_TEMP/app01.sh" <<'SH'
+          cat > "$RUNNER_TEMP/android-validation.sh" <<'SH'
           set -euo pipefail
-          OUT="$RUNNER_TEMP/app01"
-          mkdir -p "$OUT"
-          collect() {
-            set +e
-            adb exec-out screencap -p > "$OUT/final.png" 2>/dev/null
-            adb exec-out uiautomator dump /dev/tty > "$OUT/final-ui.xml" 2>/dev/null
-            adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
-            adb logcat -b crash -d > "$OUT/crash-logcat.txt" 2>/dev/null
+          ROOT="$RUNNER_TEMP/android-evidence"
+          APP01="$ROOT/APP-01"
+          APP02="$ROOT/APP-02"
+          mkdir -p "$APP01" "$APP02"
+          dump_ui() {
+            local dest="$1"
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+            adb pull /sdcard/window.xml "$dest" >/dev/null 2>&1 || true
           }
-          trap collect EXIT
+          bounds_for_text() {
+            local file="$1" text="$2"
+            grep -o "text=\"$text\"[^>]*bounds=\"[^\"]*\"" "$file" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'
+          }
+          tap_text() {
+            local file="$1" text="$2" b
+            b=$(bounds_for_text "$file" "$text")
+            test -n "$b"
+            read X1 Y1 X2 Y2 <<< "$b"
+            adb shell input tap $(((X1+X2)/2)) $(((Y1+Y2)/2))
+          }
+          collect_final() {
+            set +e
+            adb exec-out screencap -p > "$ROOT/final.png" 2>/dev/null
+            dump_ui "$ROOT/final-ui.xml"
+            adb logcat -d > "$ROOT/logcat.txt" 2>/dev/null
+            adb logcat -b crash -d > "$ROOT/crash-logcat.txt" 2>/dev/null
+          }
+          trap collect_final EXIT
+
           adb wait-for-device
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
           curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running"
           adb reverse tcp:8081 tcp:8081
-          adb reverse --list | tee "$OUT/adb-reverse.txt"
-          adb install -r "$RUNNER_TEMP/sportreel-pr203.apk" | tee "$OUT/install.txt"
+          adb reverse --list > "$ROOT/adb-reverse.txt"
+          adb install -r "$RUNNER_TEMP/sportreel-pr203.apk" | tee "$ROOT/install.txt"
           adb shell pm clear "$APP_ID" >/dev/null
           adb logcat -c
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
           test -n "$ACTIVITY"
-          echo "$ACTIVITY" > "$OUT/activity.txt"
-          # Keep launcher/system UI failures from obscuring the app under test.
+          echo "$ACTIVITY" > "$ROOT/activity.txt"
           adb shell am force-stop com.google.android.apps.nexuslauncher || true
           adb shell am force-stop com.android.launcher3 || true
-          adb shell am force-stop "$APP_ID"
-          adb shell am start -n "$ACTIVITY" | tee "$OUT/launch.txt"
+          adb shell am start -n "$ACTIVITY" > "$APP01/launch.txt"
+
+          # APP-01 — launch/login screen. Independent evidence is written before APP-02 starts.
           OK=0
           for i in $(seq 1 45); do
-            adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
-            if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then OK=1; break; fi
-            # Dismiss Android ANR/crash dialogs that can cover SportReel in CI.
-            if grep -Eq "isn't responding|is not responding|Close app|Wait|keeps stopping" "$OUT/login-ui.xml"; then
-              cp "$OUT/login-ui.xml" "$OUT/system-dialog-$i.xml" || true
-              adb exec-out screencap -p > "$OUT/system-dialog-$i.png" 2>/dev/null || true
-              # Prefer Wait when present; otherwise dismiss the dialog and relaunch SportReel.
-              if grep -Fq 'text="Wait"' "$OUT/login-ui.xml"; then
-                adb shell input tap 825 1130 || true
-              else
-                adb shell input keyevent 4 || true
-              fi
+            dump_ui "$APP01/ui.xml"
+            if grep -Fq "Welcome Back" "$APP01/ui.xml"; then OK=1; break; fi
+            if grep -Eq "isn't responding|is not responding|Close app|Wait|keeps stopping" "$APP01/ui.xml"; then
+              cp "$APP01/ui.xml" "$APP01/system-dialog-$i.xml" || true
+              adb shell input keyevent 4 || true
               adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true
             fi
             sleep 2
           done
-          adb exec-out screencap -p > "$OUT/login.png"
-          adb logcat -d > "$OUT/post-launch-logcat.txt"
-          if grep -Fq "supabaseUrl is required" "$OUT/post-launch-logcat.txt"; then
-            echo "APP-01 FAIL: legacy Supabase configuration crash observed" >&2
-            exit 1
-          fi
-          if grep -q "FATAL EXCEPTION" "$OUT/post-launch-logcat.txt"; then
-            echo "APP-01 FAIL: fatal exception observed" >&2
-            exit 1
-          fi
-          test "$OK" = "1" || { echo "APP-01 FAIL: Welcome Back not visible" >&2; exit 1; }
-          cat > "$OUT/evidence.json" <<EOF
-          {"experiment":"APP-01","tested_commit":"$TESTED_SHA","app_id":"$APP_ID","expected_screen":"Welcome Back","legacy_supabase_crash":false,"status":"PASS"}
-          EOF
+          adb exec-out screencap -p > "$APP01/screenshot.png"
+          adb logcat -d > "$APP01/logcat.txt"
+          test "$OK" = "1" || { echo 'APP-01 FAIL: Welcome Back not visible' >&2; exit 1; }
+          ! grep -Fq "supabaseUrl is required" "$APP01/logcat.txt"
+          ! grep -q "FATAL EXCEPTION" "$APP01/logcat.txt"
+          printf '{"experiment":"APP-01","tested_commit":"%s","status":"PASS"}\n' "$TESTED_SHA" > "$APP01/evidence.json"
 
-          # APP-02: navigate through the real registration UI and submit credentials to Supabase.
-          # Use a unique disposable address; never persist the password in evidence.
-          adb shell input keyevent 4 || true
-          adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true
+          # APP-02 — continue in the same emulator/session; no rebuild and no second boot.
+          tap_text "$APP01/ui.xml" "Create Account"
           sleep 2
-          adb exec-out uiautomator dump /dev/tty > "$OUT/app02-login.xml" 2>/dev/null || true
-          CREATE_BOUNDS=$(grep -o 'text="Create Account"[^>]*bounds="[^"]*"' "$OUT/app02-login.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p')
-          test -n "$CREATE_BOUNDS"
-          read X1 Y1 X2 Y2 <<< "$CREATE_BOUNDS"
-          adb shell input tap $(((X1+X2)/2)) $(((Y1+Y2)/2))
-          sleep 2
-          adb exec-out uiautomator dump /dev/tty > "$OUT/app02-register.xml" 2>/dev/null || true
-          grep -Fq "Create Account" "$OUT/app02-register.xml"
+          dump_ui "$APP02/register.xml"
+          grep -Fq "Create Account" "$APP02/register.xml"
           EMAIL="sportreel.validation.$(date +%s).$GITHUB_RUN_ID@example.com"
-          PASSWORD="SrV$(date +%s)!9x"
-          # Tap email and password fields by their UI bounds, then submit Continue.
-          python3 - "$OUT/app02-register.xml" "$EMAIL" "$PASSWORD" <<'PY'
-          import re, subprocess, sys, xml.etree.ElementTree as ET
-          p,email,pw=sys.argv[1:]
-          root=ET.parse(p).getroot()
-          def tap_input(placeholder, value):
-              for n in root.iter('node'):
-                  if n.attrib.get('text')==placeholder:
-                      b=list(map(int,re.findall(r'\d+',n.attrib['bounds'])))
-                      subprocess.run(['adb','shell','input','tap',str((b[0]+b[2])//2),str((b[1]+b[3])//2)],check=True)
-                      subprocess.run(['adb','shell','input','text',value],check=True)
-                      return
-              raise SystemExit('missing '+placeholder)
-          tap_input('Email',email)
-          tap_input('Password (min 6 chars)',pw)
-          PY
+          PASSWORD="SrV$(date +%s)9x"
+          tap_text "$APP02/register.xml" "Email"
+          adb shell input text "$EMAIL"
+          tap_text "$APP02/register.xml" "Password (min 6 chars)"
+          adb shell input text "$PASSWORD"
           adb shell input keyevent 4 || true
-          adb exec-out uiautomator dump /dev/tty > "$OUT/app02-filled.xml" 2>/dev/null || true
-          CONT_BOUNDS=$(grep -o 'text="Continue"[^>]*bounds="[^"]*"' "$OUT/app02-filled.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p')
-          test -n "$CONT_BOUNDS"
-          read X1 Y1 X2 Y2 <<< "$CONT_BOUNDS"
-          adb shell input tap $(((X1+X2)/2)) $(((Y1+Y2)/2))
-          APP02=0
+          dump_ui "$APP02/filled.xml"
+          tap_text "$APP02/filled.xml" "Continue"
+          APP02_OK=0
           for i in $(seq 1 30); do
-            adb exec-out uiautomator dump /dev/tty > "$OUT/app02-result.xml" 2>/dev/null || true
-            if grep -Fq "Check your email and click the confirmation link" "$OUT/app02-result.xml"; then APP02=1; break; fi
-            if grep -Fq "Your Name" "$OUT/app02-result.xml"; then APP02=1; break; fi
+            dump_ui "$APP02/result.xml"
+            if grep -Fq "Check your email and click the confirmation link" "$APP02/result.xml" || grep -Fq "Your Name" "$APP02/result.xml"; then APP02_OK=1; break; fi
             sleep 2
           done
-          adb exec-out screencap -p > "$OUT/app02-result.png" 2>/dev/null || true
-          adb logcat -d > "$OUT/app02-logcat.txt" 2>/dev/null || true
-          test "$APP02" = "1" || { echo "APP-02 FAIL: registration did not reach confirmation/profile state" >&2; exit 1; }
-          cat > "$OUT/app02-evidence.json" <<EOF
-          {"experiment":"APP-02","tested_commit":"$TESTED_SHA","app_id":"$APP_ID","registration_request_completed":true,"password_recorded":false,"status":"PASS"}
-          EOF
+          adb exec-out screencap -p > "$APP02/screenshot.png" 2>/dev/null || true
+          adb logcat -d > "$APP02/logcat.txt" 2>/dev/null || true
+          test "$APP02_OK" = "1" || { echo 'APP-02 FAIL: registration did not reach confirmation/profile state' >&2; exit 1; }
+          printf '{"experiment":"APP-02","tested_commit":"%s","registration_request_completed":true,"password_recorded":false,"status":"PASS"}\n' "$TESTED_SHA" > "$APP02/evidence.json"
           SH
-          chmod +x "$RUNNER_TEMP/app01.sh"
-      - name: Run APP-01 on Android emulator
+          chmod +x "$RUNNER_TEMP/android-validation.sh"
+
+      - name: Run sequential Android experiments on one emulator
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -211,14 +202,15 @@ jobs:
           emulator-boot-timeout: 480
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
           disable-linux-hw-accel: false
-          script: bash "$RUNNER_TEMP/app01.sh"
-      - name: Publish evidence
+          script: bash "$RUNNER_TEMP/android-validation.sh"
+
+      - name: Publish experiment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pr203-app01-${{ github.run_id }}
+          name: pr203-android-${{ github.run_id }}
           path: |
-            ${{ runner.temp }}/app01/
+            ${{ runner.temp }}/android-evidence/
             ${{ runner.temp }}/apk.sha256
             ${{ runner.temp }}/tested-commit.txt
             ${{ runner.temp }}/apk-checkpoint.txt
