@@ -90,10 +90,32 @@ jobs:
                   f"err={(r.get('error') or '')[:120]!r}"
               )
 
-          # Correlation spine: how many runs carry a usable GitHub run URL?
+          # Correlation spine. There is a dedicated github_run_id column as well
+          # as github_run_url, so both must be checked before concluding
+          # anything about correlatability.
           gh = [r for r in rows if (r.get("github_run_url") or "")]
           specific = [r for r in gh if "/runs/" in r["github_run_url"]]
-          print(f"PIPE02_WITH_GH_URL={len(gh)} PIPE02_WITH_SPECIFIC_RUN_ID={len(specific)}")
+          run_id_set = [r for r in rows if r.get("github_run_id")]
+          print(f"PIPE02_WITH_GH_URL={len(gh)} PIPE02_URL_WITH_RUN_ID={len(specific)}")
+          print(f"PIPE02_WITH_GITHUB_RUN_ID_COLUMN={len(run_id_set)}")
+          for r in run_id_set[:10]:
+              print(f"PIPE02_RUNID id={r.get('id')} github_run_id={r.get('github_run_id')!r}")
+
+          # Did the 34 "succeeded" runs actually produce drafts?
+          ok = [r for r in rows if r.get("status") == "succeeded"]
+          with_drafts = [r for r in ok if r.get("output_drafts")]
+          print(f"PIPE02_SUCCEEDED={len(ok)} PIPE02_SUCCEEDED_WITH_OUTPUT_DRAFTS={len(with_drafts)}")
+          for r in ok[:8]:
+              od = r.get("output_drafts")
+              n = len(od) if isinstance(od, list) else ("null" if od is None else "non-list")
+              print(f"PIPE02_DRAFTS id={r.get('id')} finished={r.get('finished_at')} "
+                    f"output_drafts_count={n} sample={str(od)[:160]!r}")
+
+          # Input manifest: did any run carry real input files?
+          with_inputs = [r for r in rows if r.get("input_files")]
+          print(f"PIPE02_WITH_INPUT_FILES={len(with_inputs)}")
+          for r in with_inputs[:5]:
+              print(f"PIPE02_INPUTS id={r.get('id')} input_files={str(r.get('input_files'))[:200]!r}")
           PY
 
       - name: Enumerate upload and delivery state
