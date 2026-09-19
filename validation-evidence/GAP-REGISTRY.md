@@ -407,3 +407,99 @@ therefore could not be *looked at*, which is the whole point of a UI experiment.
 
 Worked around by having the UI workflow commit captured frames to the validation
 branch (logcat excluded, since it can carry device/account identifiers).
+
+---
+
+## GAP-011 — Vestigial legacy storage permissions (examined, low severity)
+
+| Field | Value |
+| --- | --- |
+| Severity | P2 (hygiene) |
+| Class | D — product |
+| Affected experiments | PERM-01, UPL-05, UPL-06 |
+| Code change made | No |
+
+`mobile/app.json` declares `READ_EXTERNAL_STORAGE` (and the build adds
+`WRITE_EXTERNAL_STORAGE`) with no `READ_MEDIA_VIDEO`/`READ_MEDIA_IMAGES`. On
+Android 13+ the legacy permissions are inert.
+
+**Investigated and found not to be a defect.** `SportReelSourceReaderModule.kt`
+accepts only `content://` URIs and reads via `ContentResolver` — the Storage
+Access Framework, which grants access per-URI through the system picker and
+requires no storage permission on any API level. The design is correct for
+Android 13+; the legacy declarations appear vestigial.
+
+Also declared and unexplained by anything observed:
+`android.permission.SYSTEM_ALERT_WINDOW` (draw over other apps).
+
+Recorded so the reasoning is on record rather than rediscovered. Settling it
+fully needs an observed media selection on hardware (BLOCKER-005).
+
+---
+
+## GAP-012 — Offline error feedback not observed on Android 13
+
+| Field | Value |
+| --- | --- |
+| Severity | P1 |
+| Class | E — unknown (product or timing) |
+| Affected experiments | NET-01 |
+| Code change made | No |
+
+With the device fully offline and Sign In driven at its live position:
+
+| API | Android | Error surfaced |
+| --- | --- | --- |
+| 30 | 11 | "Network request failed" |
+| 33 | 13 | **not observed** in UI dump or screenshot |
+| 35 | 15 | "Network request failed" |
+
+`api33-02-offline.png` shows the filled form with airplane mode active and no
+error message anywhere on screen, at the same 12-second observation point where
+API 30 and 35 both showed one.
+
+**Root cause UNKNOWN.** Either a transient banner that had already dismissed, or
+a real gap leaving Android 13 users with no feedback on a failed sign-in.
+Smallest next experiment: repeat the offline sign-in on API 33 capturing frames
+every second for 20 s, to separate "shown then dismissed" from "never shown".
+
+---
+
+## GAP-013 — The device harness could report a system ANR as a product result
+
+| Field | Value |
+| --- | --- |
+| Severity | P1 (validation harness) |
+| Class | B — validation harness |
+| Affected experiments | DEV-02, PERM-01, NET-01, and any future UI experiment |
+| Code change made | Yes |
+| Rerun result | Fixed and re-run clean |
+
+In run [35437154481](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/35437154481)
+a *"Pixel Launcher isn't responding"* system dialog appeared over the app and
+swallowed every tap. All three UI dumps were byte-identical 4 189-byte captures
+of the **dialog**, not of SportReel, and the coordinate lookups returned empty
+so no interaction occurred at all.
+
+SportReel was healthy underneath: it rendered correctly behind the dialog, and
+`dumpsys activity activities` showed
+`topResumedActivity=ActivityRecord{… com.sportreel.app/.MainActivity}`.
+
+**The harness would have reported this as a NET-01 result.** That is the failure
+mode the brief warns about — mistaking harness breakage for product behaviour.
+
+Fixed: detect a system ANR, dismiss it with *Wait*, reject any UI dump still
+containing one, and emit `NET01_INTERACTION_VALID` so an invalidated probe is
+explicitly distinguishable from a finding. Re-run `35437507304` passed all three
+jobs with valid interaction.
+
+---
+
+## GAP-001 amendment — the KVM fix is not deterministic
+
+In run `35437154481` the `android-30` job **failed the KVM enablement step
+itself** while `android-33` and `android-35` passed on identical configuration.
+The udev rule alone is therefore not reliable across runners.
+
+Hardened to apply the udev rule, `usermod -aG kvm`, and a direct `chmod 666`
+together, then verify with retries. Re-run `35437507304`: all three jobs passed.

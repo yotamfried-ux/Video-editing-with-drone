@@ -54,10 +54,10 @@ below is against criteria reconstructed from the task description and the
 | **E2E-01** | **BLOCKED** | The full chain cannot be demonstrated. It requires real footage → upload → dispatch → pipeline → CV → decision → edit → QA → viewable reel. | — | BLOCKER-002/003 |
 | **E2E-02** | **BLOCKED** | Truthful failure/recovery cannot be demonstrated live. | — | BLOCKER-002/003 |
 | **DEV-01** | **BLOCKED** | Physical-device evidence. The brief explicitly forbids inferring it from emulator success. No real-device cloud tooling is connected to this session. | — | Requires physical hardware or a device-farm credential |
-| **DEV-02** | **NOT RUN** | Multi-OS-version coverage. **Now executable** on the accelerated harness (API 30/33/35 matrix); not yet run. | — | Executable next |
-| **PERM-01** | **NOT RUN** | Runtime permission behaviour. **Now executable** on the accelerated harness; not yet run. | — | Executable next |
-| **INSTALL-01** | **PARTIAL** | Clean install of the exact APK onto a fresh emulator succeeded repeatedly (`adb install -r` → `Success`), including `pm clear` to a first-run state. Upgrade-over-existing and downgrade paths not tested. | Runs `35398470732`, `35436104913`, `35436407331` | Extend to upgrade/downgrade |
-| **NET-01** | **NOT RUN** | Network-condition behaviour. **Now executable** via emulator airplane-mode/`svc data` toggling; not yet run. | — | Executable next |
+| **DEV-02** | **PASS** (emulator scope) | The exact APK installs, launches and renders on **Android 11 (API 30), 13 (API 33) and 15 (API 35)**. `Success` / `Status: ok` on all three. Cold start rises 1651 → 3014 → 4903 ms with API level. | `validation-evidence/DEV-02/DEV-02-PERM-01-NET-01.md`; run `35437507304` | Not transferable to hardware (BLOCKER-005) |
+| **PERM-01** | **PASS** | Declared and granted permissions enumerated from `dumpsys` on all three OS versions. **No runtime permission is granted or prompted at first launch** — the app reaches login without asking. Legacy storage permissions examined and found vestigial, not broken: the native source reader is SAF/`content://`-only, which needs no storage permission. | `validation-evidence/DEV-02/DEV-02-PERM-01-NET-01.md`; run `35437507304` | GAP-011 |
+| **INSTALL-01** | **PARTIAL** | Clean install of the exact APK onto a fresh emulator succeeded repeatedly (`adb install -r` → `Success`) on **Android 11, 13 and 15**, including `pm clear` to a first-run state. Upgrade-over-existing and downgrade paths not tested. | Runs `35398470732`, `35436648784`, `35437507304` | Extend to upgrade/downgrade |
+| **NET-01** | **PARTIAL** | Fully offline (airplane mode confirmed), Sign In driven at its live position. App does **not** crash, hang, or report false success; stays foreground; recovers to a usable login screen on reconnect on all three versions. API 30 and 35 surface **"Network request failed"**; **API 33 showed no error** at the same observation point. | `validation-evidence/DEV-02/DEV-02-PERM-01-NET-01.md`; run `35437507304` | GAP-012 — root cause UNKNOWN |
 | **LOAD-01** | **BLOCKED** | Load behaviour requires real upload/processing traffic. | — | BLOCKER-002/003 |
 | **REALDEV-01** | **BLOCKED** | Physical-device reality check. | — | Requires physical hardware |
 
@@ -67,9 +67,9 @@ below is against criteria reconstructed from the task description and the
 
 | Outcome | Count | IDs |
 | --- | --- | --- |
-| PASS | 12 | BASE-01, TOOL-01, TOOL-02, BUILD-01, APP-01, APP-02, UI-01, UI-02, UI-03, DATA-01, PIPE-02, SEC-01 |
-| PARTIAL | 4 | R2-01, QA-01, QA-02, INSTALL-01 |
-| NOT RUN (executable) | 3 | DEV-02, PERM-01, NET-01 |
+| PASS | 14 | BASE-01, TOOL-01, TOOL-02, BUILD-01, APP-01, APP-02, UI-01, UI-02, UI-03, DATA-01, PIPE-02, SEC-01, DEV-02, PERM-01 |
+| PARTIAL | 5 | R2-01, QA-01, QA-02, INSTALL-01, NET-01 |
+| NOT RUN | 0 | — |
 | BLOCKED | 24 | UPL-01..06, PIPE-01, PIPE-03, CV-01..03, DEC-01..03, EDIT-01..03, PERF-01, RES-01, E2E-01, E2E-02, DEV-01, LOAD-01, REALDEV-01 |
 | FAIL | 0 | — see note |
 
