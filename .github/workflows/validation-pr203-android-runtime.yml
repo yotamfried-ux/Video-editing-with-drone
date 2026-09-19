@@ -169,12 +169,24 @@ jobs:
           grep -Fq "Create Account" "$APP02/register.xml"
           EMAIL="sportreel.validation.$(date +%s).$GITHUB_RUN_ID@example.com"
           PASSWORD="SrV$(date +%s)9x"
+          # input text can leave focus on the first React Native TextInput on some
+          # emulator images. Use TAB to move focus deterministically and verify the
+          # values landed in distinct fields before submitting.
           tap_text "$APP02/register.xml" "Email"
           adb shell input text "$EMAIL"
-          tap_text "$APP02/register.xml" "Password (min 6 chars)"
+          adb shell input keyevent 61
           adb shell input text "$PASSWORD"
           adb shell input keyevent 4 || true
           dump_ui "$APP02/filled.xml"
+          grep -Fq "$EMAIL" "$APP02/filled.xml" || { echo 'APP-02 HARNESS FAIL: email not entered' >&2; exit 1; }
+          if grep -Fq "${EMAIL}${PASSWORD}" "$APP02/filled.xml"; then
+            echo 'APP-02 HARNESS FAIL: password appended to email field' >&2
+            exit 1
+          fi
+          if grep -Fq "Password (min 6 chars)" "$APP02/filled.xml"; then
+            echo 'APP-02 HARNESS FAIL: password field still empty' >&2
+            exit 1
+          fi
           tap_text "$APP02/filled.xml" "Continue"
           APP02_OK=0
           for i in $(seq 1 30); do
