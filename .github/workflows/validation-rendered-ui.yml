@@ -1,0 +1,326 @@
+name: SportReel Rendered UI Evidence
+
+on:
+  push:
+    branches:
+      - validation/real-world-campaign-20260919
+    paths:
+      - .github/workflows/validation-rendered-ui.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-rendered-ui
+  cancel-in-progress: true
+
+jobs:
+  qualify:
+    name: cold-run-${{ matrix.attempt }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        attempt: [1]
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPECTED_APP_SHA: 356d5812097ba935401ecf3a145a2608cda68cb9
+      BUILD_ID: 3884d669-850c-4b76-bba5-5e57ffcd2245
+      APP_ID: com.sportreel.app
+      ATTEMPT: ${{ matrix.attempt }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install screenshot inspection dependency
+        run: python -m pip install Pillow
+      - name: Setup EAS CLI
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.9.1
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Download exact completed APK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="$RUNNER_TEMP/eas-download.log"
+          eas build:download --build-id "$BUILD_ID" --non-interactive 2>&1 | tee "$LOG"
+          APK=$(sed -n 's/^Build downloaded to //p' "$LOG" | tail -n1)
+          test -n "$APK"
+          test -f "$APK"
+          cp "$APK" "$RUNNER_TEMP/sportreel.apk"
+          sha256sum "$RUNNER_TEMP/sportreel.apk" | tee "$RUNNER_TEMP/apk.sha256"
+      - name: Verify existing EAS build provenance
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          eas build:view "$BUILD_ID" --json > "$RUNNER_TEMP/eas-build-private.json"
+          GITHUB_SHA="$EXPECTED_APP_SHA" python ../scripts/record_eas_build_evidence.py --build-json "$RUNNER_TEMP/eas-build-private.json" --apk "$RUNNER_TEMP/sportreel.apk" --evidence "$RUNNER_TEMP/build-evidence.json"
+          cat "$RUNNER_TEMP/build-evidence.json"
+          python - <<'PY'
+          import os, zipfile
+          from pathlib import Path
+          apk = Path(os.environ["RUNNER_TEMP"]) / "sportreel.apk"
+          with zipfile.ZipFile(apk) as z:
+              found = any(b"SportReelSourceReader" in z.read(n) for n in z.namelist() if n.endswith(".dex"))
+          if not found:
+              raise SystemExit("Required native source-reader symbol absent from APK DEX")
+          print("Native source-reader DEX symbol present; hardware behavior remains unproven.")
+          PY
+      - name: Create deterministic ATD qualification script
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/qualify_android.sh" <<'SH'
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/android-qualification"
+          mkdir -p "$OUT"
+          collect_evidence() {
+            set +e
+            adb exec-out screencap -p > "$OUT/final-screen.png" 2>/dev/null
+            adb exec-out uiautomator dump /dev/tty > "$OUT/final-ui.xml" 2>/dev/null
+            adb shell dumpsys window windows > "$OUT/dumpsys-window.txt" 2>/dev/null
+            adb shell dumpsys activity activities > "$OUT/dumpsys-activity.txt" 2>/dev/null
+            adb logcat -d > "$OUT/logcat.txt" 2>/dev/null
+            adb logcat -b crash -d > "$OUT/crash-logcat.txt" 2>/dev/null
+            set -e
+          }
+          trap collect_evidence EXIT
+          echo "$ATTEMPT" > "$OUT/cold-run-attempt.txt"
+          echo "ubuntu-24.04 / API35 google_apis x86_64 / software acceleration" > "$OUT/runtime-profile.txt"
+          adb wait-for-device
+          adb shell getprop ro.build.version.release | tr -d '\r' > "$OUT/android-version.txt"
+          adb shell getprop ro.product.model | tr -d '\r' > "$OUT/device-model.txt"
+          system_health_probe() {
+            local label="$1"
+            adb shell echo ready | grep -Fq ready
+            adb shell cmd package list packages > "$OUT/${label}-packages.txt"
+            test -s "$OUT/${label}-packages.txt"
+            adb shell wm size > "$OUT/${label}-wm-size.txt"
+            adb shell dumpsys activity activities > "$OUT/${label}-activities.txt"
+            adb exec-out uiautomator dump /dev/tty > "$OUT/${label}-ui.xml" 2>/dev/null || true
+            adb exec-out screencap -p > "$OUT/${label}.png"
+            test -s "$OUT/${label}.png"
+            adb logcat -d > "$OUT/${label}-logcat.txt"
+            if grep -Eqi "Process system isn't responding|System UI isn't responding|System UI is not responding" "$OUT/${label}-ui.xml"; then
+              echo "Android ATD health gate failed: system ANR dialog is visible during ${label}." >&2
+              return 1
+            fi
+            if grep -Eqi 'ANR in system_server|FATAL EXCEPTION IN SYSTEM PROCESS' "$OUT/${label}-logcat.txt"; then
+              echo "Android ATD health gate failed: system-level ANR/crash found during ${label}." >&2
+              return 1
+            fi
+          }
+          test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          sleep 20
+          for probe in 1 2 3; do
+            system_health_probe "post-boot-health-${probe}"
+            sleep 10
+          done
+          adb install -r "$RUNNER_TEMP/sportreel.apk" | tee "$OUT/install.txt"
+          sleep 20
+          system_health_probe "post-install-health"
+          adb shell pm clear "$APP_ID" >/dev/null
+          adb logcat -c
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
+          test -n "$ACTIVITY"
+          printf '%s\n' "$ACTIVITY" > "$OUT/resolved-activity.txt"
+          system_health_probe "pre-launch-health"
+          python - "$ACTIVITY" "$OUT/app-launch.txt" <<'PY'
+          import subprocess, sys
+          activity, output = sys.argv[1], sys.argv[2]
+          completed = subprocess.run(["adb", "shell", "am", "start", "-W", "-n", activity], text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=60)
+          with open(output, "w", encoding="utf-8") as handle:
+              handle.write(completed.stdout)
+          print(completed.stdout, end="")
+          if completed.returncode != 0:
+              raise SystemExit(completed.returncode)
+          PY
+          LOGIN_OK=0
+          for i in $(seq 1 20); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
+            if grep -Eqi "Process system isn't responding|System UI isn't responding|System UI is not responding" "$OUT/login-ui.xml"; then
+              echo "Android system ANR appeared during SportReel launch." >&2
+              exit 1
+            fi
+            if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then
+              LOGIN_OK=1
+              break
+            fi
+            sleep 3
+          done
+          adb exec-out screencap -p > "$OUT/login.png"
+          python - "$OUT/login.png" <<'PY'
+          import sys
+          from PIL import Image
+          image=Image.open(sys.argv[1]).convert("RGB")
+          extrema=image.getextrema()
+          print("Login screenshot RGB extrema:",extrema)
+          if all(lo==hi for lo,hi in extrema):
+              raise SystemExit("VISUAL HARNESS FAILURE: uniform screenshot is not rendered UI evidence")
+          PY
+          if [ "$LOGIN_OK" -ne 1 ]; then
+            echo "SportReel launch qualification failed: Welcome Back not visible within 60 seconds." >&2
+            exit 1
+          fi
+          python - "$OUT/login-ui.xml" "Create Account" > "$OUT/tap.txt" <<'PY'
+          import re, sys
+          from pathlib import Path
+          xml = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          needle = sys.argv[2]
+          for node in re.findall(r'<node\b[^>]*>', xml):
+              if needle not in node:
+                  continue
+              m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+              if not m:
+                  continue
+              x1, y1, x2, y2 = map(int, m.groups())
+              print((x1 + x2) // 2, (y1 + y2) // 2)
+              raise SystemExit(0)
+          raise SystemExit(f"Could not locate tappable UI node containing {needle!r}")
+          PY
+          read X Y < "$OUT/tap.txt"
+          adb shell input tap "$X" "$Y"
+          REGISTER_OK=0
+          for i in $(seq 1 15); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/register-ui.xml" 2>/dev/null || true
+            if grep -Fq "Already have an account?" "$OUT/register-ui.xml"; then
+              REGISTER_OK=1
+              break
+            fi
+            sleep 2
+          done
+          adb exec-out screencap -p > "$OUT/register.png"
+          if [ "$REGISTER_OK" -ne 1 ]; then
+            echo "SportReel navigation qualification failed: Register state not visible." >&2
+            exit 1
+          fi
+          # New experiment, not a replacement for the existing launch/health checks.
+          python - "$OUT" "$APP_ID" "$ACTIVITY" <<'PY'
+          import subprocess, pathlib, sys, time, re, json, datetime
+          out, app, activity = pathlib.Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+          actions = []
+          def adb(*args):
+              return subprocess.check_output(["adb", *args], timeout=45).decode(errors="replace")
+          def capture(label):
+              xml = adb("exec-out","uiautomator","dump","/dev/tty")
+              (out/(label+".xml")).write_text(xml)
+              with (out/(label+".png")).open("wb") as f:
+                  subprocess.run(["adb","exec-out","screencap","-p"], stdout=f, check=True, timeout=30)
+              actions.append({"timestamp":datetime.datetime.now(datetime.timezone.utc).isoformat(),"capture":label})
+              return xml
+          def wait_text(text,label):
+              for i in range(15):
+                  xml=adb("exec-out","uiautomator","dump","/dev/tty")
+                  if text in xml:
+                      return capture(label)
+                  time.sleep(2)
+              capture(label+"-failure")
+              raise RuntimeError("Visible state not reached: "+text)
+          def tap(text):
+              xml=adb("exec-out","uiautomator","dump","/dev/tty")
+              for node in re.findall(r'<node\b[^>]*>',xml):
+                  if ('text="'+text+'"') not in node:
+                      continue
+                  m=re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"',node)
+                  if m:
+                      a,b,c,d=map(int,m.groups())
+                      adb("shell","input","tap",str((a+c)//2),str((b+d)//2))
+                      actions.append({"timestamp":datetime.datetime.now(datetime.timezone.utc).isoformat(),"tap":text})
+                      return
+              raise RuntimeError("Missing visible tap target: "+text)
+          recorder=subprocess.Popen(["adb","shell","screenrecord","--time-limit","180","/sdcard/sportreel-validation.mp4"],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
+          try:
+              capture("product-register-before")
+              tap("Continue")
+              wait_text("Password must be at least 6 characters","product-register-empty-error")
+              tap("Already have an account?")
+              wait_text("Welcome Back","product-login-return")
+              tap("Sign In")
+              time.sleep(3)
+              capture("product-login-empty-result")
+              tap("Create Account")
+              wait_text("Already have an account?","product-register-revisit")
+              adb("shell","input","keyevent","4")
+              wait_text("Welcome Back","product-back-login")
+              adb("shell","input","keyevent","3")
+              time.sleep(2)
+              adb("shell","am","start","-W","-n",activity)
+              wait_text("Welcome Back","product-background-return")
+              adb("shell","am","force-stop",app)
+              adb("shell","am","start","-W","-n",activity)
+              wait_text("Welcome Back","product-force-stop-relaunch")
+              for label,size,density in [("small","720x1280","320"),("typical","1080x1920","420"),("large","1440x2560","560")]:
+                  adb("shell","wm","size",size)
+                  adb("shell","wm","density",density)
+                  time.sleep(3)
+                  capture("layout-"+label+"-login")
+                  tap("Create Account")
+                  wait_text("Already have an account?","layout-"+label+"-register")
+                  adb("shell","input","keyevent","4")
+                  wait_text("Welcome Back","layout-"+label+"-back")
+              adb("shell","wm","size","reset")
+              adb("shell","wm","density","reset")
+              (out/"safe-ui-result.json").write_text(json.dumps({"app_sha":"356d5812097ba935401ecf3a145a2608cda68cb9","scope":"unauthenticated screens only","authenticated_journey":"BLOCKED: test account required","upload_and_processing":"NOT RUN","script_checks":"completed","visual_review":"required","ota_runtime_identity":"inspect logs; not inferred from APK hash"},indent=2))
+              print("SAFE_UI_CHECKS_COMPLETED: registration empty-password error, login/register navigation, back, background, force-stop/relaunch, 3 display profiles.")
+          finally:
+              (out/"action-log.json").write_text(json.dumps(actions,indent=2))
+              try:
+                  adb("shell","pkill","-2","screenrecord")
+                  recorder.wait(timeout=10)
+                  subprocess.run(["adb","pull","/sdcard/sportreel-validation.mp4",str(out/"transitions.mp4")],timeout=30,check=False)
+              except Exception:
+                  print("Screen recording unavailable; inspect screenshots and action log.")
+              with (out/"package-identity.txt").open("w") as f:
+                  f.write(adb("shell","dumpsys","package",app))
+          PY
+          adb logcat -d > "$OUT/post-app-logcat.txt"
+          adb logcat -b crash -d > "$OUT/post-app-crash-logcat.txt" || true
+          if grep -q "FATAL EXCEPTION" "$OUT/post-app-crash-logcat.txt"; then
+            echo "Fatal Android exception detected after SportReel launch." >&2
+            exit 1
+          fi
+          if grep -Eqi "ANR in $APP_ID|ANR.*$APP_ID" "$OUT/post-app-logcat.txt"; then
+            echo "SportReel ANR detected." >&2
+            exit 1
+          fi
+          cat > "$OUT/evidence.json" <<EOF
+          {"protocol":"sportreel_android_emulator_stability_v6","cold_run_attempt":"$ATTEMPT","host_runner":"ubuntu-24.04","system_image":"android-35-google_apis-x86_64","acceleration_mode":"software-explicit","tested_app_commit":"$EXPECTED_APP_SHA","android_build_id":"$BUILD_ID","app_id":"$APP_ID","android_health_gate_passed":true,"login_visible":true,"register_state_visible":true,"fatal_crash_detected":false,"app_anr_detected":false,"system_level_anr_detected":false,"secret_values_recorded":false,"status":"success"}
+          EOF
+          SH
+          chmod +x "$RUNNER_TEMP/qualify_android.sh"
+      - name: Run deterministic ATD stability qualification
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          heap-size: 512M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel off
+          disable-animations: false
+          disable-spellchecker: false
+          disable-linux-hw-accel: true
+          script: bash "$RUNNER_TEMP/qualify_android.sh"
+      - name: Publish cold-run evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rendered-ui-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/android-qualification/
+            ${{ runner.temp }}/apk.sha256
+            ${{ runner.temp }}/build-evidence.json
+          if-no-files-found: error
+          retention-days: 30
