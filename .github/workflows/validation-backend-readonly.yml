@@ -1,0 +1,64 @@
+name: SportReel Read-Only Backend Qualification
+on:
+  push:
+    branches: [validation/real-world-campaign-20260919]
+    paths: [.github/workflows/validation-backend-readonly.yml]
+permissions:
+  contents: read
+jobs:
+  qualify:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    environment: production
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install boto3
+      - name: Read intended R2 environment without mutations
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        run: |
+          python - <<'PY'
+          import os,json,datetime,boto3
+          from pathlib import Path
+          from botocore.exceptions import ClientError
+          out=Path("backend-evidence.json")
+          e={"experiment_id":"TOOL-02","timestamp":datetime.datetime.now(datetime.timezone.utc).isoformat(),"github_run_id":os.environ["GITHUB_RUN_ID"],"attempt":os.environ["GITHUB_RUN_ATTEMPT"],"harness_commit":os.environ["GITHUB_SHA"],"mutating_calls":[],"status":"BLOCKED"}
+          try:
+              endpoint=os.environ.get("R2_ENDPOINT_URL") or "https://"+os.environ["R2_ACCOUNT_ID"]+".r2.cloudflarestorage.com"
+              bucket=os.environ["R2_BUCKET"]
+              c=boto3.client("s3",endpoint_url=endpoint,region_name="auto",aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"])
+              r=c.head_bucket(Bucket=bucket)
+              e.update(bucket=bucket,head_bucket_status=r["ResponseMetadata"]["HTTPStatusCode"])
+              key="integration-tests/large-upload/35367748553/9db0388510184c73829e3e78dd268932.bin"
+              e["historical_probe_key"]=key
+              try:
+                  r=c.head_object(Bucket=bucket,Key=key)
+                  e["historical_probe_absent"]=False
+                  e["observed_size"]=r["ContentLength"]
+              except ClientError as err:
+                  code=err.response["ResponseMetadata"]["HTTPStatusCode"]
+                  e["head_object_status"]=code
+                  if code!=404: raise
+                  e["historical_probe_absent"]=True
+              e["status"]="PASS"
+          except Exception as err:
+              e["error_type"]=type(err).__name__
+              # Never serialize exception strings, endpoints or authorization material.
+              raise
+          finally:
+              out.write_text(json.dumps(e,indent=2))
+              print(json.dumps(e))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: backend-readonly-${{ github.run_id }}
+          path: backend-evidence.json
+          if-no-files-found: error
+          retention-days: 30
