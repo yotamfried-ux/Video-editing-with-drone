@@ -275,7 +275,21 @@ jobs:
           git add "$DEST"
           git commit -m "evidence: UI-01 rendered frames from accelerated run ${{ github.run_id }}" || {
             echo "no evidence changes to commit"; exit 0; }
-          git push origin HEAD:${{ github.ref_name }}
+          # The branch commonly advances while the emulator runs, so a plain
+          # push loses the race with a non-fast-forward rejection. Rebase onto
+          # the current tip and retry; the evidence commit only adds new files
+          # under its own run-scoped directory, so it cannot conflict.
+          for attempt in 1 2 3; do
+            if git push origin HEAD:${{ github.ref_name }}; then
+              echo "evidence pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push rejected, rebasing onto the current branch tip"
+            git fetch origin ${{ github.ref_name }}
+            git rebase FETCH_HEAD
+          done
+          echo "could not push evidence after 3 attempts" >&2
+          exit 1
 
       - name: Publish rendered UI evidence
         if: always()
