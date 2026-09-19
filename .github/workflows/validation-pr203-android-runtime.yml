@@ -48,6 +48,24 @@ jobs:
           sudo chmod 666 /dev/kvm
           ls -l /dev/kvm
 
+      - name: Start Metro bundler
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
+          echo $! > "$RUNNER_TEMP/metro.pid"
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running"; then
+              echo "Metro is ready on 127.0.0.1:8081"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Metro failed to become ready" >&2
+          cat "$RUNNER_TEMP/metro.log" >&2 || true
+          exit 1
+
       - name: Create APP-01 runtime script
         shell: bash
         run: |
@@ -65,6 +83,9 @@ jobs:
           trap collect EXIT
           adb wait-for-device
           test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+          curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running"
+          adb reverse tcp:8081 tcp:8081
+          adb reverse --list | tee "$OUT/adb-reverse.txt"
           adb install -r "$RUNNER_TEMP/sportreel-pr203.apk" | tee "$OUT/install.txt"
           adb shell pm clear "$APP_ID" >/dev/null
           adb logcat -c
@@ -118,5 +139,6 @@ jobs:
             ${{ runner.temp }}/app01/
             ${{ runner.temp }}/apk.sha256
             ${{ runner.temp }}/tested-commit.txt
+            ${{ runner.temp }}/metro.log
           if-no-files-found: warn
           retention-days: 30
