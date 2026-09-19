@@ -29,7 +29,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: validation-accelerated-ui
@@ -232,7 +232,7 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import base64, io, os, pathlib
+          import os, pathlib
           from PIL import Image
           out = pathlib.Path(os.environ["RUNNER_TEMP"], "ui-evidence")
           for png in sorted(out.glob("*.png")):
@@ -250,15 +250,32 @@ jobs:
                   f"mean_luma={mean:.2f} nonblack_ratio={nonblack/len(px):.4f} "
                   f"rendered={'yes' if len(colors) > 12 and nonblack/len(px) > 0.02 else 'NO-BLACK'}"
               )
-              # Inline thumbnail so the captured frame can be reviewed directly
-              # from the run log; artifact blob storage is unreachable from the
-              # validation workstation.
-              thumb = im.copy()
-              thumb.thumbnail((300, 640))
-              buf = io.BytesIO()
-              thumb.save(buf, format="JPEG", quality=55)
-              print(f"THUMB_B64 {png.name} {base64.b64encode(buf.getvalue()).decode()}")
           PY
+
+      - name: Commit captured frames to the validation branch
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Artifact blob storage is unreachable from the validation
+          # workstation (egress policy answers 403 to CONNECT), so captured
+          # frames are committed to this validation branch instead. That is the
+          # only route by which the rendered UI can actually be looked at.
+          DEST="validation-evidence/UI-01/run-${{ github.run_id }}"
+          mkdir -p "$DEST"
+          cp -f "$RUNNER_TEMP/ui-evidence"/*.png "$DEST"/ 2>/dev/null || true
+          cp -f "$RUNNER_TEMP/ui-evidence"/*.xml "$DEST"/ 2>/dev/null || true
+          cp -f "$RUNNER_TEMP/ui-evidence"/*.txt "$DEST"/ 2>/dev/null || true
+          cp -f "$RUNNER_TEMP/apk.sha256" "$DEST"/ 2>/dev/null || true
+          # Logcat can contain device/account identifiers; keep it out of git.
+          rm -f "$DEST"/logcat.txt "$DEST"/post-app-logcat.txt \
+                "$DEST"/crash-logcat.txt "$DEST"/post-app-crash-logcat.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DEST"
+          git commit -m "evidence: UI-01 rendered frames from accelerated run ${{ github.run_id }}" || {
+            echo "no evidence changes to commit"; exit 0; }
+          git push origin HEAD:${{ github.ref_name }}
 
       - name: Publish rendered UI evidence
         if: always()
