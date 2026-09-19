@@ -202,13 +202,21 @@ jobs:
           fi
           tap_text "$APP02/filled.xml" "Continue"
           APP02_OK=0
+          APP02_PRODUCT_FAIL=0
           for i in $(seq 1 30); do
             dump_ui "$APP02/result.xml"
             if grep -Fq "Check your email and click the confirmation link" "$APP02/result.xml" || grep -Fq "Your Name" "$APP02/result.xml"; then APP02_OK=1; break; fi
+            if grep -Fq "Error sending confirmation email" "$APP02/result.xml"; then
+              APP02_PRODUCT_FAIL=1
+              printf '{"experiment":"APP-02","tested_commit":"%s","failure":"supabase_confirmation_email","status":"FAIL"}\n' "$TESTED_SHA" > "$APP02/evidence.json"
+              echo 'APP-02 PRODUCT FAIL: Supabase returned Error sending confirmation email' >&2
+              break
+            fi
             sleep 2
           done
           adb exec-out screencap -p > "$APP02/screenshot.png" 2>/dev/null || true
           adb logcat -d > "$APP02/logcat.txt" 2>/dev/null || true
+          test "$APP02_PRODUCT_FAIL" = "0" || exit 2
           test "$APP02_OK" = "1" || { echo 'APP-02 FAIL: registration did not reach confirmation/profile state' >&2; exit 1; }
           printf '{"experiment":"APP-02","tested_commit":"%s","registration_request_completed":true,"password_recorded":false,"status":"PASS"}\n' "$TESTED_SHA" > "$APP02/evidence.json"
           SH
