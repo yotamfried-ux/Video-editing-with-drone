@@ -129,6 +129,57 @@ jobs:
           cat > "$OUT/evidence.json" <<EOF
           {"experiment":"APP-01","tested_commit":"$TESTED_SHA","app_id":"$APP_ID","expected_screen":"Welcome Back","legacy_supabase_crash":false,"status":"PASS"}
           EOF
+
+          # APP-02: navigate through the real registration UI and submit credentials to Supabase.
+          # Use a unique disposable address; never persist the password in evidence.
+          adb shell input keyevent 4 || true
+          adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true
+          sleep 2
+          adb exec-out uiautomator dump /dev/tty > "$OUT/app02-login.xml" 2>/dev/null || true
+          CREATE_BOUNDS=$(grep -o 'text="Create Account"[^>]*bounds="[^"]*"' "$OUT/app02-login.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p')
+          test -n "$CREATE_BOUNDS"
+          read X1 Y1 X2 Y2 <<< "$CREATE_BOUNDS"
+          adb shell input tap $(((X1+X2)/2)) $(((Y1+Y2)/2))
+          sleep 2
+          adb exec-out uiautomator dump /dev/tty > "$OUT/app02-register.xml" 2>/dev/null || true
+          grep -Fq "Create Account" "$OUT/app02-register.xml"
+          EMAIL="sportreel.validation.$(date +%s).$GITHUB_RUN_ID@example.com"
+          PASSWORD="SrV$(date +%s)!9x"
+          # Tap email and password fields by their UI bounds, then submit Continue.
+          python3 - "$OUT/app02-register.xml" "$EMAIL" "$PASSWORD" <<'PY'
+          import re, subprocess, sys, xml.etree.ElementTree as ET
+          p,email,pw=sys.argv[1:]
+          root=ET.parse(p).getroot()
+          def tap_input(placeholder, value):
+              for n in root.iter('node'):
+                  if n.attrib.get('text')==placeholder:
+                      b=list(map(int,re.findall(r'\d+',n.attrib['bounds'])))
+                      subprocess.run(['adb','shell','input','tap',str((b[0]+b[2])//2),str((b[1]+b[3])//2)],check=True)
+                      subprocess.run(['adb','shell','input','text',value],check=True)
+                      return
+              raise SystemExit('missing '+placeholder)
+          tap_input('Email',email)
+          tap_input('Password (min 6 chars)',pw)
+          PY
+          adb shell input keyevent 4 || true
+          adb exec-out uiautomator dump /dev/tty > "$OUT/app02-filled.xml" 2>/dev/null || true
+          CONT_BOUNDS=$(grep -o 'text="Continue"[^>]*bounds="[^"]*"' "$OUT/app02-filled.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p')
+          test -n "$CONT_BOUNDS"
+          read X1 Y1 X2 Y2 <<< "$CONT_BOUNDS"
+          adb shell input tap $(((X1+X2)/2)) $(((Y1+Y2)/2))
+          APP02=0
+          for i in $(seq 1 30); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/app02-result.xml" 2>/dev/null || true
+            if grep -Fq "Check your email and click the confirmation link" "$OUT/app02-result.xml"; then APP02=1; break; fi
+            if grep -Fq "Your Name" "$OUT/app02-result.xml"; then APP02=1; break; fi
+            sleep 2
+          done
+          adb exec-out screencap -p > "$OUT/app02-result.png" 2>/dev/null || true
+          adb logcat -d > "$OUT/app02-logcat.txt" 2>/dev/null || true
+          test "$APP02" = "1" || { echo "APP-02 FAIL: registration did not reach confirmation/profile state" >&2; exit 1; }
+          cat > "$OUT/app02-evidence.json" <<EOF
+          {"experiment":"APP-02","tested_commit":"$TESTED_SHA","app_id":"$APP_ID","registration_request_completed":true,"password_recorded":false,"status":"PASS"}
+          EOF
           SH
           chmod +x "$RUNNER_TEMP/app01.sh"
       - name: Run APP-01 on Android emulator
