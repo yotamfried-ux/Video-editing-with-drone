@@ -1,0 +1,97 @@
+name: Validation Capability Probe
+
+# BASE-01 / TOOL-02: qualifies the execution surface available to the validation
+# campaign. Read-only and non-destructive: it starts no pipeline, writes no
+# storage object, and mutates no product state. It reads no secrets at all.
+#
+# Purpose: determine whether a GitHub-hosted runner can host a hardware
+# accelerated Android emulator. The existing stability gate deliberately runs
+# with "-accel off" on an aosp_atd image, which is stable but renders black
+# screenshots; the google_apis image renders correctly but system-ANRs under
+# pure software emulation. Whether /dev/kvm is usable decides if any real
+# rendered UI evidence is obtainable at all.
+
+on:
+  push:
+    branches:
+      - claude/sportreel-validation-execution-b9thw3
+    paths:
+      - .github/workflows/validation-capability-probe.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-capability-probe
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    name: runner-capability
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Probe host virtualization and Android capability
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/capability"
+          mkdir -p "$OUT"
+          {
+            echo "## host"
+            echo "runner_image=ubuntu-24.04"
+            echo "nproc=$(nproc)"
+            echo "mem_total_kb=$(awk '/MemTotal/{print $2}' /proc/meminfo)"
+            echo "disk_avail=$(df -BG --output=avail / | tail -1 | tr -d ' ')"
+            echo "## kvm"
+            if [ -e /dev/kvm ]; then
+              echo "dev_kvm_present=true"
+              echo "dev_kvm_perms=$(stat -c '%A %U:%G' /dev/kvm)"
+              if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+                echo "dev_kvm_rw_for_runner=true"
+              else
+                echo "dev_kvm_rw_for_runner=false"
+              fi
+            else
+              echo "dev_kvm_present=false"
+              echo "dev_kvm_rw_for_runner=false"
+            fi
+            echo "cpu_virt_flags=$(grep -o -E '\b(vmx|svm)\b' /proc/cpuinfo | sort -u | tr '\n' ',')"
+            echo "## android sdk"
+            echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT:-unset}"
+            echo "adb=$(command -v adb || echo absent)"
+            echo "emulator=$(command -v emulator || echo absent)"
+            echo "avdmanager=$(command -v avdmanager || echo absent)"
+            echo "## media tools"
+            echo "ffmpeg=$(command -v ffmpeg || echo absent)"
+            echo "ffprobe=$(command -v ffprobe || echo absent)"
+            echo "## preinstalled system images"
+            ls "${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}/system-images" 2>/dev/null || echo "none preinstalled"
+          } | tee "$OUT/host-capability.txt"
+
+      - name: Confirm KVM usability with kvm-ok
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUT="$RUNNER_TEMP/capability"
+          if [ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq cpu-checker >/dev/null 2>&1 || true
+            { kvm-ok || true; } | tee "$OUT/kvm-ok.txt"
+            echo "kvm_usable=true" >> "$OUT/host-capability.txt"
+          else
+            echo "kvm-ok skipped: /dev/kvm not usable by runner" | tee "$OUT/kvm-ok.txt"
+            echo "kvm_usable=false" >> "$OUT/host-capability.txt"
+          fi
+
+      - name: Publish capability evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: capability-probe-${{ github.run_id }}
+          path: ${{ runner.temp }}/capability/
+          if-no-files-found: error
+          retention-days: 30
