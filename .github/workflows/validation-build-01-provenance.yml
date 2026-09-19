@@ -1,0 +1,89 @@
+name: Validation BUILD-01 APK Provenance
+
+# BUILD-01: establish which commit the tested APK was actually built from.
+#
+# The existing Android qualification workflow writes
+#   {"tested_app_commit": "$EXPECTED_APP_SHA"}
+# into its evidence file from a hardcoded environment variable that is never
+# compared against anything. The APK is fetched by build id alone. So every
+# claim of the form "tested against commit 356d581" has so far rested on an
+# assertion, not a check. This measures it.
+#
+# Read-only: queries the EAS build record and hashes the downloaded binary.
+
+on:
+  push:
+    branches:
+      - claude/sportreel-validation-execution-b9thw3
+    paths:
+      - .github/workflows/validation-build-01-provenance.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-build-01
+  cancel-in-progress: true
+
+jobs:
+  provenance:
+    name: apk-provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPECTED_APP_SHA: 356d5812097ba935401ecf3a145a2608cda68cb9
+      BUILD_ID: 3884d669-850c-4b76-bba5-5e57ffcd2245
+    steps:
+      - uses: actions/checkout@v4
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.9.1
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Resolve build record and compare against the expected commit
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          eas build:view "$BUILD_ID" --json --non-interactive > "$RUNNER_TEMP/build.json"
+          python3 - <<'PY'
+          import json, os, pathlib
+          raw = pathlib.Path(os.environ["RUNNER_TEMP"], "build.json").read_text()
+          data = json.loads(raw)
+          if isinstance(data, list):
+              data = data[0] if data else {}
+          expected = os.environ["EXPECTED_APP_SHA"]
+          actual = data.get("gitCommitHash") or ""
+          # Print only non-sensitive build metadata.
+          for k in ("id", "status", "platform", "profile", "appVersion",
+                    "appBuildVersion", "runtimeVersion", "gitCommitHash",
+                    "gitCommitMessage", "completedAt", "channel"):
+              print(f"BUILD01_{k}={data.get(k)!r}")
+          print(f"BUILD01_EXPECTED_SHA={expected}")
+          print(f"BUILD01_ACTUAL_SHA={actual or 'UNREPORTED'}")
+          print(f"BUILD01_MATCH={str(actual == expected).lower()}")
+          if not actual:
+              print("BUILD01_VERDICT=UNPROVABLE: the build record reports no git commit")
+          elif actual == expected:
+              print("BUILD01_VERDICT=PROVEN: binary was built from the expected commit")
+          else:
+              print("BUILD01_VERDICT=MISMATCH: binary was NOT built from the expected commit")
+          PY
+
+      - name: Hash the exact binary under test
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="$RUNNER_TEMP/dl.log"
+          eas build:download --build-id "$BUILD_ID" --non-interactive 2>&1 | tee "$LOG"
+          APK=$(sed -n 's/^Build downloaded to //p' "$LOG" | tail -n1)
+          test -f "$APK"
+          echo "BUILD01_APK_SHA256=$(sha256sum "$APK" | cut -d' ' -f1)"
+          echo "BUILD01_APK_BYTES=$(stat -c%s "$APK")"
