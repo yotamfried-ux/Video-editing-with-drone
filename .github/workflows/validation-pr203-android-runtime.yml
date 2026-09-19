@@ -92,12 +92,27 @@ jobs:
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
           test -n "$ACTIVITY"
           echo "$ACTIVITY" > "$OUT/activity.txt"
+          # Keep launcher/system UI failures from obscuring the app under test.
+          adb shell am force-stop com.google.android.apps.nexuslauncher || true
+          adb shell am force-stop com.android.launcher3 || true
           adb shell am force-stop "$APP_ID"
-          adb shell am start -W -n "$ACTIVITY" | tee "$OUT/launch.txt"
+          adb shell am start -n "$ACTIVITY" | tee "$OUT/launch.txt"
           OK=0
-          for i in $(seq 1 30); do
+          for i in $(seq 1 45); do
             adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null || true
             if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then OK=1; break; fi
+            # Dismiss Android ANR/crash dialogs that can cover SportReel in CI.
+            if grep -Eq "isn't responding|is not responding|Close app|Wait|keeps stopping" "$OUT/login-ui.xml"; then
+              cp "$OUT/login-ui.xml" "$OUT/system-dialog-$i.xml" || true
+              adb exec-out screencap -p > "$OUT/system-dialog-$i.png" 2>/dev/null || true
+              # Prefer Wait when present; otherwise dismiss the dialog and relaunch SportReel.
+              if grep -Fq 'text="Wait"' "$OUT/login-ui.xml"; then
+                adb shell input tap 825 1130 || true
+              else
+                adb shell input keyevent 4 || true
+              fi
+              adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true
+            fi
             sleep 2
           done
           adb exec-out screencap -p > "$OUT/login.png"
