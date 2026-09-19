@@ -177,7 +177,16 @@ jobs:
           read EX1 EY1 EX2 EY2 <<< "${EDIT_BOUNDS[0]}"
           adb shell input tap $(((EX1+EX2)/2)) $(((EY1+EY2)/2))
           adb shell input text "$EMAIL"
-          read PX1 PY1 PX2 PY2 <<< "${EDIT_BOUNDS[1]}"
+
+          # KeyboardAvoidingView moves the form after the keyboard opens, so the
+          # password coordinates from register.xml are stale. Re-dump the live UI
+          # and target the secure EditText at its post-keyboard bounds.
+          sleep 1
+          dump_ui "$APP02/after-email.xml"
+          PASSWORD_BOUNDS=$(grep -o 'class="android.widget.EditText"[^>]*password="true"[^>]*bounds="[^"]*"' "$APP02/after-email.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p')
+          test -n "$PASSWORD_BOUNDS" || { echo 'APP-02 HARNESS FAIL: secure password field not found after keyboard shift' >&2; exit 1; }
+          echo "$PASSWORD_BOUNDS" > "$APP02/password-live-bounds.txt"
+          read PX1 PY1 PX2 PY2 <<< "$PASSWORD_BOUNDS"
           adb shell input tap $(((PX1+PX2)/2)) $(((PY1+PY2)/2))
           adb shell input text "$PASSWORD"
           adb shell input keyevent 4 || true
