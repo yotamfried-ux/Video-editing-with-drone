@@ -59,17 +59,29 @@ jobs:
       - name: Enable KVM for the runner user
         shell: bash
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          # The udev rule alone is not reliable across runners: on run
+          # 35437154481 the android-30 job failed this step outright while
+          # android-33 and android-35 passed on identical config. Apply every
+          # available mechanism and verify, rather than assuming one worked.
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
-            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
-          sudo udevadm control --reload-rules
-          sudo udevadm trigger --name-match=kvm
-          echo "post-fix perms: $(stat -c '%A %U:%G' /dev/kvm)"
-          test -r /dev/kvm && test -w /dev/kvm
-          sudo apt-get update -qq
-          sudo apt-get install -y -qq cpu-checker >/dev/null 2>&1 || true
-          kvm-ok
-          echo "KVM_FIX_APPLIED=true"
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules || true
+          sudo udevadm trigger --name-match=kvm || true
+          sudo usermod -aG kvm "$USER" || true
+          sudo chmod 666 /dev/kvm || true
+          for attempt in 1 2 3; do
+            if [ -r /dev/kvm ] && [ -w /dev/kvm ]; then
+              echo "KVM_READY=true attempt=$attempt perms=$(stat -c '%A %U:%G' /dev/kvm)"
+              exit 0
+            fi
+            echo "KVM not yet writable (attempt $attempt): $(stat -c '%A %U:%G' /dev/kvm 2>&1)"
+            sudo chmod 666 /dev/kvm || true
+            sleep 3
+          done
+          echo "KVM_READY=false — /dev/kvm still not writable" >&2
+          stat -c '%A %U:%G' /dev/kvm 2>&1 || echo "/dev/kvm missing"
+          exit 1
 
       - name: Setup EAS CLI
         uses: expo/expo-github-action@v8
