@@ -1,0 +1,143 @@
+    requested permissions:
+      android.permission.CAMERA
+      android.permission.INTERNET
+      android.permission.POST_NOTIFICATIONS
+      android.permission.READ_EXTERNAL_STORAGE: restricted=true
+      android.permission.RECEIVE_BOOT_COMPLETED
+      android.permission.RECORD_AUDIO
+      android.permission.SYSTEM_ALERT_WINDOW
+      android.permission.USE_BIOMETRIC
+      android.permission.USE_FINGERPRINT
+      android.permission.VIBRATE
+      android.permission.WRITE_EXTERNAL_STORAGE: restricted=true
+      android.permission.ACCESS_NETWORK_STATE
+      android.permission.DETECT_SCREEN_CAPTURE
+      android.permission.WAKE_LOCK
+      com.google.android.c2dm.permission.RECEIVE
+      com.sportreel.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
+      com.google.android.finsky.permission.BIND_GET_INSTALL_REFERRER_SERVICE
+      com.sec.android.provider.badge.permission.READ
+      com.sec.android.provider.badge.permission.WRITE
+      com.htc.launcher.permission.READ_SETTINGS
+      com.htc.launcher.permission.UPDATE_SHORTCUT
+      com.sonyericsson.home.permission.BROADCAST_BADGE
+      com.sonymobile.home.permission.PROVIDER_INSERT_BADGE
+      com.anddoes.launcher.permission.UPDATE_COUNT
+      com.majeur.launcher.permission.UPDATE_BADGE
+      com.huawei.android.launcher.permission.CHANGE_BADGE
+      com.huawei.android.launcher.permission.READ_SETTINGS
+      com.huawei.android.launcher.permission.WRITE_SETTINGS
+      android.permission.READ_APP_BADGE
+      com.oppo.launcher.permission.READ_SETTINGS
+      com.oppo.launcher.permission.WRITE_SETTINGS
+      me.everything.badger.permission.BADGE_COUNT_READ
+      me.everything.badger.permission.BADGE_COUNT_WRITE
+    install permissions:
+    install permissions:
+      com.google.android.c2dm.permission.RECEIVE: granted=true
+      com.google.android.c2dm.permission.RECEIVE: granted=true
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      android.permission.RECEIVE_BOOT_COMPLETED: granted=true
+      android.permission.INTERNET: granted=true
+      android.permission.INTERNET: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.ACCESS_NETWORK_STATE: granted=true
+      android.permission.USE_FINGERPRINT: granted=true
+      android.permission.USE_FINGERPRINT: granted=true
+      android.permission.VIBRATE: granted=true
+      android.permission.VIBRATE: granted=true
+      com.sportreel.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: granted=true
+      com.sportreel.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION: granted=true
+      android.permission.USE_BIOMETRIC: granted=true
+      android.permission.USE_BIOMETRIC: granted=true
+      android.permission.WAKE_LOCK: granted=true
+      android.permission.WAKE_LOCK: granted=true
+    User 0: ceDataInode=131481 installed=true hidden=false suspended=false distractionFlags=0 stopped=true notLaunched=true enabled=0 instant=false virtual=false
+    User 0: ceDataInode=131481 installed=true hidden=false suspended=false distractionFlags=0 stopped=true notLaunched=true enabled=0 instant=false virtual=false
+      gids=[3003]
+      gids=[3003]
+      runtime permissions:
+      runtime permissions:
+      runtime permissions:
+        android.permission.READ_EXTERNAL_STORAGE: granted=false, flags=[ RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.READ_EXTERNAL_STORAGE: granted=false, flags=[ RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.READ_EXTERNAL_STORAGE: granted=false, flags=[ RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.WRITE_EXTERNAL_STORAGE: granted=false, flags=[ RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.WRITE_EXTERNAL_STORAGE: granted=false, flags=[ RESTRICTION_INSTALLER_EXEMPT]
+        android.permission.WRITE_EXTERNAL_STORAGE: granted=false, flags=[ RESTRICTION_INSTALLER_EXEMPT]
+
+
+
+Queries:
+  system apps queryable: false
+  queries via package name:
+    com.sportreel.app:
+      com.android.chrome
+      com.google.android.apps.maps
+  queries via intent:
+    com.sportreel.app:
+      com.google.android.documentsui
+      com.google.android.setupwizard
+      com.google.android.googlequicksearchbox
+      com.android.chrome
+      com.android.camera2
+      com.google.android.apps.photos
+      com.google.android.apps.docs
+      com.google.android.calendar
+  queryable via interaction:
+    User 0:
+
+Package Changes:
+  Sequence number=357
+  User 0:
+    seq=0, package=com.google.android.permissioncontroller
+    seq=1, package=com.android.systemui
+    seq=4, package=com.google.android.cellbroadcastreceiver
+    seq=7, package=com.google.android.inputmethod.latin
+    seq=10, package=com.google.android.sdksetup
+    seq=18, package=com.google.android.partnersetup
+    seq=26, package=com.google.android.apps.youtube.music
+    seq=27, package=com.sportreel.app
+    seq=43, package=com.android.settings
+    seq=112, package=com.google.android.apps.docs
+    seq=114, package=com.google.android.googlequicksearchbox
+    seq=127, package=com.google.android.calendar
+    seq=139, package=com.android.camera2
+    seq=178, package=com.android.nfc
+    seq=182, package=com.google.android.gsf
+    seq=186, package=com.android.stk
+    seq=188, package=com.android.traceur
+    seq=288, package=com.google.android.apps.photos
+    seq=312, package=com.google.android.apps.wellbeing
+    seq=331, package=com.google.android.gm
+    seq=334, package=com.google.android.apps.maps
+    seq=335, package=com.android.vending
+    seq=336, package=com.google.android.youtube
+    seq=337, package=com.google.android.apps.messaging
+    seq=340, package=com.google.android.projection.gearhead
+    seq=341, package=com.google.android.setupwizard
+    seq=351, package=com.google.android.videos
+    seq=356, package=com.google.android.gms
+
+
+Dexopt state:
+  [com.sportreel.app]
+    path: /data/app/~~qfeGZSO874tgIQw_7F5fDg==/com.sportreel.app-XBJnMKdAAVibHkDXOXlAcg==/base.apk
+      x86_64: [status=speed-profile] [reason=install]
+
+
+Compiler stats:
+  [com.sportreel.app]
+     base.apk - 18341
+
+APEX session state:
+
+Active APEX packages:
+
+
+Inactive APEX packages:
+
+
+Factory APEX packages:
+
+
