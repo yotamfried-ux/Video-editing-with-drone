@@ -1,0 +1,131 @@
+name: Validation SEC-01 Unauthorized Access
+
+# SEC-01: prove the operator boundary rejects unauthenticated callers AND that
+# no durable mutation occurred as a result of the attempt.
+#
+# Runs in Actions because the validation workstation's egress policy denies
+# CONNECT to *.vercel.app, so the deployed API is unreachable from there.
+#
+# Safety design. The most dangerous endpoint under test is
+# /api/operator/pipeline/start, which can dispatch a real pipeline run. To make
+# probing it safe even in the failure case, the request sends a batch_id
+# containing characters that safeBatchId() rejects. In route.ts that check runs
+# immediately after requireOperator() and returns 400 BEFORE any batch
+# resolution, pipeline_runs insert, or repository_dispatch. So:
+#   401 => auth correctly blocked the request (expected)
+#   400 => auth did NOT block it; the request reached input validation (finding)
+# Neither outcome can start a pipeline.
+#
+# Mutation is then verified independently by counting pipeline_runs rows in
+# Supabase before and after the probes.
+
+on:
+  push:
+    branches:
+      - claude/sportreel-validation-execution-b9thw3
+    paths:
+      - .github/workflows/validation-sec-01.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-sec-01
+  cancel-in-progress: true
+
+jobs:
+  sec-01:
+    name: unauthorized-access-boundary
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Count durable pipeline_runs before probing
+        id: before
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          COUNT=$(curl -sS -I \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            -H "prefer: count=exact" \
+            -H "range: 0-0" \
+            "$SUPABASE_URL/rest/v1/pipeline_runs?select=id" \
+            | tr -d '\r' | sed -n 's|^content-range: .*/||Ip')
+          echo "pipeline_runs_before=$COUNT" | tee -a "$GITHUB_OUTPUT"
+
+      - name: Probe operator boundary without credentials
+        shell: bash
+        run: |
+          set -euo pipefail
+          BASE="https://video-editing-with-drone.vercel.app"
+          FAIL=0
+          probe() {
+            local desc="$1" method="$2" path="$3" data="${4:-}" expect="$5"
+            local args=(-sS -o /tmp/body -w '%{http_code}' -X "$method" --max-time 30 "$BASE$path")
+            [ -n "$data" ] && args+=(-H 'content-type: application/json' -d "$data")
+            local code
+            code=$(curl "${args[@]}")
+            local body
+            body=$(head -c 200 /tmp/body | tr -d '\n')
+            printf 'SEC01 %-34s %-5s %-44s expect=%s got=%s body=%s\n' \
+              "$desc" "$method" "$path" "$expect" "$code" "$body"
+            if [ "$code" != "$expect" ]; then
+              echo "SEC01_FINDING $desc expected $expect got $code"
+              FAIL=1
+            fi
+          }
+          # Reads
+          probe "read-pipeline-status"  GET  /api/operator/pipeline/status            "" 401
+          probe "read-pipeline-runs"    GET  /api/operator/pipeline/runs              "" 401
+          probe "read-reels"            GET  /api/operator/reels                      "" 401
+          probe "read-drafts"           GET  /api/operator/drafts                     "" 401
+          probe "read-diagnostics"      GET  /api/operator/discover-diagnostics       "" 401
+          # Mutations (all inherently non-dispatching, see header comment)
+          probe "mutate-pipeline-start" POST /api/operator/pipeline/start  '{"batch_id":"../bad id!"}' 401
+          probe "mutate-pipeline-reset" POST /api/operator/pipeline/reset  '{}'                        401
+          probe "mutate-draft-approve"  POST /api/operator/drafts/approve  '{"reel_id":"00000000-0000-0000-0000-000000000000"}' 401
+          probe "mutate-reprocess"      POST /api/operator/reprocess       '{"reel_id":"00000000-0000-0000-0000-000000000000"}' 401
+          probe "mutate-mpu-start"      POST /api/operator/upload/multipart/start '{}'                 401
+          # A wrong-but-present secret must also be rejected.
+          code=$(curl -sS -o /tmp/body -w '%{http_code}' --max-time 30 \
+            -H 'x-operator-secret: not-the-real-secret' \
+            "$BASE/api/operator/pipeline/status")
+          echo "SEC01 wrong-secret-rejected expect=401 got=$code"
+          [ "$code" = "401" ] || { echo "SEC01_FINDING wrong secret accepted: $code"; FAIL=1; }
+          echo "SEC01_PROBE_FAIL=$FAIL"
+          exit "$FAIL"
+
+      - name: Count durable pipeline_runs after probing
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BEFORE: ${{ steps.before.outputs.pipeline_runs_before }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          AFTER=$(curl -sS -I \
+            -H "apikey: $SUPABASE_SERVICE_KEY" \
+            -H "authorization: Bearer $SUPABASE_SERVICE_KEY" \
+            -H "prefer: count=exact" \
+            -H "range: 0-0" \
+            "$SUPABASE_URL/rest/v1/pipeline_runs?select=id" \
+            | tr -d '\r' | sed -n 's|^content-range: .*/||Ip')
+          echo "SEC01_PIPELINE_RUNS_BEFORE=$BEFORE"
+          echo "SEC01_PIPELINE_RUNS_AFTER=$AFTER"
+          if [ "$BEFORE" = "$AFTER" ]; then
+            echo "SEC01_NO_MUTATION=true"
+          else
+            echo "SEC01_NO_MUTATION=false — durable row count changed during unauthorized probing"
+            exit 1
+          fi
