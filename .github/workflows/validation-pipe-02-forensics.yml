@@ -1,0 +1,120 @@
+name: Validation PIPE-02 Historical Run Forensics
+
+# PIPE-02: the read-only inventory established that 55 pipeline_runs rows exist
+# while reels=0, source_uploads=0 and the R2 bucket holds no media at all. That
+# combination is the central product question of this campaign, so the run
+# history itself becomes the evidence: what did those 55 runs actually do, what
+# stage did they reach, and did any of them ever finish?
+#
+# Strictly read-only GET against the Supabase REST API. Prints derived
+# aggregates and row fields only; no secret value is printed.
+
+on:
+  push:
+    branches:
+      - claude/sportreel-validation-execution-b9thw3
+    paths:
+      - .github/workflows/validation-pipe-02-forensics.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-pipe-02
+  cancel-in-progress: true
+
+jobs:
+  forensics:
+    name: pipeline-run-history
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    environment: production
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Enumerate durable pipeline run history
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python - <<'PY'
+          import os, json, urllib.request, collections
+
+          base = os.environ["SUPABASE_URL"].rstrip("/")
+          key = os.environ["SUPABASE_SERVICE_KEY"]
+
+          def get(path):
+              req = urllib.request.Request(
+                  f"{base}/rest/v1/{path}",
+                  headers={"apikey": key, "authorization": f"Bearer {key}"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as r:
+                  return json.loads(r.read().decode())
+
+          # Discover the real column set first; created_at does not exist.
+          probe = get("pipeline_runs?select=*&limit=1")
+          cols = sorted(probe[0].keys()) if probe else []
+          print(f"PIPE02_COLUMNS={cols}")
+
+          order = "updated_at.desc" if "updated_at" in cols else "id.desc"
+          rows = get(f"pipeline_runs?select=*&order={order}&limit=200")
+          print(f"PIPE02_ROWS_FETCHED={len(rows)}")
+
+          status = collections.Counter(r.get("status") for r in rows)
+          stage = collections.Counter(r.get("stage") for r in rows)
+          source = collections.Counter(r.get("source") for r in rows)
+          print(f"PIPE02_STATUS_BREAKDOWN={dict(status)}")
+          print(f"PIPE02_STAGE_BREAKDOWN={dict(stage)}")
+          print(f"PIPE02_SOURCE_BREAKDOWN={dict(source)}")
+
+          finished = [r for r in rows if r.get("finished_at")]
+          print(f"PIPE02_WITH_FINISHED_AT={len(finished)}")
+          witherr = [r for r in rows if r.get("error")]
+          print(f"PIPE02_WITH_ERROR={len(witherr)}")
+
+          # Distinct error messages tell us how the pipeline actually fails.
+          errs = collections.Counter((r.get("error") or "")[:160] for r in witherr)
+          for msg, n in errs.most_common(15):
+              print(f"PIPE02_ERROR n={n} :: {msg}")
+
+          # The most recent runs in full, which is the current behaviour.
+          for r in rows[:12]:
+              print(
+                  "PIPE02_RUN "
+                  f"id={r.get('id')} status={r.get('status')} stage={r.get('stage')} "
+                  f"progress={r.get('progress')} updated={r.get('updated_at')} "
+                  f"finished={r.get('finished_at')} gh={r.get('github_run_url')} "
+                  f"err={(r.get('error') or '')[:120]!r}"
+              )
+
+          # Correlation spine: how many runs carry a usable GitHub run URL?
+          gh = [r for r in rows if (r.get("github_run_url") or "")]
+          specific = [r for r in gh if "/runs/" in r["github_run_url"]]
+          print(f"PIPE02_WITH_GH_URL={len(gh)} PIPE02_WITH_SPECIFIC_RUN_ID={len(specific)}")
+          PY
+
+      - name: Enumerate upload and delivery state
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        shell: bash
+        run: |
+          set -uo pipefail
+          for t in upload_batches source_uploads source_upload_parts reels \
+                   delivery_runs reprocess_requests draft_publishability pricing; do
+            n=$(curl -sS -I \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              -H "prefer: count=exact" -H "range: 0-0" \
+              "$SUPABASE_URL/rest/v1/$t?select=*" | tr -d '\r' \
+              | sed -n 's|^content-range: .*/||Ip')
+            body=$(curl -sS \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              "$SUPABASE_URL/rest/v1/$t?select=*&limit=1" | head -c 300)
+            echo "PIPE02_TABLE $t count=${n:-MISSING} sample=$body"
+          done
