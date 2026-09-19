@@ -1,0 +1,268 @@
+name: Validation DEV-02 PERM-01 NET-01 Device Matrix
+
+# DEV-02 : behaviour across multiple Android OS versions
+# PERM-01: declared vs granted runtime permissions, and behaviour when denied
+# NET-01 : behaviour with no network
+#
+# These became executable only once hardware acceleration was enabled (GAP-001);
+# a full cycle now costs ~3 minutes per OS version instead of failing outright.
+#
+# Non-destructive: throwaway emulators, an already-built APK, no sign-in, no
+# storage write, no pipeline dispatch, no product state mutation.
+
+on:
+  push:
+    branches:
+      - claude/sportreel-validation-execution-b9thw3
+    paths:
+      - .github/workflows/validation-device-matrix.yml
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: validation-device-matrix
+  cancel-in-progress: true
+
+jobs:
+  matrix:
+    name: android-${{ matrix.api }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    environment: production
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - api: 30   # Android 11 — scoped storage enforced
+          - api: 33   # Android 13 — granular media permissions
+          - api: 35   # Android 15 — current target
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      BUILD_ID: 3884d669-850c-4b76-bba5-5e57ffcd2245
+      APP_ID: com.sportreel.app
+      API: ${{ matrix.api }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --quiet Pillow
+
+      - name: Enable KVM for the runner user
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules >/dev/null
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          test -r /dev/kvm && test -w /dev/kvm && echo "KVM_READY=true"
+
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.9.1
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Download exact completed APK
+        working-directory: mobile
+        shell: bash
+        run: |
+          set -euo pipefail
+          LOG="$RUNNER_TEMP/dl.log"
+          eas build:download --build-id "$BUILD_ID" --non-interactive 2>&1 | tee "$LOG"
+          APK=$(sed -n 's/^Build downloaded to //p' "$LOG" | tail -n1)
+          cp "$APK" "$RUNNER_TEMP/sportreel.apk"
+          echo "APK_SHA256=$(sha256sum "$RUNNER_TEMP/sportreel.apk" | cut -d' ' -f1)"
+
+      - name: Create device-matrix script
+        shell: bash
+        run: |
+          cat > "$RUNNER_TEMP/matrix.sh" <<'SH'
+          set -uo pipefail
+          OUT="$RUNNER_TEMP/dev-evidence"
+          mkdir -p "$OUT"
+          adb wait-for-device
+          REL=$(adb shell getprop ro.build.version.release | tr -d '\r')
+          SDK=$(adb shell getprop ro.build.version.sdk | tr -d '\r')
+          echo "DEV02_API=$API DEV02_RELEASE=$REL DEV02_SDK=$SDK"
+          echo "$REL" > "$OUT/android-release.txt"
+          adb shell wm size | tee "$OUT/wm-size.txt"
+
+          # ---------- INSTALL-01 on this OS version ----------
+          adb install -r "$RUNNER_TEMP/sportreel.apk" > "$OUT/install.txt" 2>&1
+          echo "DEV02_INSTALL=$(tail -n1 "$OUT/install.txt" | tr -d '\r')"
+          adb shell pm clear "$APP_ID" >/dev/null 2>&1
+          adb logcat -c
+
+          # ---------- PERM-01: declared permissions ----------
+          adb shell dumpsys package "$APP_ID" > "$OUT/dumpsys-package.txt" 2>&1
+          echo "--- PERM01 declared (requested) permissions ---"
+          sed -n '/requested permissions:/,/install permissions:/p' "$OUT/dumpsys-package.txt" \
+            | sed 's/^/PERM01_REQ /' | head -40
+          echo "--- PERM01 runtime permission state ---"
+          sed -n '/runtime permissions:/,$p' "$OUT/dumpsys-package.txt" \
+            | sed 's/^/PERM01_RT /' | head -30
+
+          # ---------- APP launch on this OS version ----------
+          ACT=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
+          echo "DEV02_ACTIVITY=$ACT"
+          adb shell am start -W -n "$ACT" > "$OUT/launch.txt" 2>&1
+          grep -E 'Status|TotalTime|LaunchState' "$OUT/launch.txt" | sed 's/^/DEV02_LAUNCH /'
+
+          LOGIN_OK=0
+          for i in $(seq 1 25); do
+            adb exec-out uiautomator dump /dev/tty > "$OUT/login-ui.xml" 2>/dev/null
+            if grep -Fq "Welcome Back" "$OUT/login-ui.xml"; then LOGIN_OK=1; break; fi
+            sleep 3
+          done
+          adb exec-out screencap -p > "$OUT/api${API}-01-login.png"
+          echo "DEV02_LOGIN_VISIBLE=$LOGIN_OK"
+
+          # ---------- NET-01: offline behaviour ----------
+          # Take the device fully offline, then drive the primary control and
+          # observe whether the app reports the failure truthfully.
+          adb shell svc wifi disable  >/dev/null 2>&1
+          adb shell svc data disable  >/dev/null 2>&1
+          adb shell settings put global airplane_mode_on 1 >/dev/null 2>&1
+          adb shell su 0 am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1 \
+            || adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null 2>&1
+          sleep 6
+          echo "NET01_AIRPLANE=$(adb shell settings get global airplane_mode_on | tr -d '\r')"
+          adb logcat -c
+
+          # Type credentials and submit while offline. These are throwaway
+          # values that authenticate nothing and create no account.
+          python3 - "$OUT/login-ui.xml" "Email" > "$OUT/email-xy.txt" <<'PY'
+          import re, sys
+          from pathlib import Path
+          xml = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          for node in re.findall(r'<node\b[^>]*>', xml):
+              if sys.argv[2] not in node:
+                  continue
+              m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+              if m:
+                  x1, y1, x2, y2 = map(int, m.groups())
+                  print((x1 + x2) // 2, (y1 + y2) // 2)
+                  raise SystemExit(0)
+          PY
+          if [ -s "$OUT/email-xy.txt" ]; then
+            read EX EY < "$OUT/email-xy.txt"
+            adb shell input tap "$EX" "$EY"
+            adb shell input text "offline-probe@example.invalid"
+            adb shell input keyevent KEYCODE_TAB
+            adb shell input text "not-a-real-password"
+            adb shell input keyevent KEYCODE_ESCAPE
+          fi
+          python3 - "$OUT/login-ui.xml" "Sign In" > "$OUT/signin-xy.txt" <<'PY'
+          import re, sys
+          from pathlib import Path
+          xml = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          for node in re.findall(r'<node\b[^>]*>', xml):
+              if sys.argv[2] not in node:
+                  continue
+              m = re.search(r'bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"', node)
+              if m:
+                  x1, y1, x2, y2 = map(int, m.groups())
+                  print((x1 + x2) // 2, (y1 + y2) // 2)
+                  raise SystemExit(0)
+          PY
+          if [ -s "$OUT/signin-xy.txt" ]; then
+            read SX SY < "$OUT/signin-xy.txt"
+            adb shell input tap "$SX" "$SY"
+          fi
+          sleep 12
+          adb exec-out uiautomator dump /dev/tty > "$OUT/offline-ui.xml" 2>/dev/null
+          adb exec-out screencap -p > "$OUT/api${API}-02-offline.png"
+          echo "--- NET01 visible text while offline ---"
+          python3 - "$OUT/offline-ui.xml" <<'PY'
+          import re, sys
+          from pathlib import Path
+          xml = Path(sys.argv[1]).read_text(encoding="utf-8", errors="replace")
+          seen = []
+          for t in re.findall(r'text="([^"]*)"', xml):
+              t = t.strip()
+              if t and t not in seen:
+                  seen.append(t)
+          for t in seen[:25]:
+              print(f"NET01_TEXT {t!r}")
+          PY
+          adb shell dumpsys activity activities > "$OUT/offline-activities.txt" 2>&1
+          echo "NET01_APP_STILL_FOREGROUND=$(grep -c "$APP_ID" "$OUT/offline-activities.txt")"
+          adb logcat -b crash -d > "$OUT/offline-crash.txt" 2>&1
+          echo "NET01_FATAL_AFTER_OFFLINE=$(grep -c 'FATAL EXCEPTION' "$OUT/offline-crash.txt")"
+
+          # Restore connectivity and confirm recovery.
+          adb shell settings put global airplane_mode_on 0 >/dev/null 2>&1
+          adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false >/dev/null 2>&1
+          adb shell svc wifi enable >/dev/null 2>&1
+          adb shell svc data enable >/dev/null 2>&1
+          sleep 8
+          adb exec-out screencap -p > "$OUT/api${API}-03-restored.png"
+          adb exec-out uiautomator dump /dev/tty > "$OUT/restored-ui.xml" 2>/dev/null
+          echo "NET01_RECOVERED_UI=$(grep -c 'Welcome Back' "$OUT/restored-ui.xml")"
+          exit 0
+          SH
+          chmod +x "$RUNNER_TEMP/matrix.sh"
+
+      - name: Run accelerated emulator for API ${{ matrix.api }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          profile: pixel_6
+          cores: 4
+          ram-size: 6144M
+          emulator-boot-timeout: 900
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none
+          disable-animations: true
+          script: bash "$RUNNER_TEMP/matrix.sh"
+
+      - name: Analyse captured frames
+        if: always()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os, pathlib
+          from PIL import Image
+          out = pathlib.Path(os.environ["RUNNER_TEMP"], "dev-evidence")
+          for png in sorted(out.glob("*.png")):
+              im = Image.open(png).convert("RGB")
+              px = list(im.getdata())
+              colors = im.getcolors(maxcolors=10**7) or []
+              nonblack = sum(1 for t in px if sum(t) > 30) / len(px)
+              print(f"FRAME {png.name} size={im.size} colors={len(colors)} "
+                    f"nonblack={nonblack:.4f} "
+                    f"{'RENDERED' if len(colors) > 12 and nonblack > 0.02 else 'BLACK'}")
+          PY
+
+      - name: Commit device-matrix evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          DEST="validation-evidence/DEV-02/api-${API}-run-${{ github.run_id }}"
+          mkdir -p "$DEST"
+          cp -f "$RUNNER_TEMP/dev-evidence"/*.png "$DEST"/ 2>/dev/null || true
+          cp -f "$RUNNER_TEMP/dev-evidence"/*.txt "$DEST"/ 2>/dev/null || true
+          cp -f "$RUNNER_TEMP/dev-evidence"/*.xml "$DEST"/ 2>/dev/null || true
+          rm -f "$DEST"/offline-crash.txt "$DEST"/dumpsys-package.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$DEST"
+          git commit -m "evidence: DEV-02/PERM-01/NET-01 API ${API} from run ${{ github.run_id }}" || {
+            echo "nothing to commit"; exit 0; }
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:${{ github.ref_name }}; then
+              echo "pushed on attempt $attempt"; exit 0
+            fi
+            git fetch origin ${{ github.ref_name }}
+            git rebase FETCH_HEAD
+          done
+          exit 1
