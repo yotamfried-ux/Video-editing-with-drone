@@ -1,0 +1,132 @@
+name: Validation DATA-01 R2-01 Read-Only Inventory
+
+# DATA-01 / R2-01 prerequisite: establish what source footage and durable state
+# actually exist, so the feasibility of every downstream CV / DEC / EDIT / E2E
+# experiment is decided by evidence rather than assumption.
+#
+# Strictly read-only. Uses only ListObjectsV2 and HEAD against R2, and GET
+# against the Supabase REST API. It creates, overwrites and deletes nothing.
+# No secret value is printed; only derived counts, key names and sizes.
+
+on:
+  push:
+    branches:
+      - claude/sportreel-validation-execution-b9thw3
+    paths:
+      - .github/workflows/validation-data-inventory.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validation-data-inventory
+  cancel-in-progress: true
+
+jobs:
+  inventory:
+    name: read-only-inventory
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --quiet boto3
+
+      - name: Inventory R2 source and output objects
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        run: |
+          python - <<'PY'
+          import os, boto3, collections
+          endpoint = os.environ.get("R2_ENDPOINT_URL") or \
+              "https://" + os.environ["R2_ACCOUNT_ID"] + ".r2.cloudflarestorage.com"
+          bucket = os.environ["R2_BUCKET"]
+          c = boto3.client("s3", endpoint_url=endpoint, region_name="auto",
+                           aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+                           aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"])
+
+          # Top-level prefixes.
+          r = c.list_objects_v2(Bucket=bucket, Delimiter="/")
+          tops = [p["Prefix"] for p in r.get("CommonPrefixes", [])]
+          print(f"R2_TOP_PREFIXES={tops}")
+
+          paginator = c.get_paginator("list_objects_v2")
+          for prefix in ("raw/", "approved/", "review/", "processed/", "outputs/"):
+              total = 0
+              byte_total = 0
+              batches = collections.Counter()
+              exts = collections.Counter()
+              samples = []
+              for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+                  for obj in page.get("Contents", []):
+                      total += 1
+                      byte_total += obj["Size"]
+                      parts = obj["Key"].split("/")
+                      if len(parts) > 2:
+                          batches[parts[1]] += 1
+                      ext = obj["Key"].rsplit(".", 1)[-1].lower() if "." in obj["Key"] else "none"
+                      exts[ext] += 1
+                      if len(samples) < 12:
+                          samples.append((obj["Key"], obj["Size"], obj["LastModified"].isoformat()))
+              print(f"R2_PREFIX {prefix} objects={total} bytes={byte_total} "
+                    f"gib={byte_total/2**30:.3f} distinct_batches={len(batches)}")
+              print(f"R2_PREFIX {prefix} extensions={dict(exts)}")
+              for k, s, m in samples:
+                  print(f"R2_SAMPLE {prefix} key={k} size={s} modified={m}")
+              if batches:
+                  for b, n in batches.most_common(10):
+                      print(f"R2_BATCH {prefix} batch_id={b} objects={n}")
+
+          # In-flight multipart uploads reveal abandoned/duplicated upload state.
+          try:
+              mpu = c.list_multipart_uploads(Bucket=bucket)
+              ups = mpu.get("Uploads", [])
+              print(f"R2_INFLIGHT_MULTIPART_COUNT={len(ups)}")
+              for u in ups[:10]:
+                  print(f"R2_INFLIGHT key={u['Key']} initiated={u['Initiated'].isoformat()}")
+          except Exception as exc:
+              print(f"R2_INFLIGHT_MULTIPART_ERROR={type(exc).__name__}")
+          PY
+
+      - name: Inventory durable Supabase state
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          q() {
+            local table="$1" select="$2" extra="${3:-}"
+            echo "--- SUPABASE $table ---"
+            curl -sS \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              "$SUPABASE_URL/rest/v1/$table?select=$select&$extra" \
+              | head -c 4000
+            echo
+          }
+          count() {
+            local table="$1"
+            local n
+            n=$(curl -sS -I \
+              -H "apikey: $SUPABASE_SERVICE_KEY" \
+              -H "authorization: Bearer $SUPABASE_SERVICE_KEY" \
+              -H "prefer: count=exact" -H "range: 0-0" \
+              "$SUPABASE_URL/rest/v1/$table?select=id" \
+              | tr -d '\r' | sed -n 's|^content-range: .*/||Ip')
+            echo "SUPABASE_COUNT $table=$n"
+          }
+          for t in pipeline_runs reels source_uploads upload_batches; do
+            count "$t" || echo "SUPABASE_COUNT $t=unavailable"
+          done
+          q pipeline_runs 'id,status,stage,progress,github_run_url,created_at,finished_at,error' \
+            'order=created_at.desc&limit=15'
+          q reels 'id,status,created_at' 'order=created_at.desc&limit=10'
