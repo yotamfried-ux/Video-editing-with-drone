@@ -1,0 +1,114 @@
+name: Real Post-Pipeline App E2E
+
+on:
+  push:
+    branches: [validation/pr203-app-runtime]
+    paths:
+      - .github/workflows/validation-real-post-pipeline.yml
+
+permissions:
+  contents: read
+
+jobs:
+  app-dlv-01:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    env:
+      API_BASE_URL: https://video-editing-with-drone.vercel.app
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install validation dependencies
+        run: pip install -q boto3 requests
+      - name: Generate valid isolated MP4
+        run: |
+          ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=640x360:rate=30:duration=3" -c:v libx264 -pix_fmt yuv420p APP_DLV_01_2026-09-20.mp4
+          ffprobe -v error -show_entries format=duration -of default=nw=1 APP_DLV_01_2026-09-20.mp4
+      - name: Exercise Review to Approval to Delivery to Discover
+        run: |
+          python - <<'PY'
+          import os, time, uuid, requests, boto3
+          from pathlib import Path
+
+          name = "APP_DLV_01_2026-09-20.mp4"
+          review_key = f"review/{name}"
+          bucket = os.environ["R2_BUCKET"]
+          endpoint = os.environ.get("R2_ENDPOINT_URL") or f'https://{os.environ["R2_ACCOUNT_ID"]}.r2.cloudflarestorage.com'
+          s3 = boto3.client("s3", endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"])
+          s3.upload_file(name, bucket, review_key, ExtraArgs={"ContentType":"video/mp4"})
+          head = s3.head_object(Bucket=bucket, Key=review_key)
+          assert head["ContentLength"] == Path(name).stat().st_size
+
+          sb = os.environ["SUPABASE_URL"].rstrip("/")
+          sk = os.environ["SUPABASE_SERVICE_KEY"]
+          headers = {"apikey":sk, "Authorization":f"Bearer {sk}", "Content-Type":"application/json", "Prefer":"resolution=merge-duplicates"}
+          authority = {
+            "storage_object_id": review_key, "draft_name": name,
+            "pipeline_run_id": "validation-app-dlv-01", "athlete_key": "validation",
+            "part_index": 1, "publishable": True, "qa_evidence_recorded": True,
+            "qa_verdict": "PASS", "qa_passed": True, "technical_issues": [],
+            "approval_blocked_reasons": [], "media_specs_revision": "validation-v1",
+            "manifest_revision": "validation-app-dlv-01-v1"
+          }
+          r=requests.post(f"{sb}/rest/v1/draft_publishability?on_conflict=storage_object_id",headers=headers,json=authority,timeout=30)
+          r.raise_for_status()
+
+          op={"x-operator-secret":os.environ["OPERATOR_SECRET"],"Content-Type":"application/json"}
+          r=requests.post(f'{os.environ["API_BASE_URL"]}/api/operator/drafts/approve',headers=op,json={"file_id":review_key},timeout=45)
+          print("approve_status",r.status_code)
+          if not r.ok: print(r.text[:500])
+          r.raise_for_status()
+          data=r.json()
+          assert data.get("delivery_started") is True
+          run_id=data["delivery_run_id"]
+          print("delivery_run_id",run_id)
+
+          qh={"apikey":sk,"Authorization":f"Bearer {sk}"}
+          final=None
+          for _ in range(40):
+            rr=requests.get(f"{sb}/rest/v1/delivery_runs?id=eq.{run_id}&select=id,status,stage,discover_reel_id,error,approved_file_id",headers=qh,timeout=20)
+            rr.raise_for_status()
+            rows=rr.json()
+            if rows:
+              final=rows[0]
+              print("delivery",final["status"],final["stage"])
+              if final["status"] in ("succeeded","failed","dispatch_failed") or final.get("discover_reel_id"):
+                break
+            time.sleep(10)
+          assert final, "delivery run missing"
+          assert final.get("discover_reel_id"), f"Discover publication missing: {final}"
+          reel_id=final["discover_reel_id"]
+
+          rr=requests.get(f"{sb}/rest/v1/reels?id=eq.{reel_id}&select=id,token,status,source_video,storage_path,expires_at",headers=qh,timeout=20)
+          rr.raise_for_status()
+          reels=rr.json()
+          assert len(reels)==1, reels
+          reel=reels[0]
+          assert reel["status"]=="published"
+          assert reel["source_video"]==name
+          assert reel.get("token")
+          print("discover_reel_id",reel_id)
+
+          rr=requests.get(f'{os.environ["API_BASE_URL"]}/api/sessions?sport=unknown',timeout=30)
+          rr.raise_for_status()
+          payload=rr.json()
+          sessions=payload.get("sessions",[])
+          visible=any(
+            (x.get("id")==reel_id or any(y.get("id")==reel_id for y in x.get("reels",[]) if isinstance(y,dict)))
+            for x in sessions if isinstance(x,dict)
+          )
+          assert visible, "published fixture not visible through public Discover sessions"
+          print("APP-DLV-01 REAL E2E PASS")
+          PY
