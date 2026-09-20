@@ -142,3 +142,10 @@ Run `35506789889` contains PASS evidence for APP-03 and APP-04, but the subseque
 Android's official UI Automator guidance explicitly says screen transitions take time and their duration is unreliable; tests should wait for a condition that identifies the resulting UI rather than predict timing. The modern API likewise provides conditional waits and stability waits.
 
 **Resolution:** use the Discover screen-specific text `Catch your moments` as the post-Finish and post-relaunch readiness condition. Keep the visible Profile label tap after that condition. This narrows the synchronization condition without changing product code or rebuilding the provenance-pinned APK.
+
+
+## Incident 16 — native window ready before React Native login surface
+
+Run 35508099945 failed before APP-03 produced evidence. Its only UI artifact was a blank native hierarchy with no React Native text or EditText nodes, so the new UI/DATA assertions were never reached. This is a harness-startup failure, not evidence of an application assertion failure.
+
+Android's testing guidance favors waiting for an observable UI condition/stable resulting window rather than predicting transition duration. The alternatives considered were (a) rerun unchanged and accept flakiness, (b) add a fixed startup sleep, or (c) gate input on the complete actionable login surface. We chose (c): APP-03 startup now requires both the Welcome Back identity and at least two EditText nodes, with bounded retries and app re-activation. This preserves the exact APK checkpoint and does not change product code or auth behavior.
