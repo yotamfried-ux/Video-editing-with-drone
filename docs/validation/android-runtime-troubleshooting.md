@@ -149,3 +149,10 @@ Android's official UI Automator guidance explicitly says screen transitions take
 Run 35508099945 failed before APP-03 produced evidence. Its only UI artifact was a blank native hierarchy with no React Native text or EditText nodes, so the new UI/DATA assertions were never reached. This is a harness-startup failure, not evidence of an application assertion failure.
 
 Android's testing guidance favors waiting for an observable UI condition/stable resulting window rather than predicting transition duration. The alternatives considered were (a) rerun unchanged and accept flakiness, (b) add a fixed startup sleep, or (c) gate input on the complete actionable login surface. We chose (c): APP-03 startup now requires both the Welcome Back identity and at least two EditText nodes, with bounded retries and app re-activation. This preserves the exact APK checkpoint and does not change product code or auth behavior.
+
+
+## Incident 17 — success Alert blocked DATA-03 continuation
+
+Run `35508697268` reached the real Contact Support success Alert (`Sent!` / `We received your message and will reply soon.`), proving the authenticated support insert completed, but the harness attempted to dismiss the native React Native Alert with Android Back. The UI artifact showed the Alert still present with its visible `OK` positive button, so the subsequent Profile wait timed out and DATA-03 never started.
+
+React Native's official Alert documentation defines button presses as the supported dismissal path and notes that Android outside-tap dismissal is disabled by default unless `cancelable: true` is supplied. Alternatives considered: retry unchanged (rejected as deterministic), use Back/outside tap (not the Alert contract), or tap the observable `OK` button (chosen). The validation harness now taps `OK` after each success Alert. No product, auth, RLS, or APK code changed.
