@@ -169,10 +169,13 @@ jobs:
           tap "$ROOT/UI-03/profile.xml" "Contact Support"; wait_text "Describe your issue" "$ROOT/DATA-02/form.xml"
           mapfile -t S < <(edits "$ROOT/DATA-02/form.xml"); type_at "${S[0]}" "E2E_support_${GITHUB_RUN_ID}"; adb shell input keyevent 4
           dump_ui "$ROOT/DATA-02/filled.xml"; tap "$ROOT/DATA-02/filled.xml" "Send Message"; wait_text "Sent!" "$ROOT/DATA-02/result.xml"
-          adb shell input keyevent 4; wait_text "Contact Support" "$ROOT/DATA-02/profile-return.xml"
+          # React Native Alert on Android is dismissed by its positive button; Back is not a reliable
+          # dismissal path for a non-cancelable default alert. Exercise the visible OK action.
+          tap "$ROOT/DATA-02/result.xml" "OK"; wait_text "Contact Support" "$ROOT/DATA-02/profile-return.xml"
           tap "$ROOT/DATA-02/profile-return.xml" "Suggest a Clip Improvement"; wait_text "Your idea" "$ROOT/DATA-03/form.xml"
           mapfile -t G < <(edits "$ROOT/DATA-03/form.xml"); type_at "${G[0]}" "E2E_suggestion_${GITHUB_RUN_ID}"; adb shell input keyevent 4
           dump_ui "$ROOT/DATA-03/filled.xml"; tap "$ROOT/DATA-03/filled.xml" "Send Suggestion"; wait_text "Thank you!" "$ROOT/DATA-03/result.xml"
+          tap "$ROOT/DATA-03/result.xml" "OK"
           printf '{"experiment":"DATA-02","authenticated_support_insert":true,"status":"PASS"}\n' > "$ROOT/DATA-02/evidence.json"
           printf '{"experiment":"DATA-03","authenticated_suggestion_insert":true,"status":"PASS"}\n' > "$ROOT/DATA-03/evidence.json"
           SH
