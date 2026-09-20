@@ -173,6 +173,9 @@ def deliver_preview() -> None:
                     error=str(exc),
                     source_video=draft["name"],
                 )
+                # Discover publication is part of approval delivery, not optional.
+                # Abort before pending-payment transition so deliver.py records a terminal failure.
+                raise
         except Exception as exc:
             logger.error("Preview upload failed for '%s': %s", draft["name"], exc)
             mark_delivery_run(
