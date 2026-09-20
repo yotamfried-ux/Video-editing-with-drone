@@ -1,0 +1,96 @@
+name: Validation Authenticated Android Journey
+on:
+  push:
+    branches: [validation/pr203-app-runtime]
+    paths: [.github/workflows/validation-pr203-android-runtime.yml]
+permissions:
+  contents: read
+jobs:
+  authenticated-journey:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      APP_ID: com.sportreel.app
+      TESTED_SHA: b76cdd5e9434d5f2f681cc5a2f485f247996cda0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install JS dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Restore exact APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-pr203.apk
+          key: sportreel-android-debug-${{ env.TESTED_SHA }}-v2
+      - name: Require checkpoint
+        run: test "${{ steps.apk-cache.outputs.cache-hit }}" = "true" && test -f "$RUNNER_TEMP/sportreel-pr203.apk"
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Start Metro
+        working-directory: mobile
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
+          for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0; sleep 2; done
+          exit 1
+      - name: Create targeted APP-03 to APP-06 script
+        run: |
+          cat > "$RUNNER_TEMP/journey.sh" <<'SH'
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/android-evidence"; mkdir -p "$ROOT"/{APP-03,APP-04,APP-05,APP-06}
+          dump_ui(){ local d="$1"; mkdir -p "$(dirname "$d")"; adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || return 0; adb pull /sdcard/window.xml "$d" >/dev/null 2>&1 || true; }
+          wait_text(){ local t="$1" d="$2"; for i in $(seq 1 45); do dump_ui "$d"; [ -f "$d" ] && grep -Fq "$t" "$d" && return 0; if [ "$i" = 12 ] || [ "$i" = 28 ]; then adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true; fi; sleep 2; done; return 1; }
+          bounds(){ grep -o "text=\"$2\"[^>]*bounds=\"[^\"]*\"" "$1" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'; }
+          tap(){ local b; b=$(bounds "$1" "$2"); test -n "$b"; read a b1 c d <<< "$b"; adb shell input tap $(((a+c)/2)) $(((b1+d)/2)); }
+          edits(){ grep -o 'class="android.widget.EditText"[^>]*bounds="[^"]*"' "$1" | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'; }
+          type_at(){ local q="$1" v="$2"; read a b c d <<< "$q"; adb shell input tap $(((a+c)/2)) $(((b+d)/2)); adb shell input text "$v"; }
+          adb wait-for-device; adb reverse tcp:8081 tcp:8081
+          adb install -r "$RUNNER_TEMP/sportreel-pr203.apk" >/dev/null; adb shell pm clear "$APP_ID" >/dev/null
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1); adb shell am start -n "$ACTIVITY" >/dev/null
+          wait_text "Welcome Back" "$ROOT/APP-03/login.xml"
+          tap "$ROOT/APP-03/login.xml" "Create Account"; wait_text "Create Account" "$ROOT/APP-03/register.xml"
+          EMAIL="yotam.fried+sportreel.authjourney.$GITHUB_RUN_ID@gmail.com"; PASSWORD="SrJ${GITHUB_RUN_ID}x9"
+          echo "$EMAIL" > "$ROOT/APP-03/test-email.txt"
+          mapfile -t E < <(edits "$ROOT/APP-03/register.xml"); type_at "${E[0]}" "$EMAIL"; sleep 1; dump_ui "$ROOT/APP-03/email.xml"
+          P=$(grep -o 'class="android.widget.EditText"[^>]*password="true"[^>]*bounds="[^"]*"' "$ROOT/APP-03/email.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'); type_at "$P" "$PASSWORD"; adb shell input keyevent 4
+          dump_ui "$ROOT/APP-03/filled.xml"; tap "$ROOT/APP-03/filled.xml" "Continue"; wait_text "Check your email" "$ROOT/APP-03/confirmation.xml"
+          echo "WAITING_FOR_EMAIL_CONFIRMATION email=$EMAIL"
+          sleep 180
+          dump_ui "$ROOT/APP-03/confirmation.xml"; tap "$ROOT/APP-03/confirmation.xml" "Already have an account?"; wait_text "Welcome Back" "$ROOT/APP-03/login2.xml"
+          mapfile -t L < <(edits "$ROOT/APP-03/login2.xml"); type_at "${L[0]}" "$EMAIL"; sleep 1; dump_ui "$ROOT/APP-03/login-email.xml"
+          P=$(grep -o 'class="android.widget.EditText"[^>]*password="true"[^>]*bounds="[^"]*"' "$ROOT/APP-03/login-email.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'); type_at "$P" "$PASSWORD"; adb shell input keyevent 4
+          dump_ui "$ROOT/APP-03/login-filled.xml"; tap "$ROOT/APP-03/login-filled.xml" "Sign In"; wait_text "Your Name" "$ROOT/APP-03/result.xml"
+          printf '{"experiment":"APP-03","status":"PASS"}\n' > "$ROOT/APP-03/evidence.json"
+          mapfile -t N < <(edits "$ROOT/APP-03/result.xml"); type_at "${N[0]}" "SportReel_Validation"; adb shell input keyevent 4; dump_ui "$ROOT/APP-04/filled.xml"; tap "$ROOT/APP-04/filled.xml" "Finish"
+          wait_text "Discover" "$ROOT/APP-04/discover.xml"; printf '{"experiment":"APP-04","status":"PASS"}\n' > "$ROOT/APP-04/evidence.json"
+          tap "$ROOT/APP-04/discover.xml" "Profile"; wait_text "Save Name" "$ROOT/APP-05/profile.xml"; grep -Fq "SportReel_Validation" "$ROOT/APP-05/profile.xml"
+          adb shell am force-stop "$APP_ID"; adb shell am start -n "$ACTIVITY" >/dev/null; wait_text "Discover" "$ROOT/APP-05/relaunch.xml"; ! grep -Fq "Welcome Back" "$ROOT/APP-05/relaunch.xml"
+          printf '{"experiment":"APP-05","session_persisted":true,"status":"PASS"}\n' > "$ROOT/APP-05/evidence.json"
+          tap "$ROOT/APP-05/relaunch.xml" "Profile"; wait_text "Sign Out" "$ROOT/APP-06/profile.xml"; tap "$ROOT/APP-06/profile.xml" "Sign Out"; wait_text "Welcome Back" "$ROOT/APP-06/result.xml"
+          printf '{"experiment":"APP-06","status":"PASS"}\n' > "$ROOT/APP-06/evidence.json"
+          SH
+          chmod +x "$RUNNER_TEMP/journey.sh"
+      - name: Run targeted journey
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash "$RUNNER_TEMP/journey.sh"
+      - name: Publish evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: authenticated-journey-${{ github.run_id }}
+          path: ${{ runner.temp }}/android-evidence/
+          retention-days: 7
