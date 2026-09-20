@@ -14,7 +14,7 @@ permissions:
 jobs:
   qualify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -49,9 +49,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          gcloud firebase test android models list --format='value(id)' --limit=5 | tee /tmp/models.txt
+          gcloud firebase test android models list --format='value(id)' --limit=20 | tee /tmp/models.txt
           test -s /tmp/models.txt
-          gcloud firebase test android versions list --format='value(id)' --limit=5 | tee /tmp/versions.txt
+          gcloud firebase test android versions list --format='value(id)' --limit=20 | tee /tmp/versions.txt
           test -s /tmp/versions.txt
           echo "FTL_CATALOG_OK"
 
@@ -61,7 +61,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail --location             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             -o /tmp/sportreel.zip             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10601326160/zip"
+          curl --fail --location \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -o /tmp/sportreel.zip \
+            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10601326160/zip"
           unzip -q /tmp/sportreel.zip -d /tmp/sportreel-artifact
           APK="$(find /tmp/sportreel-artifact -type f -name '*.apk' -print -quit)"
           test -n "$APK"
@@ -69,8 +73,15 @@ jobs:
           ls -lh /tmp/sportreel.apk
           echo "APK_OK"
 
-      - name: Firebase Test Lab Robo smoke test
+      - name: Firebase Test Lab Android compatibility matrix
         shell: bash
         run: |
           set -euo pipefail
-          gcloud firebase test android run             --type robo             --app /tmp/sportreel.apk             --device model=MediumPhone.arm,version=35,locale=en,orientation=portrait             --timeout 2m             --client-details matrixLabel="SportReel-WIF-qualification"
+          gcloud firebase test android run \
+            --type robo \
+            --app /tmp/sportreel.apk \
+            --device model=MediumPhone.arm,version=35,locale=en,orientation=portrait \
+            --device model=MediumPhone.arm,version=34,locale=en,orientation=portrait \
+            --device model=MediumPhone.arm,version=33,locale=en,orientation=landscape \
+            --timeout 3m \
+            --client-details matrixLabel="SportReel-Android-compatibility"
