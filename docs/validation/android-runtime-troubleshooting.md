@@ -76,3 +76,9 @@ Update this document whenever a new validation failure reveals a reusable lesson
 Run `35502998526` got past fixture creation and environment propagation. Evidence contained a valid `APP-03/login.xml` with both EditText controls, followed by `APP-03/login-email.xml` whose hierarchy contained the app's native root/FrameLayout but no React Native accessibility nodes. The failure happened immediately after typing the email and re-dumping the UI while the soft keyboard/window resize was transitioning. The harness then could not discover the password field and exited under `set -e`.
 
 **Resolution:** do not require a second UIAutomator discovery between the two login fields. Capture both EditText bounds from the stable initial login dump, type email and password using those known controls, dismiss the keyboard, and only then capture another evidence dump. This removes a harness-only accessibility timing dependency without changing product code.
+
+### 8. Pre-keyboard password coordinates became stale after the keyboard opened
+
+Run `35503417156` produced three APP-03 XML artifacts. The initial login dump showed separate Email and Password controls. The post-entry evidence showed the Email field containing the email followed by the beginning of the generated password, and the result showed `Invalid login credentials`. This proves the second absolute-coordinate tap landed back in Email after Android panned/resized the window for the soft keyboard; the credentials themselves were not rejected because of Supabase fixture provisioning.
+
+**Resolution:** use the stable initial coordinate only to focus Email. After entering Email, send Android TAB/next-focus (`KEYCODE_TAB`) to move semantically to Password, type the password into the focused control, and then dismiss the keyboard. Do not reuse pre-keyboard absolute Y coordinates after the viewport changes.
