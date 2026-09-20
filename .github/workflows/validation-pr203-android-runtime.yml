@@ -106,10 +106,10 @@ jobs:
           printf '{"experiment":"APP-03","status":"PASS"}\n' > "$ROOT/APP-03/evidence.json"
           mapfile -t N < <(edits "$ROOT/APP-03/result.xml"); type_at "${N[0]}" "SportReel_Validation"; adb shell input keyevent 4; dump_ui "$ROOT/APP-04/filled.xml"; tap "$ROOT/APP-04/filled.xml" "Finish"
           wait_text "Discover" "$ROOT/APP-04/discover.xml"; printf '{"experiment":"APP-04","status":"PASS"}\n' > "$ROOT/APP-04/evidence.json"
-          tap_desc "$ROOT/APP-04/discover.xml" "Profile"; wait_text "Save Name" "$ROOT/APP-05/profile.xml"; grep -Fq "SportReel_Validation" "$ROOT/APP-05/profile.xml"
+          tap "$ROOT/APP-04/discover.xml" "Profile"; wait_text "Save Name" "$ROOT/APP-05/profile.xml"; grep -Fq "SportReel_Validation" "$ROOT/APP-05/profile.xml"
           adb shell am force-stop "$APP_ID"; adb shell am start -n "$ACTIVITY" >/dev/null; wait_text "Discover" "$ROOT/APP-05/relaunch.xml"; ! grep -Fq "Welcome Back" "$ROOT/APP-05/relaunch.xml"
           printf '{"experiment":"APP-05","session_persisted":true,"status":"PASS"}\n' > "$ROOT/APP-05/evidence.json"
-          tap_desc "$ROOT/APP-05/relaunch.xml" "Profile"; wait_text "Sign Out" "$ROOT/APP-06/profile.xml"; tap "$ROOT/APP-06/profile.xml" "Sign Out"
+          sleep 2; dump_ui "$RUNNER_TEMP/relaunch-stable.xml"; tap "$RUNNER_TEMP/relaunch-stable.xml" "Profile"; wait_text "Sign Out" "$ROOT/APP-06/profile.xml"; tap "$ROOT/APP-06/profile.xml" "Sign Out"
           # Sign-out intentionally leaves the user on the unauthenticated Profile state.
           # Verify that state, then follow the visible Sign In CTA to the login screen.
           wait_text "Sign in to view your profile" "$ROOT/APP-06/signed-out-profile.xml"
