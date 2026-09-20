@@ -38,7 +38,36 @@ jobs:
           nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
           for i in $(seq 1 60); do curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0; sleep 2; done
           exit 1
+      - name: Create confirmed test user
+        id: test-user
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          EMAIL="sportreel.e2e+${GITHUB_RUN_ID}@example.com"
+          PASSWORD="E2e-${GITHUB_RUN_ID}-Aa9!"
+          RESPONSE=$(curl -fsS -X POST "https://bcndgmymnismbxvdeetc.supabase.co/auth/v1/admin/users" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -nc --arg e "$EMAIL" --arg p "$PASSWORD" '{email:$e,password:$p,email_confirm:true}')")
+          USER_ID=$(printf '%s' "$RESPONSE" | jq -r '.id')
+          test -n "$USER_ID" && test "$USER_ID" != "null"
+          {
+            echo "email=$EMAIL"
+            echo "user_id=$USER_ID"
+            echo "password=$PASSWORD"
+          } >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$EMAIL"
+          echo "::add-mask::$PASSWORD"
+          echo "::add-mask::$USER_ID"
+
       - name: Create targeted APP-03 to APP-06 script
+        env:
+          TEST_EMAIL: ${{ steps.test-user.outputs.email }}
+          TEST_PASSWORD: ${{ steps.test-user.outputs.password }}
         run: |
           cat > "$RUNNER_TEMP/journey.sh" <<'SH'
           set -euo pipefail
@@ -53,16 +82,8 @@ jobs:
           adb install -r "$RUNNER_TEMP/sportreel-pr203.apk" >/dev/null; adb shell pm clear "$APP_ID" >/dev/null
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1); adb shell am start -n "$ACTIVITY" >/dev/null
           wait_text "Welcome Back" "$ROOT/APP-03/login.xml"
-          tap "$ROOT/APP-03/login.xml" "Create Account"; wait_text "Create Account" "$ROOT/APP-03/register.xml"
-          EMAIL="yotam.fried+sportreel.authjourney.$GITHUB_RUN_ID@gmail.com"; PASSWORD="SrJ${GITHUB_RUN_ID}x9"
-          echo "$EMAIL" > "$ROOT/APP-03/test-email.txt"
-          mapfile -t E < <(edits "$ROOT/APP-03/register.xml"); type_at "${E[0]}" "$EMAIL"; sleep 1; dump_ui "$ROOT/APP-03/email.xml"
-          P=$(grep -o 'class="android.widget.EditText"[^>]*password="true"[^>]*bounds="[^"]*"' "$ROOT/APP-03/email.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'); type_at "$P" "$PASSWORD"; adb shell input keyevent 4
-          dump_ui "$ROOT/APP-03/filled.xml"; tap "$ROOT/APP-03/filled.xml" "Continue"; wait_text "Check your email" "$ROOT/APP-03/confirmation.xml"
-          echo "WAITING_FOR_EMAIL_CONFIRMATION email=$EMAIL"
-          sleep 180
-          dump_ui "$ROOT/APP-03/confirmation.xml"; tap "$ROOT/APP-03/confirmation.xml" "Already have an account?"; wait_text "Welcome Back" "$ROOT/APP-03/login2.xml"
-          mapfile -t L < <(edits "$ROOT/APP-03/login2.xml"); type_at "${L[0]}" "$EMAIL"; sleep 1; dump_ui "$ROOT/APP-03/login-email.xml"
+          EMAIL="$TEST_EMAIL"; PASSWORD="$TEST_PASSWORD"
+          mapfile -t L < <(edits "$ROOT/APP-03/login.xml"); type_at "${L[0]}" "$EMAIL"; sleep 1; dump_ui "$ROOT/APP-03/login-email.xml"
           P=$(grep -o 'class="android.widget.EditText"[^>]*password="true"[^>]*bounds="[^"]*"' "$ROOT/APP-03/login-email.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'); type_at "$P" "$PASSWORD"; adb shell input keyevent 4
           dump_ui "$ROOT/APP-03/login-filled.xml"; tap "$ROOT/APP-03/login-filled.xml" "Sign In"; wait_text "Your Name" "$ROOT/APP-03/result.xml"
           printf '{"experiment":"APP-03","status":"PASS"}\n' > "$ROOT/APP-03/evidence.json"
@@ -87,6 +108,18 @@ jobs:
           emulator-boot-timeout: 480
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
           script: bash "$RUNNER_TEMP/journey.sh"
+      - name: Delete test user
+        if: always() && steps.test-user.outputs.user_id != ''
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_USER_ID: ${{ steps.test-user.outputs.user_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsS -X DELETE "https://bcndgmymnismbxvdeetc.supabase.co/auth/v1/admin/users/$TEST_USER_ID" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" >/dev/null
+
       - name: Publish evidence
         if: always()
         uses: actions/upload-artifact@v4
