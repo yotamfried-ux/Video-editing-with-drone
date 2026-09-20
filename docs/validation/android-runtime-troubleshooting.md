@@ -133,3 +133,12 @@ Run `35506789889` passed APP-03 and APP-04, then the APP-05 profile capture stil
 Android's official interaction guidance says to inspect the current layout, use an element's supported interactions, and inject `adb shell input tap` at the target element's center/bounds. It also says to wait and re-read layout when content may still be changing. The earlier child-label tap had already succeeded in this same journey before the relaunch case, so replacing both calls with the parent node widened the change unnecessarily.
 
 **Resolution:** restore the proven visible `Profile` label target for the normal Discover-to-Profile transition. For the post-force-stop transition, first allow the relaunched UI to settle, take a fresh transient layout, and only then tap the visible Profile label. Keep the subsequent screen assertion as the authority. No product change or APK rebuild is required.
+
+
+### 15. Generic tab label caused a false-positive Discover wait
+
+Run `35506789889` contains PASS evidence for APP-03 and APP-04, but the subsequent `APP-05/profile.xml` is still the Discover screen. Inspection shows that `Discover` is permanently present as the bottom-tab label, so `wait_text "Discover"` can succeed before the navigation transition has actually completed. That allowed the next Profile tap to race the transition.
+
+Android's official UI Automator guidance explicitly says screen transitions take time and their duration is unreliable; tests should wait for a condition that identifies the resulting UI rather than predict timing. The modern API likewise provides conditional waits and stability waits.
+
+**Resolution:** use the Discover screen-specific text `Catch your moments` as the post-Finish and post-relaunch readiness condition. Keep the visible Profile label tap after that condition. This narrows the synchronization condition without changing product code or rebuilding the provenance-pinned APK.
