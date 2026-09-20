@@ -5,6 +5,8 @@ on:
     branches: [validation/pr203-app-runtime]
     paths:
       - integrations/supabase_uploader.py
+      - services/delivery.py
+      - deliver.py
       - .github/workflows/validation-app-post-pipeline.yml
 
 permissions:
@@ -29,5 +31,10 @@ jobs:
           assert 'str(drive_file_id).startswith((' in s
           assert 'match = re.search' in s
           assert 'recording_date = str(reel_meta.get("recording_date")' in s
+          d=pathlib.Path("services/delivery.py").read_text()
+          ast.parse(d)
+          failed=d.index('stage="discover_publish_failed"')
+          pending=d.index('move_to_pending_payment(draft["id"])')
+          assert 'raise' in d[failed:pending], "Discover failure must abort before pending payment"
           print("APP-DLV-01 contract PASS")
           PY
