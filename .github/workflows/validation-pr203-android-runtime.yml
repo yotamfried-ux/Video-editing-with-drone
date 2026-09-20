@@ -84,10 +84,11 @@ jobs:
           wait_text "Welcome Back" "$ROOT/APP-03/login.xml"
           EMAIL="$TEST_EMAIL"; PASSWORD="$TEST_PASSWORD"
           mapfile -t L < <(edits "$ROOT/APP-03/login.xml"); type_at "${L[0]}" "$EMAIL"
-          # Do not depend on an immediate UIAutomator re-dump while the soft keyboard is
-          # transitioning. That dump can contain only the native FrameLayout and no RN
-          # accessibility nodes. Use the already-proven password bounds from login.xml.
-          type_at "${L[1]}" "$PASSWORD"; adb shell input keyevent 4
+          # Once the keyboard opens Android can pan/resize the React Native window, so the
+          # password field's pre-keyboard absolute Y coordinate is no longer safe to tap.
+          # Advance focus semantically from Email to Password instead of reusing stale bounds.
+          adb shell input keyevent 61
+          adb shell input text "$PASSWORD"; adb shell input keyevent 4
           sleep 1; dump_ui "$ROOT/APP-03/login-filled.xml"
           dump_ui "$ROOT/APP-03/login-filled.xml"; tap "$ROOT/APP-03/login-filled.xml" "Sign In"; wait_text "Your Name" "$ROOT/APP-03/result.xml"
           printf '{"experiment":"APP-03","status":"PASS"}\n' > "$ROOT/APP-03/evidence.json"
