@@ -82,3 +82,11 @@ Run `35502998526` got past fixture creation and environment propagation. Evidenc
 Run `35503417156` produced three APP-03 XML artifacts. The initial login dump showed separate Email and Password controls. The post-entry evidence showed the Email field containing the email followed by the beginning of the generated password, and the result showed `Invalid login credentials`. This proves the second absolute-coordinate tap landed back in Email after Android panned/resized the window for the soft keyboard; the credentials themselves were not rejected because of Supabase fixture provisioning.
 
 **Resolution:** use the stable initial coordinate only to focus Email. After entering Email, send Android TAB/next-focus (`KEYCODE_TAB`) to move semantically to Password, type the password into the focused control, and then dismiss the keyboard. Do not reuse pre-keyboard absolute Y coordinates after the viewport changes.
+
+### 9. Android TAB was not reliable for the React Native login fields
+
+Run `35503974760` reached APP-03, but the evidence immediately before submission shows both login inputs empty. The result then shows Supabase's `missing email or phone`. The test-user outputs were present in the job environment, so fixture creation and environment propagation were not the cause.
+
+The changed behavior was the TAB-based focus transition. For these React Native TextInputs it did not provide a reliable next-field transition, and the entered form state was not present when Sign In was submitted.
+
+**Resolution:** remove TAB-based navigation. After Email entry, let the keyboard/window transition settle, obtain a fresh transient UI tree until both inputs are visible, and target Password using its current bounds. Do not archive that transient tree because input-state dumps are not needed as durable evidence. Then dismiss the keyboard and capture only the navigation evidence required by APP-03.
