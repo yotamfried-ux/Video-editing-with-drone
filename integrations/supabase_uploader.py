@@ -42,7 +42,17 @@ def publish_reel_approved(
     """
     from integrations.cloudflare_stream import upload_to_stream
 
-    # R2 object keys are not Google Drive file IDs. Use the draft metadata date\n    # when available, then fall back to today. Drive keeps its authoritative\n    # createdTime lookup.\n    if str(drive_file_id).startswith(("approved/", "pending_payment/", "review/", "processed/", "raw/")):\n        from datetime import date\n        import re\n        match = re.search(r"(20\\d{2}-\\d{2}-\\d{2})", draft_name)\n        recording_date = str(reel_meta.get("recording_date") or (match.group(1) if match else date.today().isoformat()))\n    else:\n        recording_date = _get_drive_recording_date(drive_file_id)\n    reel_id = str(uuid4())
+    # R2 object keys are not Google Drive file IDs. Use the draft metadata date
+    # when available, then fall back to today. Drive keeps its authoritative
+    # createdTime lookup.
+    if str(drive_file_id).startswith(("approved/", "pending_payment/", "review/", "processed/", "raw/")):
+        from datetime import date
+        import re
+        match = re.search(r"(20\d{2}-\d{2}-\d{2})", draft_name)
+        recording_date = str(reel_meta.get("recording_date") or (match.group(1) if match else date.today().isoformat()))
+    else:
+        recording_date = _get_drive_recording_date(drive_file_id)
+    reel_id = str(uuid4())
     storage_path = f"{recording_date}/{reel_id}_preview.mp4"
 
     stream_uid = None
@@ -52,7 +62,11 @@ def publish_reel_approved(
         logger.warning("Cloudflare Stream upload failed for preview %s", preview_path)
 
     with open(preview_path, "rb") as f:
-        _supabase().storage.from_("reels").upload(\n            storage_path,\n            f,\n            {"content-type": "video/mp4"},\n        )
+        _supabase().storage.from_("reels").upload(
+            storage_path,
+            f,
+            {"content-type": "video/mp4"},
+        )
 
     _supabase().table("reels").insert({
         "id": reel_id,
@@ -84,7 +98,11 @@ def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: 
         stream_uid = None
 
     with open(local_path, "rb") as f:
-        _supabase().storage.from_("reels").upload(storage_path, f)
+        _supabase().storage.from_("reels").upload(
+            storage_path,
+            f,
+            {"content-type": "video/mp4"},
+        )
 
     share_token = token_urlsafe(8)
     _supabase().table("reels").insert({
