@@ -1,10 +1,12 @@
 name: Real Post-Pipeline App E2E
+# Validation branch qualification: rerun when the uploader fix changes.
 
 on:
   push:
     branches: [validation/pr203-app-runtime]
     paths:
       - .github/workflows/validation-real-post-pipeline.yml
+      - integrations/supabase_uploader.py
 
 permissions:
   contents: read
