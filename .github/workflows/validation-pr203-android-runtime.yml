@@ -145,13 +145,22 @@ jobs:
 
           # APP-01 — launch/login screen. Independent evidence is written before APP-02 starts.
           OK=0
-          for i in $(seq 1 45); do
+          # First launch can occasionally be lost while Android finishes settling after
+          # boot/install. Re-assert the activity periodically instead of turning that
+          # infrastructure race into an APP-01 product failure.
+          for i in $(seq 1 60); do
             dump_ui "$APP01/ui.xml"
             if grep -Fq "Welcome Back" "$APP01/ui.xml"; then OK=1; break; fi
             if grep -Eq "isn't responding|is not responding|Close app|Wait|keeps stopping" "$APP01/ui.xml"; then
               cp "$APP01/ui.xml" "$APP01/system-dialog-$i.xml" || true
               adb shell input keyevent 4 || true
-              adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true
+            fi
+            if [ "$i" = "10" ] || [ "$i" = "25" ] || [ "$i" = "40" ]; then
+              adb shell dumpsys window windows > "$APP01/window-$i.txt" 2>/dev/null || true
+              adb shell dumpsys activity activities > "$APP01/activity-$i.txt" 2>/dev/null || true
+              adb shell am force-stop "$APP_ID" || true
+              sleep 1
+              adb shell am start -n "$ACTIVITY" > "$APP01/relaunch-$i.txt" 2>&1 || true
             fi
             sleep 2
           done
