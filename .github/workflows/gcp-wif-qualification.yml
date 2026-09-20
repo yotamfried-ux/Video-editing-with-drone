@@ -1,0 +1,45 @@
+name: GCP WIF Qualification
+
+on:
+  push:
+    branches:
+      - validation/gcp-wif-qualification
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  qualify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud via WIF
+        id: auth
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: sportreel-test-lab
+          workload_identity_provider: projects/518907714664/locations/global/workloadIdentityPools/github-actions/providers/github
+          service_account: sportreel-github-ci@sportreel-test-lab.iam.gserviceaccount.com
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Verify federated identity and project
+        shell: bash
+        run: |
+          set -euo pipefail
+          ACTIVE_ACCOUNT="$(gcloud auth list --filter=status:ACTIVE --format='value(account)')"
+          test "$ACTIVE_ACCOUNT" = "sportreel-github-ci@sportreel-test-lab.iam.gserviceaccount.com"
+          PROJECT_ID="$(gcloud config get-value project 2>/dev/null)"
+          test "$PROJECT_ID" = "sportreel-test-lab"
+          PROJECT_NUMBER="$(gcloud projects describe sportreel-test-lab --format='value(projectNumber)')"
+          test "$PROJECT_NUMBER" = "518907714664"
+          gcloud auth print-access-token >/dev/null
+          echo "WIF_OK account=$ACTIVE_ACCOUNT project=$PROJECT_ID project_number=$PROJECT_NUMBER"
