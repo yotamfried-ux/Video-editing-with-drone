@@ -57,6 +57,12 @@ jobs:
             echo "Skipping required Drive credential validation for STORAGE_BACKEND=$STORAGE_BACKEND"
           fi
 
+      - name: Verify delivery source revision
+        run: |
+          echo "delivery_head=$(git rev-parse HEAD)"
+          grep -q "approved Discover preview must not upload to Cloudflare Stream" tests/test_discover_preview_upload.py
+          python -m pytest tests/test_discover_preview_upload.py -q
+
       - name: Run delivery (Phase 2a)
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
