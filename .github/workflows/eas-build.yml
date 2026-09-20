@@ -1,4 +1,5 @@
 name: EAS Build
+# validation trigger: second push after workflow registration
 
 on:
   workflow_dispatch:
