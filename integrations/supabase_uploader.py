@@ -21,8 +21,14 @@ def _supabase() -> Client:
     return _client
 
 
-def _get_drive_recording_date(file_id: str) -> str:
-    """Return YYYY-MM-DD from Drive file createdTime metadata."""
+def _get_recording_date(file_id: str, recording_date: str | None = None) -> str:
+    """Return YYYY-MM-DD without assuming the storage backend is Google Drive.
+
+    Delivery already has authoritative object metadata.  Prefer that date when
+    supplied; only query Drive for legacy Drive-backed callers.
+    """
+    if recording_date:
+        return recording_date[:10]
     from integrations.drive import _get_drive_service
     svc = _get_drive_service()
     meta = svc.files().get(fileId=file_id, fields="createdTime").execute()
@@ -34,6 +40,7 @@ def publish_reel_approved(
     draft_name: str,
     drive_file_id: str,
     reel_meta: dict,
+    recording_date: str | None = None,
 ) -> str:
     """Upload 480p preview to Cloudflare Stream + Supabase Storage at approval time.
 
@@ -42,7 +49,7 @@ def publish_reel_approved(
     """
     from integrations.cloudflare_stream import upload_to_stream
 
-    recording_date = _get_drive_recording_date(drive_file_id)
+    recording_date = _get_recording_date(drive_file_id, recording_date)
     reel_id = str(uuid4())
     storage_path = f"{recording_date}/{reel_id}_preview.mp4"
 
