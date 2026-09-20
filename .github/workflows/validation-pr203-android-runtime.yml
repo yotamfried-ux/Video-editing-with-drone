@@ -254,6 +254,40 @@ jobs:
           jq -e '[.sessions[] | has("recording_date") and has("sport") and (.reels|type=="array")] | all' <<<"$SESS" >/dev/null
           jq -n --argjson count "$(jq '[.sessions[].reels[]] | length' <<<"$SESS")" --argjson hasMore "$(jq '.hasMore' <<<"$SESS")" '{experiment:"API-01",sessions_contract:true,reel_count:$count,hasMore:$hasMore,status:"PASS"}' > "$ROOT/API-01/evidence.json"
 
+      - name: R2-01 real single-PUT upload, verification, and idempotency
+        if: steps.journey.outcome == 'success'
+        env:
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPERATOR_SECRET"
+          echo "::add-mask::$OPERATOR_SECRET"
+          ROOT="$RUNNER_TEMP/android-evidence/R2-01"; mkdir -p "$ROOT"
+          API="https://video-editing-with-drone.vercel.app"
+          CID="validation_${GITHUB_RUN_ID}_r2_single_put"
+          FILE="$RUNNER_TEMP/r2-01-source.bin"
+          printf 'SportReel R2 validation run %s\n' "$GITHUB_RUN_ID" > "$FILE"
+          SIZE=$(wc -c < "$FILE" | tr -d ' ')
+          BODY=$(jq -nc --arg cid "$CID" --argjson size "$SIZE" '{client_upload_id:$cid,filename:"validation-r2-01.mp4",mimeType:"video/mp4",size:$size}')
+          INIT=$(curl -fsS -X POST "$API/api/operator/upload" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$BODY")
+          test "$(jq -r '.storage_backend' <<<"$INIT")" = "r2"
+          URL=$(jq -r '.uploadUrl' <<<"$INIT"); KEY=$(jq -r '.storage_key' <<<"$INIT"); UPLOAD_ID=$(jq -r '.upload_id' <<<"$INIT"); BATCH_ID=$(jq -r '.batch_id' <<<"$INIT")
+          test -n "$URL"; test -n "$KEY"; test -n "$UPLOAD_ID"; test -n "$BATCH_ID"
+          # Presigned URL is a bearer capability: never write it to evidence or logs.
+          curl -fsS -X PUT "$URL" -H "Content-Type: video/mp4" --data-binary "@$FILE" >/dev/null
+          VERIFY=$(curl -fsS -X POST "$API/api/operator/upload/verify" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg k "$KEY" '{storage_key:$k}')")
+          test "$(jq -r '.ok' <<<"$VERIFY")" = true
+          test "$(jq -r '.exists' <<<"$VERIFY")" = true
+          test "$(jq -r '.upload_status' <<<"$VERIFY")" = verified
+          test "$(jq -r '.size' <<<"$VERIFY")" = "$SIZE"
+          RETRY=$(curl -fsS -X POST "$API/api/operator/upload" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$BODY")
+          test "$(jq -r '.upload_id' <<<"$RETRY")" = "$UPLOAD_ID"
+          test "$(jq -r '.storage_key' <<<"$RETRY")" = "$KEY"
+          test "$(jq -r '.batch_id' <<<"$RETRY")" = "$BATCH_ID"
+          test "$(jq -r '.upload_status' <<<"$RETRY")" = verified
+          jq -n --arg upload_id "$UPLOAD_ID" --arg batch_id "$BATCH_ID" --arg storage_key "$KEY" --argjson size "$SIZE" '{experiment:"R2-01",storage_backend:"r2",real_put:true,head_verified:true,manifest_verified:true,idempotent_retry:true,upload_id:$upload_id,batch_id:$batch_id,storage_key:$storage_key,size_bytes:$size,status:"PASS"}' > "$ROOT/evidence.json"
+
       - name: Delete test user
         if: always() && steps.test-user.outputs.user_id != ''
         env:
