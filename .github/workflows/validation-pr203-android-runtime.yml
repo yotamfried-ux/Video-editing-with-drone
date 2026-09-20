@@ -77,6 +77,8 @@ jobs:
           wait_text(){ local t="$1" d="$2"; for i in $(seq 1 45); do dump_ui "$d"; [ -f "$d" ] && grep -Fq "$t" "$d" && return 0; if [ "$i" = 12 ] || [ "$i" = 28 ]; then adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true; fi; sleep 2; done; return 1; }
           bounds(){ grep -o "text=\"$2\"[^>]*bounds=\"[^\"]*\"" "$1" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'; }
           tap(){ local b; b=$(bounds "$1" "$2"); test -n "$b"; read a b1 c d <<< "$b"; adb shell input tap $(((a+c)/2)) $(((b1+d)/2)); }
+          desc_bounds(){ grep -o 'content-desc="[^"]*'"$2"'[^"]*"[^>]*bounds="[^"]*"' "$1" | head -n1 | sed -n 's/.*bounds="\\[\\([0-9]*\\),\\([0-9]*\\)\\]\\[\\([0-9]*\\),\\([0-9]*\\)\\]".*/\\1 \\2 \\3 \\4/p'; }
+          tap_desc(){ local b; b=$(desc_bounds "$1" "$2"); test -n "$b"; read a b1 c d <<< "$b"; adb shell input tap $(((a+c)/2)) $(((b1+d)/2)); }
           edits(){ grep -o 'class="android.widget.EditText"[^>]*bounds="[^"]*"' "$1" | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'; }
           type_at(){ local q="$1" v="$2"; read a b c d <<< "$q"; adb shell input tap $(((a+c)/2)) $(((b+d)/2)); sleep 1; adb shell input text "$v"; }
           adb wait-for-device; adb reverse tcp:8081 tcp:8081
@@ -104,10 +106,10 @@ jobs:
           printf '{"experiment":"APP-03","status":"PASS"}\n' > "$ROOT/APP-03/evidence.json"
           mapfile -t N < <(edits "$ROOT/APP-03/result.xml"); type_at "${N[0]}" "SportReel_Validation"; adb shell input keyevent 4; dump_ui "$ROOT/APP-04/filled.xml"; tap "$ROOT/APP-04/filled.xml" "Finish"
           wait_text "Discover" "$ROOT/APP-04/discover.xml"; printf '{"experiment":"APP-04","status":"PASS"}\n' > "$ROOT/APP-04/evidence.json"
-          tap "$ROOT/APP-04/discover.xml" "Profile"; wait_text "Save Name" "$ROOT/APP-05/profile.xml"; grep -Fq "SportReel_Validation" "$ROOT/APP-05/profile.xml"
+          tap_desc "$ROOT/APP-04/discover.xml" "Profile"; wait_text "Save Name" "$ROOT/APP-05/profile.xml"; grep -Fq "SportReel_Validation" "$ROOT/APP-05/profile.xml"
           adb shell am force-stop "$APP_ID"; adb shell am start -n "$ACTIVITY" >/dev/null; wait_text "Discover" "$ROOT/APP-05/relaunch.xml"; ! grep -Fq "Welcome Back" "$ROOT/APP-05/relaunch.xml"
           printf '{"experiment":"APP-05","session_persisted":true,"status":"PASS"}\n' > "$ROOT/APP-05/evidence.json"
-          tap "$ROOT/APP-05/relaunch.xml" "Profile"; wait_text "Sign Out" "$ROOT/APP-06/profile.xml"; tap "$ROOT/APP-06/profile.xml" "Sign Out"
+          tap_desc "$ROOT/APP-05/relaunch.xml" "Profile"; wait_text "Sign Out" "$ROOT/APP-06/profile.xml"; tap "$ROOT/APP-06/profile.xml" "Sign Out"
           # Sign-out intentionally leaves the user on the unauthenticated Profile state.
           # Verify that state, then follow the visible Sign In CTA to the login screen.
           wait_text "Sign in to view your profile" "$ROOT/APP-06/signed-out-profile.xml"
