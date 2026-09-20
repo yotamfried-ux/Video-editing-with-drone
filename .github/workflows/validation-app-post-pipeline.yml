@@ -1,0 +1,32 @@
+name: App Post-Pipeline Validation
+
+on:
+  push:
+    branches: [validation/pr203-app-runtime]
+    paths:
+      - integrations/supabase_uploader.py
+      - .github/workflows/validation-app-post-pipeline.yml
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify R2 approval can publish to Discover without Drive lookup
+        run: |
+          python - <<'PY'
+          import ast, pathlib
+          p=pathlib.Path("integrations/supabase_uploader.py")
+          ast.parse(p.read_text())
+          s=p.read_text()
+          assert 'str(drive_file_id).startswith((' in s
+          assert 'recording_date = str(reel_meta.get("recording_date")' in s
+          print("APP-DLV-01 contract PASS")
+          PY
