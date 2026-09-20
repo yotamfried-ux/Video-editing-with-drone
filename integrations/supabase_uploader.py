@@ -63,10 +63,11 @@ def publish_reel_approved(
     # provider identifier into the UUID column. Discover can serve the preview
     # from Supabase Storage; Stream publication remains best-effort until the
     # schema has a dedicated text provider-id column.
-    try:
-        upload_to_stream(preview_path)
-    except Exception:
-        logger.warning("Cloudflare Stream upload failed for preview %s", preview_path)
+    # Do not upload approved Discover previews to Cloudflare Stream here.
+    # The current reels.stream_uid database column is UUID-typed, while
+    # Cloudflare Stream returns opaque text UIDs. Discover's approved preview
+    # is served from Supabase Storage, so invoking Stream here is both unused
+    # and creates an incompatible identifier that must never reach this schema.
     stream_uid = None
 
     with open(preview_path, "rb") as f:
