@@ -288,6 +288,58 @@ jobs:
           test "$(jq -r '.upload_status' <<<"$RETRY")" = verified
           jq -n --arg upload_id "$UPLOAD_ID" --arg batch_id "$BATCH_ID" --arg storage_key "$KEY" --argjson size "$SIZE" '{experiment:"R2-01",storage_backend:"r2",real_put:true,head_verified:true,manifest_verified:true,idempotent_retry:true,upload_id:$upload_id,batch_id:$batch_id,storage_key:$storage_key,size_bytes:$size,status:"PASS"}' > "$ROOT/evidence.json"
 
+      - name: R2-02 multipart interruption, resume, retry, and completion
+        if: steps.journey.outcome == 'success'
+        env:
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPERATOR_SECRET"; echo "::add-mask::$OPERATOR_SECRET"
+          ROOT="$RUNNER_TEMP/android-evidence/R2-02"; mkdir -p "$ROOT"
+          API="https://video-editing-with-drone.vercel.app"
+          CID="validation_${GITHUB_RUN_ID}_r2_multipart"
+          PART=$((5*1024*1024)); LAST=$((1024*1024)); TOTAL=$((PART+LAST))
+          P1="$RUNNER_TEMP/r2-part1.bin"; P2="$RUNNER_TEMP/r2-part2.bin"
+          head -c "$PART" /dev/zero | tr '\0' 'A' > "$P1"
+          head -c "$LAST" /dev/zero | tr '\0' 'B' > "$P2"
+          START_BODY=$(jq -nc --arg cid "$CID" --argjson size "$TOTAL" --argjson part "$PART" '{client_upload_id:$cid,filename:"validation-r2-02.mp4",mimeType:"video/mp4",size:$size,part_size_bytes:$part,local_cleanup_required:false}')
+          START=$(curl -fsS -X POST "$API/api/operator/upload/multipart/start" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$START_BODY")
+          UPLOAD_ID=$(jq -r '.upload_id' <<<"$START"); BATCH_ID=$(jq -r '.batch_id' <<<"$START"); KEY=$(jq -r '.storage_key' <<<"$START")
+          test "$(jq -r '.expected_part_count' <<<"$START")" = 2
+          U1=$(curl -fsS -X POST "$API/api/operator/upload/multipart/part-url" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg u "$UPLOAD_ID" '{upload_id:$u,part_number:1}')")
+          URL1=$(jq -r '.upload_url' <<<"$U1"); test -n "$URL1"
+          HDR="$RUNNER_TEMP/r2-part1.headers"; curl -fsS -D "$HDR" -o /dev/null -X PUT "$URL1" --data-binary "@$P1"
+          ETAG1=$(awk 'BEGIN{IGNORECASE=1} /^etag:/{sub(/^[^:]*:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$HDR"); test -n "$ETAG1"
+          REC1=$(curl -fsS -X POST "$API/api/operator/upload/multipart/record-part" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg u "$UPLOAD_ID" --arg e "$ETAG1" --argjson s "$PART" '{upload_id:$u,part_number:1,etag:$e,size_bytes:$s}')")
+          test "$(jq -r '.completed_part_count' <<<"$REC1")" = 1
+
+          # Simulated interruption: discard all presigned URLs and recover only from durable identifiers.
+          STATUS=$(curl -fsS -X POST "$API/api/operator/upload/multipart/status" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg u "$UPLOAD_ID" --arg b "$BATCH_ID" --arg k "$KEY" '{upload_id:$u,batch_id:$b,storage_key:$k}')")
+          test "$(jq -r '.completed_part_count' <<<"$STATUS")" = 1
+          test "$(jq -r '.completed_parts[0].part_number' <<<"$STATUS")" = 1
+          RESUME=$(curl -fsS -X POST "$API/api/operator/upload/multipart/start" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$START_BODY")
+          test "$(jq -r '.resumed_existing_start' <<<"$RESUME")" = true
+          test "$(jq -r '.upload_id' <<<"$RESUME")" = "$UPLOAD_ID"
+
+          U2=$(curl -fsS -X POST "$API/api/operator/upload/multipart/part-url" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg u "$UPLOAD_ID" '{upload_id:$u,part_number:2}')")
+          URL2=$(jq -r '.upload_url' <<<"$U2"); HDR2="$RUNNER_TEMP/r2-part2.headers"
+          curl -fsS -D "$HDR2" -o /dev/null -X PUT "$URL2" --data-binary "@$P2"
+          ETAG2=$(awk 'BEGIN{IGNORECASE=1} /^etag:/{sub(/^[^:]*:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$HDR2"); test -n "$ETAG2"
+          # Retry the same part and persist the latest successful ETag.
+          HDR2R="$RUNNER_TEMP/r2-part2-retry.headers"; curl -fsS -D "$HDR2R" -o /dev/null -X PUT "$URL2" --data-binary "@$P2"
+          ETAG2R=$(awk 'BEGIN{IGNORECASE=1} /^etag:/{sub(/^[^:]*:[[:space:]]*/,""); sub(/\r$/,""); print; exit}' "$HDR2R"); test -n "$ETAG2R"
+          REC2=$(curl -fsS -X POST "$API/api/operator/upload/multipart/record-part" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg u "$UPLOAD_ID" --arg e "$ETAG2R" --argjson s "$LAST" '{upload_id:$u,part_number:2,etag:$e,size_bytes:$s}')")
+          test "$(jq -r '.completed_part_count' <<<"$REC2")" = 2
+          DONE=$(curl -fsS -X POST "$API/api/operator/upload/multipart/complete" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg u "$UPLOAD_ID" '{upload_id:$u}')")
+          test "$(jq -r '.ok' <<<"$DONE")" = true
+          test "$(jq -r '.upload_status' <<<"$DONE")" = verified
+          test "$(jq -r '.verified_size_bytes' <<<"$DONE")" = "$TOTAL"
+          FINAL=$(curl -fsS -X POST "$API/api/operator/upload/multipart/status" -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json" --data "$(jq -nc --arg u "$UPLOAD_ID" '{upload_id:$u}')")
+          test "$(jq -r '.status' <<<"$FINAL")" = verified
+          test "$(jq -r '.completed_part_count' <<<"$FINAL")" = 2
+          jq -n --arg upload_id "$UPLOAD_ID" --arg batch_id "$BATCH_ID" --arg storage_key "$KEY" --argjson size "$TOTAL" '{experiment:"R2-02",real_multipart:true,interruption_simulated:true,durable_resume:true,retried_part:true,completed:true,manifest_verified:true,upload_id:$upload_id,batch_id:$batch_id,storage_key:$storage_key,size_bytes:$size,status:"PASS"}' > "$ROOT/evidence.json"
+
       - name: Delete test user
         if: always() && steps.test-user.outputs.user_id != ''
         env:
