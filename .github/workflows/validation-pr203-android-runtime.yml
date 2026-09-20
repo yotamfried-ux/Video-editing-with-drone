@@ -113,8 +113,19 @@ jobs:
           # Sign-out intentionally leaves the user on the unauthenticated Profile state.
           # Verify that state, then follow the visible Sign In CTA to the login screen.
           wait_text "Sign in to view your profile" "$ROOT/APP-06/signed-out-profile.xml"
-          tap "$ROOT/APP-06/signed-out-profile.xml" "Sign In"; wait_text "Welcome Back" "$ROOT/APP-06/result.xml"
-          printf '{"experiment":"APP-06","signed_out":true,"status":"PASS"}\n' > "$ROOT/APP-06/evidence.json"
+          tap "$ROOT/APP-06/signed-out-profile.xml" "Sign In"; wait_text "Welcome Back" "$ROOT/APP-06/login.xml"
+          # Re-login with the same confirmed fixture. Because APP-04 already persisted the profile name,
+          # a successful login must route directly to Discover rather than returning to onboarding.
+          mapfile -t R < <(edits "$ROOT/APP-06/login.xml"); type_at "${R[0]}" "$EMAIL"
+          REL="$RUNNER_TEMP/relogin-keyboard.xml"; RP=""
+          for _ in {1..20}; do
+            sleep 1; adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true; adb pull /sdcard/window.xml "$REL" >/dev/null 2>&1 || true
+            if test -s "$REL"; then mapfile -t RK < <(edits "$REL"); if test "${#RK[@]}" -ge 2; then RP="${RK[1]}"; break; fi; fi
+          done
+          test -n "$RP"; type_at "$RP" "$PASSWORD"; adb shell input keyevent 4; sleep 1
+          dump_ui "$ROOT/APP-06/relogin-ready.xml"; tap "$ROOT/APP-06/relogin-ready.xml" "Sign In"
+          wait_text "Catch your moments" "$ROOT/APP-06/result.xml"; ! grep -Fq "Your Name" "$ROOT/APP-06/result.xml"
+          printf '{"experiment":"APP-06","signed_out":true,"relogin":true,"onboarding_skipped":true,"status":"PASS"}\n' > "$ROOT/APP-06/evidence.json"
           SH
           chmod +x "$RUNNER_TEMP/journey.sh"
       - name: Run targeted journey
