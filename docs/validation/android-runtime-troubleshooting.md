@@ -163,3 +163,10 @@ React Native's official Alert documentation defines button presses as the suppor
 Run `35509582268` passed APP-03 and APP-04, then opened Profile. The evidence tree already contained the static Profile controls (`Save Name`, support actions, sign-out), but the name input still showed its placeholder because `useProfile()` performs an asynchronous Supabase read after mount. The harness treated static screen chrome as readiness and immediately asserted the persisted name.
 
 Official asynchronous-query guidance distinguishes a mounted/pending view from the state where fetched data is available. Alternatives considered: add a fixed sleep (rejected as timing-dependent), change product loading behavior (unnecessary because no product failure was established), or wait for the actual persisted value that APP-05 is intended to prove (chosen). The harness now waits for `SportReel_Validation` itself before recording APP-05 evidence. No app/backend code changed.
+
+
+## Incident 19 — Pixel Launcher ANR obscured the login surface
+
+Run `35513946197` never reached R2-02. Its only UI evidence was an Android system dialog: `Pixel Launcher isn't responding`. The application journey therefore failed at the login-readiness prerequisite, and all backend/R2 steps were correctly skipped.
+
+The failure is emulator infrastructure, not SportReel product evidence. GitHub's Actions guidance is to diagnose the failed step from its logs/artifacts rather than infer failure from the workflow conclusion alone. Alternatives considered: rerun unchanged (rejected because the same overlay could persist), increase the readiness timeout (rejected because the overlay, not app startup time, was the blocker), or recognize only the known launcher ANR, dismiss/restart the launcher, and re-assert the SportReel activity (chosen). The recovery is intentionally narrow so an ANR belonging to SportReel itself will not be hidden.
