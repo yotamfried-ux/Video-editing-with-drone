@@ -1,0 +1,35 @@
+name: PIPE-01 Production Correlation
+
+on:
+  push:
+    branches: [validation/pr203-app-runtime]
+    paths: [.github/workflows/validation-pipe01.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch-once:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Dispatch one ready production batch
+        env:
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$OPERATOR_SECRET"
+          echo "::add-mask::$OPERATOR_SECRET"
+          API="https://video-editing-with-drone.vercel.app"
+          BATCH_ID="batch_2026-09-20T12-43-44_hv9tza"
+          OUT=$(curl --fail-with-body -sS -X POST "$API/api/operator/pipeline/start" \
+            -H "x-operator-secret: $OPERATOR_SECRET" \
+            -H "Content-Type: application/json" \
+            --data "$(jq -nc --arg b "$BATCH_ID" '{batch_id:$b}')")
+          test "$(jq -r '.ok' <<<"$OUT")" = "true"
+          test "$(jq -r '.batch_id' <<<"$OUT")" = "$BATCH_ID"
+          RUN_ID=$(jq -r '.pipeline_run_id' <<<"$OUT")
+          test -n "$RUN_ID"; test "$RUN_ID" != "null"
+          echo "pipeline_run_id=$RUN_ID"
+          jq -n --arg batch "$BATCH_ID" --arg run "$RUN_ID" '{experiment:"PIPE-01",batch_id:$batch,pipeline_run_id:$run,dispatch:"PASS"}'
