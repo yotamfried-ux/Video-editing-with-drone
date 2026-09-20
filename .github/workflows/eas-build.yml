@@ -46,18 +46,24 @@ jobs:
           key: gradle-${{ runner.os }}-${{ hashFiles('**/*.gradle*', '**/gradle-wrapper.properties') }}
           restore-keys: |
             gradle-${{ runner.os }}-
-      - name: Setup EAS
-        uses: expo/expo-github-action@v8
-        with:
-          eas-version: latest
-          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Install EAS CLI
+        run: npm install --global eas-cli@24.7.0
+
+      - name: Verify Expo authentication
+        working-directory: mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+        run: eas whoami
       - name: Build Android locally
         working-directory: mobile
         env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: eas build --platform android --profile preview --non-interactive --local --output /tmp/sportreel.apk
       - name: Upload APK to Expo
         working-directory: mobile
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
         run: eas upload --platform android --build-path /tmp/sportreel.apk --non-interactive
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
