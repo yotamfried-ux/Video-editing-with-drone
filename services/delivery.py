@@ -115,6 +115,7 @@ def deliver_preview() -> None:
     )
 
     preview_results: list[tuple[dict, str, dict | None]] = []
+    publish_failures: list[str] = []
     for draft in to_preview:
         client = find_client(draft["name"])
         athlete_name = client.get("name", "") if client else ""
@@ -167,13 +168,15 @@ def deliver_preview() -> None:
                 )
                 print(f"📱 '{draft['name']}' published to Discover (id={reel_id})")
             except Exception as exc:
-                logger.warning("Discover publish failed for '%s': %s", draft["name"], exc)
+                logger.error("Discover publish failed for '%s': %s", draft["name"], exc)
+                publish_failures.append(f"{draft['name']}: {exc}")
                 mark_delivery_run(
-                    status="running",
+                    status="failed",
                     stage="discover_publish_failed",
                     error=str(exc),
                     source_video=draft["name"],
                 )
+                continue
         except Exception as exc:
             logger.error("Preview upload failed for '%s': %s", draft["name"], exc)
             mark_delivery_run(
@@ -201,9 +204,16 @@ def deliver_preview() -> None:
             except Exception as exc:
                 logger.warning("Feedback record failed for %s: %s", draft["name"], exc)
 
+    if publish_failures:
+        raise RuntimeError(
+            "Discover publish failed; approved reel was not advanced to pending payment: "
+            + "; ".join(publish_failures)
+        )
+
     if not preview_results:
         print("\n⚠️ No previews produced")
-        return
+        mark_delivery_run(status="failed", stage="no_previews_produced", error="No previews produced")
+        raise RuntimeError("No previews produced for approved reel delivery")
 
     athlete_groups: dict[str, dict] = {}
     for draft, preview_link, client in preview_results:
@@ -251,6 +261,7 @@ def deliver_preview() -> None:
         len(preview_results),
         sent_to_clients,
     )
+    mark_delivery_run(status="succeeded", stage="finished")
     print(f"\n✅ {len(preview_results)} preview(s) ready in PENDING_PAYMENT folder")
 
 
