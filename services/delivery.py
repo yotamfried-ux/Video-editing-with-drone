@@ -157,6 +157,7 @@ def deliver_preview() -> None:
                     draft_name=draft["name"],
                     drive_file_id=draft["id"],
                     reel_meta=_load_reel_metadata(draft["name"]) or {},
+                    recording_date=(draft.get("createdTime") or "")[:10] or None,
                 )
                 mark_delivery_run(
                     status="discover_published",
