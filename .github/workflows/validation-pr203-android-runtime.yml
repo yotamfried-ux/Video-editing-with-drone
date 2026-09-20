@@ -21,7 +21,7 @@ jobs:
     timeout-minutes: 45
     env:
       APP_ID: com.sportreel.app
-      TESTED_SHA: c37c7c10fbb68a040a530a024e091d089925d5f1
+      TESTED_SHA: b76cdd5e9434d5f2f681cc5a2f485f247996cda0
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -39,7 +39,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/sportreel-pr203.apk
-          key: sportreel-android-debug-${{ env.TESTED_SHA }}-v1
+          key: sportreel-android-debug-${{ env.TESTED_SHA }}-v2
 
       - name: Generate native Android project
         if: ${{ steps.apk-cache.outputs.cache-hit != 'true' }}
@@ -62,7 +62,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/sportreel-pr203.apk
-          key: sportreel-android-debug-${{ env.TESTED_SHA }}-v1
+          key: sportreel-android-debug-${{ env.TESTED_SHA }}-v2
       - name: Record APK provenance
         shell: bash
         run: |
