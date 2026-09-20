@@ -89,6 +89,15 @@ jobs:
           LOGIN_READY=0
           for i in $(seq 1 90); do
             dump_ui "$ROOT/APP-03/login.xml"
+            # Emulator system components can occasionally surface an ANR dialog above the app.
+            # Dismiss only known system ANRs, then re-assert our activity; do not treat them as app evidence.
+            if grep -Fq "Pixel Launcher isn't responding" "$ROOT/APP-03/login.xml" 2>/dev/null; then
+              adb shell input keyevent 4 >/dev/null 2>&1 || true
+              adb shell am force-stop com.google.android.apps.nexuslauncher >/dev/null 2>&1 || true
+              adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true
+              sleep 2
+              continue
+            fi
             if grep -Fq "Welcome Back" "$ROOT/APP-03/login.xml" 2>/dev/null; then
               mapfile -t L < <(edits "$ROOT/APP-03/login.xml")
               if test "${#L[@]}" -ge 2; then LOGIN_READY=1; break; fi
