@@ -84,13 +84,22 @@ jobs:
           wait_text "Welcome Back" "$ROOT/APP-03/login.xml"
           EMAIL="$TEST_EMAIL"; PASSWORD="$TEST_PASSWORD"
           mapfile -t L < <(edits "$ROOT/APP-03/login.xml"); type_at "${L[0]}" "$EMAIL"
-          # Once the keyboard opens Android can pan/resize the React Native window, so the
-          # password field's pre-keyboard absolute Y coordinate is no longer safe to tap.
-          # Advance focus semantically from Email to Password instead of reusing stale bounds.
-          adb shell input keyevent 61
-          adb shell input text "$PASSWORD"; adb shell input keyevent 4
-          sleep 1; dump_ui "$ROOT/APP-03/login-filled.xml"
-          dump_ui "$ROOT/APP-03/login-filled.xml"; tap "$ROOT/APP-03/login-filled.xml" "Sign In"; wait_text "Your Name" "$ROOT/APP-03/result.xml"
+          # Keyboard opening can move the React Native window. Rediscover Password using
+          # current bounds instead of TAB or stale pre-keyboard coordinates. Keep this
+          # transient tree outside the evidence directory because it may contain input state.
+          TRANSIENT="$RUNNER_TEMP/login-keyboard.xml"; P=""
+          for _ in {1..20}; do
+            sleep 1
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+            adb pull /sdcard/window.xml "$TRANSIENT" >/dev/null 2>&1 || true
+            if test -s "$TRANSIENT"; then
+              mapfile -t K < <(edits "$TRANSIENT")
+              if test "${#K[@]}" -ge 2; then P="${K[1]}"; break; fi
+            fi
+          done
+          test -n "$P"; type_at "$P" "$PASSWORD"; adb shell input keyevent 4
+          sleep 1
+          dump_ui "$ROOT/APP-03/login-ready.xml"; tap "$ROOT/APP-03/login-ready.xml" "Sign In"; wait_text "Your Name" "$ROOT/APP-03/result.xml"
           printf '{"experiment":"APP-03","status":"PASS"}\n' > "$ROOT/APP-03/evidence.json"
           mapfile -t N < <(edits "$ROOT/APP-03/result.xml"); type_at "${N[0]}" "SportReel_Validation"; adb shell input keyevent 4; dump_ui "$ROOT/APP-04/filled.xml"; tap "$ROOT/APP-04/filled.xml" "Finish"
           wait_text "Discover" "$ROOT/APP-04/discover.xml"; printf '{"experiment":"APP-04","status":"PASS"}\n' > "$ROOT/APP-04/evidence.json"
