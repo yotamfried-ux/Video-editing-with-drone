@@ -98,3 +98,11 @@ Run `35504511461` proved the post-keyboard Password rediscovery works: the passw
 The missing leading characters show that `adb shell input text` began while the React Native Email field was still completing its focus transition after the tap. This is a harness timing defect, not an Auth/product defect.
 
 **Resolution:** make the shared coordinate typing helper wait briefly after the tap before sending text. This applies the stabilization at the actual interaction boundary and also protects later profile-name entry without rebuilding the APK or repeating already-passed setup tests.
+
+### 11. APP-06 expected the wrong post-sign-out screen
+
+Run `35505056760` successfully completed APP-03, APP-04, and APP-05. Evidence shows valid credentials, first-login profile completion, Discover navigation, the saved name `SportReel_Validation`, and authenticated session persistence after force-stop/relaunch. APP-06 then successfully signed out, but the harness incorrectly waited for `Welcome Back` immediately.
+
+The app's actual signed-out Profile state is intentional: it displays `Sign in to view your profile` with `Sign In` and `Create Account` actions. The failure was therefore an incorrect test expectation, not a product/auth failure.
+
+**Resolution:** APP-06 now asserts the unauthenticated Profile state after Sign Out, taps the visible `Sign In` action, and only then asserts `Welcome Back`. No product change or APK rebuild is required.
