@@ -1,0 +1,22 @@
+name: Discover Delivery Check
+on:
+  push:
+    branches: [fix/discover-preview-mime]
+    paths:
+      - integrations/supabase_uploader.py
+      - services/delivery.py
+      - tests/test_discover_preview_upload.py
+      - .github/workflows/discover-delivery-check.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -q -r requirements.txt pytest
+      - run: python -m py_compile integrations/supabase_uploader.py services/delivery.py
+      - run: PYTHONPATH=. pytest -q tests/test_discover_preview_upload.py
