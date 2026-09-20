@@ -1,0 +1,72 @@
+# Android validation troubleshooting log
+
+This document records failures encountered while qualifying the SportReel Android runtime validation path, their causes, and the fixes that should be reused instead of rediscovering them.
+
+## Scope and invariants
+
+The runtime suite validates the APK built from product commit `b76cdd5e9434d5f2f681cc5a2f485f247996cda0`. Once that APK was built and checkpointed, subsequent harness-only changes must restore the provenance-pinned APK cache instead of rebuilding the product. Previously passed experiments should not be repeated unless their product assumptions changed.
+
+Authentication remains production-like: email confirmation is not disabled. Test-only automation uses Supabase's admin API with a repository secret and deletes its temporary user in an `always()` cleanup step. Secrets and generated passwords must never be committed or printed.
+
+## Incident history
+
+### 1. Older cached APK did not prove current main
+
+An earlier Android runtime run used an APK pinned to an older product SHA. Its APP-01/APP-02 results were useful historical evidence but could not establish the state of current main.
+
+**Resolution:** pin `TESTED_SHA` to the current product commit, rotate the cache key, build once, record APK provenance, and save that exact APK as the checkpoint. Run 35500812134 established the current-main baseline successfully.
+
+### 2. Initial UI dump race in APP-03
+
+Run 35501707890 failed before login because the harness attempted to inspect `APP-03/login.xml` before a successful UIAutomator dump/pull had created the file.
+
+**Resolution:** UI polling must tolerate a missing dump file. Create destination directories first and only grep after confirming the XML file exists. A missing first dump is a harness timing condition, not a product failure.
+
+### 3. Reconstructing credentials from an earlier run was unsafe and unreliable
+
+The first authenticated-journey attempt depended on credentials generated in a previous workflow. The password had been generated from a separate timestamp and was intentionally not persisted, so reconstructing it was not reliable. A transient workflow revision also embedded test credentials directly in repository text.
+
+**Resolution:** remove the unsafe transient workflow, delete the associated temporary Supabase user, and never commit test passwords. Each authenticated test run now creates its own fixture.
+
+### 4. Email-confirmation wait made the emulator run depend on an external manual action
+
+Run 35502006331 successfully reached signup and the confirmation-email state, but the emulator eventually failed because the confirmation link was not opened within the workflow's wait window. APP-02 had already separately proven the real signup -> email delivery -> confirmation path, so repeating that dependency for APP-03+ added cost and flakiness without adding coverage.
+
+**Resolution:** keep real email confirmation enabled for the product and APP-02 evidence. For APP-03+ fixture setup, create an already-confirmed disposable user through the Supabase Admin API. This separates authentication-flow coverage from test-fixture provisioning.
+
+### 5. GitHub Actions initially lacked Supabase admin credentials
+
+The automated fixture design requires privileged Supabase Admin API access, but the repository initially had no suitable Actions secret.
+
+**Resolution:** provision `SUPABASE_SERVICE_ROLE_KEY` as a GitHub Actions repository secret. The workflow consumes it only in fixture creation/cleanup steps. It is never written to artifacts or source.
+
+### 6. Fixture outputs were not propagated into the emulator action
+
+Run 35502768102 proved that the repository secret worked: the confirmed Supabase user was created successfully and cleanup deleted it successfully. The Android journey nevertheless stopped with `TEST_EMAIL: unbound variable`.
+
+**Root cause:** `TEST_EMAIL` and `TEST_PASSWORD` were supplied to the step that generated `journey.sh`, but the variables are expanded when that script executes. The separate `android-emulator-runner` step did not have those environment variables.
+
+**Resolution:** pass the fixture outputs as environment variables directly to the `Run targeted journey` step:
+- `TEST_EMAIL: ${{ steps.test-user.outputs.email }}`
+- `TEST_PASSWORD: ${{ steps.test-user.outputs.password }}`
+
+The temporary user cleanup remains `if: always()`, so a failed emulator experiment does not leave test accounts behind.
+
+## Operational rules
+
+1. Build once, reuse the exact provenance-pinned APK checkpoint while `TESTED_SHA` is unchanged.
+2. After a harness failure, rerun only the smallest experiment set affected by that failure.
+3. Distinguish harness failures from product failures. A missing XML dump, unavailable test credential, or environment propagation bug is not evidence that SportReel failed.
+4. Never place service-role keys, access/refresh tokens, passwords, or other credentials in source, logs, screenshots, or artifacts.
+5. Keep Supabase email confirmation enabled. Use admin-created confirmed users only as disposable prerequisites for tests whose subject is post-confirmation behavior.
+6. Delete temporary auth users even when the test fails.
+7. Preserve evidence artifacts and run IDs so each conclusion can be traced to the exact workflow and product SHA.
+
+## Key evidence runs
+
+- `35500812134`: current-main APP-01/APP-02 baseline; success; exact APK checkpoint established.
+- `35501707890`: APP-03 harness failed on initial UI-dump race.
+- `35502006331`: signup reached email-confirmation wait; demonstrated why APP-03+ should not depend on manual email confirmation.
+- `35502768102`: Supabase admin fixture creation and cleanup succeeded; emulator journey exposed missing environment propagation.
+
+Update this document whenever a new validation failure reveals a reusable lesson or changes the runbook.
