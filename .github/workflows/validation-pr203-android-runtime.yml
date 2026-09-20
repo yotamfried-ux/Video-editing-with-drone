@@ -246,6 +246,24 @@ jobs:
           disable-linux-hw-accel: false
           script: bash "$RUNNER_TEMP/android-validation.sh"
 
+      - name: Print failure diagnostics
+        if: failure()
+        shell: bash
+        run: |
+          set +e
+          echo "::group::APP-02 result"
+          test -f "$RUNNER_TEMP/android-evidence/APP-02/evidence.json" && cat "$RUNNER_TEMP/android-evidence/APP-02/evidence.json"
+          test -f "$RUNNER_TEMP/android-evidence/APP-02/result.xml" && grep -E 'Error sending confirmation email|Check your email|Your Name' "$RUNNER_TEMP/android-evidence/APP-02/result.xml" || true
+          echo "::endgroup::"
+          echo "::group::Relevant Android errors"
+          if [ -f "$RUNNER_TEMP/android-evidence/APP-02/logcat.txt" ]; then
+            grep -Ei -C 6 'supabase|auth|email|smtp|error|exception|fail' "$RUNNER_TEMP/android-evidence/APP-02/logcat.txt" | tail -n 400 || true
+          fi
+          echo "::endgroup::"
+          echo "::group::Metro errors"
+          test -f "$RUNNER_TEMP/metro.log" && grep -Ei -C 6 'error|exception|fail|supabase|auth' "$RUNNER_TEMP/metro.log" | tail -n 300 || true
+          echo "::endgroup::"
+
       - name: Publish experiment evidence
         if: always()
         uses: actions/upload-artifact@v4
