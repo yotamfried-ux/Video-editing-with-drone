@@ -57,7 +57,9 @@ def test_approved_preview_upload_uses_video_mp4_mime(monkeypatch, tmp_path):
     monkeypatch.setattr(supabase_uploader, "_supabase", lambda: fake)
 
     stream = types.ModuleType("integrations.cloudflare_stream")
-    stream.upload_to_stream = lambda path: "stream-uid"
+    def unexpected_stream_upload(path):
+        raise AssertionError("approved Discover preview must not upload to Cloudflare Stream")
+    stream.upload_to_stream = unexpected_stream_upload
     monkeypatch.setitem(sys.modules, "integrations.cloudflare_stream", stream)
 
     reel_id = supabase_uploader.publish_reel_approved(
