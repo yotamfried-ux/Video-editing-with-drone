@@ -84,9 +84,21 @@ jobs:
           adb wait-for-device; adb reverse tcp:8081 tcp:8081
           adb install -r "$RUNNER_TEMP/sportreel-pr203.apk" >/dev/null; adb shell pm clear "$APP_ID" >/dev/null
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1); adb shell am start -n "$ACTIVITY" >/dev/null
-          wait_text "Welcome Back" "$ROOT/APP-03/login.xml"
+          # A text-only readiness check can race React Native startup: the native window may exist
+          # before its editable nodes are exposed. Wait for the complete actionable login surface.
+          LOGIN_READY=0
+          for i in $(seq 1 90); do
+            dump_ui "$ROOT/APP-03/login.xml"
+            if grep -Fq "Welcome Back" "$ROOT/APP-03/login.xml" 2>/dev/null; then
+              mapfile -t L < <(edits "$ROOT/APP-03/login.xml")
+              if test "${#L[@]}" -ge 2; then LOGIN_READY=1; break; fi
+            fi
+            if [ "$i" = 30 ] || [ "$i" = 60 ]; then adb shell am start -n "$ACTIVITY" >/dev/null 2>&1 || true; fi
+            sleep 2
+          done
+          test "$LOGIN_READY" = 1
           EMAIL="$TEST_EMAIL"; PASSWORD="$TEST_PASSWORD"
-          mapfile -t L < <(edits "$ROOT/APP-03/login.xml"); type_at "${L[0]}" "$EMAIL"
+          type_at "${L[0]}" "$EMAIL"
           # Keyboard opening can move the React Native window. Rediscover Password using
           # current bounds instead of TAB or stale pre-keyboard coordinates. Keep this
           # transient tree outside the evidence directory because it may contain input state.
