@@ -217,6 +217,40 @@ jobs:
           curl -fsS -X DELETE "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/support_tickets?user_id=eq.$TEST_USER_ID&message=eq.$SUPPORT" "${H[@]}" >/dev/null
           curl -fsS -X DELETE "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/suggestions?user_id=eq.$TEST_USER_ID&message=eq.$SUGGESTION" "${H[@]}" >/dev/null
 
+      - name: Verify negative RLS boundaries and Sessions API contract
+        if: steps.journey.outcome == 'success'
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_EMAIL: ${{ steps.test-user.outputs.email }}
+          TEST_PASSWORD: ${{ steps.test-user.outputs.password }}
+          TEST_USER_ID: ${{ steps.test-user.outputs.user_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/android-evidence"; mkdir -p "$ROOT/SEC-01" "$ROOT/API-01"
+          ANON_KEY=$(sed -n "s/.*'\(sb_publishable_[^']*\)'.*/\1/p" mobile/src/shared/lib/publicEnv.ts | head -n1)
+          test -n "$ANON_KEY"
+          LOGIN=$(curl -fsS -X POST "https://bcndgmymnismbxvdeetc.supabase.co/auth/v1/token?grant_type=password" -H "apikey: $ANON_KEY" -H "Content-Type: application/json" --data "$(jq -nc --arg e "$TEST_EMAIL" --arg p "$TEST_PASSWORD" '{email:$e,password:$p}')")
+          JWT=$(jq -r '.access_token' <<<"$LOGIN"); test -n "$JWT" && test "$JWT" != null; echo "::add-mask::$JWT"
+          AUTH=(-H "apikey: $ANON_KEY" -H "Authorization: Bearer $JWT" -H "Content-Type: application/json")
+          OTHER_EMAIL="sportreel.rls.other+${GITHUB_RUN_ID}@example.com"; OTHER_PASSWORD="Rls-${GITHUB_RUN_ID}-Aa9!"
+          OTHER=$(curl -fsS -X POST "https://bcndgmymnismbxvdeetc.supabase.co/auth/v1/admin/users" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" -H "Content-Type: application/json" --data "$(jq -nc --arg e "$OTHER_EMAIL" --arg p "$OTHER_PASSWORD" '{email:$e,password:$p,email_confirm:true}')")
+          OTHER_ID=$(jq -r '.id' <<<"$OTHER"); test -n "$OTHER_ID" && test "$OTHER_ID" != null; echo "::add-mask::$OTHER_ID"
+          trap 'curl -fsS -X DELETE "https://bcndgmymnismbxvdeetc.supabase.co/auth/v1/admin/users/$OTHER_ID" -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" >/dev/null || true' EXIT
+          OWN=$(curl -fsS -G "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/athlete_profiles" "${AUTH[@]}" --data-urlencode "select=user_id" --data-urlencode "user_id=eq.$TEST_USER_ID")
+          FOREIGN=$(curl -fsS -G "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/athlete_profiles" "${AUTH[@]}" --data-urlencode "select=user_id" --data-urlencode "user_id=eq.$OTHER_ID")
+          test "$(jq 'length' <<<"$OWN")" = 1; test "$(jq 'length' <<<"$FOREIGN")" = 0
+          CODE=$(curl -sS -o "$RUNNER_TEMP/rls-spoof.json" -w '%{http_code}' -X POST "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/support_tickets" "${AUTH[@]}" -H "Prefer: return=representation" --data "$(jq -nc --arg u "$OTHER_ID" '{user_id:$u,message:"RLS spoof attempt"}')")
+          test "$CODE" -ge 400
+          CODE2=$(curl -sS -o "$RUNNER_TEMP/rls-spoof-suggestion.json" -w '%{http_code}' -X POST "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/suggestions" "${AUTH[@]}" -H "Prefer: return=representation" --data "$(jq -nc --arg u "$OTHER_ID" '{user_id:$u,message:"RLS spoof attempt"}')")
+          test "$CODE2" -ge 400
+          jq -n --arg support_http "$CODE" --arg suggestion_http "$CODE2" '{experiment:"SEC-01",own_profile_visible:true,foreign_profile_hidden:true,spoofed_support_rejected:true,spoofed_suggestion_rejected:true,support_http:$support_http,suggestion_http:$suggestion_http,status:"PASS"}' > "$ROOT/SEC-01/evidence.json"
+          SESS=$(curl -fsS "https://video-editing-with-drone.vercel.app/api/sessions?page=1&limit=20")
+          jq -e '.sessions | type == "array"' <<<"$SESS" >/dev/null
+          jq -e '.hasMore | type == "boolean"' <<<"$SESS" >/dev/null
+          jq -e '[.sessions[] | has("recording_date") and has("sport") and (.reels|type=="array")] | all' <<<"$SESS" >/dev/null
+          jq -n --argjson count "$(jq '[.sessions[].reels[]] | length' <<<"$SESS")" --argjson hasMore "$(jq '.hasMore' <<<"$SESS")" '{experiment:"API-01",sessions_contract:true,reel_count:$count,hasMore:$hasMore,status:"PASS"}' > "$ROOT/API-01/evidence.json"
+
       - name: Delete test user
         if: always() && steps.test-user.outputs.user_id != ''
         env:
