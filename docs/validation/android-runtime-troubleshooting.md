@@ -115,3 +115,12 @@ Run `35506003382` produced PASS evidence for APP-03, APP-04, and APP-05. Its APP
 The harness targeted the small child node whose visible text is `Profile`. The accessibility hierarchy also exposes the full tab as a larger semantic node with a content description containing `Profile`. Android UI Automator explicitly supports selecting elements by content description and clickable state; targeting the semantic tab is more robust than tapping the child label's coordinates.
 
 **Resolution:** add a content-description-based tap helper and use the full `Profile` tab accessibility node for tab navigation. Keep text-based targeting for controls whose text node is itself the intended target. No product code or APK rebuild is required.
+
+
+### 13. Semantic Profile selector had an over-escaped bounds parser
+
+Run `35506505455` produced PASS evidence for APP-03 and APP-04, then stopped before creating APP-05 evidence. The saved Discover hierarchy contains a clickable semantic node with content description `Profile` and bounds `[540,1731][1080,1857]`. The new selector matched that node, but its dedicated `sed` expression had been written with doubled backslashes inside a single-quoted shell expression, so it returned no coordinates and `tap_desc` failed under `set -e` before issuing the tap.
+
+Android's official tooling documents accessibility `contentDesc`, clickable interactions, and element bounds as appropriate UI properties for automation, so the semantic-node approach remains the preferred method over reverting to the smaller child text node. The defect was only in our shell parser.
+
+**Resolution:** keep semantic Profile targeting and correct the bounds parser to use the same proven escaping as the existing text-node `bounds()` helper. No product change, APK rebuild, or repetition of the APP-01/APP-02 baseline is required.
