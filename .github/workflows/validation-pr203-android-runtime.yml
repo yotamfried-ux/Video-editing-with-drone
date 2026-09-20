@@ -97,6 +97,9 @@ jobs:
           SH
           chmod +x "$RUNNER_TEMP/journey.sh"
       - name: Run targeted journey
+        env:
+          TEST_EMAIL: ${{ steps.test-user.outputs.email }}
+          TEST_PASSWORD: ${{ steps.test-user.outputs.password }}
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
