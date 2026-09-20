@@ -9,23 +9,23 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # ── Gemini AI (Google) ────────────────────────────────────────────────────
-GEMINI_API_KEY: str = os.environ["GEMINI_API_KEY"]
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
 GEMINI_MODEL: str   = os.getenv("GEMINI_MODEL", "gemini-2.5-pro")
 
 # ── Google Service Account ─────────────────────────────────────────────────
-GOOGLE_SERVICE_ACCOUNT_JSON: str = os.environ["GOOGLE_SERVICE_ACCOUNT_JSON"]
+GOOGLE_SERVICE_ACCOUNT_JSON: str = os.getenv("GOOGLE_SERVICE_ACCOUNT_JSON", "")
 
 # ── Google Drive folder IDs ────────────────────────────────────────────────
-RAW_FOLDER_ID: str       = os.environ["RAW_FOLDER_ID"]           # incoming raw footage
-PROCESSED_FOLDER_ID: str = os.environ["PROCESSED_FOLDER_ID"]     # archived originals
-REVIEW_FOLDER_ID: str    = os.environ["REVIEW_FOLDER_ID"]        # draft reels awaiting approval
-APPROVED_FOLDER_ID: str        = os.environ["APPROVED_FOLDER_ID"]        # approved → ready to deliver
+RAW_FOLDER_ID: str       = os.getenv("RAW_FOLDER_ID", "")           # incoming raw footage
+PROCESSED_FOLDER_ID: str = os.getenv("PROCESSED_FOLDER_ID", "")     # archived originals
+REVIEW_FOLDER_ID: str    = os.getenv("REVIEW_FOLDER_ID", "")        # draft reels awaiting approval
+APPROVED_FOLDER_ID: str        = os.getenv("APPROVED_FOLDER_ID", "")        # approved → ready to deliver
 PREVIEW_FOLDER_ID: str         = os.getenv("PREVIEW_FOLDER_ID", "")         # 480p watermarked previews sent to athletes
 PENDING_PAYMENT_FOLDER_ID: str = os.getenv("PENDING_PAYMENT_FOLDER_ID", "") # full reels awaiting payment
 CLIPS_FOLDER_ID: str           = os.getenv("CLIPS_FOLDER_ID", "")           # unused by current pipeline (reserved)
 
 # ── Delivery ───────────────────────────────────────────────────────────────
-OWNER_EMAIL: str = os.environ["OWNER_EMAIL"]               # pipeline operator — always receives summary
+OWNER_EMAIL: str = os.getenv("OWNER_EMAIL", "")               # pipeline operator — always receives summary
 NOTIFY_EMAIL: str = os.getenv("NOTIFY_EMAIL", "")          # fallback client email (used if clients.json has no match)
 
 # ── Local paths ────────────────────────────────────────────────────────────
