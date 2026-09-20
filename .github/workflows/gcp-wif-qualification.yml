@@ -9,11 +9,12 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 jobs:
   qualify:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,3 +44,33 @@ jobs:
           test "$PROJECT_NUMBER" = "518907714664"
           gcloud auth print-access-token >/dev/null
           echo "WIF_OK account=$ACTIVE_ACCOUNT project=$PROJECT_ID project_number=$PROJECT_NUMBER"
+
+      - name: Qualify Firebase Test Lab API and device catalog
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud firebase test android models list --format='value(id)' --limit=5 | tee /tmp/models.txt
+          test -s /tmp/models.txt
+          gcloud firebase test android versions list --format='value(id)' --limit=5 | tee /tmp/versions.txt
+          test -s /tmp/versions.txt
+          echo "FTL_CATALOG_OK"
+
+      - name: Download proven SportReel APK artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location             -H "Authorization: Bearer $GH_TOKEN"             -H "Accept: application/vnd.github+json"             -o /tmp/sportreel.zip             "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/10601326160/zip"
+          unzip -q /tmp/sportreel.zip -d /tmp/sportreel-artifact
+          APK="$(find /tmp/sportreel-artifact -type f -name '*.apk' -print -quit)"
+          test -n "$APK"
+          cp "$APK" /tmp/sportreel.apk
+          ls -lh /tmp/sportreel.apk
+          echo "APK_OK"
+
+      - name: Firebase Test Lab Robo smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          gcloud firebase test android run             --type robo             --app /tmp/sportreel.apk             --device model=MediumPhone.arm,version=35,locale=en,orientation=portrait             --timeout 2m             --client-details matrixLabel="SportReel-WIF-qualification"
