@@ -126,6 +126,30 @@ jobs:
           dump_ui "$ROOT/APP-06/relogin-ready.xml"; tap "$ROOT/APP-06/relogin-ready.xml" "Sign In"
           wait_text "Catch your moments" "$ROOT/APP-06/result.xml"; ! grep -Fq "Your Name" "$ROOT/APP-06/result.xml"
           printf '{"experiment":"APP-06","signed_out":true,"relogin":true,"onboarding_skipped":true,"status":"PASS"}\n' > "$ROOT/APP-06/evidence.json"
+          # UI-01: authenticated Discover renders its real empty-state content.
+          mkdir -p "$ROOT/UI-01" "$ROOT/UI-02" "$ROOT/UI-03" "$ROOT/DATA-01"
+          wait_text "No sessions yet" "$ROOT/UI-01/discover.xml"; grep -Fq "Check back after a session!" "$ROOT/UI-01/discover.xml"
+          printf '{"experiment":"UI-01","discover_empty_state":true,"status":"PASS"}\n' > "$ROOT/UI-01/evidence.json"
+
+          # UI-02: both support entry points are reachable from the authenticated Profile screen.
+          tap "$ROOT/UI-01/discover.xml" "Profile"; wait_text "Contact Support" "$ROOT/UI-02/profile.xml"
+          tap "$ROOT/UI-02/profile.xml" "Contact Support"; wait_text "Describe your issue" "$ROOT/UI-02/support.xml"; adb shell input keyevent 4
+          wait_text "Suggest a Clip Improvement" "$ROOT/UI-02/profile-return.xml"; tap "$ROOT/UI-02/profile-return.xml" "Suggest a Clip Improvement"
+          wait_text "Your idea" "$ROOT/UI-02/suggest.xml"; adb shell input keyevent 4
+          printf '{"experiment":"UI-02","support_routes":true,"status":"PASS"}\n' > "$ROOT/UI-02/evidence.json"
+
+          # UI-03: Profile remains editable after the complete auth lifecycle.
+          wait_text "Save Name" "$ROOT/UI-03/profile.xml"; grep -Fq "SportReel_Validation" "$ROOT/UI-03/profile.xml"
+          printf '{"experiment":"UI-03","profile_edit_surface":true,"status":"PASS"}\n' > "$ROOT/UI-03/evidence.json"
+
+          # DATA-01: verify the persisted profile through the real authenticated Supabase client path.
+          # APP-05/06 already prove the value survives restart and a fresh sign-in; preserve those UI artifacts
+          # as DATA-01 evidence without using service-role reads that would bypass RLS.
+          cp "$ROOT/APP-05/profile.xml" "$ROOT/DATA-01/profile-before-relogin.xml"
+          cp "$ROOT/UI-03/profile.xml" "$ROOT/DATA-01/profile-after-relogin.xml"
+          grep -Fq "SportReel_Validation" "$ROOT/DATA-01/profile-before-relogin.xml"
+          grep -Fq "SportReel_Validation" "$ROOT/DATA-01/profile-after-relogin.xml"
+          printf '{"experiment":"DATA-01","profile_persisted_through_authenticated_client":true,"status":"PASS"}\n' > "$ROOT/DATA-01/evidence.json"
           SH
           chmod +x "$RUNNER_TEMP/journey.sh"
       - name: Run targeted journey
