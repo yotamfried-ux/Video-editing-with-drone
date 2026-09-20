@@ -22,6 +22,8 @@ _client: _genai_lib.Client | None = None
 def _get_client() -> _genai_lib.Client:
     global _client
     if _client is None:
+        if not config.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is required when Gemini is used")
         _client = _genai_lib.Client(api_key=config.GEMINI_API_KEY)
     return _client
 

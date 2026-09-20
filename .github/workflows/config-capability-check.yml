@@ -1,0 +1,21 @@
+name: Config Capability Check
+on:
+  push:
+    branches: [fix/config-lazy-secrets]
+    paths:
+      - config/settings.py
+      - integrations/gemini.py
+      - tests/test_config_capability_boundaries.py
+      - .github/workflows/config-capability-check.yml
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -q -r requirements.txt pytest
+      - run: pytest -q tests/test_config_capability_boundaries.py
