@@ -124,3 +124,12 @@ Run `35506505455` produced PASS evidence for APP-03 and APP-04, then stopped bef
 Android's official tooling documents accessibility `contentDesc`, clickable interactions, and element bounds as appropriate UI properties for automation, so the semantic-node approach remains the preferred method over reverting to the smaller child text node. The defect was only in our shell parser.
 
 **Resolution:** keep semantic Profile targeting and correct the bounds parser to use the same proven escaping as the existing text-node `bounds()` helper. No product change, APK rebuild, or repetition of the APP-01/APP-02 baseline is required.
+
+
+### 14. Parent semantic-node center was not a reliable tab activation point
+
+Run `35506789889` passed APP-03 and APP-04, then the APP-05 profile capture still showed Discover. This isolates the failure to the Profile-tab interaction introduced by the semantic-parent targeting change; the application had not failed authentication or profile completion.
+
+Android's official interaction guidance says to inspect the current layout, use an element's supported interactions, and inject `adb shell input tap` at the target element's center/bounds. It also says to wait and re-read layout when content may still be changing. The earlier child-label tap had already succeeded in this same journey before the relaunch case, so replacing both calls with the parent node widened the change unnecessarily.
+
+**Resolution:** restore the proven visible `Profile` label target for the normal Discover-to-Profile transition. For the post-force-stop transition, first allow the relaunched UI to settle, take a fresh transient layout, and only then tap the visible Profile label. Keep the subsequent screen assertion as the authority. No product change or APK rebuild is required.
