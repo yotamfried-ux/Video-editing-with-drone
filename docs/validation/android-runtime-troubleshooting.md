@@ -90,3 +90,11 @@ Run `35503974760` reached APP-03, but the evidence immediately before submission
 The changed behavior was the TAB-based focus transition. For these React Native TextInputs it did not provide a reliable next-field transition, and the entered form state was not present when Sign In was submitted.
 
 **Resolution:** remove TAB-based navigation. After Email entry, let the keyboard/window transition settle, obtain a fresh transient UI tree until both inputs are visible, and target Password using its current bounds. Do not archive that transient tree because input-state dumps are not needed as durable evidence. Then dismiss the keyboard and capture only the navigation evidence required by APP-03.
+
+### 10. ADB text entry started before Email focus was stable
+
+Run `35504511461` proved the post-keyboard Password rediscovery works: the password field contained the expected masked value. However, the submitted Email was `ortreel.e2e+35504511461@example.com` instead of the generated address beginning with `sportreel...`. Supabase therefore correctly returned `Invalid login credentials`.
+
+The missing leading characters show that `adb shell input text` began while the React Native Email field was still completing its focus transition after the tap. This is a harness timing defect, not an Auth/product defect.
+
+**Resolution:** make the shared coordinate typing helper wait briefly after the tap before sending text. This applies the stabilization at the actual interaction boundary and also protects later profile-name entry without rebuilding the APK or repeating already-passed setup tests.
