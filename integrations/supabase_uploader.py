@@ -42,8 +42,7 @@ def publish_reel_approved(
     """
     from integrations.cloudflare_stream import upload_to_stream
 
-    recording_date = _get_drive_recording_date(drive_file_id)
-    reel_id = str(uuid4())
+    # R2 object keys are not Google Drive file IDs. Use the draft metadata date\n    # when available, then fall back to today. Drive keeps its authoritative\n    # createdTime lookup.\n    if str(drive_file_id).startswith(("approved/", "pending_payment/", "review/", "processed/", "raw/")):\n        from datetime import date\n        import re\n        match = re.search(r"(20\\d{2}-\\d{2}-\\d{2})", draft_name)\n        recording_date = str(reel_meta.get("recording_date") or (match.group(1) if match else date.today().isoformat()))\n    else:\n        recording_date = _get_drive_recording_date(drive_file_id)\n    reel_id = str(uuid4())
     storage_path = f"{recording_date}/{reel_id}_preview.mp4"
 
     stream_uid = None
