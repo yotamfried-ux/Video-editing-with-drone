@@ -58,11 +58,16 @@ def publish_reel_approved(
     reel_id = str(uuid4())
     storage_path = f"{recording_date}/{reel_id}_preview.mp4"
 
-    stream_uid = None
+    # reels.stream_uid is UUID-typed in Supabase, while Cloudflare Stream returns
+    # an opaque provider UID (for example "pPrjRuf6Fh0"). Never write that
+    # provider identifier into the UUID column. Discover can serve the preview
+    # from Supabase Storage; Stream publication remains best-effort until the
+    # schema has a dedicated text provider-id column.
     try:
-        stream_uid = upload_to_stream(preview_path)
+        upload_to_stream(preview_path)
     except Exception:
         logger.warning("Cloudflare Stream upload failed for preview %s", preview_path)
+    stream_uid = None
 
     with open(preview_path, "rb") as f:
         _supabase().storage.from_("reels").upload(
