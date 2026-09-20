@@ -115,6 +115,7 @@ def deliver_preview() -> None:
     )
 
     preview_results: list[tuple[dict, str, dict | None]] = []
+    delivery_failures: list[str] = []
     for draft in to_preview:
         client = find_client(draft["name"])
         athlete_name = client.get("name", "") if client else ""
@@ -130,6 +131,7 @@ def deliver_preview() -> None:
             preview_path = create_preview(local_path, athlete_label=athlete_name)
         except Exception as exc:
             logger.error("Preview prep failed for '%s': %s", draft["name"], exc)
+            delivery_failures.append(f"{draft['name']}: preview prep failed: {exc}")
             mark_delivery_run(
                 status="running",
                 stage="preview_failed",
@@ -167,6 +169,7 @@ def deliver_preview() -> None:
                 print(f"📱 '{draft['name']}' published to Discover (id={reel_id})")
             except Exception as exc:
                 logger.warning("Discover publish failed for '%s': %s", draft["name"], exc)
+                delivery_failures.append(f"{draft['name']}: Discover publish failed: {exc}")
                 mark_delivery_run(
                     status="running",
                     stage="discover_publish_failed",
@@ -175,6 +178,7 @@ def deliver_preview() -> None:
                 )
         except Exception as exc:
             logger.error("Preview upload failed for '%s': %s", draft["name"], exc)
+            delivery_failures.append(f"{draft['name']}: preview upload failed: {exc}")
             mark_delivery_run(
                 status="running",
                 stage="preview_upload_failed",
@@ -184,6 +188,9 @@ def deliver_preview() -> None:
             continue
         finally:
             _remove(preview_path)
+
+        if any(item.startswith(f"{draft['name']}:") for item in delivery_failures):
+            continue
 
         move_to_pending_payment(draft["id"])
         _mark_previewed({draft["id"]})
@@ -199,6 +206,9 @@ def deliver_preview() -> None:
                 )
             except Exception as exc:
                 logger.warning("Feedback record failed for %s: %s", draft["name"], exc)
+
+    if delivery_failures:
+        raise RuntimeError("Delivery failed: " + " | ".join(delivery_failures))
 
     if not preview_results:
         print("\n⚠️ No previews produced")
