@@ -8,6 +8,7 @@ on:
     paths:
       - .github/workflows/validation-real-post-pipeline.yml
       - integrations/supabase_uploader.py
+      - services/delivery.py
 
 permissions:
   contents: read
