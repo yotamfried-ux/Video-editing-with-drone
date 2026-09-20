@@ -127,3 +127,5 @@ jobs:
           name: authenticated-journey-${{ github.run_id }}
           path: ${{ runner.temp }}/android-evidence/
           retention-days: 7
+
+# trigger after Supabase service-role secret provisioning
