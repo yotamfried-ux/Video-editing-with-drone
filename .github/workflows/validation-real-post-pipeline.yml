@@ -29,7 +29,10 @@ jobs:
         with:
           python-version: '3.11'
       - name: Install validation dependencies
-        run: pip install -q boto3 requests
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install -q boto3 requests
       - name: Generate valid isolated MP4
         run: |
           ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=640x360:rate=30:duration=3" -c:v libx264 -pix_fmt yuv420p APP_DLV_01_2026-09-20.mp4
