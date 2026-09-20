@@ -19,4 +19,4 @@ jobs:
           python-version: '3.11'
       - run: pip install -q -r requirements.txt pytest
       - run: python -m py_compile integrations/supabase_uploader.py services/delivery.py
-      - run: pytest -q tests/test_discover_preview_upload.py
+      - run: PYTHONPATH=. pytest -q tests/test_discover_preview_upload.py
