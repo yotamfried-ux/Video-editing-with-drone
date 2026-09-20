@@ -27,6 +27,6 @@ jobs:
           ast.parse(p.read_text())
           s=p.read_text()
           assert 'str(drive_file_id).startswith((' in s
-          assert 'recording_date = str(reel_meta.get("recording_date")' in s
+          assert 're.search(r"(20\\\\d{2}-\\\\d{2}-\\\\d{2})", draft_name)' in s\n          assert 'recording_date = str(reel_meta.get("recording_date")' in s
           print("APP-DLV-01 contract PASS")
           PY
