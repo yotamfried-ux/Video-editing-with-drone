@@ -4,6 +4,17 @@ Updated: 2026-09-20
 
 This is the live remaining-test queue for the reality-validation phase. A test is PASS only with auditable real-execution evidence. CI/static analysis alone does not substitute for real-world proof where the Validation Brief requires it.
 
+## Autonomous validation operating procedure
+- Execute validation as a continuous loop: Run -> inspect result -> diagnose any failure -> implement the smallest correct fix -> add/adjust regression coverage -> rerun -> verify -> continue.
+- A FAIL is a trigger to investigate and fix; it is not a stopping point and must not be reported as though the work is complete.
+- Do not stop merely to tell the operator that a run failed. Continue autonomously through routine, reversible diagnosis, branch fixes, regression tests, and reruns.
+- Update the operator only on a meaningful PASS milestone, completion of a test group, a true blocker requiring operator action, or a dangerous/irreversible decision requiring explicit approval.
+- Do not merge to main without explicit operator approval. Do not make destructive production changes.
+- Real E2E requirements cannot be replaced by unit, contract, static, emulator, or mocked evidence.
+- Preserve auditable evidence for each result: commit SHA, workflow/run ID, job/result, relevant logs/artifacts, and correlated Supabase/R2/API identifiers.
+- Whenever a GitHub Actions run is mentioned to the operator, include a direct link to that exact run.
+- Test fixtures must remain isolated and identifiable, and cleanup must not erase evidence needed for audit.
+
 ## Already evidenced PASS
 - APP-01 and authenticated app journey coverage already closed.
 - APP-03, APP-04, APP-05, APP-06.
