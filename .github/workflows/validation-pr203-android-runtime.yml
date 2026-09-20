@@ -162,6 +162,19 @@ jobs:
           grep -Fq "SportReel_Validation" "$ROOT/DATA-01/profile-before-relogin.xml"
           grep -Fq "SportReel_Validation" "$ROOT/DATA-01/profile-after-relogin.xml"
           printf '{"experiment":"DATA-01","profile_persisted_through_authenticated_client":true,"status":"PASS"}\n' > "$ROOT/DATA-01/evidence.json"
+
+          # DATA-02/03: exercise the actual authenticated app writes. The service-role is used only
+          # later for independent evidence/cleanup; the writes themselves go through the user's JWT/RLS.
+          mkdir -p "$ROOT/DATA-02" "$ROOT/DATA-03"
+          tap "$ROOT/UI-03/profile.xml" "Contact Support"; wait_text "Describe your issue" "$ROOT/DATA-02/form.xml"
+          mapfile -t S < <(edits "$ROOT/DATA-02/form.xml"); type_at "${S[0]}" "E2E_support_${GITHUB_RUN_ID}"; adb shell input keyevent 4
+          dump_ui "$ROOT/DATA-02/filled.xml"; tap "$ROOT/DATA-02/filled.xml" "Send Message"; wait_text "Sent!" "$ROOT/DATA-02/result.xml"
+          adb shell input keyevent 4; wait_text "Contact Support" "$ROOT/DATA-02/profile-return.xml"
+          tap "$ROOT/DATA-02/profile-return.xml" "Suggest a Clip Improvement"; wait_text "Your idea" "$ROOT/DATA-03/form.xml"
+          mapfile -t G < <(edits "$ROOT/DATA-03/form.xml"); type_at "${G[0]}" "E2E_suggestion_${GITHUB_RUN_ID}"; adb shell input keyevent 4
+          dump_ui "$ROOT/DATA-03/filled.xml"; tap "$ROOT/DATA-03/filled.xml" "Send Suggestion"; wait_text "Thank you!" "$ROOT/DATA-03/result.xml"
+          printf '{"experiment":"DATA-02","authenticated_support_insert":true,"status":"PASS"}\n' > "$ROOT/DATA-02/evidence.json"
+          printf '{"experiment":"DATA-03","authenticated_suggestion_insert":true,"status":"PASS"}\n' > "$ROOT/DATA-03/evidence.json"
           SH
           chmod +x "$RUNNER_TEMP/journey.sh"
       - name: Run targeted journey
@@ -180,6 +193,27 @@ jobs:
           emulator-boot-timeout: 480
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
           script: bash "$RUNNER_TEMP/journey.sh"
+      - name: Verify backend writes and RLS evidence
+        if: steps.journey.outcome == 'success'
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          TEST_USER_ID: ${{ steps.test-user.outputs.user_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="$RUNNER_TEMP/android-evidence"; mkdir -p "$ROOT/DATA-02" "$ROOT/DATA-03"
+          SUPPORT="E2E_support_${GITHUB_RUN_ID}"
+          SUGGESTION="E2E_suggestion_${GITHUB_RUN_ID}"
+          H=(-H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+          T=$(curl -fsS -G "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/support_tickets" "${H[@]}" --data-urlencode "select=id,user_id,message,status" --data-urlencode "user_id=eq.$TEST_USER_ID" --data-urlencode "message=eq.$SUPPORT")
+          G=$(curl -fsS -G "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/suggestions" "${H[@]}" --data-urlencode "select=id,user_id,message" --data-urlencode "user_id=eq.$TEST_USER_ID" --data-urlencode "message=eq.$SUGGESTION")
+          test "$(jq 'length' <<<"$T")" = 1; test "$(jq -r '.[0].status' <<<"$T")" = open
+          test "$(jq 'length' <<<"$G")" = 1
+          jq -n '{experiment:"DATA-02",backend_row_verified:true,rls_path:"authenticated-app-write",status:"PASS"}' > "$ROOT/DATA-02/backend-evidence.json"
+          jq -n '{experiment:"DATA-03",backend_row_verified:true,rls_path:"authenticated-app-write",status:"PASS"}' > "$ROOT/DATA-03/backend-evidence.json"
+          curl -fsS -X DELETE "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/support_tickets?user_id=eq.$TEST_USER_ID&message=eq.$SUPPORT" "${H[@]}" >/dev/null
+          curl -fsS -X DELETE "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/suggestions?user_id=eq.$TEST_USER_ID&message=eq.$SUGGESTION" "${H[@]}" >/dev/null
+
       - name: Delete test user
         if: always() && steps.test-user.outputs.user_id != ''
         env:
