@@ -5,6 +5,7 @@ on:
     paths: [.github/workflows/validation-pr203-android-runtime.yml]
 permissions:
   contents: read
+  pull-requests: write
 jobs:
   authenticated-journey:
     runs-on: ubuntu-24.04
@@ -115,6 +116,7 @@ jobs:
           SH
           chmod +x "$RUNNER_TEMP/journey.sh"
       - name: Run targeted journey
+        id: journey
         env:
           TEST_EMAIL: ${{ steps.test-user.outputs.email }}
           TEST_PASSWORD: ${{ steps.test-user.outputs.password }}
@@ -148,5 +150,18 @@ jobs:
           name: authenticated-journey-${{ github.run_id }}
           path: ${{ runner.temp }}/android-evidence/
           retention-days: 7
+
+      - name: Notify validation controller
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOURNEY_OUTCOME: ${{ steps.journey.outcome }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          printf -v BODY 'SPORTREEL_VALIDATION_COMPLETED\nrun_id=%s\noutcome=%s\nhead_sha=%s\nrun_url=%s' \
+            "${{ github.run_id }}" "$JOURNEY_OUTCOME" "${{ github.sha }}" "$RUN_URL"
+          gh api "repos/${{ github.repository }}/issues/214/comments" -f body="$BODY" >/dev/null
 
 # trigger after Supabase service-role secret provisioning
