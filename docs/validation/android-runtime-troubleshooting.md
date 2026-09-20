@@ -106,3 +106,12 @@ Run `35505056760` successfully completed APP-03, APP-04, and APP-05. Evidence sh
 The app's actual signed-out Profile state is intentional: it displays `Sign in to view your profile` with `Sign In` and `Create Account` actions. The failure was therefore an incorrect test expectation, not a product/auth failure.
 
 **Resolution:** APP-06 now asserts the unauthenticated Profile state after Sign Out, taps the visible `Sign In` action, and only then asserts `Welcome Back`. No product change or APK rebuild is required.
+
+
+### 12. APP-06 tapped the child text label instead of the semantic Profile tab
+
+Run `35506003382` produced PASS evidence for APP-03, APP-04, and APP-05. Its APP-06 profile dump still showed the Discover screen and contained no `Sign Out` control, so the failure occurred before sign-out. The earlier ADB port-5037 messages were transient emulator-startup diagnostics; they are not the root cause because the same run subsequently completed APP-03 through APP-05.
+
+The harness targeted the small child node whose visible text is `Profile`. The accessibility hierarchy also exposes the full tab as a larger semantic node with a content description containing `Profile`. Android UI Automator explicitly supports selecting elements by content description and clickable state; targeting the semantic tab is more robust than tapping the child label's coordinates.
+
+**Resolution:** add a content-description-based tap helper and use the full `Profile` tab accessibility node for tab navigation. Keep text-based targeting for controls whose text node is itself the intended target. No product code or APK rebuild is required.
