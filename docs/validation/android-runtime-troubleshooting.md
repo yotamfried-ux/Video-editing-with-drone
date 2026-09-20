@@ -156,3 +156,10 @@ Android's testing guidance favors waiting for an observable UI condition/stable 
 Run `35508697268` reached the real Contact Support success Alert (`Sent!` / `We received your message and will reply soon.`), proving the authenticated support insert completed, but the harness attempted to dismiss the native React Native Alert with Android Back. The UI artifact showed the Alert still present with its visible `OK` positive button, so the subsequent Profile wait timed out and DATA-03 never started.
 
 React Native's official Alert documentation defines button presses as the supported dismissal path and notes that Android outside-tap dismissal is disabled by default unless `cancelable: true` is supplied. Alternatives considered: retry unchanged (rejected as deterministic), use Back/outside tap (not the Alert contract), or tap the observable `OK` button (chosen). The validation harness now taps `OK` after each success Alert. No product, auth, RLS, or APK code changed.
+
+
+## Incident 18 — Profile shell rendered before persisted data
+
+Run `35509582268` passed APP-03 and APP-04, then opened Profile. The evidence tree already contained the static Profile controls (`Save Name`, support actions, sign-out), but the name input still showed its placeholder because `useProfile()` performs an asynchronous Supabase read after mount. The harness treated static screen chrome as readiness and immediately asserted the persisted name.
+
+Official asynchronous-query guidance distinguishes a mounted/pending view from the state where fetched data is available. Alternatives considered: add a fixed sleep (rejected as timing-dependent), change product loading behavior (unnecessary because no product failure was established), or wait for the actual persisted value that APP-05 is intended to prove (chosen). The harness now waits for `SportReel_Validation` itself before recording APP-05 evidence. No app/backend code changed.
