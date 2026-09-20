@@ -1,0 +1,22 @@
+name: Delivery Discover Validation
+on:
+  push:
+    branches: [fix/r2-delivery-discover]
+    paths:
+      - integrations/supabase_uploader.py
+      - services/delivery.py
+      - tests/test_delivery_discover_contract.py
+      - .github/workflows/validation-delivery-discover.yml
+permissions:
+  contents: read
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install pytest
+      - run: pytest -q tests/test_delivery_discover_contract.py
