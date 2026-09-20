@@ -52,7 +52,7 @@ def publish_reel_approved(
         logger.warning("Cloudflare Stream upload failed for preview %s", preview_path)
 
     with open(preview_path, "rb") as f:
-        _supabase().storage.from_("reels").upload(storage_path, f)
+        _supabase().storage.from_("reels").upload(\n            storage_path,\n            f,\n            {"content-type": "video/mp4"},\n        )
 
     _supabase().table("reels").insert({
         "id": reel_id,
