@@ -24,9 +24,8 @@ jobs:
         run: npm install --no-save stripe@17.5.0
       - name: Simulate signed Stripe webhook and replay
         env:
-          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          STRIPE_WEBHOOK_SECRET: pay02_simulation_signing_secret_not_used_in_production
         run: |
-          test -n "$STRIPE_WEBHOOK_SECRET"
           node <<'NODE'
           const Stripe = require('stripe');
           const fs = require('fs');
