@@ -1,28 +1,24 @@
 import { useState } from 'react';
 import { apiFetch } from '@/shared/lib/api';
-import { useAuthStore } from '@/shared/hooks/useAuth';
 
 interface StripeCheckout {
-  clientSecret: string;
+  checkout_url: string;
+  session_id: string;
+  purchase_id: string;
   amount_ils: number;
-  download_token: string;
+  currency: string;
 }
 
-export function useCheckout(reelId: string) {
+export function useCheckout(reelToken: string) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const payerEmail = useAuthStore((state) => state.user?.email?.trim().toLowerCase() ?? '');
 
   const createStripeCheckout = async (): Promise<StripeCheckout | null> => {
     setLoading(true);
     setError(null);
     try {
-      if (!payerEmail) {
-        throw new Error('Sign in with an email address before paying by card.');
-      }
-      return await apiFetch<StripeCheckout>('/api/checkout/stripe', {
+      return await apiFetch<StripeCheckout>(`/api/checkout/${reelToken}`, {
         method: 'POST',
-        body: JSON.stringify({ reel_id: reelId, email: payerEmail }),
       });
     } catch (e: any) {
       setError(e.message);
