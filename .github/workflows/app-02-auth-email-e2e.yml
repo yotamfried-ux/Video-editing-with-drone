@@ -1,0 +1,53 @@
+name: APP-02 Auth Email E2E
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/app-02-auth-email-e2e.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  auth-email-e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Exercise real Supabase signup and require email confirmation
+        env:
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          APP02_EMAIL: yotam.fried@gmail.com
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, secrets, string, urllib.request, urllib.error
+          url=os.environ["SUPABASE_URL"].rstrip("/")+"/auth/v1/signup"
+          key=os.environ["SUPABASE_PUBLISHABLE_KEY"]
+          email=os.environ["APP02_EMAIL"]
+          alphabet=string.ascii_letters+string.digits+"!@#%_-"
+          password="A9!"+''.join(secrets.choice(alphabet) for _ in range(29))
+          body=json.dumps({"email":email,"password":password}).encode()
+          req=urllib.request.Request(url,data=body,method="POST",headers={
+              "apikey":key,
+              "Authorization":"Bearer "+key,
+              "Content-Type":"application/json",
+          })
+          try:
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  status=r.status; payload=json.loads(r.read().decode() or "{}")
+          except urllib.error.HTTPError as e:
+              status=e.code; payload=json.loads(e.read().decode() or "{}")
+          print("signup_http_status",status)
+          safe={k:payload.get(k) for k in ("id","email","aud","role","confirmation_sent_at") if k in payload}
+          print("signup_response",json.dumps(safe,sort_keys=True))
+          if status not in (200,201):
+              raise SystemExit("APP-02 signup failed: "+json.dumps(payload))
+          if payload.get("email") != email:
+              raise SystemExit("APP-02 signup did not return target email")
+          if payload.get("email_confirmed_at"):
+              raise SystemExit("APP-02 invalid evidence: account unexpectedly already confirmed")
+          print("APP-02 SIGNUP TRIGGER PASS — confirmation email should now be delivered through configured SMTP")
+          PY
