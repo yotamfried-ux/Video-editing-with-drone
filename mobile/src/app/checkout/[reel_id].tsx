@@ -1,35 +1,33 @@
 import React, { useState } from 'react';
-import { View, StyleSheet } from 'react-native';
+import { Alert, Linking, StyleSheet, View } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { useStripe } from '@stripe/stripe-react-native';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Card } from '@/shared/components/Card';
 import { Spacer } from '@/shared/components/Spacer';
 import { useCheckout } from '@/features/payment/hooks/useCheckout';
-import { useDownloadTokenStore } from '@/features/payment/downloadTokenStore';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function CheckoutScreen() {
-  const { reel_id } = useLocalSearchParams<{ reel_id: string }>();
+  const { reel_id: token } = useLocalSearchParams<{ reel_id: string }>();
   const router = useRouter();
-  const { initPaymentSheet, presentPaymentSheet } = useStripe();
-  const { createStripeCheckout, loading, error } = useCheckout(reel_id);
-  const setDownloadToken = useDownloadTokenStore((s) => s.set);
+  const { createStripeCheckout, loading, error } = useCheckout(token);
   const [priceDisplay, setPriceDisplay] = useState<string>('');
 
   const handleStripe = async () => {
     const checkout = await createStripeCheckout();
     if (!checkout) return;
     setPriceDisplay(`₪${(checkout.amount_ils / 100).toFixed(0)}`);
-    setDownloadToken(reel_id, checkout.download_token);
-    await initPaymentSheet({
-      paymentIntentClientSecret: checkout.clientSecret,
-      merchantDisplayName: 'SportReel',
-    });
-    const { error: presentError } = await presentPaymentSheet();
-    if (!presentError) router.replace(`/success/${reel_id}`);
+    if (!checkout.checkout_url) {
+      Alert.alert('Checkout failed', 'Stripe Checkout URL was not returned');
+      return;
+    }
+    try {
+      await Linking.openURL(checkout.checkout_url);
+    } catch {
+      Alert.alert('Checkout failed', 'Cannot open Stripe checkout on this device');
+    }
   };
 
   return (
