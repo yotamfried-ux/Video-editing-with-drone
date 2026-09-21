@@ -5,7 +5,7 @@ on:
     branches: [validation/upl01-android-e2e]
     paths:
       - .github/workflows/upl-01-android-app-upload-e2e.yml
-      - mobile/src/app/(operator)/pipeline.tsx
+      - mobile/src/app/(operator)/**
       - mobile/src/features/operator/**
       - web-api/src/app/api/operator/upload/**
   workflow_dispatch:
@@ -40,6 +40,7 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
           EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
         run: |
           npx expo prebuild --platform android --no-install
           cd android
@@ -63,6 +64,7 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
           EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
         run: |
           nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
           for i in $(seq 1 60); do
@@ -123,7 +125,7 @@ jobs:
           # This test intentionally starts after biometric/operator-entry scope.
           # Navigate directly to operator Settings using Expo Router deep link, set the real operator secret,
           # then continue to Pipeline. The upload path itself remains the production app implementation.
-          adb shell am start -a android.intent.action.VIEW -d "sportreel://(operator)/settings" "$APP_ID" >/dev/null 2>&1 || true
+          adb shell am start -a android.intent.action.VIEW -d "sportreel://settings" "$APP_ID" >/dev/null 2>&1 || true
           wait_text "Settings" "$ROOT/settings.xml"
 
           # Enter operator secret.
@@ -139,7 +141,7 @@ jobs:
           tap_text "$ROOT/settings-ready.xml" "Save secret"
           sleep 1
 
-          adb shell am start -a android.intent.action.VIEW -d "sportreel://(operator)/pipeline" "$APP_ID" >/dev/null 2>&1 || true
+          adb shell am start -a android.intent.action.VIEW -d "sportreel://pipeline" "$APP_ID" >/dev/null 2>&1 || true
           wait_text "Pipeline" "$ROOT/pipeline.xml"
           wait_text "Upload Footage" "$ROOT/pipeline.xml"
 
