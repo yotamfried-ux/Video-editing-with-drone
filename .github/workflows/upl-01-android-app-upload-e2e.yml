@@ -6,6 +6,7 @@ on:
     paths:
       - .github/workflows/upl-01-android-app-upload-e2e.yml
       - mobile/src/app/(operator)/**
+      - mobile/src/app/index.tsx
       - mobile/src/features/operator/**
       - web-api/src/app/api/operator/upload/**
   workflow_dispatch:
@@ -97,6 +98,11 @@ jobs:
               test -s "$out" && grep -Fq "$text" "$out" && return 0
               sleep 2
             done
+            local stem
+            stem="$(basename "$out" .xml)"
+            adb exec-out screencap -p > "$ROOT/${stem}-failure.png" 2>/dev/null || true
+            adb logcat -d > "$ROOT/${stem}-failure-logcat.txt" 2>/dev/null || true
+            echo "UPL-01 timeout waiting for text: $text (evidence: $out)" >&2
             return 1
           }
           bounds() {
@@ -122,10 +128,8 @@ jobs:
           ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
           adb shell am start -n "$ACTIVITY" >/dev/null
 
-          # This test intentionally starts after biometric/operator-entry scope.
-          # Navigate directly to operator Settings using Expo Router deep link, set the real operator secret,
-          # then continue to Pipeline. The upload path itself remains the production app implementation.
-          adb shell am start -a android.intent.action.VIEW -d "sportreel://settings" "$APP_ID" >/dev/null 2>&1 || true
+          # UPL-01 has a validation-only startup redirect to operator Settings.
+          # Login/biometric are intentionally outside this experiment.
           wait_text "Settings" "$ROOT/settings.xml"
 
           # Enter operator secret.
