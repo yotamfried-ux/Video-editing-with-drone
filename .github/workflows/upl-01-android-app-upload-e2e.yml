@@ -165,11 +165,7 @@ jobs:
           tap_text "$ROOT/settings-ready.xml" "Save secret"
           sleep 1
 
-          adb shell am start -a android.intent.action.VIEW -d "sportreel://pipeline" "$APP_ID" >/dev/null 2>&1 || true
-          wait_text "Pipeline" "$ROOT/pipeline.xml"
-          wait_text "Upload Footage" "$ROOT/pipeline.xml"
-
-          tap_text "$ROOT/pipeline.xml" "Upload Footage"
+          # Navigate through the real operator UI. Expo deep links are not reliable in this\n          # validation shell, and the previous run proved we were already on Pipeline.\n          dump_ui "$ROOT/operator-after-save.xml"\n          tap_text "$ROOT/operator-after-save.xml" "Pipeline"\n          wait_text "Upload from gallery" "$ROOT/pipeline.xml"\n\n          tap_text "$ROOT/pipeline.xml" "Upload from gallery"
           sleep 2
 
           # Grant media permission if Android prompts.
