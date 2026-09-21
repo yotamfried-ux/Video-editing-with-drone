@@ -40,8 +40,6 @@ def publish_reel_approved(
     Called from Phase 2a so reels appear in Discover immediately after operator approval,
     before payment. Returns the new reel_id (UUID string).
     """
-    from integrations.cloudflare_stream import upload_to_stream
-
     # R2 object keys are not Google Drive file IDs. Prefer explicit metadata,
     # then a date encoded in the draft name. Drive keeps its authoritative
     # createdTime lookup.
@@ -86,7 +84,9 @@ def publish_reel_approved(
         "storage_path": storage_path,
         "source_video": draft_name,
         "status": "published",
-        "token": token_urlsafe(8),
+        # token is a UUID column in the production schema; let Postgres generate it.
+        # Do not send token_urlsafe() text here.
+
     }).execute()
 
     return reel_id
