@@ -37,6 +37,9 @@ jobs:
         working-directory: mobile
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
         run: |
           npx expo prebuild --platform android --no-install
           cd android
@@ -56,6 +59,10 @@ jobs:
 
       - name: Start Metro
         working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
         run: |
           nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
           for i in $(seq 1 60); do
