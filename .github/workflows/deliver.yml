@@ -61,7 +61,7 @@ jobs:
       - name: Verify delivery source revision
         run: |
           echo "delivery_head=$(git rev-parse HEAD)"
-          grep -q "approved Discover preview must not upload to Cloudflare Stream" tests/test_discover_preview_upload.py
+          grep -q '"token" not in fake.reels.rows\[0\]' tests/test_discover_preview_upload.py
           python -m pytest tests/test_discover_preview_upload.py -q
 
       - name: Run delivery (Phase 2a)
