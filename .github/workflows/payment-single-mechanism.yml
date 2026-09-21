@@ -1,0 +1,36 @@
+name: Payment Single-Mechanism Contract
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "mobile/src/features/payment/**"
+      - "mobile/src/app/checkout/**"
+      - "web-api/src/app/api/checkout/**"
+      - "web-api/src/app/api/webhooks/**"
+      - ".github/workflows/payment-single-mechanism.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Assert one user-facing payment mechanism
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          hook=Path("mobile/src/features/payment/hooks/useCheckout.ts").read_text()
+          screen=Path("mobile/src/app/checkout/[reel_id].tsx").read_text()
+          assert "createStripeCheckout" in hook and "/api/checkout/stripe" in hook
+          assert "createMeshulamCheckout" not in hook
+          assert "BitWebView" not in screen
+          assert "EXPO_PUBLIC_BIT_ENABLED" not in screen
+          assert "Pay with Bit" not in screen
+          assert "Pay with Card" in screen
+          print("PAYMENT SINGLE-MECHANISM CONTRACT PASS: Stripe only")
+          PY
