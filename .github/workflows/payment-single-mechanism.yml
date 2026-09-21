@@ -26,11 +26,11 @@ jobs:
           from pathlib import Path
           hook=Path("mobile/src/features/payment/hooks/useCheckout.ts").read_text()
           screen=Path("mobile/src/app/checkout/[reel_id].tsx").read_text()
-          assert "createStripeCheckout" in hook and "/api/checkout/stripe" in hook
+          assert "createStripeCheckout" in hook and "/api/checkout/" in hook and "/api/checkout/stripe" not in hook
           assert "createMeshulamCheckout" not in hook
           assert "BitWebView" not in screen
           assert "EXPO_PUBLIC_BIT_ENABLED" not in screen
           assert "Pay with Bit" not in screen
-          assert "Pay with Card" in screen
-          print("PAYMENT SINGLE-MECHANISM CONTRACT PASS: Stripe only")
+          assert "Pay with Card" in screen\n          retired=[Path("web-api/src/app/api/checkout/stripe/route.ts"),Path("web-api/src/app/api/webhooks/stripe/route.ts"),Path("web-api/src/app/api/checkout/meshulam/route.ts"),Path("web-api/src/app/api/webhooks/meshulam/route.ts"),Path("web-api/src/lib/meshulam.ts"),Path("mobile/src/features/payment/components/BitWebView.tsx")]\n          assert not any(p.exists() for p in retired), [str(p) for p in retired if p.exists()]\n          assert Path("web-api/src/app/api/checkout/[token]/route.ts").exists()\n          assert Path("web-api/src/app/api/payments/webhook/route.ts").exists()
+          print("PAYMENT SINGLE-MECHANISM CONTRACT PASS: canonical Stripe Checkout + webhook only")
           PY
