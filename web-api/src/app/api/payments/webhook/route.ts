@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
     const reelId = session.metadata?.reel_id;
 
     if (purchaseId && reelId) {
-      const { error: purchaseErr } = await supabaseAdmin
+      const { data: transitionedPurchase, error: purchaseErr } = await supabaseAdmin
         .from('purchases')
         .update({
           status: 'paid',
@@ -48,10 +48,20 @@ export async function POST(req: NextRequest) {
           paid_at: new Date().toISOString(),
           metadata: { stripe_status: session.payment_status, session_id: session.id },
         })
-        .eq('id', purchaseId);
+        .eq('id', purchaseId)
+        .eq('reel_id', reelId)
+        .eq('stripe_checkout_session_id', session.id)
+        .eq('status', 'checkout_created')
+        .select('id')
+        .maybeSingle();
 
       if (purchaseErr) {
         return NextResponse.json({ error: purchaseErr.message }, { status: 500 });
+      }
+      // Stripe retries webhook events. Only the first valid checkout_created -> paid
+      // transition may execute downstream side effects.
+      if (!transitionedPurchase) {
+        return NextResponse.json({ received: true, duplicate: true });
       }
 
       const { error: reelErr } = await supabaseAdmin
