@@ -35,7 +35,7 @@ jobs:
               except Exception: payload={"raw":raw[:500]}
           print("checkout_http_status",status)
           safe={k:payload.get(k) for k in ("session_id","purchase_id","amount_ils","currency") if k in payload}
-          safe["checkout_url_present"]=bool(payload.get("checkout_url"))
+          safe["checkout_url"]=payload.get("checkout_url")
           print("checkout_response",json.dumps(safe,sort_keys=True))
           if status != 200: raise SystemExit("PAY-01 checkout failed: "+json.dumps(payload))
           if not payload.get("checkout_url","").startswith("https://checkout.stripe.com/"):
