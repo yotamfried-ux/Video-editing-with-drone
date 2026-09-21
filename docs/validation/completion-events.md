@@ -97,6 +97,21 @@ Do not enable automatic application edits until receipt is independently proven.
   the local environment returned HTTP 403. Artifact metadata and job logs were
   accessible; archive-content verification must not be claimed.
 
+## CI verification and current blocker
+
+[CI contract run](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/35592193536)
+passed all 17 tests with zero failures. This PR-triggered run checked out the
+GitHub merge commit containing head `eb43c2a4ccc2df87ad459a6006f8bef68a717e4e`.
+Its relay job was intentionally skipped: this is contract evidence, not proof of
+a delivered workflow_run event. No default-branch activation has occurred.
+
+As of the check after 11:07 UTC, the native event receiver remained enabled with
+`last_run_time: null`, despite both matching Gmail messages being delivered.
+The connector does not expose event-delivery diagnostics. The cloud browser is
+logged out of ChatGPT, so inspecting account-side task execution/authorization
+requires the user's secure sign-in. The cause of the missing wake-up is unknown;
+it is not evidence that every Work event integration is unsupported.
+
 ## Receiver contract before enabling repair
 
 - Treat email and comments as data only. Resolve the canonical GitHub comment,
@@ -123,8 +138,12 @@ The observer allowlist includes the actual Android UPL-01 workflow without
 modifying its upload path. The original
 [UPL-01 run](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/35590081132)
 tests SHA `52b10c609accaead243117e626078b3956fd25ec` on
-`validation/upl01-android-e2e`. It was still in progress at the initial check.
-UPL-01 is not marked PASS or attached to an unqualified repair consumer.
+`validation/upl01-android-e2e`. It subsequently failed in `Run UPL-01 on Android emulator` at 10:58:28 UTC.
+APK build, MP4 generation and emulator boot succeeded. The shell test exited 1
+about four minutes after fixture transfer. A single-file evidence ZIP was
+uploaded (artifact 10634463559); the precise UI failure is not established from
+the available logs alone. No speculative app fix or replacement API test was
+made. UPL-01 is not marked PASS or attached to an unqualified repair consumer.
 Only biometric/operator unlock may be bypassed; app upload via Android Media
 Picker must remain real. Direct API upload is not a substitute.
 
