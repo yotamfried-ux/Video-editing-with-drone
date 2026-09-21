@@ -1,0 +1,50 @@
+name: PAY-01 Real Checkout Initiation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/pay-01-real-checkout.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pay-01:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Initiate real Stripe checkout without completing payment
+        env:
+          API_BASE: https://video-editing-with-drone.vercel.app
+          REEL_TOKEN: 44244c1b-c098-4004-8960-0215f2c4f0f0
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+          url=os.environ["API_BASE"].rstrip("/")+"/api/checkout/"+os.environ["REEL_TOKEN"]
+          req=urllib.request.Request(url,data=b"",method="POST",headers={"Content-Type":"application/json","User-Agent":"SportReel-PAY-01-E2E"})
+          try:
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  status=r.status; payload=json.loads(r.read().decode() or "{}")
+          except urllib.error.HTTPError as e:
+              status=e.code
+              raw=e.read().decode()
+              try: payload=json.loads(raw or "{}")
+              except Exception: payload={"raw":raw[:500]}
+          print("checkout_http_status",status)
+          safe={k:payload.get(k) for k in ("session_id","purchase_id","amount_ils","currency") if k in payload}
+          safe["checkout_url_present"]=bool(payload.get("checkout_url"))
+          print("checkout_response",json.dumps(safe,sort_keys=True))
+          if status != 200: raise SystemExit("PAY-01 checkout failed: "+json.dumps(payload))
+          if not payload.get("checkout_url","").startswith("https://checkout.stripe.com/"):
+              raise SystemExit("PAY-01 missing real Stripe checkout URL")
+          if not payload.get("session_id","").startswith("cs_"):
+              raise SystemExit("PAY-01 missing Stripe Checkout session id")
+          if not payload.get("purchase_id"): raise SystemExit("PAY-01 missing purchase id")
+          if not isinstance(payload.get("amount_ils"),int) or payload["amount_ils"] <= 0:
+              raise SystemExit("PAY-01 invalid amount")
+          if payload.get("currency") != "ils": raise SystemExit("PAY-01 unexpected currency")
+          print("PAY-01 REAL CHECKOUT INITIATION PASS")
+          PY
