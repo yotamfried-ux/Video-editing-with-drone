@@ -36,7 +36,7 @@ jobs:
 
       - name: Restore APK checkpoint
         id: apk-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/sportreel-upl01.apk
           key: ${{ steps.apk-key.outputs.key }}
@@ -67,6 +67,13 @@ jobs:
           cd android
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-upl01.apk"
+
+      - name: Save APK checkpoint immediately after build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
 
       - name: Create real MP4 fixture
         run: |
@@ -165,7 +172,12 @@ jobs:
           tap_text "$ROOT/settings-ready.xml" "Save secret"
           sleep 1
 
-          # Navigate through the real operator UI. Expo deep links are not reliable in this\n          # validation shell, and the previous run proved we were already on Pipeline.\n          dump_ui "$ROOT/operator-after-save.xml"\n          tap_text "$ROOT/operator-after-save.xml" "Pipeline"\n          wait_text "Upload from gallery" "$ROOT/pipeline.xml"\n\n          tap_text "$ROOT/pipeline.xml" "Upload from gallery"
+          # Navigate through the real operator UI. Expo deep links are not reliable in this
+          # validation shell, so drive the same controls a real operator uses.
+          dump_ui "$ROOT/operator-after-save.xml"
+          tap_text "$ROOT/operator-after-save.xml" "Pipeline"
+          wait_text "Upload from gallery" "$ROOT/pipeline.xml"
+          tap_text "$ROOT/pipeline.xml" "Upload from gallery"
           sleep 2
 
           # Grant media permission if Android prompts.
