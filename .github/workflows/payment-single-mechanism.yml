@@ -41,5 +41,13 @@ jobs:
           assert ".eq('status', 'checkout_created')" in webhook_text
           assert ".eq('stripe_checkout_session_id', session.id)" in webhook_text
           assert "duplicate: true" in webhook_text
+          result_route=Path("web-api/src/app/api/checkout/session/route.ts")
+          assert result_route.exists()
+          result_text=result_route.read_text()
+          assert "checkout.sessions.retrieve(sessionId)" in result_text
+          assert "session.payment_status !== 'paid'" in result_text
+          assert "purchase.status !== 'paid'" in result_text
+          assert "reel.status !== 'sold'" in result_text
+          assert "createSignedUrl" in result_text
           print("PAYMENT SINGLE-MECHANISM CONTRACT PASS: canonical Stripe Checkout + webhook only")
           PY
