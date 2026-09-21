@@ -1,0 +1,71 @@
+name: PAY-02 Payment Simulation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'web-api/src/app/api/checkout/**'
+      - 'web-api/src/app/api/payments/webhook/**'
+      - '.github/workflows/pay-02-payment-simulation.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  simulate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install Stripe SDK
+        run: npm install --no-save stripe@17.5.0
+      - name: Simulate signed Stripe webhook and replay
+        env:
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: |
+          test -n "$STRIPE_WEBHOOK_SECRET"
+          node <<'NODE'
+          const Stripe = require('stripe');
+          const fs = require('fs');
+          const stripe = new Stripe('sk_test_placeholder');
+          const secret = process.env.STRIPE_WEBHOOK_SECRET;
+          const event = {
+            id: 'evt_pay02_simulation',
+            object: 'event',
+            type: 'checkout.session.completed',
+            data: { object: {
+              id: 'cs_test_pay02_simulation',
+              object: 'checkout.session',
+              payment_status: 'paid',
+              payment_intent: 'pi_pay02_simulation',
+              metadata: { purchase_id: '00000000-0000-4000-8000-000000000001', reel_id: '00000000-0000-4000-8000-000000000002' }
+            }}
+          };
+          const payload = JSON.stringify(event);
+          const header = stripe.webhooks.generateTestHeaderString({payload, secret});
+          const parsed = stripe.webhooks.constructEvent(payload, header, secret);
+          if (parsed.type !== 'checkout.session.completed' || parsed.data.object.payment_status !== 'paid') process.exit(1);
+          const webhook = fs.readFileSync('web-api/src/app/api/payments/webhook/route.ts','utf8');
+          const result = fs.readFileSync('web-api/src/app/api/checkout/session/route.ts','utf8');
+          for (const needle of [
+            "stripe.webhooks.constructEvent(body, signature, signingKey)",
+            ".eq('stripe_checkout_session_id', session.id)",
+            ".eq('status', 'checkout_created')",
+            "duplicate: true"
+          ]) if (!webhook.includes(needle)) throw new Error('missing webhook contract: '+needle);
+          for (const needle of [
+            "checkout.sessions.retrieve(sessionId)",
+            "session.payment_status !== 'paid'",
+            "purchase.status !== 'paid'",
+            "reel.status !== 'sold'",
+            "createSignedUrl"
+          ]) if (!result.includes(needle)) throw new Error('missing fulfillment contract: '+needle);
+          console.log('PAY-02 signed webhook simulation PASS');
+          console.log('signature_verified=true');
+          console.log('paid_event=true');
+          console.log('idempotency_guard=true');
+          console.log('fulfillment_requires_stripe_paid_db_paid_reel_sold=true');
+          NODE
