@@ -76,6 +76,7 @@ def test_approved_preview_upload_uses_video_mp4_mime(monkeypatch, tmp_path):
     assert body
     assert options == {"content-type": "video/mp4"}
     assert len(fake.reels.rows) == 1
-    # Cloudflare Stream UIDs are opaque strings, but the production
-    # reels.stream_uid column is UUID-typed. They must never be persisted there.
     assert fake.reels.rows[0]["stream_uid"] is None
+    # Production reels.token is UUID with a database default. Approved publication
+    # must not provide token_urlsafe() text, which PostgreSQL rejects as 22P02.
+    assert "token" not in fake.reels.rows[0]
