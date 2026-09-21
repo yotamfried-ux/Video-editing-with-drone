@@ -1,0 +1,11 @@
+{
+  "repository": "yotamfried-ux/Video-editing-with-drone",
+  "controller_pr": 214,
+  "max_event_age_hours": 24,
+  "workflows": {
+    "Validation Completion Event Canary": ".github/workflows/validation-completion-canary.yml",
+    "Validation Authenticated Android Journey": ".github/workflows/validation-pr203-android-runtime.yml",
+    "UPL-01 Android App Upload E2E": ".github/workflows/upl-01-android-app-upload-e2e.yml",
+    "APP-02 Auth Email E2E": ".github/workflows/app-02-auth-email-e2e.yml"
+  }
+}
