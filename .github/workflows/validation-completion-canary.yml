@@ -1,0 +1,58 @@
+name: Validation Completion Event Canary
+on:
+  push:
+    branches: [validation/completion-events-negative]
+    paths: [.github/workflows/validation-completion-canary.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  pull-requests: write
+concurrency:
+  group: completion-canary-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  transport-canary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Validate deterministic canary
+        env:
+          CANARY_VALUE: intentional-failure
+        run: |
+          mkdir evidence
+          printf '{"expected":"ready","actual":"%s","head_sha":"%s","run_id":"%s","run_attempt":"%s"}\n' "$CANARY_VALUE" "$GITHUB_SHA" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" > evidence/canary.json
+          test "$CANARY_VALUE" = ready
+      - name: Preserve canary evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: completion-canary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/canary.json
+          if-no-files-found: error
+          retention-days: 7
+      - name: Exercise existing controller notification transport
+        if: always()
+        uses: actions/github-script@v7
+        env:
+          CANARY_CONCLUSION: ${{ job.status }}
+        with:
+          script: |
+            // Transport qualification only. Consumer MUST fetch the final run conclusion.
+            const event = {
+              repository: process.env.GITHUB_REPOSITORY,
+              workflow: process.env.GITHUB_WORKFLOW,
+              run_id: Number(process.env.GITHUB_RUN_ID),
+              run_attempt: Number(process.env.GITHUB_RUN_ATTEMPT),
+              branch: process.env.GITHUB_REF_NAME,
+              ref: process.env.GITHUB_REF,
+              head_sha: process.env.GITHUB_SHA,
+              conclusion: process.env.CANARY_CONCLUSION,
+              run_url: process.env.GITHUB_SERVER_URL + '/' + process.env.GITHUB_REPOSITORY + '/actions/runs/' + process.env.GITHUB_RUN_ID,
+              qualification: true
+            };
+            const marker = '<!-- completion-canary:' + event.run_id + ':' + event.run_attempt + ' -->';
+            const comments = await github.paginate(github.rest.issues.listComments, {...context.repo, issue_number:214, per_page:100});
+            if (!comments.some(c => c.user.login === 'github-actions[bot]' && c.body.includes(marker))) {
+              await github.rest.issues.createComment({...context.repo, issue_number:214,
+                body: 'SPORTREEL_VALIDATION_COMPLETED\n' + marker + '\n\n' + JSON.stringify(event, null, 2)});
+            }
