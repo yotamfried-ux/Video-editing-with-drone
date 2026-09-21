@@ -1,0 +1,255 @@
+name: UPL-01 Android App Upload E2E
+
+on:
+  push:
+    branches: [validation/upl01-android-e2e]
+    paths:
+      - .github/workflows/upl-01-android-app-upload-e2e.yml
+      - mobile/src/app/(operator)/pipeline.tsx
+      - mobile/src/features/operator/**
+      - web-api/src/app/api/operator/upload/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  upl-01:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      APP_ID: com.sportreel.app
+      API_BASE: https://video-editing-with-drone.vercel.app
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Build Android debug APK
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-upl01.apk"
+
+      - name: Create real MP4 fixture
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg >/dev/null
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=640x360:rate=30 -f lavfi -i sine=frequency=880:sample_rate=48000             -t 4 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$RUNNER_TEMP/upl01-real.mp4"
+          test -s "$RUNNER_TEMP/upl01-real.mp4"
+          file "$RUNNER_TEMP/upl01-real.mp4"
+
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
+      - name: Start Metro
+        working-directory: mobile
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro.log"
+          exit 1
+
+      - name: Create UPL-01 emulator script
+        env:
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          cat > "$RUNNER_TEMP/upl01.sh" <<'SH'
+          set -euo pipefail
+          test -n "$OPERATOR_SECRET"
+          echo "::add-mask::$OPERATOR_SECRET"
+          ROOT="$RUNNER_TEMP/upl01-evidence"
+          mkdir -p "$ROOT"
+
+          dump_ui() {
+            adb shell uiautomator dump /sdcard/window.xml >/dev/null 2>&1 || true
+            adb pull /sdcard/window.xml "$1" >/dev/null 2>&1 || true
+          }
+          wait_text() {
+            local text="$1" out="$2"
+            for i in $(seq 1 60); do
+              dump_ui "$out"
+              test -s "$out" && grep -Fq "$text" "$out" && return 0
+              sleep 2
+            done
+            return 1
+          }
+          bounds() {
+            grep -o 'text="'"$2"'"[^>]*bounds="[^"]*"' "$1" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p'
+          }
+          tap_text() {
+            local b
+            b=$(bounds "$1" "$2")
+            test -n "$b"
+            read a b1 c d <<< "$b"
+            adb shell input tap $(((a+c)/2)) $(((b1+d)/2))
+          }
+
+          adb wait-for-device
+          adb reverse tcp:8081 tcp:8081
+          adb install -r "$RUNNER_TEMP/sportreel-upl01.apk" >/dev/null
+          adb shell pm clear "$APP_ID" >/dev/null
+
+          # Seed a real MP4 into Android MediaStore so ImagePicker sees it.
+          adb push "$RUNNER_TEMP/upl01-real.mp4" /sdcard/Movies/upl01-real.mp4 >/dev/null
+          adb shell am broadcast -a android.intent.action.MEDIA_SCANNER_SCAN_FILE -d file:///sdcard/Movies/upl01-real.mp4 >/dev/null 2>&1 || true
+
+          ACTIVITY=$(adb shell cmd package resolve-activity --brief "$APP_ID" | tr -d '\r' | tail -n1)
+          adb shell am start -n "$ACTIVITY" >/dev/null
+
+          # This test intentionally starts after biometric/operator-entry scope.
+          # Navigate directly to operator Settings using Expo Router deep link, set the real operator secret,
+          # then continue to Pipeline. The upload path itself remains the production app implementation.
+          adb shell am start -a android.intent.action.VIEW -d "sportreel://(operator)/settings" "$APP_ID" >/dev/null 2>&1 || true
+          wait_text "Settings" "$ROOT/settings.xml"
+
+          # Enter operator secret.
+          dump_ui "$ROOT/settings.xml"
+          EDIT=$(grep -o 'class="android.widget.EditText"[^>]*bounds="[^"]*"' "$ROOT/settings.xml" | head -n1 | sed -n 's/.*bounds="\[\([0-9]*\),\([0-9]*\)\]\[\([0-9]*\),\([0-9]*\)\]".*/\1 \2 \3 \4/p')
+          test -n "$EDIT"
+          read a b c d <<< "$EDIT"
+          adb shell input tap $(((a+c)/2)) $(((b+d)/2))
+          adb shell input text "$OPERATOR_SECRET"
+          adb shell input keyevent 4
+          sleep 1
+          dump_ui "$ROOT/settings-ready.xml"
+          tap_text "$ROOT/settings-ready.xml" "Save secret"
+          sleep 1
+
+          adb shell am start -a android.intent.action.VIEW -d "sportreel://(operator)/pipeline" "$APP_ID" >/dev/null 2>&1 || true
+          wait_text "Pipeline" "$ROOT/pipeline.xml"
+          wait_text "Upload Footage" "$ROOT/pipeline.xml"
+
+          tap_text "$ROOT/pipeline.xml" "Upload Footage"
+          sleep 2
+
+          # Grant media permission if Android prompts.
+          dump_ui "$ROOT/permission.xml"
+          if grep -Eq 'Allow|Select photos and videos|While using the app' "$ROOT/permission.xml"; then
+            for label in "Allow all" "Allow" "Select photos and videos" "While using the app"; do
+              if grep -Fq "text="$label"" "$ROOT/permission.xml"; then
+                tap_text "$ROOT/permission.xml" "$label" || true
+                break
+              fi
+            done
+            sleep 2
+          fi
+
+          # ImagePicker / system picker: select the injected MP4 and confirm.
+          dump_ui "$ROOT/picker.xml"
+          # Prefer content description/name if exposed; otherwise tap the first video thumbnail.
+          if grep -Fq "upl01-real" "$ROOT/picker.xml"; then
+            tap_text "$ROOT/picker.xml" "upl01-real.mp4" || tap_text "$ROOT/picker.xml" "upl01-real" || true
+          else
+            # First visible thumbnail area in standard Android picker grid.
+            adb shell input tap 180 420
+          fi
+          sleep 1
+          dump_ui "$ROOT/picker-selected.xml"
+          for label in "Add" "Done" "Select"; do
+            if grep -Fq "text="$label"" "$ROOT/picker-selected.xml"; then
+              tap_text "$ROOT/picker-selected.xml" "$label"
+              break
+            fi
+          done
+
+          # Wait until the actual app reports upload completion.
+          PASS=0
+          for i in $(seq 1 90); do
+            dump_ui "$ROOT/upload-progress.xml"
+            if grep -Fq "Uploaded to queue" "$ROOT/upload-progress.xml" || grep -Fq "Verified" "$ROOT/upload-progress.xml"; then
+              PASS=1
+              break
+            fi
+            if grep -Fq "Some uploads failed" "$ROOT/upload-progress.xml" || grep -Fq "Failed" "$ROOT/upload-progress.xml"; then
+              cat "$ROOT/upload-progress.xml"
+              exit 1
+            fi
+            sleep 2
+          done
+          test "$PASS" = 1
+
+          # Independent backend correlation: locate the latest gallery upload with our exact source filename.
+          test -n "$SUPABASE_SERVICE_ROLE_KEY"
+          echo "::add-mask::$SUPABASE_SERVICE_ROLE_KEY"
+          H=(-H "apikey: $SUPABASE_SERVICE_ROLE_KEY" -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY")
+          ROWS=$(curl -fsS -G "https://bcndgmymnismbxvdeetc.supabase.co/rest/v1/source_uploads"             "${H[@]}"             --data-urlencode "select=id,client_upload_id,batch_id,storage_key,source_filename,mime_type,status,source_size_bytes,verified_size_bytes,created_at"             --data-urlencode "source_filename=eq.upl01-real.mp4"             --data-urlencode "order=created_at.desc"             --data-urlencode "limit=5")
+          test "$(jq 'length' <<<"$ROWS")" -ge 1
+          ROW=$(jq '.[0]' <<<"$ROWS")
+          UPLOAD_ID=$(jq -r '.id' <<<"$ROW")
+          CLIENT_ID=$(jq -r '.client_upload_id' <<<"$ROW")
+          BATCH_ID=$(jq -r '.batch_id' <<<"$ROW")
+          STORAGE_KEY=$(jq -r '.storage_key' <<<"$ROW")
+          STATUS=$(jq -r '.status' <<<"$ROW")
+          SRC_SIZE=$(jq -r '.source_size_bytes' <<<"$ROW")
+          VERIFIED_SIZE=$(jq -r '.verified_size_bytes // .source_size_bytes' <<<"$ROW")
+          test -n "$UPLOAD_ID"; test -n "$CLIENT_ID"; test -n "$BATCH_ID"; test -n "$STORAGE_KEY"
+          test "$STATUS" = "verified"
+          test "$SRC_SIZE" -gt 0
+          test "$VERIFIED_SIZE" = "$SRC_SIZE"
+
+          # Verify exact object through the production verification API.
+          VERIFY=$(curl -fsS -X POST "$API_BASE/api/operator/upload/verify"             -H "x-operator-secret: $OPERATOR_SECRET" -H "Content-Type: application/json"             --data "$(jq -nc --arg k "$STORAGE_KEY" '{storage_key:$k}')")
+          test "$(jq -r '.ok' <<<"$VERIFY")" = true
+          test "$(jq -r '.exists' <<<"$VERIFY")" = true
+          test "$(jq -r '.upload_status' <<<"$VERIFY")" = verified
+          test "$(jq -r '.size' <<<"$VERIFY")" = "$SRC_SIZE"
+
+          jq -n             --arg upload_id "$UPLOAD_ID"             --arg client_upload_id "$CLIENT_ID"             --arg batch_id "$BATCH_ID"             --arg storage_key "$STORAGE_KEY"             --arg status "$STATUS"             --argjson size "$SRC_SIZE"             '{
+              experiment:"UPL-01",
+              scope:"actual Android app upload path; biometric excluded by prior evidence",
+              real_mp4_fixture:true,
+              image_picker_path:true,
+              app_upload_completed:true,
+              backend_row_correlated:true,
+              r2_object_verified:true,
+              upload_id:$upload_id,
+              client_upload_id:$client_upload_id,
+              batch_id:$batch_id,
+              storage_key:$storage_key,
+              status:$status,
+              size_bytes:$size,
+              result:"PASS"
+            }' > "$ROOT/evidence.json"
+          SH
+          chmod +x "$RUNNER_TEMP/upl01.sh"
+
+      - name: Run UPL-01 on Android emulator
+        env:
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash "$RUNNER_TEMP/upl01.sh"
+
+      - name: Upload UPL-01 evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upl-01-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/upl01-evidence/
+          retention-days: 30
