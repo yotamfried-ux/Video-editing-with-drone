@@ -7,12 +7,17 @@ const PUBLIC_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
 
 type PricingRow = { sport: string; price_ils: number };
 
-function baseUrl(): string {
-  const domain = process.env.NEXT_PUBLIC_APP_DOMAIN || process.env.APP_DOMAIN;
-  if (!domain) return 'http://localhost:3001';
-  return domain.startsWith('http://') || domain.startsWith('https://')
-    ? domain.replace(/\/$/, '')
-    : `https://${domain.replace(/\/$/, '')}`;
+function baseUrl(req: NextRequest): string {
+  const configured = process.env.NEXT_PUBLIC_APP_DOMAIN || process.env.APP_DOMAIN;
+  if (configured) {
+    const normalized = configured.startsWith('http://') || configured.startsWith('https://')
+      ? configured.replace(/\/$/, '')
+      : `https://${configured.replace(/\/$/, '')}`;
+    // Only use an explicitly configured domain when it is actually the host serving this app.
+    // This prevents successful Stripe checkouts from redirecting to a stale/unrouted domain.
+    if (new URL(normalized).host === req.nextUrl.host) return normalized;
+  }
+  return req.nextUrl.origin.replace(/\/$/, '');
 }
 
 async function getPrice(sport: string | null): Promise<number> {
@@ -100,8 +105,8 @@ export async function POST(
       },
     ],
     metadata: { purchase_id: purchase.id, reel_id: reel.id, token },
-    success_url: `${baseUrl()}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${baseUrl()}/checkout/cancel?token=${encodeURIComponent(token)}`,
+    success_url: `${baseUrl(req)}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
+    cancel_url: `${baseUrl(req)}/checkout/cancel?token=${encodeURIComponent(token)}`,
   });
 
   const { error: updateError } = await supabaseAdmin
