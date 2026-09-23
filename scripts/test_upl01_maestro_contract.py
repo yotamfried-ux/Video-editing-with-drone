@@ -70,6 +70,13 @@ class BackendRowChecks(unittest.TestCase):
     def test_no_row_fails_as_missing_upload(self):
         self.assertEqual(self.check([]), [f"expected exactly 1 gallery source_uploads row of {SIZE} bytes since run start, found 0"])
 
+    def test_negative_backend_check_passes_only_with_zero_rows(self):
+        self.assertEqual(evidence.check_no_rows([], fixture_bytes=SIZE), [])
+        self.assertEqual(
+            evidence.check_no_rows([row()], fixture_bytes=SIZE),
+            [f"expected 0 gallery source_uploads rows of {SIZE} bytes since run start, found 1"],
+        )
+
     def test_extra_row_fails_so_negative_flows_cannot_silently_upload(self):
         self.assertIn("found 2", self.check([row(), row(id="other")])[0])
 
@@ -206,14 +213,14 @@ class HarnessContract(unittest.TestCase):
                 if "inputText" in line:
                     self.assertIn("${MAESTRO_OPERATOR_SECRET}", line, name)
 
-    def test_media_seeded_once_before_other_flows(self):
+    def test_media_seeded_once_per_isolated_scenario(self):
         texts = self.flow_texts()
         seeding = [name for name, text in texts.items() if "addMedia" in text]
         self.assertEqual(seeding, ["00-seed-media.yaml"])
-        runner = (FLOW_DIR / "run-upl01.sh").read_text()
-        order = [runner.index(f"run_flow {n}") for n in ("00-seed-media.yaml", "01-no-operator-secret.yaml", "02-picker-cancelled.yaml", "03-gallery-upload.yaml")]
-        self.assertEqual(order, sorted(order))
-        self.assertLess(runner.index("WINDOW_START="), order[0])
+        runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
+        self.assertIn("run_flow 00-seed-media.yaml", runner)
+        self.assertIn('run_flow "$FLOW"', runner)
+        self.assertLess(runner.index("WINDOW_START="), runner.index("run_flow 00-seed-media.yaml"))
 
     def test_positive_flow_requires_success_alert_and_verified_row(self):
         text = self.flow_texts()["03-gallery-upload.yaml"]
@@ -246,27 +253,49 @@ class HarnessContract(unittest.TestCase):
         text = WORKFLOW.read_text()
         for forbidden in ("uiautomator", "input tap", "input text", "window.xml"):
             self.assertNotIn(forbidden, text)
-        self.assertIn("bash mobile/.maestro/upl01/run-upl01.sh", text)
+        self.assertIn("bash mobile/.maestro/upl01/run-upl01-scenario.sh", text)
         self.assertIn("concurrency:", text)
+        self.assertIn("max-parallel: 3", text)
 
-    def test_metro_dependencies_install_even_when_apk_checkpoint_hits(self):
-        # Metro serves the debug APK's JS, so node + node_modules are needed on
-        # every run; only the Gradle build may be skipped on a checkpoint hit.
+    def test_parallel_workflow_prepares_apk_once_and_runs_three_scenarios(self):
         import yaml
 
-        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["upl-01"]["steps"]
-        by_name = {step.get("name") or step.get("uses"): step for step in steps}
-        for name in ("actions/setup-node@v4", "Install mobile dependencies"):
-            self.assertNotIn("if", by_name[name], name)
-        self.assertIn("cache-hit", by_name["Build Android debug APK"]["if"])
-        names = [step.get("name") or step.get("uses") for step in steps]
-        self.assertLess(names.index("Install mobile dependencies"), names.index("Start Metro"))
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        prepare = jobs["prepare-apk"]
+        scenario = jobs["upl-01-scenario"]
+        self.assertEqual(scenario["strategy"]["max-parallel"], 3)
+        self.assertFalse(scenario["strategy"]["fail-fast"])
+        matrix = scenario["strategy"]["matrix"]["include"]
+        self.assertEqual(
+            {entry["scenario"] for entry in matrix},
+            {"no-operator-secret", "picker-cancelled", "gallery-upload"},
+        )
+        self.assertEqual(len({(entry["duration"], entry["size"], entry["frequency"]) for entry in matrix}), 3)
+        self.assertEqual(scenario["needs"], "prepare-apk")
 
-    def test_runner_keeps_backend_verification_and_scrubs_secrets(self):
-        runner = (FLOW_DIR / "run-upl01.sh").read_text()
+        prepare_steps = {step.get("name") or step.get("uses"): step for step in prepare["steps"]}
+        self.assertIn("cache-hit", prepare_steps["Build Android debug APK"]["if"])
+        self.assertEqual(
+            prepare_steps["Publish APK once for parallel scenario workers"]["uses"],
+            "actions/upload-artifact@v4",
+        )
+
+        scenario_steps = {step.get("name") or step.get("uses"): step for step in scenario["steps"]}
+        self.assertNotIn("if", scenario_steps["Install mobile dependencies"])
+        self.assertEqual(
+            scenario_steps["Download prepared APK"]["uses"],
+            "actions/download-artifact@v4",
+        )
+        self.assertIn("run-upl01-scenario.sh", scenario_steps["Run isolated UPL-01 Maestro scenario"]["with"]["script"])
+
+    def test_parallel_runner_keeps_backend_verification_and_scrubs_secrets(self):
+        runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
         self.assertIn("scripts/upl01_backend_evidence.py", runner)
+        self.assertIn('--expect "$EXPECTATION"', runner)
         self.assertIn("scrub_secrets", runner)
         self.assertNotRegex(runner, r"\bsleep\b")
+        self.assertIn('EXPECTATION="no-upload"', runner)
+        self.assertIn('EXPECTATION="verified-upload"', runner)
 
     def test_testids_used_by_flows_exist_in_app_source(self):
         source = "\n".join(p.read_text() for p in (ROOT / "mobile/src").rglob("*.tsx"))
