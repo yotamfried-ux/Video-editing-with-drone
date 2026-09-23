@@ -6,6 +6,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/tooling/agent-tools.lock.env"
 
 export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"
+export UV_TOOL_BIN_DIR="$HOME/.local/bin"
 mkdir -p "$HOME/.local/bin"
 
 say() { printf '\n==> %s\n' "$*"; }
