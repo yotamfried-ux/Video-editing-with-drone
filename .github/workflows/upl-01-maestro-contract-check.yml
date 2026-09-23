@@ -1,0 +1,39 @@
+name: UPL-01 Maestro Contract Check
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/.maestro/upl01/**'
+      - 'mobile/eas.json'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/app/(operator)/settings.tsx'
+      - 'mobile/src/shared/components/Button.tsx'
+      - 'mobile/src/shared/components/Text.tsx'
+      - 'scripts/upl01_backend_evidence.py'
+      - 'scripts/test_upl01_maestro_contract.py'
+      - '.github/workflows/upl-01-android-app-upload-e2e.yml'
+      - '.github/workflows/upl-01-maestro-contract-check.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/test_upl01_maestro_contract.py
+      - name: Maestro flow syntax
+        env:
+          MAESTRO_VERSION: '2.10.0'
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$RUNNER_TEMP/maestro-cli"
+          find mobile/.maestro/upl01 -name '*.yaml' -print0 | while IFS= read -r -d '' flow; do
+            "$RUNNER_TEMP/maestro-cli/maestro/bin/maestro" check-syntax "$flow"
+          done

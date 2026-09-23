@@ -1,0 +1,9 @@
+# Seed the per-run MP4 fixture into the device MediaStore exactly once.
+# Re-adding it in later flows could make MediaStore rename the file and break
+# backend correlation by exact filename.
+appId: com.sportreel.app
+name: UPL-01 seed fixture media
+tags: [upl01]
+---
+- addMedia:
+    - "./media/upl01-fixture.mp4"

@@ -1,0 +1,26 @@
+# Positive: the real operator journey uploads the seeded MP4 through the
+# system Photo Picker. UI success here is only the operator-visible half; the
+# workflow then verifies Supabase + the exact R2 object independently.
+appId: com.sportreel.app
+name: UPL-01 positive - gallery upload
+tags: [upl01, positive]
+---
+- runFlow: subflows/launch-to-settings.yaml
+- runFlow: subflows/save-operator-secret.yaml
+- runFlow: subflows/open-pipeline.yaml
+- tapOn:
+    id: "pipeline-upload-gallery"
+- runFlow: subflows/pick-first-video.yaml
+- extendedWaitUntil:
+    visible: "Uploaded to queue|Some uploads failed|Operator secret required|Failed"
+    timeout: 300000
+- takeScreenshot: upload-terminal-alert
+- assertVisible: "Uploaded to queue"
+- tapOn: "(?i)ok"
+- assertVisible:
+    id: "upload-item-status-verified"
+    text: "Verified · 100%"
+- assertVisible: "upl01-fixture.mp4"
+- assertNotVisible:
+    id: "upload-item-status-failed"
+- takeScreenshot: upload-verified-row

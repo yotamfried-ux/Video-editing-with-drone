@@ -1,0 +1,9 @@
+# Cold-launch with wiped app data (clears the SecureStore operator secret).
+# The UPL-01 validation build redirects the entry route to operator Settings.
+appId: com.sportreel.app
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Operator Secret"
+    timeout: 180000
