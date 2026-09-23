@@ -8,6 +8,7 @@ on:
       - 'scripts/test_agent_tools_bootstrap_contract.py'
       - 'tooling/agent-tools.lock.env'
       - 'docs/agent-tooling-bootstrap.md'
+      - '.mcp.json'
       - '.gitignore'
       - 'CLAUDE.md'
       - '.github/workflows/agent-tools-bootstrap-contract.yml'
@@ -18,6 +19,7 @@ on:
       - 'scripts/verify-agent-tools.sh'
       - 'scripts/test_agent_tools_bootstrap_contract.py'
       - 'tooling/agent-tools.lock.env'
+      - '.mcp.json'
       - '.gitignore'
       - '.github/workflows/agent-tools-bootstrap-contract.yml'
 
