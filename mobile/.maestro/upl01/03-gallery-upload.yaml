@@ -17,6 +17,12 @@ tags: [upl01, positive]
 - takeScreenshot: upload-terminal-alert
 - assertVisible: "Uploaded to queue"
 - tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-verified"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
 - assertVisible:
     id: "upload-item-status-verified"
     text: "Verified · 100%"

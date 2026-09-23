@@ -206,6 +206,17 @@ class HarnessContract(unittest.TestCase):
         self.assertIn('assertVisible: "Uploaded to queue"', text)
         self.assertIn('id: "upload-item-status-verified"', text)
 
+    def test_upload_rows_are_scrolled_into_view_before_assertion(self):
+        # Rows render below the fold (and under the debug LogBox banner);
+        # assertVisible only sees on-screen nodes (run 35895173989).
+        texts = self.flow_texts()
+        for flow, row_id in (("01-no-operator-secret.yaml", "upload-item-status-failed"),
+                             ("03-gallery-upload.yaml", "upload-item-status-verified")):
+            text = texts[flow]
+            scroll = text.find(f'scrollUntilVisible:\n    element:\n      id: "{row_id}"')
+            self.assertGreaterEqual(scroll, 0, flow)
+            self.assertLess(scroll, text.index(f'id: "{row_id}"\n    text:'), flow)
+
     def test_no_secret_flow_asserts_specific_reason(self):
         text = self.flow_texts()["01-no-operator-secret.yaml"]
         self.assertIn('assertVisible: "Some uploads failed"', text)

@@ -75,7 +75,11 @@ def log_errors(evidence: Path, limit: int = 12) -> list[str]:
         hits = [
             line.strip()[:400]
             for line in path.read_text(encoding="utf-8", errors="replace").splitlines()
-            if "Exception" in line or " ERROR " in line or "Assertion" in line
+            if ("Exception" in line or " ERROR " in line or "[ERROR]" in line or "Assertion" in line)
+            # launchApp grants every manifest permission; OEM launcher/badge
+            # permissions are unknown on AOSP images and are harmless noise.
+            and "Unknown permission" not in line
+            and "while executing 'grant'" not in line
         ]
         lines += [f"{path.parent.name}: {hit}" for hit in hits[-limit:]]
     return lines
