@@ -6,7 +6,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$ROOT/tooling/agent-tools.lock.env"
 
 failures=0
-
 ok() { printf 'PASS  %s\n' "$*"; }
 bad() { printf 'FAIL  %s\n' "$*" >&2; failures=$((failures + 1)); }
 note() { printf 'INFO  %s\n' "$*"; }
@@ -47,18 +46,28 @@ else
   bad "graphify-mcp entry point is not available"
 fi
 
-if [[ -s "$ROOT/graphify-out/graph.json" ]]; then
-  ok "Graphify code graph exists for this checkout"
+current_head="$(git -C "$ROOT" rev-parse HEAD 2>/dev/null || true)"
+graph_stamp="$ROOT/graphify-out/.sportreel-head"
+if [[ -s "$ROOT/graphify-out/graph.json" ]] &&
+   [[ -f "$graph_stamp" ]] &&
+   [[ "$(cat "$graph_stamp")" == "$current_head" ]]; then
+  ok "Graphify graph matches current checkout $current_head"
 else
-  bad "Graphify graph is missing; run the bootstrap"
+  bad "Graphify graph is missing or stale; run the bootstrap"
+fi
+
+if [[ -s "$ROOT/.mcp.json" ]] && grep -q '"graphify"' "$ROOT/.mcp.json"; then
+  ok "Graphify MCP configuration is persisted at project scope"
+else
+  bad "project .mcp.json does not define Graphify"
 fi
 
 if command -v claude >/dev/null 2>&1; then
-  mcp_list="$(claude mcp list 2>/dev/null || true)"
+  mcp_list="$(cd "$ROOT" && claude mcp list 2>/dev/null || true)"
   if grep -qi 'graphify' <<<"$mcp_list"; then
-    ok "Graphify MCP registered"
+    ok "Claude Code sees the Graphify MCP entry"
   else
-    bad "Graphify MCP is not registered for this checkout"
+    note "Graphify is committed in .mcp.json but this host/session has not trusted or loaded it yet."
   fi
 fi
 
@@ -75,4 +84,4 @@ if (( failures > 0 )); then
   exit 1
 fi
 
-note "All persistent/bootstrap-managed SportReel agent tools are ready."
+note "All bootstrap-managed SportReel agent tools are ready."
