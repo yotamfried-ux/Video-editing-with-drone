@@ -15,6 +15,7 @@ interface Props {
   loading?: boolean;
   disabled?: boolean;
   style?: ViewStyle;
+  testID?: string;
 }
 
 const variantStyles: Record<Variant, { container: ViewStyle; text: TextStyle }> = {
@@ -36,10 +37,11 @@ const variantStyles: Record<Variant, { container: ViewStyle; text: TextStyle }> 
   },
 };
 
-export function Button({ label, onPress, variant = 'primary', loading, disabled, style }: Props) {
+export function Button({ label, onPress, variant = 'primary', loading, disabled, style, testID }: Props) {
   const vs = variantStyles[variant];
   return (
     <TouchableOpacity
+      testID={testID}
       onPress={onPress}
       disabled={disabled || loading}
       activeOpacity={0.75}

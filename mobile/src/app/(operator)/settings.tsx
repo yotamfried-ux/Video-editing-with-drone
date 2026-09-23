@@ -83,6 +83,7 @@ export default function OperatorSettingsScreen() {
                   <Text variant="body" color={Colors.danger}>No secret — operator actions are disabled</Text>
                 </View>
                 <TextInput
+                  testID="operator-secret-input"
                   value={input}
                   onChangeText={setInput}
                   placeholder="Paste the operator secret here"
@@ -92,7 +93,7 @@ export default function OperatorSettingsScreen() {
                   autoCorrect={false}
                   style={styles.input}
                 />
-                <Button label="Save secret" onPress={save} loading={saving} />
+                <Button testID="operator-secret-save" label="Save secret" onPress={save} loading={saving} />
               </>
             ) : null}
           </Card>
