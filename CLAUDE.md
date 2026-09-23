@@ -55,6 +55,20 @@ Read before changing pipeline behavior:
 - `supabase/migrations/20260721_remove_face_recognition.sql` removes historical biometric fields, RPCs, inferred reel ownership, and the `athlete-photos` bucket.
 - The destructive migration requires explicit approval, backup awareness, application, and verification through `supabase/verify_schema.sql`.
 
+## Project learning / friction
+
+During normal work, record material project friction in `docs/AI-FRICTION-LOG.md`.
+This includes bugs, stale assumptions/docs/config, slow steps, repeated setup,
+excessive context/token use, brittle tests, unnecessary complexity, missing
+automation/caching/parallelism, and credible simpler or faster approaches.
+
+Do not stop execution merely to report a finding. Fix small in-scope reversible
+issues when appropriate; otherwise append an evidence-backed entry. Search the
+log before reinvestigating recurring tooling/infrastructure problems. Update
+existing entries rather than duplicating them, and mark entries resolved with
+the verified commit/PR/run and measured improvement when possible. Never put
+secrets or sensitive values in the log.
+
 ## Working method
 
 - Bootstrap/verify the project agent tools on a fresh host before substantial work.
