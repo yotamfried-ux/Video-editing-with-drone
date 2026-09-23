@@ -14,15 +14,15 @@ mkdir -p "$EVIDENCE_DIR"
 
 case "$SCENARIO" in
   no-operator-secret)
-    FLOW="01-no-operator-secret.yaml"
+    FLOW="10-isolated-no-operator-secret.yaml"
     EXPECTATION="no-upload"
     ;;
   picker-cancelled)
-    FLOW="02-picker-cancelled.yaml"
+    FLOW="11-isolated-picker-cancelled.yaml"
     EXPECTATION="no-upload"
     ;;
   gallery-upload)
-    FLOW="03-gallery-upload.yaml"
+    FLOW="12-isolated-gallery-upload.yaml"
     EXPECTATION="verified-upload"
     ;;
   *)
@@ -117,7 +117,9 @@ run_flow() {
   echo "::endgroup::"
 }
 
-run_flow 00-seed-media.yaml
+# Seed + behavior execute inside one Maestro process. On parallel emulator
+# workers, opening a second Maestro process after the seed flow caused the
+# Android device server to go offline on run 35901916354.
 run_flow "$FLOW"
 
 python3 "$REPO_ROOT/scripts/upl01_backend_evidence.py" \

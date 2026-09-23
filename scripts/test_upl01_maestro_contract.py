@@ -213,14 +213,23 @@ class HarnessContract(unittest.TestCase):
                 if "inputText" in line:
                     self.assertIn("${MAESTRO_OPERATOR_SECRET}", line, name)
 
-    def test_media_seeded_once_per_isolated_scenario(self):
+    def test_isolated_wrappers_keep_seed_and_behavior_in_one_maestro_process(self):
         texts = self.flow_texts()
         seeding = [name for name, text in texts.items() if "addMedia" in text]
         self.assertEqual(seeding, ["00-seed-media.yaml"])
+        expected = {
+            "10-isolated-no-operator-secret.yaml": "01-no-operator-secret.yaml",
+            "11-isolated-picker-cancelled.yaml": "02-picker-cancelled.yaml",
+            "12-isolated-gallery-upload.yaml": "03-gallery-upload.yaml",
+        }
+        for wrapper, behavior in expected.items():
+            self.assertIn("runFlow: 00-seed-media.yaml", texts[wrapper])
+            self.assertIn(f"runFlow: {behavior}", texts[wrapper])
+
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
-        self.assertIn("run_flow 00-seed-media.yaml", runner)
-        self.assertIn('run_flow "$FLOW"', runner)
-        self.assertLess(runner.index("WINDOW_START="), runner.index("run_flow 00-seed-media.yaml"))
+        self.assertNotIn("run_flow 00-seed-media.yaml", runner)
+        self.assertEqual(runner.count('run_flow "$FLOW"'), 1)
+        self.assertLess(runner.index("WINDOW_START="), runner.index('run_flow "$FLOW"'))
 
     def test_positive_flow_requires_success_alert_and_verified_row(self):
         text = self.flow_texts()["03-gallery-upload.yaml"]
