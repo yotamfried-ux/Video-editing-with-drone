@@ -39,6 +39,13 @@ ROW_COLUMNS = (
 CLIENT_UPLOAD_ID = re.compile(r"^gallery_[A-Za-z0-9_-]+$")
 
 
+def check_no_rows(rows: list[dict[str, Any]], *, fixture_bytes: int) -> list[str]:
+    """Return failure reasons when a negative scenario created an upload row."""
+    if rows:
+        return [f"expected 0 gallery source_uploads rows of {fixture_bytes} bytes since run start, found {len(rows)}"]
+    return []
+
+
 def check_rows(rows: list[dict[str, Any]], *, fixture_bytes: int) -> list[str]:
     """Return failure reasons for the gallery rows of fixture size since the run started."""
     if len(rows) != 1:
@@ -128,29 +135,43 @@ def main() -> int:
     parser.add_argument("--api-base", required=True)
     parser.add_argument("--supabase-url", required=True)
     parser.add_argument("--evidence", required=True, help="output JSON path (no secrets)")
+    parser.add_argument(
+        "--expect",
+        choices=("verified-upload", "no-upload"),
+        default="verified-upload",
+        help="positive flow requires one verified R2 upload; negative flows require zero rows",
+    )
     args = parser.parse_args()
 
     service_key = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
-    operator_secret = os.environ["OPERATOR_SECRET"]
+    operator_secret = os.environ.get("OPERATOR_SECRET")
     filename = os.path.basename(args.fixture)
     fixture_bytes = os.path.getsize(args.fixture)
 
     rows = fetch_rows(args.supabase_url, service_key, fixture_bytes=fixture_bytes, since_iso=args.since)
-    errors = check_rows(rows, fixture_bytes=fixture_bytes)
     row = rows[0] if len(rows) == 1 else {}
     verify_status, verify_body = None, None
-    if not errors:
-        verify_status, verify_body = _request(
-            f"{args.api_base.rstrip('/')}/api/operator/upload/verify",
-            headers={"x-operator-secret": operator_secret, "Content-Type": "application/json"},
-            data=json.dumps({"storage_key": row["storage_key"]}).encode(),
-        )
-        errors += check_verify_response(verify_status, verify_body or {}, row=row, fixture_bytes=fixture_bytes)
+
+    if args.expect == "no-upload":
+        errors = check_no_rows(rows, fixture_bytes=fixture_bytes)
+    else:
+        errors = check_rows(rows, fixture_bytes=fixture_bytes)
+        if not errors:
+            if not operator_secret:
+                errors.append("OPERATOR_SECRET is required for verified-upload backend verification")
+            else:
+                verify_status, verify_body = _request(
+                    f"{args.api_base.rstrip('/')}/api/operator/upload/verify",
+                    headers={"x-operator-secret": operator_secret, "Content-Type": "application/json"},
+                    data=json.dumps({"storage_key": row["storage_key"]}).encode(),
+                )
+                errors += check_verify_response(verify_status, verify_body or {}, row=row, fixture_bytes=fixture_bytes)
 
     evidence = {
         "experiment": "UPL-01",
         "harness": "maestro",
         "result": "PASS" if not errors else "FAIL",
+        "expectation": args.expect,
         "failures": errors,
         "fixture": {"filename": filename, "size_bytes": fixture_bytes},
         "source_filename_preserved": bool(row) and row.get("source_filename") == filename,
