@@ -33,6 +33,7 @@ Managed capabilities:
 
 Git persists:
 
+- `.engineering-os-tools.json`, the authoritative list of Engineering-OS external tools adopted by this project;
 - this bootstrap and verifier;
 - the qualified version lock;
 - the project-scoped Graphify MCP definition;
