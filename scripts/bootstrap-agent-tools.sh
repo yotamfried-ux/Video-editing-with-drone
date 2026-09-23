@@ -18,15 +18,14 @@ have_version() {
 say "SportReel agent-tool bootstrap"
 printf 'Project: %s\n' "$ROOT"
 
-# Superpowers is distributed through Claude's official plugin marketplace.
-# The marketplace currently installs the current release; the lock records the
-# live-qualified baseline rather than pretending the marketplace is an npm-style
-# exact-version resolver.
 if ! command -v claude >/dev/null 2>&1; then
-  echo "Claude Code CLI is required for Superpowers/MCP registration." >&2
+  echo "Claude Code CLI is required for Superpowers and project MCP discovery." >&2
   exit 2
 fi
 
+# Superpowers is installed through Claude's official plugin marketplace.
+# The marketplace controls the current release; the lock records the live-
+# qualified baseline so upgrades can be re-qualified intentionally.
 if claude plugin list 2>/dev/null | grep -qi 'superpowers'; then
   say "Superpowers already installed; skipping"
 else
@@ -62,16 +61,21 @@ else
   uv tool install --force "$GRAPHIFY_PACKAGE[mcp]==$GRAPHIFY_VERSION"
 fi
 
-say "Building checkout-local Graphify code graph"
 cd "$ROOT"
-graphify extract . --code-only
-
-if claude mcp list 2>/dev/null | grep -qi 'graphify'; then
-  say "Graphify MCP already registered for this Claude environment; skipping"
+current_head="$(git rev-parse HEAD)"
+graph_stamp="$ROOT/graphify-out/.sportreel-head"
+if [[ -s "$ROOT/graphify-out/graph.json" ]] &&
+   [[ -f "$graph_stamp" ]] &&
+   [[ "$(cat "$graph_stamp")" == "$current_head" ]]; then
+  say "Graphify graph already matches $current_head; skipping rebuild"
 else
-  say "Registering Graphify MCP"
-  claude mcp add -s local graphify -- graphify-mcp "$ROOT/graphify-out/graph.json"
+  say "Building checkout-local Graphify code graph for $current_head"
+  graphify extract . --code-only
+  printf '%s\n' "$current_head" > "$graph_stamp"
 fi
+
+say "Graphify MCP is persisted by project .mcp.json"
+echo "Claude Code may request a one-time trust approval for project MCP servers on a fresh host."
 
 if have_version maestro "$MAESTRO_VERSION"; then
   say "Maestro $MAESTRO_VERSION already installed; skipping"
