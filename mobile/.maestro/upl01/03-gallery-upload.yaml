@@ -26,7 +26,6 @@ tags: [upl01, positive]
 - assertVisible:
     id: "upload-item-status-verified"
     text: "Verified · 100%"
-- assertVisible: "upl01-fixture.mp4"
 - assertNotVisible:
     id: "upload-item-status-failed"
 - takeScreenshot: upload-verified-row

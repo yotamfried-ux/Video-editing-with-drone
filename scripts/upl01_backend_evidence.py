@@ -4,9 +4,11 @@
 The Maestro flows prove what the operator *saw*. This script proves what the
 backend *recorded*, without trusting any UI text:
 
-1. exactly one ``public.source_uploads`` row was created for the fixture
-   filename since the run started (so the negative flows created none and the
-   positive flow did not double-upload);
+1. exactly one gallery ``public.source_uploads`` row with the fixture's exact
+   byte count was created since the run started (so the negative flows created
+   none and the positive flow did not double-upload). The filename is recorded
+   but not used for correlation: on the Android 13+ Photo Picker path the app
+   receives a MediaStore display name such as ``1000000016.mp4``;
 2. that row is a verified single-PUT gallery upload whose declared and
    verified sizes equal the exact fixture byte count;
 3. the production verify API independently HEADs the exact R2 object and
@@ -37,17 +39,15 @@ ROW_COLUMNS = (
 CLIENT_UPLOAD_ID = re.compile(r"^gallery_[A-Za-z0-9_-]+$")
 
 
-def check_rows(rows: list[dict[str, Any]], *, filename: str, fixture_bytes: int) -> list[str]:
-    """Return failure reasons for the rows created since the run started."""
+def check_rows(rows: list[dict[str, Any]], *, fixture_bytes: int) -> list[str]:
+    """Return failure reasons for the gallery rows of fixture size since the run started."""
     if len(rows) != 1:
-        return [f"expected exactly 1 source_uploads row for {filename} since run start, found {len(rows)}"]
+        return [f"expected exactly 1 gallery source_uploads row of {fixture_bytes} bytes since run start, found {len(rows)}"]
     row = rows[0]
     errors: list[str] = []
-    for field in ("id", "client_upload_id", "batch_id", "storage_key", "verified_at"):
+    for field in ("id", "client_upload_id", "batch_id", "storage_key", "source_filename", "verified_at"):
         if not row.get(field):
             errors.append(f"row.{field} is empty")
-    if row.get("source_filename") != filename:
-        errors.append(f"row.source_filename={row.get('source_filename')!r}, expected {filename!r}")
     if row.get("status") != "verified":
         errors.append(f"row.status={row.get('status')!r}, expected 'verified'")
     if row.get("upload_protocol") != "single_put":
@@ -61,7 +61,8 @@ def check_rows(rows: list[dict[str, Any]], *, filename: str, fixture_bytes: int)
         errors.append(f"row.client_upload_id={client_upload_id!r} is not an app gallery upload id")
     storage_key = row.get("storage_key") or ""
     batch_id = row.get("batch_id") or ""
-    if storage_key and batch_id and not (
+    filename = row.get("source_filename") or ""
+    if storage_key and batch_id and filename and not (
         storage_key.startswith(f"raw/{batch_id}/") and storage_key.endswith(f"_{filename}")
     ):
         errors.append(f"row.storage_key={storage_key!r} is not raw/<batch_id>/<stamp>_{filename}")
@@ -101,11 +102,12 @@ def _request(url: str, *, headers: dict[str, str], data: bytes | None = None) ->
             return error.code, {"error": raw[:300].decode("utf-8", "replace")}
 
 
-def fetch_rows(supabase_url: str, service_key: str, *, filename: str, since_iso: str) -> list[dict[str, Any]]:
+def fetch_rows(supabase_url: str, service_key: str, *, fixture_bytes: int, since_iso: str) -> list[dict[str, Any]]:
     query = urllib.parse.urlencode(
         {
             "select": ROW_COLUMNS,
-            "source_filename": f"eq.{filename}",
+            "client_upload_id": "like.gallery_*",
+            "source_size_bytes": f"eq.{fixture_bytes}",
             "created_at": f"gte.{since_iso}",
             "order": "created_at.asc",
         }
@@ -133,8 +135,8 @@ def main() -> int:
     filename = os.path.basename(args.fixture)
     fixture_bytes = os.path.getsize(args.fixture)
 
-    rows = fetch_rows(args.supabase_url, service_key, filename=filename, since_iso=args.since)
-    errors = check_rows(rows, filename=filename, fixture_bytes=fixture_bytes)
+    rows = fetch_rows(args.supabase_url, service_key, fixture_bytes=fixture_bytes, since_iso=args.since)
+    errors = check_rows(rows, fixture_bytes=fixture_bytes)
     row = rows[0] if len(rows) == 1 else {}
     verify_status, verify_body = None, None
     if not errors:
@@ -151,6 +153,7 @@ def main() -> int:
         "result": "PASS" if not errors else "FAIL",
         "failures": errors,
         "fixture": {"filename": filename, "size_bytes": fixture_bytes},
+        "source_filename_preserved": bool(row) and row.get("source_filename") == filename,
         "window_start_utc": args.since,
         "rows_since_window_start": len(rows),
         "source_upload": {key: row.get(key) for key in ROW_COLUMNS.split(",")} if row else None,

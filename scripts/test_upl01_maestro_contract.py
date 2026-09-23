@@ -62,13 +62,13 @@ def row(**overrides):
 
 class BackendRowChecks(unittest.TestCase):
     def check(self, rows):
-        return evidence.check_rows(rows, filename=FILENAME, fixture_bytes=SIZE)
+        return evidence.check_rows(rows, fixture_bytes=SIZE)
 
     def test_exact_verified_row_passes(self):
         self.assertEqual(self.check([row()]), [])
 
     def test_no_row_fails_as_missing_upload(self):
-        self.assertEqual(self.check([]), [f"expected exactly 1 source_uploads row for {FILENAME} since run start, found 0"])
+        self.assertEqual(self.check([]), [f"expected exactly 1 gallery source_uploads row of {SIZE} bytes since run start, found 0"])
 
     def test_extra_row_fails_so_negative_flows_cannot_silently_upload(self):
         self.assertIn("found 2", self.check([row(), row(id="other")])[0])
@@ -96,6 +96,20 @@ class BackendRowChecks(unittest.TestCase):
 
     def test_non_gallery_client_id_fails(self):
         self.assertEqual(len(self.check([row(client_upload_id="external_123456789012")])), 1)
+
+    def test_media_store_display_name_is_recorded_not_required(self):
+        # Run 35896137923: the Android 13+ Photo Picker path stored
+        # source_filename "1000000016.mp4" (a MediaStore id) for the fixture.
+        name = "1000000016.mp4"
+        self.assertEqual(self.check([row(source_filename=name, storage_key=f"raw/batch_20260923_abc123/2026-09-23T17-38-00_{name}")]), [])
+
+    def test_empty_filename_fails(self):
+        self.assertIn("row.source_filename is empty", self.check([row(source_filename="")]))
+
+    def test_storage_key_must_end_with_the_row_filename(self):
+        errors = self.check([row(source_filename="1000000016.mp4")])
+        self.assertEqual(len(errors), 1)
+        self.assertIn("is not raw/<batch_id>/<stamp>_1000000016.mp4", errors[0])
 
     def test_storage_key_outside_row_batch_fails(self):
         errors = self.check([row(storage_key=f"raw/other_batch/2026_{FILENAME}")])
@@ -205,6 +219,9 @@ class HarnessContract(unittest.TestCase):
         text = self.flow_texts()["03-gallery-upload.yaml"]
         self.assertIn('assertVisible: "Uploaded to queue"', text)
         self.assertIn('id: "upload-item-status-verified"', text)
+        # The picker may hand the app a MediaStore display name, so the UI row
+        # must not be matched on the fixture filename (run 35896137923).
+        self.assertNotIn('assertVisible: "upl01-fixture.mp4"', text)
 
     def test_upload_rows_are_scrolled_into_view_before_assertion(self):
         # Rows render below the fold (and under the debug LogBox banner);
