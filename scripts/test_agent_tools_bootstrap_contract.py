@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Static safety/portability contract for the SportReel agent-tool bootstrap."""
 from pathlib import Path
+import json
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -8,6 +9,8 @@ BOOT = (ROOT / "scripts/bootstrap-agent-tools.sh").read_text(encoding="utf-8")
 VERIFY = (ROOT / "scripts/verify-agent-tools.sh").read_text(encoding="utf-8")
 LOCK = (ROOT / "tooling/agent-tools.lock.env").read_text(encoding="utf-8")
 IGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
+MCP_TEXT = (ROOT / ".mcp.json").read_text(encoding="utf-8")
+MCP = json.loads(MCP_TEXT)
 
 
 def test_versions_are_explicit() -> None:
@@ -24,27 +27,35 @@ def test_versions_are_explicit() -> None:
 def test_bootstrap_is_idempotent_by_construction() -> None:
     assert "have_version" in BOOT
     assert "already installed; skipping" in BOOT
+    assert "already matches" in BOOT
     assert "claude plugin list" in BOOT
-    assert "claude mcp list" in BOOT
+    assert ".sportreel-head" in BOOT
 
 
 def test_only_verified_upstream_install_sources_are_used() -> None:
     assert "raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" in BOOT
     assert "github.com/mobile-dev-inc/Maestro/releases/download/cli-" in BOOT
-    assert "graphifyy[mcp]" not in BOOT  # package name/version come from the lock
-    assert 'GRAPHIFY_PACKAGE=graphifyy' in LOCK
+    assert "graphifyy[mcp]" not in BOOT  # package name/version are composed from the lock
+    assert "GRAPHIFY_PACKAGE=graphifyy" in LOCK
     assert "claude-plugins-official" in LOCK
 
 
 def test_graphify_output_is_never_repo_state() -> None:
     assert "graphify-out/" in IGNORE
     assert "graphify extract . --code-only" in BOOT
-    forbidden = ("git add graphify-out", "git commit graphify-out")
-    assert not any(item in BOOT for item in forbidden)
+    for forbidden in ("git add graphify-out", "git commit graphify-out"):
+        assert forbidden not in BOOT
+
+
+def test_graphify_mcp_is_project_scoped() -> None:
+    server = MCP["mcpServers"]["graphify"]
+    assert server["command"] == "graphify-mcp"
+    assert server["args"] == ["${PWD}/graphify-out/graph.json"]
+    assert "claude mcp add -s local" not in BOOT
 
 
 def test_no_credentials_are_embedded() -> None:
-    combined = "\n".join((BOOT, VERIFY, LOCK))
+    combined = "\n".join((BOOT, VERIFY, LOCK, MCP_TEXT))
     credential_patterns = (
         r"sk-[A-Za-z0-9_-]{16,}",
         r"sb_(?:secret|service_role)_[A-Za-z0-9_-]+",
