@@ -1,0 +1,40 @@
+name: Agent Tools Bootstrap Contract
+
+on:
+  pull_request:
+    paths:
+      - 'scripts/bootstrap-agent-tools.sh'
+      - 'scripts/verify-agent-tools.sh'
+      - 'scripts/test_agent_tools_bootstrap_contract.py'
+      - 'tooling/agent-tools.lock.env'
+      - 'docs/agent-tooling-bootstrap.md'
+      - '.gitignore'
+      - 'CLAUDE.md'
+      - '.github/workflows/agent-tools-bootstrap-contract.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'scripts/bootstrap-agent-tools.sh'
+      - 'scripts/verify-agent-tools.sh'
+      - 'scripts/test_agent_tools_bootstrap_contract.py'
+      - 'tooling/agent-tools.lock.env'
+      - '.gitignore'
+      - '.github/workflows/agent-tools-bootstrap-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Shell syntax
+        run: |
+          bash -n scripts/bootstrap-agent-tools.sh
+          bash -n scripts/verify-agent-tools.sh
+      - name: Bootstrap safety contract
+        run: python scripts/test_agent_tools_bootstrap_contract.py
