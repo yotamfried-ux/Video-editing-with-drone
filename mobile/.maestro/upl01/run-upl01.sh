@@ -61,6 +61,11 @@ on_exit() {
   local code=$?
   if [ "$code" -ne 0 ]; then collect_device_state; fi
   scrub_secrets || code=3
+  if [ "$code" -ne 0 ]; then
+    # Artifacts may be unreachable from the triage host; put the decisive
+    # facts (failed command, reason, on-screen labels) in the log itself.
+    python3 "$FLOWS/summarize_failure.py" "$EVIDENCE_DIR" "${GITHUB_STEP_SUMMARY:-}" || true
+  fi
   exit "$code"
 }
 trap on_exit EXIT

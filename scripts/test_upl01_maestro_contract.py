@@ -20,6 +20,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 import upl01_backend_evidence as evidence  # noqa: E402
 
+sys.path.insert(0, str(ROOT / "mobile/.maestro/upl01"))
+import summarize_failure  # noqa: E402
+
 FLOW_DIR = ROOT / "mobile/.maestro/upl01"
 WORKFLOW = ROOT / ".github/workflows/upl-01-android-app-upload-e2e.yml"
 FILENAME = "upl01-fixture.mp4"
@@ -123,6 +126,48 @@ class VerifyApiChecks(unittest.TestCase):
         self.assertEqual(self.check(200, {**GOOD_VERIFY, "upload_id": "someone-else"}), [
             f"verify.upload_id='someone-else', expected {GOOD_ROW['id']!r}",
         ])
+
+
+class FailureSummary(unittest.TestCase):
+    """The step-log summary must name the failing command and on-screen labels."""
+
+    def test_reports_failed_command_junit_reason_and_screen(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            flow = root / "maestro-01-no-operator-secret"
+            flow.mkdir()
+            (flow / "commands-(01-no-operator-secret.yaml).json").write_text(json.dumps([
+                {"command": {"launchAppCommand": {"appId": "com.sportreel.app"}}, "metadata": {"status": "COMPLETED"}},
+                {"command": {"assertConditionCommand": {"condition": {"visible": {"textRegex": "No secret"}}}},
+                 "metadata": {"status": "FAILED", "error": {"message": "Assertion is false: \"No secret\" is visible"}}},
+            ]))
+            (flow / "maestro.log").write_text("12:00 INFO ok\n12:01 [ERROR] maestro.MaestroException$AssertionFailure: Assertion is false\n")
+            (root / "01-no-operator-secret.junit.xml").write_text(
+                '<testsuites><testsuite><testcase name="x"><failure message="Assertion is false: No secret"/></testcase></testsuite></testsuites>'
+            )
+            (root / "final-maestro-hierarchy.json").write_text(json.dumps(
+                {"attributes": {}, "children": [
+                    {"attributes": {"text": "Operator Secret"}, "children": []},
+                    {"attributes": {"resource-id": "operator-secret-input", "hintText": "Paste the operator secret here"}, "children": []},
+                ]}
+            ))
+            failures = summarize_failure.junit_failures(root) + summarize_failure.failed_commands(root)
+            self.assertEqual(failures[0], "01-no-operator-secret.junit.xml: Assertion is false: No secret")
+            self.assertIn("FAILED assertConditionCommand", failures[1])
+            self.assertIn("Assertion is false", failures[1])
+            self.assertEqual(len(failures), 2, "COMPLETED commands must not be reported")
+            self.assertEqual(len(summarize_failure.log_errors(root)), 1)
+            self.assertEqual(summarize_failure.visible_nodes(root / "final-maestro-hierarchy.json"), [
+                "text='Operator Secret'",
+                "resource-id='operator-secret-input' hintText='Paste the operator secret here'",
+            ])
+
+    def test_runner_summarizes_only_after_scrubbing(self):
+        runner = (FLOW_DIR / "run-upl01.sh").read_text()
+        body = runner[runner.index("on_exit() {"):]
+        self.assertLess(body.index("scrub_secrets"), body.index("summarize_failure.py"))
 
 
 class HarnessContract(unittest.TestCase):
