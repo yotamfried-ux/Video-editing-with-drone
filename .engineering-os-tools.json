@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "profile_seed": "mobile",
+  "tools": [
+    "superpowers",
+    "rtk",
+    "graphify",
+    "maestro"
+  ]
+}
