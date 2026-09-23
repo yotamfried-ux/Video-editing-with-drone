@@ -49,7 +49,7 @@ def test_graphify_output_is_never_repo_state() -> None:
 
 def test_graphify_mcp_is_project_scoped() -> None:
     server = MCP["mcpServers"]["graphify"]
-    assert server["command"] == "graphify-mcp"
+    assert server["command"] == "${HOME}/.local/bin/graphify-mcp"
     assert server["args"] == ["${PWD}/graphify-out/graph.json"]
     assert "claude mcp add -s local" not in BOOT
 
