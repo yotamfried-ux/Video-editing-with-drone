@@ -25,6 +25,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: python -m pip install --quiet pyyaml
       - run: python scripts/test_upl01_maestro_contract.py
       - name: Maestro flow syntax
         env:

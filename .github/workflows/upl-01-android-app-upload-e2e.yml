@@ -50,15 +50,15 @@ jobs:
           path: ${{ runner.temp }}/sportreel-upl01.apk
           key: ${{ steps.apk-key.outputs.key }}
 
+      # Node and node_modules are needed on every run: Metro serves the debug
+      # APK's JS even when the APK itself comes from the checkpoint.
       - uses: actions/setup-node@v4
-        if: steps.apk-cache.outputs.cache-hit != 'true'
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
       - name: Install mobile dependencies
-        if: steps.apk-cache.outputs.cache-hit != 'true'
         working-directory: mobile
         run: npm ci
 

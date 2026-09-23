@@ -221,6 +221,19 @@ class HarnessContract(unittest.TestCase):
         self.assertIn("bash mobile/.maestro/upl01/run-upl01.sh", text)
         self.assertIn("concurrency:", text)
 
+    def test_metro_dependencies_install_even_when_apk_checkpoint_hits(self):
+        # Metro serves the debug APK's JS, so node + node_modules are needed on
+        # every run; only the Gradle build may be skipped on a checkpoint hit.
+        import yaml
+
+        steps = yaml.safe_load(WORKFLOW.read_text())["jobs"]["upl-01"]["steps"]
+        by_name = {step.get("name") or step.get("uses"): step for step in steps}
+        for name in ("actions/setup-node@v4", "Install mobile dependencies"):
+            self.assertNotIn("if", by_name[name], name)
+        self.assertIn("cache-hit", by_name["Build Android debug APK"]["if"])
+        names = [step.get("name") or step.get("uses") for step in steps]
+        self.assertLess(names.index("Install mobile dependencies"), names.index("Start Metro"))
+
     def test_runner_keeps_backend_verification_and_scrubs_secrets(self):
         runner = (FLOW_DIR / "run-upl01.sh").read_text()
         self.assertIn("scripts/upl01_backend_evidence.py", runner)
