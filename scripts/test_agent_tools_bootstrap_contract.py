@@ -5,12 +5,17 @@ import json
 import re
 
 ROOT = Path(__file__).resolve().parents[1]
+PROJECT_TOOLS = json.loads((ROOT / ".engineering-os-tools.json").read_text(encoding="utf-8"))
 BOOT = (ROOT / "scripts/bootstrap-agent-tools.sh").read_text(encoding="utf-8")
 VERIFY = (ROOT / "scripts/verify-agent-tools.sh").read_text(encoding="utf-8")
 LOCK = (ROOT / "tooling/agent-tools.lock.env").read_text(encoding="utf-8")
 IGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 MCP_TEXT = (ROOT / ".mcp.json").read_text(encoding="utf-8")
 MCP = json.loads(MCP_TEXT)
+
+
+def test_project_declares_every_managed_tool() -> None:
+    assert PROJECT_TOOLS["tools"] == ["superpowers", "rtk", "graphify", "maestro"]
 
 
 def test_versions_are_explicit() -> None:
