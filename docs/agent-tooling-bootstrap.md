@@ -1,9 +1,9 @@
 # SportReel agent tooling bootstrap
 
-This repository keeps the **recipe and qualification baseline** for the external
-tools Claude uses while working on SportReel. It intentionally does **not**
-vendor third-party binaries, generated Graphify graphs, credentials, Android
-SDKs, or emulator images.
+This repository keeps the **recipe, project configuration, and qualification
+baseline** for the external tools Claude uses while working on SportReel. It
+intentionally does **not** vendor third-party binaries, generated Graphify
+graphs, credentials, Android SDKs, or emulator images.
 
 ## One command on a fresh Claude Code host
 
@@ -11,34 +11,47 @@ SDKs, or emulator images.
 bash scripts/bootstrap-agent-tools.sh
 ```
 
-The script is idempotent. It checks the qualified version first and skips a
-matching installation. It then runs `scripts/verify-agent-tools.sh`.
+The script is idempotent. It checks qualified versions first, skips matching
+installations, avoids rebuilding the Graphify graph when it already matches the
+current Git HEAD, and finishes with `scripts/verify-agent-tools.sh`.
 
 Managed capabilities:
 
 - **Superpowers** — Claude workflow/debugging/review skills from the official
   Claude plugin marketplace. The lock records the live-qualified baseline;
-  the marketplace itself controls the installed release.
-- **RTK** — compact Bash/tool output plus the Claude hook. Exact qualified
-  version is installed when missing or different.
-- **Graphify** — code-only repository graph plus MCP entry point. The package is
-  pinned. `graphify-out/` is generated per checkout and is never Git state.
-- **Maestro** — pinned CLI for mobile flows. A local Android device/emulator is
-  not required merely to install or syntax-check flows. Actual mobile execution
-  may run in CI or a managed external device service.
+  marketplace installation is host-level.
+- **RTK** — compact Bash/tool output plus the Claude hook. The exact qualified
+  binary version is restored when missing or different.
+- **Graphify** — pinned CLI/MCP package plus a code-only graph generated from the
+  checkout. The MCP definition is committed in root `.mcp.json`, so it is
+  project-scoped rather than recreated by every session.
+- **Maestro** — pinned CLI for mobile flows. Actual mobile execution can run in
+  CI or a managed external device service; the Claude host does not need a
+  local emulator just to keep the test tooling available.
 
-## What persists and what does not
+## What persists
 
-Git persists this bootstrap, its lock, CI contract, documentation, and any
-durable Maestro flows committed by the application.
+Git persists:
+
+- this bootstrap and verifier;
+- the qualified version lock;
+- the project-scoped Graphify MCP definition;
+- the CI safety contract and documentation;
+- durable Maestro flows committed by the application.
 
 A disposable cloud host cannot preserve binaries from a previous container.
-On a new host the bootstrap may download missing binaries again, but there is
-no repeated tool discovery or manual setup. On a reused host it skips matching
-installations.
+On a new host the bootstrap downloads only missing/mismatched tools. There is
+no repeated discovery or manual configuration. On a reused host, matching
+installs and a current Graphify graph are skipped.
 
-The Graphify graph is rebuilt from the current checkout because a committed
-graph can become stale and misleading.
+Claude Code may request a one-time trust approval for a project-scoped MCP on a
+fresh host. That is a security boundary, not missing project configuration.
+
+## What is intentionally regenerated
+
+`graphify-out/` is derived from the current checkout and ignored by Git. A
+small stamp ties it to the exact Git HEAD so a reused checkout avoids needless
+rebuilds without trusting a stale graph.
 
 ## Verification only
 
@@ -46,7 +59,7 @@ graph can become stale and misleading.
 bash scripts/verify-agent-tools.sh
 ```
 
-Use this before substantial Claude work. If it passes, do not reinstall tools.
+If this passes, do not reinstall tools.
 
 ## Qualification boundary
 
@@ -56,7 +69,6 @@ need exact-revision deterministic tests plus authoritative downstream evidence
 (Supabase/R2/API, deployment state, and real-device/real-footage evidence where
 the capability requires it).
 
-The baseline was derived from the live Engineering-OS Claude Code host
-qualification performed on 2026-09-23. Update the lock only after a replacement
-version has been exercised on the target host and its installation path is
-verified.
+The baseline comes from the live Engineering-OS Claude Code host qualification
+performed on 2026-09-23. Update the lock only after a replacement version has
+been exercised on the target host and its installation path is verified.
