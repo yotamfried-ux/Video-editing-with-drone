@@ -8,6 +8,7 @@ on:
       - 'scripts/test_agent_tools_bootstrap_contract.py'
       - 'tooling/agent-tools.lock.env'
       - 'docs/agent-tooling-bootstrap.md'
+      - 'docs/AI-FRICTION-LOG.md'
       - '.mcp.json'
       - '.engineering-os-tools.json'
       - '.gitignore'
