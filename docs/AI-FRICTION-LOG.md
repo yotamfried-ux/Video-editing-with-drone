@@ -134,3 +134,96 @@ Tracked for the next optimization change.
 
 Measure serial baseline versus parallel wall-clock time and then inspect the
 rest of the project for other safely parallelizable CI/test stages.
+
+
+---
+
+### [FRICTION-002] APK checkpoint cache is branch-scoped, causing an avoidable rebuild on sibling validation branches
+
+**Status:** OPEN  
+**Category:** CI  
+**Observed:** 2026-09-23  
+**Revision / environment:** parallel UPL-01 validation branch `perf/upl01-maestro-parallel`; GitHub Actions
+
+**Observed behavior**
+
+The parallel-validation branch had the same effective mobile application tree as
+the already-qualified UPL-01 branch, but its first APK checkpoint restore missed
+and Gradle rebuilt the debug APK.
+
+**Impact**
+
+A validation-only branch can pay the expensive Android build cost even when no
+APK-affecting mobile source changed, delaying feedback before the actual Maestro
+scenarios start.
+
+**Evidence**
+
+Comparison from the last successful UPL-01 application SHA to the then-current
+UPL-01 PR head showed only an audit Markdown file changed. The sibling branch
+still missed the APK cache because GitHub Actions cache visibility is ref-scoped.
+
+**Likely cause**
+
+The checkpoint is stored with `actions/cache`; matching cache keys alone do not
+make a cache created on a sibling branch available to another sibling branch.
+
+**Simpler / faster alternative**
+
+Publish qualified APKs as explicit immutable artifacts keyed by the computed
+application-content hash, or provide a trusted shared artifact lookup path, so
+validation branches can reuse an identical APK without rebuilding it.
+
+**Action taken**
+
+The parallel workflow now separates APK preparation from scenario execution so
+a cold run builds at most once before all parallel workers.
+
+**Follow-up**
+
+Add safe cross-branch APK artifact reuse and measure cold-branch feedback time.
+
+---
+
+### [FRICTION-003] Obsolete in-progress UPL-01 runs can block validation of a newer head
+
+**Status:** OPEN  
+**Category:** CI  
+**Observed:** 2026-09-23  
+**Revision / environment:** UPL-01 GitHub Actions concurrency group
+
+**Observed behavior**
+
+UPL-01 uses one global concurrency group with `cancel-in-progress: false`.
+A newer validation head therefore remains pending while an older run continues.
+
+**Impact**
+
+Rapid repair iterations can wait behind work whose result is already superseded
+by a newer commit.
+
+**Evidence**
+
+During the parallelization change, newer UPL-01 workflow runs were cancelled or
+queued while the first in-progress sibling-branch run retained the shared
+concurrency slot.
+
+**Likely cause**
+
+The production backend verifier historically correlated uploads by a run window
+and fixture size, so overlapping workflow runs were deliberately prohibited.
+
+**Simpler / faster alternative**
+
+Give every workflow run a collision-resistant backend correlation identity.
+Once proven, allow stale runs to be cancelled safely while keeping independent
+scenarios within the current run parallel.
+
+**Action taken**
+
+Scenario fixtures are already isolated by distinct byte sizes within one run.
+
+**Follow-up**
+
+Design exact cross-run correlation, add a regression that proves overlapping
+runs cannot consume each other's rows, then enable safe stale-run cancellation.
