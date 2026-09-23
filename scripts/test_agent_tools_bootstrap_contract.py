@@ -1,0 +1,81 @@
+#!/usr/bin/env python3
+"""Static safety/portability contract for the SportReel agent-tool bootstrap."""
+from pathlib import Path
+import re
+
+ROOT = Path(__file__).resolve().parents[1]
+BOOT = (ROOT / "scripts/bootstrap-agent-tools.sh").read_text(encoding="utf-8")
+VERIFY = (ROOT / "scripts/verify-agent-tools.sh").read_text(encoding="utf-8")
+LOCK = (ROOT / "tooling/agent-tools.lock.env").read_text(encoding="utf-8")
+IGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+
+def test_versions_are_explicit() -> None:
+    expected = {
+        "SUPERPOWERS_TESTED_VERSION": "6.4.1",
+        "RTK_VERSION": "0.49.0",
+        "GRAPHIFY_VERSION": "0.9.66",
+        "MAESTRO_VERSION": "2.10.0",
+    }
+    for key, value in expected.items():
+        assert f"{key}={value}" in LOCK
+
+
+def test_bootstrap_is_idempotent_by_construction() -> None:
+    assert "have_version" in BOOT
+    assert "already installed; skipping" in BOOT
+    assert "claude plugin list" in BOOT
+    assert "claude mcp list" in BOOT
+
+
+def test_only_verified_upstream_install_sources_are_used() -> None:
+    assert "raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" in BOOT
+    assert "github.com/mobile-dev-inc/Maestro/releases/download/cli-" in BOOT
+    assert "graphifyy[mcp]" not in BOOT  # package name/version come from the lock
+    assert 'GRAPHIFY_PACKAGE=graphifyy' in LOCK
+    assert "claude-plugins-official" in LOCK
+
+
+def test_graphify_output_is_never_repo_state() -> None:
+    assert "graphify-out/" in IGNORE
+    assert "graphify extract . --code-only" in BOOT
+    forbidden = ("git add graphify-out", "git commit graphify-out")
+    assert not any(item in BOOT for item in forbidden)
+
+
+def test_no_credentials_are_embedded() -> None:
+    combined = "\n".join((BOOT, VERIFY, LOCK))
+    credential_patterns = (
+        r"sk-[A-Za-z0-9_-]{16,}",
+        r"sb_(?:secret|service_role)_[A-Za-z0-9_-]+",
+        r"gh[pousr]_[A-Za-z0-9]{20,}",
+    )
+    for pattern in credential_patterns:
+        assert re.search(pattern, combined) is None
+
+
+def test_bootstrap_does_not_install_application_dependencies() -> None:
+    for forbidden in ("npm install", "npm ci", "pip install -r", "apt-get", "sudo "):
+        assert forbidden not in BOOT
+
+
+def test_verify_checks_all_managed_capabilities() -> None:
+    for token in ("Superpowers", "rtk", "graphify", "graphify-mcp", "maestro"):
+        assert token.lower() in VERIFY.lower()
+
+
+def main() -> int:
+    tests = [
+        value
+        for name, value in sorted(globals().items())
+        if name.startswith("test_") and callable(value)
+    ]
+    for test in tests:
+        test()
+        print(f"PASS {test.__name__}")
+    print(f"PASS agent tooling bootstrap contract ({len(tests)} tests)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
