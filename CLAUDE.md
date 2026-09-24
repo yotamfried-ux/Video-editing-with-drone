@@ -32,13 +32,29 @@ Execution preference:
 1. deterministic / no-model tools first;
 2. reuse already-ready project capabilities;
 3. qualified local-model workers for bounded independent tasks;
-4. included-credit / host-native agents when local quality is insufficient;
+4. hosted subagents only when they pass the Engineering-OS hosted-delegation ROI gate;
 5. paid hosted models only when they materially improve the result.
 
+A hosted subagent is never mandatory merely to satisfy delegation. If the only
+available worker is hosted, it may be skipped unless deterministic tooling is
+insufficient, no qualified local worker is ready, the task is narrowly bounded,
+the expected token/context cost is lower than keeping the work in the
+coordinator, and the result will be independently verified.
+
+For hosted workers, send the smallest immutable packet: the exact question,
+relevant diff/hunks, and normally no more than five directly relevant files
+(32 KiB text by default). Request findings/evidence only, normally no more than
+about 1,200 output tokens. Do not pass broad repository context by default.
+
+Documentation consistency/drift is deterministic-first: exact search, static
+assertions, contract/schema checks, and diff-based checks. Do not delegate it to
+a hosted worker unless a residual semantic question remains after those checks
+and the ROI gate passes.
+
 Good local/parallel candidates include log triage, independent module review,
-candidate-test generation, documentation consistency checks and static-analysis
-triage. Give every worker a bounded output contract and validate its conclusions
-with deterministic tests, exact code evidence or authoritative runtime state.
+candidate-test generation and static-analysis triage. Give every worker a
+bounded output contract and validate its conclusions with deterministic tests,
+exact code evidence or authoritative runtime state.
 
 Do not assume "agent" means free. A framework or prompt asset inherits the cost
 of the model/runtime behind it. Local Ollama-style inference avoids per-call
@@ -56,8 +72,10 @@ contract, not just its general intent:
   `capability-registry/EXECUTION-TRACE.json` in the durable audit/final report,
   including the exact Engineering-OS entry point and route key;
 - if the task decomposes into 3+ bounded workstreams and at least 2 remain
-  independent with a qualified worker route available, delegate at least one
-  bounded workstream unless an allowed Engineering-OS skip reason applies;
+  independent, mandatory delegation applies only when a ready no-model/local
+  worker route can handle a bounded slice with deterministic verification;
+- never spawn a hosted subagent just to satisfy the delegation trigger; hosted
+  delegation must pass Engineering-OS `hosted_delegation_roi_gate`;
 - "shared project context" alone is not a sufficient reason to skip delegation;
   first carve out read-only slices such as module review, log triage, candidate
   tests, or documentation drift.
