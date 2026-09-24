@@ -9,6 +9,18 @@ Drone/sports footage → AI-assisted editing → personal athlete reels marketpl
 - **Web API**: Next.js in `web-api/` — Vercel boundary for operator actions, uploads, Discover, checkout, webhooks, and protected media access.
 - **Supabase**: DB/auth/tracking state. App-user face recognition is not part of the product.
 
+## Agent tooling bootstrap
+
+On a fresh/disposable Claude Code host, run this once before substantial repository work:
+
+```bash
+bash scripts/bootstrap-agent-tools.sh
+```
+
+The bootstrap is idempotent: matching installations are reused, generated Graphify state stays outside Git, and the final verifier proves the host is ready. If `bash scripts/verify-agent-tools.sh` already passes, do not reinstall anything. See `docs/agent-tooling-bootstrap.md`.
+
+These are agent/testing tools, not SportReel runtime dependencies. Their presence is not evidence that the application works.
+
 ## Product source of truth
 
 Read before changing pipeline behavior:
@@ -43,8 +55,23 @@ Read before changing pipeline behavior:
 - `supabase/migrations/20260721_remove_face_recognition.sql` removes historical biometric fields, RPCs, inferred reel ownership, and the `athlete-photos` bucket.
 - The destructive migration requires explicit approval, backup awareness, application, and verification through `supabase/verify_schema.sql`.
 
+## Project learning / friction
+
+During normal work, record material project friction in `docs/AI-FRICTION-LOG.md`.
+This includes bugs, stale assumptions/docs/config, slow steps, repeated setup,
+excessive context/token use, brittle tests, unnecessary complexity, missing
+automation/caching/parallelism, and credible simpler or faster approaches.
+
+Do not stop execution merely to report a finding. Fix small in-scope reversible
+issues when appropriate; otherwise append an evidence-backed entry. Search the
+log before reinvestigating recurring tooling/infrastructure problems. Update
+existing entries rather than duplicating them, and mark entries resolved with
+the verified commit/PR/run and measured improvement when possible. Never put
+secrets or sensitive values in the log.
+
 ## Working method
 
+- Bootstrap/verify the project agent tools on a fresh host before substantial work.
 - Read current files, PRs, and Actions before making claims.
 - Keep changes narrow and update the relevant audit.
 - Add deterministic positive and negative regressions.

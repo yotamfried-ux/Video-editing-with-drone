@@ -34,6 +34,9 @@ qa_results.jsonl
 # Upload staging area
 pending_uploads/
 
+# Agent tooling generated state
+graphify-out/
+
 # macOS
 .DS_Store
 
