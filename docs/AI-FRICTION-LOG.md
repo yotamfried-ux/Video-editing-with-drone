@@ -485,7 +485,7 @@ trusting a PASS.
 
 ### [FRICTION-011] Heavy path-filtered checks re-run on every push to a PR, including docs-only pushes
 
-**Status:** OPEN  
+**Status:** IMPROVED (#223); reuse to be confirmed on the next same-tree push  
 **Category:** CI  
 **Observed:** 2026-09-24  
 **Revision / environment:** PR #222, `large-upload-foundation-check.yml` (`android-native-compile`)
@@ -507,4 +507,10 @@ encourages agents to delay documentation pushes.
 Split the native compile into a job that checks whether the *pushed* commits
 touch its inputs (`git diff --name-only ${{ github.event.before }}..HEAD`), or
 key it on a content hash of its inputs with a cached result.
+
+**Update 2026-09-24 (after #223):** `large-upload-foundation-check.yml` now keys a
+success marker on the mobile tree. On PR #222 head `de2d605` (run 35978342479)
+the marker restore missed, because this was the first run for the tree. The full
+compile ran (3m42s) and the marker was saved. This docs-only follow-up push is
+the first same-tree run and should skip the compile.
 
