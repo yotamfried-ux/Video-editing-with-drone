@@ -239,48 +239,56 @@ runs cannot consume each other's rows, then enable safe stale-run cancellation.
 **Status:** IMPROVED  
 **Category:** context  
 **Observed:** 2026-09-24  
-**Revision / environment:** SportReel main + Engineering-OS execution fast path
+**Revision / environment:** SportReel qualification of PR #222 + Engineering-OS execution fast path
 
 **Observed behavior**
 
-SportReel already has deterministic CI, RTK, Graphify, Maestro and reusable agent
-assets, while Engineering-OS also catalogs Ollama, agent frameworks and specialist
-role prompts. Before this change, project instructions did not explicitly require
-an AI session to compare no-model/local/included/paid execution before spawning
-subagents or doing cognitive work in the main hosted session.
+The cost-aware router correctly preferred deterministic repository work, but the
+mandatory delegation rule still forced one hosted Haiku worker when no local
+Ollama worker was available. The delegated slice was documentation consistency,
+which was largely answerable with deterministic search/contract checks.
 
 **Impact**
 
-Bounded tasks such as log triage, independent module review, candidate-test
-generation and documentation consistency checking can consume main-agent context
-or hosted model usage even when they are suitable for deterministic tooling or a
-qualified local worker.
+The hosted worker consumed 80.6K tokens and returned three candidate
+contradictions. Coordinator verification rejected all three, so the worker
+produced zero valid findings. The deterministic/local-first policy therefore
+saved usage in the main workflow but the forced hosted fallback erased a
+material part of that gain.
 
 **Evidence**
 
-`CLAUDE.md` previously documented tool bootstrap but had no cost-aware execution
-routing. Engineering-OS now exposes `capability-registry/EXECUTION-FAST-PATH.json`
-with deterministic/local/included/paid cost classes and local Ollama routing.
+The blind qualification execution trace records:
+- main route: deterministic repository work;
+- local worker preference: unavailable because Ollama was not installed;
+- hosted fallback: Haiku, read-only documentation-consistency task;
+- worker usage: 80.6K tokens;
+- accepted findings: 0/3.
 
 **Likely cause**
 
-Tool installation, testing routing and agent catalogs were developed separately;
-there was no single low-context execution decision point.
+The previous policy made delegation mandatory whenever independent workstreams
+existed, without distinguishing a ready no-model/local worker from a hosted
+worker. It also lacked a hard bounded-context packet for hosted subagents.
 
 **Simpler / faster alternative**
 
-Route every delegated/LLM-backed subtask through the Engineering-OS execution
-fast path. Prefer deterministic tools, then qualified local models for bounded
-parallel work, and require deterministic evidence before accepting worker output.
+Make mandatory delegation apply only to ready no-model/local routes. Treat
+hosted subagents as optional optimizations behind an ROI gate. Default
+documentation consistency to deterministic search/static/contract checks. When
+a hosted worker is justified, send only the exact question, relevant diff/hunks,
+and a small directly relevant file set instead of broad repository context.
 
 **Action taken**
 
-SportReel `CLAUDE.md` now makes cost-aware execution/delegation part of the
-default working method.
+Engineering-OS and SportReel policy now forbid spawning a hosted subagent merely
+to satisfy delegation. Hosted delegation must pass an explicit ROI gate and
+uses a default bounded packet of at most five directly relevant files / 32 KiB
+text with a concise output budget. Documentation consistency is
+deterministic-first.
 
 **Follow-up**
 
-Qualify one local Ollama model on the actual persistent host using representative
-SportReel tasks, then benchmark a small parallel worker pilot against the current
-main-agent workflow. Record latency, quality, hardware use and any hosted-model
-usage avoided.
+Qualify a local model only if representative SportReel tasks show that local
+inference beats deterministic/coordinator execution on quality and total cost.
+Do not install or invoke a local model merely to satisfy delegation.
