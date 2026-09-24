@@ -485,7 +485,7 @@ trusting a PASS.
 
 ### [FRICTION-011] Heavy path-filtered checks re-run on every push to a PR, including docs-only pushes
 
-**Status:** IMPROVED (#223); reuse to be confirmed on the next same-tree push  
+**Status:** RESOLVED (#223, verified on PR #222)  
 **Category:** CI  
 **Observed:** 2026-09-24  
 **Revision / environment:** PR #222, `large-upload-foundation-check.yml` (`android-native-compile`)
@@ -513,4 +513,8 @@ success marker on the mobile tree. On PR #222 head `de2d605` (run 35978342479)
 the marker restore missed, because this was the first run for the tree. The full
 compile ran (3m42s) and the marker was saved. This docs-only follow-up push is
 the first same-tree run and should skip the compile.
+
+**Verified 2026-09-24:** on the same-tree push `b9b23c3` (run 35979028890),
+`android-native-compile` reused the marker and finished in **5s**, against 3m42s
+for the cold compile on `de2d605`.
 
