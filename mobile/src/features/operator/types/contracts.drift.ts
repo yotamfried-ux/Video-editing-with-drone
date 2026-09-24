@@ -35,6 +35,7 @@ type _PipelineStatusResponse = Assert<ServerFitsApp<Server.PipelineStatusRespons
 type _ReprocessListResponse = Assert<ServerFitsApp<Server.ReprocessListResponse, App.ReprocessListResponse>>;
 type _ReprocessRow = Assert<ServerFitsApp<Server.ReprocessRow, App.ReprocessRow>>;
 type _ReprocessSubmitResponse = Assert<ServerFitsApp<Server.ReprocessSubmitResponse, App.ReprocessSubmitResponse>>;
+type _UploadVerifyResponse = Assert<ServerFitsApp<Server.UploadVerifyResponse, App.UploadVerifyResponse>>;
 
 // Same shapes under different names on each side.
 type _PipelineStatusFromServer = Assert<ServerFitsApp<Server.PipelineStatusRow, App.PipelineStatus>>;

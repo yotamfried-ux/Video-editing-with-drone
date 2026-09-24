@@ -64,6 +64,16 @@ export type OperatorUploadInitResponse = {
   upload_status?: string;
 };
 
+// POST /api/operator/upload/verify
+export type UploadVerifyResponse = {
+  ok: boolean;
+  exists: boolean;
+  storage_backend?: 'r2' | 'drive';
+  size?: number | null;
+  storage_key?: string;
+  r2_status?: number;
+};
+
 export type ReprocessRow = {
   id: string;
   draft_name: string | null;
