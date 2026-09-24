@@ -6,6 +6,7 @@ on:
       - 'scripts/bootstrap-agent-tools.sh'
       - 'scripts/verify-agent-tools.sh'
       - 'scripts/test_agent_tools_bootstrap_contract.py'
+      - 'scripts/test_agent_execution_policy_contract.py'
       - 'tooling/agent-tools.lock.env'
       - 'docs/agent-tooling-bootstrap.md'
       - 'docs/AI-FRICTION-LOG.md'
@@ -20,6 +21,7 @@ on:
       - 'scripts/bootstrap-agent-tools.sh'
       - 'scripts/verify-agent-tools.sh'
       - 'scripts/test_agent_tools_bootstrap_contract.py'
+      - 'scripts/test_agent_execution_policy_contract.py'
       - 'tooling/agent-tools.lock.env'
       - '.mcp.json'
       - '.engineering-os-tools.json'
@@ -43,3 +45,5 @@ jobs:
           bash -n scripts/verify-agent-tools.sh
       - name: Bootstrap safety contract
         run: python scripts/test_agent_tools_bootstrap_contract.py
+      - name: Agent execution policy contract
+        run: python scripts/test_agent_execution_policy_contract.py

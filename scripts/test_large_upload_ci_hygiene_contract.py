@@ -28,6 +28,11 @@ def main() -> int:
         "npm test -- --runInBand src/features/operator/lib/uploadQueue.test.ts",
         "expo-modules-autolinking resolve --platform android",
         "./gradlew :app:compileDebugKotlin --no-daemon --stacktrace",
+        "Compute native compile qualification key",
+        "Restore successful native compile marker",
+        "large-upload-native-v1-",
+        "steps.native-cache.outputs.cache-hit != 'true'",
+        "Save successful native compile marker",
     ]
     missing = [token for token in required if token not in source]
     if missing:
@@ -40,6 +45,16 @@ def main() -> int:
         "apply_final_upload_review_fixes.py",
         "fix_final_upload_patch_type_errors.py",
     ]
+
+    # A docs-only follow-up push on a PR must be able to reuse a successful
+    # compile for an unchanged tracked mobile tree. The key must be content
+    # based, not commit-SHA based, otherwise every push invalidates it.
+    for forbidden_key_input in ("github.sha }}-native", "pull_request.head.sha }}-native"):
+        if forbidden_key_input in source:
+            raise SystemExit(
+                f"native compile qualification key must not be commit-SHA based: {forbidden_key_input}"
+            )
+
     present = [token for token in forbidden if token in source]
     if present:
         raise SystemExit(f"large-upload CI contains mutable one-shot machinery: {present}")
