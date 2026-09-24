@@ -76,3 +76,22 @@ The finaliser's UPDATE was validated against the real production schema with
 the one `supabase-js` generates for `.not('status','in',…)`. Real PostgREST over
 HTTP is blocked from the agent host, so the request itself was not sent.
 
+
+## Independent qualification of PR #222 (head `ea4978e`, base `main@dda3fe4`)
+
+A separate session reviewed the PR from live state. The PR was already based
+on the current `main`.
+
+| Capability | Method | Environment | Result | Remaining gap |
+|---|---|---|---|---|
+| Finaliser semantics | `test_finalize_unfinished_run_contract.py` 7/7 | Stub PostgREST (local) | PASS | Real PostgREST blocked from the agent host (proxy 403) |
+| Finaliser vs production schema | Read-only catalog queries: all 6 PATCHed columns exist; `failed` is allowed by `delivery_runs_status_chk` / `stage_chk`; `pipeline_runs` has no check constraints | DB-prod (read-only) | PASS | UPDATE not executed |
+| Finaliser reach on historical failures | All 5 stale `pipeline_runs` rows map to failed runs created 1-2 s later; the failing steps in the runs inspected (28715887965, delivery 35535335881) come after checkout, so the new step would have run | Actions + DB-prod | PASS (inference from step lists) | No real early-failing run has executed the new step. Deliver/Run Pipeline dispatch only from `main`. |
+| Superseded pending run | `concurrency: pipeline-run` can cancel a pending run before any step runs, and there is no active-run guard in `pipeline/start` | Static | Gap, not in PR scope | Needs a server-side staleness sweep (FRICTION-007) |
+| Timeout → `cancelled()` step runs | Workflow wiring asserted by test | Static | NOT TESTED at runtime | — |
+| Support PATCH auth ordering, Discover clamping | Probe on the PR build PASS (108 × 401, 0 backend calls). With `main`'s two handlers restored and rebuilt, the probe FAILS with 9 issues (4 rate-limit RPCs before auth, 5 NaN/negative ranges) | HTTP-local | PASS; negative control proven | Not deployed. Vercel previews are ignored (FRICTION-009) |
+| Mobile operator calls vs protected set | Every `operatorFetch` target is under `/api/operator/**` or calls `requireOperator` | Static | PASS | `usePricing` POSTs `/api/pricing` via `apiFetch`, not `operatorFetch` (pre-existing, not in this PR) |
+| Contract drift guard | `main`'s mirror → 4 errors (reproduced). Found that `UploadVerifyResponse` was uncovered; fixed and mutation-tested | Static | FAIL → fixed | New server types need a manual assertion |
+| Bootstrap | Fresh host: READY in 33 s, exit 0, 10/10. `main`'s verifier fails on the same host | Real host | PASS | — |
+| Build / tests | mobile type-check + jest 18/18; web-api type-check + `next build`; contract tests 92/96 (the 4 failures are the dependency-gated ones, identical on `main`) | Static/local | PASS | — |
+| CI on head | 14/14 check runs green | Actions | PASS | Not evidence of runtime behaviour |

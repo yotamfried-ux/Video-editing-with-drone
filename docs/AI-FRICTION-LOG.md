@@ -325,6 +325,13 @@ The bootstrap runs the verifier with `bash`. The exec bits are set in Git.
 Regression: `test_version_probe_tolerates_jvm_stderr_and_banners` runs the real
 verifier against a fake JVM-style `maestro`. It fails on the old verifier.
 
+**Verified 2026-09-24 (independent qualification at `ea4978e`):** on a new
+cloud host where 6 verifier checks initially failed, the PR's bootstrap
+installed Superpowers, RTK, Graphify and Maestro, built the graph, and exited 0
+with all 10 checks PASS in **33 s**. Negative control on the same host: `main`'s
+verifier still fails with `maestro version mismatch (... got: Picked up
+JAVA_TOOL_OPTIONS ...)`.
+
 ---
 
 ### [FRICTION-006] RTK hook rewrites `npx tsc` to the global TypeScript, producing false failures
@@ -392,6 +399,19 @@ that enforces the `not.in` filter. CI: `tracked-run-finalize-check.yml`.
 After merge, prove it on a real early-failing run. The stale historical
 production rows need an explicit, approved data update.
 
+**Update 2026-09-24 (independent qualification of PR #222 at `ea4978e`):**
+all five stale `pipeline_runs` rows correlate one-to-one with a *failed* Run
+Pipeline run created 1-2 s after the row (28132736033, 28138437952,
+28715887965, 28716481912, 28814500536). Checkout succeeded in the runs
+inspected, so the new finaliser step would have reached these rows. One gap
+remains that the PR does not name: `pipeline-run.yml` uses
+`concurrency: pipeline-run` with `cancel-in-progress: false`, and
+`/api/operator/pipeline/start` has no active-run guard. A pending run that a
+newer dispatch supersedes is cancelled before any step runs, so the finaliser
+cannot run and its row stays `queued`. No such cancelled run exists in the 68
+historical runs, so this is a mechanism gap rather than an observed incident. It
+belongs to the same server-side staleness sweep as the lost-runner case.
+
 ---
 
 ### [FRICTION-008] No single command runs the contract tests; several need undeclared setup
@@ -410,6 +430,10 @@ locally in parallel took 3 s: 86 passed and 9 failed from setup alone. Five need
 
 Add one runner that sets `PYTHONPATH`, runs the dependency-free set in parallel,
 and reports the dependency-gated ones as SKIPPED rather than failed.
+
+**Update 2026-09-24:** at PR #222 head `ea4978e` there are 96 `scripts/test_*.py`.
+With `PYTHONPATH=.` and `xargs -P8`, 92 pass in 4 s. The same 4 (psycopg,
+supervision, ffmpeg, boto3) fail identically on `main@dda3fe4`.
 
 ---
 
@@ -480,6 +504,17 @@ An independent review of PR #222 (CI green) found two gaps in its own fixes:
 
 For a new validation tool, add a canary that the tool must reject before
 trusting a PASS.
+
+**Update 2026-09-24 (independent qualification at `ea4978e`):** the drift
+guard covered every server response type *except* `UploadVerifyResponse`.
+The mobile app consumed `POST /api/operator/upload/verify`, the UPL-01
+verification step, through a local inline type in `pipeline.tsx` that the
+guard could not see. Fixed: the type is now in the mobile mirror and asserted
+in `contracts.drift.ts`. The negative mutation (mirror `size: number`, while
+the server can send `null`) fails `npm run type-check` at the new assertion.
+All server contract types are now covered, directly or transitively. Remaining
+blind spot: a *new* server type is not covered until someone adds an
+assertion.
 
 ---
 
