@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
+import { clampIntParam } from '@/lib/validate';
 
 export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url);
-  const page = parseInt(searchParams.get('page') ?? '1');
-  const limit = Math.min(parseInt(searchParams.get('limit') ?? '20'), 50);
+  // Clamp before building the range: NaN/negative values would otherwise reach
+  // PostgREST as an invalid Range (e.g. offset=NaN or offset=-20).
+  const page = clampIntParam(searchParams.get('page'), 1, 1, 10_000);
+  const limit = clampIntParam(searchParams.get('limit'), 20, 1, 50);
   const sport = searchParams.get('sport');
   const offset = (page - 1) * limit;
 

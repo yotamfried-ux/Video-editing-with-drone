@@ -10,8 +10,8 @@ export type OperatorErrorResponse = {
 export type PipelineStatus = {
   stage: string;
   progress: number;
-  meta: Record<string, unknown>;
-  updated_at: string;
+  meta: Record<string, unknown> | null;
+  updated_at: string | null;
 };
 
 export type PipelineStatusResponse = {
@@ -159,7 +159,7 @@ export type DeliveryStatusResponse = {
 
 export type OperatorReelRow = {
   id: string;
-  token: string;
+  token: string | null;
   sport: string | null;
   athlete_desc: string | null;
   status: string;

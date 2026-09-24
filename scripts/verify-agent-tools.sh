@@ -17,8 +17,10 @@ check_version() {
     return
   fi
   local actual
-  actual="$("$tool" --version 2>&1 | head -n 1 || true)"
-  if [[ "$actual" == *"$expected"* ]]; then
+  # stdout only, first semver token: the JVM prints JAVA_TOOL_OPTIONS notices on
+  # stderr and Maestro prints banners before its version line.
+  actual="$("$tool" --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+  if [[ "$actual" == "$expected" ]]; then
     ok "$tool $expected"
   else
     bad "$tool version mismatch (expected $expected; got: $actual)"

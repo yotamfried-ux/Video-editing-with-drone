@@ -54,6 +54,21 @@ fresh host. That is a security boundary, not missing project configuration.
 small stamp ties it to the exact Git HEAD so a reused checkout avoids needless
 rebuilds without trusting a stale graph.
 
+## RTK and type-checks
+
+The RTK hook rewrites `npx tsc ...` to `rtk tsc ...`, which runs the *global*
+TypeScript rather than the version pinned in `mobile/` or `web-api/`. That can
+turn a clean type-check into a false failure (FRICTION-006). Type-check through
+the project scripts, which keep the pinned compiler:
+
+```bash
+(cd mobile && npm run type-check)
+(cd web-api && npm run type-check)
+```
+
+Do not run `web-api` type-check concurrently with `next build`: the build
+rewrites `.next/types`, which the type-check includes.
+
 ## Verification only
 
 ```bash
