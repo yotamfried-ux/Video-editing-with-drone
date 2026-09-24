@@ -12,19 +12,6 @@ LOCK = (ROOT / "tooling/agent-tools.lock.env").read_text(encoding="utf-8")
 IGNORE = (ROOT / ".gitignore").read_text(encoding="utf-8")
 MCP_TEXT = (ROOT / ".mcp.json").read_text(encoding="utf-8")
 MCP = json.loads(MCP_TEXT)
-CLAUDE = (ROOT / "CLAUDE.md").read_text(encoding="utf-8")
-FRICTION = (ROOT / "docs/AI-FRICTION-LOG.md").read_text(encoding="utf-8")
-
-
-def test_ai_friction_log_is_durable_project_policy() -> None:
-    assert "docs/AI-FRICTION-LOG.md" in CLAUDE
-    for concept in ("slow", "context/token", "complexity", "automation/caching/parallelism"):
-        assert concept in CLAUDE
-    for section in ("Observed behavior", "Impact", "Evidence", "Simpler / faster alternative", "Follow-up"):
-        assert section in FRICTION
-    assert "Never record secrets" in FRICTION
-
-
 def test_project_declares_every_managed_tool() -> None:
     assert PROJECT_TOOLS["tools"] == ["superpowers", "rtk", "graphify", "maestro"]
 

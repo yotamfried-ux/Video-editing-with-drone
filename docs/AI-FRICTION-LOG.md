@@ -1,91 +1,11 @@
-# AI Friction & Improvement Log
+# Project Friction History
 
-Persistent learning log for AI agents working on SportReel.
+Historical observations from SportReel development and validation.
 
-This is broader than a bug list. Record material friction that can teach us how
-to make the product, repository, tests, infrastructure, or AI workflow simpler,
-faster, clearer, cheaper, or more reliable.
-
-## Record a finding when
-
-- application behavior is wrong or surprising;
-- a test is failing, flaky, brittle, misleading, obsolete, or slower than it should be;
-- documentation, configuration, dependencies, APIs, tool assumptions, or examples are stale;
-- a step takes materially longer than expected;
-- setup, downloads, builds, environment preparation, or context reconstruction repeat unnecessarily;
-- an AI worker spends excessive tokens/context to rediscover something the project could encode;
-- a workflow has unnecessary manual steps or duplicated work;
-- a tool/capability exists but is not being used effectively;
-- missing automation, caching, observability, evidence, or project-level configuration causes avoidable work;
-- an interface, API, folder structure, ownership boundary, or naming scheme is confusing;
-- a simpler, faster, safer, more deterministic, or more parallel approach is credible;
-- infrastructure limitations force a slower workaround.
-
-A run does not need to fail for an entry to be useful. A seven-minute passing
-test that can safely become a three-minute test is valid friction.
-
-## Working rule
-
-Do not stop normal work merely to report a friction item.
-
-1. Continue the active task when safe.
-2. Append or update the finding briefly.
-3. Fix it immediately when the change is small, reversible, in scope, and verifiable.
-4. Otherwise leave a concrete follow-up.
-5. Before investigating a recurring infrastructure/tooling problem, search this
-   log so the same issue is not rediscovered from scratch.
-
-Never record secrets, tokens, credentials, private personal data, or secret-bearing logs.
-
-## Entry template
-
-### [FRICTION-XXX] Short title
-
-**Status:** OPEN | INVESTIGATING | IMPROVED | RESOLVED | ACCEPTED  
-**Category:** bug | performance | tooling | testing | CI | context | documentation | architecture | developer-experience | automation | dependency | other  
-**Observed:** YYYY-MM-DD  
-**Revision / environment:** commit, branch, workflow run, host, tool version, or N/A
-
-**Observed behavior**
-
-What actually happened.
-
-**Impact**
-
-Practical cost. Prefer measurements when available: wall-clock time, repeated
-attempts, token/context cost, number of manual steps, downloads/builds, or failed runs.
-
-**Evidence**
-
-Concrete run IDs, logs, files, screenshots, measurements, or commands.
-Separate verified observation from inference.
-
-**Likely cause**
-
-State only what current evidence supports. Mark uncertainty explicitly.
-
-**Simpler / faster alternative**
-
-A concrete improvement when one is credible: cache an artifact, persist project
-configuration, use an existing Engineering-OS capability, parallelize independent
-work, move execution to managed infrastructure, replace brittle UI coordinates
-with semantic selectors, or consolidate repeated agent logic.
-
-**Action taken**
-
-What changed during this task, if anything.
-
-**Follow-up**
-
-Remaining verification or implementation.
-
-## Resolution rule
-
-Do not delete useful history when a finding is fixed. Change its status and add
-the resolving commit/PR/run plus the measured improvement when available.
-
-If several entries reveal the same reusable pattern, promote that lesson back
-into Engineering-OS so other projects can avoid the same friction.
+This file preserves measured bottlenecks, failed approaches, causes, evidence,
+and improvement ideas so they remain discoverable as project knowledge. It is
+not an instruction file and does not define how Claude, another AI agent, or a
+human contributor must work.
 
 ---
 
@@ -258,9 +178,9 @@ qualified local worker.
 
 **Evidence**
 
-`CLAUDE.md` previously documented tool bootstrap but had no cost-aware execution
-routing. Engineering-OS now exposes `capability-registry/EXECUTION-FAST-PATH.json`
-with deterministic/local/included/paid cost classes and local Ollama routing.
+A prior SportReel revision introduced `CLAUDE.md` execution-routing instructions.
+Engineering-OS also exposed `capability-registry/EXECUTION-FAST-PATH.json` with
+execution/cost metadata.
 
 **Likely cause**
 
@@ -275,12 +195,11 @@ parallel work, and require deterministic evidence before accepting worker output
 
 **Action taken**
 
-SportReel `CLAUDE.md` now makes cost-aware execution/delegation part of the
-default working method.
+The earlier routing experiment added repository-level Claude workflow policy.
+A later cleanup removed that policy so execution strategy remains the active
+agent's decision while the capability metadata remains available as knowledge.
 
 **Follow-up**
 
-Qualify one local Ollama model on the actual persistent host using representative
-SportReel tasks, then benchmark a small parallel worker pilot against the current
-main-agent workflow. Record latency, quality, hardware use and any hosted-model
-usage avoided.
+Historical candidate: compare local/hosted execution on representative tasks if
+that comparison becomes useful; no project-level workflow requirement is implied.
