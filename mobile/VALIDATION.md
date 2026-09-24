@@ -9,6 +9,11 @@ npm run type-check
 
 GitHub Actions runs the same check for mobile pull requests through `.github/workflows/mobile-check.yml`.
 
+`npm run type-check` also compiles `src/features/operator/types/contracts.drift.ts`,
+which fails when a response type in `web-api/src/types/operator-contracts.ts` can
+send a value the mobile mirror in `contracts.ts` does not accept. Mobile Check
+therefore also runs when that server contract file changes.
+
 ## UPL-01 Android upload E2E (Maestro)
 
 The operator gallery-upload journey is driven by Maestro flows in
