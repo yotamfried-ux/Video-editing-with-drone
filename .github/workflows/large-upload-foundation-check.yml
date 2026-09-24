@@ -136,19 +136,68 @@ jobs:
         with:
           ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
 
+      - name: Compute native compile qualification key
+        id: native-key
+        shell: bash
+        run: |
+          KEY="$(python - <<'PY'
+          import hashlib
+          import pathlib
+          import subprocess
+
+          root = pathlib.Path(".")
+          paths = subprocess.check_output(
+              ["git", "ls-files", "-z", "mobile"],
+          ).split(b"\0")
+          selected = []
+          for raw in paths:
+              if not raw:
+                  continue
+              rel = raw.decode()
+              if rel.startswith("mobile/.maestro/"):
+                  continue
+              selected.append(rel)
+          selected.append(".github/workflows/large-upload-foundation-check.yml")
+
+          digest = hashlib.sha256()
+          for rel in sorted(selected):
+              path = root / rel
+              digest.update(rel.encode())
+              digest.update(b"\0")
+              digest.update(path.read_bytes())
+              digest.update(b"\0")
+          print(digest.hexdigest())
+          PY
+          )"
+          echo "key=large-upload-native-v1-${RUNNER_OS}-$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Restore successful native compile marker
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/large-upload-native-compile.ok
+          key: ${{ steps.native-key.outputs.key }}
+
+      - name: Verify cached native compile marker
+        if: steps.native-cache.outputs.cache-hit == 'true'
+        run: test -s "$RUNNER_TEMP/large-upload-native-compile.ok"
+
       - uses: actions/setup-node@v4
+        if: steps.native-cache.outputs.cache-hit != 'true'
         with:
           node-version: '20'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
       - uses: actions/setup-java@v4
+        if: steps.native-cache.outputs.cache-hit != 'true'
         with:
           distribution: temurin
           java-version: '17'
           cache: gradle
 
       - name: Generate the Android project with the local module
+        if: steps.native-cache.outputs.cache-hit != 'true'
         working-directory: mobile
         env:
           CI: '1'
@@ -157,7 +206,20 @@ jobs:
           npx expo prebuild --platform android --clean --no-install
 
       - name: Compile Android Kotlin, including SportReelSourceReader
+        if: steps.native-cache.outputs.cache-hit != 'true'
         working-directory: mobile/android
         run: |
           chmod +x gradlew
           ./gradlew :app:compileDebugKotlin --no-daemon --stacktrace
+
+      - name: Record successful native compile
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        run: |
+          printf 'qualified_sha=%s\n' "${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}"             > "$RUNNER_TEMP/large-upload-native-compile.ok"
+
+      - name: Save successful native compile marker
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/large-upload-native-compile.ok
+          key: ${{ steps.native-key.outputs.key }}
