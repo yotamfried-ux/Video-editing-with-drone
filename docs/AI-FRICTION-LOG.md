@@ -91,49 +91,52 @@ into Engineering-OS so other projects can avoid the same friction.
 
 ### [FRICTION-001] UPL-01 emulator execution is slower than the Maestro scenarios require
 
-**Status:** INVESTIGATING  
+**Status:** IMPROVED  
 **Category:** performance  
 **Observed:** 2026-09-23  
-**Revision / environment:** SportReel PR #219; GitHub Actions run 35899516151; Maestro 2.10.0
+**Revision / environment:** SportReel PR #219; GitHub Actions runs 35899516151 and 35904081092; Maestro 2.10.0
 
 **Observed behavior**
 
-The successful UPL-01 run used a cached APK, so the Android Gradle build was
-skipped, but the workflow still had to provision dependencies, start Metro,
-boot an Android emulator, install Maestro, and then run the scenarios serially.
+The successful serial UPL-01 run used a cached APK but still provisioned one
+Android emulator and executed the behavioral scenarios in series. A follow-up
+implementation isolated the scenarios and fanned them out to separate jobs.
 
 **Impact**
 
-The complete successful workflow took roughly seven minutes. The four Maestro
-flows themselves consumed several minutes sequentially even though the three
-behavioral scenarios can be isolated on separate device instances.
+Serial run 35899516151 took 7m19s from start to result. The parallel run
+35904081092 executed in about 5 minutes once runners started, but spent roughly
+12m34s queued first; trigger-to-result time was therefore about 17m34s. Parallel
+test execution worked, but GitHub-hosted runner availability dominated feedback
+latency.
 
 **Evidence**
 
-Run 35899516151 completed successfully. The APK build step was skipped from the
-checkpoint cache. Maestro passed media seed, no-secret, picker-cancelled and
-gallery-upload; independent backend verification also passed.
+Both runs completed successfully. The parallel run proved the isolated Maestro
+scenarios can execute independently while the positive upload path retains
+authoritative backend verification.
 
 **Likely cause**
 
-Independent scenarios share one emulator and are intentionally executed in
-series by `mobile/.maestro/upl01/run-upl01.sh`.
+Emulator provisioning and GitHub-hosted runner queueing are more expensive than
+the saved serial Maestro time. Multiple workers also repeat environment setup.
 
 **Simpler / faster alternative**
 
-Run independent scenarios concurrently on isolated emulators/device workers.
-Keep only the positive upload scenario responsible for Supabase/R2 verification.
-Evaluate Maestro Cloud/managed devices to remove repeated emulator provisioning
-when credentials/infrastructure are available.
+Keep the isolated scenario design, but run it where workers/devices are already
+available: managed-device/Maestro Cloud infrastructure or qualified
+local/self-hosted capacity. Share immutable app artifacts and avoid rebuilding or
+reinstalling per worker.
 
 **Action taken**
 
-Tracked for the next optimization change.
+Parallel-safe flows and scenario isolation were merged to main. The experiment
+established that naive GitHub-hosted fan-out is not the fastest end-to-end path.
 
 **Follow-up**
 
-Measure serial baseline versus parallel wall-clock time and then inspect the
-rest of the project for other safely parallelizable CI/test stages.
+Qualify a managed-device or persistent local/self-hosted route and compare
+trigger-to-result latency against the 7m19s serial baseline.
 
 
 ---
@@ -227,3 +230,57 @@ Scenario fixtures are already isolated by distinct byte sizes within one run.
 
 Design exact cross-run correlation, add a regression that proves overlapping
 runs cannot consume each other's rows, then enable safe stale-run cancellation.
+
+
+---
+
+### [FRICTION-004] AI work is not yet routed to the cheapest qualified execution path
+
+**Status:** IMPROVED  
+**Category:** context  
+**Observed:** 2026-09-24  
+**Revision / environment:** SportReel main + Engineering-OS execution fast path
+
+**Observed behavior**
+
+SportReel already has deterministic CI, RTK, Graphify, Maestro and reusable agent
+assets, while Engineering-OS also catalogs Ollama, agent frameworks and specialist
+role prompts. Before this change, project instructions did not explicitly require
+an AI session to compare no-model/local/included/paid execution before spawning
+subagents or doing cognitive work in the main hosted session.
+
+**Impact**
+
+Bounded tasks such as log triage, independent module review, candidate-test
+generation and documentation consistency checking can consume main-agent context
+or hosted model usage even when they are suitable for deterministic tooling or a
+qualified local worker.
+
+**Evidence**
+
+`CLAUDE.md` previously documented tool bootstrap but had no cost-aware execution
+routing. Engineering-OS now exposes `capability-registry/EXECUTION-FAST-PATH.json`
+with deterministic/local/included/paid cost classes and local Ollama routing.
+
+**Likely cause**
+
+Tool installation, testing routing and agent catalogs were developed separately;
+there was no single low-context execution decision point.
+
+**Simpler / faster alternative**
+
+Route every delegated/LLM-backed subtask through the Engineering-OS execution
+fast path. Prefer deterministic tools, then qualified local models for bounded
+parallel work, and require deterministic evidence before accepting worker output.
+
+**Action taken**
+
+SportReel `CLAUDE.md` now makes cost-aware execution/delegation part of the
+default working method.
+
+**Follow-up**
+
+Qualify one local Ollama model on the actual persistent host using representative
+SportReel tasks, then benchmark a small parallel worker pilot against the current
+main-agent workflow. Record latency, quality, hardware use and any hosted-model
+usage avoided.
