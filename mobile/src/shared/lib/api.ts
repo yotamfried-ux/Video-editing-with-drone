@@ -1,4 +1,4 @@
-const BASE = process.env.EXPO_PUBLIC_API_BASE_URL ?? 'https://api.sportreel.app';
+import { API_BASE_URL as BASE } from './publicEnv';
 
 async function readFailureMessage(res: Response): Promise<string> {
   const text = await res.text().catch(() => '');
