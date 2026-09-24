@@ -21,6 +21,34 @@ The bootstrap is idempotent: matching installations are reused, generated Graphi
 
 These are agent/testing tools, not SportReel runtime dependencies. Their presence is not evidence that the application works.
 
+
+## Cost-aware execution and delegation
+
+Before spawning subagents, choosing a hosted model, or building a new AI workflow,
+route the task through Engineering-OS `capability-registry/EXECUTION-FAST-PATH.json`.
+
+Execution preference:
+
+1. deterministic / no-model tools first;
+2. reuse already-ready project capabilities;
+3. qualified local-model workers for bounded independent tasks;
+4. included-credit / host-native agents when local quality is insufficient;
+5. paid hosted models only when they materially improve the result.
+
+Good local/parallel candidates include log triage, independent module review,
+candidate-test generation, documentation consistency checks and static-analysis
+triage. Give every worker a bounded output contract and validate its conclusions
+with deterministic tests, exact code evidence or authoritative runtime state.
+
+Do not assume "agent" means free. A framework or prompt asset inherits the cost
+of the model/runtime behind it. Local Ollama-style inference avoids per-call
+hosted API fees but still consumes local compute and must be qualified for the
+task. Claude-Code-specific skills are not automatically portable to a local
+model.
+
+Do not bulk-start all available agents. Parallelize only independent state and
+use one coordinator to reconcile results.
+
 ## Product source of truth
 
 Read before changing pipeline behavior:
