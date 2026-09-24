@@ -49,6 +49,27 @@ model.
 Do not bulk-start all available agents. Parallelize only independent state and
 use one coordinator to reconcile results.
 
+For broad qualification/review work, follow the Engineering-OS execution trace
+contract, not just its general intent:
+
+- emit the required structured routing records from
+  `capability-registry/EXECUTION-TRACE.json` in the durable audit/final report,
+  including the exact Engineering-OS entry point and route key;
+- if the task decomposes into 3+ bounded workstreams and at least 2 remain
+  independent with a qualified worker route available, delegate at least one
+  bounded workstream unless an allowed Engineering-OS skip reason applies;
+- "shared project context" alone is not a sufficient reason to skip delegation;
+  first carve out read-only slices such as module review, log triage, candidate
+  tests, or documentation drift.
+
+When CI is running, prefer a host-native PR/check-suite completion subscription
+that can resume the same session. Persist the current SHA, acceptance criteria,
+and next action before yielding. While a live completion subscription exists,
+do not add a timer, sleep loop, or polling fallback merely to wake for one job;
+the suite-completion event is sufficient to resume and inspect all terminal jobs.
+Use Engineering-OS `capability-registry/CI-CONTINUATION.md` only when the host
+cannot resume from such a subscription.
+
 ## Product source of truth
 
 Read before changing pipeline behavior:
