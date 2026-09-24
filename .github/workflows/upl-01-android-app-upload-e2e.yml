@@ -1,0 +1,254 @@
+name: UPL-01 Android App Upload E2E
+
+on:
+  push:
+    branches:
+      - validation/upl01-android-e2e
+      - claude/keen-feynman-mkxbgp
+      - perf/upl01-maestro-parallel
+    paths:
+      - .github/workflows/upl-01-android-app-upload-e2e.yml
+      - mobile/.maestro/upl01/**
+      - scripts/upl01_backend_evidence.py
+      - scripts/test_upl01_maestro_contract.py
+      - mobile/src/shared/components/**
+      - mobile/src/app/(operator)/**
+      - mobile/src/app/index.tsx
+      - mobile/src/features/operator/**
+      - web-api/src/app/api/operator/upload/**
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# Separate workflow runs stay serialized against the production backend.
+# Scenarios inside one run use isolated emulators and unique fixture sizes.
+concurrency:
+  group: upl-01-android-app-upload-e2e
+  cancel-in-progress: false
+
+env:
+  APP_ID: com.sportreel.app
+  API_BASE: https://video-editing-with-drone.vercel.app
+  MAESTRO_VERSION: '2.10.0'
+
+jobs:
+  prepare-apk:
+    name: prepare cached APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute APK checkpoint key
+        id: apk-key
+        shell: bash
+        run: |
+          KEY=$(find mobile -type f \
+            \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.json' -o -name '*.gradle' -o -name '*.properties' \) \
+            ! -path 'mobile/node_modules/*' ! -path 'mobile/android/*' \
+            -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "key=upl01-apk-$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Restore APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - uses: actions/setup-node@v4
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies for APK build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        run: npm ci
+
+      - name: Build Android debug APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-upl01.apk"
+
+      - name: Save APK checkpoint immediately after build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - name: Publish APK once for parallel scenario workers
+        uses: actions/upload-artifact@v4
+        with:
+          name: upl01-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  upl-01-scenario:
+    name: Maestro ${{ matrix.scenario }}
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - scenario: no-operator-secret
+            duration: 2
+            size: 320x180
+            frequency: 660
+          - scenario: picker-cancelled
+            duration: 3
+            size: 480x270
+            frequency: 770
+          - scenario: gallery-upload
+            duration: 4
+            size: 640x360
+            frequency: 880
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download prepared APK
+        uses: actions/download-artifact@v4
+        with:
+          name: upl01-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Create scenario-unique real MP4 fixture
+        env:
+          FIXTURE_DURATION: ${{ matrix.duration }}
+          FIXTURE_SIZE: ${{ matrix.size }}
+          FIXTURE_FREQUENCY: ${{ matrix.frequency }}
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg >/dev/null
+          fi
+          ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i "testsrc=size=${FIXTURE_SIZE}:rate=30" \
+            -f lavfi -i "sine=frequency=${FIXTURE_FREQUENCY}:sample_rate=48000" \
+            -t "$FIXTURE_DURATION" -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest \
+            mobile/.maestro/upl01/media/upl01-fixture.mp4
+          test -s mobile/.maestro/upl01/media/upl01-fixture.mp4
+          printf "%s bytes\n" "$(stat -c "%s" mobile/.maestro/upl01/media/upl01-fixture.mp4)"
+
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
+      - name: Start isolated Metro
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro.log"
+          exit 1
+
+      - name: Restore Maestro CLI cache
+        id: maestro-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Install Maestro CLI
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+
+      - name: Save Maestro CLI cache
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Put Maestro on PATH
+        run: |
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro-cli/maestro/bin/maestro" --version
+          java -version 2>&1 | head -1
+
+      - name: Run isolated UPL-01 Maestro scenario
+        env:
+          UPL01_SCENARIO: ${{ matrix.scenario }}
+          APK: ${{ runner.temp }}/sportreel-upl01.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/upl01-evidence-${{ matrix.scenario }}
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          MAESTRO_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/upl01/run-upl01-scenario.sh
+
+      - name: Upload scenario evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upl-01-${{ matrix.scenario }}-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/upl01-evidence-${{ matrix.scenario }}/
+          retention-days: 30
+          if-no-files-found: warn
+
+  upl-01-summary:
+    name: UPL-01 parallel summary
+    if: always()
+    needs: [prepare-apk, upl-01-scenario]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require APK preparation and every Maestro matrix scenario
+        env:
+          PREPARE_RESULT: ${{ needs.prepare-apk.result }}
+          SCENARIO_RESULT: ${{ needs.upl-01-scenario.result }}
+        run: |
+          echo "prepare-apk=$PREPARE_RESULT"
+          echo "parallel-scenarios=$SCENARIO_RESULT"
+          test "$PREPARE_RESULT" = success
+          test "$SCENARIO_RESULT" = success

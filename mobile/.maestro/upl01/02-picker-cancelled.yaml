@@ -1,0 +1,25 @@
+# Negative: backing out of the system picker is a silent no-op.
+# Expected semantics: no upload row in the UI, no alert, the upload button is
+# idle again, and (checked by the backend verifier) no source_uploads row.
+appId: com.sportreel.app
+name: UPL-01 negative - picker cancelled
+tags: [upl01, negative]
+---
+- runFlow: subflows/launch-to-settings.yaml
+- runFlow: subflows/save-operator-secret.yaml
+- runFlow: subflows/open-pipeline.yaml
+- tapOn:
+    id: "pipeline-upload-gallery"
+- extendedWaitUntil:
+    visible:
+      id: ".*providers\\.media\\.module:id/icon_thumbnail"
+    timeout: 30000
+- back
+- extendedWaitUntil:
+    visible:
+      id: "pipeline-upload-gallery"
+      text: "Upload from gallery"
+    timeout: 15000
+- assertNotVisible: "Upload batch progress"
+- assertNotVisible: "Uploaded to queue|Some uploads failed|Failed|Operator secret required"
+- takeScreenshot: picker-cancelled-idle

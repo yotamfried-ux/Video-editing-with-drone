@@ -661,6 +661,7 @@ export default function PipelineScreen() {
             <Button
               label={uploadBusy ? `Uploading ${verifiedUploads}/${uploadItems.length}...` : 'Upload from gallery'}
               onPress={uploadFootage}
+              testID="pipeline-upload-gallery"
               disabled={busy}
               variant="secondary"
               style={{ height: 44 }}
@@ -751,7 +752,7 @@ export default function PipelineScreen() {
                   <View key={item.id} style={styles.uploadRow}>
                     <View style={{ flex: 1, gap: 2 }}>
                       <Text variant="caption" color={Colors.textPrimary} numberOfLines={1}>{item.filename}</Text>
-                      <Text variant="caption" color={item.status === 'failed' ? Colors.danger : Colors.textSecondary}>
+                      <Text testID={`upload-item-status-${item.status}`} variant="caption" color={item.status === 'failed' ? Colors.danger : Colors.textSecondary}>
                         {UPLOAD_STATUS_LABEL[item.status]}
                         {item.uploadMode !== 'multipart' && item.attempt && item.attempt > 1 && (item.status === 'initializing' || item.status === 'uploading') ? ` (attempt ${item.attempt}/${MAX_UPLOAD_ATTEMPTS})` : ''}
                         {' · '}{item.progress}%

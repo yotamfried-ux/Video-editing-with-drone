@@ -1,0 +1,7 @@
+# One Maestro process per isolated emulator worker.
+appId: com.sportreel.app
+name: UPL-01 isolated - picker cancelled
+tags: [upl01, parallel, negative]
+---
+- runFlow: 00-seed-media.yaml
+- runFlow: 02-picker-cancelled.yaml

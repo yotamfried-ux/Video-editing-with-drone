@@ -11,11 +11,13 @@ interface Props {
   color?: string;
   style?: TextStyle;
   numberOfLines?: number;
+  testID?: string;
 }
 
-export function Text({ children, variant = 'body', color, style, numberOfLines }: Props) {
+export function Text({ children, variant = 'body', color, style, numberOfLines, testID }: Props) {
   return (
     <RNText
+      testID={testID}
       style={[
         Typography[variant],
         { color: color ?? Colors.textPrimary },

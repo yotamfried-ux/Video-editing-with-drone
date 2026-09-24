@@ -200,8 +200,8 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     privacy = (ROOT / "mobile/src/shared/legal/privacyPolicy.ts").read_text(encoding="utf-8")
     terms = (ROOT / "mobile/src/shared/legal/terms.ts").read_text(encoding="utf-8")
     deployment = (ROOT / "DEPLOYMENT.md").read_text(encoding="utf-8")
-    stripe_checkout = (ROOT / "web-api/src/app/api/checkout/stripe/route.ts").read_text(encoding="utf-8")
-    stripe_webhook = (ROOT / "web-api/src/app/api/webhooks/stripe/route.ts").read_text(encoding="utf-8")
+    checkout = (ROOT / "web-api/src/app/api/checkout/[token]/route.ts").read_text(encoding="utf-8")
+    payment_webhook = (ROOT / "web-api/src/app/api/payments/webhook/route.ts").read_text(encoding="utf-8")
     mobile_checkout = (ROOT / "mobile/src/features/payment/hooks/useCheckout.ts").read_text(encoding="utf-8")
 
     assert "face_recognition" not in requirements
@@ -212,10 +212,21 @@ def test_face_recognition_is_absent_from_active_product_code() -> None:
     assert "SPORTREEL_REQUIRE_PERCEPTION: '1'" in workflow
     assert "drop column if exists face_embedding" in migration
     assert "drop column if exists matched_athlete" in migration
-    assert "receipt_email: email" in stripe_checkout
-    assert "payer_email: email" in stripe_checkout
-    assert "intent.receipt_email" in stripe_webhook
-    assert "email: payerEmail" in mobile_checkout
+    # Payment-provider mechanics are intentionally outside this no-face contract.
+    # The invariant here is that purchase/delivery ownership never reintroduces
+    # biometric identity surfaces as payment implementations evolve.
+    active_purchase_code = "\n".join((checkout, payment_webhook, mobile_checkout))
+    for forbidden in (
+        "face_embedding",
+        "photo_path",
+        "matched_athlete",
+        "match_athlete_face",
+        "cosine_similarity",
+        "athlete-photos",
+    ):
+        assert forbidden not in active_purchase_code, (
+            f"active purchase path reintroduced biometric ownership: {forbidden}"
+        )
     for forbidden in (
         "face_embedding",
         "photo_path",
