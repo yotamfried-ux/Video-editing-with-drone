@@ -1,0 +1,164 @@
+name: Security Qualification
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_dast:
+        description: Run authorized OWASP ZAP baseline against production
+        required: false
+        default: true
+        type: boolean
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - 'web-api/**'
+      - 'pipeline/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - '**/package*.json'
+      - '**/requirements*.txt'
+      - '.github/workflows/security-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'web-api/**'
+      - 'pipeline/**'
+      - 'scripts/**'
+      - 'package*.json'
+      - '**/package*.json'
+      - '**/requirements*.txt'
+      - '.github/workflows/security-qualification.yml'
+  schedule:
+    - cron: '17 4 * * 1'
+
+permissions:
+  contents: read
+
+jobs:
+  codeql:
+    name: CodeQL (${{ matrix.language }})
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [javascript-typescript, python]
+    steps:
+      - uses: actions/checkout@v7
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+      - name: Analyze
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}
+
+  osv:
+    name: OSV dependency scan
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
+    uses: google/osv-scanner-action/.github/workflows/osv-scanner-reusable.yml@0c58c542420dfd23fcac08dd9c8ca3cca9c36f1a # v2.5.0
+    with:
+      scan-args: |-
+        --include-git-root
+        -r
+        ./
+
+  secrets-and-config:
+    name: Secrets, dependencies and configuration
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Gitleaks repository and history scan
+        uses: gitleaks/gitleaks-action@v3
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Trivy filesystem qualification
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,misconfig,secret
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: table
+          exit-code: '1'
+
+  mobile-source-security:
+    name: MobSF mobile source scan
+    runs-on: ubuntu-24.04
+    permissions:
+      security-events: write
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.12'
+      - name: Run mobsfscan
+        uses: MobSF/mobsfscan@4645ea70bc093268502fe9f6df93e41bb482254a
+        with:
+          args: 'mobile --sarif --output results.sarif || true'
+      - name: Upload mobsfscan SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: results.sarif
+
+  supply-chain-posture:
+    name: OpenSSF Scorecard posture
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Run Scorecard
+        uses: ossf/scorecard-action@v2.4.4
+        with:
+          results_file: scorecard-results.sarif
+          results_format: sarif
+          publish_results: false
+      - name: Preserve Scorecard evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: scorecard-results
+          path: scorecard-results.sarif
+          retention-days: 30
+          if-no-files-found: warn
+
+  zap-baseline:
+    name: OWASP ZAP production baseline
+    if: >
+      (github.event_name == 'workflow_dispatch' && inputs.run_dast) ||
+      github.event_name == 'schedule' ||
+      github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - name: Passive/baseline DAST against authorized SportReel deployment
+        uses: zaproxy/action-baseline@v0.15.0
+        with:
+          target: 'https://video-editing-with-drone.vercel.app'
+          allow_issue_writing: false
+          fail_action: false
+          artifact_name: zap-security-qualification
