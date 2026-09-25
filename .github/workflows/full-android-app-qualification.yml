@@ -13,7 +13,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: full-android-app-qualification-v2
+  group: full-android-app-qualification-${{ github.ref }}
   cancel-in-progress: true
 
 env:
