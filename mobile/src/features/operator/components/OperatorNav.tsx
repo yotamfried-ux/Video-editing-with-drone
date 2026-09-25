@@ -24,6 +24,7 @@ export function OperatorNav() {
       <View style={styles.header}>
         <Text variant="caption" color={Colors.accent}>OPERATOR · SPORTREEL</Text>
         <TouchableOpacity
+          testID="operator-nav-exit"
           onPress={() => {
             // Re-lock so the next entry requires biometric again.
             useOperatorUnlock.getState().lock();
@@ -39,6 +40,7 @@ export function OperatorNav() {
           return (
             <TouchableOpacity
               key={t.path}
+              testID={`operator-nav-${t.label.toLowerCase()}`}
               onPress={() => router.replace(t.path as never)}
               style={[styles.tab, active && styles.tabActive]}
             >
