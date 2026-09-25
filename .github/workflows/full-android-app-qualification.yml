@@ -150,6 +150,9 @@ jobs:
           unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
           echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
 
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
       - name: Run authenticated Android journey
         env:
           MAESTRO_CLI_NO_ANALYTICS: '1'

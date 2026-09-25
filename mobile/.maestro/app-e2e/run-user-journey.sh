@@ -25,10 +25,11 @@ test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
 adb reverse tcp:8081 tcp:8081
 adb install -r "$APK" > "$EVIDENCE_DIR/install.txt"
 
-maestro test "$HERE/01-user-journey.yaml" \
-  --format junit --output "$EVIDENCE_DIR/user-journey.junit.xml" \
-  --debug-output "$EVIDENCE_DIR/maestro-debug" \
-  --test-output-dir "$EVIDENCE_DIR/maestro-debug" \
-  --flatten-debug-output
+timeout --signal=TERM --kill-after=30s 600s \
+  maestro test "$HERE/01-user-journey.yaml" \
+    --format junit --output "$EVIDENCE_DIR/user-journey.junit.xml" \
+    --debug-output "$EVIDENCE_DIR/maestro-debug" \
+    --test-output-dir "$EVIDENCE_DIR/maestro-debug" \
+    --flatten-debug-output
 
 adb logcat -b crash -d > "$EVIDENCE_DIR/crash-logcat.txt" 2>/dev/null || true
