@@ -109,10 +109,12 @@ tags: [app-full, user]
 - assertVisible:
     id: "profile-sign-out"
 
-# Sign-out must return the app to unauthenticated state.
+# Sign-out must return the app to unauthenticated state. Use the stable login
+# control rather than copy text so the check proves state, not wording.
 - tapOn:
     id: "profile-sign-out"
 - extendedWaitUntil:
-    visible: "Welcome Back"
+    visible:
+      id: "login-email"
     timeout: 30000
 - takeScreenshot: authenticated-user-journey-complete
