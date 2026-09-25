@@ -77,6 +77,74 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+
+  operator-readonly:
+    name: Android operator read-only / API navigation
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-full-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies for Metro
+        working-directory: mobile
+        run: npm ci --no-audit --no-fund
+      - name: Start Metro in operator validation mode
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro-operator.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro-operator.log"
+          exit 1
+      - name: Install Maestro
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip"             "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Run operator read-only Android journey
+        env:
+          APK: ${{ runner.temp }}/sportreel-app-full.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/operator-readonly-evidence
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/app-e2e/run-operator-readonly.sh
+      - name: Upload operator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-readonly-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/operator-readonly-evidence/
+            ${{ runner.temp }}/metro-operator.log
+          retention-days: 30
+          if-no-files-found: warn
+
   authenticated-user:
     name: Android user / profile / support / RLS
     needs: prepare-apk
