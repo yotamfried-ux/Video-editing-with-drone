@@ -43,6 +43,7 @@ function TicketCard({ ticket, onReplied }: { ticket: OperatorSupportTicket; onRe
       <Text variant="body">{ticket.message}</Text>
       <Spacer size={Spacing.xs} />
       <TextInput
+        testID={`operator-support-reply-${ticket.id}`}
         value={reply}
         onChangeText={setReply}
         placeholder="Write a reply…"
@@ -51,6 +52,7 @@ function TicketCard({ ticket, onReplied }: { ticket: OperatorSupportTicket; onRe
         style={styles.input}
       />
       <Button
+        testID={`operator-support-send-${ticket.id}`}
         label={ticket.status === 'replied' ? 'Update Reply' : 'Send Reply'}
         onPress={send}
         loading={sending}
