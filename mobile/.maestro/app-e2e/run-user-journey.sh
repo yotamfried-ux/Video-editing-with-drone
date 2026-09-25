@@ -16,6 +16,11 @@ collect() {
   adb shell dumpsys activity activities > "$EVIDENCE_DIR/final-activities.txt" 2>/dev/null
   adb logcat -d > "$EVIDENCE_DIR/logcat.txt" 2>/dev/null
   adb logcat -b crash -d > "$EVIDENCE_DIR/crash-logcat.txt" 2>/dev/null
+  echo "::group::Maestro failure evidence"
+  test -f "$EVIDENCE_DIR/user-journey.junit.xml" && cat "$EVIDENCE_DIR/user-journey.junit.xml"
+  test -f "$EVIDENCE_DIR/maestro-debug/maestro.log" && tail -n 160 "$EVIDENCE_DIR/maestro-debug/maestro.log"
+  test -f "$EVIDENCE_DIR/crash-logcat.txt" && { echo "--- crash logcat ---"; tail -n 120 "$EVIDENCE_DIR/crash-logcat.txt"; }
+  echo "::endgroup::"
   set -e
 }
 trap 'code=$?; if [ "$code" -ne 0 ]; then collect; fi; exit "$code"' EXIT

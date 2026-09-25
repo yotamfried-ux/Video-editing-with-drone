@@ -2,8 +2,9 @@ appId: com.sportreel.app
 name: APP full - authenticated user journey
 tags: [app-full, user]
 ---
+- clearState
 - launchApp:
-    clearState: true
+    stopApp: false
 - extendedWaitUntil:
     visible: "Welcome Back"
     timeout: 60000
@@ -95,9 +96,10 @@ tags: [app-full, user]
 - tapOn: "(?i)ok"
 - assertVisible: "Support"
 
-# Session must survive a real app process restart.
-- stopApp
-- launchApp
+# Session must survive a real app process death and relaunch.
+- killApp
+- launchApp:
+    stopApp: false
 - extendedWaitUntil:
     visible: "SportReel"
     timeout: 30000
