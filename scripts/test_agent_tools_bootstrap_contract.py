@@ -26,7 +26,14 @@ def test_ai_friction_log_is_durable_project_policy() -> None:
 
 
 def test_project_declares_every_managed_tool() -> None:
-    assert PROJECT_TOOLS["tools"] == ["superpowers", "rtk", "graphify", "maestro"]
+    assert PROJECT_TOOLS["tools"] == [
+        "superpowers",
+        "rtk",
+        "graphify",
+        "maestro",
+        "playwright-mcp",
+        "chrome-devtools-mcp",
+    ]
 
 
 def test_versions_are_explicit() -> None:
@@ -51,7 +58,7 @@ def test_bootstrap_is_idempotent_by_construction() -> None:
 def test_only_verified_upstream_install_sources_are_used() -> None:
     assert "raw.githubusercontent.com/rtk-ai/rtk/refs/heads/master/install.sh" in BOOT
     assert "github.com/mobile-dev-inc/Maestro/releases/download/cli-" in BOOT
-    assert "graphifyy[mcp]" not in BOOT  # package name/version are composed from the lock
+    assert "graphifyy[mcp]" not in BOOT
     assert "GRAPHIFY_PACKAGE=graphifyy" in LOCK
     assert "claude-plugins-official" in LOCK
 
@@ -63,10 +70,23 @@ def test_graphify_output_is_never_repo_state() -> None:
         assert forbidden not in BOOT
 
 
-def test_graphify_mcp_is_project_scoped() -> None:
-    server = MCP["mcpServers"]["graphify"]
-    assert server["command"] == "${HOME}/.local/bin/graphify-mcp"
-    assert server["args"] == ["${PWD}/graphify-out/graph.json"]
+def test_qualification_mcps_are_project_scoped() -> None:
+    graphify = MCP["mcpServers"]["graphify"]
+    assert graphify["command"] == "${HOME}/.local/bin/graphify-mcp"
+    assert graphify["args"] == ["${PWD}/graphify-out/graph.json"]
+
+    maestro = MCP["mcpServers"]["maestro"]
+    assert maestro["command"] == "maestro"
+    assert maestro["args"] == ["mcp"]
+
+    playwright = MCP["mcpServers"]["playwright"]
+    assert playwright["command"] == "npx"
+    assert playwright["args"] == ["-y", "@playwright/mcp@latest"]
+
+    devtools = MCP["mcpServers"]["chrome-devtools"]
+    assert devtools["command"] == "npx"
+    assert devtools["args"] == ["-y", "chrome-devtools-mcp@latest"]
+
     assert "claude mcp add -s local" not in BOOT
 
 
@@ -87,7 +107,15 @@ def test_bootstrap_does_not_install_application_dependencies() -> None:
 
 
 def test_verify_checks_all_managed_capabilities() -> None:
-    for token in ("Superpowers", "rtk", "graphify", "graphify-mcp", "maestro"):
+    for token in (
+        "Superpowers",
+        "rtk",
+        "graphify",
+        "graphify-mcp",
+        "maestro",
+        "playwright",
+        "chrome-devtools",
+    ):
         assert token.lower() in VERIFY.lower()
 
 
