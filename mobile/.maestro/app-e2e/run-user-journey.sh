@@ -17,8 +17,12 @@ collect() {
   adb logcat -d > "$EVIDENCE_DIR/logcat.txt" 2>/dev/null
   adb logcat -b crash -d > "$EVIDENCE_DIR/crash-logcat.txt" 2>/dev/null
   echo "::group::Maestro failure evidence"
-  test -f "$EVIDENCE_DIR/user-journey.junit.xml" && cat "$EVIDENCE_DIR/user-journey.junit.xml"
-  test -f "$EVIDENCE_DIR/maestro-debug/maestro.log" && tail -n 160 "$EVIDENCE_DIR/maestro-debug/maestro.log"
+  for junit in "$EVIDENCE_DIR"/user-journey-attempt-*.junit.xml; do
+    test -f "$junit" && { echo "--- $(basename "$junit") ---"; cat "$junit"; }
+  done
+  for log in "$EVIDENCE_DIR"/maestro-attempt-*/maestro.log; do
+    test -f "$log" && { echo "--- $(basename "$(dirname "$log")")/maestro.log ---"; tail -n 160 "$log"; }
+  done
   test -f "$EVIDENCE_DIR/crash-logcat.txt" && { echo "--- crash logcat ---"; tail -n 120 "$EVIDENCE_DIR/crash-logcat.txt"; }
   echo "::endgroup::"
   set -e
@@ -57,11 +61,60 @@ adb shell monkey -p "$APP_ID" 1 >/dev/null 2>&1 || true
 sleep 3
 adb shell am force-stop "$APP_ID" >/dev/null 2>&1 || true
 
-timeout --signal=TERM --kill-after=30s 600s \
-  maestro test "$HERE/01-user-journey.yaml" \
-    --format junit --output "$EVIDENCE_DIR/user-journey.junit.xml" \
-    --debug-output "$EVIDENCE_DIR/maestro-debug" \
-    --test-output-dir "$EVIDENCE_DIR/maestro-debug" \
-    --flatten-debug-output
+run_maestro_attempt() {
+  local attempt="$1"
+  local junit="$EVIDENCE_DIR/user-journey-attempt-$attempt.junit.xml"
+  local debug="$EVIDENCE_DIR/maestro-attempt-$attempt"
 
+  set +e
+  timeout --signal=TERM --kill-after=30s 600s \
+    maestro test "$HERE/01-user-journey.yaml" \
+      --format junit --output "$junit" \
+      --debug-output "$debug" \
+      --test-output-dir "$debug" \
+      --flatten-debug-output
+  local code=$?
+  set -e
+
+  if [ "$code" -eq 0 ]; then
+    cp "$junit" "$EVIDENCE_DIR/user-journey.junit.xml"
+    return 0
+  fi
+
+  # Maestro has an open Android transport bug where its internal dadb client
+  # can report host:transport:<serial> "device offline" while plain adb is
+  # still healthy. Retry only that infrastructure signature in a fresh
+  # Maestro process; never retry a real UI/assertion failure.
+  if grep -Eqi 'device offline|DeviceServerDiedException' "$debug/maestro.log" 2>/dev/null; then
+    echo "Maestro attempt $attempt hit known transient dadb device-offline failure."
+    return 75
+  fi
+  return "$code"
+}
+
+maestro_ok=0
+for attempt in 1 2 3; do
+  if run_maestro_attempt "$attempt"; then
+    maestro_ok=1
+    break
+  fi
+  code=$?
+  if [ "$code" -ne 75 ] || [ "$attempt" -eq 3 ]; then
+    exit "$code"
+  fi
+
+  echo "Retrying Maestro with a fresh process after verifying adb health..."
+  adb start-server >/dev/null 2>&1 || true
+  adb wait-for-device
+  for _ in $(seq 1 20); do
+    if [ "$(adb get-state 2>/dev/null || true)" = "device" ] && adb shell true >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  test "$(adb get-state 2>/dev/null)" = "device"
+  sleep 2
+done
+
+test "$maestro_ok" -eq 1
 adb logcat -b crash -d > "$EVIDENCE_DIR/crash-logcat.txt" 2>/dev/null || true
