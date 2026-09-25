@@ -36,6 +36,56 @@ permissions:
   contents: read
 
 jobs:
+  normalize-security-overrides:
+    name: Normalize security override lockfiles
+    if: github.event_name == 'pull_request' && github.head_ref == 'tooling/app-qualification-capabilities'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.head_ref }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - name: Regenerate lockfiles from committed security overrides
+        run: |
+          cd web-api
+          npm install --package-lock-only
+          cd ../mobile
+          npm install --package-lock-only
+      - name: Verify web-api after override resolution
+        working-directory: web-api
+        run: |
+          npm ci --no-audit --no-fund
+          npm run type-check
+          npm run build
+      - name: Verify mobile JS and Android bundle after override resolution
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+        run: |
+          npm ci --no-audit --no-fund
+          npm run type-check
+          npm test -- --runInBand
+          npx expo export --platform android --output-dir /tmp/sportreel-export
+      - name: Commit verified lockfiles
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add web-api/package-lock.json mobile/package-lock.json
+          if git diff --cached --quiet; then
+            echo "Lockfiles already match overrides."
+            exit 0
+          fi
+          git commit -m "fix(deps): lock safe transitive overrides"
+          git push origin HEAD:${{ github.head_ref }}
+
   codeql:
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-24.04
