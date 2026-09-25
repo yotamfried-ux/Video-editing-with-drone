@@ -31,9 +31,6 @@ trap 'code=$?; if [ "$code" -ne 0 ]; then collect; fi; exit "$code"' EXIT
 
 adb wait-for-device
 
-# reactivecircus can report sys.boot_completed before ADB remains stable enough
-# for Maestro's device server. Require consecutive healthy probes so a transient
-# offline/reconnect window is treated as infrastructure readiness, not an app failure.
 stable=0
 for attempt in $(seq 1 30); do
   state="$(adb get-state 2>/dev/null || true)"
@@ -68,7 +65,11 @@ run_maestro_attempt() {
 
   set +e
   timeout --signal=TERM --kill-after=30s 600s \
-    maestro test "$HERE/01-user-journey.yaml" \
+    maestro test \
+      -e E2E_EMAIL="$E2E_EMAIL" \
+      -e E2E_PASSWORD="$E2E_PASSWORD" \
+      -e E2E_MARKER="$E2E_MARKER" \
+      "$HERE/01-user-journey.yaml" \
       --format junit --output "$junit" \
       --debug-output "$debug" \
       --test-output-dir "$debug" \
@@ -81,10 +82,6 @@ run_maestro_attempt() {
     return 0
   fi
 
-  # Maestro has an open Android transport bug where its internal dadb client
-  # can report host:transport:<serial> "device offline" while plain adb is
-  # still healthy. Retry only that infrastructure signature in a fresh
-  # Maestro process; never retry a real UI/assertion failure.
   if grep -Eqi 'device offline|DeviceServerDiedException' "$debug/maestro.log" 2>/dev/null; then
     echo "Maestro attempt $attempt hit known transient dadb device-offline failure."
     return 75
