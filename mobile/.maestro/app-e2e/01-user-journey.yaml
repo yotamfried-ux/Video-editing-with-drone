@@ -96,12 +96,14 @@ tags: [app-full, user]
 - tapOn: "(?i)ok"
 - assertVisible: "Support"
 
-# Session must survive a real app process death and relaunch.
+# Session must survive a real app process death and relaunch. The authenticated
+# shell exposes the Profile tab; the literal app title is not guaranteed on the
+# current route, so use the tab as the stable session-restoration signal.
 - killApp
 - launchApp:
     stopApp: false
 - extendedWaitUntil:
-    visible: "SportReel"
+    visible: "Profile"
     timeout: 30000
 - tapOn: "Profile"
 - assertVisible:
