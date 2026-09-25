@@ -22,7 +22,7 @@ export default function ProfileScreen() {
   const { user } = useAuth();
   const router = useRouter();
   const { profile, updateName } = useProfile();
-  const [name, setName] = useState('');
+  const [name, setName] = useState<string | null>(null);
   const [taps, setTaps] = useState(0);
 
   const handleLogoTap = async () => {
@@ -67,7 +67,7 @@ export default function ProfileScreen() {
           <Text variant="caption" color={Colors.textSecondary}>Name</Text>
           <TextInput
             testID="profile-name-input"
-            value={name || profile?.name || ''}
+            value={name ?? profile?.name ?? ''}
             onChangeText={setName}
             placeholder="Your name"
             placeholderTextColor={Colors.textSecondary}
@@ -76,7 +76,7 @@ export default function ProfileScreen() {
           <Button
             testID="profile-save-name"
             label="Save Name"
-            onPress={() => updateName(name || profile?.name || '')}
+            onPress={() => updateName(name ?? profile?.name ?? '')}
             variant="secondary"
           />
         </Card>
