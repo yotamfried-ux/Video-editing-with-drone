@@ -94,8 +94,9 @@ for attempt in 1 2 3; do
   if run_maestro_attempt "$attempt"; then
     maestro_ok=1
     break
+  else
+    code=$?
   fi
-  code=$?
   if [ "$code" -ne 75 ] || [ "$attempt" -eq 3 ]; then
     exit "$code"
   fi
