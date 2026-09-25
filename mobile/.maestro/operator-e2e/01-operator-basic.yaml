@@ -1,0 +1,98 @@
+appId: com.sportreel.app
+name: APP operator - navigation writes and persistence
+tags: [app-full, operator]
+---
+- clearState
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Operator Secret"
+    timeout: 60000
+
+- tapOn:
+    id: "operator-secret-input"
+- inputText: ${MAESTRO_OPERATOR_SECRET}
+- hideKeyboard
+- tapOn:
+    id: "operator-secret-save"
+- extendedWaitUntil:
+    visible: "Secret is configured on this device"
+    timeout: 15000
+
+# SecureStore must survive a process death.
+- killApp
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Secret is configured on this device"
+    timeout: 30000
+
+# Every operator surface must be reachable with its real API-backed content.
+- tapOn:
+    id: "operator-nav-pipeline"
+- extendedWaitUntil:
+    visible: "Global live progress"
+    timeout: 30000
+- assertNotVisible: "Status unavailable:.*"
+
+- tapOn:
+    id: "operator-nav-review"
+- extendedWaitUntil:
+    visible: "Review"
+    timeout: 30000
+- assertNotVisible: "Could not load drafts"
+
+- tapOn:
+    id: "operator-nav-analytics"
+- extendedWaitUntil:
+    visible: "Conversion Funnel"
+    timeout: 30000
+
+# Perform a real isolated pricing write through the UI.
+- tapOn:
+    id: "operator-nav-pricing"
+- extendedWaitUntil:
+    visible: "Add a Sport"
+    timeout: 30000
+- tapOn:
+    id: "operator-pricing-new-sport"
+- inputText: ${E2E_PRICING_SPORT}
+- hideKeyboard
+- tapOn:
+    id: "operator-pricing-new-price"
+- inputText: "37"
+- hideKeyboard
+- tapOn:
+    id: "operator-pricing-add-sport"
+- extendedWaitUntil:
+    visible: ${E2E_PRICING_SPORT}
+    timeout: 30000
+
+- tapOn:
+    id: "operator-nav-reels"
+- extendedWaitUntil:
+    visible: "Reels"
+    timeout: 30000
+- assertNotVisible: "Could not load reels"
+
+# Seeded support/suggestion rows prove the operator read is real; reply proves PATCH.
+- tapOn:
+    id: "operator-nav-support"
+- extendedWaitUntil:
+    visible: ${E2E_SUPPORT_MESSAGE}
+    timeout: 30000
+- assertVisible: ${E2E_SUGGESTION_MESSAGE}
+- tapOn:
+    id: "operator-support-reply-${E2E_SUPPORT_ID}"
+- inputText: ${E2E_OPERATOR_REPLY}
+- hideKeyboard
+- tapOn:
+    id: "operator-support-send-${E2E_SUPPORT_ID}"
+- extendedWaitUntil:
+    visible: "REPLIED"
+    timeout: 30000
+
+- tapOn:
+    id: "operator-nav-settings"
+- assertVisible: "Secret is configured on this device"
+- takeScreenshot: operator-basic-complete
