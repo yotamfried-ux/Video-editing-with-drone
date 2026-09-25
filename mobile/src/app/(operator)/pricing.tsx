@@ -92,6 +92,7 @@ export default function PricingScreen() {
           <Card bordered style={{ gap: Spacing.sm }}>
             <Text variant="title">Add a Sport</Text>
             <TextInput
+              testID="operator-pricing-new-sport"
               value={newSport}
               onChangeText={setNewSport}
               placeholder="Sport name (e.g. skateboarding)"
@@ -100,6 +101,7 @@ export default function PricingScreen() {
               style={styles.addInput}
             />
             <TextInput
+              testID="operator-pricing-new-price"
               value={newPrice}
               onChangeText={setNewPrice}
               placeholder="Price in ₪"
@@ -108,6 +110,7 @@ export default function PricingScreen() {
               style={styles.addInput}
             />
             <Button
+              testID="operator-pricing-add-sport"
               label="Add Sport"
               onPress={() => {
                 const n = parseInt(newPrice, 10);
