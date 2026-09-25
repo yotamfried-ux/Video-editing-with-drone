@@ -26,6 +26,7 @@ import type {
   PipelineRun,
   ReprocessListResponse,
   ReprocessRow,
+  UploadVerifyResponse,
 } from '@/features/operator/types/contracts';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
@@ -59,7 +60,6 @@ type UploadInit = UploadSession & {
   uploads?: UploadSession[];
 };
 
-type UploadVerify = { ok: boolean; exists: boolean; size?: number | null; storage_key?: string; r2_status?: number };
 type UploadItemStatus = 'queued' | 'initializing' | 'uploading' | 'verified' | 'failed';
 type UploadMode = 'single_put' | 'multipart';
 
@@ -344,7 +344,7 @@ export default function PipelineScreen() {
     }
 
     if (session.storage_key) {
-      const verified = await operatorFetch<UploadVerify>('/api/operator/upload/verify', {
+      const verified = await operatorFetch<UploadVerifyResponse>('/api/operator/upload/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ storage_key: session.storage_key }),
