@@ -70,6 +70,7 @@ export default function OperatorReelsScreen() {
   };
 
   const share = (reel: OperatorReelRow) => {
+    if (!reel.token) return;
     const url = `https://${APP_DOMAIN}/reel/${reel.token}`;
     const msg = encodeURIComponent(
       `Your SportReel highlight is ready. Watch it here: ${url}`
@@ -154,8 +155,8 @@ export default function OperatorReelsScreen() {
                 )}
               </View>
               <View style={styles.actions}>
-                <Button label="Preview" onPress={() => router.push(`/reel/${item.token}`)} variant="ghost" style={{ flex: 1, height: 44 }} />
-                <Button label="Share via WhatsApp" onPress={() => share(item)} variant="secondary" style={{ flex: 1, height: 44 }} />
+                <Button label="Preview" onPress={() => item.token && router.push(`/reel/${item.token}`)} disabled={!item.token} variant="ghost" style={{ flex: 1, height: 44 }} />
+                <Button label="Share via WhatsApp" onPress={() => share(item)} disabled={!item.token} variant="secondary" style={{ flex: 1, height: 44 }} />
               </View>
               <Button
                 label="Send back for re-edit"

@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'mobile/**'
+      # contracts.drift.ts type-checks the mobile mirror against this file.
+      - 'web-api/src/types/operator-contracts.ts'
 
 jobs:
   check:

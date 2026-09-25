@@ -17,8 +17,9 @@ check_version() {
     return
   fi
   local actual
-  actual="$("$tool" --version 2>/dev/null | head -n 1 || true)"
-  if [[ "$actual" == *"$expected"* ]]; then
+  # stdout only, first semver token: JVM tools may print banners before the version.
+  actual="$("$tool" --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+  if [[ "$actual" == "$expected" ]]; then
     ok "$tool $expected"
   else
     bad "$tool version mismatch (expected $expected; got: $actual)"

@@ -88,6 +88,16 @@ jobs:
           DELIVERY_APPROVED_FILE_NAME: ${{ github.event.client_payload.approved_file_name || '' }}
         run: python deliver.py
 
+      - name: Finalize operator delivery row if the workflow failed or was cancelled
+        # cancelled() covers timeout-minutes and manual cancellation, where failure() is false.
+        if: failure() || cancelled()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          JOB_STATUS: ${{ job.status }}
+          TRACKED_RUN_ID: ${{ github.event.client_payload.delivery_run_id || '' }}
+        run: python3 scripts/finalize_unfinished_run.py --table delivery_runs --run-id "$TRACKED_RUN_ID"
+
       - name: Clean up credential files
         if: always()
         run: rm -f service_account.json drive_user_token.json
