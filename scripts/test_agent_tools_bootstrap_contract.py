@@ -2,7 +2,11 @@
 """Static safety/portability contract for the SportReel agent-tool bootstrap."""
 from pathlib import Path
 import json
+import os
 import re
+import stat
+import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 PROJECT_TOOLS = json.loads((ROOT / ".engineering-os-tools.json").read_text(encoding="utf-8"))
@@ -118,6 +122,34 @@ def test_verify_checks_all_managed_capabilities() -> None:
     ):
         assert token.lower() in VERIFY.lower()
 
+
+
+def test_bootstrap_hands_off_to_verifier_without_exec_bit() -> None:
+    assert 'exec bash "$ROOT/scripts/verify-agent-tools.sh"' in BOOT
+
+
+def test_version_probe_tolerates_jvm_stderr_and_banners() -> None:
+    lock = dict(
+        line.split("=", 1) for line in LOCK.splitlines() if "=" in line and not line.startswith("#")
+    )
+    with tempfile.TemporaryDirectory() as tmp:
+        bin_dir = Path(tmp)
+        fake = bin_dir / "maestro"
+        fake.write_text(
+            "#!/usr/bin/env bash\n"
+            "echo 'Picked up JAVA_TOOL_OPTIONS: -Dhttps.proxyPort=35827' >&2\n"
+            "echo 'Anonymous analytics enabled.'\n"
+            f"echo '{lock['MAESTRO_VERSION']}'\n",
+            encoding="utf-8",
+        )
+        fake.chmod(fake.stat().st_mode | stat.S_IEXEC)
+        env = dict(os.environ, PATH=f"{bin_dir}:{os.environ.get('PATH', '')}")
+        result = subprocess.run(
+            ["bash", str(ROOT / "scripts/verify-agent-tools.sh")],
+            cwd=ROOT, env=env, capture_output=True, text=True, check=False,
+        )
+    assert f"PASS  maestro {lock['MAESTRO_VERSION']}" in result.stdout, result.stderr
+    assert "maestro version mismatch" not in result.stderr
 
 def main() -> int:
     tests = [
