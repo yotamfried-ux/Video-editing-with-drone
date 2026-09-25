@@ -45,6 +45,7 @@ export default function RegisterScreen() {
             <Text variant="display" style={{ textAlign: 'center' }}>Create Account</Text>
             <Spacer size={Spacing.xl} />
             <TextInput
+              testID="register-email"
               placeholder="Email"
               placeholderTextColor={Colors.textSecondary}
               value={reg.email}
@@ -54,6 +55,7 @@ export default function RegisterScreen() {
               style={styles.input}
             />
             <TextInput
+              testID="register-password"
               placeholder="Password (min 6 chars)"
               placeholderTextColor={Colors.textSecondary}
               value={reg.password}
@@ -63,8 +65,9 @@ export default function RegisterScreen() {
             />
             {reg.error && <Text variant="caption" color={Colors.danger}>{reg.error}</Text>}
             <Spacer size={Spacing.md} />
-            <Button label="Continue" onPress={reg.submitCredentials} loading={reg.loading} />
+            <Button testID="register-continue" label="Continue" onPress={reg.submitCredentials} loading={reg.loading} />
             <Button
+              testID="register-have-account"
               label="Already have an account?"
               onPress={() => router.push('/(auth)/login')}
               variant="ghost"
@@ -78,6 +81,7 @@ export default function RegisterScreen() {
             <Text variant="display" style={{ textAlign: 'center' }}>Your Name</Text>
             <Spacer size={Spacing.xl} />
             <TextInput
+              testID="register-name"
               placeholder="Full name"
               placeholderTextColor={Colors.textSecondary}
               value={reg.name}
@@ -86,7 +90,7 @@ export default function RegisterScreen() {
             />
             {reg.error && <Text variant="caption" color={Colors.danger}>{reg.error}</Text>}
             <Spacer size={Spacing.md} />
-            <Button label="Finish" onPress={reg.submitProfile} loading={reg.loading} />
+            <Button testID="register-finish" label="Finish" onPress={reg.submitProfile} loading={reg.loading} />
           </View>
         )}
       </KeyboardAvoidingView>
