@@ -18,6 +18,7 @@ on:
       - '**/package*.json'
       - '**/requirements*.txt'
       - '.github/workflows/security-qualification.yml'
+      - '.gitleaks.toml'
   push:
     branches: [main]
     paths:
