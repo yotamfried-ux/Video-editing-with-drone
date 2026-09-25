@@ -19,6 +19,8 @@ concurrency:
 env:
   APP_ID: com.sportreel.app
   MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
 
 jobs:
   prepare-apk:
