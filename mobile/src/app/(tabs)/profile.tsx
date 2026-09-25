@@ -58,7 +58,7 @@ export default function ProfileScreen() {
   return (
     <SafeArea>
       <View style={styles.container}>
-        <TouchableOpacity onPress={handleLogoTap} activeOpacity={1}>
+        <TouchableOpacity testID="profile-operator-entry" onPress={handleLogoTap} activeOpacity={1}>
           <Text variant="display" style={{ textAlign: 'center' }}>SR</Text>
         </TouchableOpacity>
         <Spacer size={Spacing.xl} />
@@ -66,6 +66,7 @@ export default function ProfileScreen() {
         <Card bordered>
           <Text variant="caption" color={Colors.textSecondary}>Name</Text>
           <TextInput
+            testID="profile-name-input"
             value={name || profile?.name || ''}
             onChangeText={setName}
             placeholder="Your name"
@@ -73,6 +74,7 @@ export default function ProfileScreen() {
             style={styles.input}
           />
           <Button
+            testID="profile-save-name"
             label="Save Name"
             onPress={() => updateName(name || profile?.name || '')}
             variant="secondary"
@@ -84,12 +86,14 @@ export default function ProfileScreen() {
           <Text variant="title">Support</Text>
           <Spacer size={Spacing.sm} />
           <Button
+            testID="profile-contact-support"
             label="Contact Support"
             onPress={() => router.push('/support/new')}
             variant="secondary"
           />
           <Spacer size={Spacing.sm} />
           <Button
+            testID="profile-suggest"
             label="Suggest a Clip Improvement"
             onPress={() => router.push('/support/suggest')}
             variant="ghost"
@@ -97,7 +101,7 @@ export default function ProfileScreen() {
         </Card>
 
         <Spacer size={Spacing.xl} />
-        <Button label="Sign Out" onPress={() => supabase.auth.signOut()} variant="ghost" />
+        <Button testID="profile-sign-out" label="Sign Out" onPress={() => supabase.auth.signOut()} variant="ghost" />
       </View>
     </SafeArea>
   );
