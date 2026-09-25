@@ -30,7 +30,7 @@ tags: [app-full, user]
 - tapOn:
     id: "login-submit"
 - extendedWaitUntil:
-    visible: "SportReel"
+    visible: "Profile"
     timeout: 30000
 
 # Profile update.
