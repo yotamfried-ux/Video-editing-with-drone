@@ -1,0 +1,64 @@
+appId: com.sportreel.app
+name: APP full - operator read-only navigation
+tags: [app-full, operator]
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Operator Secret"
+    timeout: 60000
+- tapOn:
+    id: "operator-secret-input"
+- inputText: ${OPERATOR_SECRET}
+- hideKeyboard
+- tapOn:
+    id: "operator-secret-save"
+- extendedWaitUntil:
+    visible: "Secret is configured on this device"
+    timeout: 15000
+
+- tapOn: "Pipeline"
+- extendedWaitUntil:
+    visible: "Pipeline"
+    timeout: 30000
+- assertNotVisible: "Operator secret required"
+
+- tapOn: "Review"
+- extendedWaitUntil:
+    visible: "Review"
+    timeout: 30000
+- assertNotVisible: "Could not load drafts"
+
+- tapOn: "Analytics"
+- extendedWaitUntil:
+    visible: "Analytics"
+    timeout: 30000
+
+- tapOn: "Pricing"
+- extendedWaitUntil:
+    visible: "Pricing"
+    timeout: 30000
+
+- tapOn: "Reels"
+- extendedWaitUntil:
+    visible: "Reels"
+    timeout: 30000
+- assertNotVisible: "Could not load reels"
+
+- tapOn: "Support"
+- extendedWaitUntil:
+    visible: "Support"
+    timeout: 30000
+
+- tapOn: "Settings"
+- extendedWaitUntil:
+    visible: "Secret is configured on this device"
+    timeout: 15000
+
+- killApp
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Secret is configured on this device"
+    timeout: 30000
+- takeScreenshot: operator-readonly-navigation-complete

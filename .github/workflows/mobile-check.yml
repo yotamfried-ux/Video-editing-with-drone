@@ -4,6 +4,8 @@ on:
   pull_request:
     paths:
       - 'mobile/**'
+      # contracts.drift.ts type-checks the mobile mirror against this file.
+      - 'web-api/src/types/operator-contracts.ts'
 
 jobs:
   check:
@@ -15,6 +17,6 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
       - run: npm ci
       - run: npm run type-check

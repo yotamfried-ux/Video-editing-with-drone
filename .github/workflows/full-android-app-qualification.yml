@@ -1,0 +1,260 @@
+name: Full Android App Qualification
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'mobile/**'
+      - 'web-api/**'
+      - 'scripts/app_user_e2e_evidence.py'
+      - '.github/workflows/full-android-app-qualification.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-android-app-qualification-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ID: com.sportreel.app
+  MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  prepare-apk:
+    name: Prepare Android qualification APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compute native APK cache key
+        id: apk-key
+        shell: bash
+        run: |
+          KEY=$(find mobile -type f \
+            \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.json' -o -name '*.gradle' -o -name '*.properties' \) \
+            ! -path 'mobile/node_modules/*' ! -path 'mobile/android/*' \
+            -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "key=app-full-apk-$KEY" >> "$GITHUB_OUTPUT"
+      - name: Restore APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-app-full.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      - uses: actions/setup-node@v7
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        run: npm ci --no-audit --no-fund
+      - name: Build debug APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-app-full.apk"
+      - name: Save APK checkpoint
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-app-full.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-full-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}/sportreel-app-full.apk
+          retention-days: 1
+          if-no-files-found: error
+
+
+  operator-readonly:
+    name: Android operator read-only / API navigation
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-full-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies for Metro
+        working-directory: mobile
+        run: npm ci --no-audit --no-fund
+      - name: Start Metro in operator validation mode
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro-operator.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro-operator.log"
+          exit 1
+      - name: Install Maestro
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip"             "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Run operator read-only Android journey
+        env:
+          APK: ${{ runner.temp }}/sportreel-app-full.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/operator-readonly-evidence
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/app-e2e/run-operator-readonly.sh
+      - name: Upload operator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-readonly-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/operator-readonly-evidence/
+            ${{ runner.temp }}/metro-operator.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  authenticated-user:
+    name: Android user / profile / support / RLS
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-full-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies for Metro
+        working-directory: mobile
+        run: npm ci --no-audit --no-fund
+
+      - name: Prepare isolated test identity and public runtime config
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, os
+          env = json.load(open("mobile/eas.json"))["build"]["development"]["env"]
+          marker = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          values = {
+              **env,
+              "SUPABASE_URL": env["EXPO_PUBLIC_SUPABASE_URL"],
+              "SUPABASE_PUBLISHABLE_KEY": env["EXPO_PUBLIC_SUPABASE_ANON_KEY"],
+              "E2E_MARKER": marker,
+              "E2E_EMAIL": f"sportreel.e2e.{marker}@example.com",
+              "E2E_PASSWORD": f"SportReel-E2E-{marker}-Aa9!",
+              "E2E_OTHER_EMAIL": f"sportreel.e2e.other.{marker}@example.com",
+              "E2E_OTHER_PASSWORD": f"SportReel-E2E-other-{marker}-Aa9!",
+              "E2E_STATE_PATH": os.path.join(os.environ["RUNNER_TEMP"], "app-user-e2e-state.json"),
+              "APK": os.path.join(os.environ["RUNNER_TEMP"], "sportreel-app-full.apk"),
+              "EVIDENCE_DIR": os.path.join(os.environ["RUNNER_TEMP"], "app-user-e2e-evidence"),
+          }
+          with open(os.environ["GITHUB_ENV"], "a") as out:
+              for key, value in values.items():
+                  out.write(f"{key}={value}\n")
+          PY
+
+      - name: Seed two confirmed Supabase test users
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python3 scripts/app_user_e2e_evidence.py seed \
+            --marker "$E2E_MARKER" \
+            --email "$E2E_EMAIL" --password "$E2E_PASSWORD" \
+            --other-email "$E2E_OTHER_EMAIL" --other-password "$E2E_OTHER_PASSWORD"
+
+      - name: Start Metro with production public endpoints
+        working-directory: mobile
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro-app-full.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro-app-full.log"
+          exit 1
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
+      - name: Run authenticated Android journey
+        env:
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/app-e2e/run-user-journey.sh
+
+      - name: Verify UI side effects and cross-user RLS independently
+        if: success()
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 scripts/app_user_e2e_evidence.py verify
+
+      - name: Clean isolated test data
+        if: always()
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 scripts/app_user_e2e_evidence.py cleanup
+
+      - name: Upload user-journey evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-user-e2e-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/app-user-e2e-evidence/
+            ${{ runner.temp }}/metro-app-full.log
+          retention-days: 30
+          if-no-files-found: warn

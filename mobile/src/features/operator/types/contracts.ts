@@ -10,8 +10,8 @@ export type OperatorErrorResponse = {
 export type PipelineStatus = {
   stage: string;
   progress: number;
-  meta: Record<string, unknown>;
-  updated_at: string;
+  meta: Record<string, unknown> | null;
+  updated_at: string | null;
 };
 
 export type PipelineStatusResponse = {
@@ -62,6 +62,16 @@ export type OperatorUploadInitResponse = {
   batch_id?: string | null;
   client_upload_id?: string;
   upload_status?: string;
+};
+
+// POST /api/operator/upload/verify
+export type UploadVerifyResponse = {
+  ok: boolean;
+  exists: boolean;
+  storage_backend?: 'r2' | 'drive';
+  size?: number | null;
+  storage_key?: string;
+  r2_status?: number;
 };
 
 export type ReprocessRow = {
@@ -159,7 +169,7 @@ export type DeliveryStatusResponse = {
 
 export type OperatorReelRow = {
   id: string;
-  token: string;
+  token: string | null;
   sport: string | null;
   athlete_desc: string | null;
   status: string;

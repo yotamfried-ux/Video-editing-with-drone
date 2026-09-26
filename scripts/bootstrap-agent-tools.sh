@@ -13,7 +13,7 @@ say() { printf '\n==> %s\n' "$*"; }
 have_version() {
   local tool="$1" expected="$2"
   command -v "$tool" >/dev/null 2>&1 &&
-    "$tool" --version 2>&1 | head -n 1 | grep -Fq "$expected"
+    [[ "$("$tool" --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)" == "$expected" ]]
 }
 
 say "SportReel agent-tool bootstrap"
@@ -103,4 +103,4 @@ else
 fi
 
 say "Verifying final tool state"
-exec "$ROOT/scripts/verify-agent-tools.sh"
+exec bash "$ROOT/scripts/verify-agent-tools.sh"

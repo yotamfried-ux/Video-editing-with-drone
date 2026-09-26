@@ -1,0 +1,125 @@
+appId: com.sportreel.app
+name: APP full - authenticated user journey
+tags: [app-full, user]
+---
+- clearState
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Welcome Back"
+    timeout: 60000
+
+# Registration navigation is reachable and returns to login without side effects.
+- tapOn:
+    id: "login-create-account"
+- assertVisible: "Create Account"
+- tapOn:
+    id: "register-have-account"
+- extendedWaitUntil:
+    visible: "Welcome Back"
+    timeout: 15000
+
+# Real Supabase password login.
+- tapOn:
+    id: "login-email"
+- inputText: ${E2E_EMAIL}
+- tapOn:
+    id: "login-password"
+- inputText: ${E2E_PASSWORD}
+- hideKeyboard
+- tapOn:
+    id: "login-submit"
+- extendedWaitUntil:
+    visible: "Profile"
+    timeout: 30000
+
+# Profile update.
+- tapOn: "Profile"
+- assertVisible: "Support"
+- tapOn:
+    id: "profile-name-input"
+- eraseText: 120
+- inputText: "E2E Android ${E2E_MARKER}"
+- hideKeyboard
+- tapOn:
+    id: "profile-save-name"
+
+# Cancel path must not create support data.
+- tapOn:
+    id: "profile-contact-support"
+- tapOn:
+    id: "support-message-input"
+- inputText: "support-cancel-${E2E_MARKER}"
+- hideKeyboard
+- tapOn:
+    id: "support-cancel"
+- assertVisible: "Support"
+
+# Positive support path.
+- tapOn:
+    id: "profile-contact-support"
+- tapOn:
+    id: "support-message-input"
+- inputText: "support-send-${E2E_MARKER}"
+- hideKeyboard
+- tapOn:
+    id: "support-send"
+- extendedWaitUntil:
+    visible: "Sent!"
+    timeout: 30000
+- tapOn: "(?i)ok"
+- assertVisible: "Support"
+
+# Cancel path must not create suggestion data.
+- tapOn:
+    id: "profile-suggest"
+- tapOn:
+    id: "suggestion-message-input"
+- inputText: "suggestion-cancel-${E2E_MARKER}"
+- hideKeyboard
+- tapOn:
+    id: "suggestion-cancel"
+- assertVisible: "Support"
+
+# Positive suggestion path.
+- tapOn:
+    id: "profile-suggest"
+- tapOn:
+    id: "suggestion-message-input"
+- inputText: "suggestion-send-${E2E_MARKER}"
+- hideKeyboard
+- tapOn:
+    id: "suggestion-send"
+- extendedWaitUntil:
+    visible: "Thank you!"
+    timeout: 30000
+- tapOn: "(?i)ok"
+- assertVisible: "Support"
+
+# Session must survive a real app process death and relaunch. The authenticated
+# shell exposes the Profile tab; the literal app title is not guaranteed on the
+# current route, so use the tab as the stable session-restoration signal.
+- killApp
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Profile"
+    timeout: 30000
+- tapOn: "Profile"
+- assertVisible:
+    id: "profile-sign-out"
+
+# Sign-out intentionally stays on the Profile route and renders its signed-out
+# state. Verify that state, then follow the actual Sign In navigation and prove
+# the login form is reachable.
+- tapOn:
+    id: "profile-sign-out"
+- extendedWaitUntil:
+    visible: "Sign in to view your profile"
+    timeout: 30000
+- tapOn: "Sign In"
+- extendedWaitUntil:
+    visible:
+      id: "login-email"
+    timeout: 15000
+- takeScreenshot: authenticated-user-journey-complete

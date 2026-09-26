@@ -53,6 +53,7 @@ export default function SuggestScreen() {
         </Text>
         <Spacer size={Spacing.lg} />
         <TextInput
+          testID="suggestion-message-input"
           value={message}
           onChangeText={setMessage}
           placeholder="Your idea…"
@@ -61,9 +62,9 @@ export default function SuggestScreen() {
           style={styles.input}
         />
         <Spacer size={Spacing.lg} />
-        <Button label="Send Suggestion" onPress={submit} loading={sending} />
+        <Button testID="suggestion-send" label="Send Suggestion" onPress={submit} loading={sending} />
         <Spacer size={Spacing.sm} />
-        <Button label="Cancel" onPress={() => router.back()} variant="ghost" />
+        <Button testID="suggestion-cancel" label="Cancel" onPress={() => router.back()} variant="ghost" />
       </KeyboardAvoidingView>
     </SafeArea>
   );

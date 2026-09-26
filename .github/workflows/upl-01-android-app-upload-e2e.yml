@@ -16,6 +16,17 @@ on:
       - mobile/src/app/index.tsx
       - mobile/src/features/operator/**
       - web-api/src/app/api/operator/upload/**
+  pull_request:
+    paths:
+      - .github/workflows/upl-01-android-app-upload-e2e.yml
+      - mobile/.maestro/upl01/**
+      - scripts/upl01_backend_evidence.py
+      - scripts/test_upl01_maestro_contract.py
+      - mobile/src/shared/components/**
+      - mobile/src/app/(operator)/**
+      - mobile/src/app/index.tsx
+      - mobile/src/features/operator/**
+      - web-api/src/app/api/operator/upload/**
   workflow_dispatch:
 
 permissions:
@@ -31,6 +42,8 @@ env:
   APP_ID: com.sportreel.app
   API_BASE: https://video-editing-with-drone.vercel.app
   MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
 
 jobs:
   prepare-apk:
@@ -60,7 +73,7 @@ jobs:
       - uses: actions/setup-node@v4
         if: steps.apk-cache.outputs.cache-hit != 'true'
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 
@@ -133,7 +146,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: npm
           cache-dependency-path: mobile/package-lock.json
 

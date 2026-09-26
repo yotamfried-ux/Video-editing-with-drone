@@ -1,0 +1,38 @@
+name: Web API Auth Boundary
+
+# Builds the web-api and proves, over HTTP against the built server, that every
+# operator-protected handler rejects missing/wrong secrets with 401 before any
+# backend call. Routes are discovered from source, so new handlers are covered.
+on:
+  pull_request:
+    paths:
+      - 'web-api/**'
+      - 'scripts/web_api_operator_auth_boundary.py'
+      - '.github/workflows/web-api-auth-boundary.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  boundary:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: npm ci --no-audit --no-fund
+      - run: npm run type-check
+      - run: npx next build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - run: python ../scripts/web_api_operator_auth_boundary.py
