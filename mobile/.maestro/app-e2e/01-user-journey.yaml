@@ -109,12 +109,17 @@ tags: [app-full, user]
 - assertVisible:
     id: "profile-sign-out"
 
-# Sign-out must return the app to unauthenticated state. Use the stable login
-# control rather than copy text so the check proves state, not wording.
+# Sign-out intentionally stays on the Profile route and renders its signed-out
+# state. Verify that state, then follow the actual Sign In navigation and prove
+# the login form is reachable.
 - tapOn:
     id: "profile-sign-out"
 - extendedWaitUntil:
+    visible: "Sign in to view your profile"
+    timeout: 30000
+- tapOn: "Sign In"
+- extendedWaitUntil:
     visible:
       id: "login-email"
-    timeout: 30000
+    timeout: 15000
 - takeScreenshot: authenticated-user-journey-complete
