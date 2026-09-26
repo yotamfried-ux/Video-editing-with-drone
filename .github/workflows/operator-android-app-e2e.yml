@@ -1,0 +1,224 @@
+name: Operator Android App E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'mobile/src/app/(operator)/**'
+      - 'mobile/src/features/operator/**'
+      - 'mobile/.maestro/operator-e2e/**'
+      - 'web-api/src/app/api/operator/**'
+      - 'web-api/src/app/api/support/**'
+      - 'web-api/src/app/api/pricing/**'
+      - 'web-api/src/app/api/analytics/**'
+      - 'web-api/src/lib/**'
+      - 'scripts/operator_app_e2e_evidence.py'
+      - '.github/workflows/operator-android-app-e2e.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: operator-android-app-e2e
+  cancel-in-progress: true
+
+env:
+  APP_ID: com.sportreel.app
+  MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  prepare-apk:
+    name: Prepare operator Android APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - name: Compute native-only APK checkpoint
+        id: apk-key
+        shell: bash
+        run: |
+          {
+            sha256sum mobile/package.json mobile/package-lock.json mobile/app.json mobile/eas.json 2>/dev/null || true
+            find mobile -maxdepth 2 -type f \( -name '*.gradle' -o -name '*.properties' -o -name 'babel.config.js' \) -print0 2>/dev/null | sort -z | xargs -0 -r sha256sum
+          } | sha256sum | awk '{print "key=operator-apk-"$1}' >> "$GITHUB_OUTPUT"
+      - name: Restore APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-operator.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      - uses: actions/setup-node@v7
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        run: npm ci --no-audit --no-fund
+      - name: Build debug APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-operator.apk"
+      - name: Save APK checkpoint
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-operator.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: operator-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}/sportreel-operator.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  operator-basic:
+    name: Maestro operator navigation / writes / persistence
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: operator-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            mobile/package-lock.json
+            web-api/package-lock.json
+      - name: Install runtime dependencies
+        run: |
+          (cd mobile && npm ci --no-audit --no-fund)
+          (cd web-api && npm ci --no-audit --no-fund)
+
+      - name: Prepare isolated operator fixture and public app config
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          env = json.load(open("mobile/eas.json"))["build"]["development"]["env"]
+          marker = f"{os.environ['GITHUB_RUN_ID']}-{os.environ['GITHUB_RUN_ATTEMPT']}"
+          values = {
+              "EXPO_PUBLIC_SUPABASE_URL": env["EXPO_PUBLIC_SUPABASE_URL"],
+              "EXPO_PUBLIC_SUPABASE_ANON_KEY": env["EXPO_PUBLIC_SUPABASE_ANON_KEY"],
+              "EXPO_PUBLIC_API_BASE_URL": "http://127.0.0.1:3000",
+              "EXPO_PUBLIC_UPL01_OPERATOR_BYPASS": "1",
+              "SUPABASE_URL": env["EXPO_PUBLIC_SUPABASE_URL"],
+              "E2E_MARKER": marker,
+              "E2E_OPERATOR_STATE_PATH": os.path.join(os.environ["RUNNER_TEMP"], "operator-app-e2e-state.json"),
+              "APK": os.path.join(os.environ["RUNNER_TEMP"], "sportreel-operator.apk"),
+              "EVIDENCE_DIR": os.path.join(os.environ["RUNNER_TEMP"], "operator-app-e2e-evidence"),
+          }
+          with open(os.environ["GITHUB_ENV"], "a") as out:
+              for key, value in values.items():
+                  out.write(f"{key}={value}\n")
+          PY
+          python3 scripts/operator_app_e2e_evidence.py seed
+
+      - name: Build current web-api
+        working-directory: web-api
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: npx next build
+
+      - name: Start current web-api against real backends
+        working-directory: web-api
+        env:
+          SUPABASE_URL: ${{ env.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+          NEXT_TELEMETRY_DISABLED: '1'
+        run: |
+          nohup npx next start -p 3000 > "$RUNNER_TEMP/operator-next.log" 2>&1 &
+          for i in $(seq 1 60); do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/api/pricing || true)
+            [[ "$code" =~ ^(200|401|403|500)$ ]] && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/operator-next.log"
+          exit 1
+
+      - name: Start Metro with local branch API
+        working-directory: mobile
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/operator-metro.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/operator-metro.log"
+          exit 1
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip"             "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
+      - name: Run real operator Android journey
+        env:
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+          MAESTRO_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on -no-metrics
+          script: bash mobile/.maestro/operator-e2e/run-operator-basic.sh
+
+      - name: Verify operator UI side effects independently
+        if: success()
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 scripts/operator_app_e2e_evidence.py verify
+
+      - name: Clean isolated operator fixture
+        if: always()
+        env:
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+        run: python3 scripts/operator_app_e2e_evidence.py cleanup
+
+      - name: Upload operator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operator-app-e2e-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/operator-app-e2e-evidence/
+            ${{ runner.temp }}/operator-next.log
+            ${{ runner.temp }}/operator-metro.log
+          retention-days: 30
+          if-no-files-found: warn
