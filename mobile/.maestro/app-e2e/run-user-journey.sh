@@ -64,7 +64,9 @@ run_maestro_attempt() {
   local debug="$EVIDENCE_DIR/maestro-attempt-$attempt"
 
   set +e
-  timeout --signal=TERM --kill-after=30s 600s \
+  # The authenticated journey includes real Supabase writes plus a process-death/session-restore
+  # checkpoint. Keep a hard timeout, but leave enough headroom for slow hosted emulators.
+  timeout --signal=TERM --kill-after=30s 900s \
     maestro test \
       -e E2E_EMAIL="$E2E_EMAIL" \
       -e E2E_PASSWORD="$E2E_PASSWORD" \
