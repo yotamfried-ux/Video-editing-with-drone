@@ -164,10 +164,24 @@ run_flow() {
 # Android device server to go offline on run 35901916354.
 #
 # Re-check adb immediately before Maestro. GitHub-hosted Android emulators can
-# transiently return "device offline" after boot even when boot_completed=1;
-# failing here keeps infrastructure instability separate from app behavior.
+# transiently return "device offline" after boot even when boot_completed=1.
+# Retry only negative/no-upload scenarios when Maestro itself proves the device
+# server died; positive flows are never replayed because that could create a
+# second backend write and weaken the exactly-one-row evidence.
 stabilize_adb_device "Maestro flow"
+set +e
 run_flow "$FLOW"
+flow_code=$?
+set -e
+
+if [ "$flow_code" -ne 0 ] &&    { [ "$SCENARIO" = "no-operator-secret" ] || [ "$SCENARIO" = "picker-cancelled" ]; } &&    grep -RqsE 'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE' "$EVIDENCE_DIR/maestro-"*; then
+  echo "UPL-01 scenario runner: known Maestro/device infrastructure failure; retrying safe no-upload scenario once"
+  stabilize_adb_device "Maestro infrastructure retry"
+  rm -rf "$EVIDENCE_DIR/maestro-"*
+  run_flow "$FLOW"
+else
+  test "$flow_code" -eq 0
+fi
 
 python3 "$REPO_ROOT/scripts/upl01_backend_evidence.py" \
   --fixture "$FIXTURE" \
