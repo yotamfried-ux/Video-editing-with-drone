@@ -5,5 +5,15 @@ appId: com.sportreel.app
 - launchApp:
     clearState: true
 - extendedWaitUntil:
-    visible: "Operator Secret"
+    visible: "Operator Secret|Pixel Launcher isn't responding"
     timeout: 180000
+- runFlow:
+    when:
+      visible: "Pixel Launcher isn't responding"
+    commands:
+      - tapOn: "Close app"
+      - launchApp:
+          stopApp: false
+- extendedWaitUntil:
+    visible: "Operator Secret"
+    timeout: 60000
