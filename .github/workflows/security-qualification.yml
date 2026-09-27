@@ -51,7 +51,10 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-node@v7
         with:
-          node-version: '22'
+          # Match the official Expo SDK 53 Linux build image. Node 22's native
+          # TypeScript stripping can fail on expo-modules-core sources while
+          # the SDK migration CLI is aligning dependencies.
+          node-version: '20.19.2'
       - name: Regenerate lockfiles from aligned dependency manifests
         run: |
           cd web-api
