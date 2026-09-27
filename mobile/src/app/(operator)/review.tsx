@@ -35,6 +35,10 @@ function shortId(id?: string | null): string {
   return id ? id.slice(0, 8) : 'unknown';
 }
 
+function draftControlId(prefix: string, name: string): string {
+  return `${prefix}-${name.replace(/[^A-Za-z0-9_-]/g, '_')}`;
+}
+
 function draftIsApprovalBlocked(draft: DraftRow): boolean {
   return Boolean(
     draft.approval_blocked
@@ -300,12 +304,14 @@ export default function OperatorReviewScreen() {
                 )}
                 <View style={styles.actions}>
                   <Button
+                    testID={draftControlId('review-reedit', item.name)}
                     label={blocked ? 'Send QA notes to re-edit' : 'Send to re-edit'}
                     onPress={() => openReedit(item)}
                     variant={blocked ? 'primary' : 'secondary'}
                     style={styles.fullButton}
                   />
                   <Button
+                    testID={draftControlId('review-approve', item.name)}
                     label={blocked ? 'Approval blocked' : approving === item.id ? 'Approving…' : 'Approve reel'}
                     onPress={() => approve(item)}
                     disabled={approving !== null || blocked}
@@ -351,6 +357,7 @@ export default function OperatorReviewScreen() {
                 style={styles.fullButton}
               />
               <Button
+                testID="review-reedit-submit"
                 label={submitting ? 'Sending…' : 'Send for re-edit'}
                 onPress={submitReedit}
                 disabled={submitting || !reeditNotes.trim()}
