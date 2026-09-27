@@ -6,13 +6,13 @@ import { useOperatorUnlock } from '@/features/operator/hooks/useOperatorUnlock';
 import { Colors, Spacing, Radius } from '@/shared/constants/theme';
 
 const TABS = [
-  { label: 'Pipeline', path: '/(operator)/pipeline' },
-  { label: 'Review', path: '/(operator)/review' },
-  { label: 'Analytics', path: '/(operator)/analytics' },
-  { label: 'Pricing', path: '/(operator)/pricing' },
-  { label: 'Reels', path: '/(operator)/reels' },
-  { label: 'Support', path: '/(operator)/support' },
-  { label: 'Settings', path: '/(operator)/settings' },
+  { id: 'pipeline', label: 'Pipeline', path: '/(operator)/pipeline' },
+  { id: 'review', label: 'Review', path: '/(operator)/review' },
+  { id: 'analytics', label: 'Analytics', path: '/(operator)/analytics' },
+  { id: 'pricing', label: 'Pricing', path: '/(operator)/pricing' },
+  { id: 'reels', label: 'Reels', path: '/(operator)/reels' },
+  { id: 'support', label: 'Support', path: '/(operator)/support' },
+  { id: 'settings', label: 'Settings', path: '/(operator)/settings' },
 ] as const;
 
 export function OperatorNav() {
@@ -33,12 +33,13 @@ export function OperatorNav() {
           <Text variant="caption" color={Colors.textSecondary}>Exit ✕</Text>
         </TouchableOpacity>
       </View>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
+      <ScrollView testID="operator-nav-scroll" horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabs}>
         {TABS.map((t) => {
           const active = pathname.split('/').pop() === t.path.split('/').pop();
           return (
             <TouchableOpacity
               key={t.path}
+              testID={`operator-nav-${t.id}`}
               onPress={() => router.replace(t.path as never)}
               style={[styles.tab, active && styles.tabActive]}
             >
