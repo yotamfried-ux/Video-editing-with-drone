@@ -36,11 +36,15 @@ tags: [app-full, user]
 # Profile update.
 - tapOn: "Profile"
 - assertVisible: "Support"
-- tapOn:
+- longPressOn:
     id: "profile-name-input"
-- eraseText: 120
+- tapOn: "Select All"
+- eraseText: 1
 - inputText: "E2E Android ${E2E_MARKER}"
 - hideKeyboard
+- assertVisible:
+    id: "profile-name-input"
+    text: "E2E Android ${E2E_MARKER}"
 - tapOn:
     id: "profile-save-name"
 
