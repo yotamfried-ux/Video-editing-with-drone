@@ -61,10 +61,17 @@ jobs:
         id: apk-key
         shell: bash
         run: |
-          KEY=$(find mobile -type f \
-            \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.json' -o -name '*.gradle' -o -name '*.properties' \) \
-            ! -path 'mobile/node_modules/*' ! -path 'mobile/android/*' \
-            -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          KEY=$(
+            {
+              printf '%s\0' \
+                mobile/package.json \
+                mobile/package-lock.json \
+                mobile/app.json \
+                mobile/google-services.json \
+                mobile/scripts/postinstall.js
+              find mobile/plugins mobile/modules mobile/assets -type f -print0
+            } | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+          )
           echo "key=upl01-apk-$KEY" >> "$GITHUB_OUTPUT"
 
       - name: Restore APK checkpoint
