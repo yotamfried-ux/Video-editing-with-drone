@@ -58,8 +58,8 @@ export async function apiFetch<T>(
 
   try {
     const res = await fetch(`${BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...requestOptions.headers },
       ...requestOptions,
+      headers: { 'Content-Type': 'application/json', ...requestOptions.headers },
       signal: controller.signal,
     });
     if (!res.ok) {
