@@ -1,0 +1,8 @@
+# Keep MediaStore seeding, process death, relaunch, and final retry inside one
+# Maestro process so the test exercises the Android app's own persistence.
+appId: com.sportreel.app
+name: UPL-01 isolated - process death upload queue persistence
+tags: [upl01, parallel, restart, persistence]
+---
+- runFlow: 00-seed-media.yaml
+- runFlow: 05-restart-retry.yaml

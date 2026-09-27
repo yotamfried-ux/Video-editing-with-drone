@@ -198,7 +198,7 @@ class HarnessContract(unittest.TestCase):
 
     def test_expected_flows_exist(self):
         names = set(self.flow_texts())
-        self.assertTrue({"00-seed-media.yaml", "01-no-operator-secret.yaml", "02-picker-cancelled.yaml", "03-gallery-upload.yaml", "04-offline-retry.yaml"} <= names)
+        self.assertTrue({"00-seed-media.yaml", "01-no-operator-secret.yaml", "02-picker-cancelled.yaml", "03-gallery-upload.yaml", "04-offline-retry.yaml", "05-restart-retry.yaml"} <= names)
 
     def test_flows_use_semantic_selectors_not_coordinates(self):
         for name, text in self.flow_texts().items():
@@ -223,6 +223,7 @@ class HarnessContract(unittest.TestCase):
             "11-isolated-picker-cancelled.yaml": "02-picker-cancelled.yaml",
             "12-isolated-gallery-upload.yaml": "03-gallery-upload.yaml",
             "13-isolated-offline-retry.yaml": "04-offline-retry.yaml",
+            "14-isolated-restart-retry.yaml": "05-restart-retry.yaml",
         }
         for wrapper, behavior in expected.items():
             self.assertIn("runFlow: 00-seed-media.yaml", texts[wrapper])
@@ -247,7 +248,8 @@ class HarnessContract(unittest.TestCase):
         texts = self.flow_texts()
         for flow, row_id in (("01-no-operator-secret.yaml", "upload-item-status-failed"),
                              ("03-gallery-upload.yaml", "upload-item-status-verified"),
-                             ("04-offline-retry.yaml", "upload-item-status-verified")):
+                             ("04-offline-retry.yaml", "upload-item-status-verified"),
+                             ("05-restart-retry.yaml", "upload-item-status-verified")):
             text = texts[flow]
             scroll = text.find(f'scrollUntilVisible:\n    element:\n      id: "{row_id}"')
             self.assertGreaterEqual(scroll, 0, flow)
@@ -266,6 +268,16 @@ class HarnessContract(unittest.TestCase):
         self.assertIn('id: "upload-item-status-failed"', text)
         self.assertIn('id: "upload-item-status-verified"', text)
 
+    def test_restart_retry_flow_uses_real_process_death_and_verified_retry(self):
+        text = self.flow_texts()["05-restart-retry.yaml"]
+        self.assertIn("setAirplaneMode: enabled", text)
+        self.assertIn("pressKey: Home", text)
+        self.assertIn("killApp", text)
+        self.assertIn("stopApp: false", text)
+        self.assertIn("setAirplaneMode: disabled", text)
+        self.assertIn('id: "pipeline-retry-all-failed"', text)
+        self.assertIn('id: "upload-item-status-verified"', text)
+
     def test_media_fixtures_are_never_committed(self):
         self.assertEqual((FLOW_DIR / "media/.gitignore").read_text().splitlines()[1:], ["*", "!.gitignore"])
 
@@ -277,7 +289,7 @@ class HarnessContract(unittest.TestCase):
         self.assertIn("concurrency:", text)
         self.assertIn("max-parallel: 3", text)
 
-    def test_parallel_workflow_prepares_apk_once_and_runs_four_scenarios(self):
+    def test_parallel_workflow_prepares_apk_once_and_runs_five_scenarios(self):
 
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         prepare = jobs["prepare-apk"]
@@ -287,9 +299,9 @@ class HarnessContract(unittest.TestCase):
         matrix = scenario["strategy"]["matrix"]["include"]
         self.assertEqual(
             {entry["scenario"] for entry in matrix},
-            {"no-operator-secret", "picker-cancelled", "gallery-upload", "offline-retry"},
+            {"no-operator-secret", "picker-cancelled", "gallery-upload", "offline-retry", "restart-retry"},
         )
-        self.assertEqual(len({(entry["duration"], entry["size"], entry["frequency"]) for entry in matrix}), 4)
+        self.assertEqual(len({(entry["duration"], entry["size"], entry["frequency"]) for entry in matrix}), 5)
         self.assertEqual(scenario["needs"], "prepare-apk")
 
         prepare_steps = {step.get("name") or step.get("uses"): step for step in prepare["steps"]}

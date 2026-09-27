@@ -138,6 +138,10 @@ jobs:
             duration: 5
             size: 800x450
             frequency: 990
+          - scenario: restart-retry
+            duration: 6
+            size: 960x540
+            frequency: 1100
 
     steps:
       - uses: actions/checkout@v4
