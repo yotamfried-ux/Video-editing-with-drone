@@ -327,6 +327,40 @@ class HarnessContract(unittest.TestCase):
         )
         self.assertIn("run-upl01-scenario.sh", scenario_steps["Run isolated UPL-01 Maestro scenario"]["with"]["script"])
 
+    def test_fault_path_job_is_local_only_and_covers_required_http_failures(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertIn("upl-01-fault-paths", jobs)
+        fault = jobs["upl-01-fault-paths"]
+        self.assertEqual(fault["needs"], "prepare-apk")
+        fault_text = json.dumps(fault)
+        self.assertIn("run-upl01-fault-paths.sh", fault_text)
+        self.assertIn("upl01_fault_server.py", fault_text)
+        self.assertIn("EXPO_PUBLIC_API_BASE_URL", fault_text)
+        self.assertIn("http://127.0.0.1:9090", fault_text)
+        self.assertNotIn("SUPABASE_SERVICE_ROLE_KEY", fault_text)
+
+        runner = (FLOW_DIR / "run-upl01-fault-paths.sh").read_text()
+        self.assertIn("adb reverse tcp:9090 tcp:9090", runner)
+        for scenario in (
+            "api-401",
+            "api-403",
+            "api-429-recovery",
+            "api-503-recovery",
+            "api-timeout-recovery",
+        ):
+            self.assertIn(scenario, runner)
+
+        server = (ROOT / "scripts/upl01_fault_server.py").read_text()
+        self.assertIn("ThreadingHTTPServer", server)
+        self.assertIn("/control", server)
+        self.assertIn("/stats", server)
+        self.assertIn("/api/operator/upload", server)
+        self.assertIn("/api/operator/upload/verify", server)
+        self.assertIn("/upload/object", server)
+
+        summary = jobs["upl-01-summary"]
+        self.assertIn("upl-01-fault-paths", summary["needs"])
+
     def test_parallel_runner_keeps_backend_verification_and_scrubs_secrets(self):
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
         self.assertIn("scripts/upl01_backend_evidence.py", runner)
