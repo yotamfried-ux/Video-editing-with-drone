@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { View, StyleSheet, ScrollView, Alert, Platform, Pressable } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
@@ -77,6 +78,77 @@ type UploadFileState = {
   uploadMode?: UploadMode;
   attempt?: number;
 };
+
+const GALLERY_UPLOAD_QUEUE_KEY = 'sportreel:gallery-upload-queue:v1';
+const RESTARTED_UPLOAD_ERROR = 'Upload interrupted by app restart. Retry when the connection is stable.';
+let galleryUploadPersistenceChain: Promise<void> = Promise.resolve();
+
+function isRestorableGalleryUpload(value: unknown): value is UploadFileState {
+  if (!value || typeof value !== 'object') return false;
+  const item = value as Partial<UploadFileState>;
+  return typeof item.id === 'string'
+    && item.id.length > 0
+    && typeof item.uri === 'string'
+    && item.uri.length > 0
+    && typeof item.filename === 'string'
+    && item.filename.length > 0
+    && typeof item.mimeType === 'string'
+    && item.mimeType.length > 0
+    && typeof item.clientUploadId === 'string'
+    && item.clientUploadId.length > 0
+    && item.uploadMode === 'single_put'
+    && ['queued', 'initializing', 'uploading', 'failed'].includes(item.status ?? '');
+}
+
+function durableGallerySnapshot(items: UploadFileState[]): UploadFileState[] {
+  return items
+    .filter((item) => (
+      item.uploadMode === 'single_put'
+      && item.status !== 'verified'
+      && typeof item.clientUploadId === 'string'
+      && item.clientUploadId.length > 0
+    ))
+    .map((item) => ({ ...item }));
+}
+
+function persistGalleryUploadQueue(items: UploadFileState[]): Promise<void> {
+  const snapshot = durableGallerySnapshot(items);
+  const write = galleryUploadPersistenceChain
+    .catch(() => undefined)
+    .then(async () => {
+      if (snapshot.length) {
+        await AsyncStorage.setItem(GALLERY_UPLOAD_QUEUE_KEY, JSON.stringify(snapshot));
+      } else {
+        await AsyncStorage.removeItem(GALLERY_UPLOAD_QUEUE_KEY);
+      }
+    });
+  galleryUploadPersistenceChain = write.catch(() => undefined);
+  return write;
+}
+
+async function restoreGalleryUploadQueue(): Promise<UploadFileState[]> {
+  const raw = await AsyncStorage.getItem(GALLERY_UPLOAD_QUEUE_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) {
+      await AsyncStorage.removeItem(GALLERY_UPLOAD_QUEUE_KEY);
+      return [];
+    }
+    return parsed
+      .filter(isRestorableGalleryUpload)
+      .map((item) => ({
+        ...item,
+        status: 'failed' as const,
+        progress: 0,
+        error: RESTARTED_UPLOAD_ERROR,
+      }));
+  } catch {
+    await AsyncStorage.removeItem(GALLERY_UPLOAD_QUEUE_KEY);
+    return [];
+  }
+}
 
 type ExternalVideoCandidate = {
   id: string;
@@ -216,8 +288,32 @@ export default function PipelineScreen() {
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
 
+  useEffect(() => {
+    let cancelled = false;
+    restoreGalleryUploadQueue()
+      .then(async (restored) => {
+        if (cancelled || !restored.length) return;
+        setUploadItems(restored);
+        const restoredBatchId = restored.map((item) => item.batch_id).find(Boolean);
+        if (restoredBatchId) setActiveBatchId(restoredBatchId);
+        await persistGalleryUploadQueue(restored);
+      })
+      .catch((error) => {
+        console.warn('SportReel gallery upload queue restore failed', error);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const updateUploadItem = useCallback((id: string, patch: Partial<UploadFileState>) => {
-    setUploadItems((items) => items.map((item) => (item.id === id ? { ...item, ...patch } : item)));
+    setUploadItems((items) => {
+      const nextItems = items.map((item) => (item.id === id ? { ...item, ...patch } : item));
+      void persistGalleryUploadQueue(nextItems).catch((error) => {
+        console.warn('SportReel gallery upload queue persistence failed', error);
+      });
+      return nextItems;
+    });
   }, []);
 
   const loadRequests = useCallback(async () => {
@@ -489,6 +585,10 @@ export default function PipelineScreen() {
     setUploadItems(items);
 
     try {
+      // Persist gallery selections before the first network attempt so a
+      // process death cannot erase the stable clientUploadId needed for an
+      // idempotent retry.
+      await persistGalleryUploadQueue(items);
       const results = await runUploadQueue(items);
       const failed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (failed.length) {

@@ -278,6 +278,14 @@ class HarnessContract(unittest.TestCase):
         self.assertIn('id: "pipeline-retry-all-failed"', text)
         self.assertIn('id: "upload-item-status-verified"', text)
 
+    def test_gallery_upload_queue_is_persisted_before_network_and_restored_after_restart(self):
+        source = (ROOT / "mobile/src/app/(operator)/pipeline.tsx").read_text()
+        self.assertIn("GALLERY_UPLOAD_QUEUE_KEY", source)
+        self.assertIn("restoreGalleryUploadQueue()", source)
+        self.assertIn("await persistGalleryUploadQueue(items)", source)
+        self.assertIn("clientUploadId", source)
+        self.assertIn("Upload interrupted by app restart", source)
+
     def test_media_fixtures_are_never_committed(self):
         self.assertEqual((FLOW_DIR / "media/.gitignore").read_text().splitlines()[1:], ["*", "!.gitignore"])
 
