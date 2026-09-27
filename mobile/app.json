@@ -4,7 +4,6 @@
     "slug": "sportreel",
     "version": "1.0.0",
     "scheme": "sportreel",
-    "newArchEnabled": false,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
@@ -43,9 +42,13 @@
     "plugins": [
       "expo-router",
       "expo-screen-capture",
-      ["expo-local-authentication", { "faceIDPermission": "Used to secure operator access." }],
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Used to secure operator access."
+        }
+      ],
       "expo-font",
-      ["expo-build-properties", { "android": { "kotlinVersion": "1.9.25" } }],
       "expo-updates",
       [
         "expo-notifications",
@@ -64,10 +67,14 @@
     "runtimeVersion": {
       "policy": "fingerprint"
     },
-    "experiments": { "typedRoutes": true },
+    "experiments": {
+      "typedRoutes": true
+    },
     "owner": "yotam102",
     "extra": {
-      "eas": { "projectId": "5c03988f-3dae-4763-953a-672717dedda2" }
+      "eas": {
+        "projectId": "5c03988f-3dae-4763-953a-672717dedda2"
+      }
     }
   }
 }
