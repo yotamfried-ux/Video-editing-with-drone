@@ -232,8 +232,14 @@ class HarnessContract(unittest.TestCase):
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
         self.assertNotIn("run_flow 00-seed-media.yaml", runner)
         self.assertEqual(runner.count('run_flow "$FLOW"'), 2)
-        self.assertIn('[ "$SCENARIO" = "no-operator-secret" ] || [ "$SCENARIO" = "picker-cancelled" ]', runner)
-        self.assertIn("device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE", runner)
+        self.assertIn("post-flow-hierarchy.json", runner)
+        self.assertIn("Pixel Launcher isn.t responding", runner)
+        self.assertIn('if [ "$flow_code" -ne 0 ]; then', runner)
+        self.assertIn('if [ "$EXPECTATION" = "no-upload" ]', runner)
+        self.assertIn("--expect no-upload", runner)
+        self.assertIn("pre-retry-backend-evidence.json", runner)
+        self.assertIn("refusing positive-flow retry because backend state is not empty", runner)
+        self.assertIn("retrying once after a failed flow with verified-safe backend state", runner)
         self.assertLess(runner.index("WINDOW_START="), runner.index('run_flow "$FLOW"'))
 
     def test_positive_flow_requires_success_alert_and_verified_row(self):

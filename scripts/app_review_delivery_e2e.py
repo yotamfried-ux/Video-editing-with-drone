@@ -34,13 +34,76 @@ def r2():
 def gh_headers():
     return {"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
 
-def list_workflow_runs(workflow):
+def workflow_runs(workflow):
     if not GH_TOKEN:
         return []
     url = f"https://api.github.com/repos/{REPO}/actions/workflows/{workflow}/runs"
     r = requests.get(url, headers=gh_headers(), params={"per_page": 50}, timeout=20)
     r.raise_for_status()
-    return [int(x["id"]) for x in r.json().get("workflow_runs", [])]
+    return r.json().get("workflow_runs", [])
+
+
+def list_workflow_runs(workflow):
+    return [int(x["id"]) for x in workflow_runs(workflow)]
+
+
+def _parse_utc(value):
+    if not value:
+        return None
+    return datetime.fromisoformat(str(value).replace("Z", "+00:00")).astimezone(timezone.utc)
+
+
+def find_correlated_workflow_run(
+    workflow,
+    baseline_ids,
+    expected_title,
+    *,
+    durable_time=None,
+    timeout_seconds=60,
+):
+    baseline = {int(x) for x in baseline_ids}
+    target = _parse_utc(durable_time)
+    deadline = time.time() + timeout_seconds
+    last_new = []
+    while time.time() < deadline:
+        new_runs = [x for x in workflow_runs(workflow) if int(x["id"]) not in baseline]
+        last_new = new_runs
+
+        # Preferred path after the correlated run-name revision is on main.
+        exact = [x for x in new_runs if x.get("display_title") == expected_title]
+        if len(exact) == 1:
+            return int(exact[0]["id"])
+        if len(exact) > 1:
+            raise RuntimeError(
+                f"expected one correlated {workflow} run named {expected_title!r}, "
+                f"found {[int(x['id']) for x in exact]}"
+            )
+
+        # Pre-merge fallback: production dispatch still executes main's workflow,
+        # whose title does not yet contain the durable row id. Match the unique
+        # Actions run nearest the row's durable timestamp instead of counting
+        # every concurrently-created qualification run.
+        if target is not None:
+            timed = []
+            for item in new_runs:
+                created = _parse_utc(item.get("created_at"))
+                if created is None:
+                    continue
+                delta = abs((created - target).total_seconds())
+                if delta <= 20:
+                    timed.append((delta, item))
+            timed.sort(key=lambda pair: pair[0])
+            if len(timed) == 1:
+                return int(timed[0][1]["id"])
+            if len(timed) >= 2 and timed[0][0] + 2 < timed[1][0]:
+                return int(timed[0][1]["id"])
+
+        time.sleep(2)
+
+    raise RuntimeError(
+        f"no unique correlated {workflow} run for {expected_title!r}; "
+        f"new_runs={[(int(x['id']), x.get('display_title'), x.get('created_at')) for x in last_new]}"
+    )
 
 def write_state(data):
     STATE.write_text(json.dumps(data, indent=2))
@@ -152,11 +215,12 @@ def wait_for_reedit_and_cancel():
     if int(row.get("attempt_count") or 0) < 1:
         raise RuntimeError("re-edit attempt count did not increment")
 
-    current = list_workflow_runs("pipeline-run.yml")
-    new_runs = [x for x in current if x not in set(state["pipeline_baseline"])]
-    if len(new_runs) != 1:
-        raise RuntimeError(f"expected exactly one new pipeline workflow run, found {new_runs}")
-    rid = new_runs[0]
+    rid = find_correlated_workflow_run(
+        "pipeline-run.yml",
+        state["pipeline_baseline"],
+        f"Run Pipeline · {run_row['id']}",
+        durable_time=run_row.get("queued_at") or run_row.get("created_at"),
+    )
     resp = requests.post(
         f"https://api.github.com/repos/{REPO}/actions/runs/{rid}/cancel",
         headers=gh_headers(), timeout=20
@@ -198,11 +262,12 @@ def wait_for_approval_and_cancel_delivery():
     except Exception:
         pass
 
-    current = list_workflow_runs("deliver.yml")
-    new_runs = [x for x in current if x not in set(state["delivery_baseline"])]
-    if len(new_runs) != 1:
-        raise RuntimeError(f"expected exactly one new delivery workflow run, found {new_runs}")
-    rid = new_runs[0]
+    rid = find_correlated_workflow_run(
+        "deliver.yml",
+        state["delivery_baseline"],
+        f"Deliver Preview · {delivery['id']}",
+        durable_time=delivery.get("approved_at") or delivery.get("created_at"),
+    )
     resp = requests.post(
         f"https://api.github.com/repos/{REPO}/actions/runs/{rid}/cancel",
         headers=gh_headers(), timeout=20

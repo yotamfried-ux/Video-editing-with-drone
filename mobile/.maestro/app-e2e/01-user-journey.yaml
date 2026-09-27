@@ -30,23 +30,32 @@ tags: [app-full, user]
 - tapOn:
     id: "login-submit"
 - extendedWaitUntil:
-    visible: "Profile"
+    visible: "Your Name|Profile"
     timeout: 30000
 
-# Profile update.
+# The seeded account intentionally has no profile name. A successful login must
+# resume the real name-only onboarding path; completing it is the profile write
+# that the independent backend verifier checks.
+- runFlow:
+    when:
+      visible: "Your Name"
+    commands:
+      - tapOn:
+          id: "register-name"
+      - inputText: "E2E Android ${E2E_MARKER}"
+      - hideKeyboard
+      - tapOn:
+          id: "register-finish"
+      - extendedWaitUntil:
+          visible: "Profile"
+          timeout: 30000
+
+# Profile state must reflect the onboarding write before support actions.
 - tapOn: "Profile"
 - assertVisible: "Support"
-- longPressOn:
-    id: "profile-name-input"
-- tapOn: "(?i)select all"
-- eraseText: 1
-- inputText: "E2E Android ${E2E_MARKER}"
-- hideKeyboard
 - assertVisible:
     id: "profile-name-input"
     text: "E2E Android ${E2E_MARKER}"
-- tapOn:
-    id: "profile-save-name"
 
 # Cancel path must not create support data.
 - tapOn:

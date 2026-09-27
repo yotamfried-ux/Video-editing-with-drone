@@ -1,4 +1,6 @@
 name: Run Pipeline
+run-name: >-
+  Run Pipeline · ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || github.run_id }}
 
 on:
   repository_dispatch:

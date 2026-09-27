@@ -1,4 +1,6 @@
 name: Deliver Preview
+run-name: >-
+  Deliver Preview · ${{ github.event.client_payload.delivery_run_id || github.run_id }}
 
 on:
   repository_dispatch:
