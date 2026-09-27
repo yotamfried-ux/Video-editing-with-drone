@@ -87,7 +87,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(
                 200,
                 {
-                    "status": "idle",
+                    "status": None,
                     "latest_run": None,
                     "global_live_stale": False,
                     "global_live_stale_reason": None,
