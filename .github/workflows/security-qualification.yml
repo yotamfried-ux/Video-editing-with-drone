@@ -37,58 +37,6 @@ permissions:
   contents: read
 
 jobs:
-  normalize-security-overrides:
-    name: Normalize security override lockfiles
-    if: github.event_name == 'pull_request' && github.head_ref == 'tooling/app-qualification-capabilities'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ github.head_ref }}
-          fetch-depth: 0
-      - uses: actions/setup-node@v7
-        with:
-          # Match the official Expo SDK 53 Linux build image. Node 22's native
-          # TypeScript stripping can fail on expo-modules-core sources while
-          # the SDK migration CLI is aligning dependencies.
-          node-version: '20.19.2'
-      - name: Regenerate lockfiles from aligned dependency manifests
-        run: |
-          cd web-api
-          npm install --ignore-scripts --package-lock-only
-          cd ../mobile
-          npm install --ignore-scripts --package-lock-only
-      - name: Verify web-api after override resolution
-        working-directory: web-api
-        run: |
-          npm ci --no-audit --no-fund
-          npm run type-check
-          npm run build
-      - name: Verify mobile JS and Android bundle after override resolution
-        working-directory: mobile
-        run: |
-          npm ci --no-audit --no-fund
-          npm run type-check
-          npm test -- --runInBand
-          rm -rf .qualification-export
-          npx expo export --platform android --output-dir .qualification-export
-          test -d .qualification-export
-          rm -rf .qualification-export
-      - name: Commit verified lockfiles
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web-api/package-lock.json mobile/package.json mobile/package-lock.json
-          if git diff --cached --quiet; then
-            echo "Lockfiles already match overrides."
-            exit 0
-          fi
-          git commit -m "fix(deps): lock safe transitive overrides"
-          git push origin HEAD:${{ github.head_ref }}
-
   codeql:
     name: CodeQL (${{ matrix.language }})
     runs-on: ubuntu-24.04
