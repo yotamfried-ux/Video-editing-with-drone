@@ -10,8 +10,10 @@ on:
       - .github/workflows/upl-01-android-app-upload-e2e.yml
       - mobile/.maestro/upl01/**
       - scripts/upl01_backend_evidence.py
+      - scripts/upl01_error_path_server.py
       - scripts/test_upl01_maestro_contract.py
       - mobile/src/shared/components/**
+      - mobile/src/shared/lib/api.ts
       - mobile/src/app/(operator)/**
       - mobile/src/app/index.tsx
       - mobile/src/features/operator/**
@@ -21,8 +23,10 @@ on:
       - .github/workflows/upl-01-android-app-upload-e2e.yml
       - mobile/.maestro/upl01/**
       - scripts/upl01_backend_evidence.py
+      - scripts/upl01_error_path_server.py
       - scripts/test_upl01_maestro_contract.py
       - mobile/src/shared/components/**
+      - mobile/src/shared/lib/api.ts
       - mobile/src/app/(operator)/**
       - mobile/src/app/index.tsx
       - mobile/src/features/operator/**
@@ -258,18 +262,145 @@ jobs:
           retention-days: 30
           if-no-files-found: warn
 
+  upl-01-error-paths:
+    name: Android upload API error paths
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download prepared APK
+        uses: actions/download-artifact@v4
+        with:
+          name: upl01-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Create real MP4 fixture
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg >/dev/null
+          fi
+          ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i "testsrc=size=480x270:rate=30" \
+            -f lavfi -i "sine=frequency=770:sample_rate=48000" \
+            -t 3 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest \
+            mobile/.maestro/upl01/media/upl01-fixture.mp4
+          test -s mobile/.maestro/upl01/media/upl01-fixture.mp4
+
+      - name: Start controlled API error server
+        run: |
+          nohup python3 scripts/upl01_error_path_server.py --port 8787 > "$RUNNER_TEMP/error-api.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:8787/__test__/evidence" >/dev/null && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/error-api.log"
+          exit 1
+
+      - name: Start validation Metro against controlled API
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: http://127.0.0.1:8787
+          EXPO_PUBLIC_API_TIMEOUT_MS: '750'
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro-error-paths.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro-error-paths.log"
+          exit 1
+
+      - name: Restore Maestro CLI cache
+        id: maestro-cache-errors
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Install Maestro CLI
+        if: steps.maestro-cache-errors.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+
+      - name: Save Maestro CLI cache
+        if: steps.maestro-cache-errors.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Put Maestro on PATH
+        run: |
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro-cli/maestro/bin/maestro" --version
+
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
+      - name: Run controlled Android API error paths
+        env:
+          APK: ${{ runner.temp }}/sportreel-upl01.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/upl01-api-error-evidence
+          MAESTRO_OPERATOR_SECRET: error-path-validation-secret
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/upl01/run-upl01-error-paths.sh
+
+      - name: Upload API error-path evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upl-01-api-error-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/upl01-api-error-evidence/
+            ${{ runner.temp }}/error-api.log
+            ${{ runner.temp }}/metro-error-paths.log
+          retention-days: 30
+          if-no-files-found: warn
+
   upl-01-summary:
     name: UPL-01 parallel summary
     if: always()
-    needs: [prepare-apk, upl-01-scenario]
+    needs: [prepare-apk, upl-01-scenario, upl-01-error-paths]
     runs-on: ubuntu-latest
     steps:
       - name: Require APK preparation and every Maestro matrix scenario
         env:
           PREPARE_RESULT: ${{ needs.prepare-apk.result }}
           SCENARIO_RESULT: ${{ needs.upl-01-scenario.result }}
+          ERROR_PATH_RESULT: ${{ needs.upl-01-error-paths.result }}
         run: |
           echo "prepare-apk=$PREPARE_RESULT"
           echo "parallel-scenarios=$SCENARIO_RESULT"
+          echo "api-error-paths=$ERROR_PATH_RESULT"
           test "$PREPARE_RESULT" = success
           test "$SCENARIO_RESULT" = success
+          test "$ERROR_PATH_RESULT" = success
