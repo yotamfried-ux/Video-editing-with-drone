@@ -1,4 +1,4 @@
-import { apiFetch } from './api';
+import { ApiRequestError, apiFetch, shouldRetryApiRequestError } from './api';
 
 describe('apiFetch', () => {
   const originalFetch = global.fetch;
@@ -24,6 +24,16 @@ describe('apiFetch', () => {
       status: 401,
       message: 'API 401: Unauthorized',
     });
+  });
+
+  it('classifies only transient API failures as retryable', () => {
+    expect(shouldRetryApiRequestError(new ApiRequestError('API 401: Unauthorized', 401))).toBe(false);
+    expect(shouldRetryApiRequestError(new ApiRequestError('API 403: Forbidden', 403))).toBe(false);
+    expect(shouldRetryApiRequestError(new ApiRequestError('API 409: Conflict', 409))).toBe(false);
+    expect(shouldRetryApiRequestError(new ApiRequestError('API 429: Too many requests', 429))).toBe(true);
+    expect(shouldRetryApiRequestError(new ApiRequestError('API 500: Server error', 500))).toBe(true);
+    expect(shouldRetryApiRequestError(new ApiRequestError('API request timed out after 30000ms'))).toBe(true);
+    expect(shouldRetryApiRequestError(new Error('network down'))).toBe(true);
   });
 
   it('aborts a request that stays pending beyond the 30 second client deadline', async () => {
