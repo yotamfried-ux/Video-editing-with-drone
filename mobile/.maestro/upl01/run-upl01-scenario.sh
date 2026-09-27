@@ -25,6 +25,10 @@ case "$SCENARIO" in
     FLOW="12-isolated-gallery-upload.yaml"
     EXPECTATION="verified-upload"
     ;;
+  offline-retry)
+    FLOW="13-isolated-offline-retry.yaml"
+    EXPECTATION="verified-upload"
+    ;;
   *)
     echo "UPL-01 scenario runner: unknown scenario '$SCENARIO'" >&2
     exit 2

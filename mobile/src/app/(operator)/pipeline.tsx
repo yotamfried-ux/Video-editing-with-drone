@@ -740,6 +740,7 @@ export default function PipelineScreen() {
                   <Text variant="caption" color={Colors.textSecondary}>Upload batch progress</Text>
                   {failedUploadCount > 0 && (
                     <Button
+                      testID="pipeline-retry-all-failed"
                       label={busy ? 'Retrying...' : `Retry all failed (${failedUploadCount})`}
                       onPress={retryAllFailedUploads}
                       disabled={busy}

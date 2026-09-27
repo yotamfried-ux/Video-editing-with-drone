@@ -134,6 +134,10 @@ jobs:
             duration: 4
             size: 640x360
             frequency: 880
+          - scenario: offline-retry
+            duration: 5
+            size: 800x450
+            frequency: 990
 
     steps:
       - uses: actions/checkout@v4

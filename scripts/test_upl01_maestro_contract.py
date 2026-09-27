@@ -198,7 +198,7 @@ class HarnessContract(unittest.TestCase):
 
     def test_expected_flows_exist(self):
         names = set(self.flow_texts())
-        self.assertTrue({"00-seed-media.yaml", "01-no-operator-secret.yaml", "02-picker-cancelled.yaml", "03-gallery-upload.yaml"} <= names)
+        self.assertTrue({"00-seed-media.yaml", "01-no-operator-secret.yaml", "02-picker-cancelled.yaml", "03-gallery-upload.yaml", "04-offline-retry.yaml"} <= names)
 
     def test_flows_use_semantic_selectors_not_coordinates(self):
         for name, text in self.flow_texts().items():
@@ -222,6 +222,7 @@ class HarnessContract(unittest.TestCase):
             "10-isolated-no-operator-secret.yaml": "01-no-operator-secret.yaml",
             "11-isolated-picker-cancelled.yaml": "02-picker-cancelled.yaml",
             "12-isolated-gallery-upload.yaml": "03-gallery-upload.yaml",
+            "13-isolated-offline-retry.yaml": "04-offline-retry.yaml",
         }
         for wrapper, behavior in expected.items():
             self.assertIn("runFlow: 00-seed-media.yaml", texts[wrapper])
@@ -245,7 +246,8 @@ class HarnessContract(unittest.TestCase):
         # assertVisible only sees on-screen nodes (run 35895173989).
         texts = self.flow_texts()
         for flow, row_id in (("01-no-operator-secret.yaml", "upload-item-status-failed"),
-                             ("03-gallery-upload.yaml", "upload-item-status-verified")):
+                             ("03-gallery-upload.yaml", "upload-item-status-verified"),
+                             ("04-offline-retry.yaml", "upload-item-status-verified")):
             text = texts[flow]
             scroll = text.find(f'scrollUntilVisible:\n    element:\n      id: "{row_id}"')
             self.assertGreaterEqual(scroll, 0, flow)
@@ -255,6 +257,14 @@ class HarnessContract(unittest.TestCase):
         text = self.flow_texts()["01-no-operator-secret.yaml"]
         self.assertIn('assertVisible: "Some uploads failed"', text)
         self.assertIn('text: ".*Operator secret not set.*"', text)
+
+    def test_offline_retry_flow_uses_maestro_network_control_and_verified_retry(self):
+        text = self.flow_texts()["04-offline-retry.yaml"]
+        self.assertIn("setAirplaneMode: enabled", text)
+        self.assertIn("setAirplaneMode: disabled", text)
+        self.assertIn('id: "pipeline-retry-all-failed"', text)
+        self.assertIn('id: "upload-item-status-failed"', text)
+        self.assertIn('id: "upload-item-status-verified"', text)
 
     def test_media_fixtures_are_never_committed(self):
         self.assertEqual((FLOW_DIR / "media/.gitignore").read_text().splitlines()[1:], ["*", "!.gitignore"])
@@ -267,7 +277,7 @@ class HarnessContract(unittest.TestCase):
         self.assertIn("concurrency:", text)
         self.assertIn("max-parallel: 3", text)
 
-    def test_parallel_workflow_prepares_apk_once_and_runs_three_scenarios(self):
+    def test_parallel_workflow_prepares_apk_once_and_runs_four_scenarios(self):
 
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         prepare = jobs["prepare-apk"]
@@ -277,9 +287,9 @@ class HarnessContract(unittest.TestCase):
         matrix = scenario["strategy"]["matrix"]["include"]
         self.assertEqual(
             {entry["scenario"] for entry in matrix},
-            {"no-operator-secret", "picker-cancelled", "gallery-upload"},
+            {"no-operator-secret", "picker-cancelled", "gallery-upload", "offline-retry"},
         )
-        self.assertEqual(len({(entry["duration"], entry["size"], entry["frequency"]) for entry in matrix}), 3)
+        self.assertEqual(len({(entry["duration"], entry["size"], entry["frequency"]) for entry in matrix}), 4)
         self.assertEqual(scenario["needs"], "prepare-apk")
 
         prepare_steps = {step.get("name") or step.get("uses"): step for step in prepare["steps"]}
@@ -308,7 +318,7 @@ class HarnessContract(unittest.TestCase):
 
     def test_testids_used_by_flows_exist_in_app_source(self):
         source = "\n".join(p.read_text() for p in (ROOT / "mobile/src").rglob("*.tsx"))
-        for test_id in ("operator-secret-input", "operator-secret-save", "pipeline-upload-gallery"):
+        for test_id in ("operator-secret-input", "operator-secret-save", "pipeline-upload-gallery", "pipeline-retry-all-failed"):
             self.assertIn(f'testID="{test_id}"', source)
         self.assertIn("testID={`upload-item-status-${item.status}`}", source)
 
