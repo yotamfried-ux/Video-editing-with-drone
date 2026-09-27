@@ -51,9 +51,8 @@ tags: [app-full, operator]
 - assertNotVisible: "Could not load reels"
 
 - swipe:
-    from:
-      id: "operator-nav-scroll"
-    direction: LEFT
+    start: 90%, 15%
+    end: 10%, 15%
     duration: 500
 - tapOn:
     id: "operator-nav-support"
@@ -62,9 +61,8 @@ tags: [app-full, operator]
     timeout: 30000
 
 - swipe:
-    from:
-      id: "operator-nav-scroll"
-    direction: LEFT
+    start: 90%, 15%
+    end: 10%, 15%
     duration: 500
 - tapOn:
     id: "operator-nav-settings"
