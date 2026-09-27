@@ -1,0 +1,6 @@
+appId: com.sportreel.app
+name: UPL-01 isolated - API fail fast
+tags: [upl01, fault, isolated]
+---
+- runFlow: 00-seed-media.yaml
+- runFlow: 06-api-fail-fast.yaml

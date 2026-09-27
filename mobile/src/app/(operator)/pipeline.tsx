@@ -15,6 +15,7 @@ import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCar
 import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatusCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
+import { shouldRetryApiRequestError } from '@/shared/lib/api';
 import {
   sweepAbandonedUploadCache,
   uploadLargeExternalSource,
@@ -539,6 +540,7 @@ export default function PipelineScreen() {
         {
           maxAttempts: MAX_UPLOAD_ATTEMPTS,
           backoffMs: UPLOAD_RETRY_BACKOFF_MS,
+          shouldRetry: shouldRetryApiRequestError,
           onAttempt: (attempt) => updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null, attempt }),
         }
       );

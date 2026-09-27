@@ -1,0 +1,187 @@
+name: UPL-01 Local API Fault E2E
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/upl-01-local-fault-e2e.yml'
+      - 'mobile/.maestro/upl01/**'
+      - 'mobile/package.json'
+      - 'mobile/package-lock.json'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/lib/uploadQueue.ts'
+      - 'mobile/src/features/operator/lib/uploadQueue.test.ts'
+      - 'mobile/src/shared/lib/api.ts'
+      - 'mobile/src/shared/lib/api.test.ts'
+      - 'scripts/upl01_fault_server.py'
+      - 'scripts/test_upl01_maestro_contract.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upl-01-local-fault-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ID: com.sportreel.app
+  MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  fault-paths:
+    name: Android local API fault paths
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Compute APK checkpoint key
+        id: apk-key
+        shell: bash
+        run: |
+          KEY=$(find mobile -type f \
+            \( -name '*.ts' -o -name '*.tsx' -o -name '*.js' -o -name '*.json' -o -name '*.gradle' -o -name '*.properties' \) \
+            ! -path 'mobile/node_modules/*' ! -path 'mobile/android/*' \
+            -print0 | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1)
+          echo "key=upl01-apk-$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Restore APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Build Android debug APK on cache miss
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: http://127.0.0.1:9090
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-upl01.apk"
+
+      - name: Save APK checkpoint
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - name: Create local-fault MP4 fixture
+        run: |
+          if ! command -v ffmpeg >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y ffmpeg >/dev/null
+          fi
+          ffmpeg -hide_banner -loglevel error \
+            -f lavfi -i "testsrc=size=512x288:rate=30" \
+            -f lavfi -i "sine=frequency=1230:sample_rate=48000" \
+            -t 3 -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest \
+            mobile/.maestro/upl01/media/upl01-fixture.mp4
+          test -s mobile/.maestro/upl01/media/upl01-fixture.mp4
+
+      - name: Start local-only API fault server
+        run: |
+          nohup python3 scripts/upl01_fault_server.py --port 9090 > "$RUNNER_TEMP/upl01-fault-server.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS http://127.0.0.1:9090/health >/dev/null && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/upl01-fault-server.log"
+          exit 1
+
+      - name: Start Metro against local-only API fault server
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: http://127.0.0.1:9090
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro-fault.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro-fault.log"
+          exit 1
+
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
+      - name: Restore Maestro CLI cache
+        id: maestro-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Install Maestro CLI
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+
+      - name: Save Maestro CLI cache
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Put Maestro on PATH
+        run: |
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro-cli/maestro/bin/maestro" --version
+
+      - name: Run local API fault qualification
+        env:
+          APK: ${{ runner.temp }}/sportreel-upl01.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/upl01-fault-evidence
+          MAESTRO_OPERATOR_SECRET: upl01-local-fault-fixture-secret
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/upl01/run-upl01-fault-paths.sh
+
+      - name: Upload local fault evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: upl-01-local-fault-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/upl01-fault-evidence/
+            ${{ runner.temp }}/upl01-fault-server.log
+            ${{ runner.temp }}/metro-fault.log
+          retention-days: 30
+          if-no-files-found: warn

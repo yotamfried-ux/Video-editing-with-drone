@@ -96,6 +96,24 @@ describe('withRetry', () => {
     expect(onAttempt.mock.calls.map((call) => call[0])).toEqual([1, 2]);
   });
 
+  it('stops immediately when shouldRetry classifies the failure as non-retryable', async () => {
+    const wait = jest.fn().mockResolvedValue(undefined);
+    const task = jest.fn().mockRejectedValue(new Error('API 401: Unauthorized'));
+    const options = {
+      maxAttempts: 3,
+      backoffMs: [2000, 5000],
+      wait,
+      shouldRetry: () => false,
+    } as Parameters<typeof withRetry>[1] & {
+      shouldRetry: (error: unknown, attempt: number) => boolean;
+    };
+
+    await expect(withRetry(task, options)).rejects.toThrow('API 401: Unauthorized');
+
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
   it('reuses the last backoff value once the backoff list is exhausted', async () => {
     const wait = jest.fn().mockResolvedValue(undefined);
     const task = jest.fn().mockRejectedValue(new Error('always fails'));

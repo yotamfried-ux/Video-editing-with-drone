@@ -86,6 +86,8 @@ def main() -> int:
             "uploadInit.uploads?.[0] ?? uploadInit",
             "uploadAssetToSession",
             "runUploadQueue",
+            "shouldRetryApiRequestError",
+            "shouldRetry: shouldRetryApiRequestError",
             "retryUploadItem",
             "Retry all failed",
             "Upload batch progress",

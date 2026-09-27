@@ -26,6 +26,7 @@ import summarize_failure  # noqa: E402
 
 FLOW_DIR = ROOT / "mobile/.maestro/upl01"
 WORKFLOW = ROOT / ".github/workflows/upl-01-android-app-upload-e2e.yml"
+FAULT_WORKFLOW = ROOT / ".github/workflows/upl-01-local-fault-e2e.yml"
 FILENAME = "upl01-fixture.mp4"
 SIZE = 123_456
 
@@ -328,6 +329,41 @@ class HarnessContract(unittest.TestCase):
             "actions/download-artifact@v4",
         )
         self.assertIn("run-upl01-scenario.sh", scenario_steps["Run isolated UPL-01 Maestro scenario"]["with"]["script"])
+
+    def test_fault_path_workflow_is_local_only_and_covers_required_http_failures(self):
+        workflow = yaml.safe_load(FAULT_WORKFLOW.read_text())
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"], True)
+        jobs = workflow["jobs"]
+        self.assertIn("fault-paths", jobs)
+        fault = jobs["fault-paths"]
+        fault_text = json.dumps(fault)
+        self.assertIn("run-upl01-fault-paths.sh", fault_text)
+        self.assertIn("upl01_fault_server.py", fault_text)
+        self.assertIn("EXPO_PUBLIC_API_BASE_URL", fault_text)
+        self.assertIn("http://127.0.0.1:9090", fault_text)
+        self.assertNotIn("SUPABASE_SERVICE_ROLE_KEY", fault_text)
+
+        runner = (FLOW_DIR / "run-upl01-fault-paths.sh").read_text()
+        self.assertIn("adb reverse tcp:9090 tcp:9090", runner)
+        for scenario in (
+            "api-401",
+            "api-403",
+            "api-429-recovery",
+            "api-503-recovery",
+            "api-timeout-recovery",
+        ):
+            self.assertIn(scenario, runner)
+
+        server = (ROOT / "scripts/upl01_fault_server.py").read_text()
+        self.assertIn("ThreadingHTTPServer", server)
+        self.assertIn("/control", server)
+        self.assertIn("/stats", server)
+        self.assertIn("/api/operator/upload", server)
+        self.assertIn("/api/operator/upload/verify", server)
+        self.assertIn("/upload/object", server)
+
+        main_jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertNotIn("upl-01-fault-paths", main_jobs)
 
     def test_parallel_runner_keeps_backend_verification_and_scrubs_secrets(self):
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
