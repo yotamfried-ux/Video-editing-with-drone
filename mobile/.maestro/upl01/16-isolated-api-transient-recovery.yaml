@@ -1,0 +1,6 @@
+appId: com.sportreel.app
+name: UPL-01 isolated - API transient recovery
+tags: [upl01, fault, isolated]
+---
+- runFlow: 00-seed-media.yaml
+- runFlow: 07-api-transient-recovery.yaml
