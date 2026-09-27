@@ -231,7 +231,9 @@ class HarnessContract(unittest.TestCase):
 
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
         self.assertNotIn("run_flow 00-seed-media.yaml", runner)
-        self.assertEqual(runner.count('run_flow "$FLOW"'), 1)
+        self.assertEqual(runner.count('run_flow "$FLOW"'), 2)
+        self.assertIn('[ "$SCENARIO" = "no-operator-secret" ] || [ "$SCENARIO" = "picker-cancelled" ]', runner)
+        self.assertIn("device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE", runner)
         self.assertLess(runner.index("WINDOW_START="), runner.index('run_flow "$FLOW"'))
 
     def test_positive_flow_requires_success_alert_and_verified_row(self):
