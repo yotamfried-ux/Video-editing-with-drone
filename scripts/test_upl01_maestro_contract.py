@@ -392,6 +392,11 @@ class HarnessContract(unittest.TestCase):
         self.assertIn('run_case 503 3 "API 503"', runner)
         self.assertIn('run_case timeout 3 "API timeout"', runner)
         self.assertIn('data["upload_requests"] == expected_count', runner)
+        self.assertIn("pre-retry-server-evidence.json", runner)
+        self.assertIn('upload_requests" -eq 0', runner)
+        self.assertIn("DeviceServerDiedException", runner)
+        self.assertIn("retrying $scenario once after proven emulator failure with zero upload requests", runner)
+        self.assertIn("refusing retry for $scenario", runner)
 
         flow = (FLOW_DIR / "15-isolated-api-error.yaml").read_text()
         self.assertIn('id: "upload-item-status-failed"', flow)
