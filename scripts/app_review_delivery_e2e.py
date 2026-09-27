@@ -34,13 +34,41 @@ def r2():
 def gh_headers():
     return {"Authorization": f"Bearer {GH_TOKEN}", "Accept": "application/vnd.github+json"}
 
-def list_workflow_runs(workflow):
+def workflow_runs(workflow):
     if not GH_TOKEN:
         return []
     url = f"https://api.github.com/repos/{REPO}/actions/workflows/{workflow}/runs"
     r = requests.get(url, headers=gh_headers(), params={"per_page": 50}, timeout=20)
     r.raise_for_status()
-    return [int(x["id"]) for x in r.json().get("workflow_runs", [])]
+    return r.json().get("workflow_runs", [])
+
+
+def list_workflow_runs(workflow):
+    return [int(x["id"]) for x in workflow_runs(workflow)]
+
+
+def find_correlated_workflow_run(workflow, baseline_ids, expected_title, *, timeout_seconds=60):
+    baseline = {int(x) for x in baseline_ids}
+    deadline = time.time() + timeout_seconds
+    last_candidates = []
+    while time.time() < deadline:
+        candidates = [
+            x for x in workflow_runs(workflow)
+            if int(x["id"]) not in baseline and x.get("display_title") == expected_title
+        ]
+        last_candidates = candidates
+        if len(candidates) == 1:
+            return int(candidates[0]["id"])
+        if len(candidates) > 1:
+            raise RuntimeError(
+                f"expected one correlated {workflow} run named {expected_title!r}, "
+                f"found {[int(x['id']) for x in candidates]}"
+            )
+        time.sleep(2)
+    raise RuntimeError(
+        f"no correlated {workflow} run named {expected_title!r} appeared; "
+        f"candidates={[(int(x['id']), x.get('display_title')) for x in last_candidates]}"
+    )
 
 def write_state(data):
     STATE.write_text(json.dumps(data, indent=2))
@@ -152,11 +180,11 @@ def wait_for_reedit_and_cancel():
     if int(row.get("attempt_count") or 0) < 1:
         raise RuntimeError("re-edit attempt count did not increment")
 
-    current = list_workflow_runs("pipeline-run.yml")
-    new_runs = [x for x in current if x not in set(state["pipeline_baseline"])]
-    if len(new_runs) != 1:
-        raise RuntimeError(f"expected exactly one new pipeline workflow run, found {new_runs}")
-    rid = new_runs[0]
+    rid = find_correlated_workflow_run(
+        "pipeline-run.yml",
+        state["pipeline_baseline"],
+        f"Run Pipeline · {run_row['id']}",
+    )
     resp = requests.post(
         f"https://api.github.com/repos/{REPO}/actions/runs/{rid}/cancel",
         headers=gh_headers(), timeout=20
@@ -198,11 +226,11 @@ def wait_for_approval_and_cancel_delivery():
     except Exception:
         pass
 
-    current = list_workflow_runs("deliver.yml")
-    new_runs = [x for x in current if x not in set(state["delivery_baseline"])]
-    if len(new_runs) != 1:
-        raise RuntimeError(f"expected exactly one new delivery workflow run, found {new_runs}")
-    rid = new_runs[0]
+    rid = find_correlated_workflow_run(
+        "deliver.yml",
+        state["delivery_baseline"],
+        f"Deliver Preview · {delivery['id']}",
+    )
     resp = requests.post(
         f"https://api.github.com/repos/{REPO}/actions/runs/{rid}/cancel",
         headers=gh_headers(), timeout=20
