@@ -187,10 +187,18 @@ if [ "$flow_code" -ne 0 ] && grep -RqsE   'device offline|Device server died|Dev
 fi
 
 safe_retry=0
-if [ "$flow_code" -ne 0 ] && [ "$infra_failure" -eq 1 ]; then
+if [ "$flow_code" -ne 0 ]; then
   if [ "$EXPECTATION" = "no-upload" ]; then
-    safe_retry=1
+    # Negative scenarios are replayable only when we have direct evidence of
+    # emulator/Maestro infrastructure failure.
+    if [ "$infra_failure" -eq 1 ]; then
+      safe_retry=1
+    fi
   else
+    # Positive scenarios may be replayed once only when the independent backend
+    # verifier proves the failed attempt created zero matching upload rows.
+    # This protects exactly-once evidence even when a launcher/system failure
+    # happens before its signature is captured in the Maestro debug bundle.
     set +e
     python3 "$REPO_ROOT/scripts/upl01_backend_evidence.py" \
       --fixture "$FIXTURE" \
@@ -210,7 +218,7 @@ if [ "$flow_code" -ne 0 ] && [ "$infra_failure" -eq 1 ]; then
 fi
 
 if [ "$safe_retry" -eq 1 ]; then
-  echo "UPL-01 scenario runner: proven infrastructure failure with no unsafe backend side effect; retrying scenario once"
+  echo "UPL-01 scenario runner: retrying once after a failed flow with verified-safe backend state"
   stabilize_adb_device "Maestro infrastructure retry"
   adb shell settings put global airplane_mode_on 0 >/dev/null 2>&1 || true
   adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false >/dev/null 2>&1 || true
