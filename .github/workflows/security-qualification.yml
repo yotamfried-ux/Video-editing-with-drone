@@ -52,12 +52,14 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '22'
-      - name: Regenerate lockfiles from committed security overrides
+      - name: Regenerate lockfiles and align Expo SDK dependencies
         run: |
           cd web-api
           npm install --ignore-scripts --package-lock-only
           cd ../mobile
           npm install --ignore-scripts --package-lock-only
+          npm ci --ignore-scripts --no-audit --no-fund
+          CI=1 npm_config_ignore_scripts=true npx expo install --fix --npm
       - name: Verify web-api after override resolution
         working-directory: web-api
         run: |
@@ -75,7 +77,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add web-api/package-lock.json mobile/package-lock.json
+          git add web-api/package-lock.json mobile/package.json mobile/package-lock.json
           if git diff --cached --quiet; then
             echo "Lockfiles already match overrides."
             exit 0
