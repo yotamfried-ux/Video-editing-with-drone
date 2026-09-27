@@ -245,6 +245,7 @@ jobs:
           cores: 2
           ram-size: 2048M
           emulator-boot-timeout: 480
+          disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
           script: bash mobile/.maestro/app-e2e/run-review-delivery.sh
       - name: Clean review qualification fixtures
