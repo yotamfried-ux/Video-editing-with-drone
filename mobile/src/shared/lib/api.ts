@@ -1,5 +1,15 @@
 import { API_BASE_URL as BASE } from './publicEnv';
 
+export class ApiError extends Error {
+  readonly status: number;
+
+  constructor(status: number, message: string) {
+    super(`API ${status}: ${message}`);
+    this.name = 'ApiError';
+    this.status = status;
+  }
+}
+
 async function readFailureMessage(res: Response): Promise<string> {
   const text = await res.text().catch(() => '');
   if (!text) return res.statusText || 'Request failed';
@@ -25,7 +35,7 @@ export async function apiFetch<T>(
   });
   if (!res.ok) {
     const message = await readFailureMessage(res);
-    throw new Error(`API ${res.status}: ${message}`);
+    throw new ApiError(res.status, message);
   }
   return res.json() as Promise<T>;
 }
