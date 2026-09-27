@@ -1,0 +1,28 @@
+# Local fault-path validation: non-retryable 4xx responses must fail fast.
+appId: com.sportreel.app
+name: UPL-01 API fault - non-retryable failure
+tags: [upl01, fault, api, fail-fast]
+---
+- runFlow: subflows/launch-to-settings.yaml
+- runFlow: subflows/save-operator-secret.yaml
+- runFlow: subflows/open-pipeline.yaml
+- tapOn:
+    id: "pipeline-upload-gallery"
+- runFlow: subflows/pick-first-video.yaml
+- extendedWaitUntil:
+    visible: "Some uploads failed|Uploaded to queue"
+    timeout: 60000
+- assertVisible: "Some uploads failed"
+- tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-failed"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "upload-item-status-failed"
+    text: ".*API ${FAULT_EXPECTED_STATUS}:.*"
+- assertNotVisible:
+    id: "upload-item-status-verified"
+- takeScreenshot: api-fail-fast-row
