@@ -14,8 +14,7 @@ tags: [upl01, network, retry, idempotency]
     id: "pipeline-upload-gallery"
 - runFlow: subflows/pick-first-video.yaml
 - extendedWaitUntil:
-    visible:
-      id: "upload-item-status-failed"
+    visible: "Some uploads failed|Failed · 100%"
     timeout: 120000
 - runFlow:
     when:
