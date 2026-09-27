@@ -99,11 +99,45 @@ on_exit() {
 }
 trap on_exit EXIT
 
-adb wait-for-device
-test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+stabilize_adb_device() {
+  local phase="$1" attempt stable
+  echo "UPL-01 scenario runner: stabilizing Android device before $phase"
+  adb start-server >/dev/null 2>&1 || true
+
+  for attempt in 1 2 3 4 5 6; do
+    stable=1
+    for _ in 1 2 3; do
+      if [ "$(adb get-state 2>/dev/null || true)" != "device" ] ||          [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; then
+        stable=0
+        break
+      fi
+      adb shell true >/dev/null 2>&1 || { stable=0; break; }
+      sleep 2
+    done
+
+    if [ "$stable" -eq 1 ]; then
+      echo "UPL-01 scenario runner: Android device stable before $phase"
+      return 0
+    fi
+
+    echo "UPL-01 scenario runner: adb unstable before $phase (attempt $attempt/6); restarting adb"
+    adb kill-server >/dev/null 2>&1 || true
+    sleep 2
+    adb start-server >/dev/null 2>&1 || true
+    adb wait-for-device || true
+    sleep 4
+  done
+
+  echo "UPL-01 scenario runner: Android device never became stable before $phase" >&2
+  adb devices -l >&2 || true
+  return 1
+}
+
+stabilize_adb_device "APK install"
 adb shell getprop ro.build.version.sdk | tr -d '\r' > "$EVIDENCE_DIR/android-sdk.txt"
 adb reverse tcp:8081 tcp:8081
 adb install -r "$APK" > "$EVIDENCE_DIR/install.txt"
+stabilize_adb_device "Maestro"
 
 # A unique fixture byte size is generated for each matrix scenario. That lets
 # negative and positive backend checks run concurrently without correlating to
@@ -128,6 +162,11 @@ run_flow() {
 # Seed + behavior execute inside one Maestro process. On parallel emulator
 # workers, opening a second Maestro process after the seed flow caused the
 # Android device server to go offline on run 35901916354.
+#
+# Re-check adb immediately before Maestro. GitHub-hosted Android emulators can
+# transiently return "device offline" after boot even when boot_completed=1;
+# failing here keeps infrastructure instability separate from app behavior.
+stabilize_adb_device "Maestro flow"
 run_flow "$FLOW"
 
 python3 "$REPO_ROOT/scripts/upl01_backend_evidence.py" \
