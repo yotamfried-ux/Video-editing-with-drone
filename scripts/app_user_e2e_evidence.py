@@ -125,10 +125,14 @@ def seed(args: argparse.Namespace) -> None:
     secondary_id = create_user(args.other_email, args.other_password)
     wait_for_profile(primary_id)
     wait_for_profile(secondary_id)
+    # Keep the primary name empty so the Maestro text field starts from a
+    # deterministic blank value. A tap does not guarantee cursor-at-end, so
+    # erasing a seeded marker can leave a suffix and create false evidence
+    # mismatches even when the app save path works correctly.
     service_patch(
         "athlete_profiles",
         urllib.parse.urlencode({"user_id": f"eq.{primary_id}"}),
-        {"name": f"E2E Seed {args.marker}"},
+        {"name": None},
     )
     service_patch(
         "athlete_profiles",
