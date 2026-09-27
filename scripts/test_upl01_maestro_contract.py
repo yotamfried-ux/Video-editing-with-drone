@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import yaml
 """Deterministic regressions for the UPL-01 Maestro harness.
 
 Covers the backend evidence verifier (positive + specific negative cases) and
