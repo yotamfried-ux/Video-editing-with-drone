@@ -17,29 +17,34 @@ tags: [app-full, operator]
     visible: "Secret is configured on this device"
     timeout: 15000
 
-- tapOn:\n    id: "operator-nav-pipeline"
+- tapOn:
+    id: "operator-nav-pipeline"
 - extendedWaitUntil:
     visible: "Pipeline"
     timeout: 30000
 - assertNotVisible: "Operator secret required"
 
-- tapOn:\n    id: "operator-nav-review"
+- tapOn:
+    id: "operator-nav-review"
 - extendedWaitUntil:
     visible: "Review"
     timeout: 30000
 - assertNotVisible: "Could not load drafts"
 
-- tapOn:\n    id: "operator-nav-analytics"
+- tapOn:
+    id: "operator-nav-analytics"
 - extendedWaitUntil:
     visible: "Analytics"
     timeout: 30000
 
-- tapOn:\n    id: "operator-nav-pricing"
+- tapOn:
+    id: "operator-nav-pricing"
 - extendedWaitUntil:
     visible: "Pricing"
     timeout: 30000
 
-- tapOn:\n    id: "operator-nav-reels"
+- tapOn:
+    id: "operator-nav-reels"
 - extendedWaitUntil:
     visible: "Reels"
     timeout: 30000
