@@ -316,9 +316,18 @@ class HarnessContract(unittest.TestCase):
         eas = json.loads((ROOT / "mobile/eas.json").read_text())
         for profile, config in eas["build"].items():
             self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", config.get("env", {}), profile)
+        allowed_runtime_workflows = {WORKFLOW.name, "full-android-app-qualification.yml"}
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
-            if workflow.name != WORKFLOW.name:
+            if workflow.name not in allowed_runtime_workflows:
                 self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", workflow.read_text(), workflow.name)
+
+        full_android = yaml.safe_load((ROOT / ".github/workflows/full-android-app-qualification.yml").read_text())
+        prepare_apk = full_android["jobs"]["prepare-apk"]
+        self.assertNotIn(
+            "EXPO_PUBLIC_UPL01_OPERATOR_BYPASS",
+            yaml.safe_dump(prepare_apk),
+            "validation bypass must stay out of APK build steps",
+        )
 
 
 if __name__ == "__main__":
