@@ -20,6 +20,7 @@ import {
   uploadLargeExternalSource,
 } from '@/features/operator/lib/multipartUploadClient';
 import { runQueue, withRetry } from '@/features/operator/lib/uploadQueue';
+import { isRetryableUploadError } from '@/features/operator/lib/uploadRetryPolicy';
 import type {
   OperatorUploadInitResponse,
   PipelineDispatchResponse,
@@ -539,6 +540,7 @@ export default function PipelineScreen() {
         {
           maxAttempts: MAX_UPLOAD_ATTEMPTS,
           backoffMs: UPLOAD_RETRY_BACKOFF_MS,
+          shouldRetry: isRetryableUploadError,
           onAttempt: (attempt) => updateUploadItem(item.id, { status: 'initializing', progress: 0, error: null, attempt }),
         }
       );

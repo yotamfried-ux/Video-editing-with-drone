@@ -2,6 +2,7 @@ export type RetryOptions = {
   maxAttempts: number;
   backoffMs: number[];
   onAttempt?: (attempt: number) => void;
+  shouldRetry?: (error: unknown) => boolean;
   wait?: (ms: number) => Promise<void>;
 };
 
@@ -61,10 +62,10 @@ export async function withRetry<T>(task: () => Promise<T>, options: RetryOptions
       return await task();
     } catch (e) {
       lastError = e;
-      if (attempt < options.maxAttempts) {
-        const delay = options.backoffMs[attempt - 1] ?? options.backoffMs[options.backoffMs.length - 1];
-        await wait(delay);
-      }
+      const canRetry = attempt < options.maxAttempts && (options.shouldRetry?.(e) ?? true);
+      if (!canRetry) throw e;
+      const delay = options.backoffMs[attempt - 1] ?? options.backoffMs[options.backoffMs.length - 1];
+      await wait(delay);
     }
   }
   throw lastError;
