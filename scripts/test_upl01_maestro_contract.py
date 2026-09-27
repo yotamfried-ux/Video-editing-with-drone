@@ -329,6 +329,19 @@ class HarnessContract(unittest.TestCase):
         )
         self.assertIn("run-upl01-scenario.sh", scenario_steps["Run isolated UPL-01 Maestro scenario"]["with"]["script"])
 
+    def test_apk_checkpoint_hashes_native_inputs_not_app_js(self):
+        workflows = [
+            WORKFLOW,
+            ROOT / ".github/workflows/full-android-app-qualification.yml",
+        ]
+        for workflow_path in workflows:
+            text = workflow_path.read_text()
+            self.assertIn("mobile/package-lock.json", text, workflow_path.name)
+            self.assertIn("mobile/app.json", text, workflow_path.name)
+            self.assertIn("mobile/plugins mobile/modules mobile/assets", text, workflow_path.name)
+            self.assertIn("mobile/scripts/postinstall.js", text, workflow_path.name)
+            self.assertNotIn("KEY=$(find mobile -type f", text, workflow_path.name)
+
     def test_parallel_runner_keeps_backend_verification_and_scrubs_secrets(self):
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
         self.assertIn("scripts/upl01_backend_evidence.py", runner)
