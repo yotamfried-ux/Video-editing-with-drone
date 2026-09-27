@@ -7,6 +7,7 @@ on:
       - 'mobile/**'
       - 'web-api/**'
       - 'scripts/app_user_e2e_evidence.py'
+      - 'scripts/app_review_delivery_e2e.py'
       - '.github/workflows/full-android-app-qualification.yml'
 
 permissions:
@@ -142,6 +143,132 @@ jobs:
           path: |
             ${{ runner.temp }}/operator-readonly-evidence/
             ${{ runner.temp }}/metro-operator.log
+          retention-days: 30
+          if-no-files-found: warn
+
+
+  review-delivery-discover:
+    name: Android Review / Re-edit / Approval / Discover boundary
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    permissions:
+      contents: read
+      actions: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v4
+        with:
+          name: app-full-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install qualification dependencies
+        run: python -m pip install --disable-pip-version-check boto3 requests supabase
+      - name: Install mobile dependencies for Metro
+        working-directory: mobile
+        run: npm ci --no-audit --no-fund
+      - name: Prepare controlled review fixtures
+        env:
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg >/dev/null
+          ffmpeg -hide_banner -loglevel error -f lavfi -i testsrc=size=320x180:rate=24 \
+            -f lavfi -i sine=frequency=660:sample_rate=48000 -t 2 \
+            -c:v libx264 -pix_fmt yuv420p -c:a aac -shortest "$RUNNER_TEMP/review-fixture.mp4"
+          {
+            echo "E2E_REVIEW_MARKER=${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+            echo "E2E_REVIEW_FIXTURE_MP4=$RUNNER_TEMP/review-fixture.mp4"
+            echo "E2E_REVIEW_STATE_PATH=$RUNNER_TEMP/review-delivery-state.json"
+            echo "E2E_REVIEW_EVIDENCE_PATH=$RUNNER_TEMP/review-delivery-evidence.json"
+          } >> "$GITHUB_ENV"
+          export E2E_REVIEW_MARKER="${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          export E2E_REVIEW_FIXTURE_MP4="$RUNNER_TEMP/review-fixture.mp4"
+          export E2E_REVIEW_STATE_PATH="$RUNNER_TEMP/review-delivery-state.json"
+          export E2E_REVIEW_EVIDENCE_PATH="$RUNNER_TEMP/review-delivery-evidence.json"
+          python3 scripts/app_review_delivery_e2e.py seed
+      - name: Start Metro in operator validation mode
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro-review-delivery.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro-review-delivery.log"
+          exit 1
+      - name: Install Maestro
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Run Review to Discover Android boundary
+        env:
+          APK: ${{ runner.temp }}/sportreel-app-full.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/review-delivery-maestro
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          GITHUB_TOKEN: ${{ github.token }}
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/app-e2e/run-review-delivery.sh
+      - name: Clean review qualification fixtures
+        if: always()
+        env:
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/app_review_delivery_e2e.py cleanup
+      - name: Upload review-delivery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-delivery-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/review-delivery-evidence.json
+            ${{ runner.temp }}/review-delivery-state.json
+            ${{ runner.temp }}/review-delivery-maestro/
+            ${{ runner.temp }}/metro-review-delivery.log
           retention-days: 30
           if-no-files-found: warn
 
