@@ -332,7 +332,19 @@ class HarnessContract(unittest.TestCase):
         self.assertIn("scripts/upl01_backend_evidence.py", runner)
         self.assertIn('--expect "$EXPECTATION"', runner)
         self.assertIn("scrub_secrets", runner)
-        self.assertNotRegex(runner, r"\bsleep\b")
+        self.assertIn("stabilize_adb_device", runner)
+        self.assertIn("adb kill-server", runner)
+        self.assertIn("adb start-server", runner)
+        self.assertIn("adb wait-for-device", runner)
+        self.assertIn("for attempt in 1 2 3 4 5 6", runner)
+        stabilizer = re.search(
+            r"stabilize_adb_device\(\) \{.*?^\}",
+            runner,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(stabilizer)
+        runner_without_stabilizer = runner[: stabilizer.start()] + runner[stabilizer.end() :]
+        self.assertNotRegex(runner_without_stabilizer, r"\bsleep\b")
         self.assertIn('EXPECTATION="no-upload"', runner)
         self.assertIn('EXPECTATION="verified-upload"', runner)
 
