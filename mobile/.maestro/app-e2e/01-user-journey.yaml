@@ -38,7 +38,7 @@ tags: [app-full, user]
 - assertVisible: "Support"
 - longPressOn:
     id: "profile-name-input"
-- tapOn: "Select All"
+- tapOn: "(?i)select all"
 - eraseText: 1
 - inputText: "E2E Android ${E2E_MARKER}"
 - hideKeyboard
