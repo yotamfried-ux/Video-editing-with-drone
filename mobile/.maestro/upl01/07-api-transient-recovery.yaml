@@ -1,0 +1,29 @@
+# Local fault-path validation: transient 429/5xx/timeout responses retry
+# automatically and finish with one verified local upload.
+appId: com.sportreel.app
+name: UPL-01 API fault - transient recovery
+tags: [upl01, fault, api, retry, recovery]
+---
+- runFlow: subflows/launch-to-settings.yaml
+- runFlow: subflows/save-operator-secret.yaml
+- runFlow: subflows/open-pipeline.yaml
+- tapOn:
+    id: "pipeline-upload-gallery"
+- runFlow: subflows/pick-first-video.yaml
+- extendedWaitUntil:
+    visible: "Uploaded to queue|Some uploads failed"
+    timeout: 180000
+- assertVisible: "Uploaded to queue"
+- tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-verified"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "upload-item-status-verified"
+    text: "Verified · 100%"
+- assertNotVisible:
+    id: "upload-item-status-failed"
+- takeScreenshot: api-transient-recovered-row
