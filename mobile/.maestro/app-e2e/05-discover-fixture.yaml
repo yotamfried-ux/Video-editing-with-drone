@@ -1,0 +1,12 @@
+appId: com.sportreel.app
+name: APP full - downstream Discover output
+tags: [app-full, discover]
+---
+- launchApp:
+    stopApp: false
+- tapOn: "Exit ✕"
+- extendedWaitUntil:
+    visible: "${DISCOVER_SPORT}"
+    timeout: 60000
+- assertVisible: "LIVE"
+- takeScreenshot: discover-fixture-visible
