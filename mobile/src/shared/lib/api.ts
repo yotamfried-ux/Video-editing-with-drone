@@ -29,7 +29,11 @@ export type ApiFetchOptions = RequestInit & {
   timeoutMs?: number;
 };
 
-const DEFAULT_API_TIMEOUT_MS = 30_000;
+const configuredApiTimeoutMs = Number(process.env.EXPO_PUBLIC_API_TIMEOUT_MS);
+const DEFAULT_API_TIMEOUT_MS =
+  Number.isFinite(configuredApiTimeoutMs) && configuredApiTimeoutMs > 0
+    ? configuredApiTimeoutMs
+    : 30_000;
 
 export async function apiFetch<T>(
   path: string,
