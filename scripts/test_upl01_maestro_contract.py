@@ -26,6 +26,7 @@ import summarize_failure  # noqa: E402
 
 FLOW_DIR = ROOT / "mobile/.maestro/upl01"
 WORKFLOW = ROOT / ".github/workflows/upl-01-android-app-upload-e2e.yml"
+FAULT_WORKFLOW = ROOT / ".github/workflows/upl-01-local-fault-e2e.yml"
 FILENAME = "upl01-fixture.mp4"
 SIZE = 123_456
 
@@ -327,11 +328,12 @@ class HarnessContract(unittest.TestCase):
         )
         self.assertIn("run-upl01-scenario.sh", scenario_steps["Run isolated UPL-01 Maestro scenario"]["with"]["script"])
 
-    def test_fault_path_job_is_local_only_and_covers_required_http_failures(self):
-        jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
-        self.assertIn("upl-01-fault-paths", jobs)
-        fault = jobs["upl-01-fault-paths"]
-        self.assertEqual(fault["needs"], "prepare-apk")
+    def test_fault_path_workflow_is_local_only_and_covers_required_http_failures(self):
+        workflow = yaml.safe_load(FAULT_WORKFLOW.read_text())
+        self.assertEqual(workflow["concurrency"]["cancel-in-progress"], True)
+        jobs = workflow["jobs"]
+        self.assertIn("fault-paths", jobs)
+        fault = jobs["fault-paths"]
         fault_text = json.dumps(fault)
         self.assertIn("run-upl01-fault-paths.sh", fault_text)
         self.assertIn("upl01_fault_server.py", fault_text)
@@ -358,8 +360,8 @@ class HarnessContract(unittest.TestCase):
         self.assertIn("/api/operator/upload/verify", server)
         self.assertIn("/upload/object", server)
 
-        summary = jobs["upl-01-summary"]
-        self.assertIn("upl-01-fault-paths", summary["needs"])
+        main_jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
+        self.assertNotIn("upl-01-fault-paths", main_jobs)
 
     def test_parallel_runner_keeps_backend_verification_and_scrubs_secrets(self):
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
