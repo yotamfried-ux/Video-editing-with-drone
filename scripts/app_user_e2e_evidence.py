@@ -125,14 +125,14 @@ def seed(args: argparse.Namespace) -> None:
     secondary_id = create_user(args.other_email, args.other_password)
     wait_for_profile(primary_id)
     wait_for_profile(secondary_id)
-    # Keep the primary name empty so the Maestro text field starts from a
-    # deterministic blank value. A tap does not guarantee cursor-at-end, so
-    # erasing a seeded marker can leave a suffix and create false evidence
-    # mismatches even when the app save path works correctly.
+    # Keep a short non-empty seed so login skips first-time name onboarding.
+    # Maestro taps the center of the wide TextInput, which lands after this one
+    # character; eraseText can therefore clear it deterministically before the
+    # journey types the exact evidence name.
     service_patch(
         "athlete_profiles",
         urllib.parse.urlencode({"user_id": f"eq.{primary_id}"}),
-        {"name": None},
+        {"name": "x"},
     )
     service_patch(
         "athlete_profiles",
