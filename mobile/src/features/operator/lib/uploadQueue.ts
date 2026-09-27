@@ -2,6 +2,7 @@ export type RetryOptions = {
   maxAttempts: number;
   backoffMs: number[];
   onAttempt?: (attempt: number) => void;
+  shouldRetry?: (error: unknown, attempt: number) => boolean;
   wait?: (ms: number) => Promise<void>;
 };
 
@@ -10,6 +11,48 @@ export type BatchScopedUpload = {
 };
 
 const defaultWait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function errorStatus(error: unknown): number | null {
+  if (typeof error === 'object' && error !== null && 'status' in error) {
+    const status = Number((error as { status?: unknown }).status);
+    if (Number.isInteger(status)) return status;
+  }
+
+  if (error instanceof Error) {
+    const match = error.message.match(/(?:API\s+|status\s+)(\d{3})\b/i);
+    if (match?.[1]) return Number(match[1]);
+  }
+
+  return null;
+}
+
+export function isRetryableUploadError(error: unknown): boolean {
+  const status = errorStatus(error);
+  if (status !== null) {
+    if (status === 408 || status === 429 || status >= 500) return true;
+    if (status >= 400 && status < 500) return false;
+  }
+
+  if (error instanceof Error) {
+    const message = error.message.toLowerCase();
+    if (
+      message.includes('network request failed')
+      || message.includes('failed to fetch')
+      || message.includes('network error')
+      || message.includes('timeout')
+      || message.includes('timed out')
+      || message.includes('aborterror')
+      || message.includes('connection')
+      || message.includes('socket')
+      || message.includes('offline')
+    ) {
+      return true;
+    }
+  }
+
+  // Preserve the previous retry behavior for unknown/non-HTTP failures.
+  return true;
+}
 
 export function createClientBatchId(now = new Date(), random = Math.random()): string {
   const stamp = now.toISOString().replace(/[:.]/g, '-').slice(0, 19);
@@ -62,6 +105,7 @@ export async function withRetry<T>(task: () => Promise<T>, options: RetryOptions
     } catch (e) {
       lastError = e;
       if (attempt < options.maxAttempts) {
+        if (options.shouldRetry && !options.shouldRetry(e, attempt)) break;
         const delay = options.backoffMs[attempt - 1] ?? options.backoffMs[options.backoffMs.length - 1];
         await wait(delay);
       }
