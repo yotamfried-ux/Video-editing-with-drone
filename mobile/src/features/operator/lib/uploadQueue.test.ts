@@ -83,6 +83,44 @@ describe('withRetry', () => {
     expect(wait).toHaveBeenNthCalledWith(2, 5000);
   });
 
+  it('stops immediately when shouldRetry rejects the error', async () => {
+    const wait = jest.fn().mockResolvedValue(undefined);
+    const error = new Error('permanent failure');
+    const task = jest.fn().mockRejectedValue(error);
+    const shouldRetry = jest.fn().mockReturnValue(false);
+
+    await expect(withRetry(task, {
+      maxAttempts: 3,
+      backoffMs: [2000, 5000],
+      wait,
+      shouldRetry,
+    })).rejects.toBe(error);
+
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(shouldRetry).toHaveBeenCalledTimes(1);
+    expect(shouldRetry).toHaveBeenCalledWith(error);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it('keeps retrying when shouldRetry accepts a transient error', async () => {
+    const wait = jest.fn().mockResolvedValue(undefined);
+    const transient = new Error('temporary network failure');
+    const task = jest.fn()
+      .mockRejectedValueOnce(transient)
+      .mockResolvedValueOnce('ok');
+
+    const result = await withRetry(task, {
+      maxAttempts: 3,
+      backoffMs: [10, 20],
+      wait,
+      shouldRetry: () => true,
+    });
+
+    expect(result).toBe('ok');
+    expect(task).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledWith(10);
+  });
+
   it('calls onAttempt before every attempt, including the first', async () => {
     const wait = jest.fn().mockResolvedValue(undefined);
     const onAttempt = jest.fn();
