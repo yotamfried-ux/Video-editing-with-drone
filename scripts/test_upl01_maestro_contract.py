@@ -356,6 +356,36 @@ class HarnessContract(unittest.TestCase):
             self.assertIn(f'testID="{test_id}"', source)
         self.assertIn("testID={`upload-item-status-${item.status}`}", source)
 
+    def test_api_error_path_job_proves_fail_fast_retry_and_timeout(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        job = workflow["jobs"]["upl-01-error-paths"]
+        self.assertEqual(job["needs"], "prepare-apk")
+        dumped = yaml.safe_dump(job)
+        self.assertIn("run-upl01-error-paths.sh", dumped)
+        self.assertIn("upl01_error_path_server.py", dumped)
+        self.assertIn("http://127.0.0.1:8787", dumped)
+        self.assertIn("EXPO_PUBLIC_API_TIMEOUT_MS", dumped)
+
+        runner = (FLOW_DIR / "run-upl01-error-paths.sh").read_text()
+        self.assertIn('run_case 401 1 "API 401"', runner)
+        self.assertIn('run_case 403 1 "API 403"', runner)
+        self.assertIn('run_case 429 3 "API 429"', runner)
+        self.assertIn('run_case 503 3 "API 503"', runner)
+        self.assertIn('run_case timeout 3 "API timeout"', runner)
+        self.assertIn('data["upload_requests"] == expected_count', runner)
+
+        flow = (FLOW_DIR / "15-isolated-api-error.yaml").read_text()
+        self.assertIn('id: "upload-item-status-failed"', flow)
+        self.assertIn("EXPECTED_ERROR_REGEX", flow)
+
+        summary = workflow["jobs"]["upl-01-summary"]
+        self.assertIn("upl-01-error-paths", summary["needs"])
+
+    def test_validation_timeout_override_never_enters_eas_profiles(self):
+        eas = json.loads((ROOT / "mobile/eas.json").read_text())
+        for profile, config in eas["build"].items():
+            self.assertNotIn("EXPO_PUBLIC_API_TIMEOUT_MS", config.get("env", {}), profile)
+
     def test_validation_bypass_never_enters_an_eas_build_profile(self):
         eas = json.loads((ROOT / "mobile/eas.json").read_text())
         for profile, config in eas["build"].items():
