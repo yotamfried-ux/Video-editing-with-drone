@@ -1,0 +1,41 @@
+appId: com.sportreel.app
+name: APP full - blocked review to re-edit
+tags: [app-full, review, reedit]
+---
+- launchApp:
+    clearState: true
+- extendedWaitUntil:
+    visible: "Operator Secret"
+    timeout: 60000
+- tapOn:
+    id: "operator-secret-input"
+- inputText: ${OPERATOR_SECRET}
+- hideKeyboard
+- tapOn:
+    id: "operator-secret-save"
+- extendedWaitUntil:
+    visible: "Secret is configured on this device"
+    timeout: 15000
+- tapOn:
+    id: "operator-nav-review"
+- extendedWaitUntil:
+    visible: "Review"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: "${BLOCKED_REEDIT_ID}"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+- tapOn:
+    id: "${BLOCKED_REEDIT_ID}"
+- extendedWaitUntil:
+    visible: "Send performance reel to re-edit"
+    timeout: 15000
+- tapOn:
+    id: "review-reedit-submit"
+- extendedWaitUntil:
+    visible: "Sent for re-edit"
+    timeout: 30000
+- tapOn: "(?i)ok"
+- takeScreenshot: review-reedit-dispatched
