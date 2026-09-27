@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import yaml
 """Deterministic regressions for the UPL-01 Maestro harness.
 
 Covers the backend evidence verifier (positive + specific negative cases) and
@@ -9,6 +8,7 @@ Run: python scripts/test_upl01_maestro_contract.py
 
 from __future__ import annotations
 
+import yaml
 import copy
 import json
 import re
@@ -268,7 +268,6 @@ class HarnessContract(unittest.TestCase):
         self.assertIn("max-parallel: 3", text)
 
     def test_parallel_workflow_prepares_apk_once_and_runs_three_scenarios(self):
-        import yaml
 
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         prepare = jobs["prepare-apk"]
