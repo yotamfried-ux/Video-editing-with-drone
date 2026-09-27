@@ -174,6 +174,13 @@ run_flow "$FLOW"
 flow_code=$?
 set -e
 
+if [ "$flow_code" -ne 0 ]; then
+  # Capture system UI before the EXIT trap. Pixel Launcher/ANR dialogs often
+  # explain a Maestro assertion failure but only appear in hierarchy evidence.
+  timeout 20s maestro hierarchy > "$EVIDENCE_DIR/post-flow-hierarchy.json" 2>/dev/null || true
+  adb shell dumpsys window windows > "$EVIDENCE_DIR/post-flow-windows.txt" 2>/dev/null || true
+fi
+
 infra_failure=0
 if [ "$flow_code" -ne 0 ] && grep -RqsE   'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE|Pixel Launcher isn.t responding'   "$EVIDENCE_DIR"; then
   infra_failure=1
