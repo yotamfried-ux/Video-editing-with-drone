@@ -73,7 +73,10 @@ jobs:
           npm ci --no-audit --no-fund
           npm run type-check
           npm test -- --runInBand
-          npx expo export --platform android --output-dir /tmp/sportreel-export
+          rm -rf .qualification-export
+          npx expo export --platform android --output-dir .qualification-export
+          test -d .qualification-export
+          rm -rf .qualification-export
       - name: Commit verified lockfiles
         run: |
           git config user.name "github-actions[bot]"
