@@ -8,5 +8,5 @@ tags: [app-full, discover]
 - extendedWaitUntil:
     visible: "${DISCOVER_SPORT}"
     timeout: 60000
-- assertVisible: "LIVE"
+- assertVisible: ".*[0-9]+h [0-9]+m.*"
 - takeScreenshot: discover-fixture-visible
