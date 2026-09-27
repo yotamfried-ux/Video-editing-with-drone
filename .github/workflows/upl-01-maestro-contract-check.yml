@@ -14,6 +14,7 @@ on:
       - 'scripts/upl01_error_path_server.py'
       - 'scripts/test_upl01_maestro_contract.py'
       - '.github/workflows/upl-01-android-app-upload-e2e.yml'
+      - '.github/workflows/full-android-app-qualification.yml'
       - '.github/workflows/upl-01-maestro-contract-check.yml'
 
 permissions:
