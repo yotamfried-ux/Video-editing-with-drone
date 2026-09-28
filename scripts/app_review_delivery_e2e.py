@@ -47,6 +47,23 @@ def list_workflow_runs(workflow):
     return [int(x["id"]) for x in workflow_runs(workflow)]
 
 
+def workflow_run(run_id):
+    if not GH_TOKEN:
+        return {}
+    url = f"https://api.github.com/repos/{REPO}/actions/runs/{run_id}"
+    r = requests.get(url, headers=gh_headers(), timeout=20)
+    r.raise_for_status()
+    return r.json()
+
+
+def r2_exists(key):
+    try:
+        r2().head_object(Bucket=R2_BUCKET, Key=key)
+        return True
+    except Exception:
+        return False
+
+
 def _parse_utc(value):
     if not value:
         return None
@@ -234,7 +251,7 @@ def wait_for_reedit_and_cancel():
     evidence["reedit"] = {"request": row, "pipeline_run": run_row, "actions_run_id": rid, "cancel_status": resp.status_code}
     EVIDENCE.write_text(json.dumps(evidence, indent=2, default=str))
 
-def wait_for_approval_and_cancel_delivery():
+def wait_for_approval_and_delivery():
     state = read_state()
     deadline = time.time() + 180
     delivery = None
@@ -249,18 +266,12 @@ def wait_for_approval_and_cancel_delivery():
     if not delivery:
         raise RuntimeError("approval did not create delivery_run")
 
-    cli = r2()
-    try:
-        cli.head_object(Bucket=R2_BUCKET, Key=f"approved/{state['ready_name']}")
-    except Exception as exc:
-        raise RuntimeError("approval did not move review object to approved/") from exc
-    try:
-        cli.head_object(Bucket=R2_BUCKET, Key=state["ready_key"])
+    approved_key = f"approved/{state['ready_name']}"
+    pending_key = f"pending_payment/{state['ready_name']}"
+    if r2_exists(state["ready_key"]):
         raise RuntimeError("review object still exists after approval")
-    except RuntimeError:
-        raise
-    except Exception:
-        pass
+    if not (r2_exists(approved_key) or r2_exists(pending_key)):
+        raise RuntimeError("approval did not move review object downstream")
 
     rid = find_correlated_workflow_run(
         "deliver.yml",
@@ -268,48 +279,95 @@ def wait_for_approval_and_cancel_delivery():
         f"Deliver Preview · {delivery['id']}",
         durable_time=delivery.get("approved_at") or delivery.get("created_at"),
     )
-    resp = requests.post(
-        f"https://api.github.com/repos/{REPO}/actions/runs/{rid}/cancel",
-        headers=gh_headers(), timeout=20
-    )
-    if resp.status_code not in (202, 409):
-        raise RuntimeError(f"delivery cancel failed: {resp.status_code} {resp.text[:200]}")
     state["delivery_run_id"] = delivery["id"]
     state["delivery_actions_run_id"] = rid
     write_state(state)
+
+    deadline = time.time() + 900
+    latest = delivery
+    action = {}
+    while time.time() < deadline:
+        rows = sb.table("delivery_runs").select("*").eq("id", delivery["id"]).execute().data
+        if rows:
+            latest = rows[0]
+        action = workflow_run(rid)
+
+        if latest.get("status") in ("failed", "dispatch_failed"):
+            raise RuntimeError(
+                f"delivery failed: status={latest.get('status')} stage={latest.get('stage')} "
+                f"error={latest.get('error')} actions={action.get('html_url')}"
+            )
+
+        if action.get("status") == "completed" and action.get("conclusion") not in (None, "success"):
+            raise RuntimeError(
+                f"Deliver Preview workflow concluded {action.get('conclusion')}: "
+                f"{action.get('html_url')}; durable={latest}"
+            )
+
+        if (
+            latest.get("status") == "succeeded"
+            and latest.get("stage") == "finished"
+            and latest.get("discover_reel_id")
+            and action.get("status") == "completed"
+            and action.get("conclusion") == "success"
+        ):
+            break
+        time.sleep(5)
+    else:
+        raise RuntimeError(
+            f"delivery did not finish within qualification budget: durable={latest} "
+            f"actions_status={action.get('status')} conclusion={action.get('conclusion')} "
+            f"url={action.get('html_url')}"
+        )
+
+    if not r2_exists(pending_key):
+        raise RuntimeError("successful delivery did not move approved object to pending_payment/")
+    if r2_exists(approved_key):
+        raise RuntimeError("approved object still exists after successful delivery")
+
+    reel_id = latest["discover_reel_id"]
+    reels = sb.table("reels").select("*").eq("id", reel_id).execute().data
+    if len(reels) != 1:
+        raise RuntimeError(f"expected exactly one correlated Discover reel, found {reels}")
+    reel = reels[0]
+    if reel.get("status") != "published":
+        raise RuntimeError(f"correlated Discover reel is not published: {reel}")
+    if reel.get("source_video") != state["ready_name"]:
+        raise RuntimeError(
+            f"Discover reel source mismatch: expected {state['ready_name']}, got {reel.get('source_video')}"
+        )
+    storage_path = str(reel.get("storage_path") or "")
+    if not storage_path:
+        raise RuntimeError(f"Discover reel has no storage_path: {reel}")
+    preview = sb.storage.from_("reels").download(storage_path)
+    if not preview:
+        raise RuntimeError(f"Discover preview object is empty or unavailable: {storage_path}")
+
+    state["reel_id"] = reel_id
+    state["reel_token"] = reel.get("token")
+    state["reel_storage_path"] = storage_path
+    state["discover_sport"] = reel.get("sport") or "unknown"
+    write_state(state)
+    emit_env({
+        "DISCOVER_REEL_ID": reel_id,
+        "DISCOVER_SPORT": state["discover_sport"],
+    })
+
     evidence = json.loads(EVIDENCE.read_text())
-    evidence["approval"] = {"delivery_run": delivery, "actions_run_id": rid, "cancel_status": resp.status_code}
+    evidence["approval_delivery"] = {
+        "delivery_run": latest,
+        "actions_run": {
+            "id": rid,
+            "status": action.get("status"),
+            "conclusion": action.get("conclusion"),
+            "html_url": action.get("html_url"),
+        },
+        "reel": reel,
+        "preview_bytes": len(preview),
+        "pending_payment_key": pending_key,
+    }
     EVIDENCE.write_text(json.dumps(evidence, indent=2, default=str))
 
-def seed_discover_output():
-    state = read_state()
-    preview_path = f"{date.today().isoformat()}/{MARKER}_preview.mp4"
-    bucket = sb.storage.from_("reels")
-    with open(FIXTURE, "rb") as fh:
-        bucket.upload(preview_path, fh, file_options={"content-type": "video/mp4"})
-    reel = sb.table("reels").insert({
-        "sport": f"e2e-{MARKER[-8:]}",
-        "athlete_desc": f"E2E Discover {MARKER}",
-        "recording_date": date.today().isoformat(),
-        "storage_path": preview_path,
-        "source_video": state["ready_name"],
-        "status": "published",
-    }).execute().data[0]
-    sb.table("delivery_runs").update({
-        "status": "succeeded",
-        "stage": "finished",
-        "discover_reel_id": reel["id"],
-        "finished_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("id", state["delivery_run_id"]).execute()
-    state["reel_id"] = reel["id"]
-    state["reel_token"] = reel.get("token")
-    state["reel_storage_path"] = preview_path
-    state["discover_sport"] = f"e2e-{MARKER[-8:]}"
-    write_state(state)
-    emit_env({"DISCOVER_SPORT": state["discover_sport"]})
-    evidence = json.loads(EVIDENCE.read_text())
-    evidence["discover_seed"] = {"reel": reel}
-    EVIDENCE.write_text(json.dumps(evidence, indent=2, default=str))
 
 def verify_discover():
     state = read_state()
@@ -366,13 +424,12 @@ def cleanup():
 
 def main():
     p=argparse.ArgumentParser()
-    p.add_argument("command", choices=["seed","verify-reedit-cancel","verify-approval-cancel","seed-discover","verify-discover","cleanup"])
+    p.add_argument("command", choices=["seed","verify-reedit-cancel","verify-delivery-discover","verify-discover","cleanup"])
     args=p.parse_args()
     {
         "seed": seed,
         "verify-reedit-cancel": wait_for_reedit_and_cancel,
-        "verify-approval-cancel": wait_for_approval_and_cancel_delivery,
-        "seed-discover": seed_discover_output,
+        "verify-delivery-discover": wait_for_approval_and_delivery,
         "verify-discover": verify_discover,
         "cleanup": cleanup,
     }[args.command]()
