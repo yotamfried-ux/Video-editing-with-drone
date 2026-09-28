@@ -4,8 +4,10 @@ tags: [app-full, discover]
 ---
 - tapOn: "Exit ✕"
 - extendedWaitUntil:
-    visible: "${DISCOVER_SPORT}"
+    visible:
+      id: "reel-thumb-${DISCOVER_REEL_ID}-live"
     timeout: 60000
+- assertVisible: "${DISCOVER_SPORT}"
 - assertVisible:
-    id: "reel-thumb-${DISCOVER_SPORT}-live"
+    id: "reel-thumb-${DISCOVER_REEL_ID}-live"
 - takeScreenshot: discover-fixture-visible
