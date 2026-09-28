@@ -60,18 +60,18 @@ stabilize_adb_device "review approval Maestro"
 adb reverse tcp:8081 tcp:8081
 timeout --signal=TERM --kill-after=30s 480s maestro test   -e READY_APPROVE_ID="$READY_APPROVE_ID"   "$HERE/04-review-approve.yaml"   --format junit --output "$EVIDENCE_DIR/review-approve.junit.xml"   --debug-output "$EVIDENCE_DIR/review-approve-debug"   --test-output-dir "$EVIDENCE_DIR/review-approve-debug" --flatten-debug-output
 
-python3 scripts/app_review_delivery_e2e.py verify-approval-cancel
-python3 scripts/app_review_delivery_e2e.py seed-discover
+python3 scripts/app_review_delivery_e2e.py verify-delivery-discover
 
-DISCOVER_SPORT="$(python3 - <<'PY'
+read -r DISCOVER_REEL_ID DISCOVER_SPORT < <(python3 - <<'PY'
 import json, os
-print(json.load(open(os.environ["E2E_REVIEW_STATE_PATH"]))["discover_sport"])
+state = json.load(open(os.environ["E2E_REVIEW_STATE_PATH"]))
+print(state["reel_id"], state["discover_sport"])
 PY
-)"
-export DISCOVER_SPORT
+)
+export DISCOVER_REEL_ID DISCOVER_SPORT
 
 stabilize_adb_device "discover Maestro"
 adb reverse tcp:8081 tcp:8081
-timeout --signal=TERM --kill-after=30s 300s maestro test   -e DISCOVER_SPORT="$DISCOVER_SPORT"   "$HERE/05-discover-fixture.yaml"   --format junit --output "$EVIDENCE_DIR/discover.junit.xml"   --debug-output "$EVIDENCE_DIR/discover-debug"   --test-output-dir "$EVIDENCE_DIR/discover-debug" --flatten-debug-output
+timeout --signal=TERM --kill-after=30s 300s maestro test   -e DISCOVER_REEL_ID="$DISCOVER_REEL_ID"   -e DISCOVER_SPORT="$DISCOVER_SPORT"   "$HERE/05-discover-fixture.yaml"   --format junit --output "$EVIDENCE_DIR/discover.junit.xml"   --debug-output "$EVIDENCE_DIR/discover-debug"   --test-output-dir "$EVIDENCE_DIR/discover-debug" --flatten-debug-output
 
 python3 scripts/app_review_delivery_e2e.py verify-discover
