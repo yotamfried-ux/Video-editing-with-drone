@@ -1,0 +1,65 @@
+name: Delivery Notification Contract
+
+on:
+  pull_request:
+    paths:
+      - 'integrations/notifier.py'
+      - 'web-api/src/lib/email.ts'
+      - 'web-api/src/app/api/operator/delivery-notify/**'
+      - 'scripts/test_delivery_notification_proxy.py'
+      - '.github/workflows/deliver.yml'
+      - '.github/workflows/delivery-notification-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Run notification proxy contract
+        run: python scripts/test_delivery_notification_proxy.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - name: Install web-api dependencies
+        working-directory: web-api
+        run: npm ci --no-audit --no-fund
+      - name: Type-check web-api
+        working-directory: web-api
+        run: npm run type-check
+
+      - name: Reject Resend API errors at the production notification boundary
+        working-directory: web-api
+        env:
+          OPERATOR_SECRET: contract-secret
+          RESEND_API_KEY: re_intentionally_invalid_contract_key
+          RATE_LIMIT_BACKEND: supabase
+        run: |
+          npm run dev > "$RUNNER_TEMP/sportreel-web-api.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          for i in $(seq 1 60); do
+            if curl -fsS http://127.0.0.1:3001/api/health >/dev/null 2>&1; then
+              break
+            fi
+            sleep 1
+          done
+          code=$(curl -sS -o "$RUNNER_TEMP/delivery-notify-response.json" -w '%{http_code}' \
+            -X POST http://127.0.0.1:3001/api/operator/delivery-notify \
+            -H 'content-type: application/json' \
+            -H 'x-operator-secret: contract-secret' \
+            --data '{"recipients":["owner@example.com"],"clips_links":["https://example.com/reel.mp4"],"sport_type":"surfing","video_name":"fixture.mp4"}')
+          cat "$RUNNER_TEMP/delivery-notify-response.json"
+          if [ "$code" -lt 500 ]; then
+            echo "Expected Resend rejection to propagate as 5xx; got HTTP $code"
+            exit 1
+          fi

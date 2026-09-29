@@ -8,7 +8,7 @@ const APP_URL = process.env.APP_DOMAIN
 const resend = () => new Resend(process.env.RESEND_API_KEY);
 
 export async function sendReelReadyEmail(to: string, reelId: string) {
-  await resend().emails.send({
+  const { error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: 'Your SportReel highlight is ready! 🎬',
@@ -23,10 +23,11 @@ export async function sendReelReadyEmail(to: string, reelId: string) {
         <p style="color:#888;font-size:12px;margin-top:24px">SportReel · Unsubscribe</p>
       </div>`,
   });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
 }
 
 export async function sendPaymentConfirmEmail(to: string, reelId: string, amountIls: number) {
-  await resend().emails.send({
+  const { error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: 'Payment confirmed ✓',
@@ -41,12 +42,13 @@ export async function sendPaymentConfirmEmail(to: string, reelId: string, amount
         <p style="color:#888;font-size:12px;margin-top:24px">SportReel</p>
       </div>`,
   });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
 }
 
 export async function sendOperatorNotifyEmail(reelId: string, sport: string) {
   const to = process.env.NOTIFY_EMAIL ?? process.env.OWNER_EMAIL;
   if (!to) return;
-  await resend().emails.send({
+  const { error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: `New reel ready for review — ${sport}`,
@@ -60,4 +62,47 @@ export async function sendOperatorNotifyEmail(reelId: string, sport: string) {
         </a>
       </div>`,
   });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
+}
+
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] ?? char));
+}
+
+export async function sendDeliverySummaryEmail(
+  recipients: string[],
+  clipsLinks: string[],
+  sportType: string,
+  videoName: string,
+) {
+  const safeSport = escapeHtml(sportType || 'sport');
+  const safeVideo = escapeHtml(videoName || 'highlight reel');
+  const links = clipsLinks.map((link, index) => {
+    const safeLink = escapeHtml(link);
+    const label = clipsLinks.length === 1 ? 'Watch / Download Reel' : `Reel ${index + 1}`;
+    return `<p><a href="${safeLink}" style="display:inline-block;padding:12px 24px;background:#5B6EF5;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">${label}</a></p>`;
+  }).join('');
+
+  const { data, error } = await resend().emails.send({
+    from: `SportReel <${FROM}>`,
+    to: recipients,
+    subject: `Your ${sportType || 'SportReel'} highlights are ready 🎬`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto">
+        <h2 style="color:#5B6EF5">Your highlight reel is ready</h2>
+        <p>We finished processing <strong>${safeVideo}</strong> (${safeSport}).</p>
+        ${links}
+        <p style="color:#888;font-size:12px;margin-top:24px">SportReel</p>
+      </div>`,
+  });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
+  if (!data?.id) throw new Error('Resend email send returned no message id');
+  return data.id;
 }
