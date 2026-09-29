@@ -66,22 +66,32 @@ run_maestro() {
     --flatten-debug-output
 }
 
-set +e
-run_maestro 1
-code=$?
-set -e
-if [ "$code" -eq 0 ]; then
-  exit 0
-fi
+# GitHub-hosted emulators occasionally flap offline after Maestro starts its
+# device server. Allow up to three attempts, but only when the previous attempt
+# contains direct infrastructure-failure evidence. Product/assertion failures
+# are never retried.
+for attempt in 1 2 3; do
+  set +e
+  run_maestro "$attempt"
+  code=$?
+  set -e
 
-# GitHub's freshly booted emulator can briefly flap offline when Maestro first
-# installs/starts its device server. Retry only that known infrastructure case.
-if grep -RqsE 'device offline|Device server died|StatusRuntimeException: UNAVAILABLE' "$EVIDENCE_DIR/maestro-attempt-1"; then
-  echo "Maestro attempt 1 hit known transient device-offline failure; retrying after bounded adb stabilization."
-  stabilize_adb_device "operator Maestro retry"
+  if [ "$code" -eq 0 ]; then
+    exit 0
+  fi
+
+  debug="$EVIDENCE_DIR/maestro-attempt-$attempt"
+  if ! grep -RqsE 'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE' "$debug"; then
+    exit "$code"
+  fi
+  if [ "$attempt" -eq 3 ]; then
+    echo "Maestro exhausted three infrastructure-only retries." >&2
+    exit "$code"
+  fi
+
+  echo "Maestro attempt $attempt hit proven device-offline infrastructure failure; retrying on the same emulator after bounded adb recovery."
+  adb kill-server >/dev/null 2>&1 || true
+  sleep 2
+  stabilize_adb_device "operator Maestro retry $((attempt + 1))"
   adb reverse tcp:8081 tcp:8081
-  run_maestro 2
-  exit $?
-fi
-
-exit "$code"
+done
