@@ -123,14 +123,14 @@ jobs:
           rm -f "$DEST"
           before="$RUNNER_TEMP/eas-download-before.txt"
           after="$RUNNER_TEMP/eas-download-after.txt"
-          find "$RUNNER_TEMP" /tmp "$PWD" -maxdepth 2 -type f -name '*.apk' -printf '%p\n' 2>/dev/null | sort -u > "$before" || true
+          find "$RUNNER_TEMP" /tmp "$PWD" -type f -name '*.apk' -printf '%p\n' 2>/dev/null | sort -u > "$before" || true
           eas build:download \
             --build-id "${{ steps.eas-build.outputs.build_id }}" \
             --non-interactive
-          find "$RUNNER_TEMP" /tmp "$PWD" -maxdepth 2 -type f -name '*.apk' -printf '%p\n' 2>/dev/null | sort -u > "$after" || true
+          find "$RUNNER_TEMP" /tmp "$PWD" -type f -name '*.apk' -printf '%p\n' 2>/dev/null | sort -u > "$after" || true
           APK=$(comm -13 "$before" "$after" | head -n 1)
           if [ -z "$APK" ]; then
-            APK=$(find "$RUNNER_TEMP" /tmp "$PWD" -maxdepth 2 -type f -name '*.apk' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)
+            APK=$(find "$RUNNER_TEMP" /tmp "$PWD" -type f -name '*.apk' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)
           fi
           if [ -z "$APK" ] || [ ! -s "$APK" ]; then
             echo "EAS download completed but no non-empty APK was found in expected download locations." >&2
