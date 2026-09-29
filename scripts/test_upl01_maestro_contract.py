@@ -303,6 +303,9 @@ class HarnessContract(unittest.TestCase):
             self.assertNotIn(forbidden, text)
         self.assertIn("bash mobile/.maestro/upl01/run-upl01-scenario.sh", text)
         self.assertIn("concurrency:", text)
+        workflow = yaml.safe_load(text)
+        self.assertTrue(workflow["concurrency"]["cancel-in-progress"])
+        self.assertEqual(workflow["concurrency"]["group"], "upl-01-android-app-upload-e2e")
         self.assertIn("max-parallel: 3", text)
 
     def test_parallel_workflow_prepares_apk_once_and_runs_five_scenarios(self):
