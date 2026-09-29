@@ -79,6 +79,8 @@ jobs:
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL }}
+          SPORTREEL_NOTIFICATION_API: https://video-editing-with-drone.vercel.app/api/operator/delivery-notify
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
