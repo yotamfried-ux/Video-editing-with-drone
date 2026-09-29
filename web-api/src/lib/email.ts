@@ -61,3 +61,42 @@ export async function sendOperatorNotifyEmail(reelId: string, sport: string) {
       </div>`,
   });
 }
+
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char] ?? char));
+}
+
+export async function sendDeliverySummaryEmail(
+  recipients: string[],
+  clipsLinks: string[],
+  sportType: string,
+  videoName: string,
+) {
+  const safeSport = escapeHtml(sportType || 'sport');
+  const safeVideo = escapeHtml(videoName || 'highlight reel');
+  const links = clipsLinks.map((link, index) => {
+    const safeLink = escapeHtml(link);
+    const label = clipsLinks.length === 1 ? 'Watch / Download Reel' : `Reel ${index + 1}`;
+    return `<p><a href="${safeLink}" style="display:inline-block;padding:12px 24px;background:#5B6EF5;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">${label}</a></p>`;
+  }).join('');
+
+  await resend().emails.send({
+    from: `SportReel <${FROM}>`,
+    to: recipients,
+    subject: `Your ${sportType || 'SportReel'} highlights are ready 🎬`,
+    html: `
+      <div style="font-family:sans-serif;max-width:520px;margin:0 auto">
+        <h2 style="color:#5B6EF5">Your highlight reel is ready</h2>
+        <p>We finished processing <strong>${safeVideo}</strong> (${safeSport}).</p>
+        ${links}
+        <p style="color:#888;font-size:12px;margin-top:24px">SportReel</p>
+      </div>`,
+  });
+}
