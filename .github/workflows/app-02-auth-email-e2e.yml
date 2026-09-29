@@ -56,4 +56,45 @@ jobs:
           if not payload.get("confirmation_sent_at"): raise SystemExit("APP-02 signup missing confirmation_sent_at")
           if payload.get("email_confirmed_at"): raise SystemExit("APP-02 account unexpectedly already confirmed")
           print("APP-02 SIGNUP TRIGGER PASS")
+          print("APP-02 WAITING FOR CONFIRMATION", email, flush=True)
+
+          token_url=os.environ["SUPABASE_URL"].rstrip("/")+"/auth/v1/token?grant_type=password"
+          for attempt in range(1, 49):
+              login_req=urllib.request.Request(
+                  token_url,
+                  data=json.dumps({"email":email,"password":password}).encode(),
+                  method="POST",
+                  headers={"apikey":key,"Authorization":"Bearer "+key,"Content-Type":"application/json"},
+              )
+              try:
+                  with urllib.request.urlopen(login_req,timeout=30) as r:
+                      login_status=r.status
+                      login_payload=json.loads(r.read().decode() or "{}")
+              except urllib.error.HTTPError as e:
+                  login_status=e.code
+                  try:
+                      login_payload=json.loads(e.read().decode() or "{}")
+                  except Exception:
+                      login_payload={}
+
+              if login_status in (200,201):
+                  user=login_payload.get("user") or {}
+                  if not login_payload.get("access_token"):
+                      raise SystemExit("APP-02 confirmed login missing access_token")
+                  if user.get("id") != payload.get("id") or user.get("email") != email:
+                      raise SystemExit("APP-02 login returned a different user")
+                  if not user.get("email_confirmed_at"):
+                      raise SystemExit("APP-02 login succeeded without confirmed email state")
+                  print("APP-02 CONFIRMED PASSWORD SIGN-IN PASS")
+                  print("confirmed_user", json.dumps({
+                      "id": user.get("id"),
+                      "email": user.get("email"),
+                      "email_confirmed_at": user.get("email_confirmed_at"),
+                  }, sort_keys=True))
+                  break
+
+              if attempt == 48:
+                  safe_error={k:login_payload.get(k) for k in ("code","error","error_code","msg","message") if k in login_payload}
+                  raise SystemExit("APP-02 confirmation/login timeout: "+json.dumps(safe_error,sort_keys=True))
+              time.sleep(10)
           PY
