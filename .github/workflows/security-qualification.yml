@@ -122,6 +122,16 @@ jobs:
           print("CODEQL_HIGH_OR_CRITICAL=0")
           PY
 
+  regressions:
+    name: Security regression contracts
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: E2E state never persists passwords
+        run: python3 scripts/test_app_user_e2e_state_security.py
+      - name: R2 XML decoder performs one decode pass
+        run: node web-api/scripts/test-r2-xml-decoder.cjs
+
   osv:
     name: OSV dependency scan
     permissions:
