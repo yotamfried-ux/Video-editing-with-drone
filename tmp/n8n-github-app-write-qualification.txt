@@ -1,2 +1,0 @@
-Temporary qualification artifact for GitHub write/PR capability.
-Created 2026-09-29. Safe to delete after qualification.
