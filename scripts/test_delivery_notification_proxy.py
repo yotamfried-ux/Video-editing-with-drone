@@ -62,6 +62,11 @@ class DeliveryNotificationProxyTest(unittest.TestCase):
             )
         self.assertEqual(message_id, "email_test_123")
 
+    def test_delivery_service_persists_provider_message_id_evidence(self):
+        service = (ROOT / "services" / "delivery.py").read_text(encoding="utf-8")
+        self.assertIn("notification_message_ids", service)
+        self.assertIn("mark_delivery_run", service)
+
 
 if __name__ == "__main__":
     unittest.main()
