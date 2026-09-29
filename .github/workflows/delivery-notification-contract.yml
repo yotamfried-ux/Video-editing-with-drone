@@ -1,0 +1,38 @@
+name: Delivery Notification Contract
+
+on:
+  pull_request:
+    paths:
+      - 'integrations/notifier.py'
+      - 'web-api/src/lib/email.ts'
+      - 'web-api/src/app/api/operator/delivery-notify/**'
+      - 'scripts/test_delivery_notification_proxy.py'
+      - '.github/workflows/deliver.yml'
+      - '.github/workflows/delivery-notification-contract.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Run notification proxy contract
+        run: python scripts/test_delivery_notification_proxy.py
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - name: Install web-api dependencies
+        working-directory: web-api
+        run: npm ci --no-audit --no-fund
+      - name: Type-check web-api
+        working-directory: web-api
+        run: npm run type-check
