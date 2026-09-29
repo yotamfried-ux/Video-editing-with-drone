@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 import json
 import os
+import sys
+from pathlib import Path
 import unittest
 from unittest.mock import patch
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 os.environ.setdefault("OWNER_EMAIL", "owner@example.com")
 
