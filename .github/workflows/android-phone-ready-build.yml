@@ -1,0 +1,116 @@
+name: Android Phone-ready Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'scripts/record_eas_build_evidence.py'
+      - '.github/workflows/android-phone-ready-build.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-phone-ready-${{ github.sha }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build verified installable Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci --legacy-peer-deps
+
+      - name: Verify native source reader is linked
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          npx expo-modules-autolinking resolve --platform android > "$RUNNER_TEMP/expo-modules-android.json"
+          grep -q 'SportReelSourceReaderModule' "$RUNNER_TEMP/expo-modules-android.json"
+
+      - name: Setup EAS
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: 18.9.1
+          token: ${{ secrets.EXPO_TOKEN }}
+
+      - name: Verify pinned EAS CLI
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          EAS_VERSION=$(eas --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
+          test "$EAS_VERSION" = '18.9.1'
+          eas build:download --help | grep -q -- '--build-id'
+
+      - name: Build exact Android preview
+        id: eas-build
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          eas build --platform android --profile preview --non-interactive --wait --json \
+            > "$RUNNER_TEMP/eas-build.json"
+          BUILD_ID=$(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload = json.loads(Path(os.environ["RUNNER_TEMP"], "eas-build.json").read_text())
+          row = payload[0] if isinstance(payload, list) else payload
+          value = str(row.get("id") or "").strip()
+          if not value:
+              raise SystemExit("EAS JSON has no build ID")
+          print(value)
+          PY
+          )
+          echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+
+      - name: Refresh exact build metadata
+        working-directory: mobile
+        run: eas build:view "${{ steps.eas-build.outputs.build_id }}" --json > "$RUNNER_TEMP/eas-build.json"
+
+      - name: Download exact APK by build ID
+        working-directory: mobile
+        run: |
+          set -euo pipefail
+          find . -maxdepth 1 -type f -name '*.apk' -delete
+          eas build:download --build-id "${{ steps.eas-build.outputs.build_id }}" --non-interactive
+          APK=$(find . -maxdepth 1 -type f -name '*.apk' -print -quit)
+          test -n "$APK"
+          cp "$APK" "$RUNNER_TEMP/sportreel-phone-ready.apk"
+
+      - name: Verify build identity and APK hash
+        run: |
+          python scripts/record_eas_build_evidence.py \
+            --build-json "$RUNNER_TEMP/eas-build.json" \
+            --apk "$RUNNER_TEMP/sportreel-phone-ready.apk" \
+            --evidence "$RUNNER_TEMP/eas-build-evidence.json"
+          test -s "$RUNNER_TEMP/eas-build-evidence.json"
+
+      - name: Publish phone-ready APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: sportreel-phone-ready-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/sportreel-phone-ready.apk
+            ${{ runner.temp }}/eas-build-evidence.json
+            ${{ runner.temp }}/expo-modules-android.json
+          if-no-files-found: error
+          retention-days: 30
