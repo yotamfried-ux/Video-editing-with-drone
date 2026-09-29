@@ -49,6 +49,14 @@
         }
       ],
       "expo-font",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "kotlinVersion": "1.9.25"
+          }
+        }
+      ],
       "expo-updates",
       [
         "expo-notifications",
@@ -75,6 +83,7 @@
       "eas": {
         "projectId": "5c03988f-3dae-4763-953a-672717dedda2"
       }
-    }
+    },
+    "newArchEnabled": false
   }
 }
