@@ -41,7 +41,23 @@ const sha256Hex = (value: string) => createHash('sha256').update(value).digest('
 const encode = (value: string) => encodeURIComponent(value).replace(/[!'()*]/g, (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`);
 const encodeKey = (key: string) => key.split('/').map(encode).join('/');
 const safeFilename = (filename: string) => basename(filename).replace(/[\\/]+/g, '_').trim() || `footage_${Date.now()}.mp4`;
-export const safeBatchId = (batchId?: string | null) => (batchId ?? '').replace(/[^A-Za-z0-9_-]/g, '_').replace(/^_+|_+$/g, '').slice(0, 80);
+export const safeBatchId = (batchId?: string | null) => {
+  const input = batchId ?? '';
+  let normalized = '';
+
+  for (const char of input) {
+    const code = char.charCodeAt(0);
+    const isAsciiLetter = (code >= 65 && code <= 90) || (code >= 97 && code <= 122);
+    const isDigit = code >= 48 && code <= 57;
+    normalized += isAsciiLetter || isDigit || char === '_' || char === '-' ? char : '_';
+  }
+
+  let start = 0;
+  let end = normalized.length;
+  while (start < end && normalized.charCodeAt(start) === 95) start += 1;
+  while (end > start && normalized.charCodeAt(end - 1) === 95) end -= 1;
+  return normalized.slice(start, end).slice(0, 80);
+};
 export const newBatchId = (now = new Date()) => `batch_${now.toISOString().replace(/[:.]/g, '-').slice(0, 19)}_${Math.random().toString(36).slice(2, 8)}`;
 const objectPath = (key = '') => (key ? `/${bucket()}/${encodeKey(key)}` : `/${bucket()}`);
 
