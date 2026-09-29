@@ -320,6 +320,29 @@ def wait_for_approval_and_delivery():
             f"url={action.get('html_url')}"
         )
 
+    notification_meta = latest.get("meta") or {}
+    if isinstance(notification_meta, str):
+        try:
+            notification_meta = json.loads(notification_meta)
+        except json.JSONDecodeError:
+            notification_meta = {}
+    notification_message_ids = (
+        notification_meta.get("notification_message_ids", [])
+        if isinstance(notification_meta, dict)
+        else []
+    )
+    notification_provider = (
+        notification_meta.get("notification_provider")
+        if isinstance(notification_meta, dict)
+        else None
+    )
+    if notification_provider != "sportreel_proxy" or not notification_message_ids:
+        raise RuntimeError(
+            "successful delivery has no provider notification evidence: "
+            f"provider={notification_provider!r} message_ids={notification_message_ids!r} "
+            f"meta={notification_meta!r}"
+        )
+
     if not r2_exists(pending_key):
         raise RuntimeError("successful delivery did not move approved object to pending_payment/")
     if r2_exists(approved_key):
