@@ -4,6 +4,21 @@
       "command": "${HOME}/.local/bin/graphify-mcp",
       "args": ["${PWD}/graphify-out/graph.json"],
       "env": {}
+    },
+    "maestro": {
+      "command": "maestro",
+      "args": ["mcp"],
+      "env": {}
+    },
+    "playwright": {
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"],
+      "env": {}
+    },
+    "chrome-devtools": {
+      "command": "npx",
+      "args": ["-y", "chrome-devtools-mcp@latest"],
+      "env": {}
     }
   }
 }

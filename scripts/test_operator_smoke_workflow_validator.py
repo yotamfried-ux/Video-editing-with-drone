@@ -47,7 +47,7 @@ def main() -> int:
             'nms.__name__',
         ],
     )
-    require_tokens('requirements', requirements, ['torch>=2.0.0', 'torchvision>=0.15.0', 'lap>=0.5.12', 'ultralytics>=8.3.0'])
+    require_tokens('requirements', requirements, ['torch>=2.13.0', 'torchvision>=0.28.0', 'lap>=0.5.12', 'ultralytics>=8.3.0'])
 
     run_tracked = Path('scripts/run_tracked.py').read_text(encoding='utf-8')
     bootstrap = Path('pipeline/bootstrap.py').read_text(encoding='utf-8')

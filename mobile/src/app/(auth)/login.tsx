@@ -64,6 +64,7 @@ export default function LoginScreen() {
         </Text>
         <Spacer size={Spacing.xl} />
         <TextInput
+          testID="login-email"
           placeholder="Email"
           placeholderTextColor={Colors.textSecondary}
           value={email}
@@ -73,6 +74,7 @@ export default function LoginScreen() {
           style={styles.input}
         />
         <TextInput
+          testID="login-password"
           placeholder="Password"
           placeholderTextColor={Colors.textSecondary}
           value={password}
@@ -86,9 +88,10 @@ export default function LoginScreen() {
           </Text>
         )}
         <Spacer size={Spacing.md} />
-        <Button label="Sign In" onPress={login} loading={loading} />
+        <Button testID="login-submit" label="Sign In" onPress={login} loading={loading} />
         <Spacer size={Spacing.sm} />
         <Button
+          testID="login-create-account"
           label="Create Account"
           onPress={() => router.push('/(auth)/register')}
           variant="ghost"

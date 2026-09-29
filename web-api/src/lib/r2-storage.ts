@@ -1,5 +1,6 @@
 import { createHash, createHmac } from 'crypto';
 import { basename } from 'path';
+import { decodeXml, escapeXml } from './r2-xml';
 
 const REGION = 'auto';
 const SERVICE = 's3';
@@ -169,9 +170,7 @@ async function signedFetch(
   return fetch(url, { method, headers: outbound, body });
 }
 
-const decodeXml = (value: string) => value.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'");
 const xmlTag = (xml: string, tag: string) => decodeXml(xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`))?.[1] ?? '');
-const escapeXml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 async function r2ResponseError(label: string, response: Response): Promise<Error> {
   const text = await response.text();

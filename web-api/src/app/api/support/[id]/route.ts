@@ -7,15 +7,16 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const limited = await enforceRateLimit(req, 'support', 20, 60);
-  if (limited) return limited;
-
   // Operator-only: replying to a support ticket impersonates SportReel support
   // and pushes a notification to the athlete. Without this guard anyone could
-  // forge replies (phishing). Mirrors the gate on /api/pricing.
+  // forge replies (phishing). Mirrors the gate on /api/pricing. Authorize before
+  // rate limiting so a rejected caller causes no backend write.
   if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
+
+  const limited = await enforceRateLimit(req, 'support', 20, 60);
+  if (limited) return limited;
 
   const { id } = await params;
   const { reply } = await req.json();

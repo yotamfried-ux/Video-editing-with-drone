@@ -1,0 +1,8 @@
+# One Maestro process keeps MediaStore seeding, offline failure, reconnect,
+# retry, and final UI verification on the same emulator/device server.
+appId: com.sportreel.app
+name: UPL-01 isolated - offline retry idempotency
+tags: [upl01, parallel, network, retry]
+---
+- runFlow: 00-seed-media.yaml
+- runFlow: 04-offline-retry.yaml

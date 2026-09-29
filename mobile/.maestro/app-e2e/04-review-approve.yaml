@@ -1,0 +1,32 @@
+appId: com.sportreel.app
+name: APP full - publishable review approval
+tags: [app-full, review, approval]
+---
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Review"
+    timeout: 30000
+- scrollUntilVisible:
+    element:
+      id: "${READY_APPROVE_ID}"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+- swipe:
+    start: 50%, 78%
+    end: 50%, 42%
+    duration: 500
+- assertVisible:
+    id: "${READY_APPROVE_ID}"
+- tapOn:
+    id: "${READY_APPROVE_ID}"
+- extendedWaitUntil:
+    visible: "Approve this performance reel?"
+    timeout: 15000
+- tapOn: "Approve"
+- extendedWaitUntil:
+    visible: "Delivery started"
+    timeout: 30000
+- tapOn: "(?i)ok"
+- takeScreenshot: review-approval-dispatched

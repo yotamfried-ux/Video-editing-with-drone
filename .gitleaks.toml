@@ -1,0 +1,11 @@
+title = "SportReel Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Supabase publishable client keys are intentionally public; keep secret/service-role keys fully scanned."
+regexTarget = "line"
+regexes = [
+  '''EXPO_PUBLIC_SUPABASE_ANON_KEY.*sb_publishable_[A-Za-z0-9_-]+'''
+]

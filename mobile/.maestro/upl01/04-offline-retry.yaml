@@ -1,0 +1,58 @@
+# Network interruption: force the first upload attempt offline, then restore
+# connectivity and retry the same in-memory item. The backend verifier requires
+# exactly one verified source_uploads row of this scenario's unique byte size,
+# proving the retry reused the stable client_upload_id instead of duplicating it.
+appId: com.sportreel.app
+name: UPL-01 positive - offline then retry without duplicate
+tags: [upl01, network, retry, idempotency]
+---
+- runFlow: subflows/launch-to-settings.yaml
+- runFlow: subflows/save-operator-secret.yaml
+- runFlow: subflows/open-pipeline.yaml
+- setAirplaneMode: enabled
+- tapOn:
+    id: "pipeline-upload-gallery"
+- runFlow: subflows/pick-first-video.yaml
+- extendedWaitUntil:
+    visible: "Some uploads failed|Failed · 100%"
+    timeout: 120000
+- runFlow:
+    when:
+      visible: "Some uploads failed"
+    commands:
+      - tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-failed"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "upload-item-status-failed"
+    text: "Failed.*"
+- setAirplaneMode: disabled
+- scrollUntilVisible:
+    element:
+      id: "pipeline-retry-all-failed"
+    direction: UP
+    timeout: 30000
+    centerElement: true
+- tapOn:
+    id: "pipeline-retry-all-failed"
+- extendedWaitUntil:
+    visible: "Uploaded to queue|Some uploads still failing"
+    timeout: 180000
+- assertVisible: "Uploaded to queue"
+- tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-verified"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "upload-item-status-verified"
+    text: "Verified · 100%"
+- assertNotVisible:
+    id: "upload-item-status-failed"
+- takeScreenshot: upload-offline-retry-verified

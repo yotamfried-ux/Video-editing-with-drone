@@ -25,6 +25,14 @@ case "$SCENARIO" in
     FLOW="12-isolated-gallery-upload.yaml"
     EXPECTATION="verified-upload"
     ;;
+  offline-retry)
+    FLOW="13-isolated-offline-retry.yaml"
+    EXPECTATION="verified-upload"
+    ;;
+  restart-retry)
+    FLOW="14-isolated-restart-retry.yaml"
+    EXPECTATION="verified-upload"
+    ;;
   *)
     echo "UPL-01 scenario runner: unknown scenario '$SCENARIO'" >&2
     exit 2
@@ -91,11 +99,45 @@ on_exit() {
 }
 trap on_exit EXIT
 
-adb wait-for-device
-test "$(adb shell getprop sys.boot_completed | tr -d '\r')" = "1"
+stabilize_adb_device() {
+  local phase="$1" attempt stable
+  echo "UPL-01 scenario runner: stabilizing Android device before $phase"
+  adb start-server >/dev/null 2>&1 || true
+
+  for attempt in 1 2 3 4 5 6; do
+    stable=1
+    for _ in 1 2 3; do
+      if [ "$(adb get-state 2>/dev/null || true)" != "device" ] ||          [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; then
+        stable=0
+        break
+      fi
+      adb shell true >/dev/null 2>&1 || { stable=0; break; }
+      sleep 2
+    done
+
+    if [ "$stable" -eq 1 ]; then
+      echo "UPL-01 scenario runner: Android device stable before $phase"
+      return 0
+    fi
+
+    echo "UPL-01 scenario runner: adb unstable before $phase (attempt $attempt/6); restarting adb"
+    adb kill-server >/dev/null 2>&1 || true
+    sleep 2
+    adb start-server >/dev/null 2>&1 || true
+    adb wait-for-device || true
+    sleep 4
+  done
+
+  echo "UPL-01 scenario runner: Android device never became stable before $phase" >&2
+  adb devices -l >&2 || true
+  return 1
+}
+
+stabilize_adb_device "APK install"
 adb shell getprop ro.build.version.sdk | tr -d '\r' > "$EVIDENCE_DIR/android-sdk.txt"
 adb reverse tcp:8081 tcp:8081
 adb install -r "$APK" > "$EVIDENCE_DIR/install.txt"
+stabilize_adb_device "Maestro"
 
 # A unique fixture byte size is generated for each matrix scenario. That lets
 # negative and positive backend checks run concurrently without correlating to
@@ -120,7 +162,75 @@ run_flow() {
 # Seed + behavior execute inside one Maestro process. On parallel emulator
 # workers, opening a second Maestro process after the seed flow caused the
 # Android device server to go offline on run 35901916354.
+#
+# Re-check adb immediately before Maestro. GitHub-hosted Android emulators can
+# transiently return "device offline" after boot even when boot_completed=1.
+# Retry only negative/no-upload scenarios when Maestro itself proves the device
+# server died; positive flows are never replayed because that could create a
+# second backend write and weaken the exactly-one-row evidence.
+stabilize_adb_device "Maestro flow"
+set +e
 run_flow "$FLOW"
+flow_code=$?
+set -e
+
+if [ "$flow_code" -ne 0 ]; then
+  # Capture system UI before the EXIT trap. Pixel Launcher/ANR dialogs often
+  # explain a Maestro assertion failure but only appear in hierarchy evidence.
+  timeout 20s maestro hierarchy > "$EVIDENCE_DIR/post-flow-hierarchy.json" 2>/dev/null || true
+  adb shell dumpsys window windows > "$EVIDENCE_DIR/post-flow-windows.txt" 2>/dev/null || true
+fi
+
+infra_failure=0
+if [ "$flow_code" -ne 0 ] && grep -RqsE   'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE|Pixel Launcher isn.t responding'   "$EVIDENCE_DIR"; then
+  infra_failure=1
+fi
+
+safe_retry=0
+if [ "$flow_code" -ne 0 ]; then
+  if [ "$EXPECTATION" = "no-upload" ]; then
+    # Negative scenarios are replayable only when we have direct evidence of
+    # emulator/Maestro infrastructure failure.
+    if [ "$infra_failure" -eq 1 ]; then
+      safe_retry=1
+    fi
+  else
+    # Positive scenarios may be replayed once only when the independent backend
+    # verifier proves the failed attempt created zero matching upload rows.
+    # This protects exactly-once evidence even when a launcher/system failure
+    # happens before its signature is captured in the Maestro debug bundle.
+    set +e
+    python3 "$REPO_ROOT/scripts/upl01_backend_evidence.py" \
+      --fixture "$FIXTURE" \
+      --since "$WINDOW_START" \
+      --api-base "$API_BASE" \
+      --supabase-url "$SUPABASE_URL" \
+      --expect no-upload \
+      --evidence "$EVIDENCE_DIR/pre-retry-backend-evidence.json"
+    no_upload_code=$?
+    set -e
+    if [ "$no_upload_code" -eq 0 ]; then
+      safe_retry=1
+    else
+      echo "UPL-01 scenario runner: refusing positive-flow retry because backend state is not empty" >&2
+    fi
+  fi
+fi
+
+if [ "$safe_retry" -eq 1 ]; then
+  echo "UPL-01 scenario runner: retrying once after a failed flow with verified-safe backend state"
+  stabilize_adb_device "Maestro infrastructure retry"
+  adb shell settings put global airplane_mode_on 0 >/dev/null 2>&1 || true
+  adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false >/dev/null 2>&1 || true
+  mkdir -p "$EVIDENCE_DIR/attempt-1"
+  for artifact in "$EVIDENCE_DIR/maestro-"* "$EVIDENCE_DIR/"*.junit.xml; do
+    [ -e "$artifact" ] || continue
+    mv "$artifact" "$EVIDENCE_DIR/attempt-1/" || true
+  done
+  run_flow "$FLOW"
+elif [ "$flow_code" -ne 0 ]; then
+  exit "$flow_code"
+fi
 
 python3 "$REPO_ROOT/scripts/upl01_backend_evidence.py" \
   --fixture "$FIXTURE" \

@@ -5,6 +5,8 @@
     "superpowers",
     "rtk",
     "graphify",
-    "maestro"
+    "maestro",
+    "playwright-mcp",
+    "chrome-devtools-mcp"
   ]
 }

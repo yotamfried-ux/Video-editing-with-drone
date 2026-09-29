@@ -1,0 +1,58 @@
+# Simulate real Android process death while a gallery upload is still retrying
+# offline. After relaunch, the same queue item must be restored as retryable,
+# then complete through the UI. Backend evidence still requires exactly one
+# verified source_uploads row for this fixture size.
+appId: com.sportreel.app
+name: UPL-01 positive - process death restores upload queue and retry
+tags: [upl01, restart, retry, persistence, idempotency]
+---
+- runFlow: subflows/launch-to-settings.yaml
+- runFlow: subflows/save-operator-secret.yaml
+- runFlow: subflows/open-pipeline.yaml
+- setAirplaneMode: enabled
+- tapOn:
+    id: "pipeline-upload-gallery"
+- runFlow: subflows/pick-first-video.yaml
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-initializing"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "upload-item-status-initializing"
+    text: "Preparing.*"
+- pressKey: Home
+- killApp
+- setAirplaneMode: disabled
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Pipeline"
+    timeout: 180000
+- runFlow: subflows/open-pipeline.yaml
+- scrollUntilVisible:
+    element:
+      id: "pipeline-retry-all-failed"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "pipeline-retry-all-failed"
+- tapOn:
+    id: "pipeline-retry-all-failed"
+- extendedWaitUntil:
+    visible: "Uploaded to queue|Some uploads still failing"
+    timeout: 180000
+- assertVisible: "Uploaded to queue"
+- tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-verified"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "upload-item-status-verified"
+    text: "Verified · 100%"
+- takeScreenshot: upload-restart-retry-verified

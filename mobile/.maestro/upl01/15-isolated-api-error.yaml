@@ -1,0 +1,27 @@
+# Controlled API failures exercise the real operator upload UI while the
+# runner-side mock server records how many initialization requests were made.
+appId: com.sportreel.app
+name: UPL-01 API error retry classification
+tags: [upl01, error-paths, retry]
+---
+- runFlow: 00-seed-media.yaml
+- runFlow: subflows/launch-to-settings.yaml
+- runFlow: subflows/save-operator-secret.yaml
+- runFlow: subflows/open-pipeline.yaml
+- tapOn:
+    id: "pipeline-upload-gallery"
+- runFlow: subflows/pick-first-video.yaml
+- extendedWaitUntil:
+    visible: "Some uploads failed"
+    timeout: 30000
+- tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-item-status-failed"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "upload-item-status-failed"
+    text: "Failed.*${EXPECTED_ERROR_REGEX}.*"
+- takeScreenshot: "upload-api-error-${ERROR_SCENARIO}"

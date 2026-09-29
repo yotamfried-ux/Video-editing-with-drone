@@ -17,8 +17,9 @@ check_version() {
     return
   fi
   local actual
-  actual="$("$tool" --version 2>&1 | head -n 1 || true)"
-  if [[ "$actual" == *"$expected"* ]]; then
+  # stdout only, first semver token: JVM tools may print banners before the version.
+  actual="$("$tool" --version 2>/dev/null | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1 || true)"
+  if [[ "$actual" == "$expected" ]]; then
     ok "$tool $expected"
   else
     bad "$tool version mismatch (expected $expected; got: $actual)"
@@ -56,22 +57,50 @@ else
   bad "Graphify graph is missing or stale; run the bootstrap"
 fi
 
-if [[ -s "$ROOT/.mcp.json" ]] && grep -q '"graphify"' "$ROOT/.mcp.json"; then
-  ok "Graphify MCP configuration is persisted at project scope"
+check_version maestro "$MAESTRO_VERSION"
+
+if command -v node >/dev/null 2>&1 && command -v npx >/dev/null 2>&1; then
+  ok "Node/npx available for project-scoped browser MCPs"
 else
-  bad "project .mcp.json does not define Graphify"
+  bad "Node and npx are required for Playwright and Chrome DevTools MCPs"
+fi
+
+if python3 - "$ROOT/.mcp.json" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+cfg = json.load(open(path, encoding="utf-8"))
+servers = cfg.get("mcpServers", {})
+expected = {
+    "graphify": ("${HOME}/.local/bin/graphify-mcp", ["${PWD}/graphify-out/graph.json"]),
+    "maestro": ("maestro", ["mcp"]),
+    "playwright": ("npx", ["-y", "@playwright/mcp@latest"]),
+    "chrome-devtools": ("npx", ["-y", "chrome-devtools-mcp@latest"]),
+}
+for name, (command, args) in expected.items():
+    server = servers.get(name)
+    if not isinstance(server, dict):
+        raise SystemExit(f"missing MCP server: {name}")
+    if server.get("command") != command or server.get("args") != args:
+        raise SystemExit(f"unexpected MCP config for {name}: {server!r}")
+PY
+then
+  ok "project .mcp.json declares Graphify, Maestro, Playwright and Chrome DevTools"
+else
+  bad "project .mcp.json is missing or misconfigures a required qualification MCP"
 fi
 
 if command -v claude >/dev/null 2>&1; then
   mcp_list="$(cd "$ROOT" && claude mcp list 2>/dev/null || true)"
-  if grep -qi 'graphify' <<<"$mcp_list"; then
-    ok "Claude Code sees the Graphify MCP entry"
-  else
-    note "Graphify is committed in .mcp.json but this host/session has not trusted or loaded it yet."
-  fi
+  for mcp_name in graphify maestro playwright chrome-devtools; do
+    if grep -qi "$mcp_name" <<<"$mcp_list"; then
+      ok "Claude Code sees the $mcp_name MCP entry"
+    else
+      note "$mcp_name is committed in .mcp.json but this host/session has not trusted or loaded it yet."
+    fi
+  done
 fi
-
-check_version maestro "$MAESTRO_VERSION"
 
 if grep -qxF 'graphify-out/' "$ROOT/.gitignore"; then
   ok "generated Graphify output is excluded from Git"
@@ -84,4 +113,5 @@ if (( failures > 0 )); then
   exit 1
 fi
 
-note "All bootstrap-managed SportReel agent tools are ready."
+note "Bootstrap-managed tools and project MCP registrations are ready."
+note "Browser/mobile MCP live handshakes still require a compatible host plus browser/device."

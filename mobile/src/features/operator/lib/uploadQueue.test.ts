@@ -1,6 +1,7 @@
 import {
   assignSharedUploadBatchId,
   createClientBatchId,
+  isRetryableUploadError,
   runQueue,
   withRetry,
 } from './uploadQueue';
@@ -106,6 +107,62 @@ describe('withRetry', () => {
     expect(wait).toHaveBeenNthCalledWith(1, 100);
     expect(wait).toHaveBeenNthCalledWith(2, 100);
     expect(wait).toHaveBeenNthCalledWith(3, 100);
+  });
+
+  it.each([401, 403, 404])('fails fast on non-retryable HTTP %s', async (status) => {
+    const wait = jest.fn().mockResolvedValue(undefined);
+    const error = Object.assign(new Error(`API ${status}: denied`), { status });
+    const task = jest.fn().mockRejectedValue(error);
+
+    await expect(withRetry(task, {
+      maxAttempts: 3,
+      backoffMs: [10, 20],
+      wait,
+      shouldRetry: isRetryableUploadError,
+    })).rejects.toBe(error);
+
+    expect(task).toHaveBeenCalledTimes(1);
+    expect(wait).not.toHaveBeenCalled();
+  });
+
+  it.each([408, 429, 500, 503])('retries transient HTTP %s', async (status) => {
+    const wait = jest.fn().mockResolvedValue(undefined);
+    const error = Object.assign(new Error(`API ${status}: transient`), { status });
+    const task = jest.fn()
+      .mockRejectedValueOnce(error)
+      .mockResolvedValueOnce('ok');
+
+    await expect(withRetry(task, {
+      maxAttempts: 3,
+      backoffMs: [10, 20],
+      wait,
+      shouldRetry: isRetryableUploadError,
+    })).resolves.toBe('ok');
+
+    expect(task).toHaveBeenCalledTimes(2);
+    expect(wait).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    'Network request failed',
+    'Failed to fetch',
+    'Request timed out',
+    'socket closed',
+    'offline',
+  ])('retries transient transport error: %s', async (message) => {
+    const wait = jest.fn().mockResolvedValue(undefined);
+    const task = jest.fn()
+      .mockRejectedValueOnce(new Error(message))
+      .mockResolvedValueOnce('ok');
+
+    await expect(withRetry(task, {
+      maxAttempts: 3,
+      backoffMs: [10],
+      wait,
+      shouldRetry: isRetryableUploadError,
+    })).resolves.toBe('ok');
+
+    expect(task).toHaveBeenCalledTimes(2);
   });
 });
 

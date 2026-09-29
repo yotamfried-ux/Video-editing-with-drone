@@ -1,6 +1,6 @@
 import { getSportReelSourceReader } from '../../../../modules/sportreel-source-reader/src/SportReelSourceReaderModule';
 import { operatorFetch } from './operatorApi';
-import { withRetry } from './uploadQueue';
+import { isRetryableUploadError, withRetry } from './uploadQueue';
 import {
   activeMultipartTemporaryUris,
   findDurableMultipartUpload,
@@ -307,6 +307,7 @@ async function uploadOnePart(
     {
       maxAttempts: MAX_PART_ATTEMPTS,
       backoffMs: PART_RETRY_BACKOFF_MS,
+      shouldRetry: isRetryableUploadError,
     }
   );
 

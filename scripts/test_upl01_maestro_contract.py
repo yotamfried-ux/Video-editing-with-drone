@@ -8,6 +8,7 @@ Run: python scripts/test_upl01_maestro_contract.py
 
 from __future__ import annotations
 
+import yaml
 import copy
 import json
 import re
@@ -197,7 +198,7 @@ class HarnessContract(unittest.TestCase):
 
     def test_expected_flows_exist(self):
         names = set(self.flow_texts())
-        self.assertTrue({"00-seed-media.yaml", "01-no-operator-secret.yaml", "02-picker-cancelled.yaml", "03-gallery-upload.yaml"} <= names)
+        self.assertTrue({"00-seed-media.yaml", "01-no-operator-secret.yaml", "02-picker-cancelled.yaml", "03-gallery-upload.yaml", "04-offline-retry.yaml", "05-restart-retry.yaml"} <= names)
 
     def test_flows_use_semantic_selectors_not_coordinates(self):
         for name, text in self.flow_texts().items():
@@ -221,6 +222,8 @@ class HarnessContract(unittest.TestCase):
             "10-isolated-no-operator-secret.yaml": "01-no-operator-secret.yaml",
             "11-isolated-picker-cancelled.yaml": "02-picker-cancelled.yaml",
             "12-isolated-gallery-upload.yaml": "03-gallery-upload.yaml",
+            "13-isolated-offline-retry.yaml": "04-offline-retry.yaml",
+            "14-isolated-restart-retry.yaml": "05-restart-retry.yaml",
         }
         for wrapper, behavior in expected.items():
             self.assertIn("runFlow: 00-seed-media.yaml", texts[wrapper])
@@ -228,7 +231,15 @@ class HarnessContract(unittest.TestCase):
 
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
         self.assertNotIn("run_flow 00-seed-media.yaml", runner)
-        self.assertEqual(runner.count('run_flow "$FLOW"'), 1)
+        self.assertEqual(runner.count('run_flow "$FLOW"'), 2)
+        self.assertIn("post-flow-hierarchy.json", runner)
+        self.assertIn("Pixel Launcher isn.t responding", runner)
+        self.assertIn('if [ "$flow_code" -ne 0 ]; then', runner)
+        self.assertIn('if [ "$EXPECTATION" = "no-upload" ]', runner)
+        self.assertIn("--expect no-upload", runner)
+        self.assertIn("pre-retry-backend-evidence.json", runner)
+        self.assertIn("refusing positive-flow retry because backend state is not empty", runner)
+        self.assertIn("retrying once after a failed flow with verified-safe backend state", runner)
         self.assertLess(runner.index("WINDOW_START="), runner.index('run_flow "$FLOW"'))
 
     def test_positive_flow_requires_success_alert_and_verified_row(self):
@@ -244,7 +255,9 @@ class HarnessContract(unittest.TestCase):
         # assertVisible only sees on-screen nodes (run 35895173989).
         texts = self.flow_texts()
         for flow, row_id in (("01-no-operator-secret.yaml", "upload-item-status-failed"),
-                             ("03-gallery-upload.yaml", "upload-item-status-verified")):
+                             ("03-gallery-upload.yaml", "upload-item-status-verified"),
+                             ("04-offline-retry.yaml", "upload-item-status-verified"),
+                             ("05-restart-retry.yaml", "upload-item-status-verified")):
             text = texts[flow]
             scroll = text.find(f'scrollUntilVisible:\n    element:\n      id: "{row_id}"')
             self.assertGreaterEqual(scroll, 0, flow)
@@ -255,6 +268,32 @@ class HarnessContract(unittest.TestCase):
         self.assertIn('assertVisible: "Some uploads failed"', text)
         self.assertIn('text: ".*Operator secret not set.*"', text)
 
+    def test_offline_retry_flow_uses_maestro_network_control_and_verified_retry(self):
+        text = self.flow_texts()["04-offline-retry.yaml"]
+        self.assertIn("setAirplaneMode: enabled", text)
+        self.assertIn("setAirplaneMode: disabled", text)
+        self.assertIn('id: "pipeline-retry-all-failed"', text)
+        self.assertIn('id: "upload-item-status-failed"', text)
+        self.assertIn('id: "upload-item-status-verified"', text)
+
+    def test_restart_retry_flow_uses_real_process_death_and_verified_retry(self):
+        text = self.flow_texts()["05-restart-retry.yaml"]
+        self.assertIn("setAirplaneMode: enabled", text)
+        self.assertIn("pressKey: Home", text)
+        self.assertIn("killApp", text)
+        self.assertIn("stopApp: false", text)
+        self.assertIn("setAirplaneMode: disabled", text)
+        self.assertIn('id: "pipeline-retry-all-failed"', text)
+        self.assertIn('id: "upload-item-status-verified"', text)
+
+    def test_gallery_upload_queue_is_persisted_before_network_and_restored_after_restart(self):
+        source = (ROOT / "mobile/src/app/(operator)/pipeline.tsx").read_text()
+        self.assertIn("GALLERY_UPLOAD_QUEUE_KEY", source)
+        self.assertIn("restoreGalleryUploadQueue()", source)
+        self.assertIn("await persistGalleryUploadQueue(items)", source)
+        self.assertIn("clientUploadId", source)
+        self.assertIn("Upload interrupted by app restart", source)
+
     def test_media_fixtures_are_never_committed(self):
         self.assertEqual((FLOW_DIR / "media/.gitignore").read_text().splitlines()[1:], ["*", "!.gitignore"])
 
@@ -264,10 +303,12 @@ class HarnessContract(unittest.TestCase):
             self.assertNotIn(forbidden, text)
         self.assertIn("bash mobile/.maestro/upl01/run-upl01-scenario.sh", text)
         self.assertIn("concurrency:", text)
+        workflow = yaml.safe_load(text)
+        self.assertTrue(workflow["concurrency"]["cancel-in-progress"])
+        self.assertEqual(workflow["concurrency"]["group"], "upl-01-android-app-upload-e2e")
         self.assertIn("max-parallel: 3", text)
 
-    def test_parallel_workflow_prepares_apk_once_and_runs_three_scenarios(self):
-        import yaml
+    def test_parallel_workflow_prepares_apk_once_and_runs_five_scenarios(self):
 
         jobs = yaml.safe_load(WORKFLOW.read_text())["jobs"]
         prepare = jobs["prepare-apk"]
@@ -277,9 +318,9 @@ class HarnessContract(unittest.TestCase):
         matrix = scenario["strategy"]["matrix"]["include"]
         self.assertEqual(
             {entry["scenario"] for entry in matrix},
-            {"no-operator-secret", "picker-cancelled", "gallery-upload"},
+            {"no-operator-secret", "picker-cancelled", "gallery-upload", "offline-retry", "restart-retry"},
         )
-        self.assertEqual(len({(entry["duration"], entry["size"], entry["frequency"]) for entry in matrix}), 3)
+        self.assertEqual(len({(entry["duration"], entry["size"], entry["frequency"]) for entry in matrix}), 5)
         self.assertEqual(scenario["needs"], "prepare-apk")
 
         prepare_steps = {step.get("name") or step.get("uses"): step for step in prepare["steps"]}
@@ -297,28 +338,99 @@ class HarnessContract(unittest.TestCase):
         )
         self.assertIn("run-upl01-scenario.sh", scenario_steps["Run isolated UPL-01 Maestro scenario"]["with"]["script"])
 
+    def test_apk_checkpoint_hashes_native_inputs_not_app_js(self):
+        workflows = [
+            WORKFLOW,
+            ROOT / ".github/workflows/full-android-app-qualification.yml",
+        ]
+        for workflow_path in workflows:
+            text = workflow_path.read_text()
+            self.assertIn("mobile/package-lock.json", text, workflow_path.name)
+            self.assertIn("mobile/app.json", text, workflow_path.name)
+            self.assertIn("mobile/plugins mobile/modules mobile/assets", text, workflow_path.name)
+            self.assertIn("mobile/scripts/postinstall.js", text, workflow_path.name)
+            self.assertNotIn("KEY=$(find mobile -type f", text, workflow_path.name)
+
     def test_parallel_runner_keeps_backend_verification_and_scrubs_secrets(self):
         runner = (FLOW_DIR / "run-upl01-scenario.sh").read_text()
         self.assertIn("scripts/upl01_backend_evidence.py", runner)
         self.assertIn('--expect "$EXPECTATION"', runner)
         self.assertIn("scrub_secrets", runner)
-        self.assertNotRegex(runner, r"\bsleep\b")
+        self.assertIn("stabilize_adb_device", runner)
+        self.assertIn("adb kill-server", runner)
+        self.assertIn("adb start-server", runner)
+        self.assertIn("adb wait-for-device", runner)
+        self.assertIn("for attempt in 1 2 3 4 5 6", runner)
+        stabilizer = re.search(
+            r"stabilize_adb_device\(\) \{.*?^\}",
+            runner,
+            flags=re.MULTILINE | re.DOTALL,
+        )
+        self.assertIsNotNone(stabilizer)
+        runner_without_stabilizer = runner[: stabilizer.start()] + runner[stabilizer.end() :]
+        self.assertNotRegex(runner_without_stabilizer, r"\bsleep\b")
         self.assertIn('EXPECTATION="no-upload"', runner)
         self.assertIn('EXPECTATION="verified-upload"', runner)
 
     def test_testids_used_by_flows_exist_in_app_source(self):
         source = "\n".join(p.read_text() for p in (ROOT / "mobile/src").rglob("*.tsx"))
-        for test_id in ("operator-secret-input", "operator-secret-save", "pipeline-upload-gallery"):
+        for test_id in ("operator-secret-input", "operator-secret-save", "pipeline-upload-gallery", "pipeline-retry-all-failed"):
             self.assertIn(f'testID="{test_id}"', source)
         self.assertIn("testID={`upload-item-status-${item.status}`}", source)
+
+    def test_api_error_path_job_proves_fail_fast_retry_and_timeout(self):
+        workflow = yaml.safe_load(WORKFLOW.read_text())
+        job = workflow["jobs"]["upl-01-error-paths"]
+        self.assertEqual(job["needs"], "prepare-apk")
+        dumped = yaml.safe_dump(job)
+        self.assertIn("run-upl01-error-paths.sh", dumped)
+        self.assertIn("upl01_error_path_server.py", dumped)
+        self.assertIn("http://127.0.0.1:8787", dumped)
+        self.assertIn("EXPO_PUBLIC_API_TIMEOUT_MS", dumped)
+
+        runner = (FLOW_DIR / "run-upl01-error-paths.sh").read_text()
+        self.assertIn('run_case 401 1 "API 401"', runner)
+        self.assertIn('run_case 403 1 "API 403"', runner)
+        self.assertIn('run_case 429 3 "API 429"', runner)
+        self.assertIn('run_case 503 3 "API 503"', runner)
+        self.assertIn('run_case timeout 3 "API timeout"', runner)
+        self.assertIn('data["upload_requests"] == expected_count', runner)
+        self.assertIn("pre-retry-server-evidence-attempt-$attempt.json", runner)
+        self.assertIn('upload_requests" -ne 0', runner)
+        self.assertIn("DeviceServerDiedException", runner)
+        self.assertIn("for attempt in 1 2 3", runner)
+        self.assertIn("retrying $scenario after proven emulator failure with zero upload requests", runner)
+        self.assertIn("exhausted three infrastructure-only attempts", runner)
+        self.assertIn("refusing retry for $scenario", runner)
+
+        flow = (FLOW_DIR / "15-isolated-api-error.yaml").read_text()
+        self.assertIn('id: "upload-item-status-failed"', flow)
+        self.assertIn("EXPECTED_ERROR_REGEX", flow)
+
+        summary = workflow["jobs"]["upl-01-summary"]
+        self.assertIn("upl-01-error-paths", summary["needs"])
+
+    def test_validation_timeout_override_never_enters_eas_profiles(self):
+        eas = json.loads((ROOT / "mobile/eas.json").read_text())
+        for profile, config in eas["build"].items():
+            self.assertNotIn("EXPO_PUBLIC_API_TIMEOUT_MS", config.get("env", {}), profile)
 
     def test_validation_bypass_never_enters_an_eas_build_profile(self):
         eas = json.loads((ROOT / "mobile/eas.json").read_text())
         for profile, config in eas["build"].items():
             self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", config.get("env", {}), profile)
+        allowed_runtime_workflows = {WORKFLOW.name, "full-android-app-qualification.yml"}
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
-            if workflow.name != WORKFLOW.name:
+            if workflow.name not in allowed_runtime_workflows:
                 self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", workflow.read_text(), workflow.name)
+
+        full_android = yaml.safe_load((ROOT / ".github/workflows/full-android-app-qualification.yml").read_text())
+        prepare_apk = full_android["jobs"]["prepare-apk"]
+        self.assertNotIn(
+            "EXPO_PUBLIC_UPL01_OPERATOR_BYPASS",
+            yaml.safe_dump(prepare_apk),
+            "validation bypass must stay out of APK build steps",
+        )
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ export default function NewSupportTicketScreen() {
         </Text>
         <Spacer size={Spacing.lg} />
         <TextInput
+          testID="support-message-input"
           value={message}
           onChangeText={setMessage}
           placeholder="Describe your issue…"
@@ -61,9 +62,9 @@ export default function NewSupportTicketScreen() {
           style={styles.input}
         />
         <Spacer size={Spacing.lg} />
-        <Button label="Send Message" onPress={submit} loading={sending} />
+        <Button testID="support-send" label="Send Message" onPress={submit} loading={sending} />
         <Spacer size={Spacing.sm} />
-        <Button label="Cancel" onPress={() => router.back()} variant="ghost" />
+        <Button testID="support-cancel" label="Cancel" onPress={() => router.back()} variant="ghost" />
       </KeyboardAvoidingView>
     </SafeArea>
   );
