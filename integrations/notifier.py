@@ -184,9 +184,11 @@ def send_summary_email(
     clips_links: list[str],
     sport_type: str,
     video_name: str,
-) -> None:
+) -> str | None:
     """
     Send an HTML summary email to all recipients.
+
+    Returns the provider message ID when the SportReel / Resend proxy is used.
 
     The first recipient in the list is treated as the owner (gets an extra operator note).
     Subsequent recipients are the filmed clients (receive only their clips).
