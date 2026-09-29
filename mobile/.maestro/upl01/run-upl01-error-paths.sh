@@ -56,26 +56,31 @@ run_case() {
   local case_dir="$EVIDENCE_DIR/$scenario"
   mkdir -p "$case_dir"
 
-  curl -fsS "$MOCK_API/__test__/scenario?name=$scenario" > "$case_dir/scenario.json"
-  stabilize_adb_device "Maestro $scenario"
-  adb reverse tcp:8081 tcp:8081
-  adb reverse tcp:8787 tcp:8787
+  for attempt in 1 2 3; do
+    curl -fsS "$MOCK_API/__test__/scenario?name=$scenario" > "$case_dir/scenario-attempt-$attempt.json"
+    stabilize_adb_device "Maestro $scenario attempt $attempt"
+    adb reverse tcp:8081 tcp:8081
+    adb reverse tcp:8787 tcp:8787
 
-  set +e
-  maestro test "$FLOW" \
-    -e MAESTRO_OPERATOR_SECRET="$MAESTRO_OPERATOR_SECRET" \
-    -e ERROR_SCENARIO="$scenario" \
-    -e EXPECTED_ERROR_REGEX="$expected_regex" \
-    --format junit --output "$case_dir/result.junit.xml" \
-    --debug-output "$case_dir/debug" \
-    --test-output-dir "$case_dir/debug" \
-    --flatten-debug-output
-  flow_code=$?
-  set -e
+    set +e
+    maestro test "$FLOW" \
+      -e MAESTRO_OPERATOR_SECRET="$MAESTRO_OPERATOR_SECRET" \
+      -e ERROR_SCENARIO="$scenario" \
+      -e EXPECTED_ERROR_REGEX="$expected_regex" \
+      --format junit --output "$case_dir/result-attempt-$attempt.junit.xml" \
+      --debug-output "$case_dir/debug-attempt-$attempt" \
+      --test-output-dir "$case_dir/debug-attempt-$attempt" \
+      --flatten-debug-output
+    flow_code=$?
+    set -e
 
-  if [ "$flow_code" -ne 0 ]; then
-    curl -fsS "$MOCK_API/__test__/evidence" > "$case_dir/pre-retry-server-evidence.json"
-    upload_requests="$(python3 - "$case_dir/pre-retry-server-evidence.json" <<'PY'
+    if [ "$flow_code" -eq 0 ]; then
+      cp "$case_dir/result-attempt-$attempt.junit.xml" "$case_dir/result.junit.xml"
+      break
+    fi
+
+    curl -fsS "$MOCK_API/__test__/evidence" > "$case_dir/pre-retry-server-evidence-attempt-$attempt.json"
+    upload_requests="$(python3 - "$case_dir/pre-retry-server-evidence-attempt-$attempt.json" <<'PY'
 import json, sys
 print(int(json.load(open(sys.argv[1]))["upload_requests"]))
 PY
@@ -83,31 +88,23 @@ PY
     infra_failure=0
     if grep -RqsE \
       'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE|Pixel Launcher isn.t responding' \
-      "$case_dir/debug"; then
+      "$case_dir/debug-attempt-$attempt"; then
       infra_failure=1
     fi
 
-    if [ "$infra_failure" -eq 1 ] && [ "$upload_requests" -eq 0 ]; then
-      echo "UPL-01 error paths: retrying $scenario once after proven emulator failure with zero upload requests"
-      [ -e "$case_dir/debug" ] && mv "$case_dir/debug" "$case_dir/attempt-1-debug"
-      [ -e "$case_dir/result.junit.xml" ] && mv "$case_dir/result.junit.xml" "$case_dir/attempt-1-result.junit.xml"
-      curl -fsS "$MOCK_API/__test__/scenario?name=$scenario" > "$case_dir/retry-scenario.json"
-      stabilize_adb_device "Maestro $scenario infrastructure retry"
-      adb reverse tcp:8081 tcp:8081
-      adb reverse tcp:8787 tcp:8787
-      maestro test "$FLOW" \
-        -e MAESTRO_OPERATOR_SECRET="$MAESTRO_OPERATOR_SECRET" \
-        -e ERROR_SCENARIO="$scenario" \
-        -e EXPECTED_ERROR_REGEX="$expected_regex" \
-        --format junit --output "$case_dir/result.junit.xml" \
-        --debug-output "$case_dir/debug" \
-        --test-output-dir "$case_dir/debug" \
-        --flatten-debug-output
-    else
-      echo "UPL-01 error paths: refusing retry for $scenario (infra_failure=$infra_failure upload_requests=$upload_requests)" >&2
+    if [ "$infra_failure" -ne 1 ] || [ "$upload_requests" -ne 0 ]; then
+      echo "UPL-01 error paths: refusing retry for $scenario (attempt=$attempt infra_failure=$infra_failure upload_requests=$upload_requests)" >&2
       return "$flow_code"
     fi
-  fi
+    if [ "$attempt" -eq 3 ]; then
+      echo "UPL-01 error paths: exhausted three infrastructure-only attempts for $scenario" >&2
+      return "$flow_code"
+    fi
+
+    echo "UPL-01 error paths: retrying $scenario after proven emulator failure with zero upload requests (attempt $attempt/3)"
+    adb kill-server >/dev/null 2>&1 || true
+    sleep 2
+  done
 
   curl -fsS "$MOCK_API/__test__/evidence" > "$case_dir/server-evidence.json"
   python3 - "$case_dir/server-evidence.json" "$scenario" "$expected_count" <<'PY'
