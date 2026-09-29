@@ -2,6 +2,9 @@ name: APP-02 Auth Email E2E
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/app-02-auth-email-e2e.yml"
   push:
     branches: [main]
     paths:
