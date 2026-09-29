@@ -8,7 +8,7 @@ const APP_URL = process.env.APP_DOMAIN
 const resend = () => new Resend(process.env.RESEND_API_KEY);
 
 export async function sendReelReadyEmail(to: string, reelId: string) {
-  await resend().emails.send({
+  const { error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: 'Your SportReel highlight is ready! 🎬',
@@ -23,10 +23,11 @@ export async function sendReelReadyEmail(to: string, reelId: string) {
         <p style="color:#888;font-size:12px;margin-top:24px">SportReel · Unsubscribe</p>
       </div>`,
   });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
 }
 
 export async function sendPaymentConfirmEmail(to: string, reelId: string, amountIls: number) {
-  await resend().emails.send({
+  const { error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: 'Payment confirmed ✓',
@@ -41,12 +42,13 @@ export async function sendPaymentConfirmEmail(to: string, reelId: string, amount
         <p style="color:#888;font-size:12px;margin-top:24px">SportReel</p>
       </div>`,
   });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
 }
 
 export async function sendOperatorNotifyEmail(reelId: string, sport: string) {
   const to = process.env.NOTIFY_EMAIL ?? process.env.OWNER_EMAIL;
   if (!to) return;
-  await resend().emails.send({
+  const { error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to,
     subject: `New reel ready for review — ${sport}`,
@@ -60,6 +62,7 @@ export async function sendOperatorNotifyEmail(reelId: string, sport: string) {
         </a>
       </div>`,
   });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
 }
 
 
@@ -87,7 +90,7 @@ export async function sendDeliverySummaryEmail(
     return `<p><a href="${safeLink}" style="display:inline-block;padding:12px 24px;background:#5B6EF5;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">${label}</a></p>`;
   }).join('');
 
-  await resend().emails.send({
+  const { error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to: recipients,
     subject: `Your ${sportType || 'SportReel'} highlights are ready 🎬`,
@@ -99,4 +102,5 @@ export async function sendDeliverySummaryEmail(
         <p style="color:#888;font-size:12px;margin-top:24px">SportReel</p>
       </div>`,
   });
+  if (error) throw new Error(`Resend email send failed: ${error.message}`);
 }
