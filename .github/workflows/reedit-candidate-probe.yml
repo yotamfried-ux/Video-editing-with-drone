@@ -33,15 +33,19 @@ jobs:
               aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"])
           name="2026-07-04T18-34-54_1000270686.mp4"
           found=[]
-          for prefix in ("processed/","raw/"):
-              key=prefix+name
-              try:
-                  h=s3.head_object(Bucket=os.environ["R2_BUCKET"],Key=key)
-                  found.append((key,int(h["ContentLength"]),h.get("ContentType")))
-              except Exception:
-                  pass
+          token=None
+          while True:
+              kwargs={"Bucket":os.environ["R2_BUCKET"],"MaxKeys":1000}
+              if token: kwargs["ContinuationToken"]=token
+              page=s3.list_objects_v2(**kwargs)
+              for obj in page.get("Contents",[]):
+                  key=str(obj.get("Key") or "")
+                  if key.endswith("/"+name) or key == name:
+                      found.append((key,int(obj.get("Size") or 0),None))
+              if not page.get("IsTruncated"): break
+              token=page.get("NextContinuationToken")
           if len(found)!=1:
-              raise SystemExit(f"expected exactly one current source object, found={found}")
+              raise SystemExit(f"expected exactly one current source object by basename, found={found}")
           key,size,content_type=found[0]
           print(f"REEDIT_CANDIDATE_KEY={key}")
           print(f"REEDIT_CANDIDATE_BYTES={size}")
