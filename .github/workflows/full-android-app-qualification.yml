@@ -10,6 +10,15 @@ on:
       - 'scripts/app_review_delivery_e2e.py'
       - 'scripts/test_app_review_delivery_e2e_contract.py'
       - '.github/workflows/full-android-app-qualification.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'mobile/**'
+      - 'web-api/**'
+      - 'scripts/app_user_e2e_evidence.py'
+      - 'scripts/app_review_delivery_e2e.py'
+      - 'scripts/test_app_review_delivery_e2e_contract.py'
+      - '.github/workflows/full-android-app-qualification.yml'
 
 permissions:
   contents: read
