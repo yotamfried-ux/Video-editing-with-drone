@@ -1,0 +1,52 @@
+name: Re-edit Candidate Probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reedit-candidate-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install boto3
+      - name: Inspect isolated re-edit source candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        run: |
+          python - <<'PY'
+          import os, boto3
+          endpoint=os.environ.get("R2_ENDPOINT_URL") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3=boto3.client("s3",endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"])
+          name="2026-07-04T18-34-54_1000270686.mp4"
+          found=[]
+          for prefix in ("processed/","raw/"):
+              key=prefix+name
+              try:
+                  h=s3.head_object(Bucket=os.environ["R2_BUCKET"],Key=key)
+                  found.append((key,int(h["ContentLength"]),h.get("ContentType")))
+              except Exception:
+                  pass
+          if len(found)!=1:
+              raise SystemExit(f"expected exactly one current source object, found={found}")
+          key,size,content_type=found[0]
+          print(f"REEDIT_CANDIDATE_KEY={key}")
+          print(f"REEDIT_CANDIDATE_BYTES={size}")
+          print(f"REEDIT_CANDIDATE_MIB={size/1024/1024:.2f}")
+          print(f"REEDIT_CANDIDATE_CONTENT_TYPE={content_type}")
+          if size > 750 * 1024 * 1024:
+              raise SystemExit("candidate exceeds 750 MiB qualification budget; create bounded excerpt instead")
+          PY
