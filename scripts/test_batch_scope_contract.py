@@ -109,6 +109,13 @@ def main() -> int:
         ast.parse(text)
 
     require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
+    if ".replace(/^_+|_+$/g, '')" in r2_lib:
+        raise SystemExit("safeBatchId must not use the polynomial-time boundary-trim regex")
+    require(
+        "linear safe batch id sanitizer",
+        r2_lib,
+        ["for (const char of input)", "normalized.charCodeAt(start)", "normalized.charCodeAt(end - 1)"],
+    )
     require(
         "durable batch resolver",
         batch_helper,
