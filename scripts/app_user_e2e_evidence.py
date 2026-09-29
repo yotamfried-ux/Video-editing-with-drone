@@ -142,10 +142,6 @@ def seed(args: argparse.Namespace) -> None:
         "marker": args.marker,
         "primary_id": primary_id,
         "secondary_id": secondary_id,
-        "email": args.email,
-        "password": args.password,
-        "other_email": args.other_email,
-        "other_password": args.other_password,
     }))
     print("PASS seeded two isolated confirmed test users")
 
@@ -183,12 +179,12 @@ def verify(args: argparse.Namespace) -> None:
     if by_message("suggestions", suggestion_cancel):
         raise RuntimeError("suggestion Cancel unexpectedly created a row")
 
-    primary_token = sign_in(state["email"], state["password"])
+    primary_token = sign_in(os.environ["E2E_EMAIL"], os.environ["E2E_PASSWORD"])
     own_q = urllib.parse.urlencode({"message": f"eq.{support_send}", "select": "id,user_id,message"})
     if len(user_rows("support_tickets", own_q, primary_token)) != 1:
         raise RuntimeError("primary user cannot read own support ticket through RLS")
 
-    other_token = sign_in(state["other_email"], state["other_password"])
+    other_token = sign_in(os.environ["E2E_OTHER_EMAIL"], os.environ["E2E_OTHER_PASSWORD"])
     cross_q = urllib.parse.urlencode({
         "user_id": f"eq.{primary}", "select": "id,user_id,message"
     })
