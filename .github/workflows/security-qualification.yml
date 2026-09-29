@@ -59,6 +59,68 @@ jobs:
         uses: github/codeql-action/analyze@v4
         with:
           category: /language:${{ matrix.language }}
+          output: ${{ runner.temp }}/codeql-${{ matrix.language }}
+
+      - name: Report and gate high-severity CodeQL findings
+        env:
+          CODEQL_RESULTS_DIR: ${{ runner.temp }}/codeql-${{ matrix.language }}
+        run: |
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          root = Path(os.environ["CODEQL_RESULTS_DIR"])
+          sarif_files = sorted(root.rglob("*.sarif"))
+          if not sarif_files:
+              raise SystemExit(f"No CodeQL SARIF files found under {root}")
+
+          high = []
+          all_security = []
+          for path in sarif_files:
+              data = json.loads(path.read_text(encoding="utf-8"))
+              for run in data.get("runs", []):
+                  tool = run.get("tool", {})
+                  descriptors = []
+                  driver = tool.get("driver") or {}
+                  descriptors.extend(driver.get("rules") or [])
+                  for ext in tool.get("extensions") or []:
+                      descriptors.extend(ext.get("rules") or [])
+                  rules = {r.get("id"): r for r in descriptors if r.get("id")}
+                  for result in run.get("results") or []:
+                      rid = result.get("ruleId")
+                      rule = rules.get(rid, {})
+                      props = rule.get("properties") or {}
+                      raw_score = props.get("security-severity")
+                      try:
+                          score = float(raw_score)
+                      except (TypeError, ValueError):
+                          continue
+                      loc = {}
+                      locations = result.get("locations") or []
+                      if locations:
+                          loc = (locations[0].get("physicalLocation") or {})
+                      artifact = ((loc.get("artifactLocation") or {}).get("uri"))
+                      region = loc.get("region") or {}
+                      msg = ((result.get("message") or {}).get("text") or "").replace("\n", " ")
+                      title = ((rule.get("shortDescription") or {}).get("text") or rid or "CodeQL")
+                      item = {
+                          "score": score,
+                          "rule": rid,
+                          "title": title,
+                          "file": artifact,
+                          "line": region.get("startLine"),
+                          "message": msg[:500],
+                      }
+                      all_security.append(item)
+                      if score >= 7.0:
+                          high.append(item)
+
+          print("CODEQL_SECURITY_RESULTS=" + json.dumps(all_security, sort_keys=True))
+          if high:
+              print("CODEQL_HIGH_OR_CRITICAL=" + json.dumps(high, sort_keys=True))
+              raise SystemExit(f"CodeQL found {len(high)} high/critical security result(s)")
+          print("CODEQL_HIGH_OR_CRITICAL=0")
+          PY
 
   osv:
     name: OSV dependency scan
