@@ -44,13 +44,33 @@ jobs:
                       found.append((key,int(obj.get("Size") or 0),None))
               if not page.get("IsTruncated"): break
               token=page.get("NextContinuationToken")
-          if len(found)!=1:
-              raise SystemExit(f"expected exactly one current source object by basename, found={found}")
-          key,size,content_type=found[0]
-          print(f"REEDIT_CANDIDATE_KEY={key}")
-          print(f"REEDIT_CANDIDATE_BYTES={size}")
-          print(f"REEDIT_CANDIDATE_MIB={size/1024/1024:.2f}")
-          print(f"REEDIT_CANDIDATE_CONTENT_TYPE={content_type}")
-          if size > 750 * 1024 * 1024:
-              raise SystemExit("candidate exceeds 750 MiB qualification budget; create bounded excerpt instead")
+          if len(found)==1:
+              key,size,content_type=found[0]
+              print(f"HISTORICAL_REEDIT_CANDIDATE_KEY={key}")
+              print(f"HISTORICAL_REEDIT_CANDIDATE_MIB={size/1024/1024:.2f}")
+          else:
+              print(f"HISTORICAL_REEDIT_CANDIDATE_MISSING={found}")
+
+          candidates=[]
+          token=None
+          excluded=("E2E_","1000000016","1000000018","validation-r2")
+          while True:
+              kwargs={"Bucket":os.environ["R2_BUCKET"],"MaxKeys":1000}
+              if token: kwargs["ContinuationToken"]=token
+              page=s3.list_objects_v2(**kwargs)
+              for obj in page.get("Contents",[]):
+                  key=str(obj.get("Key") or "")
+                  size=int(obj.get("Size") or 0)
+                  if not key.lower().endswith(".mp4"): continue
+                  if any(x in key for x in excluded): continue
+                  if 1*1024*1024 <= size <= 750*1024*1024:
+                      candidates.append((size,key))
+              if not page.get("IsTruncated"): break
+              token=page.get("NextContinuationToken")
+          candidates.sort(reverse=True)
+          print(f"BOUNDED_VIDEO_CANDIDATE_COUNT={len(candidates)}")
+          for size,key in candidates[:30]:
+              print(f"CANDIDATE_MIB={size/1024/1024:.2f} KEY={key}")
+          if not candidates:
+              raise SystemExit("no bounded non-fixture MP4 candidate currently exists in R2")
           PY
