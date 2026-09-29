@@ -32,6 +32,11 @@ class ReviewDeliveryQualificationContract(unittest.TestCase):
         self.assertIn('reel-thumb-${DISCOVER_REEL_ID}-live', flow)
         self.assertIn("reel-thumb-${reel.id}-${badgeType}", thumb)
 
+    def test_real_delivery_requires_provider_notification_evidence(self):
+        helper = HELPER.read_text(encoding="utf-8")
+        self.assertIn("notification_message_ids", helper)
+        self.assertIn("notification_provider", helper)
+
 
 if __name__ == "__main__":
     unittest.main()
