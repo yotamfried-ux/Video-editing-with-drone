@@ -222,6 +222,8 @@ def deliver_preview() -> None:
         athlete_groups[base]["links"].append(preview_link)
 
     sent_to_clients = 0
+    notification_message_ids: list[str] = []
+    notification_errors: list[str] = []
     for group in athlete_groups.values():
         client = group["client"]
         if not client:
@@ -231,18 +233,21 @@ def deliver_preview() -> None:
             continue
         try:
             mark_delivery_run(status="discover_published", stage="emailing_athlete")
-            send_summary_email(
+            message_id = send_summary_email(
                 recipients=[email],
                 clips_links=group["links"],
                 sport_type="mixed",
                 video_name=group["draft"]["name"],
             )
+            if message_id:
+                notification_message_ids.append(message_id)
             sent_to_clients += 1
-        except Exception:
-            logger.error("Failed to send preview email to %s", email)
+        except Exception as exc:
+            notification_errors.append(f"client:{type(exc).__name__}:{exc}")
+            logger.error("Failed to send preview email to %s: %s", email, exc)
 
     try:
-        send_summary_email(
+        owner_message_id = send_summary_email(
             recipients=[config.OWNER_EMAIL],
             clips_links=[link for _, link, _ in preview_results],
             sport_type="mixed",
@@ -252,13 +257,28 @@ def deliver_preview() -> None:
                 else f"{len(preview_results)} previews ready"
             ),
         )
-    except Exception:
-        logger.error("Failed to send owner preview summary")
+        if owner_message_id:
+            notification_message_ids.append(owner_message_id)
+    except Exception as exc:
+        notification_errors.append(f"owner:{type(exc).__name__}:{exc}")
+        logger.error("Failed to send owner preview summary: %s", exc)
+
+    mark_delivery_run(
+        status="discover_published",
+        stage="notification_accepted" if notification_message_ids else "notification_unverified",
+        meta={
+            "approved_count": len(to_preview),
+            "notification_provider": "sportreel_proxy",
+            "notification_message_ids": notification_message_ids,
+            "notification_errors": notification_errors,
+        },
+    )
 
     logger.info(
-        "Phase 2a complete. Previews: %d, client emails: %d",
+        "Phase 2a complete. Previews: %d, client emails: %d, provider messages: %d",
         len(preview_results),
         sent_to_clients,
+        len(notification_message_ids),
     )
     print(f"\n✅ {len(preview_results)} preview(s) ready in PENDING_PAYMENT folder")
 
