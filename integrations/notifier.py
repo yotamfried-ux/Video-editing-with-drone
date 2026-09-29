@@ -4,7 +4,10 @@ integrations/notifier.py — Gmail delivery via Google service account.
 """
 
 import base64
+import json
 import logging
+import os
+import urllib.request
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
@@ -126,6 +129,49 @@ def _build_html(
 """
 
 
+def _send_via_sportreel_api(
+    recipients: list[str],
+    clips_links: list[str],
+    sport_type: str,
+    video_name: str,
+) -> bool:
+    """Send through the production SportReel web API, which owns Resend credentials.
+
+    Returns False only when the proxy is not configured. If it is configured,
+    delivery errors are raised so qualification cannot silently fall back to a
+    broken Gmail service-account impersonation path.
+    """
+    endpoint = os.getenv("SPORTREEL_NOTIFICATION_API", "").strip()
+    operator_secret = os.getenv("OPERATOR_SECRET", "").strip()
+    if not endpoint and not operator_secret:
+        return False
+    if not endpoint or not operator_secret:
+        raise RuntimeError(
+            "SPORTREEL_NOTIFICATION_API and OPERATOR_SECRET must be configured together"
+        )
+
+    payload = json.dumps({
+        "recipients": recipients,
+        "clips_links": clips_links,
+        "sport_type": sport_type,
+        "video_name": video_name,
+    }).encode("utf-8")
+    req = urllib.request.Request(
+        endpoint,
+        data=payload,
+        method="POST",
+        headers={
+            "Content-Type": "application/json",
+            "x-operator-secret": operator_secret,
+        },
+    )
+    with urllib.request.urlopen(req, timeout=20) as response:
+        if not 200 <= int(response.status) < 300:
+            raise RuntimeError(f"SportReel notification API returned HTTP {response.status}")
+        response.read()
+    return True
+
+
 def send_summary_email(
     recipients: list[str],
     clips_links: list[str],
@@ -148,11 +194,15 @@ def send_summary_email(
         logger.warning("⚠️ send_summary_email called with empty recipients list")
         return
 
+    print(f"📧 Sending email to {len(recipients)} recipient(s): {', '.join(recipients)}")
+
+    if _send_via_sportreel_api(recipients, clips_links, sport_type, video_name):
+        print("✅ Delivery notification sent through SportReel / Resend")
+        return
+
     emoji   = _SPORT_EMOJI.get(sport_type, "🎬")
     subject = f"{emoji} Your {sport_type.capitalize()} Highlights Are Ready — {video_name}"
     sender  = config.OWNER_EMAIL
-
-    print(f"📧 Sending email to {len(recipients)} recipient(s): {', '.join(recipients)}")
 
     try:
         service = _get_gmail_service(sender)
