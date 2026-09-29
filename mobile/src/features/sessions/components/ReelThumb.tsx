@@ -31,7 +31,7 @@ export function ReelThumb({ reel }: Props) {
 
   return (
     <TouchableOpacity
-      testID={`reel-thumb-${reel.sport ?? 'unknown'}-${badgeType}`}
+      testID={`reel-thumb-${reel.id}-${badgeType}`}
       style={styles.thumb}
       onPress={() => router.push(`/reel/${reel.token}`)}
       activeOpacity={0.8}
