@@ -1,0 +1,76 @@
+name: Re-edit Candidate Probe
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/reedit-candidate-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install boto3
+      - name: Inspect isolated re-edit source candidate
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        run: |
+          python - <<'PY'
+          import os, boto3
+          endpoint=os.environ.get("R2_ENDPOINT_URL") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3=boto3.client("s3",endpoint_url=endpoint,
+              aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+              aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"])
+          name="2026-07-04T18-34-54_1000270686.mp4"
+          found=[]
+          token=None
+          while True:
+              kwargs={"Bucket":os.environ["R2_BUCKET"],"MaxKeys":1000}
+              if token: kwargs["ContinuationToken"]=token
+              page=s3.list_objects_v2(**kwargs)
+              for obj in page.get("Contents",[]):
+                  key=str(obj.get("Key") or "")
+                  if key.endswith("/"+name) or key == name:
+                      found.append((key,int(obj.get("Size") or 0),None))
+              if not page.get("IsTruncated"): break
+              token=page.get("NextContinuationToken")
+          if len(found)==1:
+              key,size,content_type=found[0]
+              print(f"HISTORICAL_REEDIT_CANDIDATE_KEY={key}")
+              print(f"HISTORICAL_REEDIT_CANDIDATE_MIB={size/1024/1024:.2f}")
+          else:
+              print(f"HISTORICAL_REEDIT_CANDIDATE_MISSING={found}")
+
+          candidates=[]
+          token=None
+          excluded=("E2E_","1000000016","1000000018","validation-r2")
+          while True:
+              kwargs={"Bucket":os.environ["R2_BUCKET"],"MaxKeys":1000}
+              if token: kwargs["ContinuationToken"]=token
+              page=s3.list_objects_v2(**kwargs)
+              for obj in page.get("Contents",[]):
+                  key=str(obj.get("Key") or "")
+                  size=int(obj.get("Size") or 0)
+                  if not key.lower().endswith(".mp4"): continue
+                  if any(x in key for x in excluded): continue
+                  if 1*1024*1024 <= size <= 750*1024*1024:
+                      candidates.append((size,key))
+              if not page.get("IsTruncated"): break
+              token=page.get("NextContinuationToken")
+          candidates.sort(reverse=True)
+          print(f"BOUNDED_VIDEO_CANDIDATE_COUNT={len(candidates)}")
+          for size,key in candidates[:30]:
+              print(f"CANDIDATE_MIB={size/1024/1024:.2f} KEY={key}")
+          if not candidates:
+              raise SystemExit("no bounded non-fixture MP4 candidate currently exists in R2")
+          PY
