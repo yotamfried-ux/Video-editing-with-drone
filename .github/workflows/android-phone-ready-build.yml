@@ -90,11 +90,13 @@ jobs:
         working-directory: mobile
         run: |
           set -euo pipefail
-          find . -maxdepth 1 -type f -name '*.apk' -delete
-          eas build:download --build-id "${{ steps.eas-build.outputs.build_id }}" --non-interactive
-          APK=$(find . -maxdepth 1 -type f -name '*.apk' -print -quit)
-          test -n "$APK"
-          cp "$APK" "$RUNNER_TEMP/sportreel-phone-ready.apk"
+          DEST="$RUNNER_TEMP/sportreel-phone-ready.apk"
+          rm -f "$DEST"
+          eas build:download \
+            --build-id "${{ steps.eas-build.outputs.build_id }}" \
+            --path "$DEST" \
+            --non-interactive
+          test -s "$DEST"
 
       - name: Verify build identity and APK hash
         run: |
