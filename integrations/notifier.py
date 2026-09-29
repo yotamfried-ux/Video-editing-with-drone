@@ -134,17 +134,17 @@ def _send_via_sportreel_api(
     clips_links: list[str],
     sport_type: str,
     video_name: str,
-) -> bool:
+) -> str | None:
     """Send through the production SportReel web API, which owns Resend credentials.
 
-    Returns False only when the proxy is not configured. If it is configured,
+    Returns None only when the proxy is not configured. If it is configured,
     delivery errors are raised so qualification cannot silently fall back to a
     broken Gmail service-account impersonation path.
     """
     endpoint = os.getenv("SPORTREEL_NOTIFICATION_API", "").strip()
     operator_secret = os.getenv("OPERATOR_SECRET", "").strip()
     if not endpoint and not operator_secret:
-        return False
+        return None
     if not endpoint or not operator_secret:
         raise RuntimeError(
             "SPORTREEL_NOTIFICATION_API and OPERATOR_SECRET must be configured together"
@@ -168,8 +168,15 @@ def _send_via_sportreel_api(
     with urllib.request.urlopen(req, timeout=20) as response:
         if not 200 <= int(response.status) < 300:
             raise RuntimeError(f"SportReel notification API returned HTTP {response.status}")
-        response.read()
-    return True
+        raw = response.read()
+    try:
+        result = json.loads(raw.decode("utf-8") or "{}")
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("SportReel notification API returned invalid JSON") from exc
+    message_id = result.get("message_id")
+    if result.get("ok") is not True or not isinstance(message_id, str) or not message_id.strip():
+        raise RuntimeError("SportReel notification API returned no provider message id")
+    return message_id.strip()
 
 
 def send_summary_email(
@@ -177,9 +184,11 @@ def send_summary_email(
     clips_links: list[str],
     sport_type: str,
     video_name: str,
-) -> None:
+) -> str | None:
     """
     Send an HTML summary email to all recipients.
+
+    Returns the provider message ID when the SportReel / Resend proxy is used.
 
     The first recipient in the list is treated as the owner (gets an extra operator note).
     Subsequent recipients are the filmed clients (receive only their clips).
@@ -196,9 +205,10 @@ def send_summary_email(
 
     print(f"📧 Sending email to {len(recipients)} recipient(s): {', '.join(recipients)}")
 
-    if _send_via_sportreel_api(recipients, clips_links, sport_type, video_name):
-        print("✅ Delivery notification sent through SportReel / Resend")
-        return
+    provider_message_id = _send_via_sportreel_api(recipients, clips_links, sport_type, video_name)
+    if provider_message_id:
+        print(f"✅ Delivery notification accepted by SportReel / Resend (message_id={provider_message_id})")
+        return provider_message_id
 
     emoji   = _SPORT_EMOJI.get(sport_type, "🎬")
     subject = f"{emoji} Your {sport_type.capitalize()} Highlights Are Ready — {video_name}"

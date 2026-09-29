@@ -18,7 +18,7 @@ class _Response:
     status = 200
     def __enter__(self): return self
     def __exit__(self, *args): return False
-    def read(self): return b'{"ok":true}'
+    def read(self): return b'{"ok":true,"message_id":"email_test_123"}'
 
 
 class DeliveryNotificationProxyTest(unittest.TestCase):
@@ -49,6 +49,23 @@ class DeliveryNotificationProxyTest(unittest.TestCase):
         self.assertEqual(captured["body"]["sport_type"], "surfing")
         self.assertEqual(captured["body"]["video_name"], "fixture.mp4")
         self.assertGreater(captured["timeout"], 0)
+
+    def test_proxy_returns_provider_message_id(self):
+        os.environ["SPORTREEL_NOTIFICATION_API"] = "https://example.test/api/operator/delivery-notify"
+        os.environ["OPERATOR_SECRET"] = "test-secret"
+        with patch("urllib.request.urlopen", lambda req, timeout=0: _Response()):
+            message_id = notifier._send_via_sportreel_api(
+                ["owner@example.com"],
+                ["https://example.test/reel/abc"],
+                "surfing",
+                "fixture.mp4",
+            )
+        self.assertEqual(message_id, "email_test_123")
+
+    def test_delivery_service_persists_provider_message_id_evidence(self):
+        service = (ROOT / "services" / "delivery.py").read_text(encoding="utf-8")
+        self.assertIn("notification_message_ids", service)
+        self.assertIn("mark_delivery_run", service)
 
 
 if __name__ == "__main__":

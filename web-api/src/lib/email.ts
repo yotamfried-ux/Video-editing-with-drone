@@ -90,7 +90,7 @@ export async function sendDeliverySummaryEmail(
     return `<p><a href="${safeLink}" style="display:inline-block;padding:12px 24px;background:#5B6EF5;color:#fff;border-radius:8px;text-decoration:none;font-weight:600">${label}</a></p>`;
   }).join('');
 
-  const { error } = await resend().emails.send({
+  const { data, error } = await resend().emails.send({
     from: `SportReel <${FROM}>`,
     to: recipients,
     subject: `Your ${sportType || 'SportReel'} highlights are ready 🎬`,
@@ -103,4 +103,6 @@ export async function sendDeliverySummaryEmail(
       </div>`,
   });
   if (error) throw new Error(`Resend email send failed: ${error.message}`);
+  if (!data?.id) throw new Error('Resend email send returned no message id');
+  return data.id;
 }

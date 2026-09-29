@@ -55,13 +55,12 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await sendDeliverySummaryEmail(recipients, clipsLinks, sportType, videoName);
+    const messageId = await sendDeliverySummaryEmail(recipients, clipsLinks, sportType, videoName);
+    return NextResponse.json({ ok: true, message_id: messageId });
   } catch (error) {
     return NextResponse.json(
       { error: error instanceof Error ? error.message : 'Notification send failed' },
       { status: 502 },
     );
   }
-
-  return NextResponse.json({ ok: true });
 }
