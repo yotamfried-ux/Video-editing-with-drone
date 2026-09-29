@@ -3,6 +3,7 @@ name: UPL-01 Android App Upload E2E
 on:
   push:
     branches:
+      - main
       - validation/upl01-android-e2e
       - claude/keen-feynman-mkxbgp
       - perf/upl01-maestro-parallel
