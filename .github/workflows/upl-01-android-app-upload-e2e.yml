@@ -41,7 +41,7 @@ permissions:
 # Scenarios inside one run use isolated emulators and unique fixture sizes.
 concurrency:
   group: upl-01-android-app-upload-e2e
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   APP_ID: com.sportreel.app
