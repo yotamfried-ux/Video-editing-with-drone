@@ -61,7 +61,9 @@ jobs:
           EAS_VERSION=$(eas --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
           test "$EAS_VERSION" = '18.9.1'
           eas build:download --help | grep -q -- '--build-id'
-          eas build --help | grep -q -- '--no-wait'
+          # EAS 18.9.1 documents the wait flag as --[no-]wait.
+          # Do not grep for the expanded --no-wait spelling; invoke it directly below.
+          eas build --help | grep -Fq -- '--[no-]wait'
 
       - name: Start exact Android preview build
         id: eas-build
