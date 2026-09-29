@@ -14,13 +14,13 @@ permissions:
 
 concurrency:
   group: android-phone-ready-${{ github.sha }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
     name: Build verified installable Android APK
     runs-on: ubuntu-latest
-    timeout-minutes: 70
+    timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,18 +61,19 @@ jobs:
           EAS_VERSION=$(eas --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
           test "$EAS_VERSION" = '18.9.1'
           eas build:download --help | grep -q -- '--build-id'
+          eas build --help | grep -q -- '--no-wait'
 
-      - name: Build exact Android preview
+      - name: Start exact Android preview build
         id: eas-build
         working-directory: mobile
         run: |
           set -euo pipefail
-          eas build --platform android --profile preview --non-interactive --wait --json \
-            > "$RUNNER_TEMP/eas-build.json"
+          eas build --platform android --profile preview --non-interactive --no-wait --json \
+            > "$RUNNER_TEMP/eas-build-start.json"
           BUILD_ID=$(python - <<'PY'
           import json, os
           from pathlib import Path
-          payload = json.loads(Path(os.environ["RUNNER_TEMP"], "eas-build.json").read_text())
+          payload = json.loads(Path(os.environ["RUNNER_TEMP"], "eas-build-start.json").read_text())
           row = payload[0] if isinstance(payload, list) else payload
           value = str(row.get("id") or "").strip()
           if not value:
@@ -81,10 +82,38 @@ jobs:
           PY
           )
           echo "build_id=$BUILD_ID" >> "$GITHUB_OUTPUT"
+          echo "Started EAS build $BUILD_ID"
 
-      - name: Refresh exact build metadata
+      - name: Poll exact EAS build to terminal state
         working-directory: mobile
-        run: eas build:view "${{ steps.eas-build.outputs.build_id }}" --json > "$RUNNER_TEMP/eas-build.json"
+        env:
+          BUILD_ID: ${{ steps.eas-build.outputs.build_id }}
+        run: |
+          set -euo pipefail
+          deadline=$(( $(date +%s) + 9000 ))
+          while true; do
+            eas build:view "$BUILD_ID" --json > "$RUNNER_TEMP/eas-build.json"
+            STATUS=$(python - <<'PY'
+          import json, os
+          from pathlib import Path
+          payload = json.loads(Path(os.environ["RUNNER_TEMP"], "eas-build.json").read_text())
+          print(str(payload.get("status") or "").upper())
+          PY
+            )
+            echo "EAS build $BUILD_ID status: $STATUS"
+            case "$STATUS" in
+              FINISHED) break ;;
+              ERRORED|CANCELED|CANCELLED)
+                echo "EAS build reached terminal failure state: $STATUS" >&2
+                exit 1
+                ;;
+            esac
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "Timed out waiting 150 minutes for EAS build $BUILD_ID; remote build was not weakened or replaced." >&2
+              exit 1
+            fi
+            sleep 60
+          done
 
       - name: Download exact APK by build ID
         working-directory: mobile
