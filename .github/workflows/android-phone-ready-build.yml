@@ -61,8 +61,6 @@ jobs:
           EAS_VERSION=$(eas --version | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1)
           test "$EAS_VERSION" = '18.9.1'
           eas build:download --help | grep -q -- '--build-id'
-          # EAS 18.9.1 documents the wait flag as --[no-]wait.
-          # Do not grep for the expanded --no-wait spelling; invoke it directly below.
           eas build --help | grep -Fq -- '--[no-]wait'
 
       - name: Start exact Android preview build
@@ -123,11 +121,24 @@ jobs:
           set -euo pipefail
           DEST="$RUNNER_TEMP/sportreel-phone-ready.apk"
           rm -f "$DEST"
+          before="$RUNNER_TEMP/eas-download-before.txt"
+          after="$RUNNER_TEMP/eas-download-after.txt"
+          find "$RUNNER_TEMP" /tmp "$PWD" -maxdepth 2 -type f -name '*.apk' -printf '%p\n' 2>/dev/null | sort -u > "$before" || true
           eas build:download \
             --build-id "${{ steps.eas-build.outputs.build_id }}" \
-            --path "$DEST" \
             --non-interactive
+          find "$RUNNER_TEMP" /tmp "$PWD" -maxdepth 2 -type f -name '*.apk' -printf '%p\n' 2>/dev/null | sort -u > "$after" || true
+          APK=$(comm -13 "$before" "$after" | head -n 1)
+          if [ -z "$APK" ]; then
+            APK=$(find "$RUNNER_TEMP" /tmp "$PWD" -maxdepth 2 -type f -name '*.apk' -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)
+          fi
+          if [ -z "$APK" ] || [ ! -s "$APK" ]; then
+            echo "EAS download completed but no non-empty APK was found in expected download locations." >&2
+            exit 1
+          fi
+          cp "$APK" "$DEST"
           test -s "$DEST"
+          echo "Captured downloaded APK from $APK"
 
       - name: Verify build identity and APK hash
         run: |
