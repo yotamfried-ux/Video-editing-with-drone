@@ -90,6 +90,9 @@ def summarize(r2: dict, sb: dict) -> dict:
     }
 
 
+EVIDENCE: dict = {}
+
+
 def show(title: str, r2: dict, sb: dict) -> dict:
     print(f"\n===== {title} =====")
     for p, v in r2["video"].items():
@@ -107,6 +110,10 @@ def show(title: str, r2: dict, sb: dict) -> dict:
             print(f"SUPABASE {b}  {i['path']}  {i['size']}")
     summ = summarize(r2, sb)
     print(json.dumps(summ, indent=2))
+    EVIDENCE[title] = {"summary": summ, "r2": r2, "supabase": sb}
+    path = os.getenv("EVIDENCE_PATH")
+    if path:
+        Path(path).write_text(json.dumps(EVIDENCE, indent=2, default=str))
     return summ
 
 

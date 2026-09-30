@@ -39,4 +39,13 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          EVIDENCE_PATH: ${{ runner.temp }}/video-storage-evidence.json
         run: python scripts/clean_video_storage.py
+      - name: Upload evidence (object keys and sizes only, no secrets)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: video-storage-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/video-storage-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
