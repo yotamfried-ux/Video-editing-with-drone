@@ -3,7 +3,7 @@ name: Video Storage Clean E2E
 # Real end-to-end qualification of the Operator "Clean Video Storage" action.
 # Backend proofs use an independent harness (boto3 + Supabase REST); the UI is driven with Maestro on an
 # Android emulator. NOTE: the "clean" scenarios really clean production video storage (that is the feature),
-# so this workflow is manual / post-merge only and never runs on pull_request.
+# so this workflow is workflow_dispatch-only: it never runs on push or pull_request.
 on:
   workflow_dispatch:
     inputs:
@@ -12,15 +12,6 @@ on:
         required: false
         default: 'https://video-editing-with-drone.vercel.app'
         type: string
-  push:
-    branches: [main]
-    paths:
-      - .github/workflows/video-storage-clean-e2e.yml
-      - mobile/.maestro/clean-storage/**
-      - scripts/video_storage_cleanup_e2e.py
-      - scripts/clean_storage_stub_server.py
-      - web-api/src/lib/video-storage-cleanup*.ts
-      - web-api/src/app/api/operator/storage/**
 
 permissions:
   contents: read
