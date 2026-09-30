@@ -393,6 +393,7 @@ jobs:
           print(json.dumps({k: run[k] for k in ("status", "totals", "failures", "after", "active_state_after", "message")}, indent=2))
           sys.exit(0 if run["status"] == "succeeded" else 1)
           PY
+          python scripts/video_storage_cleanup_e2e.py teardown
           python scripts/video_storage_cleanup_e2e.py state --out "$RUNNER_TEMP/final-state.json"
       - name: Upload final state
         if: always()

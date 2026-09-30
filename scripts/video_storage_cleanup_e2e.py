@@ -167,10 +167,9 @@ def cmd_seed(args) -> int:
     m["multipart"] = {"key": mp_key, "upload_id": up["UploadId"]}
 
     db.storage.from_("reels").upload(f"e2e_clean_{tag}/old.mp4", payload, {"content-type": "video/mp4"})
-    db.storage.from_("reels").upload(f"e2e_clean_{tag}/thumb.jpg", b"keep", {"content-type": "image/jpeg"})
     db.storage.from_("athlete_photos").upload(f"e2e_clean_{tag}/photo.jpg", b"photo", {"content-type": "image/jpeg"})
     m["reels_video"] = [f"e2e_clean_{tag}/old.mp4"]
-    m["reels_keep"] = [f"e2e_clean_{tag}/thumb.jpg"]
+    m["reels_keep"] = []  # the reels bucket only accepts video MIME types
     m["athlete_photo"] = f"e2e_clean_{tag}/photo.jpg"
 
     batch_id = f"e2e_clean_old_{tag}"
@@ -357,6 +356,28 @@ def cmd_api_security(args) -> int:
     return 1 if errors else 0
 
 
+def cmd_teardown(args) -> int:
+    """Remove ONLY this harness's own tagged test objects (keys containing 'e2e_clean_').
+
+    Used after the final verified clean so no test residue is left in non-video locations.
+    Real objects never contain the tag, so nothing else can match.
+    """
+    client, bucket = r2()
+    db = sb()
+    removed = {"r2": 0, "athlete_photos": 0}
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket):
+        for o in page.get("Contents", []):
+            if "/e2e_clean_" in o["Key"] or o["Key"].startswith("e2e_clean_"):
+                client.delete_object(Bucket=bucket, Key=o["Key"])
+                removed["r2"] += 1
+    photos = [p for p in sb_list(db, "athlete_photos") if p.startswith("e2e_clean_")]
+    if photos:
+        db.storage.from_("athlete_photos").remove(photos)
+        removed["athlete_photos"] = len(photos)
+    print(json.dumps({"teardown_removed": removed}))
+    return 0
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -365,6 +386,7 @@ def main() -> int:
     s = sub.add_parser("assert-populated"); s.add_argument("--manifest", required=True); s.add_argument("--baseline", required=True); s.set_defaults(fn=cmd_assert_populated)
     s = sub.add_parser("assert-clean"); s.add_argument("--manifest", required=True); s.add_argument("--baseline", required=True); s.add_argument("--out", required=True); s.set_defaults(fn=cmd_assert_clean)
     s = sub.add_parser("isolation"); s.add_argument("--manifest", required=True); s.add_argument("--out", required=True); s.set_defaults(fn=cmd_isolation)
+    s = sub.add_parser("teardown"); s.set_defaults(fn=cmd_teardown)
     s = sub.add_parser("api-security"); s.set_defaults(fn=cmd_api_security)
     args = p.parse_args()
     t = time.time()
