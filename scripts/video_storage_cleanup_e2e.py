@@ -327,7 +327,10 @@ def cmd_api_security(args) -> int:
     secret = env("OPERATOR_SECRET")
     errors: list[str] = []
     path = "/api/operator/storage/clean"
-    for label, s in (("missing", None), ("wrong", secret[:-1] + "X"), ("empty", ""), ("prefix", secret[:6])):
+    labels = ("missing", "wrong", "empty", "prefix")
+    creds = (None, secret[:-1] + "X", "", secret[:6])
+    for idx in range(len(labels)):
+        label, s = labels[idx], creds[idx]
         for method in ("GET", "POST"):
             st, _, text = http(method, path, s, {"confirmation": "DELETE_OLD_VIDEOS"} if method == "POST" else None)
             check(st == 401, f"{method} {label} credential -> 401 (got {st})", errors)
