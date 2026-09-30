@@ -48,7 +48,7 @@ jobs:
     needs: wait-for-deployment
     name: prepare cached APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
@@ -67,13 +67,13 @@ jobs:
               find mobile/plugins mobile/modules mobile/assets -type f -print0
             } | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
           )
-          echo "key=vsc-apk-$KEY" >> "$GITHUB_OUTPUT"
+          echo "key=upl01-apk-$KEY" >> "$GITHUB_OUTPUT"
 
       - name: Restore APK checkpoint
         id: apk-cache
         uses: actions/cache/restore@v4
         with:
-          path: ${{ runner.temp }}/sportreel-vsc.apk
+          path: ${{ runner.temp }}/sportreel-upl01.apk
           key: ${{ steps.apk-key.outputs.key }}
 
       - uses: actions/setup-node@v4
@@ -101,20 +101,20 @@ jobs:
           npx expo prebuild --platform android --no-install
           cd android
           ./gradlew assembleDebug --no-daemon
-          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-vsc.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-upl01.apk"
 
       - name: Save APK checkpoint immediately after build
         if: steps.apk-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
-          path: ${{ runner.temp }}/sportreel-vsc.apk
+          path: ${{ runner.temp }}/sportreel-upl01.apk
           key: ${{ steps.apk-key.outputs.key }}
 
       - name: Publish APK once for parallel scenario workers
         uses: actions/upload-artifact@v4
         with:
           name: vsc-apk-${{ github.run_id }}
-          path: ${{ runner.temp }}/sportreel-vsc.apk
+          path: ${{ runner.temp }}/sportreel-upl01.apk
           retention-days: 1
           if-no-files-found: error
 
@@ -230,7 +230,7 @@ jobs:
         run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
       - name: Run Android scenario
         env:
-          APK: ${{ runner.temp }}/sportreel-vsc.apk
+          APK: ${{ runner.temp }}/sportreel-upl01.apk
           EVIDENCE_DIR: ${{ runner.temp }}/vsc-evidence
           MAESTRO_CLI_NO_ANALYTICS: '1'
           OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
@@ -331,7 +331,7 @@ jobs:
         run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
       - name: Run Android scenario
         env:
-          APK: ${{ runner.temp }}/sportreel-vsc.apk
+          APK: ${{ runner.temp }}/sportreel-upl01.apk
           EVIDENCE_DIR: ${{ runner.temp }}/vsc-failure-evidence
           MAESTRO_CLI_NO_ANALYTICS: '1'
           MAESTRO_OPERATOR_SECRET: stub-validation-secret
