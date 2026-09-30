@@ -348,8 +348,9 @@ def cmd_api_security(args) -> int:
     check(st == 405, f"unsupported DELETE -> 405 (got {st})", errors)
     st, body, text = http("GET", path, secret)
     check(st == 200, f"authorized GET preview -> 200 (got {st})", errors)
-    for needle in ("SECRET", "service_role", "R2_SECRET", "OPERATOR_SECRET", secret):
-        check(needle not in text, f"preview response has no '{needle[:8]}…'", errors)
+    for i, needle in enumerate(("SECRET", "service_role", "R2_SECRET", "OPERATOR_SECRET", secret)):
+        # label by index only: never put (part of) a credential into log text
+        check(needle not in text, f"preview response free of sensitive marker #{i}", errors)
     return 1 if errors else 0
 
 
