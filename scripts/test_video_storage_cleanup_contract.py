@@ -68,7 +68,7 @@ def main() -> int:
 
     # No GitHub Actions dispatch from the API; destructive workflows never run on pull_request.
     require("api.github.com" not in route + rt + svc, "cleanup API must not dispatch GitHub Actions")
-    require(not re.search(r"^\s*pull_request", e2e_wf.split("jobs:")[0], re.M), "E2E workflow must not run on pull_request")
+    require(not re.search(r"^\s*(pull_request|push):", e2e_wf.split("jobs:")[0], re.M), "E2E workflow must be dispatch-only (destructive on production)")
     require(not re.search(r"^\s*pull_request", manual_wf.split("jobs:")[0], re.M), "manual cleanup workflow must not run on pull_request")
     require(not re.search(r"^\s*push:", manual_wf.split("jobs:")[0], re.M), "manual cleanup workflow must be dispatch-only")
     require("DELETE_OLD_VIDEOS" in manual_wf, "manual workflow needs typed confirmation")
