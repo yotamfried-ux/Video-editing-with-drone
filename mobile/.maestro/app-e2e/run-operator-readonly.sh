@@ -7,6 +7,32 @@ for var in APK EVIDENCE_DIR OPERATOR_SECRET; do
   test -n "${!var:-}" || { echo "missing required env $var" >&2; exit 2; }
 done
 
+# Maestro's debug logger can echo inputText values. Register the value with
+# GitHub's masker before Maestro starts and scrub persisted evidence before it
+# is uploaded so operator credentials never become test artifacts.
+echo "::add-mask::$OPERATOR_SECRET"
+
+redact_secret_from_evidence() {
+  OPERATOR_SECRET_TO_REDACT="$OPERATOR_SECRET" EVIDENCE_DIR_TO_REDACT="$EVIDENCE_DIR" python3 - <<'PY'
+import os
+from pathlib import Path
+
+secret = os.environ.get("OPERATOR_SECRET_TO_REDACT", "").encode()
+root = Path(os.environ["EVIDENCE_DIR_TO_REDACT"])
+if not secret or not root.exists():
+    raise SystemExit(0)
+for path in root.rglob("*"):
+    if not path.is_file():
+        continue
+    try:
+        data = path.read_bytes()
+    except OSError:
+        continue
+    if secret in data:
+        path.write_bytes(data.replace(secret, b"***"))
+PY
+}
+
 collect() {
   set +e
   maestro hierarchy > "$EVIDENCE_DIR/final-hierarchy.json" 2>/dev/null
@@ -15,9 +41,10 @@ collect() {
   for report in "$EVIDENCE_DIR"/operator-readonly-attempt-*.junit.xml; do
     test -f "$report" && cat "$report"
   done
+  redact_secret_from_evidence
   set -e
 }
-trap 'code=$?; if [ "$code" -ne 0 ]; then collect; fi; exit "$code"' EXIT
+trap 'code=$?; if [ "$code" -ne 0 ]; then collect; else redact_secret_from_evidence; fi; exit "$code"' EXIT
 
 stabilize_adb_device() {
   local phase="$1" attempt stable
@@ -26,7 +53,8 @@ stabilize_adb_device() {
   for attempt in 1 2 3 4 5 6; do
     stable=1
     for _ in 1 2 3; do
-      if [ "$(adb get-state 2>/dev/null || true)" != "device" ] ||          [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; then
+      if [ "$(adb get-state 2>/dev/null || true)" != "device" ] || \
+         [ "$(adb shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')" != "1" ]; then
         stable=0
         break
       fi
@@ -75,6 +103,7 @@ for attempt in 1 2 3; do
   run_maestro "$attempt"
   code=$?
   set -e
+  redact_secret_from_evidence
 
   if [ "$code" -eq 0 ]; then
     exit 0
