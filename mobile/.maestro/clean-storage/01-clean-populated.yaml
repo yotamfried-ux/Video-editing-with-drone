@@ -1,0 +1,27 @@
+# Scenario A: populated -> clean through the real Android UI.
+appId: com.sportreel.app
+name: Clean storage - populated to clean
+---
+- runFlow: subflows-open-clean.yaml
+# Confirmation copy (all three required statements).
+- assertVisible: ".*video files of the previous job will be deleted.*"
+- assertVisible: ".*athlete photos.*NOT deleted.*"
+- assertVisible: ".*irreversible.*"
+- takeScreenshot: confirm-modal
+# Explicit confirmation required: tapping delete before acknowledging must do nothing.
+- tapOn:
+    id: "clean-video-storage-confirm"
+- assertNotVisible: "Cleaning…"
+- assertNotVisible: ".*Video storage is clean.*"
+- assertVisible:
+    id: "clean-video-storage-confirm"
+- tapOn:
+    id: "clean-video-storage-understand"
+- tapOn:
+    id: "clean-video-storage-confirm"
+- takeScreenshot: cleaning-in-progress
+- extendedWaitUntil:
+    visible: "Video storage is clean — 0 active videos. You can upload a new set."
+    timeout: 300000
+- assertNotVisible: ".*NOT confirmed clean.*"
+- takeScreenshot: clean-success

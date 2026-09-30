@@ -1,0 +1,20 @@
+# Sub-flow: launch with a fresh app state, save the operator secret, open Pipeline,
+# scroll to the Clean Video Storage button and open the confirmation modal.
+appId: com.sportreel.app
+---
+- runFlow: ../upl01/subflows/launch-to-settings.yaml
+- runFlow: ../upl01/subflows/save-operator-secret.yaml
+- tapOn: "Pipeline"
+- scrollUntilVisible:
+    element:
+      id: "clean-video-storage-open"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+- assertVisible: "Clean Video Storage / נקה חומר וידאו"
+- tapOn:
+    id: "clean-video-storage-open"
+- extendedWaitUntil:
+    visible:
+      id: "clean-video-storage-modal"
+    timeout: 60000

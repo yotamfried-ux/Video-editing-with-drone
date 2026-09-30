@@ -13,6 +13,7 @@ import { OperatorNav } from '@/features/operator/components/OperatorNav';
 import { PipelineBar } from '@/features/operator/components/PipelineBar';
 import { PipelineRunsCard } from '@/features/operator/components/PipelineRunsCard';
 import { DeliveryStatusCard } from '@/features/operator/components/DeliveryStatusCard';
+import { CleanVideoStorageCard } from '@/features/operator/components/CleanVideoStorageCard';
 import { usePipelineStatus } from '@/features/operator/hooks/usePipelineStatus';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
 import {
@@ -731,6 +732,8 @@ export default function PipelineScreen() {
               ? 'Loading global live status...'
               : `Global live status · polls every 5s${status?.updated_at ? ` · updated ${new Date(status.updated_at).toLocaleTimeString()}` : ''}`}
           </Text>
+
+          <CleanVideoStorageCard />
 
           <Card bordered style={{ gap: Spacing.md }}>
             <View style={{ gap: Spacing.xs }}>

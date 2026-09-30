@@ -1,0 +1,32 @@
+# Scenario D (UI): the backend reports failure -> UI must show failure, never success.
+# Runs against the controlled stub API (scripts/clean_storage_stub_server.py).
+appId: com.sportreel.app
+name: Clean storage - failure is never success
+---
+- runFlow: subflows-open-clean.yaml
+- tapOn:
+    id: "clean-video-storage-understand"
+- tapOn:
+    id: "clean-video-storage-confirm"
+- extendedWaitUntil:
+    visible:
+      id: "clean-video-storage-failed"
+    timeout: 120000
+- assertVisible: ".*NOT confirmed clean.*"
+- assertVisible: ".*R2 video object.s. remain.*"
+- assertNotVisible: ".*Video storage is clean.*"
+- takeScreenshot: failure-shown
+# Retry: stub now answers "succeeded" WITHOUT verification evidence -> still not success.
+- tapOn:
+    id: "clean-video-storage-retry"
+- extendedWaitUntil:
+    visible:
+      id: "clean-video-storage-failed"
+    timeout: 120000
+- assertNotVisible: ".*Video storage is clean.*"
+# Third attempt: stub answers a fully verified success -> success may now show.
+- tapOn:
+    id: "clean-video-storage-retry"
+- extendedWaitUntil:
+    visible: "Video storage is clean — 0 active videos. You can upload a new set."
+    timeout: 120000

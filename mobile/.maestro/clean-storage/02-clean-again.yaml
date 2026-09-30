@@ -1,0 +1,14 @@
+# Scenario B: clean -> clean (idempotent). Must succeed and remove 0.
+appId: com.sportreel.app
+name: Clean storage - clean to clean
+---
+- runFlow: subflows-open-clean.yaml
+- tapOn:
+    id: "clean-video-storage-understand"
+- tapOn:
+    id: "clean-video-storage-confirm"
+- extendedWaitUntil:
+    visible: "Video storage is clean — 0 active videos. You can upload a new set."
+    timeout: 300000
+- assertVisible: "Removed 0 video file.s., 0 incomplete upload.s., 0 reel file.s.."
+- takeScreenshot: clean-again-success

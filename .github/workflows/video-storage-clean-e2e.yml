@@ -1,0 +1,421 @@
+name: Video Storage Clean E2E
+
+# Real end-to-end qualification of the Operator "Clean Video Storage" action.
+# Backend proofs use an independent harness (boto3 + Supabase REST); the UI is driven with Maestro on an
+# Android emulator. NOTE: the "clean" scenarios really clean production video storage (that is the feature),
+# so this workflow is manual / post-merge only and never runs on pull_request.
+on:
+  workflow_dispatch:
+    inputs:
+      api_base:
+        description: 'Deployed web-api base URL'
+        required: false
+        default: 'https://video-editing-with-drone.vercel.app'
+        type: string
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/video-storage-clean-e2e.yml
+      - mobile/.maestro/clean-storage/**
+      - scripts/video_storage_cleanup_e2e.py
+      - scripts/clean_storage_stub_server.py
+      - web-api/src/lib/video-storage-cleanup*.ts
+      - web-api/src/app/api/operator/storage/**
+
+permissions:
+  contents: read
+
+concurrency:
+  group: video-storage-clean-e2e
+  cancel-in-progress: false
+
+env:
+  APP_ID: com.sportreel.app
+  API_BASE: ${{ inputs.api_base || 'https://video-editing-with-drone.vercel.app' }}
+  MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
+  SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+
+jobs:
+  wait-for-deployment:
+    name: wait for cleanup route deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Poll until the route exists (401 without credentials, not 404)
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' "$API_BASE/api/operator/storage/clean" || true)
+            echo "attempt $i: HTTP $code"
+            [ "$code" = "401" ] && exit 0
+            sleep 15
+          done
+          echo "cleanup route never became available" >&2; exit 1
+
+  prepare-apk:
+    needs: wait-for-deployment
+    name: prepare cached APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute APK checkpoint key
+        id: apk-key
+        shell: bash
+        run: |
+          KEY=$(
+            {
+              printf '%s\0' \
+                mobile/package.json \
+                mobile/package-lock.json \
+                mobile/app.json \
+                mobile/google-services.json \
+                mobile/scripts/postinstall.js
+              find mobile/plugins mobile/modules mobile/assets -type f -print0
+            } | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+          )
+          echo "key=vsc-apk-$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Restore APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-vsc.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - uses: actions/setup-node@v4
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies for APK build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        run: npm ci
+
+      - name: Build Android debug APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-vsc.apk"
+
+      - name: Save APK checkpoint immediately after build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-vsc.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - name: Publish APK once for parallel scenario workers
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsc-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}/sportreel-vsc.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  backend-fault:
+    name: Scenario D (real infra) - injected stage failure + safe retry
+    needs: wait-for-deployment
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - run: python -m pip install --disable-pip-version-check boto3 supabase
+      - run: npm ci
+        working-directory: web-api
+      - name: Seed test state, then fault + retry through the shared service
+        env:
+          EVIDENCE_PATH: ${{ runner.temp }}/fault-evidence.json
+        run: |
+          set -euo pipefail
+          E="python scripts/video_storage_cleanup_e2e.py"
+          $E seed --manifest "$RUNNER_TEMP/manifest-d.json"
+          $E assert-populated --manifest "$RUNNER_TEMP/manifest-d.json" --baseline "$RUNNER_TEMP/baseline-d.json"
+          (cd web-api && npx -y tsx scripts/cleanup-fault-e2e.ts)
+          $E assert-clean --manifest "$RUNNER_TEMP/manifest-d.json" --baseline "$RUNNER_TEMP/baseline-d.json" --out "$RUNNER_TEMP/after-d.json"
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsc-backend-fault-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/fault-evidence.json
+            ${{ runner.temp }}/manifest-d.json
+            ${{ runner.temp }}/baseline-d.json
+            ${{ runner.temp }}/after-d.json
+          if-no-files-found: warn
+          retention-days: 30
+
+  android-clean:
+    name: Scenarios A/B/C - Android UI populated->clean, clean->clean, isolation + security
+    needs: [prepare-apk, backend-fault]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download prepared APK
+        uses: actions/download-artifact@v4
+        with:
+          name: vsc-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check boto3 supabase
+      - name: Start Metro
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: ${{ env.API_BASE }}
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro.log"; exit 1
+      - name: Restore Maestro CLI cache
+        id: maestro-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+      - name: Install Maestro CLI
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"; unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+      - name: Save Maestro CLI cache
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+      - name: Put Maestro on PATH
+        run: |
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro-cli/maestro/bin/maestro" --version
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Run Android scenario
+        env:
+          APK: ${{ runner.temp }}/sportreel-vsc.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/vsc-evidence
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          MAESTRO_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/clean-storage/run-clean-e2e.sh
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsc-android-clean-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vsc-evidence/
+            ${{ runner.temp }}/metro.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  android-failure-ui:
+    name: Scenario D (UI) - failure and interruption are never success
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download prepared APK
+        uses: actions/download-artifact@v4
+        with:
+          name: vsc-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check boto3 supabase
+      - name: Start controlled stub API
+        run: |
+          nohup python3 scripts/clean_storage_stub_server.py --port 8788 > "$RUNNER_TEMP/stub.log" 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:8788/__test__/evidence >/dev/null && exit 0; sleep 1; done
+          cat "$RUNNER_TEMP/stub.log"; exit 1
+      - name: Start Metro
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: http://127.0.0.1:8788
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro.log"; exit 1
+      - name: Restore Maestro CLI cache
+        id: maestro-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+      - name: Install Maestro CLI
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"; unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+      - name: Save Maestro CLI cache
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+      - name: Put Maestro on PATH
+        run: |
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro-cli/maestro/bin/maestro" --version
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Run Android scenario
+        env:
+          APK: ${{ runner.temp }}/sportreel-vsc.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/vsc-failure-evidence
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+          MAESTRO_OPERATOR_SECRET: stub-validation-secret
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/clean-storage/run-clean-failure-ui.sh
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsc-android-failure-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/vsc-failure-evidence/
+            ${{ runner.temp }}/metro.log
+          retention-days: 30
+          if-no-files-found: warn
+
+  final-clean:
+    name: leave storage clean (verified) and summarize
+    if: always() && needs.android-clean.result != 'skipped'
+    needs: [android-clean, backend-fault, android-failure-ui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY || secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check boto3 supabase
+      - name: Clean via the real API once more (removes Scenario C test batch) and snapshot final state
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os, sys, urllib.request
+          base = os.environ.get("API_BASE"); secret = os.environ["OPERATOR_SECRET"]
+          def post(body):
+              r = urllib.request.Request(base + "/api/operator/storage/clean", data=json.dumps(body).encode(), method="POST",
+                                         headers={"Content-Type": "application/json", "x-operator-secret": secret})
+              return json.load(urllib.request.urlopen(r, timeout=120))
+          run = post({"confirmation": "DELETE_OLD_VIDEOS"})
+          while run["status"] == "running":
+              run = post({"run_id": run["run_id"]})
+          print(json.dumps({k: run[k] for k in ("status", "totals", "failures", "after", "active_state_after", "message")}, indent=2))
+          sys.exit(0 if run["status"] == "succeeded" else 1)
+          PY
+          python scripts/video_storage_cleanup_e2e.py state --out "$RUNNER_TEMP/final-state.json"
+      - name: Upload final state
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: vsc-final-state-${{ github.run_id }}
+          path: ${{ runner.temp }}/final-state.json
+          retention-days: 30
+          if-no-files-found: warn
+      - name: Require every scenario job to succeed
+        env:
+          A: ${{ needs.android-clean.result }}
+          B: ${{ needs.backend-fault.result }}
+          C: ${{ needs.android-failure-ui.result }}
+        run: |
+          echo "android-clean=$A backend-fault=$B android-failure-ui=$C"
+          test "$A" = success && test "$B" = success && test "$C" = success

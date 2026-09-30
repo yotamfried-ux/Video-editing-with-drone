@@ -358,6 +358,14 @@ type OperatorAnalyticsSummary = {
 };
 ```
 
+
+### `GET|POST /api/operator/storage/clean`
+
+Operator-only. See `docs/video-storage-cleanup.md`. `GET` is a read-only preview; `POST` starts
+(`{confirmation:"DELETE_OLD_VIDEOS"}`) or continues (`{run_id}`) a cleanup run. Both return the
+`StorageCleanRun` / `StorageCleanPreviewResponse` shapes in `mobile/src/features/operator/types/contracts.ts`.
+The UI may show success only when `status === 'succeeded'`, `failures` is empty and `after` proves 0 removable objects.
+
 ## Review checklist for future PRs
 
 Before merging any operator API or mobile operator change:

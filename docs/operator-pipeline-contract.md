@@ -17,6 +17,7 @@ Operator mobile app -> API operator routes -> GitHub Actions workflows -> Python
 | Reset and rerun | `POST /api/operator/pipeline/reset` | `workflow_dispatch` -> `.github/workflows/pipeline-run.yml` | `pipeline_runs` |
 | Send draft or reel for re-edit | `POST /api/operator/reprocess` | `workflow_dispatch` -> `.github/workflows/pipeline-run.yml` | `pipeline_runs`, `reprocess_requests` |
 | Approve draft | `POST /api/operator/drafts/approve` | `repository_dispatch: reel-approved` -> `.github/workflows/deliver.yml` | `delivery_runs` |
+| Clean video storage | `POST /api/operator/storage/clean` | none (runs in the API; no GitHub Actions) | `video_storage_cleanup_runs` |
 
 ## QA-blocked draft re-edit loop
 
