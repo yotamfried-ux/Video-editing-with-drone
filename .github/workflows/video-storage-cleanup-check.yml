@@ -37,6 +37,7 @@ jobs:
           node-version: '22'
       - name: Static safety contract + harness syntax
         run: |
+          python -m pip install --disable-pip-version-check pyyaml
           python scripts/test_video_storage_cleanup_contract.py
           python -m py_compile scripts/video_storage_cleanup_e2e.py scripts/clean_storage_stub_server.py
           python - <<'PY'

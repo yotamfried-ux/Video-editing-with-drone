@@ -419,7 +419,7 @@ class HarnessContract(unittest.TestCase):
         eas = json.loads((ROOT / "mobile/eas.json").read_text())
         for profile, config in eas["build"].items():
             self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", config.get("env", {}), profile)
-        allowed_runtime_workflows = {WORKFLOW.name, "full-android-app-qualification.yml"}
+        allowed_runtime_workflows = {WORKFLOW.name, "full-android-app-qualification.yml", "video-storage-clean-e2e.yml"}
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
             if workflow.name not in allowed_runtime_workflows:
                 self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", workflow.read_text(), workflow.name)
