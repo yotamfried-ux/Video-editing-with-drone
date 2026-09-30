@@ -324,3 +324,59 @@ export type OperatorSupportResponse = {
   tickets: OperatorSupportTicket[];
   suggestions: OperatorSuggestion[];
 };
+
+// /api/operator/storage/clean
+export type StorageCleanInventory = {
+  r2_video_objects: number;
+  r2_video_bytes: number;
+  r2_video_by_prefix: Record<string, number>;
+  r2_non_video_objects: number;
+  r2_unscoped_video_objects: number;
+  r2_incomplete_multipart: number;
+  supabase_reels_videos: number;
+  supabase_reels_non_video: number;
+  protected_bucket_counts: Record<string, number>;
+  total_removable: number;
+};
+
+export type StorageCleanActiveState = {
+  source_uploads_active: number;
+  upload_batches_active: number;
+  reprocess_requests_active: number;
+  reels_active: number;
+  live_pipeline_runs: number;
+  live_running_batches: number;
+  paid_reels: number;
+};
+
+export type StorageCleanStatus = 'running' | 'succeeded' | 'failed' | 'abandoned';
+
+export type StorageCleanRun = {
+  run_id: string;
+  status: StorageCleanStatus;
+  phase: string;
+  progress: { initial_total: number; deleted: number; remaining: number };
+  totals: { r2_deleted: number; multipart_aborted: number; reels_removed: number };
+  before: StorageCleanInventory | null;
+  after: StorageCleanInventory | null;
+  active_state_before: StorageCleanActiveState | null;
+  active_state_after: StorageCleanActiveState | null;
+  neutralized: Record<string, number> | null;
+  failures: string[];
+  error: string | null;
+  message: string;
+};
+
+// GET /api/operator/storage/clean
+export type StorageCleanPreviewResponse = {
+  inventory: StorageCleanInventory;
+  active_state: StorageCleanActiveState;
+  latest_run: StorageCleanRun | null;
+};
+
+// POST /api/operator/storage/clean
+export type StorageCleanRequest = {
+  confirmation?: string;
+  run_id?: string;
+};
+export type StorageCleanResponse = StorageCleanRun;

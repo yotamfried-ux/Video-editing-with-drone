@@ -1,0 +1,20 @@
+# Scenario D (UI, network): connection dies mid-run -> "interrupted", never success; resume works.
+appId: com.sportreel.app
+name: Clean storage - interrupted is never success
+---
+- runFlow: subflows-open-clean.yaml
+- tapOn:
+    id: "clean-video-storage-understand"
+- tapOn:
+    id: "clean-video-storage-confirm"
+- extendedWaitUntil:
+    visible:
+      id: "clean-video-storage-interrupted"
+    timeout: 120000
+- assertVisible: ".*NOT confirmed clean.*"
+- assertNotVisible: ".*Video storage is clean.*"
+- tapOn:
+    id: "clean-video-storage-resume"
+- extendedWaitUntil:
+    visible: "Video storage is clean — 0 active videos. You can upload a new set."
+    timeout: 120000

@@ -1,5 +1,8 @@
 name: Clean Video Storage
 
+# Manual, break-glass twin of the Operator "Clean Video Storage" action. It runs the
+# exact same shared service (web-api/src/lib/video-storage-cleanup*.ts) as the API.
+# The app never triggers this workflow.
 on:
   workflow_dispatch:
     inputs:
@@ -18,30 +21,41 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: clean-video-storage
+  cancel-in-progress: false
+
 jobs:
   clean:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: '3.11'
-      - run: python -m pip install --disable-pip-version-check boto3 supabase python-dotenv
-      - name: Inventory / delete old video objects via backend APIs
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - run: npm ci
+        working-directory: web-api
+      - name: Unit-test the shared cleanup service
+        working-directory: web-api
+        run: npx -y tsx --test scripts/video-storage-cleanup.test.ts
+      - name: Inventory / delete old video objects through the shared service
+        working-directory: web-api
         env:
           MODE: ${{ inputs.mode }}
           CONFIRM_DELETE_OLD_VIDEOS: ${{ inputs.confirm }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
-          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
-          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           EVIDENCE_PATH: ${{ runner.temp }}/video-storage-evidence.json
-        run: python scripts/clean_video_storage.py
-      - name: Upload evidence (object keys and sizes only, no secrets)
+        run: npx -y tsx scripts/clean-video-storage.ts
+      - name: Upload evidence (object keys and counts only, no secrets)
         if: always()
         uses: actions/upload-artifact@v4
         with:

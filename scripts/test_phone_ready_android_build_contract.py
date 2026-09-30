@@ -10,8 +10,10 @@ WORKFLOW = ROOT / ".github" / "workflows" / "android-phone-ready-build.yml"
 class PhoneReadyAndroidBuildContract(unittest.TestCase):
     def test_build_is_non_destructive_and_exact(self):
         workflow = WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn("eas build --platform android --profile preview --non-interactive --wait --json", workflow)
-        self.assertIn("eas build:download --build-id", workflow)
+        self.assertIn("eas build --platform android --profile preview --non-interactive --no-wait --json", workflow)
+        self.assertIn("eas build:view", workflow)  # exact build is polled to a terminal state
+        self.assertIn("eas build:download", workflow)
+        self.assertIn("--build-id", workflow)
         self.assertIn("scripts/record_eas_build_evidence.py", workflow)
         self.assertIn("sportreel-phone-ready-", workflow)
         self.assertNotIn("remove_biometric_storage.py", workflow)

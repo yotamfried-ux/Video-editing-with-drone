@@ -74,6 +74,7 @@ Use `docs/operator-pipeline-contract.md` as the source of truth for operator rou
 | Read run history | `GET /api/operator/pipeline/runs` |
 | Read delivery status | `GET /api/operator/delivery-status` |
 | Discover diagnostics | `GET /api/operator/discover-diagnostics` |
+| Clean video storage (new batch) | `GET/POST /api/operator/storage/clean` — see `docs/video-storage-cleanup.md` |
 
 `POST /api/operator/pipeline/run` exists only as a backward-compatible alias for older app builds. New operator code should use `/api/operator/pipeline/start`.
 

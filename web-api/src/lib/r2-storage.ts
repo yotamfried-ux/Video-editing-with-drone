@@ -293,3 +293,44 @@ export async function verifyR2Object(key: string): Promise<{ exists: boolean; si
     status: res.status,
   };
 }
+
+export type R2MultipartUpload = { key: string; uploadId: string };
+
+/** Lists every object in the bucket (all prefixes). Read-only. */
+export async function listR2AllObjects(): Promise<R2Object[]> {
+  return listR2Prefix('');
+}
+
+/** Lists in-progress (incomplete) multipart uploads, all keys. Read-only. */
+export async function listR2MultipartUploads(): Promise<R2MultipartUpload[]> {
+  const uploads: R2MultipartUpload[] = [];
+  let keyMarker = '';
+  let uploadIdMarker = '';
+  for (;;) {
+    const query = new URLSearchParams({ uploads: '' });
+    if (keyMarker) query.set('key-marker', keyMarker);
+    if (uploadIdMarker) query.set('upload-id-marker', uploadIdMarker);
+    const res = await signedFetch('GET', '', query);
+    const text = await res.text();
+    if (!res.ok) throw new Error(`R2 list multipart uploads failed (${res.status}): ${text.slice(0, 200)}`);
+    for (const match of text.matchAll(/<Upload>([\s\S]*?)<\/Upload>/g)) {
+      const key = xmlTag(match[1], 'Key');
+      const uploadId = xmlTag(match[1], 'UploadId');
+      if (key && uploadId) uploads.push({ key, uploadId });
+    }
+    if (xmlTag(text, 'IsTruncated') !== 'true') break;
+    const nextKey = xmlTag(text, 'NextKeyMarker');
+    const nextUpload = xmlTag(text, 'NextUploadIdMarker');
+    if (!nextKey && !nextUpload) break;
+    keyMarker = nextKey;
+    uploadIdMarker = nextUpload;
+  }
+  return uploads;
+}
+
+/** Deletes one object. S3 semantics: deleting a missing key succeeds (idempotent). */
+export async function deleteR2Object(key: string): Promise<void> {
+  if (!key || key.endsWith('/') || key.includes('..')) throw new Error('Refusing to delete an invalid R2 key');
+  const res = await signedFetch('DELETE', key);
+  if (!res.ok && res.status !== 404) throw await r2ResponseError('R2 delete failed', res);
+}
