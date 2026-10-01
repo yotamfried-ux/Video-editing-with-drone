@@ -40,6 +40,7 @@ export type EnqueueBackgroundUploadRequest = {
 
 export type SportReelSourceReaderNativeModule = {
   enqueueBackgroundUpload(request: EnqueueBackgroundUploadRequest): Promise<BackgroundUploadJob>;
+  persistTreePermission(treeUri: string): Promise<boolean>;
   listBackgroundUploads(): Promise<BackgroundUploadJob[]>;
   getBackgroundUpload(localId: string): Promise<BackgroundUploadJob | null>;
   resumeEligibleBackgroundUploads(operatorSecret: string | null): Promise<string[]>;

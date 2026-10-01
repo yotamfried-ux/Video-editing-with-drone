@@ -52,7 +52,8 @@ class BackgroundUploadWorker(context: Context, params: WorkerParameters) : Corou
       transport = HttpPartTransport(),
       source = reader,
       onProgress = { j -> summary(store)?.let { UploadNotification.update(applicationContext, it) }.also { Log.i(TAG, "progress ${j.localId} ${j.completedParts.size}/${j.expectedPartCount} ${j.status}") } },
-      shouldContinue = { !isStopped }
+      shouldContinue = { !isStopped },
+      onEvent = { Log.i(TAG, it) }
     )
     val outcome = try { engine.run(localId) } finally { reader.close() }
     Log.i(TAG, "outcome $localId $outcome")

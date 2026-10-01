@@ -15,6 +15,7 @@ export type BackgroundUploadSelection = {
 export type BackgroundNativeApi = Pick<
   SportReelSourceReaderNativeModule,
   | 'enqueueBackgroundUpload'
+  | 'persistTreePermission'
   | 'listBackgroundUploads'
   | 'resumeEligibleBackgroundUploads'
   | 'retryBackgroundUpload'
@@ -116,6 +117,10 @@ export function createBackgroundUploadClient(deps: BackgroundUploadClientDeps) {
       const secret = await deps.getOperatorSecret();
       await deps.native.resumeEligibleBackgroundUploads(secret);
       return deps.native.listBackgroundUploads();
+    },
+
+    async persistTreePermission(treeUri: string): Promise<boolean> {
+      return deps.native.persistTreePermission(treeUri);
     },
 
     async retry(localId: string): Promise<BackgroundUploadJob | null> {

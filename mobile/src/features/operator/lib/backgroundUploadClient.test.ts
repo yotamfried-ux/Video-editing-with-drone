@@ -41,6 +41,7 @@ function makeDeps(initial: BackgroundUploadJob[] = []) {
     }),
     listBackgroundUploads: jest.fn(async () => [...jobs.values()]),
     getBackgroundUpload: jest.fn(),
+    persistTreePermission: jest.fn(async () => true),
     resumeEligibleBackgroundUploads: jest.fn(async () => []),
     retryBackgroundUpload: jest.fn(async (id: string) => jobs.get(id) ?? null),
     forgetVerifiedBackgroundUploads: jest.fn(async () => 0),
@@ -186,6 +187,12 @@ describe('UI pipeline gate', () => {
 });
 
 describe('retry and cleanup', () => {
+  it('persists the SAF tree grant through native so a cold worker can read the sources', async () => {
+    const { deps, native } = makeDeps();
+    await expect(createBackgroundUploadClient(deps).persistTreePermission('content://tree/x')).resolves.toBe(true);
+    expect(native.persistTreePermission).toHaveBeenCalledWith('content://tree/x');
+  });
+
   it('retries a failed job through native with the current secret', async () => {
     const { deps, native } = makeDeps([job({ localId: 'a', sourceUri: 'u', status: 'failed' })]);
     await createBackgroundUploadClient(deps).retry('a');

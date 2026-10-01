@@ -96,6 +96,17 @@ class SportReelSourceReaderModule : Module() {
       }
     }
 
+    // A transient SAF tree grant dies with the process; a persisted one lets WorkManager read after process death.
+    AsyncFunction("persistTreePermission") Coroutine { treeUri: String ->
+      withContext(Dispatchers.IO) {
+        val uri = Uri.parse(treeUri)
+        require(uri.scheme == ContentResolver.SCHEME_CONTENT) { "source_uri_invalid: only content:// trees are supported" }
+        try {
+          requireContext().contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); true
+        } catch (_: Exception) { false }
+      }
+    }
+
     AsyncFunction("listBackgroundUploads") Coroutine { ->
       withContext(Dispatchers.IO) { BackgroundUploadStores.get(requireContext()).list().map { it.toBridgeMap() } }
     }

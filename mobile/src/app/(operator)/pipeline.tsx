@@ -795,6 +795,10 @@ export default function PipelineScreen() {
     try {
       const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (!permission.granted) return;
+      if (isBackgroundUploadAvailable()) {
+        // Persist the read grant so the WorkManager worker can still open these files after process death.
+        void getBackgroundUploadClient().persistTreePermission(permission.directoryUri).catch(() => undefined);
+      }
 
       const documentUris = await FileSystem.StorageAccessFramework.readDirectoryAsync(permission.directoryUri);
       const videoDocuments = documentUris
@@ -882,7 +886,7 @@ export default function PipelineScreen() {
               </Text>
             )}
 
-            <Button label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy || uploadsIncomplete} variant="secondary" style={{ height: 44 }} />
+            <Button testID="pipeline-run" label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy || uploadsIncomplete} variant="secondary" style={{ height: 44 }} />
             <Button
               label={uploadBusy ? `Uploading ${verifiedUploads}/${uploadItems.length}...` : 'Upload from gallery'}
               onPress={uploadFootage}
@@ -894,6 +898,7 @@ export default function PipelineScreen() {
             {Platform.OS === 'android' && (
               <>
                 <Button
+                  testID="pipeline-upload-external"
                   label={selectingExternalStorage ? 'Opening SD / USB...' : 'Choose videos from SD / USB'}
                   onPress={uploadExternalStorageFolder}
                   disabled={busy}
@@ -918,6 +923,7 @@ export default function PipelineScreen() {
                       />
                     </View>
                     <Button
+                      testID="pipeline-external-select-all"
                       label="Select all"
                       onPress={() => setExternalCandidates((candidates) => candidates.map((candidate) => ({ ...candidate, selected: true })))}
                       disabled={busy}
@@ -948,6 +954,7 @@ export default function PipelineScreen() {
                       </Pressable>
                     ))}
                     <Button
+                      testID="pipeline-upload-selected"
                       label={`Upload selected (${externalCandidates.filter((candidate) => candidate.selected).length})`}
                       onPress={uploadSelectedExternalVideos}
                       disabled={busy || !externalCandidates.some((candidate) => candidate.selected)}
@@ -974,6 +981,9 @@ export default function PipelineScreen() {
                     />
                   )}
                 </View>
+                <Text testID="upload-batch-summary" variant="caption" color={Colors.textSecondary}>
+                  {`Batch ${activeBatchId?.slice(0, 24) ?? '—'} · verified ${verifiedUploads}/${uploadItems.length}`}
+                </Text>
                 {uploadItems.map((item) => (
                   <View key={item.id} style={styles.uploadRow}>
                     <View style={{ flex: 1, gap: 2 }}>

@@ -73,7 +73,16 @@ jobs:
         run: npx expo-modules-autolinking resolve --platform android | grep -i sportreel
       - name: Native unit tests + compile
         working-directory: mobile/android
-        run: ./gradlew :sportreel-source-reader:testDebugUnitTest :app:assembleDebug --stacktrace --no-daemon
+        run: |
+          set -o pipefail
+          ./gradlew :sportreel-source-reader:testDebugUnitTest :app:assembleDebug --no-daemon 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+      - name: Summarize Gradle failures (product vs infrastructure)
+        if: failure()
+        run: |
+          echo "--- Kotlin/Java compile errors (product) ---"
+          grep -E "^e: |error: |FAILED$|tests completed" "$RUNNER_TEMP/gradle.log" | sed 's#file:///home/runner/work/[^/]*/[^/]*/##' | head -60 || true
+          echo "--- dependency / SDK resolution (infrastructure) ---"
+          grep -E "Could not resolve|Could not GET|Connection (reset|timed out)|SDK location not found|license" "$RUNNER_TEMP/gradle.log" | head -20 || true
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

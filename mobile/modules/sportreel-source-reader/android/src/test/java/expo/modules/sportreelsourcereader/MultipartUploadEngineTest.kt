@@ -181,5 +181,16 @@ class MultipartUploadEngineTest {
     assertEquals(puts, server.partPuts.size)
   }
 
+  @Test fun `emits one put and one ack event per uploaded part and none for acknowledged parts`() {
+    server.uploadId = "upload-1"
+    server.recorded[1] = BackgroundUploadPart(1, "etag-1", partSize)
+    store.update("job-1") { it.copy(uploadId = "upload-1", storageKey = server.storageKey, partSizeBytes = partSize, expectedPartCount = 3) }
+    val events = mutableListOf<String>()
+    MultipartUploadEngine(store, FakeApi(server), transport, source, {}, { true }, { events.add(it) }).run("job-1")
+    assertEquals(listOf("part_put job-1 2/3", "part_put job-1 3/3"), events.filter { it.startsWith("part_put") })
+    assertEquals(listOf("part_ack job-1 2/3", "part_ack job-1 3/3"), events.filter { it.startsWith("part_ack") })
+    assertTrue(events.any { it.startsWith("reconcile job-1 server_parts=[1]") })
+  }
+
   private fun storageOf(s: BackgroundUploadStore): KeyValueStorage = InMemoryStorage().also { st -> s.list().forEach { st.put(it.localId, it.toJson()) } }
 }

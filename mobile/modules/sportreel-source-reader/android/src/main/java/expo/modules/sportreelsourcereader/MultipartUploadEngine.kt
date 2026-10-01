@@ -23,7 +23,8 @@ class MultipartUploadEngine(
   private val transport: PartTransport,
   private val source: SourceReader,
   private val onProgress: (BackgroundUploadJob) -> Unit,
-  private val shouldContinue: () -> Boolean
+  private val shouldContinue: () -> Boolean,
+  private val onEvent: (String) -> Unit = {}
 ) {
   companion object { const val MAX_ATTEMPTS = 20 }
 
@@ -78,6 +79,7 @@ class MultipartUploadEngine(
     if (server.status in setOf("aborted", "superseded", "size_mismatch")) throw PermanentFailure("server_status_${server.status}")
 
     // Server truth wins over local belief.
+    onEvent("reconcile ${job.localId} server_parts=${server.parts.map { it.partNumber }} status=${server.status}")
     job = mutate(localId) { it.copy(completedParts = server.parts.sortedBy { p -> p.partNumber }) }
     onProgress(job)
 
@@ -109,9 +111,11 @@ class MultipartUploadEngine(
       val expected = if (partNumber < count) partSize else job.sourceSizeBytes - partSize * (count - 1)
       val target = api.partUrl(uploadId, partNumber)
       if (target.sizeBytes != expected) throw PermanentFailure("part_size_mismatch: part $partNumber expected $expected, server ${target.sizeBytes}")
+      onEvent("part_put ${job.localId} ${partNumber}/${count}")
       val etag = transport.put(target.uploadUrl, source, job.sourceUri, offset, expected.toInt())
       val part = BackgroundUploadPart(partNumber, etag, expected)
       api.recordPart(uploadId, part)
+      onEvent("part_ack ${job.localId} ${partNumber}/${count}")
       val updated = mutate(localId) { cur ->
         cur.copy(completedParts = (cur.completedParts.filter { it.partNumber != partNumber } + part).sortedBy { it.partNumber })
       }
