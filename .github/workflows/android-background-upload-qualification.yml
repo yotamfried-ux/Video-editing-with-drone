@@ -156,7 +156,6 @@ jobs:
           EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
           EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
           EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
-          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
         run: |
           npx expo prebuild --platform android --no-install
           cd android
