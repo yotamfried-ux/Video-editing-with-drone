@@ -74,9 +74,14 @@ run_maestro() { # flow, extra -e args...
     >> "$E/maestro-$name.log" 2>&1
   local code=$?
   if [ $code -ne 0 ]; then
-    if grep -RqsE 'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE|isn.t responding' "$E"; then FAIL_CLASS="android-emulator-infra"; else FAIL_CLASS="${FAIL_CLASS:-harness-or-product-ui}"; fi
+    # Classify from THIS flow's own logs only, and say which signature matched.
+    local sig
+    sig="$(grep -hsoE 'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE|isn.t responding' "$E/maestro-$name.log" "$E/maestro-$name"/* 2>/dev/null | sort -u | head -3 | tr '\n' ';')"
+    if [ -n "$sig" ]; then FAIL_CLASS="android-emulator-infra"; log "Maestro $name infra signature: $sig"; else FAIL_CLASS="harness-or-product-ui"; fi
     timeout 20s maestro hierarchy > "$E/hierarchy-after-$name.json" 2>/dev/null || true
     adb exec-out screencap -p > "$E/screen-after-$name.png" 2>/dev/null || true
+    log "--- Maestro $name failure summary ---"
+    python3 "$REPO_ROOT/mobile/.maestro/upl01/summarize_failure.py" "$E" "" 2>&1 | head -80 | tee -a "$E/runner.log"
   fi
   return $code
 }
