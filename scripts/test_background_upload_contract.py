@@ -80,12 +80,12 @@ def main() -> int:
         require(f"workflow scenario {scenario}", wf, [scenario])
     require("workflow", wf, [
         "android-emulator-runner", "run-bgupload-scenario.sh", "background_upload_evidence.py",
-        "upload-artifact", "native-background-upload-check", "summary",
+        "upload-artifact", "testDebugUnitTest", "summarize", "summary",
     ])
     runner = read("mobile/.maestro/background-upload/run-bgupload-scenario.sh")
     require("scenario runner", runner, [
         "KEYCODE_SLEEP", "KEYCODE_WAKEUP", "airplane-mode", "kill -9", "KEYCODE_HOME",
-        "dumpsys notification", "part_put", "part_ack", "probe-gate-incomplete", "assert-gate-ready", "assert-final",
+        "dumpsys notification", "part-log", "gate-incomplete", "gate-ready", "final --batch-id", "purge-batch",
     ])
     for flow in ("01-background.yaml", "02-screen-off-resume.yaml", "03-process-restart.yaml", "04-network-recovery.yaml"):
         assert (ROOT / "mobile/.maestro/background-upload" / flow).exists(), f"missing Maestro flow {flow}"

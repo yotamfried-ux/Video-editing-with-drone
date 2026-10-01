@@ -1,0 +1,31 @@
+# Real Android Storage Access Framework picker (DocumentsUI), driven by UI text/ids only.
+# BG_FOLDER is the fixture folder pushed under /sdcard/Download by the scenario runner.
+# Android 11+ forbids granting the Download root itself, so a sub-folder is selected.
+appId: com.sportreel.app
+---
+- extendedWaitUntil:
+    visible: "(?i).*(use this folder|downloads|recent|show roots).*"
+    timeout: 45000
+- takeScreenshot: saf-initial
+- runFlow:
+    when:
+      notVisible: "(?i)use this folder"
+    commands:
+      - tapOn:
+          text: "(?i)show roots"
+          optional: true
+      - tapOn:
+          text: "(?i)downloads"
+          optional: true
+      - takeScreenshot: saf-downloads-root
+      - tapOn:
+          text: "${BG_FOLDER}"
+- extendedWaitUntil:
+    visible: "(?i)use this folder"
+    timeout: 30000
+- takeScreenshot: saf-inside-fixture-folder
+- tapOn: "(?i)use this folder"
+- tapOn:
+    text: "(?i)allow"
+    optional: true
+- takeScreenshot: saf-granted

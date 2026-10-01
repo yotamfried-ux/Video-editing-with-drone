@@ -1,0 +1,20 @@
+# Cold start after the process was killed mid-upload: the Pipeline screen must reconcile from the
+# durable native ledger and render every file with its true progress (no file lost or duplicated).
+appId: com.sportreel.app
+name: Background upload - cold relaunch reconciles durable progress
+tags: [background-upload, process-death, relaunch]
+---
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Pipeline"
+    timeout: 180000
+- runFlow: subflows/open-pipeline-progress.yaml
+- assertVisible:
+    id: "upload-batch-summary"
+    text: ".*verified [${EXPECT_MIN_VERIFIED}-${EXPECT_TOTAL}]/${EXPECT_TOTAL}.*"
+- assertVisible: "${EXPECT_FIRST_FILENAME}.*"
+- assertVisible:
+    id: "pipeline-run"
+    enabled: false
+- takeScreenshot: relaunch-reconciled

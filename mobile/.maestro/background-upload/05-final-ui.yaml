@@ -1,0 +1,18 @@
+# Terminal UI state after the whole stable batch verified: every row verified, run button enabled
+# (the server verified-batch gate is proven separately; the button is never tapped here).
+appId: com.sportreel.app
+name: Background upload - final verified UI
+tags: [background-upload, final]
+---
+- launchApp:
+    stopApp: false
+- runFlow: subflows/open-pipeline-progress.yaml
+- assertVisible:
+    id: "upload-batch-summary"
+    text: ".*verified ${EXPECT_TOTAL}/${EXPECT_TOTAL}.*"
+- assertNotVisible:
+    id: "upload-item-status-failed"
+- assertVisible:
+    id: "pipeline-run"
+    enabled: true
+- takeScreenshot: final-verified

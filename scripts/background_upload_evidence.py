@@ -131,6 +131,65 @@ def check_gate_ready(result: dict[str, Any], *, expected_count: int) -> list[str
     return errors
 
 
+def purge_guard(rows: list[dict[str, Any]], batch_id: str) -> list[str]:
+    """Teardown may only touch a batch made exclusively of qualification fixtures (bgq_ filenames)."""
+    if not rows:
+        return []
+    errors = []
+    for r in rows:
+        if r.get("batch_id") != batch_id:
+            errors.append(f"{r.get('id')}: not in batch {batch_id}")
+        if not str(r.get("source_filename", "")).startswith("bgq_"):
+            errors.append(f"{r.get('id')}: filename {r.get('source_filename')!r} is not a qualification fixture")
+    return errors
+
+
+REQUIRED_SCENARIOS = (
+    "foreground-baseline", "home-background", "screen-off", "process-death-resume",
+    "relaunch-reconcile", "network-recovery", "worker-restart-retry",
+)
+
+
+def build_summary(summaries: list[dict[str, Any]], *, sha: str, run_url: str, expected_count: int = 3) -> dict[str, Any]:
+    """Qualified only if every required scenario passed AND its independent evidence still proves exactly-once."""
+    by_name = {s.get("scenario"): s for s in summaries}
+    missing = [n for n in REQUIRED_SCENARIOS if n not in by_name]
+    integrity: list[str] = []
+    lines = ["# Android background-upload qualification", "", f"Commit: `{sha}`  ", f"Run: {run_url}", "",
+             "| scenario | result | rows | R2 objects | acked-part resends | gate (incomplete) | gate (verified) | failure class |",
+             "|---|---|---|---|---|---|---|---|"]
+    for name in REQUIRED_SCENARIOS:
+        s = by_name.get(name)
+        if not s:
+            lines.append(f"| {name} | MISSING | - | - | - | - | - | - |")
+            continue
+        fb = s.get("final_backend") or {}
+        resent = (s.get("part_log") or {}).get("resent_acknowledged") or []
+        if s.get("result") == "PASS":
+            if fb.get("source_uploads_rows") != expected_count or fb.get("distinct_storage_keys") != expected_count:
+                integrity.append(f"{name}: source_uploads rows/keys {fb.get('source_uploads_rows')}/{fb.get('distinct_storage_keys')} != {expected_count}")
+            if fb.get("r2_objects_under_batch_prefix") != expected_count or fb.get("open_multipart_uploads") != 0:
+                integrity.append(f"{name}: R2 objects/open multipart {fb.get('r2_objects_under_batch_prefix')}/{fb.get('open_multipart_uploads')}")
+            if resent:
+                integrity.append(f"{name}: acknowledged parts were resent: {resent}")
+            if s.get("gate_incomplete") != 409:
+                integrity.append(f"{name}: pipeline start was not rejected (HTTP {s.get('gate_incomplete')}) while incomplete")
+            if s.get("gate_ready_result") != "PASS":
+                integrity.append(f"{name}: verified-batch gate did not accept the full batch")
+        lines.append(f"| {name} | {s.get('result')} | {fb.get('source_uploads_rows', '-')} | {fb.get('r2_objects_under_batch_prefix', '-')} | "
+                     f"{len(resent)} | {s.get('gate_incomplete', '-')} | {s.get('gate_ready_result', '-')} | {s.get('failure_class') or ''} |")
+    failed = [n for n in REQUIRED_SCENARIOS if n in by_name and by_name[n].get("result") != "PASS"]
+    for n in failed:
+        s = by_name[n]
+        lines += ["", f"**{n} failed** in phase `{s.get('failed_phase')}` ({s.get('failure_class')}): {s.get('failure_reason')}"]
+    for i in integrity:
+        lines += ["", f"**INTEGRITY FAILURE** {i}"]
+    qualified = not missing and not failed and not integrity
+    lines += ["", f"**Qualified: {'YES' if qualified else 'NO'}**"]
+    return {"qualified": qualified, "scenario_count": len(by_name), "missing_scenarios": missing, "failed_scenarios": failed,
+            "integrity_failures": integrity, "sha": sha, "run_url": run_url, "scenarios": summaries, "markdown": "\n".join(lines) + "\n"}
+
+
 def parse_prefs_xml(text: str) -> list[dict[str, Any]]:
     jobs: list[dict[str, Any]] = []
     for node in ET.fromstring(text).iter("string"):
@@ -147,7 +206,7 @@ def durable_progress(jobs: list[dict[str, Any]]) -> dict[str, int]:
     return {
         "verified": sum(1 for j in jobs if j.get("status") == "VERIFIED"),
         "total": len(jobs),
-        "acked_parts": sum(len(j.get("completedParts") or []) for j in jobs if j.get("status") != "VERIFIED"),
+        "acked_parts": sum(len(j.get("completedParts") or []) for j in jobs),
     }
 
 
@@ -274,6 +333,47 @@ def cmd_cancel_batch(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_purge_batch(a: argparse.Namespace) -> int:
+    """Remove only this qualification batch's R2 objects and rows (after evidence is captured)."""
+    q = urllib.parse.urlencode({"select": ROW_COLUMNS, "batch_id": f"eq.{a.batch_id}"})
+    status, rows = _supabase(f"source_uploads?{q}")
+    if status != 200:
+        print(f"purge skipped: read failed HTTP {status}")
+        return 0
+    errors = purge_guard(rows, a.batch_id)
+    if errors:
+        print("purge refused: " + "; ".join(errors), file=sys.stderr)
+        return 1
+    client, bucket = _r2()
+    deleted = 0
+    for page in client.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=f"raw/{a.batch_id}/"):
+        for obj in page.get("Contents", []):
+            client.delete_object(Bucket=bucket, Key=obj["Key"]); deleted += 1
+    for u in client.list_multipart_uploads(Bucket=bucket, Prefix=f"raw/{a.batch_id}/").get("Uploads", []):
+        client.abort_multipart_upload(Bucket=bucket, Key=u["Key"], UploadId=u["UploadId"])
+    if rows:
+        ids = ",".join(r["id"] for r in rows)
+        _supabase(f"source_uploads?id=in.({ids})", "DELETE")
+    _supabase(f"upload_batches?batch_id=eq.{urllib.parse.quote(a.batch_id)}&pipeline_run_id=is.null", "DELETE")
+    print(f"purged qualification batch {a.batch_id}: r2_objects={deleted} rows={len(rows)}")
+    return 0
+
+
+def cmd_summarize(a: argparse.Namespace) -> int:
+    import pathlib
+    summaries = []
+    for f in sorted(pathlib.Path(a.evidence_dir).rglob("summary.json")):
+        try:
+            summaries.append(json.loads(f.read_text()))
+        except json.JSONDecodeError:
+            pass
+    result = build_summary(summaries, sha=a.sha, run_url=a.run_url)
+    pathlib.Path(a.out).write_text(result["markdown"])
+    pathlib.Path(a.json).write_text(json.dumps({k: v for k, v in result.items() if k != "markdown"}, indent=2, default=str))
+    print(result["markdown"])
+    return 0 if result["qualified"] else 1
+
+
 def cmd_part_log(a: argparse.Namespace) -> int:
     with open(a.logcat, encoding="utf-8", errors="replace") as fh:
         report = analyze_part_log(fh.read().splitlines())
@@ -307,6 +407,8 @@ def main() -> int:
     g = sub.add_parser("gate-incomplete"); g.add_argument("--batch-id", required=True); g.add_argument("--api-base", required=True); g.add_argument("--out"); g.set_defaults(fn=cmd_gate_incomplete)
     r = sub.add_parser("gate-ready"); r.add_argument("--batch-id", required=True); r.add_argument("--expected", type=int, required=True); r.add_argument("--out"); r.set_defaults(fn=cmd_gate_ready)
     c = sub.add_parser("cancel-batch"); c.add_argument("--batch-id", required=True); c.set_defaults(fn=cmd_cancel_batch)
+    m = sub.add_parser("summarize"); m.add_argument("--evidence-dir", required=True); m.add_argument("--out", required=True); m.add_argument("--json", required=True); m.add_argument("--sha", default=""); m.add_argument("--run-url", default=""); m.set_defaults(fn=cmd_summarize)
+    u = sub.add_parser("purge-batch"); u.add_argument("--batch-id", required=True); u.set_defaults(fn=cmd_purge_batch)
     l = sub.add_parser("part-log"); l.add_argument("--logcat", required=True); l.add_argument("--out"); l.set_defaults(fn=cmd_part_log)
     d = sub.add_parser("durable"); d.add_argument("--prefs", required=True); d.set_defaults(fn=cmd_durable)
     n = sub.add_parser("notification"); n.add_argument("--dump", required=True); n.set_defaults(fn=cmd_notification)

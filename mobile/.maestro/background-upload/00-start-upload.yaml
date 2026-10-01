@@ -1,0 +1,39 @@
+# Starts one multi-video stable-batch upload through the real UI (operator secret, Pipeline,
+# SD / USB folder picker, select all, upload). Leaves the app uploading in the background worker.
+appId: com.sportreel.app
+name: Background upload - start multi-video batch
+tags: [background-upload, start]
+---
+- runFlow: ../upl01/subflows/launch-to-settings.yaml
+- runFlow: ../upl01/subflows/save-operator-secret.yaml
+- tapOn: "Pipeline"
+- scrollUntilVisible:
+    element:
+      id: "pipeline-upload-external"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+- tapOn:
+    id: "pipeline-upload-external"
+- runFlow: subflows/pick-sd-folder.yaml
+- extendedWaitUntil:
+    visible:
+      id: "pipeline-external-select-all"
+    timeout: 60000
+- takeScreenshot: candidates-listed
+- tapOn:
+    id: "pipeline-external-select-all"
+- tapOn:
+    id: "pipeline-upload-selected"
+- extendedWaitUntil:
+    visible: "Uploading in the background"
+    timeout: 60000
+- takeScreenshot: handed-off-to-worker
+- tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element:
+      id: "upload-batch-summary"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- takeScreenshot: progress-visible

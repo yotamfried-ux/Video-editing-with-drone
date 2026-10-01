@@ -1,0 +1,12 @@
+# After the screen was turned off and on during the upload: UI shows durable progress, no restart needed.
+appId: com.sportreel.app
+name: Background upload - screen off/on keeps progress
+tags: [background-upload, screen-off]
+---
+- launchApp:
+    stopApp: false
+- runFlow: subflows/open-pipeline-progress.yaml
+- assertVisible:
+    id: "upload-batch-summary"
+    text: ".*verified [${EXPECT_MIN_VERIFIED}-${EXPECT_TOTAL}]/${EXPECT_TOTAL}.*"
+- takeScreenshot: after-screen-off

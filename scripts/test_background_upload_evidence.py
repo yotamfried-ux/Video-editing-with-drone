@@ -116,6 +116,47 @@ class Gates(unittest.TestCase):
         self.assertTrue(ev.check_gate_ready({**ok, "input_manifest": [1]}, expected_count=3))
 
 
+class Purge(unittest.TestCase):
+    def test_only_qualification_fixture_batches_may_be_purged(self):
+        ok = [row(0, source_filename="bgq_x_1.mp4"), row(1, source_filename="bgq_x_2.mp4")]
+        self.assertEqual(ev.purge_guard(ok, "batch_x"), [])
+        self.assertTrue(ev.purge_guard([row(0, source_filename="real-athlete-clip.mp4")], "batch_x"))
+        self.assertTrue(ev.purge_guard([row(0, source_filename="bgq_x_1.mp4", batch_id="other")], "batch_x"))
+
+
+class Summary(unittest.TestCase):
+    def _s(self, name, ok=True, **kw):
+        base = {"scenario": name, "result": "PASS" if ok else "FAIL", "failed_phase": None if ok else "completion", "failure_class": None if ok else "product",
+                "failure_reason": None if ok else "x", "final_backend": {"source_uploads_rows": 3, "distinct_storage_keys": 3, "r2_objects_under_batch_prefix": 3, "open_multipart_uploads": 0},
+                "final_backend_result": "PASS", "gate_incomplete": 409, "gate_ready_result": "PASS", "part_log": {"result": "PASS", "reconciles": 4, "resent_acknowledged": []}, "notes": {}}
+        base.update(kw)
+        return base
+
+    def test_green_only_when_every_required_scenario_passed(self):
+        names = ev.REQUIRED_SCENARIOS
+        green = ev.build_summary([self._s(n) for n in names], sha="abc", run_url="u")
+        self.assertTrue(green["qualified"])
+        self.assertEqual(green["scenario_count"], len(names))
+        self.assertIn("| process-death-resume | PASS |", green["markdown"])
+
+    def test_missing_or_failed_scenario_blocks_qualification(self):
+        names = list(ev.REQUIRED_SCENARIOS)
+        missing = ev.build_summary([self._s(n) for n in names[:-1]], sha="abc", run_url="u")
+        self.assertFalse(missing["qualified"]); self.assertIn(names[-1], missing["missing_scenarios"])
+        failed = ev.build_summary([self._s(n, ok=(n != names[0])) for n in names], sha="abc", run_url="u")
+        self.assertFalse(failed["qualified"]); self.assertIn("product", failed["markdown"])
+
+    def test_duplicate_or_resent_evidence_blocks_even_if_scenario_says_pass(self):
+        names = ev.REQUIRED_SCENARIOS
+        bad = [self._s(n) for n in names]
+        bad[1]["final_backend"]["source_uploads_rows"] = 4
+        bad[2]["part_log"]["resent_acknowledged"] = [["a", 1]]
+        bad[3]["gate_incomplete"] = 200
+        result = ev.build_summary(bad, sha="abc", run_url="u")
+        self.assertFalse(result["qualified"])
+        self.assertGreaterEqual(len(result["integrity_failures"]), 3)
+
+
 class Durable(unittest.TestCase):
     PREFS = '''<?xml version='1.0' encoding='utf-8' standalone='yes' ?>
 <map><string name="bg_a">{&quot;localId&quot;:&quot;bg_a&quot;,&quot;batchId&quot;:&quot;batch_x&quot;,&quot;status&quot;:&quot;UPLOADING&quot;,&quot;expectedPartCount&quot;:3,&quot;completedParts&quot;:[{&quot;partNumber&quot;:1,&quot;etag&quot;:&quot;e&quot;,&quot;sizeBytes&quot;:5}]}</string>
