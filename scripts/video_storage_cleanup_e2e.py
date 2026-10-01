@@ -180,7 +180,7 @@ def cmd_seed(args) -> int:
         "source_size_bytes": len(payload),
     }).execute().data[0]
     db.rpc("verify_source_upload", {"p_storage_key": old_key, "p_verified_size_bytes": len(payload)}).execute()
-    reel = db.table("reels").insert({"sport": "e2e", "status": "published", "token": f"e2e_clean_{tag}",
+    reel = db.table("reels").insert({"sport": "e2e", "status": "published", "token": str(uuid.uuid4()),  # prod reels.token is uuid
                                      "storage_path": m["reels_video"][0], "source_video": old_key}).execute().data[0]
     reedit = db.table("reprocess_requests").insert({"draft_name": f"e2e_clean_{tag}.mp4", "status": "pending",
                                                     "notes": "e2e cleanup test"}).execute().data[0]
