@@ -13,6 +13,7 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import android.content.Intent
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -61,7 +62,75 @@ class SportReelSourceReaderModule : Module() {
         readExactRange(resolver, uri, offset, length)
       }
     }
+
+    // ---- Durable background uploads (WorkManager owns execution; JS is controller/UI only) ----
+
+    AsyncFunction("enqueueBackgroundUpload") Coroutine { request: Map<String, Any?> ->
+      withContext(Dispatchers.IO) {
+        val context = requireContext()
+        val batchId = (request["batchId"] as? String)?.trim().orEmpty()
+        val sourceUri = request["sourceUri"] as? String ?: ""
+        val filename = (request["filename"] as? String)?.trim().orEmpty()
+        val mimeType = (request["mimeType"] as? String)?.trim().orEmpty().ifEmpty { "video/mp4" }
+        val apiBaseUrl = (request["apiBaseUrl"] as? String)?.trim().orEmpty()
+        val secret = (request["operatorSecret"] as? String)?.trim().orEmpty()
+        require(batchId.isNotEmpty()) { "batch_id_required: a stable batch id must be assigned before enqueue" }
+        require(filename.isNotEmpty()) { "filename_required" }
+        require(apiBaseUrl.startsWith("http")) { "api_base_url_invalid" }
+        require(secret.isNotEmpty()) { "operator_secret_required" }
+        val uri = requireContentUri(sourceUri)
+
+        val reader = ContentSourceReader(context)
+        val sourceSize = try { reader.size(sourceUri) } finally { reader.close() }
+        // Persist the read grant where the provider allows it so a cold process can still open the source.
+        val persisted = try {
+          context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION); true
+        } catch (_: Exception) { false }
+
+        OperatorSecretVault(context).put(secret)
+        val localId = BackgroundUploadIdentity.localId(batchId, sourceUri, sourceSize)
+        val store = BackgroundUploadStores.get(context)
+        val job = store.enqueue(BackgroundUploadJob.newQueued(localId, batchId, sourceUri, filename, mimeType, sourceSize, apiBaseUrl))
+        BackgroundUploadScheduler.enqueue(context, localId)
+        job.toBridgeMap() + mapOf("persistedUriPermission" to persisted)
+      }
+    }
+
+    AsyncFunction("listBackgroundUploads") Coroutine { ->
+      withContext(Dispatchers.IO) { BackgroundUploadStores.get(requireContext()).list().map { it.toBridgeMap() } }
+    }
+
+    AsyncFunction("getBackgroundUpload") Coroutine { localId: String ->
+      withContext(Dispatchers.IO) { BackgroundUploadStores.get(requireContext()).get(localId)?.toBridgeMap() }
+    }
+
+    // Reconcile on every app start: refresh the secret (if supplied) and re-schedule non-terminal durable jobs.
+    AsyncFunction("resumeEligibleBackgroundUploads") Coroutine { operatorSecret: String? ->
+      withContext(Dispatchers.IO) {
+        val context = requireContext()
+        operatorSecret?.trim()?.takeIf { it.isNotEmpty() }?.let { OperatorSecretVault(context).put(it) }
+        BackgroundUploadScheduler.resumeEligible(context, BackgroundUploadStores.get(context))
+      }
+    }
+
+    AsyncFunction("retryBackgroundUpload") Coroutine { localId: String, operatorSecret: String? ->
+      withContext(Dispatchers.IO) {
+        val context = requireContext()
+        operatorSecret?.trim()?.takeIf { it.isNotEmpty() }?.let { OperatorSecretVault(context).put(it) }
+        val job = BackgroundUploadStores.get(context).requeueFailed(localId)
+        if (job != null) BackgroundUploadScheduler.enqueue(context, localId, replace = true)
+        job?.toBridgeMap()
+      }
+    }
+
+    AsyncFunction("forgetVerifiedBackgroundUploads") Coroutine { batchId: String ->
+      withContext(Dispatchers.IO) { BackgroundUploadStores.get(requireContext()).removeVerifiedBatch(batchId) }
+    }
   }
+
+  private fun requireContext(): android.content.Context =
+    appContext.reactContext?.applicationContext
+      ?: throw IllegalStateException("source_reader_unavailable: React context is unavailable")
 
   private fun requireResolver(): ContentResolver {
     val context = appContext.reactContext
