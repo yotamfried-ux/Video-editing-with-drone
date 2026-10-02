@@ -22,3 +22,6 @@ supervision>=0.29.0,<0.30.0
 ultralytics>=8.3.0
 
 # ffmpeg must be installed separately by the system package manager.
+idna>=3.15
+orjson>=3.11.5
+protobuf>=5.29.6
