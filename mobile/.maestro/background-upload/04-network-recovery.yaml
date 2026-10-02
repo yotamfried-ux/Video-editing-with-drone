@@ -9,6 +9,13 @@ tags: [background-upload, network]
 - runFlow: subflows/open-pipeline-progress.yaml
 - assertNotVisible:
     id: "upload-item-status-failed"
+# "Run pipeline now" renders above the upload section; bring it into view before asserting on it.
+- scrollUntilVisible:
+    element:
+      id: "pipeline-run"
+    direction: UP
+    timeout: 30000
+    centerElement: true
 - assertVisible:
     id: "pipeline-run"
     enabled: false

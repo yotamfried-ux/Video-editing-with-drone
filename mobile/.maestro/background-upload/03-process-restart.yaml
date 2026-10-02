@@ -14,7 +14,43 @@ tags: [background-upload, process-death, relaunch]
     id: "upload-batch-summary"
     text: ".*verified [${EXPECT_MIN_VERIFIED}-${EXPECT_TOTAL}]/${EXPECT_TOTAL}.*"
 - assertVisible: "${EXPECT_FIRST_FILENAME}.*"
-- assertVisible:
-    id: "pipeline-run"
-    enabled: false
+# The run button must agree with the reconciled summary: enabled only once the whole batch is verified. Android restarts
+# the worker right after the kill, so the batch may already be complete by the time this flow looks (run 37049517644).
 - takeScreenshot: relaunch-reconciled
+# The run button must agree with the reconciled batch: enabled only once every file is verified. Android restarts the
+# worker right after the kill, so the batch may already be complete when this flow looks (run 37049517644).
+# Branch on the button's own state (centered, so it stays on screen while we evaluate), then check the summary matches.
+- scrollUntilVisible:
+    element:
+      id: "pipeline-run"
+    direction: UP
+    timeout: 30000
+    centerElement: true
+- runFlow:
+    when:
+      visible:
+        id: "pipeline-run"
+        enabled: true
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: DOWN
+          timeout: 30000
+      - assertVisible:
+          id: "upload-batch-summary"
+          text: ".*verified ${EXPECT_TOTAL}/${EXPECT_TOTAL}.*"
+- runFlow:
+    when:
+      visible:
+        id: "pipeline-run"
+        enabled: false
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: DOWN
+          timeout: 30000
+      - assertNotVisible:
+          id: "upload-batch-summary"
+          text: ".*verified ${EXPECT_TOTAL}/${EXPECT_TOTAL}.*"
