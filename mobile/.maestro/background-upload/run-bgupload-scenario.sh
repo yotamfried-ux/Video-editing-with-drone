@@ -24,7 +24,27 @@ PHASE="setup"
 FAIL_CLASS=""
 
 log() { echo "[$(date -u +%H:%M:%S)] [$SCENARIO] $*" | tee -a "$E/runner.log"; }
-fail() { FAIL_CLASS="${2:-product}"; log "FAIL($FAIL_CLASS) in phase '$PHASE': $1"; echo "$1" > "$E/failure-reason.txt"; exit 1; }
+worker_diagnostics() {
+  log "--- worker diagnostics (ledger, WorkManager/JobScheduler, SportReelBgUpload logcat) ---"
+  {
+    echo "app pid: $(app_pid)"
+    prefs; echo "ledger bytes: $(wc -c < "$E/prefs.xml" 2>/dev/null)"
+    python3 - "$E/prefs.xml" <<'PYX' 2>&1 | head -40
+import re, sys
+x = open(sys.argv[1], errors="replace").read() if len(sys.argv) > 1 else ""
+for m in re.finditer(r'<string name="([^"]+)">(.*?)</string>', x, re.S):
+    print(m.group(1)[:40], m.group(2).replace("&quot;", '"')[:400])
+PYX
+    adb shell dumpsys jobscheduler 2>/dev/null | grep -A12 -E "$PKG" | head -60
+    adb shell dumpsys activity services "$PKG" 2>/dev/null | grep -E "ServiceRecord|isForeground|foregroundId" | head -10
+    adb logcat -d -v time -t 4000 2>/dev/null | grep -E "SportReelBgUpload|WM-|WorkManager|SystemFgService|ForegroundServiceStart|FATAL EXCEPTION|AndroidRuntime" | tail -n 80 | cut -c1-300
+  } 2>&1 | sed 's/^/    /' | tee -a "$E/runner.log"
+}
+fail() {
+  FAIL_CLASS="${2:-product}"; log "FAIL($FAIL_CLASS) in phase '$PHASE': $1"; echo "$1" > "$E/failure-reason.txt"
+  if [ "$FAIL_CLASS" != "harness" ] && [ -z "${IN_DIAG:-}" ]; then IN_DIAG=1; worker_diagnostics || true; fi
+  exit 1
+}
 
 for v in APK EVIDENCE_DIR SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY OPERATOR_SECRET MAESTRO_OPERATOR_SECRET API_BASE; do
   test -n "${!v:-}" || { echo "missing env $v" >&2; exit 2; }
