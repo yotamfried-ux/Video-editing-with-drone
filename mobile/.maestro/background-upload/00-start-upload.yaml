@@ -16,10 +16,21 @@ tags: [background-upload, start]
 - tapOn:
     id: "pipeline-upload-external"
 - runFlow: subflows/pick-sd-folder.yaml
+# System "isn't responding" dialogs on a loaded emulator must not mask the app flow (same handling as UPL-01).
+- runFlow:
+    when:
+      visible: "Pixel Launcher isn't responding"
+    commands:
+      - tapOn: "Close app"
+- runFlow:
+    when:
+      visible: "(?i)(sportreel|system ui|google play services) isn't responding"
+    commands:
+      - tapOn: "(?i)wait"
 - extendedWaitUntil:
     visible:
       id: "pipeline-external-select-all"
-    timeout: 60000
+    timeout: 90000
 - takeScreenshot: candidates-listed
 - tapOn:
     id: "pipeline-external-select-all"

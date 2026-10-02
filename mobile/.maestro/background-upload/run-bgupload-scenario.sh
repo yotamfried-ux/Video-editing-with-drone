@@ -80,6 +80,20 @@ run_maestro() { # flow, extra -e args...
     if [ -n "$sig" ]; then FAIL_CLASS="android-emulator-infra"; log "Maestro $name infra signature: $sig"; else FAIL_CLASS="harness-or-product-ui"; fi
     timeout 20s maestro hierarchy > "$E/hierarchy-after-$name.json" 2>/dev/null || true
     adb exec-out screencap -p > "$E/screen-after-$name.png" 2>/dev/null || true
+    log "--- device-level diagnostics (focus, UI dump, ANR/RN/crash log) ---"
+    {
+      echo "focus: $(adb shell dumpsys window 2>/dev/null | grep -E 'mCurrentFocus|mFocusedApp' | head -2 | tr -d '\r' | tr '\n' ' ')"
+      adb shell uiautomator dump /sdcard/bgq-ui.xml >/dev/null 2>&1
+      adb exec-out cat /sdcard/bgq-ui.xml 2>/dev/null | python3 -c "
+import re, sys
+x = sys.stdin.read()
+rows = re.findall(r'text=\"([^\"]*)\"[^>]*resource-id=\"([^\"]*)\"', x)
+print('ui nodes:', len(rows))
+for t, r in rows[:40]:
+    if t or r: print('  id=%r text=%r' % (r, t[:70]))
+" 2>&1 | head -50
+      adb logcat -d -v time -t 1500 2>/dev/null | grep -E "ANR in|isn.t responding|Input dispatching timed out|ReactNativeJS|AndroidRuntime|FATAL EXCEPTION|SportReelBgUpload|StorageAccess|documentsui" | tail -n 40 | cut -c1-260
+    } 2>&1 | sed 's/^/    /' | tee -a "$E/runner.log"
     log "--- Maestro $name failure summary ---"
     python3 "$REPO_ROOT/mobile/.maestro/upl01/summarize_failure.py" "$E" "" 2>&1 | head -80 | tee -a "$E/runner.log"
   fi

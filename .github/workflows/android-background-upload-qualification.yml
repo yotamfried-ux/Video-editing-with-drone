@@ -6,12 +6,14 @@ name: Android Background Upload Qualification
 # Supabase + R2 evidence that every file verified exactly once, acknowledged parts were never resent,
 # and the pipeline stayed gated until the whole batch verified. Fixtures of a passing scenario are
 # purged afterwards; failed batches are kept for diagnosis.
+#
+# Push runs only the foreground-baseline smoke scenario (cheap harness iteration). The full seven-scenario
+# qualification is an explicit workflow_dispatch with scenarios=all, and only that run can report Qualified: YES.
 
 on:
   push:
     branches:
       - feat/android-background-uploads
-      - claude/android-background-uploads-pr255-eo3v61
     paths:
       - .github/workflows/android-background-upload-qualification.yml
       - mobile/.maestro/background-upload/**
@@ -21,6 +23,11 @@ on:
       - scripts/background_upload_evidence.py
       - scripts/make_background_upload_fixtures.sh
   workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Comma-separated scenarios to run, or "all" (single-scenario runs make harness iteration cheap)'
+        required: false
+        default: 'all'
 
 permissions:
   contents: read
@@ -175,23 +182,33 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
+  plan:
+    name: plan scenarios
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - id: p
+        env:
+          REQUESTED: ${{ inputs.scenarios || (github.event_name == 'push' && 'foreground-baseline') || 'all' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          allowed = ["foreground-baseline","home-background","screen-off","process-death-resume","relaunch-reconcile","network-recovery","worker-restart-retry"]
+          req = os.environ["REQUESTED"].strip()
+          chosen = allowed if req in ("", "all") else [s.strip() for s in req.split(",") if s.strip() in allowed]
+          print("matrix=" + json.dumps({"scenario": chosen}))
+          PY
+
   scenario:
     name: Android ${{ matrix.scenario }}
-    needs: [static-contracts, native-gradle-tests, prepare-apk]
+    needs: [static-contracts, native-gradle-tests, prepare-apk, plan]
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       max-parallel: 3
-      matrix:
-        scenario:
-          - foreground-baseline
-          - home-background
-          - screen-off
-          - process-death-resume
-          - relaunch-reconcile
-          - network-recovery
-          - worker-restart-retry
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - name: Download prepared APK
@@ -288,7 +305,7 @@ jobs:
   summary:
     name: qualification summary
     if: always()
-    needs: [static-contracts, native-gradle-tests, prepare-apk, scenario]
+    needs: [static-contracts, native-gradle-tests, prepare-apk, plan, scenario]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
