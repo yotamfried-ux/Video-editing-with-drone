@@ -84,7 +84,8 @@ def main() -> int:
     ])
     runner = read("mobile/.maestro/background-upload/run-bgupload-scenario.sh")
     require("scenario runner", runner, [
-        "KEYCODE_SLEEP", "KEYCODE_WAKEUP", "airplane-mode", "kill -9", "KEYCODE_HOME",
+        "KEYCODE_SLEEP", "KEYCODE_WAKEUP", "svc wifi disable", "svc data disable", "svc wifi enable", "svc data enable",
+        "kill -9", "KEYCODE_HOME",
         "dumpsys notification", "part-log", "gate-incomplete", "gate-ready", "final --batch-id", "purge-batch",
     ])
     for flow in ("01-background.yaml", "02-screen-off-resume.yaml", "03-process-restart.yaml", "04-network-recovery.yaml"):

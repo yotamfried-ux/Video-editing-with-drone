@@ -27,7 +27,7 @@ passed **and** its independent evidence proves exactly-once behaviour.
 | screen-off | `KEYCODE_SLEEP` / `WAKEUP` | continues with screen off |
 | process-death-resume | `run-as … kill -9` while backgrounded, no relaunch | WorkManager resumes from the durable ledger |
 | relaunch-reconcile | process kill, cold launch | UI reconciles durable progress |
-| network-recovery | airplane mode on → off | no progress offline, automatic resume, never shown as failed |
+| network-recovery | Wi-Fi and mobile data off → on (`svc`; airplane mode took the emulator adb transport offline) | no progress offline, automatic resume, never shown as failed |
 | worker-restart-retry | two forced process kills + network flap | restarts reuse acknowledged parts |
 
 Every scenario additionally asserts: exactly one `source_uploads` row and one R2 object per video (Supabase +

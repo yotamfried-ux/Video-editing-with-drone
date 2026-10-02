@@ -2,7 +2,7 @@
 # Runs ONE Android background-upload lifecycle scenario on one emulator.
 #
 # Maestro drives the real UI (operator secret, SAF folder picker, select-all, upload, UI assertions).
-# adb performs the OS-level perturbations (Home, screen off, process kill, airplane mode) and reads the
+# adb performs the OS-level perturbations (Home, screen off, process kill, Wi-Fi and mobile data off/on) and reads the
 # app's durable native ledger via run-as. scripts/background_upload_evidence.py independently verifies
 # Supabase rows, part rows and R2 objects, and the verified-batch gate. Every failure is classified as
 # product / backend / android-emulator-infra / harness (UI automation) in failure-class.txt.
@@ -85,7 +85,27 @@ capture_notification() { # label
 }
 capture_service() { adb shell dumpsys activity services "$PKG" > "$E/services-$1.txt" 2>/dev/null || true; }
 
+# Network outage helpers. Airplane mode took the emulator's adb transport offline mid-flow (run 37051879887), so cut only
+# Wi-Fi and mobile data; adb rides the emulator console, not the guest network.
+network_off() { adb shell svc wifi disable >/dev/null 2>&1; adb shell svc data disable >/dev/null 2>&1; }
+network_on() { adb shell svc wifi enable >/dev/null 2>&1; adb shell svc data enable >/dev/null 2>&1; }
+
+# Run a flow; if it dies on a genuine device-transport error (not a UI assertion), re-stabilize adb and retry once.
 run_maestro() { # flow, extra -e args...
+  local flow="$1"; shift
+  local name; name="$(basename "$flow" .yaml)"
+  DEVICE_SIG=""
+  run_maestro_once "$flow" "$@" && return 0
+  if [ -n "$DEVICE_SIG" ]; then
+    log "Maestro $name hit a device transport error ($DEVICE_SIG); re-stabilizing adb and retrying once"
+    stabilize_adb || return 1
+    run_maestro_once "$flow" "$@"
+    return $?
+  fi
+  return 1
+}
+
+run_maestro_once() { # flow, extra -e args...
   local flow="$1"; shift
   local name; name="$(basename "$flow" .yaml)"
   stabilize_adb || fail "adb unstable before Maestro $name" infra
@@ -98,7 +118,8 @@ run_maestro() { # flow, extra -e args...
     local sig
     # Match only genuine device-server errors. Do NOT match 'isn't responding': Maestro's command dump echoes the
     # optional ANR-dismiss conditions written in our own flow, which made a product/flow bug look like infra.
-    sig="$(grep -hsoE 'device offline|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE' "$E/maestro-$name.log" 2>/dev/null | sort -u | head -3 | tr '\n' ';')"
+    sig="$(grep -rhsoE 'device offline|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE' "$E/maestro-$name.log" "$E/maestro-$name" 2>/dev/null | sort -u | head -3 | tr '\n' ';')"
+    DEVICE_SIG="$sig"
     if adb logcat -d -t 2000 2>/dev/null | grep -qE 'ANR in com\.(sportreel|google\.android\.apps\.nexuslauncher)'; then sig="${sig}logcat-ANR;"; fi
     if [ -n "$sig" ]; then FAIL_CLASS="android-emulator-infra"; log "Maestro $name infra signature: $sig"; else FAIL_CLASS="harness-or-product-ui"; fi
     timeout 20s maestro hierarchy > "$E/hierarchy-after-$name.json" 2>/dev/null || true
@@ -280,7 +301,7 @@ case "$SCENARIO" in
     snapshot after-relaunch; [ "$(jget "$(durable_json)" acked_parts)" -ge "$BEFORE_ACKED" ] || fail "durable progress regressed across relaunch" product
     ;;
   network-recovery)
-    adb shell cmd connectivity airplane-mode enable >/dev/null 2>&1 || { adb shell svc wifi disable; adb shell svc data disable; }
+    network_off
     sleep 12; snapshot outage-start; OUT_START="$(jget "$(durable_json)" acked_parts)"
     sleep 35; snapshot outage-end; OUT_END="$(jget "$(durable_json)" acked_parts)"
     note outage_acked "{\"start\": $OUT_START, \"end\": $OUT_END}"
@@ -288,7 +309,7 @@ case "$SCENARIO" in
     [ "$(jget "$(durable_json)" verified)" -lt "$TOTAL" ] || fail "batch finished during the outage window; outage did not interrupt multipart" harness
     capture_notification outage || true
     run_maestro 04-network-recovery.yaml || fail "UI showed failure/ungated state during the outage" "${FAIL_CLASS:-product}"
-    adb shell cmd connectivity airplane-mode disable >/dev/null 2>&1 || { adb shell svc wifi enable; adb shell svc data enable; }
+    network_on
     adb shell input keyevent KEYCODE_HOME
     wait_until "automatic resume after reconnect" 240 acked_ge $((OUT_END + 2)) || all_verified || fail "upload did not resume automatically after the network returned" product
     note resumed_without_user_action true
@@ -303,7 +324,7 @@ case "$SCENARIO" in
     done
     # transient network flap to force the Result.retry() path as well
     if ! all_verified; then
-      adb shell cmd connectivity airplane-mode enable >/dev/null 2>&1; sleep 8; adb shell cmd connectivity airplane-mode disable >/dev/null 2>&1
+      network_off; sleep 8; network_on
     fi
     note restarts_forced 2
     ;;
