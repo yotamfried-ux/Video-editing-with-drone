@@ -76,7 +76,10 @@ run_maestro() { # flow, extra -e args...
   if [ $code -ne 0 ]; then
     # Classify from THIS flow's own logs only, and say which signature matched.
     local sig
-    sig="$(grep -hsoE 'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE|isn.t responding' "$E/maestro-$name.log" "$E/maestro-$name"/* 2>/dev/null | sort -u | head -3 | tr '\n' ';')"
+    # Match only genuine device-server errors. Do NOT match 'isn't responding': Maestro's command dump echoes the
+    # optional ANR-dismiss conditions written in our own flow, which made a product/flow bug look like infra.
+    sig="$(grep -hsoE 'device offline|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE' "$E/maestro-$name.log" 2>/dev/null | sort -u | head -3 | tr '\n' ';')"
+    if adb logcat -d -t 2000 2>/dev/null | grep -qE 'ANR in com\.(sportreel|google\.android\.apps\.nexuslauncher)'; then sig="${sig}logcat-ANR;"; fi
     if [ -n "$sig" ]; then FAIL_CLASS="android-emulator-infra"; log "Maestro $name infra signature: $sig"; else FAIL_CLASS="harness-or-product-ui"; fi
     timeout 20s maestro hierarchy > "$E/hierarchy-after-$name.json" 2>/dev/null || true
     adb exec-out screencap -p > "$E/screen-after-$name.png" 2>/dev/null || true
