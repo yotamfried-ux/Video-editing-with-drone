@@ -7,6 +7,7 @@ import android.provider.OpenableColumns
 import android.security.keystore.KeyGenParameterSpec
 import android.security.keystore.KeyProperties
 import android.util.Base64
+import android.os.ParcelFileDescriptor
 import java.io.FileInputStream
 import java.io.FileNotFoundException
 import java.io.IOException
@@ -74,6 +75,9 @@ class ContentSourceReader(context: Context) : SourceReader, AutoCloseable {
   private var openUri: String? = null
   private var stream: FileInputStream? = null
   private var channel: FileChannel? = null
+  // The ParcelFileDescriptor owns the fd: it must stay referenced for as long as the channel is used, otherwise its
+  // finalizer closes the fd and the next range read fails with EBADF ("Bad file descriptor", qualification run 37044439199).
+  private var descriptor: ParcelFileDescriptor? = null
 
   override fun size(uri: String): Long {
     val parsed = contentUri(uri)
@@ -100,15 +104,16 @@ class ContentSourceReader(context: Context) : SourceReader, AutoCloseable {
     if (uri == openUri && channel?.isOpen == true) return channel!!
     close()
     val pfd = resolver.openFileDescriptor(contentUri(uri), "r") ?: throw FileNotFoundException("source_unavailable: provider returned no descriptor")
-    val s = FileInputStream(pfd.fileDescriptor)
-    stream = s; channel = s.channel; openUri = uri
+    val s = ParcelFileDescriptor.AutoCloseInputStream(pfd)
+    descriptor = pfd; stream = s; channel = s.channel; openUri = uri
     return s.channel
   }
 
   @Synchronized override fun close() {
     try { channel?.close() } catch (_: IOException) {}
     try { stream?.close() } catch (_: IOException) {}
-    channel = null; stream = null; openUri = null
+    try { descriptor?.close() } catch (_: IOException) {}
+    channel = null; stream = null; descriptor = null; openUri = null
   }
 
   private fun contentUri(uri: String): Uri {
