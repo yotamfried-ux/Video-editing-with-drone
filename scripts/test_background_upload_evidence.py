@@ -173,6 +173,14 @@ class Notification(unittest.TestCase):
         dump = "NotificationRecord(0x1 pkg=com.sportreel.app id=4101)\n  extras={\n  android.title=String (SportReel — Uploading 1/3 videos)\n  android.progress=int (33)\n  android.progressMax=int (100)\n}"
         self.assertEqual(ev.parse_upload_notification(dump), {"title": "SportReel — Uploading 1/3 videos", "verified": 1, "total": 3, "progress": 33})
 
+    def test_extracts_title_without_string_wrapper(self):
+        dump = "  extras={\n    android.title=SportReel — Uploading 2/3 videos\n    android.progress=50\n  }"
+        self.assertEqual(ev.parse_upload_notification(dump), {"title": "SportReel — Uploading 2/3 videos", "verified": 2, "total": 3, "progress": 50})
+
+    def test_extracts_title_with_charsequence_wrapper(self):
+        dump = "android.title=CharSequence (SportReel — Uploading 0/3 videos)\nandroid.progress=int (0)"
+        self.assertEqual(ev.parse_upload_notification(dump)["total"], 3)
+
     def test_absent_notification_is_none(self):
         self.assertIsNone(ev.parse_upload_notification("nothing here"))
 

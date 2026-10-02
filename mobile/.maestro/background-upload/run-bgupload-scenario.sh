@@ -180,6 +180,9 @@ run_maestro 00-start-upload.yaml -e BG_FOLDER="$FOLDER" || fail "could not start
 PHASE="durable-ledger"
 wait_until "durable ledger has $TOTAL jobs" 90 ledger_total_ge "$TOTAL" \
   || fail "native durable ledger never reached $TOTAL jobs (enqueue did not persist)" product
+# launchApp clearState (in the start flow) revokes runtime permissions; restore POST_NOTIFICATIONS so the
+# foreground upload notification is actually visible to the notification evidence below.
+adb shell pm grant "$PKG" android.permission.POST_NOTIFICATIONS >/dev/null 2>&1 || true
 snapshot started
 J="$(durable_json)"
 BATCH_ID="$(python3 -c "import json,sys; ids=json.loads(sys.argv[1])['batch_ids']; print(ids[0] if len(ids)==1 else '')" "$J")"

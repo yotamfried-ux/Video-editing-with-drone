@@ -211,10 +211,11 @@ def durable_progress(jobs: list[dict[str, Any]]) -> dict[str, int]:
 
 
 def parse_upload_notification(dump: str) -> dict[str, Any] | None:
-    m = re.search(r"android\.title=String \((SportReel — Uploading (\d+)/(\d+) videos)\)", dump)
+    """Tolerates the dumpsys extras styles seen across Android versions: `String (x)`, `CharSequence (x)`, bare `x`."""
+    m = re.search(r"android\.title=(?:\w+ \()?(SportReel — Uploading (\d+)/(\d+) videos)\)?", dump)
     if not m:
         return None
-    progress = re.search(r"android\.progress=int \((\d+)\)", dump)
+    progress = re.search(r"android\.progress=(?:int \()?(\d+)\)?", dump)
     return {"title": m.group(1), "verified": int(m.group(2)), "total": int(m.group(3)),
             "progress": int(progress.group(1)) if progress else None}
 
