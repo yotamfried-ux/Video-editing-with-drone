@@ -245,6 +245,14 @@ jobs:
             sleep 2
           done
           cat "$RUNNER_TEMP/metro.log"; exit 1
+      - name: Pre-warm the Metro Android bundle
+        # Run 37041266293 (home-background): the app stayed on a blank screen for the whole 180 s launch wait because
+        # the first cold bundle was still compiling. Compile it before the emulator starts so the app loads at once.
+        run: |
+          url=$(curl -fsS -H "Expo-Platform: android" -H "Accept: application/expo+json,application/json" http://127.0.0.1:8081 \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["launchAsset"]["url"])') || { echo "manifest fetch failed"; tail -50 "$RUNNER_TEMP/metro.log"; exit 1; }
+          echo "warming $url"
+          curl -fsS --max-time 900 -o /dev/null -w "bundle http=%{http_code} bytes=%{size_download} t=%{time_total}s\n" "$url"
       - name: Restore Maestro CLI cache
         id: maestro-cache
         uses: actions/cache/restore@v4
