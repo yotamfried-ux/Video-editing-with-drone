@@ -284,6 +284,9 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
+          # Pin the emulator build that ran these scenarios cleanly (37.1.11.0); the hosted image moved to 37.2.12.0 and
+          # back-to-back Maestro flows started dying in 2s with 'device offline' (also seen in unrelated UPL-01 jobs).
+          emulator-build: 15917651
           arch: x86_64
           target: google_apis
           profile: pixel_2
