@@ -263,9 +263,10 @@ def deliver_preview() -> None:
         notification_errors.append(f"owner:{type(exc).__name__}:{exc}")
         logger.error("Failed to send owner preview summary: %s", exc)
 
+    notification_failed = bool(notification_errors) or not notification_message_ids
     mark_delivery_run(
         status="discover_published",
-        stage="notification_accepted" if notification_message_ids else "notification_unverified",
+        stage="notification_failed" if notification_failed else "notification_accepted",
         meta={
             "approved_count": len(to_preview),
             "notification_provider": "sportreel_proxy",
@@ -273,6 +274,10 @@ def deliver_preview() -> None:
             "notification_errors": notification_errors,
         },
     )
+
+    if notification_failed:
+        detail = " | ".join(notification_errors) if notification_errors else "no provider message id returned"
+        raise RuntimeError(f"Delivery notification failed: {detail}")
 
     logger.info(
         "Phase 2a complete. Previews: %d, client emails: %d, provider messages: %d",
