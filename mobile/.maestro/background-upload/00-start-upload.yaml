@@ -57,10 +57,27 @@ tags: [background-upload, start]
     timeout: 60000
 - takeScreenshot: handed-off-to-worker
 - tapOn: "(?i)ok"
-- scrollUntilVisible:
-    element:
-      id: "upload-batch-summary"
-    direction: DOWN
-    timeout: 30000
-    centerElement: true
+# The summary sits below "Upload selected" and above the runs list. After the hand-off alert closes the view may
+# already be past it (run 37046025515 screen-off showed the runs list), so scroll whichever way is needed.
+- runFlow:
+    when:
+      notVisible:
+        id: "upload-batch-summary"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: UP
+          timeout: 20000
+          optional: true
+- runFlow:
+    when:
+      notVisible:
+        id: "upload-batch-summary"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: DOWN
+          timeout: 20000
 - takeScreenshot: progress-visible
