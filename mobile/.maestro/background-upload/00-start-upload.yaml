@@ -32,8 +32,24 @@ tags: [background-upload, start]
       id: "pipeline-external-select-all"
     timeout: 90000
 - takeScreenshot: candidates-listed
+# The Pipeline screen is a ScrollView and returns to the top after the system picker closes (run 37039933936:
+# tapOn "pipeline-upload-selected" failed with the page scrolled to the top). tapOn never scrolls, so bring each
+# control into view first.
+- scrollUntilVisible:
+    element:
+      id: "pipeline-external-select-all"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
 - tapOn:
     id: "pipeline-external-select-all"
+- scrollUntilVisible:
+    element:
+      id: "pipeline-upload-selected"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- takeScreenshot: ready-to-upload-selected
 - tapOn:
     id: "pipeline-upload-selected"
 - extendedWaitUntil:
