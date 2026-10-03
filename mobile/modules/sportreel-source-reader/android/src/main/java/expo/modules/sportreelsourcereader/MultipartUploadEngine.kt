@@ -48,6 +48,9 @@ class MultipartUploadEngine(
     } catch (e: SecurityException) {
       fail(localId, "source_permission_lost: ${e.message}")
     } catch (e: IOException) {
+      // Connectivity/DNS failures are environmental, not evidence that the upload is bad.
+      // Do not let a temporary offline period consume the durable product retry budget.
+      mutate(localId) { it.copy(attempt = maxOf(0, it.attempt - 1)) }
       retry(localId, e.message ?: "io_error")
     }
   }

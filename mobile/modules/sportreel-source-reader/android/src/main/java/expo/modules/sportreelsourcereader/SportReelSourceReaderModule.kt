@@ -128,7 +128,7 @@ class SportReelSourceReaderModule : Module() {
       withContext(Dispatchers.IO) {
         val context = requireContext()
         operatorSecret?.trim()?.takeIf { it.isNotEmpty() }?.let { OperatorSecretVault(context).put(it) }
-        val job = BackgroundUploadStores.get(context).requeueFailed(localId)
+        val job = BackgroundUploadStores.get(context).requeueRetryable(localId)
         if (job != null) BackgroundUploadScheduler.enqueue(context, localId, replace = true)
         job?.toBridgeMap()
       }

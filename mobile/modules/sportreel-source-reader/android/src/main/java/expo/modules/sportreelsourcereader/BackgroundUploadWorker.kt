@@ -82,7 +82,7 @@ object BackgroundUploadScheduler {
   fun enqueue(context: Context, localId: String, replace: Boolean = false) {
     val request = OneTimeWorkRequestBuilder<BackgroundUploadWorker>()
       .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
-      .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+      .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
       .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
       .setInputData(workDataOf(KEY_LOCAL_ID to localId))
       .addTag(TAG_WORK)
@@ -92,7 +92,17 @@ object BackgroundUploadScheduler {
     )
   }
 
-  /** Called on every app start: re-schedules any durable job that is not terminal. KEEP makes this idempotent. */
+  /**
+   * Called whenever the app becomes active. Replace RETRY_WAIT work so recovery from restored
+   * connectivity is immediate instead of inheriting a stale backoff chain. Other active work
+   * remains KEEP/idempotent.
+   */
   fun resumeEligible(context: Context, store: BackgroundUploadStore): List<String> =
-    store.eligibleForResume().map { it.localId }.also { ids -> ids.forEach { enqueue(context, it) } }
+    store.eligibleForResume().map { it.localId }.also { ids ->
+      ids.forEach { id ->
+        val waiting = store.get(id)?.status == BackgroundUploadStatus.RETRY_WAIT
+        if (waiting) store.requeueRetryable(id)
+        enqueue(context, id, replace = waiting)
+      }
+    }
 }
