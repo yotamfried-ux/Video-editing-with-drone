@@ -84,9 +84,6 @@ function assertIdempotentSourceMatches(input: {
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const limited = await enforceRateLimit(req, 'operator-multipart-start', 20, 3600);
-  if (limited) return limited;
-
   let body: {
     client_upload_id?: string;
     filename?: string;
@@ -112,6 +109,12 @@ export async function POST(req: NextRequest) {
       error: 'client_upload_id must be a stable 16-128 character identifier',
     }, { status: 400 });
   }
+
+  // Scope start throttling to the durable logical upload, not the phone IP.
+  // A legitimate batch can contain more than 20 videos; an IP-wide hourly cap
+  // otherwise strands every source after the twentieth item until the window resets.
+  const limited = await enforceRateLimit(req, 'operator-multipart-start', 20, 3600, clientUploadId);
+  if (limited) return limited;
 
   const sourceSizeBytes = positiveSafeInteger(body.size);
   if (sourceSizeBytes == null) {
