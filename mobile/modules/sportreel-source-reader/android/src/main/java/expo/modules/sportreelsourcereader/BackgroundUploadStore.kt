@@ -51,8 +51,14 @@ class BackgroundUploadStore(private val storage: KeyValueStorage) {
   fun eligibleForResume(): List<BackgroundUploadJob> =
     list().filter { it.status != BackgroundUploadStatus.VERIFIED && it.status != BackgroundUploadStatus.FAILED }
 
-  /** Explicit user retry of a failed job: keeps durable multipart identity, clears the terminal state. */
-  fun requeueFailed(localId: String): BackgroundUploadJob? = update(localId) {
-    if (it.status == BackgroundUploadStatus.FAILED) it.copy(status = BackgroundUploadStatus.QUEUED, attempt = 0, lastError = null) else it
+  /**
+   * Explicit/foreground recovery keeps the durable multipart identity and acknowledged parts.
+   * RETRY_WAIT is included so a restored network can immediately replace a stale WorkManager
+   * backoff chain instead of waiting for an old exponential delay to expire.
+   */
+  fun requeueRetryable(localId: String): BackgroundUploadJob? = update(localId) {
+    if (it.status == BackgroundUploadStatus.FAILED || it.status == BackgroundUploadStatus.RETRY_WAIT) {
+      it.copy(status = BackgroundUploadStatus.QUEUED, attempt = 0, lastError = null)
+    } else it
   }
 }
