@@ -1,2 +1,7 @@
 export { default } from './src/SportReelSourceReaderModule';
-export type { SourceInspection } from './src/SportReelSourceReaderModule';
+export type {
+  BackgroundUploadJob,
+  BackgroundUploadState,
+  EnqueueBackgroundUploadRequest,
+  SourceInspection,
+} from './src/SportReelSourceReaderModule';

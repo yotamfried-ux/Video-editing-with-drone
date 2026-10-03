@@ -1,0 +1,360 @@
+name: Android Background Upload Qualification
+
+# Real Android lifecycle qualification for durable background uploads. Each scenario runs on its own
+# emulator against the production multipart API with uniquely named bgq_ fixtures, perturbs the OS
+# (Home, screen off, process death, network loss, worker restart) and then proves with independent
+# Supabase + R2 evidence that every file verified exactly once, acknowledged parts were never resent,
+# and the pipeline stayed gated until the whole batch verified. Fixtures of a passing scenario are
+# purged afterwards; failed batches are kept for diagnosis.
+#
+# Push runs only the foreground-baseline smoke scenario (cheap harness iteration). The full seven-scenario
+# qualification is an explicit workflow_dispatch with scenarios=all, and only that run can report Qualified: YES.
+
+on:
+  push:
+    branches:
+      - feat/android-background-uploads
+    paths:
+      - .github/workflows/android-background-upload-qualification.yml
+      - mobile/.maestro/background-upload/**
+      - mobile/modules/sportreel-source-reader/**
+      - mobile/src/features/operator/**
+      - mobile/src/app/(operator)/**
+      - scripts/background_upload_evidence.py
+      - scripts/make_background_upload_fixtures.sh
+  workflow_dispatch:
+    inputs:
+      scenarios:
+        description: 'Comma-separated scenarios to run, or "all" (single-scenario runs make harness iteration cheap)'
+        required: false
+        default: 'all'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-background-upload-qualification
+  cancel-in-progress: true
+
+env:
+  APP_ID: com.sportreel.app
+  API_BASE: https://video-editing-with-drone.vercel.app
+  MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  static-contracts:
+    name: contracts, JS tests, native-core tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Type-check and Jest
+        working-directory: mobile
+        run: |
+          npm run type-check
+          npm test -- --runInBand
+      - name: Python contracts
+        env:
+          PYTHONPATH: .
+        run: |
+          python3 scripts/test_background_upload_contract.py
+          python3 scripts/test_background_upload_evidence.py
+          python3 scripts/test_large_upload_foundation_contract.py
+          python3 scripts/test_multi_upload_batch_contract.py
+          python3 scripts/test_upload_batch_verified_gate_contract.py
+          python3 scripts/test_exact_source_upload_dedup_contract.py
+          python3 scripts/test_external_storage_upload_contract.py
+          python3 scripts/test_upl01_maestro_contract.py
+      - name: Native core JVM tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/kt" && cd "$RUNNER_TEMP/kt"
+          curl -fsSL -o kotlinc.zip https://github.com/JetBrains/kotlin/releases/download/v2.0.21/kotlin-compiler-2.0.21.zip
+          unzip -q kotlinc.zip
+          M=https://repo.maven.apache.org/maven2
+          curl -fsSL --retry 5 -o junit.jar "$M/junit/junit/4.13.2/junit-4.13.2.jar"
+          curl -fsSL --retry 5 -o hamcrest.jar "$M/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar"
+          curl -fsSL --retry 5 -o json.jar "$M/org/json/json/20231013/json-20231013.jar"
+          cd "$GITHUB_WORKSPACE"
+          K="$RUNNER_TEMP/kt"
+          KOTLINC="$K/kotlinc/bin/kotlinc" NATIVE_TEST_JARS="$K/junit.jar:$K/hamcrest.jar:$K/json.jar" scripts/run_native_upload_unit_tests.sh
+
+  native-gradle-tests:
+    name: Gradle native unit tests (WorkManager worker, store, engine, HTTP contract)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17' }
+      - name: Install dependencies and prebuild
+        working-directory: mobile
+        run: |
+          npm ci
+          npx expo prebuild --platform android --no-install
+      - name: Run native unit tests
+        working-directory: mobile/android
+        run: |
+          set -o pipefail
+          ./gradlew :sportreel-source-reader:testDebugUnitTest --no-daemon 2>&1 | tee "$RUNNER_TEMP/gradle.log"
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bgq-native-gradle-test-reports-${{ github.run_id }}
+          path: mobile/modules/sportreel-source-reader/android/build/reports/tests/
+          if-no-files-found: warn
+          retention-days: 30
+
+  prepare-apk:
+    name: prepare cached debug APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compute APK checkpoint key
+        id: apk-key
+        shell: bash
+        run: |
+          KEY=$(
+            {
+              printf '%s\0' mobile/package.json mobile/package-lock.json mobile/app.json mobile/google-services.json mobile/scripts/postinstall.js
+              find mobile/plugins mobile/modules mobile/assets -type f -print0
+            } | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+          )
+          echo "key=upl01-apk-$KEY" >> "$GITHUB_OUTPUT"
+      - name: Restore APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      - uses: actions/setup-node@v4
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies for APK build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        run: npm ci
+      - name: Build Android debug APK (includes the native background worker)
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-upl01.apk"
+      - name: Save APK checkpoint immediately after build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+      - name: Publish APK for scenario workers
+        uses: actions/upload-artifact@v4
+        with:
+          name: bgq-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          retention-days: 7
+          if-no-files-found: error
+
+  plan:
+    name: plan scenarios
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - id: p
+        env:
+          REQUESTED: ${{ inputs.scenarios || (github.event_name == 'push' && 'foreground-baseline') || 'all' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          allowed = ["foreground-baseline","home-background","screen-off","process-death-resume","relaunch-reconcile","network-recovery","worker-restart-retry"]
+          req = os.environ["REQUESTED"].strip()
+          chosen = allowed if req in ("", "all") else [s.strip() for s in req.split(",") if s.strip() in allowed]
+          print("matrix=" + json.dumps({"scenario": chosen}))
+          PY
+
+  scenario:
+    name: Android ${{ matrix.scenario }}
+    needs: [static-contracts, native-gradle-tests, prepare-apk, plan]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download prepared APK
+        uses: actions/download-artifact@v4
+        with:
+          name: bgq-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+      - name: Install evidence dependencies and create unique multipart fixtures
+        run: |
+          python3 -m pip install --quiet boto3
+          if ! command -v ffmpeg >/dev/null 2>&1; then sudo apt-get update -qq && sudo apt-get install -y ffmpeg >/dev/null; fi
+          scripts/make_background_upload_fixtures.sh "$RUNNER_TEMP/bgq-fixtures" "${{ matrix.scenario }}" 3 "${{ github.run_id }}"
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Start isolated Metro
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro.log"; exit 1
+      - name: Pre-warm the Metro Android bundle
+        # Run 37041266293 (home-background): the app stayed on a blank screen for the whole 180 s launch wait because
+        # the first cold bundle was still compiling. Compile it before the emulator starts so the app loads at once.
+        run: |
+          url=$(curl -fsS -H "Expo-Platform: android" -H "Accept: application/expo+json,application/json" http://127.0.0.1:8081 \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["launchAsset"]["url"])') || { echo "manifest fetch failed"; tail -50 "$RUNNER_TEMP/metro.log"; exit 1; }
+          echo "warming $url"
+          curl -fsS --max-time 900 -o /dev/null -w "bundle http=%{http_code} bytes=%{size_download} t=%{time_total}s\n" "$url"
+      - name: Restore Maestro CLI cache
+        id: maestro-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+      - name: Install Maestro CLI
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"; unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+      - name: Save Maestro CLI cache
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+      - name: Put Maestro on PATH
+        run: echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+      - name: Run lifecycle scenario on an emulator
+        env:
+          BGQ_SCENARIO: ${{ matrix.scenario }}
+          BGQ_VIDEO_COUNT: '3'
+          BGQ_FIXTURE_DIR: ${{ runner.temp }}/bgq-fixtures
+          APK: ${{ runner.temp }}/sportreel-upl01.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/bgq-evidence-${{ matrix.scenario }}
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+          OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          MAESTRO_OPERATOR_SECRET: ${{ secrets.PRODUCTION_OPERATOR_SECRET || secrets.OPERATOR_SECRET }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          # Pin the emulator build that ran these scenarios cleanly (37.1.11.0); the hosted image moved to 37.2.12.0 and
+          # back-to-back Maestro flows started dying in 2s with 'device offline' (also seen in unrelated UPL-01 jobs).
+          emulator-build: 15917651
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 3072M
+          disk-size: 4096M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/background-upload/run-bgupload-scenario.sh
+      - name: Upload scenario evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bgq-${{ matrix.scenario }}-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/bgq-evidence-${{ matrix.scenario }}/
+          retention-days: 30
+          if-no-files-found: warn
+
+  summary:
+    name: qualification summary
+    if: always()
+    needs: [static-contracts, native-gradle-tests, prepare-apk, plan, scenario]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download all scenario evidence
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bgq-*-evidence-${{ github.run_id }}
+          path: evidence
+      - name: Build acceptance summary
+        env:
+          STATIC_RESULT: ${{ needs.static-contracts.result }}
+          NATIVE_RESULT: ${{ needs.native-gradle-tests.result }}
+          PREPARE_RESULT: ${{ needs.prepare-apk.result }}
+          SCENARIO_RESULT: ${{ needs.scenario.result }}
+        run: >
+          python3 scripts/background_upload_evidence.py summarize
+          --evidence-dir evidence --out qualification-summary.md --json qualification-summary.json
+          --sha "$GITHUB_SHA" --run-url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+      - name: Publish summary
+        if: always()
+        run: cat qualification-summary.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bgq-qualification-summary-${{ github.run_id }}
+          path: |
+            qualification-summary.md
+            qualification-summary.json
+          retention-days: 90
+      - name: Require every gate
+        env:
+          STATIC_RESULT: ${{ needs.static-contracts.result }}
+          NATIVE_RESULT: ${{ needs.native-gradle-tests.result }}
+          PREPARE_RESULT: ${{ needs.prepare-apk.result }}
+          SCENARIO_RESULT: ${{ needs.scenario.result }}
+        run: |
+          echo "static=$STATIC_RESULT native-gradle=$NATIVE_RESULT prepare-apk=$PREPARE_RESULT scenarios=$SCENARIO_RESULT"
+          test "$STATIC_RESULT" = success
+          test "$NATIVE_RESULT" = success
+          test "$PREPARE_RESULT" = success
+          test "$SCENARIO_RESULT" = success

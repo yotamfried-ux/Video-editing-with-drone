@@ -1,0 +1,345 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=44855 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1|127.*|0.*|::|169.254.*|api.anthropic.com|api-staging.anthropic.com|api-pr-preview.anthropic.com|mcp-proxy.anthropic.com|mcp-proxy-staging.anthropic.com|registry.npmjs.org|jsr.io|npm.jsr.io|pypi.org|files.pythonhosted.org|index.crates.io|proxy.golang.org|host.docker.internal|10.*|172.16.*|172.17.*|172.18.*|172.19.*|172.20.*|172.21.*|172.22.*|172.23.*|172.24.*|172.25.*|172.26.*|172.27.*|172.28.*|172.29.*|172.30.*|172.31.*|192.168.*|100.64.0.0/10|*.svc.cluster.local|*.svc.cluster.local -Djdk.http.auth.tunneling.disabledSchemes= -Djdk.http.auth.proxying.disabledSchemes=
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:15:29: error: unresolved reference 'HttpUploadApi'.
+  private lateinit var api: HttpUploadApi
+                            ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:27:11: error: unresolved reference 'HttpUploadApi'.
+    api = HttpUploadApi("http://127.0.0.1:${http.address.port}", { "s3cret" })
+          ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:33:17: error: unresolved reference 'start'.
+    val r = api.start(job)
+                ^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:45:17: error: unresolved reference 'status'.
+    val s = api.status(job.copy(uploadId = "u1"))
+                ^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:53:25: error: unresolved reference 'status'.
+      val e = try { api.status(job.copy(uploadId = "u1")); null } catch (e: UploadApiException) { e }
+                        ^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:53:77: error: unresolved reference 'UploadApiException'.
+      val e = try { api.status(job.copy(uploadId = "u1")); null } catch (e: UploadApiException) { e }
+                                                                            ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:54:48: error: unresolved reference 'status'.
+      assertNotNull(e); assertEquals(code, e!!.status); assertEquals("status $code", retry, e.retryable)
+                                               ^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:54:95: error: unresolved reference 'retryable'.
+      assertNotNull(e); assertEquals(code, e!!.status); assertEquals("status $code", retry, e.retryable)
+                                                                                              ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:59:16: error: unresolved reference 'HttpUploadApi'.
+    val dead = HttpUploadApi("http://127.0.0.1:1", { "s" })
+               ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:60:76: error: unresolved reference 'UploadApiException'.
+    val e = try { dead.status(job.copy(uploadId = "u1")); null } catch (e: UploadApiException) { e }
+                                                                           ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:61:38: error: unresolved reference 'retryable'.
+    assertNotNull(e); assertTrue(e!!.retryable); assertNull(e.status)
+                                     ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:61:63: error: unresolved reference 'status'.
+    assertNotNull(e); assertTrue(e!!.retryable); assertNull(e.status)
+                                                              ^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:65:20: error: unresolved reference 'HttpUploadApi'.
+    val noSecret = HttpUploadApi("http://127.0.0.1:${http.address.port}", { null })
+                   ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:66:80: error: unresolved reference 'UploadApiException'.
+    val e = try { noSecret.status(job.copy(uploadId = "u1")); null } catch (e: UploadApiException) { e }
+                                                                               ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:67:39: error: unresolved reference 'retryable'.
+    assertNotNull(e); assertFalse(e!!.retryable); assertTrue(seen.isEmpty())
+                                      ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:72:9: error: unresolved reference 'recordPart'.
+    api.recordPart("u1", BackgroundUploadPart(2, "\"e\"", 5_000_000))
+        ^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:73:17: error: unresolved reference 'complete'.
+    val c = api.complete("u1")
+                ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:74:9: error: unresolved reference 'cleanup'.
+    api.cleanup("u1", 0, 0, true)
+        ^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:92:15: error: unresolved reference 'HttpPartTransport'.
+      val t = HttpPartTransport()
+              ^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:97:77: error: unresolved reference 'UploadApiException'.
+      val e = try { t.put(url, src, "content://x", 0, 10); null } catch (e: UploadApiException) { e }
+                                                                            ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:98:22: error: unresolved reference 'retryable'.
+      assertTrue(e!!.retryable)
+                     ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:100:78: error: unresolved reference 'UploadApiException'.
+      val e2 = try { t.put(url, src, "content://x", 0, 10); null } catch (e: UploadApiException) { e }
+                                                                             ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/HttpUploadApiTest.kt:101:24: error: unresolved reference 'retryable'.
+      assertFalse(e2!!.retryable)
+                       ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:25:26: error: unresolved reference 'MultipartUploadEngine'.
+  private fun engine() = MultipartUploadEngine(store, FakeApi(server), transport, source,
+                         ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:26:33: error: unresolved reference 'it'.
+    onProgress = { progress.add(it) }, shouldContinue = { !stopped })
+                                ^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:29:28: error: cannot infer type for this parameter. Please specify it explicitly.
+    val outcome = engine().run("job-1")
+                           ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:30:18: error: unresolved reference 'EngineOutcome'.
+    assertEquals(EngineOutcome.Success, outcome)
+                 ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:39:14: error: cannot infer type for this parameter. Please specify it explicitly.
+    engine().run("job-1")
+             ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:52:18: error: unresolved reference 'EngineOutcome'.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                 ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:52:50: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                                                 ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:59:26: error: cannot infer type for this parameter. Please specify it explicitly.
+    val first = engine().run("job-1")
+                         ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:60:25: error: unresolved reference 'EngineOutcome'.
+    assertTrue(first is EngineOutcome.Retry)
+                        ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:68:18: error: unresolved reference 'MultipartUploadEngine'.
+    val second = MultipartUploadEngine(BackgroundUploadStore(storageOf(store)), FakeApi(server), transport, source, {}, { true })
+                 ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:69:18: error: unresolved reference 'EngineOutcome'.
+    assertEquals(EngineOutcome.Success, second.run("job-1"))
+                 ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:69:48: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertEquals(EngineOutcome.Success, second.run("job-1"))
+                                               ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:76:42: error: unresolved reference 'UploadApiException'.
+    server.failNextCalls = mutableListOf({ op -> if (op == "start") UploadApiException(503, "down", true) else null })
+                                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:76:69: error: unresolved reference 'UploadApiException'.
+    server.failNextCalls = mutableListOf({ op -> if (op == "start") UploadApiException(503, "down", true) else null })
+                                                                    ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:77:25: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertTrue(engine().run("job-1") is EngineOutcome.Retry)
+                        ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:77:41: error: unresolved reference 'EngineOutcome'.
+    assertTrue(engine().run("job-1") is EngineOutcome.Retry)
+                                        ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:79:18: error: unresolved reference 'EngineOutcome'.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                 ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:79:50: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                                                 ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:87:44: error: unresolved reference 'UploadApiException'.
+      server.failNextCalls = mutableListOf({ UploadApiException(status, "x", UploadApiException.isRetryableStatus(status)) })
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:87:46: error: unresolved reference 'UploadApiException'.
+      server.failNextCalls = mutableListOf({ UploadApiException(status, "x", UploadApiException.isRetryableStatus(status)) })
+                                             ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:87:78: error: unresolved reference 'UploadApiException'.
+      server.failNextCalls = mutableListOf({ UploadApiException(status, "x", UploadApiException.isRetryableStatus(status)) })
+                                                                             ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:88:45: error: cannot infer type for this parameter. Please specify it explicitly.
+      assertTrue("status $status", engine().run("job-1") is EngineOutcome.Retry)
+                                            ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:88:61: error: unresolved reference 'EngineOutcome'.
+      assertTrue("status $status", engine().run("job-1") is EngineOutcome.Retry)
+                                                            ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:92:44: error: unresolved reference 'UploadApiException'.
+      server.failNextCalls = mutableListOf({ UploadApiException(status, "x", UploadApiException.isRetryableStatus(status)) })
+                                           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:92:46: error: unresolved reference 'UploadApiException'.
+      server.failNextCalls = mutableListOf({ UploadApiException(status, "x", UploadApiException.isRetryableStatus(status)) })
+                                             ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:92:78: error: unresolved reference 'UploadApiException'.
+      server.failNextCalls = mutableListOf({ UploadApiException(status, "x", UploadApiException.isRetryableStatus(status)) })
+                                                                             ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:93:26: error: cannot infer type for this parameter. Please specify it explicitly.
+      val out = engine().run("job-1")
+                         ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:94:43: error: unresolved reference 'EngineOutcome'.
+      assertTrue("status $status", out is EngineOutcome.Failed)
+                                          ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:101:14: error: cannot infer type for this parameter. Please specify it explicitly.
+    engine().run("job-1")
+             ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:110:18: error: unresolved reference 'EngineOutcome'.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                 ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:110:50: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                                                 ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:121:18: error: unresolved reference 'EngineOutcome'.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                 ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:121:50: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                                                 ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:128:15: error: unresolved reference 'MultipartUploadEngine'.
+    val out = MultipartUploadEngine(store, FakeApi(server), transport, changed, {}, { true }).run("job-1")
+              ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:128:95: error: cannot infer type for this parameter. Please specify it explicitly.
+    val out = MultipartUploadEngine(store, FakeApi(server), transport, changed, {}, { true }).run("job-1")
+                                                                                              ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:129:23: error: unresolved reference 'EngineOutcome'.
+    assertTrue(out is EngineOutcome.Failed)
+                      ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:136:25: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertTrue(engine().run("job-1") is EngineOutcome.Failed)
+                        ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:136:41: error: unresolved reference 'EngineOutcome'.
+    assertTrue(engine().run("job-1") is EngineOutcome.Failed)
+                                        ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:143:25: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertTrue(engine().run("job-1") is EngineOutcome.Failed)
+                        ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:143:41: error: unresolved reference 'EngineOutcome'.
+    assertTrue(engine().run("job-1") is EngineOutcome.Failed)
+                                        ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:147:24: error: unresolved reference 'UploadApi'.
+    val api = object : UploadApi by FakeApi(server) {
+                       ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:148:7: error: 'partUrl' overrides nothing.
+      override fun partUrl(uploadId: String, partNumber: Int) = PartTarget("https://r2.invalid/u/$partNumber", 1)
+      ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:148:65: error: unresolved reference 'PartTarget'.
+      override fun partUrl(uploadId: String, partNumber: Int) = PartTarget("https://r2.invalid/u/$partNumber", 1)
+                                                                ^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:150:15: error: unresolved reference 'MultipartUploadEngine'.
+    val out = MultipartUploadEngine(store, api, transport, source, {}, { true }).run("job-1")
+              ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:150:82: error: cannot infer type for this parameter. Please specify it explicitly.
+    val out = MultipartUploadEngine(store, api, transport, source, {}, { true }).run("job-1")
+                                                                                 ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:151:23: error: unresolved reference 'EngineOutcome'.
+    assertTrue(out is EngineOutcome.Failed)
+                      ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:157:13: error: unresolved reference 'MultipartUploadEngine'.
+    val e = MultipartUploadEngine(store, api, transport, source, { if (it.completedParts.size == 1) stopped = true }, { !stopped })
+            ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:157:72: error: unresolved reference 'it'.
+    val e = MultipartUploadEngine(store, api, transport, source, { if (it.completedParts.size == 1) stopped = true }, { !stopped })
+                                                                       ^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:158:17: error: cannot infer type for this parameter. Please specify it explicitly.
+    val out = e.run("job-1")
+                ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:159:23: error: unresolved reference 'EngineOutcome'.
+    assertTrue(out is EngineOutcome.Retry)
+                      ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:165:47: error: unresolved reference 'MultipartUploadEngine'.
+    store.update("job-1") { it.copy(attempt = MultipartUploadEngine.MAX_ATTEMPTS) }
+                                              ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:166:25: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertTrue(engine().run("job-1") is EngineOutcome.Failed)
+                        ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:166:41: error: unresolved reference 'EngineOutcome'.
+    assertTrue(engine().run("job-1") is EngineOutcome.Failed)
+                                        ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:171:14: error: cannot infer type for this parameter. Please specify it explicitly.
+    engine().run("job-1")
+             ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:177:25: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertTrue(engine().run("nope") is EngineOutcome.Failed)
+                        ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:177:40: error: unresolved reference 'EngineOutcome'.
+    assertTrue(engine().run("nope") is EngineOutcome.Failed)
+                                       ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:178:14: error: cannot infer type for this parameter. Please specify it explicitly.
+    engine().run("job-1")
+             ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:180:18: error: unresolved reference 'EngineOutcome'.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                 ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/MultipartUploadEngineTest.kt:180:50: error: cannot infer type for this parameter. Please specify it explicitly.
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+                                                 ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:12:108: error: unresolved reference 'SourceReader'.
+class FakeSource(val size: Long, var bytes: ByteArray = ByteArray(size.toInt()) { (it % 251).toByte() }) : SourceReader {
+                                                                                                           ^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:14:3: error: 'size' overrides nothing.
+  override fun size(uri: String): Long = size
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:15:3: error: 'readRange' overrides nothing.
+  override fun readRange(uri: String, offset: Long, length: Int): ByteArray {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:36:46: error: unresolved reference 'UploadApiException'.
+  var failNextCalls: MutableList<(String) -> UploadApiException?> = mutableListOf()
+                                             ^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:37:94: error: cannot infer type for this parameter. Please specify it explicitly.
+  fun intercept(op: String) { if (failNextCalls.isNotEmpty()) failNextCalls.removeAt(0)(op)?.let { throw it } }
+                                                                                             ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:37:94: error: unresolved reference. None of the following candidates is applicable because of a receiver type mismatch:
+fun <T, R> T.let(block: (T) -> R): R
+    [R|Contract description]
+     <
+        CallsInPlace(block, EXACTLY_ONCE)
+    >
+  fun intercept(op: String) { if (failNextCalls.isNotEmpty()) failNextCalls.removeAt(0)(op)?.let { throw it } }
+                                                                                             ^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:37:98: error: cannot infer type for this parameter. Please specify it explicitly.
+  fun intercept(op: String) { if (failNextCalls.isNotEmpty()) failNextCalls.removeAt(0)(op)?.let { throw it } }
+                                                                                                 ^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:37:106: error: type mismatch: inferred type is 'ERROR CLASS: Cannot infer argument for type parameter T', but 'kotlin.Throwable' was expected.
+  fun intercept(op: String) { if (failNextCalls.isNotEmpty()) failNextCalls.removeAt(0)(op)?.let { throw it } }
+                                                                                                         ^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:40:41: error: unresolved reference 'UploadApi'.
+class FakeApi(val server: FakeServer) : UploadApi {
+                                        ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:41:3: error: 'start' overrides nothing.
+  override fun start(job: BackgroundUploadJob): StartResult {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:41:49: error: unresolved reference 'StartResult'.
+  override fun start(job: BackgroundUploadJob): StartResult {
+                                                ^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:46:12: error: unresolved reference 'StartResult'.
+    return StartResult(server.uploadId!!, server.batchId, server.storageKey, server.partSize, server.expectedParts, server.sourceSize)
+           ^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:48:3: error: 'status' overrides nothing.
+  override fun status(job: BackgroundUploadJob): ServerStatus {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:48:50: error: unresolved reference 'ServerStatus'.
+  override fun status(job: BackgroundUploadJob): ServerStatus {
+                                                 ^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:50:12: error: unresolved reference 'ServerStatus'.
+    return ServerStatus(server.uploadId!!, server.batchId, server.storageKey, server.sourceSize, server.status,
+           ^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:53:3: error: 'partUrl' overrides nothing.
+  override fun partUrl(uploadId: String, partNumber: Int): PartTarget {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:53:60: error: unresolved reference 'PartTarget'.
+  override fun partUrl(uploadId: String, partNumber: Int): PartTarget {
+                                                           ^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:56:12: error: unresolved reference 'PartTarget'.
+    return PartTarget("https://r2.invalid/$uploadId/$partNumber", size)
+           ^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:58:3: error: 'recordPart' overrides nothing.
+  override fun recordPart(uploadId: String, part: BackgroundUploadPart) {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:62:3: error: 'complete' overrides nothing.
+  override fun complete(uploadId: String): CompleteResult {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:62:44: error: unresolved reference 'CompleteResult'.
+  override fun complete(uploadId: String): CompleteResult {
+                                           ^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:68:12: error: unresolved reference 'CompleteResult'.
+    return CompleteResult("verified", server.sourceSize)
+           ^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:70:3: error: 'cleanup' overrides nothing.
+  override fun cleanup(uploadId: String, artifactCount: Int, reclaimedBytes: Long, sourcePreserved: Boolean) {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:78:71: error: unresolved reference 'PartTransport'.
+class FakeTransport(val server: FakeServer, val source: FakeSource) : PartTransport {
+                                                                      ^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:80:3: error: 'put' overrides nothing.
+  override fun put(url: String, source: SourceReader, sourceUri: String, offset: Long, length: Int): String {
+  ^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:80:41: error: unresolved reference 'SourceReader'.
+  override fun put(url: String, source: SourceReader, sourceUri: String, offset: Long, length: Int): String {
+                                        ^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/TestFakes.kt:83:24: error: unresolved reference 'readRange'.
+    val bytes = source.readRange(sourceUri, offset, length)
+                       ^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/UploadProgressSummaryTest.kt:14:13: error: unresolved reference 'UploadProgressSummary'.
+    val s = UploadProgressSummary.forBatch(jobs, "b1")
+            ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/UploadProgressSummaryTest.kt:21:22: error: unresolved reference 'UploadProgressSummary'.
+    assertEquals(75, UploadProgressSummary.forBatch(jobs, "b1").percent)
+                     ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/UploadProgressSummaryTest.kt:26:21: error: unresolved reference 'UploadProgressSummary'.
+    assertEquals(1, UploadProgressSummary.forBatch(jobs, "b1").failed)
+                    ^^^^^^^^^^^^^^^^^^^^^
+mobile/modules/sportreel-source-reader/android/src/test/java/expo/modules/sportreelsourcereader/UploadProgressSummaryTest.kt:31:21: error: unresolved reference 'UploadProgressSummary'.
+    assertEquals(1, UploadProgressSummary.forBatch(listOf(job("a", BackgroundUploadStatus.UPLOADING), other), "b1").total)
+                    ^^^^^^^^^^^^^^^^^^^^^

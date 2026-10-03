@@ -1,0 +1,56 @@
+# Cold start after the process was killed mid-upload: the Pipeline screen must reconcile from the
+# durable native ledger and render every file with its true progress (no file lost or duplicated).
+appId: com.sportreel.app
+name: Background upload - cold relaunch reconciles durable progress
+tags: [background-upload, process-death, relaunch]
+---
+- launchApp:
+    stopApp: false
+- extendedWaitUntil:
+    visible: "Pipeline"
+    timeout: 180000
+- runFlow: subflows/open-pipeline-progress.yaml
+- assertVisible:
+    id: "upload-batch-summary"
+    text: ".*verified [${EXPECT_MIN_VERIFIED}-${EXPECT_TOTAL}]/${EXPECT_TOTAL}.*"
+- assertVisible: "${EXPECT_FIRST_FILENAME}.*"
+# The run button must agree with the reconciled summary: enabled only once the whole batch is verified. Android restarts
+# the worker right after the kill, so the batch may already be complete by the time this flow looks (run 37049517644).
+- takeScreenshot: relaunch-reconciled
+# The run button must agree with the reconciled batch: enabled only once every file is verified. Android restarts the
+# worker right after the kill, so the batch may already be complete when this flow looks (run 37049517644).
+# Branch on the button's own state (centered, so it stays on screen while we evaluate), then check the summary matches.
+- scrollUntilVisible:
+    element:
+      id: "pipeline-run"
+    direction: UP
+    timeout: 30000
+    centerElement: true
+- runFlow:
+    when:
+      visible:
+        id: "pipeline-run"
+        enabled: true
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: DOWN
+          timeout: 30000
+      - assertVisible:
+          id: "upload-batch-summary"
+          text: ".*verified ${EXPECT_TOTAL}/${EXPECT_TOTAL}.*"
+- runFlow:
+    when:
+      visible:
+        id: "pipeline-run"
+        enabled: false
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: DOWN
+          timeout: 30000
+      - assertNotVisible:
+          id: "upload-batch-summary"
+          text: ".*verified ${EXPECT_TOTAL}/${EXPECT_TOTAL}.*"

@@ -1,0 +1,22 @@
+# While the network is down the UI must say the upload is waiting, not failed, and keep the batch
+# gated; after the network returns the worker resumes on its own (asserted by the runner).
+appId: com.sportreel.app
+name: Background upload - network outage shows waiting state, never failed
+tags: [background-upload, network]
+---
+- launchApp:
+    stopApp: false
+- runFlow: subflows/open-pipeline-progress.yaml
+- assertNotVisible:
+    id: "upload-item-status-failed"
+# "Run pipeline now" renders above the upload section; bring it into view before asserting on it.
+- scrollUntilVisible:
+    element:
+      id: "pipeline-run"
+    direction: UP
+    timeout: 30000
+    centerElement: true
+- assertVisible:
+    id: "pipeline-run"
+    enabled: false
+- takeScreenshot: network-outage-waiting

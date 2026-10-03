@@ -8,7 +8,44 @@ export type SourceInspection = {
   maxRangeBytes: number;
 };
 
+export type BackgroundUploadState =
+  | 'queued' | 'uploading' | 'retry_wait' | 'completing' | 'verified' | 'failed';
+
+export type BackgroundUploadJob = {
+  localId: string;
+  batchId: string;
+  sourceUri: string;
+  filename: string;
+  status: BackgroundUploadState;
+  attempt: number;
+  lastError: string | null;
+  uploadId: string | null;
+  storageKey: string | null;
+  sourceSizeBytes: number;
+  completedPartCount: number;
+  expectedPartCount: number | null;
+  progress: number;
+  updatedAt: string;
+  persistedUriPermission?: boolean;
+};
+
+export type EnqueueBackgroundUploadRequest = {
+  batchId: string;
+  sourceUri: string;
+  filename: string;
+  mimeType: string;
+  apiBaseUrl: string;
+  operatorSecret: string;
+};
+
 export type SportReelSourceReaderNativeModule = {
+  enqueueBackgroundUpload(request: EnqueueBackgroundUploadRequest): Promise<BackgroundUploadJob>;
+  persistTreePermission(treeUri: string): Promise<boolean>;
+  listBackgroundUploads(): Promise<BackgroundUploadJob[]>;
+  getBackgroundUpload(localId: string): Promise<BackgroundUploadJob | null>;
+  resumeEligibleBackgroundUploads(operatorSecret: string | null): Promise<string[]>;
+  retryBackgroundUpload(localId: string, operatorSecret: string | null): Promise<BackgroundUploadJob | null>;
+  forgetVerifiedBackgroundUploads(batchId: string): Promise<number>;
   inspectSource(uri: string): Promise<SourceInspection>;
   readRange(uri: string, offset: number, length: number): Promise<Uint8Array>;
 };

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, StyleSheet, ScrollView, Alert, Platform, Pressable } from 'react-native';
+import { View, StyleSheet, ScrollView, Alert, Platform, Pressable, AppState } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
@@ -21,6 +21,15 @@ import {
   uploadLargeExternalSource,
 } from '@/features/operator/lib/multipartUploadClient';
 import { isRetryableUploadError, runQueue, withRetry } from '@/features/operator/lib/uploadQueue';
+import {
+  hasIncompleteUploads,
+  mapBackgroundJobToItemPatch,
+} from '@/features/operator/lib/backgroundUploadClient';
+import {
+  getBackgroundUploadClient,
+  isBackgroundUploadAvailable,
+} from '@/features/operator/lib/backgroundUploadRuntime';
+import type { BackgroundUploadJob } from '../../../modules/sportreel-source-reader';
 import type {
   OperatorUploadInitResponse,
   PipelineDispatchResponse,
@@ -78,6 +87,8 @@ type UploadFileState = {
   error?: string | null;
   uploadMode?: UploadMode;
   attempt?: number;
+  /** Durable native job that owns this transfer; present when WorkManager executes the upload. */
+  backgroundLocalId?: string;
 };
 
 const GALLERY_UPLOAD_QUEUE_KEY = 'sportreel:gallery-upload-queue:v1';
@@ -307,6 +318,56 @@ export default function PipelineScreen() {
     };
   }, []);
 
+  const applyBackgroundJobs = useCallback((jobs: BackgroundUploadJob[]) => {
+    if (!jobs.length) return;
+    setUploadItems((items) => {
+      const known = new Map(items.filter((item) => item.backgroundLocalId).map((item) => [item.backgroundLocalId as string, item]));
+      const merged = items.map((item) => {
+        const job = item.backgroundLocalId ? jobs.find((candidate) => candidate.localId === item.backgroundLocalId) : undefined;
+        return job ? { ...item, ...mapBackgroundJobToItemPatch(job) } : item;
+      });
+      const restored: UploadFileState[] = jobs
+        .filter((job) => !known.has(job.localId) && !items.some((item) => item.uri === job.sourceUri && !item.backgroundLocalId && item.batch_id === job.batchId))
+        .map((job) => ({
+          id: job.localId,
+          uri: job.sourceUri,
+          filename: job.filename,
+          mimeType: 'video/mp4',
+          sourceSizeBytes: job.sourceSizeBytes,
+          uploadMode: 'multipart' as const,
+          backgroundLocalId: job.localId,
+          ...mapBackgroundJobToItemPatch(job),
+        }));
+      // A selection that was just enqueued is still a plain item until its job id is known.
+      const bound = merged.map((item) => {
+        if (item.backgroundLocalId) return item;
+        const job = jobs.find((candidate) => candidate.sourceUri === item.uri && candidate.batchId === item.batch_id);
+        return job ? { ...item, backgroundLocalId: job.localId, ...mapBackgroundJobToItemPatch(job) } : item;
+      });
+      return [...bound, ...restored.filter((r) => !bound.some((item) => item.backgroundLocalId === r.backgroundLocalId))];
+    });
+    const unfinished = jobs.find((job) => job.status !== 'verified') ?? jobs[0];
+    if (unfinished) setActiveBatchId((current) => current ?? unfinished.batchId);
+  }, []);
+
+  const reconcileBackgroundUploads = useCallback(async () => {
+    if (!isBackgroundUploadAvailable()) return;
+    try {
+      applyBackgroundJobs(await getBackgroundUploadClient().reconcile());
+    } catch (error) {
+      console.warn('SportReel background upload reconcile failed', error);
+    }
+  }, [applyBackgroundJobs]);
+
+  // Durable truth wins after relaunch and every return to the foreground.
+  useEffect(() => {
+    void reconcileBackgroundUploads();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void reconcileBackgroundUploads();
+    });
+    return () => subscription.remove();
+  }, [reconcileBackgroundUploads]);
+
   const updateUploadItem = useCallback((id: string, patch: Partial<UploadFileState>) => {
     setUploadItems((items) => {
       const nextItems = items.map((item) => (item.id === id ? { ...item, ...patch } : item));
@@ -348,6 +409,11 @@ export default function PipelineScreen() {
   }, []);
 
   const runPipeline = async () => {
+    // Client half of the verified-batch gate; the server still re-checks every file.
+    if (hasIncompleteUploads(uploadItems)) {
+      Alert.alert('Uploads not finished', 'Every selected video must finish uploading and verify before the pipeline can start.');
+      return;
+    }
     setTriggering(true);
     try {
       const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', {
@@ -360,6 +426,11 @@ export default function PipelineScreen() {
       if (finishedBatch) {
         setLastBatchId(finishedBatch);
         setActiveBatchId(null);
+        if (isBackgroundUploadAvailable()) {
+          // The server has consumed this batch; drop its durable verified records and finished rows.
+          void getBackgroundUploadClient().forgetBatch(finishedBatch).catch(() => undefined);
+          setUploadItems((items) => items.filter((item) => item.batch_id !== finishedBatch));
+        }
       }
       Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds. Watch Recent pipeline runs for this run.`);
     } catch (e) {
@@ -559,6 +630,15 @@ export default function PipelineScreen() {
   };
 
   const retryUploadItem = async (item: UploadFileState) => {
+    if (item.backgroundLocalId) {
+      try {
+        const job = await getBackgroundUploadClient().retry(item.backgroundLocalId);
+        if (job) applyBackgroundJobs([job]);
+      } catch (e) {
+        handleOperatorError(e);
+      }
+      return;
+    }
     try {
       await uploadItemWithRetry(item);
     } catch (e) {
@@ -570,14 +650,21 @@ export default function PipelineScreen() {
     const failedItems = uploadItems.filter((item) => item.status === 'failed');
     if (!failedItems.length) return;
 
+    const backgroundFailed = failedItems.filter((item) => item.backgroundLocalId);
+    if (backgroundFailed.length) {
+      await Promise.all(backgroundFailed.map((item) => retryUploadItem(item)));
+      if (backgroundFailed.length === failedItems.length) return;
+    }
+
     try {
-      const results = await runUploadQueue(failedItems);
+      const foregroundFailed = failedItems.filter((item) => !item.backgroundLocalId);
+      const results = await runUploadQueue(foregroundFailed);
       const stillFailed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (stillFailed.length) {
-        Alert.alert('Some uploads still failing', `${stillFailed.length} of ${failedItems.length} file${failedItems.length === 1 ? '' : 's'} failed again. Check your connection and tap Retry all failed once it is stable.`);
+        Alert.alert('Some uploads still failing', `${stillFailed.length} of ${foregroundFailed.length} file${foregroundFailed.length === 1 ? '' : 's'} failed again. Check your connection and tap Retry all failed once it is stable.`);
         return;
       }
-      Alert.alert('Uploaded to queue', `${failedItems.length} previously failed file${failedItems.length === 1 ? '' : 's'} uploaded, size-verified, and locally cleaned.`);
+      Alert.alert('Uploaded to queue', `${foregroundFailed.length} previously failed file${foregroundFailed.length === 1 ? '' : 's'} uploaded, size-verified, and locally cleaned.`);
     } catch (e) {
       handleOperatorError(e);
     }
@@ -604,6 +691,28 @@ export default function PipelineScreen() {
         `${items.length} file${items.length === 1 ? '' : 's'} verified in RAW batch ${completedBatchId?.slice(0, 16) ?? 'current'}. App-owned temporary upload data was removed. The original SD / USB files were preserved.`
       );
     } catch (e) {
+      handleOperatorError(e);
+    }
+  };
+
+  // Long-running transfer ownership moves to the Android WorkManager worker; JS only enqueues and observes.
+  const handOffToBackgroundWorker = async (items: UploadFileState[]) => {
+    setUploadItems(items);
+    try {
+      const { batchId, jobs } = await getBackgroundUploadClient().enqueueBatch(
+        items.map((item) => ({ id: item.id, uri: item.uri, filename: item.filename, mimeType: item.mimeType, batch_id: item.batch_id })),
+        activeBatchId
+      );
+      setActiveBatchId(batchId);
+      setUploadItems((current) => current.map((item) => ({ ...item, batch_id: batchId })));
+      applyBackgroundJobs(jobs);
+      Alert.alert(
+        'Uploading in the background',
+        `${items.length} video${items.length === 1 ? '' : 's'} queued in batch ${batchId.slice(0, 16)}. Uploads keep running if you leave the app, and resume automatically if the connection drops or the app restarts.`
+      );
+    } catch (e) {
+      const message = e instanceof Error ? e.message : 'Could not start background upload';
+      setUploadItems((current) => current.map((item) => (item.backgroundLocalId ? item : { ...item, status: 'failed', error: message })));
       handleOperatorError(e);
     }
   };
@@ -669,6 +778,10 @@ export default function PipelineScreen() {
     }));
 
     setExternalCandidates([]);
+    if (isBackgroundUploadAvailable()) {
+      await handOffToBackgroundWorker(items);
+      return;
+    }
     await uploadSelectedItems(items);
   };
 
@@ -682,6 +795,10 @@ export default function PipelineScreen() {
     try {
       const permission = await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
       if (!permission.granted) return;
+      if (isBackgroundUploadAvailable()) {
+        // Persist the read grant so the WorkManager worker can still open these files after process death.
+        void getBackgroundUploadClient().persistTreePermission(permission.directoryUri).catch(() => undefined);
+      }
 
       const documentUris = await FileSystem.StorageAccessFramework.readDirectoryAsync(permission.directoryUri);
       const videoDocuments = documentUris
@@ -714,9 +831,17 @@ export default function PipelineScreen() {
     }
   };
 
+  const hasActiveBackgroundUpload = uploadItems.some((item) => item.backgroundLocalId && !['verified', 'failed'].includes(item.status));
+  useEffect(() => {
+    if (!hasActiveBackgroundUpload) return;
+    const timer = setInterval(() => { void reconcileBackgroundUploads(); }, 2000);
+    return () => clearInterval(timer);
+  }, [hasActiveBackgroundUpload, reconcileBackgroundUploads]);
+
   const uploadBusy = uploadItems.some((item) => ['queued', 'initializing', 'uploading'].includes(item.status));
   const verifiedUploads = uploadItems.filter((item) => item.status === 'verified').length;
   const failedUploadCount = uploadItems.filter((item) => item.status === 'failed').length;
+  const uploadsIncomplete = hasIncompleteUploads(uploadItems);
   const busy = triggering || resetting || selectingExternalStorage || uploadBusy;
 
   return (
@@ -761,7 +886,7 @@ export default function PipelineScreen() {
               </Text>
             )}
 
-            <Button label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy} variant="secondary" style={{ height: 44 }} />
+            <Button testID="pipeline-run" label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy || uploadsIncomplete} variant="secondary" style={{ height: 44 }} />
             <Button
               label={uploadBusy ? `Uploading ${verifiedUploads}/${uploadItems.length}...` : 'Upload from gallery'}
               onPress={uploadFootage}
@@ -773,6 +898,7 @@ export default function PipelineScreen() {
             {Platform.OS === 'android' && (
               <>
                 <Button
+                  testID="pipeline-upload-external"
                   label={selectingExternalStorage ? 'Opening SD / USB...' : 'Choose videos from SD / USB'}
                   onPress={uploadExternalStorageFolder}
                   disabled={busy}
@@ -797,6 +923,7 @@ export default function PipelineScreen() {
                       />
                     </View>
                     <Button
+                      testID="pipeline-external-select-all"
                       label="Select all"
                       onPress={() => setExternalCandidates((candidates) => candidates.map((candidate) => ({ ...candidate, selected: true })))}
                       disabled={busy}
@@ -827,6 +954,7 @@ export default function PipelineScreen() {
                       </Pressable>
                     ))}
                     <Button
+                      testID="pipeline-upload-selected"
                       label={`Upload selected (${externalCandidates.filter((candidate) => candidate.selected).length})`}
                       onPress={uploadSelectedExternalVideos}
                       disabled={busy || !externalCandidates.some((candidate) => candidate.selected)}
@@ -853,6 +981,9 @@ export default function PipelineScreen() {
                     />
                   )}
                 </View>
+                <Text testID="upload-batch-summary" variant="caption" color={Colors.textSecondary}>
+                  {`Batch ${activeBatchId?.slice(0, 24) ?? '—'} · verified ${verifiedUploads}/${uploadItems.length}`}
+                </Text>
                 {uploadItems.map((item) => (
                   <View key={item.id} style={styles.uploadRow}>
                     <View style={{ flex: 1, gap: 2 }}>

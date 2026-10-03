@@ -1,0 +1,83 @@
+# Starts one multi-video stable-batch upload through the real UI (operator secret, Pipeline,
+# SD / USB folder picker, select all, upload). Leaves the app uploading in the background worker.
+appId: com.sportreel.app
+name: Background upload - start multi-video batch
+tags: [background-upload, start]
+---
+- runFlow: ../upl01/subflows/launch-to-settings.yaml
+- runFlow: ../upl01/subflows/save-operator-secret.yaml
+- tapOn: "Pipeline"
+- scrollUntilVisible:
+    element:
+      id: "pipeline-upload-external"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+- tapOn:
+    id: "pipeline-upload-external"
+- runFlow: subflows/pick-sd-folder.yaml
+# System "isn't responding" dialogs on a loaded emulator must not mask the app flow (same handling as UPL-01).
+- runFlow:
+    when:
+      visible: "Pixel Launcher isn't responding"
+    commands:
+      - tapOn: "Close app"
+- runFlow:
+    when:
+      visible: "(?i)(sportreel|system ui|google play services) isn't responding"
+    commands:
+      - tapOn: "(?i)wait"
+- extendedWaitUntil:
+    visible:
+      id: "pipeline-external-select-all"
+    timeout: 90000
+- takeScreenshot: candidates-listed
+# The Pipeline screen is a ScrollView and returns to the top after the system picker closes (run 37039933936:
+# tapOn "pipeline-upload-selected" failed with the page scrolled to the top). tapOn never scrolls, so bring each
+# control into view first.
+- scrollUntilVisible:
+    element:
+      id: "pipeline-external-select-all"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- tapOn:
+    id: "pipeline-external-select-all"
+- scrollUntilVisible:
+    element:
+      id: "pipeline-upload-selected"
+    direction: DOWN
+    timeout: 30000
+    centerElement: true
+- takeScreenshot: ready-to-upload-selected
+- tapOn:
+    id: "pipeline-upload-selected"
+- extendedWaitUntil:
+    visible: "Uploading in the background"
+    timeout: 60000
+- takeScreenshot: handed-off-to-worker
+- tapOn: "(?i)ok"
+# The summary sits below "Upload selected" and above the runs list. After the hand-off alert closes the view may
+# already be past it (run 37046025515 screen-off showed the runs list), so scroll whichever way is needed.
+- runFlow:
+    when:
+      notVisible:
+        id: "upload-batch-summary"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: UP
+          timeout: 20000
+          optional: true
+- runFlow:
+    when:
+      notVisible:
+        id: "upload-batch-summary"
+    commands:
+      - scrollUntilVisible:
+          element:
+            id: "upload-batch-summary"
+          direction: DOWN
+          timeout: 20000
+- takeScreenshot: progress-visible

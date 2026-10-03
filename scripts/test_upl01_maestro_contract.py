@@ -419,7 +419,7 @@ class HarnessContract(unittest.TestCase):
         eas = json.loads((ROOT / "mobile/eas.json").read_text())
         for profile, config in eas["build"].items():
             self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", config.get("env", {}), profile)
-        allowed_runtime_workflows = {WORKFLOW.name, "full-android-app-qualification.yml", "video-storage-clean-e2e.yml"}
+        allowed_runtime_workflows = {WORKFLOW.name, "full-android-app-qualification.yml", "video-storage-clean-e2e.yml", "android-background-upload-qualification.yml"}
         for workflow in (ROOT / ".github/workflows").glob("*.yml"):
             if workflow.name not in allowed_runtime_workflows:
                 self.assertNotIn("EXPO_PUBLIC_UPL01_OPERATOR_BYPASS", workflow.read_text(), workflow.name)
@@ -430,6 +430,12 @@ class HarnessContract(unittest.TestCase):
             "EXPO_PUBLIC_UPL01_OPERATOR_BYPASS",
             yaml.safe_dump(prepare_apk),
             "validation bypass must stay out of APK build steps",
+        )
+        background = yaml.safe_load((ROOT / ".github/workflows/android-background-upload-qualification.yml").read_text())
+        self.assertNotIn(
+            "EXPO_PUBLIC_UPL01_OPERATOR_BYPASS",
+            yaml.safe_dump(background["jobs"]["prepare-apk"]),
+            "validation bypass must stay out of the background-upload APK build",
         )
 
 

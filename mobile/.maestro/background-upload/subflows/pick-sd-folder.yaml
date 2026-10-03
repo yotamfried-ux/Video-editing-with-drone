@@ -1,0 +1,51 @@
+# Real Android Storage Access Framework picker (DocumentsUI), driven by resource ids and exact text.
+# BG_FOLDER is the fixture folder pushed under /sdcard/Download by the scenario runner.
+#
+# Observed on API 35 (run 37036851628): the picker opens on the storage ROOT ("Files on sdk_gphone64_x86_64"),
+# which shows "Can't use this folder - To protect your privacy, choose another folder". An unanchored
+# "(?i)use this folder" regex matched that error text, so the earlier flow believed it was inside the folder.
+# Android 11+ forbids granting the storage root or the Download folder itself, so we open a sub-folder of Download
+# and detect "inside the fixture folder" from the breadcrumb, never from button/message text.
+appId: com.sportreel.app
+---
+- extendedWaitUntil:
+    visible:
+      id: ".*documentsui:id/breadcrumb_text"
+    timeout: 45000
+- takeScreenshot: saf-initial
+- runFlow:
+    when:
+      notVisible:
+        id: ".*documentsui:id/breadcrumb_text"
+        text: "${BG_FOLDER}"
+    commands:
+      # If the root listing is not showing a "Download" entry, reveal the roots drawer first.
+      - runFlow:
+          when:
+            notVisible: "Download"
+          commands:
+            - tapOn:
+                text: "(?i)^show roots$"
+                optional: true
+            - tapOn:
+                text: "(?i)^downloads?$"
+                optional: true
+      - tapOn:
+          text: "Download"
+          optional: true
+      - takeScreenshot: saf-download-listing
+      - tapOn:
+          text: "${BG_FOLDER}"
+- extendedWaitUntil:
+    visible:
+      id: ".*documentsui:id/breadcrumb_text"
+      text: "${BG_FOLDER}"
+    timeout: 30000
+- takeScreenshot: saf-inside-fixture-folder
+# Anchored so it can never match "Can't use this folder".
+- tapOn:
+    text: "(?i)^use this folder$"
+- tapOn:
+    text: "(?i)^allow$"
+    optional: true
+- takeScreenshot: saf-granted

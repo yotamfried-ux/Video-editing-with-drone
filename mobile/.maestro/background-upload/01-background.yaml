@@ -1,0 +1,14 @@
+# After the app has been in the background (Home) while the worker kept uploading: return to the
+# foreground and require the UI to show at least the durable progress observed just before returning.
+# EXPECT_MIN_VERIFIED is the runner's durable verified count; progress is monotonic.
+appId: com.sportreel.app
+name: Background upload - return from Home shows durable progress
+tags: [background-upload, background]
+---
+- launchApp:
+    stopApp: false
+- runFlow: subflows/open-pipeline-progress.yaml
+- assertVisible:
+    id: "upload-batch-summary"
+    text: ".*verified [${EXPECT_MIN_VERIFIED}-${EXPECT_TOTAL}]/${EXPECT_TOTAL}.*"
+- takeScreenshot: returned-from-background

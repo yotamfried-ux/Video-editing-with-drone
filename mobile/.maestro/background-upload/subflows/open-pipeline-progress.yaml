@@ -1,0 +1,9 @@
+appId: com.sportreel.app
+---
+- tapOn: "Pipeline"
+- scrollUntilVisible:
+    element:
+      id: "upload-batch-summary"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
