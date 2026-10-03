@@ -72,6 +72,35 @@ class MultipartUploadEngineTest {
     assertEquals(1, server.objectsCreated.size)
   }
 
+  @Test fun `connectivity failures do not consume durable retry budget`() {
+    transport.failNext = MutableList(25) { { ioFailure() } }
+    repeat(25) {
+      assertTrue(engine().run("job-1") is EngineOutcome.Retry)
+      assertEquals(0, store.get("job-1")!!.attempt)
+      assertEquals(BackgroundUploadStatus.RETRY_WAIT, store.get("job-1")!!.status)
+    }
+    transport.failNext.clear()
+    assertEquals(EngineOutcome.Success, engine().run("job-1"))
+  }
+
+  @Test fun `retry wait can be requeued without losing multipart identity or acknowledged parts`() {
+    store.update("job-1") { it.copy(
+      status = BackgroundUploadStatus.RETRY_WAIT,
+      attempt = 7,
+      uploadId = "upload-1",
+      storageKey = server.storageKey,
+      partSizeBytes = partSize,
+      expectedPartCount = 3,
+      completedParts = listOf(BackgroundUploadPart(1, "etag-1", partSize)),
+      lastError = "dns"
+    ) }
+    val resumed = store.requeueRetryable("job-1")!!
+    assertEquals(BackgroundUploadStatus.QUEUED, resumed.status)
+    assertEquals(0, resumed.attempt)
+    assertEquals("upload-1", resumed.uploadId)
+    assertEquals(listOf(1), resumed.completedParts.map { it.partNumber })
+  }
+
   @Test fun `retry after start loses nothing and never creates a second server upload`() {
     server.failNextCalls = mutableListOf({ op -> if (op == "start") UploadApiException(503, "down", true) else null })
     assertTrue(engine().run("job-1") is EngineOutcome.Retry)
