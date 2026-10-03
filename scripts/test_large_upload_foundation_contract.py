@@ -128,9 +128,12 @@ def test_api_requires_durable_completion_and_cleanup() -> None:
             "Once the durable source row owns the R2 UploadId",
             "orphanMultipartUploadId = null",
             "abortR2MultipartUpload",
+            "enforceRateLimit(req, 'operator-multipart-start', 20, 3600, clientUploadId)",
         ],
         "start endpoint",
     )
+    if start.index("enforceRateLimit(req, 'operator-multipart-start'") < start.index("const clientUploadId"):
+        raise AssertionError("multipart start rate limit must be scoped after validated client_upload_id")
     forbid(
         start,
         [
