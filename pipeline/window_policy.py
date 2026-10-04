@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 MIN_WINDOW = 4.0
-MAX_NORMAL_WINDOW = 11.0
+MAX_NORMAL_WINDOW = 14.0
 # Trailing buffer kept past a known outcome_end when trimming excess tail —
 # enough for natural follow-through, not enough to leave a teaser/preview
 # sampling from empty padding (e.g. analyzer.py padding a short real event
