@@ -70,6 +70,7 @@ def _strong_event_tokens(event: dict[str, Any]) -> tuple[list[str], list[str]]:
 def _cluster_strong_tokens(cluster: dict[str, Any]) -> list[str]:
     tokens: set[str] = set()
     for app in cluster.get("appearances", []) or []:
+        source = _source_name(app.get("path"))
         for event in app.get("events", []) or []:
             if isinstance(event, dict):
                 event.setdefault("source_video", source)
