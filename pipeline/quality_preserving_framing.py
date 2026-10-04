@@ -137,7 +137,12 @@ def decide_framing(
             visible_track_count=track_count,
         )
 
-    # Weak single-frame crop evidence is not a reason to discard the event.\n    # The complete bound trajectory is checked before rendering; if it is not\n    # reliable enough for a crop, preserve the full source frame instead.\n\n    desired_height_ratio = 0.16 if sport.lower() == "surfing" else 0.18\n    zoom = max(1.0, min(MAX_EMERGENCY_ZOOM, desired_height_ratio / max(height_ratio, 0.001)))
+    # Weak single-frame crop evidence is not a reason to discard the event.
+    # The complete bound trajectory is checked before rendering; if it is not
+    # reliable enough for a crop, preserve the full source frame instead.
+
+    desired_height_ratio = 0.16 if sport.lower() == "surfing" else 0.18
+    zoom = max(1.0, min(MAX_EMERGENCY_ZOOM, desired_height_ratio / max(height_ratio, 0.001)))
     return FramingDecision(
         mode="tracked_crop",
         reason="+".join(reasons),
