@@ -159,6 +159,7 @@ jobs:
           SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
           SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || 'botsort.yaml' }}
           SPORTREEL_ULTRALYTICS_FPS: '30'
+          SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '5' }}
           TMP_DIR: /tmp/dtor
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
