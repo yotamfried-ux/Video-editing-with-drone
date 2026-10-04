@@ -45,7 +45,7 @@ class BackgroundUploadStoreBehaviorTest {
   @Test fun `explicit requeue of a failed job keeps multipart identity`() {
     val store = BackgroundUploadStore(InMemoryStorage())
     store.enqueue(job("a", status = BackgroundUploadStatus.FAILED).copy(uploadId = "u1", lastError = "x", attempt = 9))
-    val re = store.requeueFailed("a")!!
+    val re = store.requeueRetryable("a")!!
     assertEquals(BackgroundUploadStatus.QUEUED, re.status)
     assertEquals("u1", re.uploadId)
     assertEquals(0, re.attempt)
