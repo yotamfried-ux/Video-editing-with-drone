@@ -1,0 +1,39 @@
+name: Real-footage Identity Binding Qualification
+
+on:
+  push:
+    branches:
+      - fix/real-footage-identity-binding
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  identity-binding-simulations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Compile changed perception modules
+        run: |
+          python -m py_compile             pipeline/perception/runtime.py             pipeline/required_perception_policy.py             pipeline/athlete_canonicalization.py
+      - name: Run perception contract simulations
+        run: python scripts/test_perception_contract.py
+      - name: Run athlete canonicalization simulations
+        run: python scripts/test_athlete_canonicalization_contract.py
+      - name: Assert production perception configuration
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          wf = Path('.github/workflows/pipeline-run.yml').read_text()
+          policy = Path('pipeline/required_perception_policy.py').read_text()
+          assert "yolo11s.pt" in wf
+          assert "SPORTREEL_ULTRALYTICS_VID_STRIDE" in wf
+          assert "|| '5'" in wf
+          assert "--ultralytics-model {_DEFAULT_MODEL}" not in policy
+          print("production perception configuration contract: PASS")
+          PY
