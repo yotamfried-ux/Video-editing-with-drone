@@ -26,7 +26,7 @@ jobs:
       - name: Run perception contract simulations
         run: python scripts/test_perception_contract.py
       - name: Run athlete canonicalization simulations
-        run: python scripts/test_athlete_canonicalization_contract.py
+        run: PYTHONPATH=. python scripts/test_athlete_canonicalization_contract.py
       - name: Assert production perception configuration
         run: |
           python - <<'PY'
