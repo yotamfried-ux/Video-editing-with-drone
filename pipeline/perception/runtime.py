@@ -321,18 +321,49 @@ def _nearest(detections: list[PerceptionDetection], event: dict[str, Any]) -> Pe
     return nearest if abs(nearest.time_sec - mid) <= _MAX_NEAREST_SEC else None
 
 
+def _event_crop_point(event: dict[str, Any]) -> tuple[float, float] | None:
+    try:
+        x = float(event.get("crop_x"))
+        y = float(event.get("crop_y"))
+    except (TypeError, ValueError):
+        return None
+    if not (0.0 <= x <= 1.0 and 0.0 <= y <= 1.0):
+        return None
+    return x, y
+
+
+def _track_score(detections: list[PerceptionDetection], event: dict[str, Any]) -> tuple[float, float, float, float]:
+    """Rank a whole track, never an isolated high-confidence box."""
+    if not detections:
+        return (-1.0, -1.0, -1.0, -1.0)
+    crop = _event_crop_point(event)
+    crop_match = 0.0
+    if crop is not None:
+        distances = []
+        for detection in detections:
+            x1, y1, x2, y2 = detection.xyxy
+            cx = ((x1 + x2) / 2.0) / max(1.0, float(detection.frame_width))
+            cy = ((y1 + y2) / 2.0) / max(1.0, float(detection.frame_height))
+            distances.append(((cx - crop[0]) ** 2 + (cy - crop[1]) ** 2) ** 0.5)
+        crop_match = 1.0 - min(1.0, sum(distances) / len(distances))
+    confidence = sum((d.confidence or 0.0) for d in detections) / len(detections)
+    visible = sum(d.visible_ratio for d in detections) / len(detections)
+    return (crop_match, float(len(detections)), confidence, visible)
+
+
 def _best_primary(candidates: list[PerceptionDetection], event: dict[str, Any]) -> PerceptionDetection | None:
     if not candidates:
         return None
+    by_track: dict[str, list[PerceptionDetection]] = {}
+    for detection in candidates:
+        if detection.tracker_id is not None:
+            by_track.setdefault(str(detection.tracker_id), []).append(detection)
+    if not by_track:
+        return None
+    best_id, track_detections = max(by_track.items(), key=lambda item: _track_score(item[1], event))
     mid = _event_mid(event)
-    return max(
-        candidates,
-        key=lambda detection: (
-            detection.confidence if detection.confidence is not None else 0.0,
-            -abs(detection.time_sec - mid),
-            detection.visible_ratio,
-        ),
-    )
+    primary = min(track_detections, key=lambda detection: abs(detection.time_sec - mid))
+    return primary
 
 
 def _track_ids(candidates: list[PerceptionDetection]) -> list[str]:
@@ -348,6 +379,11 @@ def enrich_event(event: dict[str, Any], detections: list[PerceptionDetection]) -
         return {**event, "perception_evidence_status": "no_tracker_detection"}
     visible_ids = _track_ids(window_detections or [primary])
     metadata = primary.to_event_metadata()
+    if primary.tracker_id is not None:
+        metadata.update({
+            "target_track_id": str(primary.tracker_id),
+            "track_binding_source": "cv_track_continuity_with_llm_crop_hint" if _event_crop_point(event) else "cv_track_continuity",
+        })
     if visible_ids:
         metadata.update({
             "source_window_track_ids": visible_ids,
