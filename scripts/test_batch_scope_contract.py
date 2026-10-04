@@ -29,6 +29,7 @@ def fake_r2() -> types.SimpleNamespace:
         listed.append(prefix)
         return [
             {"Key": f"{prefix}clip.mp4"},
+            {"Key": f"{prefix}foreign.mp4"},
             {"Key": f"{prefix}note.txt"},
         ]
 
@@ -54,6 +55,7 @@ def fake_r2() -> types.SimpleNamespace:
 
 def run_scope_probe() -> None:
     os.environ["RAW_BATCH_ID"] = "session one"
+    os.environ["SPORTREEL_INPUT_MANIFEST_JSON"] = '[{"storage_key":"raw/session_one/clip.mp4"}]'
     module = fake_r2()
     dedup_calls: list[list[str]] = []
 
@@ -185,6 +187,7 @@ def main() -> int:
         raise SystemExit("upload route must recover durable batch state instead of trusting only request/mobile state")
 
     run_scope_probe()
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
     print("Batch scope contract checks passed")
     return 0
 
