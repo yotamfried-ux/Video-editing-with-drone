@@ -225,6 +225,7 @@ def main() -> int:
         raise SystemExit("upload route must recover durable batch state instead of trusting only request/mobile state")
 
     run_scope_probe()
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
     run_manifest_allowlist_probe()
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
     print("Batch scope contract checks passed")
