@@ -7,6 +7,7 @@ SHA-256 reconciled so byte-identical sources cannot both reach analysis.
 """
 from __future__ import annotations
 
+import base64
 import json
 import os
 from pathlib import Path
@@ -41,6 +42,12 @@ def move_between_prefixes(source_key: str, from_prefix: str, to_prefix: str) -> 
 
 def _manifest_keys() -> set[str]:
     raw = (os.getenv("SPORTREEL_INPUT_MANIFEST_JSON") or "").strip()
+    encoded = (os.getenv("SPORTREEL_INPUT_MANIFEST_B64") or "").strip()
+    if not raw and encoded:
+        try:
+            raw = base64.b64decode(encoded, validate=True).decode("utf-8")
+        except Exception as exc:
+            raise RuntimeError("SPORTREEL_INPUT_MANIFEST_B64 is invalid") from exc
     if not raw:
         return set()
     try:
