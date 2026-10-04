@@ -7,6 +7,14 @@ on:
       - 'pipeline/window_policy.py'
       - 'scripts/sitecustomize.py'
       - 'scripts/test_event_window_contract.py'
+  push:
+    branches:
+      - 'eos-run/**'
+    paths:
+      - '.github/workflows/window-check.yml'
+      - 'pipeline/window_policy.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_event_window_contract.py'
 
 jobs:
   validate:

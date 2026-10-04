@@ -7,6 +7,14 @@ on:
       - 'pipeline/qa_gate_policy.py'
       - 'scripts/sitecustomize.py'
       - 'scripts/test_qa_gate_contract.py'
+  push:
+    branches:
+      - 'eos-run/**'
+    paths:
+      - '.github/workflows/qa-check.yml'
+      - 'pipeline/qa_gate_policy.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/test_qa_gate_contract.py'
 
 jobs:
   validate:
