@@ -105,6 +105,15 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python scripts/check_qa_reedit_schema.py
 
+      - name: Load frozen pipeline input manifest
+        if: ${{ (github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '') != '' }}
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
+        run: |
+          python scripts/export_pipeline_input_manifest.py "$TRACKED_RUN_ID" >> "$GITHUB_ENV"
+
       - name: Reset (optional — manual runs only)
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset }}
         env:
