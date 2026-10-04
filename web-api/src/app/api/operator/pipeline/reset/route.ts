@@ -4,7 +4,7 @@ import { enforceRateLimit } from '@/lib/ratelimit';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { githubDispatchError } from '@/lib/github-dispatch-error';
 import { safeBatchId } from '@/lib/r2-storage';
-import { prepareUploadBatchRerun } from '@/lib/upload-batch-manifest';
+import { prepareUploadBatchRerun, releaseUploadBatchAfterDispatchFailure } from '@/lib/upload-batch-manifest';
 import { SourceUploadManifestError } from '@/lib/source-upload-manifest';
 import type { PipelineResetResponse } from '@/types/operator-contracts';
 
@@ -73,6 +73,8 @@ export async function POST(req: NextRequest) {
   }
   const { error: freezeError } = await supabaseAdmin.from('pipeline_runs').update({ input_files: rerunBatch.inputManifest, meta: { ...meta, expected_file_count: rerunBatch.expectedFileCount } }).eq('id', run.id);
   if (freezeError) {
+    await releaseUploadBatchAfterDispatchFailure(batchId, run.id);
+    await supabaseAdmin.from('pipeline_runs').update({ status: 'dispatch_failed', stage: 'manifest_freeze_failed', error: freezeError.message, finished_at: new Date().toISOString() }).eq('id', run.id);
     return NextResponse.json({ error: `Could not freeze reset input manifest: ${freezeError.message}`, pipeline_run_id: run.id }, { status: 500 });
   }
 
@@ -95,6 +97,7 @@ export async function POST(req: NextRequest) {
       .from('pipeline_runs')
       .update({ status: 'dispatch_failed', stage: 'dispatch_failed', error: message, finished_at: new Date().toISOString() })
       .eq('id', run.id);
+    await releaseUploadBatchAfterDispatchFailure(batchId, run.id);
     return NextResponse.json({ error: message, pipeline_run_id: run.id }, { status: 502 });
   }
 
