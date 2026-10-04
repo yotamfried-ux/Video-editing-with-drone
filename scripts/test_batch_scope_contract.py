@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+import base64
+import json
 import os
 import sys
 import types
@@ -92,6 +94,42 @@ def run_scope_probe() -> None:
     if not expected.issubset(set(module.moves)):
         raise SystemExit(f"expected scoped moves, got {module.moves}")
 
+
+
+def run_manifest_allowlist_probe() -> None:
+    batch = "batch_24"
+    os.environ["RAW_BATCH_ID"] = batch
+    allowed = [f"raw/{batch}/source_{i:02d}.mp4" for i in range(24)]
+    manifest = [{"storage_key": key} for key in allowed]
+    os.environ["SPORTREEL_INPUT_MANIFEST_B64"] = base64.b64encode(
+        json.dumps(manifest).encode("utf-8")
+    ).decode("ascii")
+
+    listed: list[str] = []
+    module = fake_r2()
+    def list_objects(prefix: str) -> list[dict]:
+        listed.append(prefix)
+        return [{"Key": key} for key in allowed] + [{"Key": f"raw/{batch}/foreign.mp4"}]
+    module.list_objects = list_objects
+    sys.modules["integrations.r2_storage"] = module
+
+    admitted: list[list[str]] = []
+    def prepare_canonical_sources(videos: list[dict], download_one, **kwargs) -> list[dict]:
+        admitted.append([video["id"] for video in videos])
+        return videos
+    sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
+        prepare_canonical_sources=prepare_canonical_sources
+    )
+
+    import importlib
+    import pipeline.r2_batch_scope as batch_scope
+    batch_scope = importlib.reload(batch_scope)
+    batch_scope.install()
+    videos = module.get_new_videos()
+    assert len(videos) == 24, f"expected 24 frozen inputs, got {len(videos)}"
+    assert len(admitted) == 1 and admitted[0] == allowed
+    assert all("foreign.mp4" not in video["id"] for video in videos)
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
 
 def main() -> int:
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
@@ -187,6 +225,7 @@ def main() -> int:
         raise SystemExit("upload route must recover durable batch state instead of trusting only request/mobile state")
 
     run_scope_probe()
+    run_manifest_allowlist_probe()
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
     print("Batch scope contract checks passed")
     return 0
