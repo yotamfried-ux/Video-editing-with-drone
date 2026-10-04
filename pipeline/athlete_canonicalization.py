@@ -72,6 +72,7 @@ def _cluster_strong_tokens(cluster: dict[str, Any]) -> list[str]:
     for app in cluster.get("appearances", []) or []:
         for event in app.get("events", []) or []:
             if isinstance(event, dict):
+                event.setdefault("source_video", source)
                 merge_tokens, _ = _strong_event_tokens(event)
                 tokens.update(merge_tokens)
     return sorted(tokens)
@@ -86,6 +87,7 @@ def _fallback_cluster_key(cluster: dict[str, Any], index: int) -> str:
         for event in app.get("events", []) or []:
             if not isinstance(event, dict):
                 continue
+            event.setdefault("source_video", source)
             spans.append(f"{event.get('type','')}:{event.get('start')}:{event.get('end')}")
             _, event_evidence = _strong_event_tokens(event)
             evidence_tokens.extend(event_evidence)
