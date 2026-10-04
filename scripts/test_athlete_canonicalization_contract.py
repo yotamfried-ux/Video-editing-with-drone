@@ -14,37 +14,19 @@ def assert_true(condition: bool, message: str) -> None:
 
 
 def main() -> None:
-    clusters = [
-        {
-            "description": "surfer in black wetsuit",
-            "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "a1", "track_id": "trk-7", "type": "surf_ride", "start": 1, "end": 10}]}],
-        },
-        {
-            "description": "surfer with dark board",
-            "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "b1", "track_id": "trk-7", "type": "surf_ride", "start": 20, "end": 35}]}],
-        },
-    ]
-    merged = canonicalize_clusters(clusters)
-    assert_true(len(merged) == 1, f"same track should merge to one athlete cluster, got {len(merged)}")
-    athlete_id = merged[0].get("athlete_id")
-    assert_true(str(athlete_id).startswith("ath_"), "merged cluster must expose stable athlete_id")
-    assert_true(merged[0].get("athlete_collection_policy") == "merged_same_athlete", "merged duplicate athlete must be marked as collection")
-    events = [event for app in merged[0]["appearances"] for event in app["events"]]
-    assert_true({event.get("athlete_id") for event in events} == {athlete_id}, "all merged events must share athlete_id")
-    assert_true(any(event.get("athlete_duplicate_group") for event in events), "merged duplicates must expose duplicate group evidence")
-
-    shared_track_with_source_ids = canonicalize_clusters([
-        {
-            "description": "source a surfer",
-            "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "a2", "track_id": "trk-9", "athlete_id": "ath_src_a", "athlete_canonical_evidence_status": "single_source", "person_id": "person_A"}]}],
-        },
-        {
-            "description": "source b surfer",
-            "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "b2", "track_id": "trk-9", "athlete_id": "ath_src_b", "athlete_canonical_evidence_status": "single_source", "person_id": "person_B"}]}],
-        },
+    # Tracker IDs are source-local and must never merge athletes across files.
+    same_numeric_track_different_sources = canonicalize_clusters([
+        {"description": "source a surfer", "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "a1", "track_id": "7", "source_video": "/tmp/a.mp4"}]}]},
+        {"description": "source b surfer", "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "b1", "track_id": "7", "source_video": "/tmp/b.mp4"}]}]},
     ])
-    assert_true(len(shared_track_with_source_ids) == 1, "shared track_id must merge despite source-specific IDs")
-    assert_true(shared_track_with_source_ids[0].get("athlete_canonical_key") == "strong:track_id:trk-9", "track_id must be the merge key")
+    assert_true(len(same_numeric_track_different_sources) == 2, "source-local tracker IDs must not merge athletes across videos")
+
+    # Only an explicit externally-established athlete identity may merge sources.
+    explicit_identity = canonicalize_clusters([
+        {"description": "source a surfer", "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "a2", "athlete_id": "customer-athlete-42"}]}]},
+        {"description": "source b surfer", "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "b2", "athlete_id": "customer-athlete-42"}]}]},
+    ])
+    assert_true(len(explicit_identity) == 1, "explicit global athlete identity should merge across sources")
 
     weak = canonicalize_clusters([
         {"description": "surfer in black wetsuit", "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "w1", "type": "surf_ride", "start": 1, "end": 10}]}]},
@@ -68,8 +50,8 @@ def main() -> None:
     )
     fake_identity = SimpleNamespace(
         cluster_clips=lambda clip_analyses: [
-            {"description": "surfer in black wetsuit", "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "c1", "track_id": "trk-42"}]}]},
-            {"description": "surfer with dark board", "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "c2", "track_id": "trk-42"}]}]},
+            {"description": "surfer in black wetsuit", "appearances": [{"path": "/tmp/a.mp4", "events": [{"event_id": "c1", "athlete_id": "global-athlete-42"}]}]},
+            {"description": "surfer with dark board", "appearances": [{"path": "/tmp/b.mp4", "events": [{"event_id": "c2", "athlete_id": "global-athlete-42"}]}]},
         ]
     )
     sys.modules["pipeline.stages.analyzer"] = fake_analyzer

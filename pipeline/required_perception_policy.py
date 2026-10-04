@@ -16,9 +16,7 @@ _DEFAULT_MODEL = "yolo11s.pt"
 _DEFAULT_TRACKER = "botsort.yaml"
 _DEFAULT_COMMAND = (
     f"{sys.executable} scripts/generate_perception_sidecar.py "
-    "{video_path} {sidecar_path} --backend ultralytics "
-    f"--ultralytics-model {_DEFAULT_MODEL} "
-    f"--ultralytics-tracker {_DEFAULT_TRACKER} --fps 30"
+    "{video_path} {sidecar_path} --backend ultralytics"
 )
 _BINDING_FIELDS = ("target_track_id", "primary_track_id", "athlete_track_id")
 _VISIBLE_TRACK_FIELDS = (
