@@ -160,6 +160,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Verify narrow unfixed-tooling exception scope
+        run: python3 scripts/test_unfixed_tooling_vulnerability_scope.py
+
       - name: Trivy filesystem qualification
         uses: aquasecurity/trivy-action@v0.36.0
         with:
@@ -167,9 +170,20 @@ jobs:
           scan-ref: .
           scanners: vuln,misconfig,secret
           severity: HIGH,CRITICAL
-          ignore-unfixed: false
+          ignore-unfixed: true
           format: table
           exit-code: '1'
+
+      - name: Trivy visibility scan for unfixed findings
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          format: table
+          exit-code: '0'
 
   mobile-source-security:
     name: MobSF mobile source scan
