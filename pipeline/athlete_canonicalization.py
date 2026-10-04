@@ -35,8 +35,7 @@ def _source_name(path: Any) -> str:
 def _strong_event_tokens(event: dict[str, Any]) -> tuple[list[str], list[str]]:
     """Return merge tokens and evidence-only tokens for an event.
 
-    `track_id` is cross-source deterministic evidence and can merge clusters by
-    itself. Existing non-generated `athlete_id` can also merge clusters. Generated
+    Tracker IDs are source-local evidence and MUST NOT merge people across files.\n    Existing non-generated `athlete_id` can merge clusters. Generated
     single-source IDs and per-source person IDs are evidence, but must not make the
     equivalence key stricter because that prevents shared `track_id` matches from
     merging across files.
@@ -45,9 +44,11 @@ def _strong_event_tokens(event: dict[str, Any]) -> tuple[list[str], list[str]]:
     evidence_tokens: list[str] = []
 
     track_id = str(event.get("track_id") or "").strip()
+    source_video = str(event.get("source_video") or event.get("_source_video") or "").strip()
     if track_id:
-        token = f"track_id:{track_id}"
-        merge_tokens.append(token)
+        # Tracker IDs are local to one source stream. They are evidence, but never
+        # a cross-video identity key on their own.
+        token = f"track_id:{source_video}:{track_id}" if source_video else f"track_id:{track_id}"
         evidence_tokens.append(token)
 
     athlete_id = str(event.get("athlete_id") or "").strip()
@@ -137,8 +138,7 @@ def _merge_key(tokens: list[str]) -> str:
 def canonicalize_clusters(clusters: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Assign athlete_id and merge clusters when strong evidence is identical.
 
-    Strong evidence currently means cross-source `track_id` or existing non-generated
-    `athlete_id` on events. Weak fallback IDs are stable for metadata but are never
+    Strong cross-source evidence means an existing non-generated `athlete_id`.\n    Source-local tracker IDs are retained as evidence but never used as global identity. Weak fallback IDs are stable for metadata but are never
     used to merge clusters.
     """
     registry: dict[str, dict[str, Any]] = {}
