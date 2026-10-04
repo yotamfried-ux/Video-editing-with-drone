@@ -18,6 +18,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install perception smoke dependencies
+        run: pip install --disable-pip-version-check supervision
       - name: Compile changed perception modules
         run: |
           python -m py_compile             pipeline/perception/runtime.py             pipeline/required_perception_policy.py             pipeline/athlete_canonicalization.py
