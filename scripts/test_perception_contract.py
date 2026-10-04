@@ -341,7 +341,9 @@ def require_sidecar_runtime_contract() -> None:
     if enriched.get("perception_evidence_status") != "tracker_sidecar":
         raise SystemExit("event was not marked as tracker-sidecar enriched")
     if enriched.get("track_id") != 7:
-        raise SystemExit("highest-confidence in-window track must become primary track_id")
+        raise SystemExit("track-continuity scorer should select track 7 for this event")
+    if str(enriched.get("target_track_id")) != "7":
+        raise SystemExit("event enrichment must explicitly bind the selected featured track")
     if enriched.get("source_window_track_ids") != ["7", "8"]:
         raise SystemExit("visible source-window track IDs must be preserved for multi-person QA")
     if enriched.get("crop_source") != "bbox" or not enriched.get("bbox_xyxy"):
