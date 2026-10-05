@@ -14,6 +14,7 @@ on:
   push:
     branches:
       - feat/android-background-uploads
+      - qualification/real-e2e-20261005
     paths:
       - .github/workflows/android-background-upload-qualification.yml
       - mobile/.maestro/background-upload/**
@@ -190,7 +191,7 @@ jobs:
     steps:
       - id: p
         env:
-          REQUESTED: ${{ inputs.scenarios || (github.event_name == 'push' && 'foreground-baseline') || 'all' }}
+          REQUESTED: ${{ inputs.scenarios || (github.event_name == 'push' && github.ref_name == 'qualification/real-e2e-20261005' && 'all') || (github.event_name == 'push' && 'foreground-baseline') || 'all' }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
