@@ -1,0 +1,19 @@
+{
+  "expires": "2026-10-18",
+  "exceptions": [
+    {
+      "package": "braces",
+      "version": "3.0.3",
+      "cve": "CVE-2026-93687",
+      "scope": "mobile build/tooling lockfile only",
+      "reason": "No patched upstream release; exception valid only while absent from web-api runtime graph."
+    },
+    {
+      "package": "node-forge",
+      "version": "1.4.0",
+      "cve": "CVE-2026-85393",
+      "scope": "Expo CLI/mobile build tooling",
+      "reason": "No patched upstream release; exception valid only while absent from web-api runtime graph."
+    }
+  ]
+}

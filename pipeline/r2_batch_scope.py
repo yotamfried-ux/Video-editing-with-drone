@@ -7,6 +7,8 @@ SHA-256 reconciled so byte-identical sources cannot both reach analysis.
 """
 from __future__ import annotations
 
+import base64
+import json
 import os
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,34 @@ def move_between_prefixes(source_key: str, from_prefix: str, to_prefix: str) -> 
     return f"{to_prefix}{Path(source_key).name}"
 
 
+def _manifest_keys() -> set[str]:
+    raw = (os.getenv("SPORTREEL_INPUT_MANIFEST_JSON") or "").strip()
+    encoded = (os.getenv("SPORTREEL_INPUT_MANIFEST_B64") or "").strip()
+    if not raw and encoded:
+        try:
+            raw = base64.b64decode(encoded, validate=True).decode("utf-8")
+        except Exception as exc:
+            raise RuntimeError("SPORTREEL_INPUT_MANIFEST_B64 is invalid") from exc
+    if not raw:
+        return set()
+    try:
+        manifest = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise RuntimeError("SPORTREEL_INPUT_MANIFEST_JSON is invalid JSON") from exc
+    if not isinstance(manifest, list):
+        raise RuntimeError("SPORTREEL_INPUT_MANIFEST_JSON must be a list")
+    keys: set[str] = set()
+    for item in manifest:
+        if not isinstance(item, dict):
+            continue
+        key = str(item.get("storage_key") or item.get("key") or "").strip()
+        if key:
+            keys.add(key)
+    if not keys:
+        raise RuntimeError("Frozen pipeline input manifest contains no storage keys")
+    return keys
+
+
 def install() -> None:
     import integrations.r2_storage as r2
 
@@ -52,6 +82,17 @@ def install() -> None:
 
     def get_new_videos() -> list[dict[str, Any]]:
         objects = r2.list_objects(scoped_prefix(r2.RAW_PREFIX))
+        allowed = _manifest_keys()
+        if allowed:
+            present = {str(obj.get("Key") or "") for obj in objects}
+            missing = sorted(allowed - present)
+            if missing:
+                raise RuntimeError(f"Frozen input manifest is missing {len(missing)} raw object(s): {missing[:3]}")
+            objects = [obj for obj in objects if str(obj.get("Key") or "") in allowed]
+            if len(objects) != len(allowed):
+                raise RuntimeError(
+                    f"Frozen input manifest expected {len(allowed)} objects but admitted {len(objects)}"
+                )
         videos = [r2._object_to_video(obj) for obj in objects if r2._is_video_key(obj["Key"])]
         if not videos:
             return []
@@ -91,6 +132,13 @@ def install() -> None:
 
     def restore_processed_to_raw() -> int:
         objects = r2.list_objects(scoped_prefix(r2.PROCESSED_PREFIX))
+        allowed = _manifest_keys()
+        if allowed:
+            allowed_processed = {
+                move_between_prefixes(key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
+                for key in allowed
+            }
+            objects = [obj for obj in objects if str(obj.get("Key") or "") in allowed_processed]
         restored = 0
         for obj in objects:
             key = obj["Key"]

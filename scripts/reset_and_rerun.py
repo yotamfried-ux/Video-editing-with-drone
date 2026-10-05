@@ -283,7 +283,7 @@ def _reset_r2(args) -> bool:
     if not args.no_restore:
         print("\n── Step 2: Move objects from processed/ → raw/ ────────────────────")
         if args.dry_run:
-            processed = r2_storage.list_objects(r2_storage.PROCESSED_PREFIX)
+            processed = r2_storage.list_objects(r2_storage.scoped_prefix(r2_storage.PROCESSED_PREFIX) if hasattr(r2_storage, "scoped_prefix") else r2_storage.PROCESSED_PREFIX)
             if not processed:
                 print("  No objects found in processed/.")
             for obj in processed:

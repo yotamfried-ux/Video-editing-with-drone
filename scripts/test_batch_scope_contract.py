@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import ast
+import base64
+import json
 import os
 import sys
 import types
@@ -29,6 +31,7 @@ def fake_r2() -> types.SimpleNamespace:
         listed.append(prefix)
         return [
             {"Key": f"{prefix}clip.mp4"},
+            {"Key": f"{prefix}foreign.mp4"},
             {"Key": f"{prefix}note.txt"},
         ]
 
@@ -54,6 +57,7 @@ def fake_r2() -> types.SimpleNamespace:
 
 def run_scope_probe() -> None:
     os.environ["RAW_BATCH_ID"] = "session one"
+    os.environ["SPORTREEL_INPUT_MANIFEST_JSON"] = '[{"storage_key":"raw/session_one/clip.mp4"}]'
     module = fake_r2()
     dedup_calls: list[list[str]] = []
 
@@ -90,6 +94,42 @@ def run_scope_probe() -> None:
     if not expected.issubset(set(module.moves)):
         raise SystemExit(f"expected scoped moves, got {module.moves}")
 
+
+
+def run_manifest_allowlist_probe() -> None:
+    batch = "batch_24"
+    os.environ["RAW_BATCH_ID"] = batch
+    allowed = [f"raw/{batch}/source_{i:02d}.mp4" for i in range(24)]
+    manifest = [{"storage_key": key} for key in allowed]
+    os.environ["SPORTREEL_INPUT_MANIFEST_B64"] = base64.b64encode(
+        json.dumps(manifest).encode("utf-8")
+    ).decode("ascii")
+
+    listed: list[str] = []
+    module = fake_r2()
+    def list_objects(prefix: str) -> list[dict]:
+        listed.append(prefix)
+        return [{"Key": key} for key in allowed] + [{"Key": f"raw/{batch}/foreign.mp4"}]
+    module.list_objects = list_objects
+    sys.modules["integrations.r2_storage"] = module
+
+    admitted: list[list[str]] = []
+    def prepare_canonical_sources(videos: list[dict], download_one, **kwargs) -> list[dict]:
+        admitted.append([video["id"] for video in videos])
+        return videos
+    sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
+        prepare_canonical_sources=prepare_canonical_sources
+    )
+
+    import importlib
+    import pipeline.r2_batch_scope as batch_scope
+    batch_scope = importlib.reload(batch_scope)
+    batch_scope.install()
+    videos = module.get_new_videos()
+    assert len(videos) == 24, f"expected 24 frozen inputs, got {len(videos)}"
+    assert len(admitted) == 1 and admitted[0] == allowed
+    assert all("foreign.mp4" not in video["id"] for video in videos)
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
 
 def main() -> int:
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
@@ -166,7 +206,11 @@ def main() -> int:
             "batch_id",
         ],
     )
-    require("pipeline reset route", reset_route, ["batch_id", "safeBatchId", "inputs", "pipeline_run_id: run.id"])
+    require("pipeline reset route", reset_route, ["batch_id", "safeBatchId", "inputs", "pipeline_run_id: run.id", "prepareUploadBatchRerun", "releaseUploadBatchAfterDispatchFailure", "input_files: []", "rerunBatch.inputManifest"])
+    rerun_migration = read("supabase/migrations/20261004_prepare_upload_batch_rerun.sql")
+    require("atomic rerun migration", rerun_migration, ["for update", "previous pipeline run", "still active", "v_actual <> v_batch.expected_file_count", "v_verified <> v_batch.expected_file_count", "jsonb_array_length(v_manifest) <> v_batch.expected_file_count", "pipeline_run_id=p_pipeline_run_id", "input_manifest=v_manifest"])
+    if "assertUploadBatchReady(batchId)" in reset_route:
+        raise SystemExit("reset must use the migration-compatible atomic rerun gate, not ready-only assertion")
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
     require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "batch_id: lastBatchId ?? activeBatchId", "Current upload batch"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
@@ -185,6 +229,9 @@ def main() -> int:
         raise SystemExit("upload route must recover durable batch state instead of trusting only request/mobile state")
 
     run_scope_probe()
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
+    run_manifest_allowlist_probe()
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
     print("Batch scope contract checks passed")
     return 0
 

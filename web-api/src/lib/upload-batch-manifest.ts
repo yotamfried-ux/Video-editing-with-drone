@@ -172,3 +172,28 @@ export async function releaseUploadBatchAfterDispatchFailure(
     );
   }
 }
+
+export async function prepareUploadBatchRerun(
+  batchId: string,
+  pipelineRunId: string,
+): Promise<{ batchId: string; expectedFileCount: number; inputManifest: JsonObject[] }> {
+  const { data, error } = await supabaseAdmin.rpc('prepare_upload_batch_rerun', {
+    p_batch_id: batchId,
+    p_pipeline_run_id: pipelineRunId,
+  });
+  if (error) {
+    throw new SourceUploadManifestError(
+      `Could not prepare upload batch rerun: ${error.message}`,
+      statusForRpcError(error.message),
+    );
+  }
+  const result = rpcObject(data, 'Upload batch rerun');
+  if (!Array.isArray(result.input_manifest)) {
+    throw new SourceUploadManifestError('Upload batch rerun returned no input manifest', 503);
+  }
+  return {
+    batchId: String(result.batch_id),
+    expectedFileCount: Number(result.expected_file_count),
+    inputManifest: result.input_manifest as JsonObject[],
+  };
+}

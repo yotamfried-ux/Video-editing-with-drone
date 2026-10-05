@@ -145,21 +145,27 @@ def test_other_visible_people_do_not_trigger_crop_by_themselves() -> None:
     assert decision.mode == "contain"
 
 
-def test_unreliable_tracking_fails_closed_when_crop_is_needed() -> None:
-    try:
-        decide_framing(
-            _event(
-                bbox_xyxy=[1810, 970, 1930, 1090],
-                perception_confidence=0.40,
-                visible_ratio=0.50,
-            ),
-            sport="surfing",
+def test_unreliable_tracking_preserves_full_frame_when_crop_is_unsafe() -> None:
+    event = _event(
+        bbox_xyxy=[1810, 970, 1930, 1090],
+        perception_confidence=0.40,
+        visible_ratio=0.50,
+    )
+    decision = decide_framing(event, sport="surfing")
+    assert decision.mode == "tracked_crop"
+    with tempfile.TemporaryDirectory(prefix="sportreel-track-weak-") as temp_dir:
+        video_path = Path(temp_dir) / "weak.mp4"
+        _write_sidecar(
+            video_path,
+            [
+                {**_detection(0.1, [1800, 960, 1920, 1080]), "confidence": 0.40},
+                {**_detection(0.5, [1820, 970, 1940, 1090]), "confidence": 0.45},
+            ],
         )
-    except RuntimeError as exc:
-        assert "not reliable enough" in str(exc)
-    else:
-        raise AssertionError("low-confidence destructive crop must fail closed")
-
+        resolved = _resolve_track_safe_decision(str(video_path), event, decision)
+    assert resolved.mode == "contain"
+    assert resolved.zoom == 1.0
+    assert "unreliable_track_trajectory_use_contain" in resolved.reason
 
 def test_missing_perception_never_falls_back_to_gemini() -> None:
     try:
