@@ -8,6 +8,7 @@ on:
       - qualification/real-e2e-20261005
     paths:
       - .github/workflows/pipeline-run.yml
+      - scripts/test_canonical_athlete_reconciliation.py
   repository_dispatch:
     types: [new-raw-video]
   workflow_dispatch:
