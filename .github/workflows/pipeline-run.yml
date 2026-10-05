@@ -73,6 +73,13 @@ jobs:
           print(f"torch={torch.__version__} torchvision={torchvision.__version__} lap={lap.__version__} nms={nms.__name__}")
           PY
 
+      - name: Run pipeline qualification regression contracts
+        run: |
+          python3 scripts/test_athlete_coverage_report_contract.py
+          python3 scripts/test_canonical_athlete_reconciliation.py
+          python3 scripts/test_publishable_reel_business_contract.py
+          python3 scripts/test_publishable_identity_lineage_contract.py
+
       - name: Write credential files from secrets
         env:
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
