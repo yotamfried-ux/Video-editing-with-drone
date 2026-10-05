@@ -3,6 +3,11 @@ run-name: >-
   Run Pipeline · ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || github.run_id }}
 
 on:
+  push:
+    branches:
+      - qualification/real-e2e-20261005
+    paths:
+      - .github/workflows/pipeline-run.yml
   repository_dispatch:
     types: [new-raw-video]
   workflow_dispatch:
@@ -96,7 +101,7 @@ jobs:
           R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
-          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
+          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || (github.ref_name == 'qualification/real-e2e-20261005' && 'batch_2026-10-03T12-19-52_ttgvat95') || '' }}
         run: python scripts/check_storage_access.py
 
       - name: Preflight QA re-edit Supabase schema
@@ -110,12 +115,12 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
+          TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || (github.ref_name == 'qualification/real-e2e-20261005' && '731d9080-b65d-4b47-b412-4ef8f23c6f1e') || '' }}
         run: |
           python scripts/export_pipeline_input_manifest.py "$TRACKED_RUN_ID" >> "$GITHUB_ENV"
 
       - name: Reset (optional — manual runs only)
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset }}
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.reset) || github.ref_name == 'qualification/real-e2e-20261005' }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
@@ -132,8 +137,8 @@ jobs:
           R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
           OWNER_EMAIL: ${{ secrets.OWNER_EMAIL }}
           TMP_DIR: /tmp/dtor
-          PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
-          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
+          PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || (github.ref_name == 'qualification/real-e2e-20261005' && '731d9080-b65d-4b47-b412-4ef8f23c6f1e') || '' }}
+          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || (github.ref_name == 'qualification/real-e2e-20261005' && 'batch_2026-10-03T12-19-52_ttgvat95') || '' }}
           FULL_CLEAN: ${{ inputs.full_clean || 'false' }}
         run: |
           EXTRA_FLAGS=""
@@ -170,8 +175,8 @@ jobs:
           SPORTREEL_ULTRALYTICS_FPS: '30'
           SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '5' }}
           TMP_DIR: /tmp/dtor
-          PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
-          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
+          PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || (github.ref_name == 'qualification/real-e2e-20261005' && '731d9080-b65d-4b47-b412-4ef8f23c6f1e') || '' }}
+          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || (github.ref_name == 'qualification/real-e2e-20261005' && 'batch_2026-10-03T12-19-52_ttgvat95') || '' }}
         run: bash scripts/run_pipeline_with_diagnostics.sh
 
       - name: Verify QA re-edit task persistence
@@ -196,7 +201,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           JOB_STATUS: ${{ job.status }}
-          TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
+          TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || (github.ref_name == 'qualification/real-e2e-20261005' && '731d9080-b65d-4b47-b412-4ef8f23c6f1e') || '' }}
         run: python3 scripts/finalize_unfinished_run.py --table pipeline_runs --run-id "$TRACKED_RUN_ID"
 
       - name: Clean up credential files
