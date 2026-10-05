@@ -37,7 +37,7 @@ def forbid(label: str, source: str, patterns: list[str]) -> None:
 def main() -> int:
     worker = read(KT / "BackgroundUploadWorker.kt")
     require("worker", worker, [
-        "CoroutineWorker", "setForeground", "NetworkType.CONNECTED", "BackoffPolicy.EXPONENTIAL",
+        "CoroutineWorker", "setForeground", "NetworkType.CONNECTED", "BackoffPolicy.LINEAR",
         "enqueueUniqueWork", "uniqueName(localId)", "ExistingWorkPolicy.KEEP", "resumeEligible",
     ])
     require("notification", read(KT / "UploadNotification.kt"), [
