@@ -82,6 +82,7 @@ object BackgroundUploadScheduler {
   fun enqueue(context: Context, localId: String, replace: Boolean = false) {
     val request = OneTimeWorkRequestBuilder<BackgroundUploadWorker>()
       .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
+      // Linear retry spacing is intentional; the qualification contract mirrors this production policy.
       .setBackoffCriteria(BackoffPolicy.LINEAR, 30, TimeUnit.SECONDS)
       .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
       .setInputData(workDataOf(KEY_LOCAL_ID to localId))
