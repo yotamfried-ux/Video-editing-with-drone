@@ -409,20 +409,41 @@ export default function PipelineScreen() {
   }, []);
 
   const runPipeline = async () => {
-    // Client half of the verified-batch gate; the server still re-checks every file.
+    // Derive dispatch identity from the verified upload rows, never from stale screen state.
+    if (!uploadItems.length) {
+      Alert.alert('No verified batch selected', 'Choose or restore the videos you want to process before starting the pipeline.');
+      return;
+    }
     if (hasIncompleteUploads(uploadItems)) {
       Alert.alert('Uploads not finished', 'Every selected video must finish uploading and verify before the pipeline can start.');
       return;
     }
+    const verifiedBatchIds = [...new Set(
+      uploadItems
+        .filter((item) => item.status === 'verified')
+        .map((item) => item.batch_id?.trim())
+        .filter((batchId): batchId is string => Boolean(batchId))
+    )];
+    if (verifiedBatchIds.length !== 1) {
+      Alert.alert(
+        'Upload batch is ambiguous',
+        verifiedBatchIds.length
+          ? `Verified videos belong to ${verifiedBatchIds.length} batches. Select one batch before running.`
+          : 'Verified videos are not bound to a durable upload batch. Restore or upload them again before running.'
+      );
+      return;
+    }
+    const dispatchBatchId = verifiedBatchIds[0];
+    setActiveBatchId(dispatchBatchId);
     setTriggering(true);
     try {
       const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_id: activeBatchId }),
+        body: JSON.stringify({ batch_id: dispatchBatchId }),
       });
       setLastRunId(result.pipeline_run_id);
-      const finishedBatch = result.batch_id ?? activeBatchId;
+      const finishedBatch = result.batch_id ?? dispatchBatchId;
       if (finishedBatch) {
         setLastBatchId(finishedBatch);
         setActiveBatchId(null);
