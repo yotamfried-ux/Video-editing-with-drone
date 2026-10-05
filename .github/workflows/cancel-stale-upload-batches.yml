@@ -1,0 +1,22 @@
+name: Cancel stale upload batches
+
+on:
+  push:
+    branches:
+      - qualification/real-e2e-20261005
+    paths:
+      - .github/workflows/cancel-stale-upload-batches.yml
+
+jobs:
+  cancel:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Cancel stale unbound gallery batches
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: |
+          python scripts/background_upload_evidence.py cancel-batch --batch-id batch_2026-10-03T12-50-20_h90o9wap
+          python scripts/background_upload_evidence.py cancel-batch --batch-id batch_2026-10-03T13-12-37_u1va6cop
