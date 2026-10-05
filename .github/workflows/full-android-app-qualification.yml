@@ -390,7 +390,7 @@ jobs:
             bash mobile/.maestro/app-e2e/run-user-journey.sh 2>&1 | tee "$RUNNER_TEMP/android-user-journey.log"
 
       - name: Capture and classify Android failure
-        if: steps.android-journey.outcome == 'failure'
+        if: ${{ !cancelled() && steps.android-journey.outcome == 'failure' }}
         id: classify-failure
         shell: bash
         run: |
@@ -412,7 +412,7 @@ jobs:
           fi
 
       - name: Retry authenticated journey after classified infrastructure failure
-        if: steps.android-journey.outcome == 'failure' && steps.classify-failure.outputs.classification == 'infrastructure'
+        if: ${{ !cancelled() && steps.android-journey.outcome == 'failure' && steps.classify-failure.outputs.classification == 'infrastructure' }}
         id: android-infra-retry
         env:
           MAESTRO_CLI_NO_ANALYTICS: '1'
@@ -431,14 +431,14 @@ jobs:
             bash mobile/.maestro/app-e2e/run-user-journey.sh 2>&1 | tee "$RUNNER_TEMP/android-user-journey-retry.log"
 
       - name: Fail explicit product or test regression
-        if: steps.android-journey.outcome == 'failure' && steps.classify-failure.outputs.classification != 'infrastructure'
+        if: ${{ !cancelled() && steps.android-journey.outcome == 'failure' && steps.classify-failure.outputs.classification != 'infrastructure' }}
         run: |
           echo "::error::Authenticated Android journey failed without a recognized emulator/runner infrastructure signature."
           cat "$RUNNER_TEMP/android-failure-classification.json" || true
           exit 1
 
       - name: Verify UI side effects and cross-user RLS independently
-        if: steps.android-journey.outcome == 'success' || steps.android-infra-retry.outcome == 'success'
+        if: ${{ !cancelled() && (steps.android-journey.outcome == 'success' || steps.android-infra-retry.outcome == 'success') }}
         env:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
         run: python3 scripts/app_user_e2e_evidence.py verify
