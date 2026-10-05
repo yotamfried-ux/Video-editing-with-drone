@@ -385,9 +385,7 @@ jobs:
           ram-size: 2048M
           emulator-boot-timeout: 480
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
-          script: |
-            set -o pipefail
-            bash mobile/.maestro/app-e2e/run-user-journey.sh 2>&1 | tee "$RUNNER_TEMP/android-user-journey.log"
+          script: bash -lc 'set -o pipefail; bash mobile/.maestro/app-e2e/run-user-journey.sh 2>&1 | tee "$RUNNER_TEMP/android-user-journey.log"'
 
       - name: Capture and classify Android failure
         if: ${{ !cancelled() && steps.android-journey.outcome == 'failure' }}
@@ -426,9 +424,7 @@ jobs:
           ram-size: 2048M
           emulator-boot-timeout: 480
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on -wipe-data
-          script: |
-            set -o pipefail
-            bash mobile/.maestro/app-e2e/run-user-journey.sh 2>&1 | tee "$RUNNER_TEMP/android-user-journey-retry.log"
+          script: bash -lc 'set -o pipefail; bash mobile/.maestro/app-e2e/run-user-journey.sh 2>&1 | tee "$RUNNER_TEMP/android-user-journey-retry.log"'
 
       - name: Fail explicit product or test regression
         if: ${{ !cancelled() && steps.android-journey.outcome == 'failure' && steps.classify-failure.outputs.classification != 'infrastructure' }}
