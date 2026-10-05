@@ -9,6 +9,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+# When executed as `python scripts/record_publishable_business_gate_status.py`,
+# Python puts `scripts/` on sys.path. Add the repository root so the top-level
+# `integrations` package resolves consistently with scripts/run_tracked.py.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 
 def _load(path: Path) -> dict[str, Any]:
     try:
