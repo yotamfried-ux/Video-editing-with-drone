@@ -145,9 +145,16 @@ def _athlete_ids(events_by_reel: dict[str, list[dict[str, Any]]]) -> list[str]:
 
 
 def athlete_key(sport: str, athlete_label: str, events_by_reel: dict[str, list[dict[str, Any]]]) -> str:
-    """Return a stable run-local key from canonical IDs, label, and action lineage."""
+    """Return a stable run-local key, anchored to canonical identity when available.
+
+    QA/recompile passes may change action lineage. They must update the same athlete
+    manifest row instead of creating duplicate ownership rows for one athlete_id.
+    """
     ids = _athlete_ids(events_by_reel)
-    seed = "\n".join([_normal(sport), *ids, _normal(athlete_label), *_event_lineage(events_by_reel)])
+    if len(ids) == 1:
+        seed = "\n".join([_normal(sport), "canonical", ids[0]])
+    else:
+        seed = "\n".join([_normal(sport), *ids, _normal(athlete_label), *_event_lineage(events_by_reel)])
     digest = hashlib.sha256(seed.encode("utf-8")).hexdigest()[:16]
     return f"athlete_{digest}"
 
