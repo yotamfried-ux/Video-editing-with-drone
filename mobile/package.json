@@ -64,6 +64,7 @@
     "postcss": "8.5.23",
     "uuid": "11.1.1",
     "decode-uri-component": "0.5.0",
-    "image-size": "npm:image-size-next@1.2.2"
+    "image-size": "npm:image-size-next@1.2.2",
+    "source-map-js": "1.2.2"
   }
 }
