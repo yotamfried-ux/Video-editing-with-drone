@@ -23,6 +23,38 @@ def require(label: str, text: str, tokens: list[str]) -> None:
         raise SystemExit(f"{label} missing tokens: {missing}")
 
 
+def _entry(key: str, size: int = 10) -> dict:
+    return {
+        "upload_id": key,
+        "storage_key": key,
+        "source_filename": key.rsplit("/", 1)[-1],
+        "source_size_bytes": size,
+        "verified_size_bytes": size,
+    }
+
+
+class _Store:
+    """In-memory R2 for the frozen-input reconcile step."""
+
+    def __init__(self, objects: dict[str, int]) -> None:
+        self.objects = dict(objects)
+
+    def head(self, key):
+        return {"ContentLength": self.objects[key]} if key in self.objects else None
+
+    def list(self, prefix):
+        return [{"Key": k, "Size": v} for k, v in self.objects.items() if k.startswith(prefix)]
+
+    def copy(self, src, dst):
+        self.objects[dst] = self.objects[src]
+
+    def delete(self, key):
+        del self.objects[key]
+
+    def sha256(self, key):
+        raise AssertionError("sha256 not expected here")
+
+
 def fake_r2() -> types.SimpleNamespace:
     moves: list[tuple[str, str]] = []
     listed: list[str] = []
@@ -57,7 +89,7 @@ def fake_r2() -> types.SimpleNamespace:
 
 def run_scope_probe() -> None:
     os.environ["RAW_BATCH_ID"] = "session one"
-    os.environ["SPORTREEL_INPUT_MANIFEST_JSON"] = '[{"storage_key":"raw/session_one/clip.mp4"}]'
+    os.environ["SPORTREEL_INPUT_MANIFEST_JSON"] = json.dumps([_entry("raw/session_one/clip.mp4")])
     module = fake_r2()
     dedup_calls: list[list[str]] = []
 
@@ -75,8 +107,15 @@ def run_scope_probe() -> None:
 
     import pipeline.r2_batch_scope as batch_scope
 
+    # Frozen input is currently under processed/ (previous attempt): the scoped
+    # read must restore it first, leaving unrelated processed objects alone.
+    store = _Store({"processed/session_one/clip.mp4": 10, "processed/other_batch/x.mp4": 5})
+    batch_scope._store_factory = lambda: store
     batch_scope.install()
+    # fake_r2 lists a static raw view; real listing is exercised by the store above.
     videos = module.get_new_videos()
+    if store.objects != {"raw/session_one/clip.mp4": 10, "processed/other_batch/x.mp4": 5}:
+        raise SystemExit(f"expected exact restore and untouched foreign object, got {store.objects}")
     if module.listed != ["raw/session_one/"]:
         raise SystemExit(f"expected scoped listing, got {module.listed}")
     if [video["key"] for video in videos] != ["raw/session_one/clip.mp4"]:
@@ -86,13 +125,17 @@ def run_scope_probe() -> None:
 
     module.mark_as_processed("raw/session_one/clip.mp4")
     module.requeue_video("processed/session_one/clip.mp4")
-    module.restore_processed_to_raw()
     expected = {
         ("raw/session_one/clip.mp4", "processed/session_one/clip.mp4"),
         ("processed/session_one/clip.mp4", "raw/session_one/clip.mp4"),
     }
     if not expected.issubset(set(module.moves)):
         raise SystemExit(f"expected scoped moves, got {module.moves}")
+    store.objects = {"processed/session_one/clip.mp4": 10, "processed/other_batch/x.mp4": 5}
+    if module.restore_processed_to_raw() != 1 or "raw/session_one/clip.mp4" not in store.objects:
+        raise SystemExit("batch restore must be manifest-driven and restore exactly the frozen input")
+    if "processed/other_batch/x.mp4" not in store.objects:
+        raise SystemExit("batch restore must never touch another batch")
 
 
 
@@ -100,7 +143,7 @@ def run_manifest_allowlist_probe() -> None:
     batch = "batch_24"
     os.environ["RAW_BATCH_ID"] = batch
     allowed = [f"raw/{batch}/source_{i:02d}.mp4" for i in range(24)]
-    manifest = [{"storage_key": key} for key in allowed]
+    manifest = [_entry(key) for key in allowed]
     os.environ["SPORTREEL_INPUT_MANIFEST_B64"] = base64.b64encode(
         json.dumps(manifest).encode("utf-8")
     ).decode("ascii")
@@ -109,7 +152,7 @@ def run_manifest_allowlist_probe() -> None:
     module = fake_r2()
     def list_objects(prefix: str) -> list[dict]:
         listed.append(prefix)
-        return [{"Key": key} for key in allowed] + [{"Key": f"raw/{batch}/foreign.mp4"}]
+        return [{"Key": key} for key in allowed]
     module.list_objects = list_objects
     sys.modules["integrations.r2_storage"] = module
 
@@ -124,11 +167,20 @@ def run_manifest_allowlist_probe() -> None:
     import importlib
     import pipeline.r2_batch_scope as batch_scope
     batch_scope = importlib.reload(batch_scope)
+    store = _Store({key: 10 for key in allowed})
+    batch_scope._store_factory = lambda: store
     batch_scope.install()
     videos = module.get_new_videos()
     assert len(videos) == 24, f"expected 24 frozen inputs, got {len(videos)}"
     assert len(admitted) == 1 and admitted[0] == allowed
-    assert all("foreign.mp4" not in video["id"] for video in videos)
+    # An unexpected production input in the batch namespace must fail closed.
+    store.objects[f"raw/{batch}/foreign.mp4"] = 3
+    try:
+        module.get_new_videos()
+    except RuntimeError as exc:
+        assert "unexpected" in str(exc)
+    else:
+        raise AssertionError("unexpected raw input must stop the run before admission")
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
 
 def main() -> int:
@@ -199,7 +251,7 @@ def main() -> int:
         [
             "batch_id?: string",
             "safeBatchId",
-            "resolveReadyUploadBatchId",
+            "batch_id is required",
             "assertUploadBatchReady",
             "input_manifest_frozen: true",
             "client_payload",

@@ -42,12 +42,23 @@ def _endpoint_url() -> str:
 
 def _client():
     import boto3
+    from botocore.config import Config
+
+    # Bound every R2 network attempt so storage outages cannot hang a run.
+    connect_timeout = int(os.getenv("R2_CONNECT_TIMEOUT_SECONDS", "10"))
+    read_timeout = int(os.getenv("R2_READ_TIMEOUT_SECONDS", "60"))
+    max_attempts = int(os.getenv("R2_MAX_ATTEMPTS", "4"))
 
     return boto3.client(
         "s3",
         endpoint_url=_endpoint_url(),
         aws_access_key_id=os.getenv("R2_ACCESS_KEY_ID") or os.getenv("ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY") or os.getenv("SECRET_KEY_ID"),
+        config=Config(
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            retries={"max_attempts": max_attempts, "mode": "standard"},
+        ),
     )
 
 
@@ -260,11 +271,24 @@ def delete_review_drafts() -> int:
 
 
 def restore_processed_to_raw() -> int:
+    """Global processed/ -> raw/ sweep (legacy, batch-less runs only).
+
+    A batch-scoped run must restore from its frozen manifest instead
+    (pipeline.r2_batch_restore); a global sweep would flatten batch keys and
+    could touch unrelated batches.
+    """
+    if os.getenv("RAW_BATCH_ID", "").strip() or os.getenv("BATCH_ID", "").strip():
+        raise RuntimeError(
+            "global processed/ restore is forbidden when a batch id is set; "
+            "use the manifest-driven batch restore"
+        )
     objects = _list_objects(PROCESSED_PREFIX)
     restored = 0
     for obj in objects:
         key = obj["Key"]
-        dest_key = _join(RAW_PREFIX, _basename(key))
+        # Preserve the relative path: flattening processed/<batch>/x to raw/x is what
+        # once stranded a verified batch outside its raw/<batch>/ namespace.
+        dest_key = RAW_PREFIX + key[len(PROCESSED_PREFIX):]
         move_object(key, dest_key)
         restored += 1
     return restored

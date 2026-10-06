@@ -1,0 +1,71 @@
+name: Pipeline Retry Storage Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-retry-storage-check.yml'
+      - '.github/workflows/pipeline-run.yml'
+      - 'integrations/r2_storage.py'
+      - 'pipeline/r2_batch_restore.py'
+      - 'pipeline/r2_batch_scope.py'
+      - 'pipeline/perception/**'
+      - 'pipeline/publishable_reel_policy.py'
+      - 'scripts/preflight_frozen_inputs.py'
+      - 'scripts/finalize_upload_batch.py'
+      - 'scripts/reset_and_rerun.py'
+      - 'scripts/upl01_backend_evidence.py'
+      - 'scripts/build_athlete_coverage_report.py'
+      - 'scripts/record_publishable_business_gate_status.py'
+      - 'scripts/test_frozen_input_restore_contract.py'
+      - 'scripts/test_finalize_upload_batch_contract.py'
+      - 'scripts/test_perception_cold_start_contract.py'
+      - 'scripts/test_upload_batch_isolation_contract.py'
+      - 'scripts/test_batch_scope_contract.py'
+      - 'supabase/migrations/20261006_*.sql'
+      - 'supabase/tests/**'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+
+permissions:
+  contents: read
+
+jobs:
+  python-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check pyyaml
+      - name: Frozen-input restore, batch scope, finalize, perception cold start, isolation
+        env:
+          PYTHONPATH: .
+        run: |
+          set -e
+          for t in test_frozen_input_restore_contract test_batch_scope_contract test_finalize_upload_batch_contract \
+                   test_perception_cold_start_contract test_upload_batch_isolation_contract test_upl01_maestro_contract \
+                   test_upload_batch_verified_gate_contract test_publishable_gate_status_contract \
+                   test_canonical_athlete_reconciliation test_athlete_coverage_report_contract \
+                   test_publishable_reel_business_contract test_publishable_identity_lineage_contract \
+                   test_draft_identity_lineage_contract test_athlete_canonicalization_contract; do
+            echo "::group::$t"; python scripts/$t.py; echo "::endgroup::"
+          done
+
+  database-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Removed sources, rerun and sealed-batch regression against real migrations
+        env:
+          PGPASSWORD: postgres
+        run: psql -h localhost -U postgres -v ON_ERROR_STOP=1 -f supabase/tests/upload_batch_removed_sources.sql

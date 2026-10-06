@@ -195,7 +195,7 @@ def main() -> int:
         "pipeline verified batch gate",
         pipeline_start,
         [
-            "resolveReadyUploadBatchId",
+            "batch_id is required",
             "assertUploadBatchReady",
             "input_files: readyBatch.inputManifest",
             "input_manifest_frozen: true",
@@ -208,7 +208,7 @@ def main() -> int:
         "pipeline admission",
         pipeline_post,
         [
-            "resolveReadyUploadBatchId",
+            "batch_id is required",
             "assertUploadBatchReady",
             ".from('pipeline_runs')",
             "markUploadBatchRunning",

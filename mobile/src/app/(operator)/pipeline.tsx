@@ -306,8 +306,9 @@ export default function PipelineScreen() {
       const result = await operatorFetch<{ batches: Array<{ batch_id: string; expected_file_count: number; actual_file_count: number; verified_file_count: number }> }>('/api/operator/upload/batch');
       const batches = result.batches ?? [];
       if (batches.length === 1) {
+        // A restored ready batch is sealed: it is only a Run Pipeline target. It must never become
+        // the upload target, or new picks (including CI test uploads) would reopen a production batch.
         setRestoredServerBatch({ batch_id: batches[0].batch_id, expected_file_count: batches[0].expected_file_count });
-        setActiveBatchId(batches[0].batch_id);
       } else {
         setRestoredServerBatch(null);
         if (batches.length === 0) setActiveBatchId(null);
@@ -525,7 +526,7 @@ export default function PipelineScreen() {
       const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_clean: fullClean, batch_id: lastBatchId ?? activeBatchId }),
+        body: JSON.stringify({ full_clean: fullClean, batch_id: lastBatchId ?? activeBatchId ?? restoredServerBatch?.batch_id }),
       });
       setLastRunId(result.pipeline_run_id);
       if (result.batch_id) setLastBatchId(result.batch_id);

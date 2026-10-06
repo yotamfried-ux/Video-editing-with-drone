@@ -9,6 +9,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
+# Run as `python scripts/record_publishable_business_gate_status.py`, sys.path[0] is scripts/,
+# so the repo root must be added explicitly or `integrations` cannot be imported.
+_ROOT = str(Path(__file__).resolve().parents[1])
+if _ROOT not in sys.path:
+    sys.path.insert(0, _ROOT)
+
 
 def _load(path: Path) -> dict[str, Any]:
     try:
