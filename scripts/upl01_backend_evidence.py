@@ -76,6 +76,63 @@ def check_rows(rows: list[dict[str, Any]], *, fixture_bytes: int) -> list[str]:
     return errors
 
 
+def check_isolated_batch(
+    row: dict[str, Any], batches: list[dict[str, Any]], *, run_started_at: str
+) -> list[str]:
+    """Return failure reasons unless the row landed in a batch this run itself created.
+
+    A CI upload that joins a batch which already existed (for example the only
+    ready production batch) corrupts that batch's frozen inputs, so it is a hard failure.
+    """
+    batch_id = row.get("batch_id")
+    match = next((b for b in batches if b.get("batch_id") == batch_id), None)
+    if match is None:
+        return [f"cannot prove isolation: batch {batch_id!r} was not found"]
+    created = str(match.get("created_at") or "")
+    if not created or created < run_started_at:
+        return [f"row joined pre-existing batch {batch_id!r} (created {created or 'unknown'} before run start {run_started_at})"]
+    return []
+
+
+def fetch_batch(supabase_url: str, service_key: str, batch_id: str) -> list[dict[str, Any]]:
+    query = urllib.parse.urlencode({"select": "batch_id,state,created_at,expected_file_count", "batch_id": f"eq.{batch_id}"})
+    status, body = _request(
+        f"{supabase_url.rstrip('/')}/rest/v1/upload_batches?{query}",
+        headers={"apikey": service_key, "Authorization": f"Bearer {service_key}"},
+    )
+    if status != 200 or not isinstance(body, list):
+        raise RuntimeError(f"Supabase upload_batches read failed with HTTP {status}")
+    return body
+
+
+def cancel_ci_batch(supabase_url: str, service_key: str, batch_id: str, *, since_iso: str) -> bool:
+    """Cancel ONLY the CI batch this run created, so it never lingers as a restorable ready batch.
+
+    Refuses unless the batch was created after the run started and every source row in it
+    was created after the run started too. Production batches can never match.
+    """
+    headers = {"apikey": service_key, "Authorization": f"Bearer {service_key}"}
+    batches = fetch_batch(supabase_url, service_key, batch_id)
+    if len(batches) != 1 or str(batches[0].get("created_at") or "") < since_iso:
+        return False
+    status, rows = _request(
+        f"{supabase_url.rstrip('/')}/rest/v1/source_uploads?"
+        + urllib.parse.urlencode({"select": "id,created_at", "batch_id": f"eq.{batch_id}"}),
+        headers=headers,
+    )
+    if status != 200 or not isinstance(rows, list) or not rows or any(str(r.get("created_at") or "") < since_iso for r in rows):
+        return False
+    request = urllib.request.Request(
+        f"{supabase_url.rstrip('/')}/rest/v1/upload_batches?"
+        + urllib.parse.urlencode({"batch_id": f"eq.{batch_id}", "created_at": f"gte.{since_iso}", "state": "in.(collecting,uploading,ready)"}),
+        data=json.dumps({"state": "cancelled"}).encode(),
+        headers={**headers, "Content-Type": "application/json", "Prefer": "return=minimal"},
+        method="PATCH",
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return 200 <= response.status < 300
+
+
 def check_verify_response(status_code: int, body: dict[str, Any], *, row: dict[str, Any], fixture_bytes: int) -> list[str]:
     """Return failure reasons for the verify API's view of the exact R2 object."""
     errors: list[str] = []
@@ -160,6 +217,9 @@ def main() -> int:
             if not operator_secret:
                 errors.append("OPERATOR_SECRET is required for verified-upload backend verification")
             else:
+                errors += check_isolated_batch(
+                    row, fetch_batch(args.supabase_url, service_key, row["batch_id"]), run_started_at=args.since
+                )
                 verify_status, verify_body = _request(
                     f"{args.api_base.rstrip('/')}/api/operator/upload/verify",
                     headers={"x-operator-secret": operator_secret, "Content-Type": "application/json"},
@@ -167,7 +227,12 @@ def main() -> int:
                 )
                 errors += check_verify_response(verify_status, verify_body or {}, row=row, fixture_bytes=fixture_bytes)
 
+    ci_batch_cancelled = False
+    if args.expect == "verified-upload" and row.get("batch_id") and not errors:
+        ci_batch_cancelled = cancel_ci_batch(args.supabase_url, service_key, row["batch_id"], since_iso=args.since)
+
     evidence = {
+        "ci_batch_cancelled": ci_batch_cancelled,
         "experiment": "UPL-01",
         "harness": "maestro",
         "result": "PASS" if not errors else "FAIL",

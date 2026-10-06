@@ -34,7 +34,7 @@ jobs:
   run:
     name: Process new drone footage
     runs-on: ubuntu-latest
-    timeout-minutes: 350
+    timeout-minutes: 330
     env:
       STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || secrets.STORAGE_BACKEND || 'drive' }}
     steps:
@@ -89,6 +89,7 @@ jobs:
           fi
 
       - name: Preflight storage access
+        timeout-minutes: 5
         env:
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
           R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
@@ -100,12 +101,14 @@ jobs:
         run: python scripts/check_storage_access.py
 
       - name: Preflight QA re-edit Supabase schema
+        timeout-minutes: 5
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python scripts/check_qa_reedit_schema.py
 
       - name: Load frozen pipeline input manifest
+        timeout-minutes: 5
         if: ${{ (github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '') != '' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -115,6 +118,7 @@ jobs:
           python scripts/export_pipeline_input_manifest.py "$TRACKED_RUN_ID" >> "$GITHUB_ENV"
 
       - name: Reset (optional — manual runs only)
+        timeout-minutes: 15
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.reset }}
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
@@ -141,6 +145,7 @@ jobs:
           python scripts/reset_and_rerun.py --reset-only $EXTRA_FLAGS
 
       - name: Restore and verify frozen R2 inputs
+        timeout-minutes: 15
         # Fails before any expensive work unless raw/<batch>/ holds exactly the
         # frozen manifest. Inputs a previous attempt moved to processed/<batch>/
         # are restored from that exact batch only.
@@ -157,6 +162,7 @@ jobs:
         run: python scripts/preflight_frozen_inputs.py --phase run
 
       - name: Run pipeline
+        timeout-minutes: 300
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
@@ -191,6 +197,7 @@ jobs:
         run: bash scripts/run_pipeline_with_diagnostics.sh
 
       - name: Verify QA re-edit task persistence
+        timeout-minutes: 5
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
@@ -206,6 +213,7 @@ jobs:
           if-no-files-found: warn
 
       - name: Finalize operator pipeline row if the workflow failed or was cancelled
+        timeout-minutes: 5
         # cancelled() covers timeout-minutes and manual cancellation, where failure() is false.
         if: failure() || cancelled()
         env:
@@ -216,6 +224,7 @@ jobs:
         run: python3 scripts/finalize_unfinished_run.py --table pipeline_runs --run-id "$TRACKED_RUN_ID"
 
       - name: Finalize upload batch lifecycle
+        timeout-minutes: 5
         # Runs after the pipeline-row finalizer so cancelled/early-failed workflows
         # have a terminal pipeline status before the batch state is reconciled.
         if: always()

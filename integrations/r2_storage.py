@@ -42,12 +42,23 @@ def _endpoint_url() -> str:
 
 def _client():
     import boto3
+    from botocore.config import Config
+
+    # Bound every R2 network attempt so storage outages cannot hang a run.
+    connect_timeout = int(os.getenv("R2_CONNECT_TIMEOUT_SECONDS", "10"))
+    read_timeout = int(os.getenv("R2_READ_TIMEOUT_SECONDS", "60"))
+    max_attempts = int(os.getenv("R2_MAX_ATTEMPTS", "4"))
 
     return boto3.client(
         "s3",
         endpoint_url=_endpoint_url(),
         aws_access_key_id=os.getenv("R2_ACCESS_KEY_ID") or os.getenv("ACCESS_KEY_ID"),
         aws_secret_access_key=os.getenv("R2_SECRET_ACCESS_KEY") or os.getenv("SECRET_KEY_ID"),
+        config=Config(
+            connect_timeout=connect_timeout,
+            read_timeout=read_timeout,
+            retries={"max_attempts": max_attempts, "mode": "standard"},
+        ),
     )
 
 

@@ -85,6 +85,16 @@ def main() -> int:
     if missing:
         raise SystemExit(f"status propagation script missing contract tokens: {missing}")
 
+    # Regression: the pipeline invokes the script by path, where sys.path[0] is scripts/ and the
+    # repo root is NOT importable unless the script adds it. Run it from a foreign cwd.
+    import json, subprocess, sys, tempfile
+    with tempfile.TemporaryDirectory() as tmp:
+        result = Path(tmp) / "gate.json"
+        result.write_text(json.dumps({"passed": True}))
+        proc = subprocess.run([sys.executable, str(SCRIPT_PATH), str(result)], cwd=tmp, capture_output=True, text=True)
+        if proc.returncode != 0 or "ModuleNotFoundError" in proc.stderr:
+            raise SystemExit(f"status script must import repo modules when run by path: {proc.stderr[-400:]}")
+
     print("Publishable business gate status propagation checks passed")
     return 0
 

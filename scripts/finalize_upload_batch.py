@@ -4,7 +4,8 @@
 This is intentionally stdlib-only so it can run even when dependency setup or
 pipeline execution fails. It never deletes source objects. A successful
 pipeline closes its batch as completed; any terminal non-success result closes
-it as failed. Non-terminal runs are left untouched.
+it as failed. Non-terminal runs are left untouched. Cancelled and timed-out
+workflows close as failed so the batch can be retried instead of staying locked.
 """
 from __future__ import annotations
 
@@ -16,7 +17,13 @@ import urllib.parse
 import urllib.request
 
 SUCCESS = {"succeeded"}
-FAILURE = {"failed", "dispatch_failed", "no_input", "no_reviewable_drafts"}
+# Cancellation/timeouts are normally rewritten to "failed" by finalize_unfinished_run.py
+# before this runs; the synonyms keep a batch from staying "running" forever if a
+# cancelled run row is ever written with its own status.
+FAILURE = {
+    "failed", "dispatch_failed", "no_input", "no_reviewable_drafts",
+    "cancelled", "canceled", "timed_out", "cancelling",
+}
 
 
 def request_json(method: str, url: str, key: str, body: dict | None = None):

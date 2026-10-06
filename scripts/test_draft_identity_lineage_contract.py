@@ -153,7 +153,7 @@ def main() -> int:
         require(coverage["summary"]["selected_identity_lineage_completeness_rate"] == 1.0, "coverage lineage completeness should be 100%")
         require(coverage["summary"]["selected_action_seconds"] == 17.0, "coverage did not use the actual final edited window")
         by_id = {athlete["athlete_cluster_id"]: athlete for athlete in coverage["athletes"]}
-        selected_key = "edited_surf.mp4::chunk_01:person_A"
+        selected_key = "athlete::ath_1234567890"  # canonical identity owns the cluster once an athlete_id exists
         rejected_key = "edited_surf.mp4::chunk_01:person_B"
         require(by_id[selected_key]["athlete_ids"] == ["ath_1234567890"], "coverage athlete ID missing")
         require(by_id[selected_key]["selected_windows"][0]["person_id"] == "chunk_01:person_A", "coverage selected window lost person ID")

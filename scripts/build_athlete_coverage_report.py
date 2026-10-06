@@ -62,13 +62,19 @@ def _norm(value: Any) -> str:
     return re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
 
 
-def _cluster_key(candidate: dict[str, Any]) -> str:
+def _local_cluster_key(candidate: dict[str, Any]) -> str:
     person_id = str(candidate.get("person_id") or candidate.get("chunk_person_id") or "").strip()
     source_video = str(candidate.get("source_video") or "").strip()
-    description = str(candidate.get("person_description") or "").strip()
+    description = str(candidate.get("person_description") or candidate.get("description") or "").strip()
     if person_id and source_video:
         return f"{source_video}::{person_id}"
     return person_id or _norm(description) or "unknown_cluster"
+
+
+def _cluster_key(candidate: dict[str, Any]) -> str:
+    """Prefer canonical identity once it exists; source/person is only a local alias."""
+    athlete_id = str(candidate.get("athlete_id") or "").strip()
+    return f"athlete::{athlete_id}" if athlete_id else _local_cluster_key(candidate)
 
 
 def _window_from_field(candidate: dict[str, Any], field: str) -> dict[str, float | None]:
@@ -153,14 +159,18 @@ def build_report(ledger_path: Path, selection_audit_path: Path | None = None) ->
         candidates.append(row)
 
     grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    local_to_canonical: dict[str, str] = {}
     for candidate in candidates:
-        grouped[_cluster_key(candidate)].append(candidate)
+        canonical_key = _cluster_key(candidate)
+        grouped[canonical_key].append(candidate)
+        local_to_canonical[_local_cluster_key(candidate)] = canonical_key
     registry_by_cluster: dict[str, dict[str, Any]] = {}
     for raw in ledger.get("detected_athlete_registry", []) or []:
         if not isinstance(raw, dict):
             continue
         registry = dict(raw)
-        cluster_id = _cluster_key(registry)
+        local_key = _local_cluster_key(registry)
+        cluster_id = local_to_canonical.get(local_key, _cluster_key(registry))
         registry_by_cluster[cluster_id] = registry
         grouped.setdefault(cluster_id, [])
 
