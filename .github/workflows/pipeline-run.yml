@@ -199,6 +199,17 @@ jobs:
           TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
         run: python3 scripts/finalize_unfinished_run.py --table pipeline_runs --run-id "$TRACKED_RUN_ID"
 
+      - name: Finalize upload batch lifecycle
+        # Runs after the pipeline-row finalizer so cancelled/early-failed workflows
+        # have a terminal pipeline status before the batch state is reconciled.
+        if: always()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
+          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
+        run: python3 scripts/finalize_upload_batch.py --run-id "$TRACKED_RUN_ID" --batch-id "$RAW_BATCH_ID"
+
       - name: Clean up credential files
         if: always()
         run: rm -f service_account.json drive_user_token.json
