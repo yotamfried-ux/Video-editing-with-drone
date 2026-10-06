@@ -56,6 +56,12 @@ class ManifestEntry:
     def processed_key(self) -> str:
         return processed_key_for(self.key)
 
+    @property
+    def legacy_flat_keys(self) -> list[str]:
+        """Un-namespaced layouts produced by the old global restore (``raw/<name>``)."""
+        name = self.key.rsplit("/", 1)[-1]
+        return [f"{RAW_PREFIX}{name}", f"{PROCESSED_PREFIX}{name}"]
+
 
 @dataclass
 class EntryReport:
@@ -66,6 +72,8 @@ class EntryReport:
     raw_size: int | None = None
     processed_size: int | None = None
     detail: str = ""
+    source_key: str | None = None  # where a restorable/restored object comes from
+    legacy: bool = False
 
 
 @dataclass
@@ -193,6 +201,7 @@ def reconcile_frozen_inputs(
     restore: bool = True,
     verify_sha256: bool = False,
     expected_sha256: dict[str, str] | None = None,
+    recover_legacy_flat: bool = False,
 ) -> Report:
     """Reconcile RAW against the frozen manifest, restoring from PROCESSED if allowed.
 
@@ -200,7 +209,11 @@ def reconcile_frozen_inputs(
     manifest entry is unrecoverable, mismatched, or when RAW holds unexpected
     video objects for the batch.  ``restore=False`` is a read-only audit.
     ``expected_sha256`` supplies independent content identities (key -> sha256)
-    when the manifest itself does not carry them.
+    when the manifest itself does not carry them.  ``recover_legacy_flat``
+    additionally searches the un-namespaced ``raw/<name>`` / ``processed/<name>``
+    layout left by the old global restore; because a flat key proves nothing
+    about batch membership, such a source is accepted only with a matching size
+    AND a verified SHA-256 equal to the durable content identity.
     """
     batch = safe_batch_id(batch_id)
     entries = parse_manifest(manifest, batch)
@@ -235,9 +248,21 @@ def reconcile_frozen_inputs(
             elif entry.size > _MAX_COPY_OBJECT_BYTES:
                 item.state, item.detail = "conflict", "object exceeds single-copy limit"
             else:
-                item.state = "restorable"
+                item.state, item.source_key = "restorable", entry.processed_key
         else:
             item.detail = "absent from raw and processed"
+            if recover_legacy_flat:
+                for flat_key in entry.legacy_flat_keys:
+                    flat_meta = store.head(flat_key)
+                    if flat_meta is None or _size(flat_meta) != entry.size:
+                        continue
+                    if entry.sha256 is None:
+                        item.detail = f"legacy flat object {flat_key} has no durable content identity to prove it"
+                        break
+                    if entry.size > _MAX_COPY_OBJECT_BYTES:
+                        break
+                    item.state, item.source_key, item.legacy, item.detail = "restorable", flat_key, True, ""
+                    break
         report.entries.append(item)
 
     problems = report.failures()
@@ -253,11 +278,13 @@ def reconcile_frozen_inputs(
             f"frozen inputs for {batch} are not recoverable: {json.dumps(report.summary())}; " + "; ".join(lines)
         )
 
-    if verify_sha256:
+    if verify_sha256 or recover_legacy_flat:
         for entry, item in zip(entries, report.entries):
+            if not verify_sha256 and not item.legacy:
+                continue
             if entry.sha256 is None:
                 raise FrozenInputError(f"no content identity available to verify {entry.filename}")
-            location = entry.key if item.state == "raw_ok" else entry.processed_key
+            location = entry.key if item.state == "raw_ok" else str(item.source_key)
             actual = store.sha256(location)
             if actual != entry.sha256:
                 item.state, item.detail = "conflict", "sha256 differs from frozen identity"
@@ -272,15 +299,15 @@ def reconcile_frozen_inputs(
     for entry, item in zip(entries, report.entries):
         if item.state != "restorable":
             continue
-        store.copy(entry.processed_key, entry.key)
+        store.copy(str(item.source_key), entry.key)
         copied = store.head(entry.key)
         if _size(copied) != entry.size:
             store.delete(entry.key)  # remove only the copy this call created
             raise FrozenInputError(f"restore of {entry.filename} produced size {_size(copied)} != {entry.size}")
-        if entry.sha256 is not None and verify_sha256 and store.sha256(entry.key) != entry.sha256:
+        if entry.sha256 is not None and (verify_sha256 or item.legacy) and store.sha256(entry.key) != entry.sha256:
             store.delete(entry.key)
             raise FrozenInputError(f"restore of {entry.filename} failed sha256 verification")
-        store.delete(entry.processed_key)
+        store.delete(str(item.source_key))
         item.state, item.raw_size = "restored", entry.size
         report.restored += 1
         logger.info("restored frozen input %s from processed/", entry.key)

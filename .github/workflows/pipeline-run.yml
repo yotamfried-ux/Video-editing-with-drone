@@ -140,6 +140,22 @@ jobs:
           if [ "$FULL_CLEAN" = "true" ]; then EXTRA_FLAGS="--full-clean"; fi
           python scripts/reset_and_rerun.py --reset-only $EXTRA_FLAGS
 
+      - name: Restore and verify frozen R2 inputs
+        # Fails before any expensive work unless raw/<batch>/ holds exactly the
+        # frozen manifest. Inputs a previous attempt moved to processed/<batch>/
+        # are restored from that exact batch only.
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
+          RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
+        run: python scripts/preflight_frozen_inputs.py --phase run
+
       - name: Run pipeline
         env:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

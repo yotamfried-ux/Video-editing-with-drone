@@ -17,6 +17,29 @@ _INSTALLED_FLAG = "_sportreel_r2_batch_scope_installed"
 _PRELOADED_PATHS: dict[str, str] = {}
 
 
+def _store_factory():
+    """Overridable in tests; production uses the real R2 client."""
+    from pipeline.r2_batch_restore import R2Store
+
+    return R2Store()
+
+
+def ensure_frozen_inputs(*, restore: bool = True):
+    """Reconcile raw/<batch>/ with the frozen manifest (restoring from processed/<batch>/).
+
+    Fails closed unless an explicit batch id and a frozen manifest are present.
+    """
+    from pipeline.r2_batch_restore import FrozenInputError, load_manifest_from_env, reconcile_frozen_inputs
+
+    batch = safe_batch_id()
+    if not batch:
+        raise RuntimeError("frozen input restore requires an explicit RAW_BATCH_ID")
+    try:
+        return reconcile_frozen_inputs(_store_factory(), load_manifest_from_env(), batch, restore=restore)
+    except FrozenInputError as exc:
+        raise RuntimeError(f"Frozen input manifest cannot be satisfied: {exc}") from exc
+
+
 def safe_batch_id(value: str | None = None) -> str:
     raw = (value if value is not None else os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in raw).strip("_")
@@ -81,8 +104,12 @@ def install() -> None:
         return {"path": path, "meta": video}
 
     def get_new_videos() -> list[dict[str, Any]]:
-        objects = r2.list_objects(scoped_prefix(r2.RAW_PREFIX))
         allowed = _manifest_keys()
+        if allowed:
+            # A previous attempt may have moved the frozen inputs to processed/<batch>/.
+            # Restore exactly those objects (idempotent) before admitting anything.
+            ensure_frozen_inputs()
+        objects = r2.list_objects(scoped_prefix(r2.RAW_PREFIX))
         if allowed:
             present = {str(obj.get("Key") or "") for obj in objects}
             missing = sorted(allowed - present)
@@ -131,20 +158,8 @@ def install() -> None:
             return False
 
     def restore_processed_to_raw() -> int:
-        objects = r2.list_objects(scoped_prefix(r2.PROCESSED_PREFIX))
-        allowed = _manifest_keys()
-        if allowed:
-            allowed_processed = {
-                move_between_prefixes(key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
-                for key in allowed
-            }
-            objects = [obj for obj in objects if str(obj.get("Key") or "") in allowed_processed]
-        restored = 0
-        for obj in objects:
-            key = obj["Key"]
-            r2.move_object(key, move_between_prefixes(key, r2.PROCESSED_PREFIX, r2.RAW_PREFIX))
-            restored += 1
-        return restored
+        # Manifest-driven and batch-scoped only; never a global processed/ -> raw/ sweep.
+        return ensure_frozen_inputs().restored
 
     r2.get_new_videos = get_new_videos
     r2.download_video = download_video

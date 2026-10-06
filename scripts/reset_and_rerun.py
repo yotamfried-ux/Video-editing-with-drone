@@ -281,14 +281,22 @@ def _reset_r2(args) -> bool:
         print("\n── Step 1: Delete draft reels from review/ ────────────────────────")
         _r2_delete_prefix(r2_storage.REVIEW_PREFIX, "review/", dry_run=args.dry_run)
     if not args.no_restore:
-        print("\n── Step 2: Move objects from processed/ → raw/ ────────────────────")
-        if args.dry_run:
-            processed = r2_storage.list_objects(r2_storage.scoped_prefix(r2_storage.PROCESSED_PREFIX) if hasattr(r2_storage, "scoped_prefix") else r2_storage.PROCESSED_PREFIX)
+        print("\n── Step 2: Restore frozen batch inputs processed/ → raw/ ───────────")
+        batch = (os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
+        if batch:
+            # Batch-scoped runs restore exactly the frozen manifest, never a global sweep.
+            from pipeline.r2_batch_scope import ensure_frozen_inputs
+
+            report = ensure_frozen_inputs(restore=not args.dry_run)
+            print(f"  ✅ Frozen inputs: {report.summary()}")
+        elif args.dry_run:
+            processed = r2_storage.list_objects(r2_storage.PROCESSED_PREFIX)
             if not processed:
                 print("  No objects found in processed/.")
             for obj in processed:
                 print(f"  [dry-run] Would restore to raw/: {obj['Key']}")
         else:
+            print("  ⚠️  No batch id: legacy global processed/ → raw/ restore")
             restored = r2_storage.restore_processed_to_raw()
             print(f"  ✅ Restored {restored} object(s) to raw/.")
     step3_clear_local_state(dry_run=args.dry_run)

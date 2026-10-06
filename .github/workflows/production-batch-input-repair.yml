@@ -1,0 +1,44 @@
+name: Production batch input repair (one-shot)
+
+# Restores exactly the frozen-manifest inputs of ONE batch into raw/<batch>/ using the
+# same reconcile code the pipeline runs. Flat raw/<name> sources stranded by the old
+# global restore are accepted only with size + SHA-256 proof against the durable identity.
+on:
+  push:
+    branches: [claude/pipeline-retry-storage-fix-stu8ae]
+    paths:
+      - '.github/workflows/production-batch-input-repair.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-batch-input-repair
+  cancel-in-progress: false
+
+jobs:
+  repair:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      STORAGE_BACKEND: r2
+      RAW_BATCH_ID: batch_2026-10-03T12-19-52_ttgvat95
+      SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+      SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check boto3
+      - name: 1. Read-only audit (nothing may change)
+        run: python scripts/preflight_frozen_inputs.py --phase predispatch --audit --recover-legacy-flat --verify-sha256
+      - name: 2. Restore exactly the frozen inputs
+        run: python scripts/preflight_frozen_inputs.py --phase predispatch --recover-legacy-flat --verify-sha256
+      - name: 3. Idempotent re-verification with the pipeline's own code path
+        run: python scripts/preflight_frozen_inputs.py --phase predispatch --verify-sha256

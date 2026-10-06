@@ -111,6 +111,10 @@ def main() -> int:
     parser.add_argument("--phase", choices=["run", "predispatch"], default="run")
     parser.add_argument("--audit", action="store_true", help="read-only: never restore")
     parser.add_argument("--verify-sha256", action="store_true", help="stream every object and compare SHA-256")
+    parser.add_argument(
+        "--recover-legacy-flat", action="store_true",
+        help="also recover sources stranded at raw/<name> by the old global restore; requires SHA-256 proof",
+    )
     parser.add_argument("--batch-id", default=os.getenv("RAW_BATCH_ID", ""))
     args = parser.parse_args()
 
@@ -132,18 +136,20 @@ def main() -> int:
             manifest = _supabase_rpc_assert_ready(batch)["input_manifest"]
             row = _batch_row(batch)
         else:
-            row = _batch_row(batch)
             if not run_id:
-                raise FrozenInputError("PIPELINE_RUN_ID is required for the run phase")
+                print("frozen-input preflight skipped: manual run without a tracked pipeline run has no frozen manifest")
+                return 0
+            row = _batch_row(batch)
             manifest = load_manifest_from_env()
         parse_manifest(manifest, batch)
         _check_eligibility(row, manifest, phase=args.phase, run_id=run_id)
-        expected = _db_hashes(manifest) if args.verify_sha256 else None
+        expected = _db_hashes(manifest) if (args.verify_sha256 or args.recover_legacy_flat) else None
         report = reconcile_frozen_inputs(
             R2Store(), manifest, batch,
             restore=not args.audit,
             verify_sha256=args.verify_sha256,
             expected_sha256=expected,
+            recover_legacy_flat=args.recover_legacy_flat,
         )
     except FrozenInputError as exc:
         print(f"::error::frozen-input preflight FAILED: {exc}", file=sys.stderr)
