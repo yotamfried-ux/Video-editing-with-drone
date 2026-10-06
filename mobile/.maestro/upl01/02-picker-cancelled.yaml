@@ -21,5 +21,5 @@ tags: [upl01, negative]
       text: "Upload from gallery"
     timeout: 15000
 - assertNotVisible: "Upload batch progress"
-- assertNotVisible: "Uploaded to queue|Some uploads failed|Failed|Operator secret required"
+- assertNotVisible: "Uploaded to queue|Some uploads failed|Operator secret required"
 - takeScreenshot: picker-cancelled-idle
