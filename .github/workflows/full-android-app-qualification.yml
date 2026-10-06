@@ -149,8 +149,9 @@ jobs:
             sdkmanager="$(ls "$sdk"/cmdline-tools/latest/bin/sdkmanager "$sdk"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
           fi
           test -n "$sdkmanager"
+          yes | "$sdkmanager" --licenses >/dev/null 2>&1 || true
           for attempt in 1 2 3; do
-            if yes | "$sdkmanager" --install emulator --channel=0; then exit 0; fi
+            if "$sdkmanager" --install emulator --channel=0 </dev/null; then exit 0; fi
             echo "::warning::emulator download failed on attempt $attempt; clearing partial download"
             rm -rf "$sdk/emulator" "$sdk/.temp" "$sdk/.downloadIntermediates" || true
             sleep 10
