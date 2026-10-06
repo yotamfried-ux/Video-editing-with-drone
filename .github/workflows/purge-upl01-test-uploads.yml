@@ -2,6 +2,9 @@ name: Purge UPL-01 test uploads
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/purge-upl01-test-uploads.yml'
 
 permissions:
   contents: read
