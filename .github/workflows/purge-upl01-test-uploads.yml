@@ -1,0 +1,68 @@
+name: Purge UPL-01 test uploads
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  purge:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check boto3 requests
+      - name: Delete exactly the 8 UPL-01 test objects and retire their rows
+        env:
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        run: |
+          python - <<'PY'
+          import os, boto3, requests
+          from botocore.config import Config
+          batch="batch_2026-10-03T12-19-52_ttgvat95"
+          targets=[
+          ("2ff30e93-58e3-4186-949a-e2be75d994e3","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T17-37-55_1000000018.mp4",96280),
+          ("9e7032c6-324c-4c8b-a44d-0f74f71ec26a","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T17-46-01_1000000018.mp4",122784),
+          ("09651e70-3d61-4cbf-bfaa-7c1b76d6309a","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T17-54-11_1000000016.mp4",66989),
+          ("584ea88c-cd8c-4bd8-9dd5-c62caf175da9","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T17-57-53_1000000018.mp4",96280),
+          ("6b74fb39-59e6-4901-8519-a505c4305fa3","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T17-58-58_1000000018.mp4",122787),
+          ("8c9ba8b2-247c-4a56-bfde-63527a2d5567","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T18-15-30_1000000016.mp4",66989),
+          ("6019bb47-8187-4802-99ea-d0907f6e2f38","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T18-19-57_1000000018.mp4",122787),
+          ("9d3e699e-7ef2-4f11-ad81-420b73e948fa","raw/batch_2026-10-03T12-19-52_ttgvat95/2026-10-06T18-20-04_1000000018.mp4",96280),
+          ]
+          base=os.environ["SUPABASE_URL"].rstrip("/")+"/rest/v1"
+          h={"apikey":os.environ["SUPABASE_SERVICE_ROLE_KEY"],"Authorization":"Bearer "+os.environ["SUPABASE_SERVICE_ROLE_KEY"]}
+          rows=requests.get(base+"/source_uploads",headers=h,params={"select":"id,storage_key,source_size_bytes,status,removed_at","id":"in.("+",".join(x[0] for x in targets)+")"},timeout=30).json()
+          by={r["id"]:r for r in rows}
+          assert len(by)==8, f"expected 8 exact rows, got {len(by)}"
+          for rid,key,size in targets:
+            r=by[rid]
+            assert r["storage_key"]==key and int(r["source_size_bytes"])==size and r["removed_at"] is None
+          endpoint=os.environ.get("R2_ENDPOINT_URL") or f'https://{os.environ["R2_ACCOUNT_ID"]}.r2.cloudflarestorage.com'
+          s3=boto3.client("s3",endpoint_url=endpoint,region_name="auto",aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"],aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],config=Config(signature_version="s3v4",retries={"max_attempts":4}))
+          bucket=os.environ["R2_BUCKET"]
+          for rid,key,size in targets:
+            meta=s3.head_object(Bucket=bucket,Key=key)
+            assert int(meta["ContentLength"])==size, (key,meta["ContentLength"],size)
+          for _,key,_ in targets: s3.delete_object(Bucket=bucket,Key=key)
+          for _,key,_ in targets:
+            try: s3.head_object(Bucket=bucket,Key=key); raise AssertionError("object still exists: "+key)
+            except s3.exceptions.ClientError as e:
+              assert e.response["ResponseMetadata"]["HTTPStatusCode"]==404
+          for rid,_,_ in targets:
+            rr=requests.patch(base+"/source_uploads",headers={**h,"Content-Type":"application/json","Prefer":"return=minimal"},params={"id":"eq."+rid},json={"status":"aborted","removed_at":"now()","supersede_reason":"UPL-01 CI test artifact purged before production pipeline"},timeout=30)
+            if rr.status_code>=300: raise RuntimeError((rr.status_code,rr.text))
+          rr=requests.patch(base+"/upload_batches",headers={**h,"Content-Type":"application/json","Prefer":"return=minimal"},params={"batch_id":"eq."+batch,"state":"eq.ready","pipeline_run_id":"is.null"},json={"expected_file_count":24,"actual_file_count":24,"verified_file_count":24},timeout=30)
+          if rr.status_code>=300: raise RuntimeError((rr.status_code,rr.text))
+          print("Purged exactly 8 UPL-01 test uploads; production batch restored to 24.")
+          PY
