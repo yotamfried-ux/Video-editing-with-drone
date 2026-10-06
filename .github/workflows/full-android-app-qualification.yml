@@ -139,6 +139,23 @@ jobs:
           echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
       - name: Enable KVM
         run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Pre-install Android Emulator with retry
+        shell: bash
+        run: |
+          set -u
+          sdk="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          sdkmanager="$(command -v sdkmanager || true)"
+          if [ -z "$sdkmanager" ]; then
+            sdkmanager="$(ls "$sdk"/cmdline-tools/latest/bin/sdkmanager "$sdk"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1 || true)"
+          fi
+          test -n "$sdkmanager"
+          for attempt in 1 2 3; do
+            if yes | "$sdkmanager" --install emulator --channel=0; then exit 0; fi
+            echo "::warning::emulator download failed on attempt $attempt; clearing partial download"
+            rm -rf "$sdk/emulator" "$sdk/.temp" "$sdk/.downloadIntermediates" || true
+            sleep 10
+          done
+          exit 1
       - name: Run operator read-only Android journey
         env:
           APK: ${{ runner.temp }}/sportreel-app-full.apk
