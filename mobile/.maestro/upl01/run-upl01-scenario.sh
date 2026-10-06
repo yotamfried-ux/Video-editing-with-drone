@@ -151,12 +151,16 @@ run_flow() {
   local flow="$1" name
   name="$(basename "$flow" .yaml)"
   echo "::group::Maestro $SCENARIO / $name"
+  set +e
   maestro test "$FLOWS/$flow" \
     --format junit --output "$EVIDENCE_DIR/$name.junit.xml" \
     --debug-output "$EVIDENCE_DIR/maestro-$name" \
     --test-output-dir "$EVIDENCE_DIR/maestro-$name" \
     --flatten-debug-output
+  local maestro_code=$?
+  set -e
   echo "::endgroup::"
+  return "$maestro_code"
 }
 
 # Seed + behavior execute inside one Maestro process. On parallel emulator
