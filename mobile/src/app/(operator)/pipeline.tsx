@@ -299,6 +299,31 @@ export default function PipelineScreen() {
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
+  const [restoredServerBatch, setRestoredServerBatch] = useState<{ batch_id: string; expected_file_count: number } | null>(null);
+
+  const restoreReadyServerBatch = useCallback(async () => {
+    try {
+      const result = await operatorFetch<{ batches: Array<{ batch_id: string; expected_file_count: number; actual_file_count: number; verified_file_count: number }> }>('/api/operator/upload/batch');
+      const batches = result.batches ?? [];
+      if (batches.length === 1) {
+        setRestoredServerBatch({ batch_id: batches[0].batch_id, expected_file_count: batches[0].expected_file_count });
+        setActiveBatchId(batches[0].batch_id);
+      } else {
+        setRestoredServerBatch(null);
+        if (batches.length === 0) setActiveBatchId(null);
+      }
+    } catch (error) {
+      console.warn('SportReel durable batch restore failed', error);
+    }
+  }, []);
+
+  useEffect(() => {
+    void restoreReadyServerBatch();
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void restoreReadyServerBatch();
+    });
+    return () => subscription.remove();
+  }, [restoreReadyServerBatch]);
 
   useEffect(() => {
     let cancelled = false;
@@ -410,8 +435,29 @@ export default function PipelineScreen() {
 
   const runPipeline = async () => {
     // Derive dispatch identity from the verified upload rows, never from stale screen state.
+    if (!uploadItems.length && restoredServerBatch) {
+      setActiveBatchId(restoredServerBatch.batch_id);
+      setTriggering(true);
+      try {
+        const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ batch_id: restoredServerBatch.batch_id }),
+        });
+        setLastRunId(result.pipeline_run_id);
+        setLastBatchId(result.batch_id ?? restoredServerBatch.batch_id);
+        setRestoredServerBatch(null);
+        setActiveBatchId(null);
+        Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds. Watch Recent pipeline runs for this run.`);
+      } catch (e) {
+        handleOperatorError(e);
+      } finally {
+        setTriggering(false);
+      }
+      return;
+    }
     if (!uploadItems.length) {
-      Alert.alert('No verified batch selected', 'Choose or restore the videos you want to process before starting the pipeline.');
+      Alert.alert('No verified batch selected', 'No unique verified server batch is ready. Restore or upload the videos before starting the pipeline.');
       return;
     }
     if (hasIncompleteUploads(uploadItems)) {
