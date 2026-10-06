@@ -2,11 +2,23 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireOperator } from '@/lib/operator-auth';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { newBatchId, safeBatchId } from '@/lib/r2-storage';
-import { registerUploadBatch } from '@/lib/upload-batch-manifest';
+import { listRestorableReadyUploadBatches, registerUploadBatch } from '@/lib/upload-batch-manifest';
 import { SourceUploadManifestError } from '@/lib/source-upload-manifest';
 
 const SOURCE_KINDS = new Set(['operator', 'android_external', 'gallery', 'api']);
 const GROUPING_KINDS = new Set(['unassigned', 'one_athlete', 'session_multiple_athletes', 'other']);
+
+export async function GET(req: NextRequest) {
+  if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const limited = await enforceRateLimit(req, 'operator-upload-batch-list', 120, 3600);
+  if (limited) return limited;
+  try {
+    return NextResponse.json({ batches: await listRestorableReadyUploadBatches() });
+  } catch (error) {
+    const status = error instanceof SourceUploadManifestError ? error.status : 503;
+    return NextResponse.json({ error: error instanceof Error ? error.message : 'Upload batch lookup failed' }, { status });
+  }
+}
 
 export async function POST(req: NextRequest) {
   if (!requireOperator(req)) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
