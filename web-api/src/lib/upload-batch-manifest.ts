@@ -38,6 +38,37 @@ async function uniqueBatchIdForStates(states: string[]): Promise<string | null> 
   return String(data[0].batch_id);
 }
 
+export async function listRestorableReadyUploadBatches(): Promise<Array<{
+  batch_id: string;
+  expected_file_count: number;
+  actual_file_count: number;
+  verified_file_count: number;
+  source_kind: string;
+  updated_at: string | null;
+}>> {
+  const { data, error } = await supabaseAdmin
+    .from('upload_batches')
+    .select('batch_id,state,expected_file_count,actual_file_count,verified_file_count,source_kind,updated_at')
+    .eq('state', 'ready')
+    .is('pipeline_run_id', null)
+    .order('updated_at', { ascending: false });
+  if (error) {
+    throw new SourceUploadManifestError(`Could not list durable upload batches: ${error.message}`, 503);
+  }
+  return (data ?? [])
+    .filter((row) => Number(row.expected_file_count) > 0
+      && Number(row.actual_file_count) === Number(row.expected_file_count)
+      && Number(row.verified_file_count) === Number(row.expected_file_count))
+    .map((row) => ({
+      batch_id: String(row.batch_id),
+      expected_file_count: Number(row.expected_file_count),
+      actual_file_count: Number(row.actual_file_count),
+      verified_file_count: Number(row.verified_file_count),
+      source_kind: String(row.source_kind ?? 'operator'),
+      updated_at: row.updated_at ? String(row.updated_at) : null,
+    }));
+}
+
 export async function resolveUploadBatchId(
   requestedBatchId?: string | null,
 ): Promise<string | null> {
