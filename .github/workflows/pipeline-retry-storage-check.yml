@@ -17,6 +17,8 @@ on:
       - 'scripts/build_athlete_coverage_report.py'
       - 'scripts/record_publishable_business_gate_status.py'
       - 'scripts/test_frozen_input_restore_contract.py'
+      - 'scripts/test_existing_failed_run_retry_contract.py'
+      - 'web-api/src/app/api/operator/pipeline/retry/route.ts'
       - 'scripts/test_finalize_upload_batch_contract.py'
       - 'scripts/test_perception_cold_start_contract.py'
       - 'scripts/test_upload_batch_isolation_contract.py'
@@ -43,7 +45,7 @@ jobs:
           PYTHONPATH: .
         run: |
           set -e
-          for t in test_frozen_input_restore_contract test_batch_scope_contract test_finalize_upload_batch_contract \
+          for t in test_frozen_input_restore_contract test_existing_failed_run_retry_contract test_batch_scope_contract test_finalize_upload_batch_contract \
                    test_perception_cold_start_contract test_upload_batch_isolation_contract test_upl01_maestro_contract \
                    test_upload_batch_verified_gate_contract test_publishable_gate_status_contract \
                    test_canonical_athlete_reconciliation test_athlete_coverage_report_contract \
