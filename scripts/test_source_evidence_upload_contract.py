@@ -42,6 +42,27 @@ def main() -> int:
         raise SystemExit("source evidence not uploaded")
     if os.path.exists(f.name):
         raise SystemExit("source clip not cleaned")
+    # A malformed first model response must be retried, not mislabeled as upload failure.
+    f2 = tempfile.NamedTemporaryFile(delete=False, suffix=".mp4")
+    f2.write(b"x"); f2.close()
+    runner.make_source_clips = lambda _ctx: [f2.name]
+    class RetryModel:
+        def __init__(self): self.calls = 0
+        def generate_content(self, parts, request_options=None):
+            self.calls += 1
+            if self.calls == 1:
+                class Bad: text = '{"defects": [}'
+                return Bad()
+            return R()
+    retry_model = RetryModel()
+    class RetryG:
+        def GenerativeModel(self, model_name): return retry_model
+    A.genai = RetryG()
+    res2 = runner.with_source_evidence(A(), base, "reel.mp4", sport="surfing", context={"source_windows": [{"source": f2.name}]})
+    if res2.get("verdict") != "PASS" or retry_model.calls != 2:
+        raise SystemExit("malformed QA response was not retried successfully")
+    if any("upload failed" in str(d.get("note", "")) for d in res2.get("defects", [])):
+        raise SystemExit("QA parse retry was mislabeled as an upload failure")
     print("Source evidence upload contract checks passed")
     return 0
 
