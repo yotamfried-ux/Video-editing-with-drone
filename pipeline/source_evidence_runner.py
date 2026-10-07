@@ -8,7 +8,8 @@ from typing import Any
 
 from pipeline.source_evidence import make_source_clips, source_evidence_prompt
 
-BLOCKING_CONTEXT_TYPES = {"RIDE_BOUNDARY_UNCERTAIN", "MID_RIDE_CUT", "RIDE_SPLIT", "IDENTITY_UNCERTAIN"}\n_QA_RESPONSE_ATTEMPTS = 2
+BLOCKING_CONTEXT_TYPES = {"RIDE_BOUNDARY_UNCERTAIN", "MID_RIDE_CUT", "RIDE_SPLIT", "IDENTITY_UNCERTAIN"}
+_QA_RESPONSE_ATTEMPTS = 2
 
 
 def _context_defects(context: dict[str, Any]) -> list[dict[str, Any]]:
