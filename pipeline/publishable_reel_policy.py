@@ -465,6 +465,24 @@ def _find_upload_part(
             )
             if target in paths:
                 return row, part
+
+    # Some upload paths are materialized in a different temporary directory after
+    # the manifest row is written. Reconcile by basename only when it is unique
+    # across the entire manifest; ambiguity remains fail-closed.
+    target_name = os.path.basename(target)
+    basename_matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    for row in payload.get("athletes", []) or []:
+        if not isinstance(row, dict):
+            continue
+        for part in row.get("parts", []) or []:
+            if not isinstance(part, dict):
+                continue
+            names = {os.path.basename(str(part.get("local_path") or ""))}
+            names.update(os.path.basename(str(alias)) for alias in part.get("upload_path_aliases", []) or [])
+            if target_name and target_name in names:
+                basename_matches.append((row, part))
+    if len(basename_matches) == 1:
+        return basename_matches[0]
     return None
 
 
