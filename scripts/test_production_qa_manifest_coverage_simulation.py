@@ -67,10 +67,7 @@ def coverage_simulation():
             {"athlete_id":"athlete_A","selected":False,"event_id":"e2","source":"a.mp4","start":10,"end":18},
         ]}))
         audit.write_text(json.dumps({"selected":[{"athlete_id":"athlete_A","event_id":"e1"}]}))
-        try:
-            report=build_report(str(ledger),str(audit))
-        except TypeError:
-            report=build_report(json.loads(ledger.read_text()),json.loads(audit.read_text()))
+        report=build_report(ledger,audit)
         assert report["summary"]["coverage_gap_cluster_count"]==0
         assert report["summary"]["athlete_accountability_rate"]==1.0
 
