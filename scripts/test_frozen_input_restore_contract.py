@@ -10,6 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from pipeline.r2_batch_restore import FrozenInputError, reconcile_frozen_inputs  # noqa: E402
+from scripts.preflight_frozen_inputs import _check_eligibility  # noqa: E402
 
 BATCH = "batch_2026-10-03T12-19-52_ttgvat95"
 OTHER = "batch_other"
@@ -271,6 +272,29 @@ def test_legacy_flat_without_identity_or_with_wrong_bytes_fails_closed():
         raise AssertionError("flat source with wrong bytes must fail")
     assert snapshot(store) == before
 
+
+
+def test_failed_batch_retry_eligibility_is_same_run_and_same_manifest_only():
+    _, manifest = build(n=3, location="raw")
+    run_id = "durable-run-1"
+    row = {
+        "state": "failed",
+        "pipeline_run_id": run_id,
+        "expected_file_count": len(manifest),
+        "input_manifest": manifest,
+    }
+    _check_eligibility(row, manifest, phase="run", run_id=run_id)
+
+    for bad_row, bad_manifest, bad_run in [
+        ({**row, "pipeline_run_id": "other-run"}, manifest, run_id),
+        ({**row, "state": "ready"}, manifest, run_id),
+        (row, [{**manifest[0], "storage_key": f"raw/{BATCH}/different.mp4"}, *manifest[1:]], run_id),
+    ]:
+        try:
+            _check_eligibility(bad_row, bad_manifest, phase="run", run_id=bad_run)
+        except FrozenInputError:
+            continue
+        raise AssertionError("failed-batch retry must fail closed unless run ownership and frozen manifest both match")
 
 def main() -> int:
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

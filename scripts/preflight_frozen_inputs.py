@@ -9,7 +9,7 @@ against the manifest.  Fails closed on any missing/mismatched/unexpected input.
 Phases
   run          (default) workflow phase: manifest comes from the pipeline run's
                frozen ``input_files`` (SPORTREEL_INPUT_MANIFEST_B64) and the
-               batch must be locked ``running`` for this PIPELINE_RUN_ID.
+               batch must be locked to this PIPELINE_RUN_ID. A failed batch may\n               be retried only by that same durable run; manifest equality is\n               still enforced before any storage mutation.
   predispatch  operator preflight: batch must be ``ready`` and unlocked; the
                manifest comes from the same ``assert_upload_batch_ready`` gate
                the Run Pipeline button uses.  Combine with --audit to stay
@@ -91,9 +91,10 @@ def _check_eligibility(row: dict, manifest: list[dict], *, phase: str, run_id: s
             f"manifest has {len(manifest)} entries but batch expects {row['expected_file_count']}"
         )
     if phase == "run":
-        if row["state"] != "running" or str(row.get("pipeline_run_id") or "") != run_id:
+        batch_run_id = str(row.get("pipeline_run_id") or "")
+        if batch_run_id != run_id or row["state"] not in {"running", "failed"}:
             raise FrozenInputError(
-                f"batch is not locked to this run: state={row['state']} run={row.get('pipeline_run_id')}"
+                f"batch is not retryable by this run: state={row['state']} run={row.get('pipeline_run_id')}"
             )
     else:
         if row["state"] != "ready" or row.get("pipeline_run_id") or row.get("locked_at"):
