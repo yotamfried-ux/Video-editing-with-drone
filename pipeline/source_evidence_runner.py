@@ -7,7 +7,7 @@ from typing import Any
 
 from pipeline.source_evidence import make_source_clips, source_evidence_prompt
 
-BLOCKING_CONTEXT_TYPES = {"RIDE_BOUNDARY_UNCERTAIN", "MID_RIDE_CUT", "RIDE_SPLIT", "IDENTITY_UNCERTAIN"}
+BLOCKING_CONTEXT_TYPES = {"RIDE_BOUNDARY_UNCERTAIN", "MID_RIDE_CUT", "RIDE_SPLIT", "IDENTITY_UNCERTAIN"}\n_QA_RESPONSE_ATTEMPTS = 2
 
 
 def _context_defects(context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -55,7 +55,7 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
     except Exception:
         result = original(reel_path, *args, **kwargs)
         defects = list(result.get("defects", []) or []) + _context_defects(context)
-        defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": "source evidence upload failed"})
+        defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": f"source evidence upload/generation failed: {type(exc).__name__}: {exc}"})
         result.update({"verdict": "FAIL", "defects": defects, "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": False, "qa_review_required": True})
         return result
     finally:
