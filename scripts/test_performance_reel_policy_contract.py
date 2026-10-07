@@ -357,6 +357,13 @@ def main() -> int:
         raise SystemExit("policy source did not parse as a module")
     _exercise_install(policy)
 
+    from pipeline.stages.editor import _multi_reel_stem
+    stem_a = _multi_reel_stem("shared_source", "surfer red board", 0, 1)
+    stem_b = _multi_reel_stem("shared_source", "surfer blue board", 0, 1)
+    if stem_a == stem_b:
+        raise SystemExit("different athletes sharing one source would overwrite the same reel")
+    if stem_a != _multi_reel_stem("shared_source", "surfer red board", 0, 1):
+        raise SystemExit("athlete reel naming is not deterministic")
     print("Performance reel policy contract checks passed")
     return 0
 

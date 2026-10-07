@@ -4,6 +4,7 @@ pipeline/stages/editor.py — FFmpeg reel compilation pipeline.
 """
 
 import glob
+import hashlib
 import json
 import logging
 import os
@@ -1412,6 +1413,14 @@ def compile_reel(
     except Exception as e:
         logger.error("Reel compile unexpected: %s", e)
         return None
+
+
+def _multi_reel_stem(first_stem: str, athlete_label: str, part_index: int, part_count: int) -> str:
+    """Return a deterministic collision-resistant reel stem per athlete/part."""
+    identity = str(athlete_label or "unknown athlete").strip().lower()
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:10]
+    suffix = f"_p{part_index + 1}" if part_count > 1 else ""
+    return f"MULTI_{first_stem}_a{digest}{suffix}"
 
 
 def compile_multi_source_reel(appearances: list[dict], sport: str = "",

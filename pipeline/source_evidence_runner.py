@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from typing import Any
 
 from pipeline.source_evidence import make_source_clips, source_evidence_prompt
 
 BLOCKING_CONTEXT_TYPES = {"RIDE_BOUNDARY_UNCERTAIN", "MID_RIDE_CUT", "RIDE_SPLIT", "IDENTITY_UNCERTAIN"}
+_QA_RESPONSE_ATTEMPTS = 2
 
 
 def _context_defects(context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -19,6 +21,17 @@ def _context_defects(context: dict[str, Any]) -> list[dict[str, Any]]:
                 defects.append({**item, "type": dtype, "severity": "critical", "blocking": True})
     return defects
 
+
+def _parse_qa_json(raw: str) -> dict[str, Any]:
+    text = str(raw or "").strip()
+    if text.startswith("```json"): text = text[7:]
+    elif text.startswith("```"): text = text[3:]
+    if text.rstrip().endswith("```"): text = text.rstrip()[:-3]
+    parsed = json.loads(text.strip())
+    if not isinstance(parsed, dict): raise ValueError("QA response must be a JSON object")
+    if not isinstance(parsed.get("defects", []), list): raise ValueError("QA defects must be an array")
+    int(parsed.get("engagement_score", 0))
+    return parsed
 
 def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context: dict[str, Any] | None = None, **kwargs) -> dict[str, Any]:
     if not context:
@@ -43,8 +56,21 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
             prompt += "\nSport context: " + sport
         prompt += "\nAthlete: " + label + source_evidence_prompt(context)
         model = analyzer.genai.GenerativeModel(model_name=analyzer._QA_REEL_MODEL)
-        resp = analyzer._with_retry(lambda: model.generate_content(uploaded + [prompt], request_options={"timeout": 120}))
-        parsed = json.loads(resp.text.strip().strip("`").strip())
+        parsed = None
+        last_error = None
+        for _attempt in range(_QA_RESPONSE_ATTEMPTS):
+            try:
+                resp = analyzer._with_retry(lambda: model.generate_content(uploaded + [prompt], request_options={"timeout": 120}))
+                parsed = _parse_qa_json(resp.text)
+                break
+            except (json.JSONDecodeError, ValueError, TypeError) as exc:
+                last_error = exc
+        if parsed is None:
+            result = original(reel_path, *args, **kwargs)
+            defects = list(result.get("defects", []) or []) + _context_defects(context)
+            defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": f"source evidence QA response unavailable after {_QA_RESPONSE_ATTEMPTS} attempts: {last_error}"})
+            result.update({"verdict": "FAIL", "defects": defects, "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": True, "qa_failure_reason": "response_parse_failed"})
+            return result
         defects = [d for d in (parsed.get("defects") or []) if isinstance(d, dict)] + _context_defects(context)
         critical = [d for d in defects if str(d.get("severity", "")).lower() == "critical"]
         score = int(parsed.get("engagement_score", 0))
@@ -52,10 +78,10 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
         result = {"verdict": "PASS" if tech_ok and score >= threshold and not critical else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": bool(critical)}
         analyzer._persist_qa_result(result, reel_path, sport)
         return result
-    except Exception:
+    except Exception as exc:
         result = original(reel_path, *args, **kwargs)
         defects = list(result.get("defects", []) or []) + _context_defects(context)
-        defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": "source evidence upload failed"})
+        defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": f"source evidence upload/generation failed: {type(exc).__name__}: {exc}"})
         result.update({"verdict": "FAIL", "defects": defects, "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": False, "qa_review_required": True})
         return result
     finally:
