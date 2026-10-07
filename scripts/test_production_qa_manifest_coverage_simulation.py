@@ -43,6 +43,13 @@ def qa_simulations():
     assert out["qa_failure_reason"]=="response_parse_failed"
     assert "QA response unavailable" in out["defects"][-1]["note"] or "QA response" in out["defects"][-1]["note"]
 
+def reel_name_simulation():
+    from pipeline.stages.editor import _multi_reel_stem
+    a=_multi_reel_stem("same_source","athlete red board",0,1)
+    b=_multi_reel_stem("same_source","athlete blue board",0,1)
+    assert a != b, (a,b)
+    assert a == _multi_reel_stem("same_source","athlete red board",0,1)
+
 def manifest_simulations():
     import pipeline.publishable_reel_policy as p
     payload=p._empty_manifest()
@@ -68,7 +75,7 @@ def coverage_simulation():
         assert report["summary"]["athlete_accountability_rate"]==1.0
 
 def main():
-    qa_simulations(); manifest_simulations(); coverage_simulation()
+    qa_simulations(); reel_name_simulation(); manifest_simulations(); coverage_simulation()
     print("Production QA/manifest/coverage simulations passed")
     return 0
 if __name__=="__main__": raise SystemExit(main())
