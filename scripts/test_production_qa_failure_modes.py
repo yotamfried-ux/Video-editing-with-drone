@@ -85,7 +85,29 @@ def test_staged_path_gets_manifest_alias_at_creation():
         assert os.path.abspath(staged) in aliases
 
 
+def test_staged_path_without_unique_owner_fails_closed():
+    import pipeline.publishable_reel_policy as policy
+    import pipeline.publishable_runtime_integrity as integrity
+    from pipeline.context_qa_long_video import _stage_reel_candidate
+    integrity._patch_policy()
+    integrity._patch_context_staging()
+    with tempfile.TemporaryDirectory() as d:
+        os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(Path(d) / "manifest.json")
+        policy.reset_manifest()
+        unknown = Path(d) / "unknown.mp4"
+        unknown.write_bytes(b"video")
+        assert policy.register_staged_upload_path(str(unknown), str(Path(d) / "s.mp4")) is False
+        import pipeline.context_qa_long_video as context
+        try:
+            context._stage_reel_candidate(str(unknown), d, 0, "DRAFT_unknown.mp4")
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("staging without a manifest owner must fail")
+
+
 if __name__ == "__main__":
+    test_staged_path_without_unique_owner_fails_closed()
     test_malformed_response_retries_without_claiming_upload_failure()
     test_parse_failure_remains_fail_closed_and_is_classified()
     test_staged_path_gets_manifest_alias_at_creation()

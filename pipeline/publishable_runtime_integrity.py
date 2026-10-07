@@ -117,7 +117,7 @@ def _patch_policy() -> None:
         staged_key = _path_key(staged_path)
         with policy._MANIFEST_LOCK:
             payload = policy._read_manifest()
-            matched = False
+            owners = []
             for manifest_row in payload.get("athletes", []) or []:
                 if not isinstance(manifest_row, dict):
                     continue
@@ -129,15 +129,16 @@ def _patch_policy() -> None:
                         _path_key(str(alias))
                         for alias in part.get("upload_path_aliases", []) or []
                     }
-                    if original_key not in {local_key, *aliases}:
-                        continue
-                    aliases.add(staged_key)
-                    part["upload_path_aliases"] = sorted(aliases)
-                    matched = True
-                    break
-            if matched:
-                policy._atomic_write(policy._manifest_path(), payload)
-            return matched
+                    if original_key in {local_key, *aliases}:
+                        owners.append((part, aliases))
+            # Fail closed: exactly one manifest owner may claim a staged path.
+            if len(owners) != 1:
+                return False
+            part, aliases = owners[0]
+            aliases.add(staged_key)
+            part["upload_path_aliases"] = sorted(aliases)
+            policy._atomic_write(policy._manifest_path(), payload)
+            return True
 
     def mark_upload_result(
         draft_path: str,
@@ -178,7 +179,10 @@ def _patch_context_staging() -> None:
         if staged:
             import pipeline.publishable_reel_policy as policy
 
-            if not policy.register_staged_upload_path(reel_path, staged):
+            # Never depend on install ordering: ensure the registrar exists.
+            _patch_policy()
+            register = getattr(policy, "register_staged_upload_path", None)
+            if register is None or not register(reel_path, staged):
                 raise RuntimeError(
                     "staged long-video upload path could not be attached to the "
                     f"publishable manifest: {reel_path} -> {staged}"

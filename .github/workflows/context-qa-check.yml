@@ -9,6 +9,11 @@ on:
       - 'pipeline/draft_diagnostics.py'
       - 'scripts/sitecustomize.py'
       - 'scripts/test_context_qa_gate_contract.py'
+      - 'scripts/test_production_qa_failure_modes.py'
+      - 'scripts/test_production_qa_manifest_coverage_simulation.py'
+      - 'pipeline/source_evidence_runner.py'
+      - 'pipeline/publishable_runtime_integrity.py'
+      - 'pipeline/publishable_reel_policy.py'
       - 'docs/pipeline-context-qa-audit-20260705.md'
 
 jobs:
@@ -21,3 +26,7 @@ jobs:
           python-version: '3.11'
       - name: Validate context QA gate contract
         run: python scripts/test_context_qa_gate_contract.py
+      - name: Production QA failure-mode simulations
+        run: PYTHONPATH=. python scripts/test_production_qa_failure_modes.py
+      - name: Production QA manifest coverage simulation
+        run: PYTHONPATH=. python scripts/test_production_qa_manifest_coverage_simulation.py

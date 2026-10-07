@@ -4,6 +4,7 @@ pipeline/stages/editor.py — FFmpeg reel compilation pipeline.
 """
 
 import glob
+import hashlib
 import json
 import logging
 import os
