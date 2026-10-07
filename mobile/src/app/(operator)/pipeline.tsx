@@ -435,6 +435,29 @@ export default function PipelineScreen() {
   }, []);
 
   const runPipeline = async () => {
+    // A failed production run owns its frozen batch. Retry that exact run instead of
+    // requiring a ready upload batch or creating a reset run.
+    const failedRunBatchId = latestRun?.status === 'failed'
+      ? String(((latestRun.meta ?? {}) as Record<string, unknown>).batch_id ?? '').trim()
+      : '';
+    if (!uploadItems.length && !restoredServerBatch && latestRun?.status === 'failed' && failedRunBatchId) {
+      setTriggering(true);
+      try {
+        const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/retry', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ pipeline_run_id: latestRun.id, batch_id: failedRunBatchId }),
+        });
+        setLastRunId(result.pipeline_run_id);
+        setLastBatchId(result.batch_id ?? failedRunBatchId);
+        Alert.alert('Pipeline retry triggered', `Retry of ${result.pipeline_run_id.slice(0, 8)} started with its frozen inputs. No videos were re-uploaded or reset.`);
+      } catch (e) {
+        handleOperatorError(e);
+      } finally {
+        setTriggering(false);
+      }
+      return;
+    }
     // Derive dispatch identity from the verified upload rows, never from stale screen state.
     if (!uploadItems.length && restoredServerBatch) {
       setActiveBatchId(restoredServerBatch.batch_id);
@@ -458,7 +481,7 @@ export default function PipelineScreen() {
       return;
     }
     if (!uploadItems.length) {
-      Alert.alert('No verified batch selected', 'No unique verified server batch is ready. Restore or upload the videos before starting the pipeline.');
+      Alert.alert('No verified batch selected', 'No unique verified server batch or retryable failed run is available. Restore or upload the videos before starting the pipeline.');
       return;
     }
     if (hasIncompleteUploads(uploadItems)) {
