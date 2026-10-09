@@ -223,7 +223,11 @@ fi
 
 if [ "$safe_retry" -eq 1 ]; then
   echo "UPL-01 scenario runner: retrying once after a failed flow with verified-safe backend state"
+  adb kill-server >/dev/null 2>&1 || true
+  sleep 3
+  adb start-server >/dev/null 2>&1 || true
   stabilize_adb_device "Maestro infrastructure retry"
+  adb reverse tcp:8081 tcp:8081
   adb shell settings put global airplane_mode_on 0 >/dev/null 2>&1 || true
   adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false >/dev/null 2>&1 || true
   mkdir -p "$EVIDENCE_DIR/attempt-1"
