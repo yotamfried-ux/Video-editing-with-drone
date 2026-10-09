@@ -47,20 +47,54 @@ export async function POST(req: NextRequest) {
   const repo = process.env.GITHUB_REPO;
   if (!token || !repo) return NextResponse.json({ error: 'GITHUB_DISPATCH_TOKEN / GITHUB_REPO not configured' }, { status: 503 });
 
-  const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/pipeline-run.yml/dispatches`, {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ref: 'main', inputs: { reset: 'false', full_clean: 'false', pipeline_run_id: pipelineRunId, batch_id: batchId } }),
-  });
-  if (res.status !== 204) {
-    return NextResponse.json({ error: githubDispatchError(res.status, await res.text()) }, { status: 502 });
+  // Claim the failed run before dispatch. Only one concurrent request can win.
+  const { data: claimed, error: claimError } = await supabaseAdmin
+    .from('pipeline_runs')
+    .update({
+      status: 'queued',
+      stage: 'dispatching_retry',
+      progress: 0,
+      error: null,
+      finished_at: null,
+      github_run_url: actionsUrl(repo),
+      meta: { ...(run.meta ?? {}), retry_existing_run: true, reset: false, full_clean: false },
+    })
+    .eq('id', pipelineRunId)
+    .eq('status', 'failed')
+    .select('id')
+    .maybeSingle();
+
+  if (claimError) {
+    return NextResponse.json({ error: 'Could not atomically claim failed run for retry' }, { status: 503 });
+  }
+  if (!claimed) {
+    return NextResponse.json({ error: 'This run was already claimed for retry' }, { status: 409 });
   }
 
-  await supabaseAdmin.from('pipeline_runs').update({
-    status: 'queued', stage: 'workflow_dispatched_retry', progress: 0, error: null, finished_at: null,
-    github_run_url: actionsUrl(repo),
-    meta: { ...(run.meta ?? {}), retry_existing_run: true, reset: false, full_clean: false },
-  }).eq('id', pipelineRunId).eq('status', 'failed');
+  let dispatchError: string | null = null;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/pipeline-run.yml/dispatches`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ref: 'main', inputs: { reset: 'false', full_clean: 'false', pipeline_run_id: pipelineRunId, batch_id: batchId } }),
+    });
+    if (res.status !== 204) dispatchError = githubDispatchError(res.status, await res.text());
+  } catch (error) {
+    // A network timeout is ambiguous: GitHub may have accepted the dispatch.
+    // Keep the claim to prevent a second dispatch until an operator reconciles it.
+    console.error('Retry dispatch outcome unknown', error);
+    return NextResponse.json({ error: 'GitHub dispatch outcome unknown; retry is locked to prevent duplicates', pipeline_run_id: pipelineRunId }, { status: 502 });
+  }
+
+  if (dispatchError) {
+    const { error: rollbackError } = await supabaseAdmin.from('pipeline_runs')
+      .update({ status: 'failed', stage: 'retry_dispatch_failed', error: dispatchError })
+      .eq('id', pipelineRunId).eq('status', 'queued').eq('stage', 'dispatching_retry');
+    if (rollbackError) {
+      return NextResponse.json({ error: 'Dispatch failed and retry state could not be restored; manual reconciliation required' }, { status: 503 });
+    }
+    return NextResponse.json({ error: dispatchError }, { status: 502 });
+  }
 
   return NextResponse.json({ ok: true, pipeline_run_id: pipelineRunId, batch_id: batchId, github_actions_url: actionsUrl(repo) });
 }
