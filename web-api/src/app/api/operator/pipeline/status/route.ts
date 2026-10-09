@@ -90,6 +90,32 @@ export async function GET(req: NextRequest) {
   }
 
   const latestRun = (latestRuns?.[0] ?? null) as PipelineRunRow | null;
+  // Legacy pipeline runs may omit meta.batch_id even though the frozen batch is
+  // linked by upload_batches.pipeline_run_id. Resolve that authoritative link
+  // without changing the run or the frozen inputs.
+  if (latestRun?.status === 'failed' && !String(latestRun.meta?.batch_id ?? '').trim()) {
+    const { data: linkedBatches, error: batchError } = await supabaseAdmin
+      .from('upload_batches')
+      .select('batch_id, state, expected_file_count, actual_file_count, verified_file_count')
+      .eq('pipeline_run_id', latestRun.id)
+      .eq('state', 'failed')
+      .limit(2);
+
+    if (batchError) {
+      return NextResponse.json({ error: 'Could not verify failed run batch' }, { status: 503 });
+    }
+
+    const batch = linkedBatches?.length === 1 ? linkedBatches[0] : null;
+    if (
+      batch &&
+      batch.expected_file_count > 0 &&
+      batch.actual_file_count === batch.expected_file_count &&
+      batch.verified_file_count === batch.expected_file_count
+    ) {
+      latestRun.meta = { ...(latestRun.meta ?? {}), batch_id: batch.batch_id };
+    }
+  }
+
   const globalLiveStale = isGlobalLiveStale((status ?? null) as PipelineStatusRow | null, latestRun);
 
   return NextResponse.json<PipelineStatusResponse>({
