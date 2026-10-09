@@ -3,6 +3,9 @@ name: Frozen Batch Storage Audit (read-only)
 # Read-only forensic: HEADs every active verified source of one batch in R2 and compares
 # sizes with the verified size. Never writes to R2 or Supabase; never dispatches the pipeline.
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/frozen-batch-storage-audit.yml'
   workflow_dispatch:
     inputs:
       batch_id:
@@ -37,7 +40,7 @@ jobs:
           R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          BATCH_ID: ${{ inputs.batch_id }}
+          BATCH_ID: ${{ inputs.batch_id || 'batch_2026-10-03T12-19-52_ttgvat95' }}
           WITH_SHA: ${{ inputs.sha256 }}
         run: |
           ARGS=""
