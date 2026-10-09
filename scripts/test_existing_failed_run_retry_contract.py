@@ -25,6 +25,15 @@ def main() -> int:
     for token in required_route:
         assert token in route, f"missing fail-closed retry contract: {token}"
 
+    # A retry must be claimed exactly once before the external side effect.
+    claim = route.index(".eq('status', 'failed')\\n    .select('id')")
+    dispatch = route.index("actions/workflows/pipeline-run.yml/dispatches")
+    assert claim < dispatch, "retry must claim the failed run before GitHub dispatch"
+    assert ".maybeSingle()" in route, "atomic claim must detect an already-claimed run"
+    assert "if (!claimed)" in route, "concurrent retry must be rejected"
+    assert "GitHub dispatch outcome unknown; retry is locked" in route
+    assert ".eq('stage', 'dispatching_retry')" in route, "rollback must be conditional"
+
     assert "'/api/operator/pipeline/retry'" in mobile
     assert "latestRun?.status === 'failed'" in mobile
     assert "pipeline_run_id: latestRun.id" in mobile
