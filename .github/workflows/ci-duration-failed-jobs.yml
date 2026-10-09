@@ -1,0 +1,64 @@
+name: CI Duration and Failed Jobs
+
+on:
+  workflow_run:
+    workflows:
+      - Smart CI Fast Feedback
+      - UPL-01 Maestro Contract Check
+      - Pipeline Retry Storage Check
+      - UPL-01 Android App Upload E2E
+      - Full Android App Qualification
+    types: [completed]
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  report-and-retry:
+    if: github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Compare duration with previous completed runs and retry failed jobs once
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const run = context.payload.workflow_run;
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const elapsed = (r) => Math.round((Date.parse(r.updated_at) - Date.parse(r.run_started_at || r.created_at)) / 1000);
+            const current = elapsed(run);
+            const {data: history} = await github.rest.actions.listWorkflowRuns({
+              owner, repo, workflow_id: run.workflow_id, per_page: 50
+            });
+            const baseline = history.workflow_runs.filter(r =>
+              r.id !== run.id && r.status === 'completed' && r.conclusion === 'success' &&
+              r.event === 'pull_request' && r.run_started_at && r.updated_at
+            ).slice(0, 10).map(elapsed).filter(n => n > 0);
+            const median = baseline.length ? [...baseline].sort((a,b) => a-b)[Math.floor(baseline.length/2)] : null;
+            const delta = median === null ? 'not enough history' :
+              ((current - median) / median * 100).toFixed(1) + '%';
+            const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+              owner, repo, run_id: run.id, per_page: 100
+            });
+            const failed = jobs.filter(j => j.conclusion === 'failure').map(j => j.name);
+            const summary = [
+              '## CI run duration and targeted retry',
+              '| Metric | Value |', '|---|---|',
+              '| Workflow | ' + run.name + ' |',
+              '| Current run | ' + current + ' seconds |',
+              '| Median of up to 10 previous successful PR runs | ' + (median ?? 'N/A') + ' seconds |',
+              '| Difference | ' + delta + ' |',
+              '| Failed jobs | ' + (failed.join(', ') || 'none') + ' |',
+              '| Attempt | ' + run.run_attempt + ' |'
+            ];
+            // GitHub's native endpoint reruns only failed jobs and their dependencies.
+            // Never retry a second attempt or cancelled workflows; no deployment workflows are included.
+            if (run.conclusion === 'failure' && run.run_attempt === 1 && failed.length) {
+              await github.rest.actions.reRunWorkflowFailedJobs({owner, repo, run_id: run.id});
+              summary.push('', 'One automatic retry of failed jobs requested. Successful jobs are preserved.');
+            } else {
+              summary.push('', 'No automatic retry requested.');
+            }
+            await core.summary.addRaw(summary.join('\n')).write();
