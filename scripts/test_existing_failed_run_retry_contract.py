@@ -26,7 +26,7 @@ def main() -> int:
         assert token in route, f"missing fail-closed retry contract: {token}"
 
     # A retry must be claimed exactly once before the external side effect.
-    claim = route.index(".eq('status', 'failed')\\n    .select('id')")
+    claim = route.index(".eq('status', 'failed')", route.index("const { data: claimed"))
     dispatch = route.index("actions/workflows/pipeline-run.yml/dispatches")
     assert claim < dispatch, "retry must claim the failed run before GitHub dispatch"
     assert ".maybeSingle()" in route, "atomic claim must detect an already-claimed run"
