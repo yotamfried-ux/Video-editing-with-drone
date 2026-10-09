@@ -1,0 +1,58 @@
+name: Smart CI Fast Feedback
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/.maestro/upl01/**'
+      - 'scripts/test_upl01_maestro_contract.py'
+      - 'scripts/test_existing_failed_run_retry_contract.py'
+      - 'scripts/preflight_frozen_inputs.py'
+      - 'web-api/src/app/api/operator/pipeline/retry/route.ts'
+      - '.github/workflows/smart-ci-fast-feedback.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# This is an additional fast signal, never a substitute for required qualification.
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      upl01: ${{ steps.filter.outputs.upl01 }}
+      retry: ${{ steps.filter.outputs.retry }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            upl01:
+              - 'mobile/.maestro/upl01/**'
+              - 'scripts/test_upl01_maestro_contract.py'
+            retry:
+              - 'scripts/test_existing_failed_run_retry_contract.py'
+              - 'scripts/preflight_frozen_inputs.py'
+              - 'web-api/src/app/api/operator/pipeline/retry/route.ts'
+  upl01-contract:
+    needs: classify
+    if: needs.classify.outputs.upl01 == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/test_upl01_maestro_contract.py
+  retry-contract:
+    needs: classify
+    if: needs.classify.outputs.retry == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python scripts/test_existing_failed_run_retry_contract.py
