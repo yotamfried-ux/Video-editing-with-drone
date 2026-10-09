@@ -213,7 +213,7 @@ if [ "$flow_code" -ne 0 ]; then
       --evidence "$EVIDENCE_DIR/pre-retry-backend-evidence.json"
     no_upload_code=$?
     set -e
-    if [ "$no_upload_code" -eq 0 ]; then
+    if [ "$infra_failure" -eq 1 ] && [ "$no_upload_code" -eq 0 ]; then
       safe_retry=1
     else
       echo "UPL-01 scenario runner: refusing positive-flow retry because backend state is not empty" >&2
