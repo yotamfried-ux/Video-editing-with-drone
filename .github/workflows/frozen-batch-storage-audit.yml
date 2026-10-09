@@ -1,0 +1,45 @@
+name: Frozen Batch Storage Audit (read-only)
+
+# Read-only forensic: HEADs every active verified source of one batch in R2 and compares
+# sizes with the verified size. Never writes to R2 or Supabase; never dispatches the pipeline.
+on:
+  workflow_dispatch:
+    inputs:
+      batch_id:
+        description: 'Batch id to audit'
+        required: true
+        type: string
+      sha256:
+        description: 'Also stream every object and compare SHA-256 (slow)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+      - run: pip install --disable-pip-version-check boto3
+      - name: Audit batch in R2
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BATCH_ID: ${{ inputs.batch_id }}
+          WITH_SHA: ${{ inputs.sha256 }}
+        run: |
+          ARGS=""
+          if [ "$WITH_SHA" = "true" ]; then ARGS="--sha256"; fi
+          python scripts/audit_batch_storage.py "$BATCH_ID" $ARGS
