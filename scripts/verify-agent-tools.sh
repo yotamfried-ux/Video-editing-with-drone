@@ -77,6 +77,7 @@ expected = {
     "maestro": ("maestro", ["mcp"]),
     "playwright": ("npx", ["-y", "@playwright/mcp@latest"]),
     "chrome-devtools": ("npx", ["-y", "chrome-devtools-mcp@latest"]),
+    "video-analyzer": ("npx", ["-y", "mcp-video-analyzer@latest"]),
 }
 for name, (command, args) in expected.items():
     server = servers.get(name)
@@ -86,14 +87,14 @@ for name, (command, args) in expected.items():
         raise SystemExit(f"unexpected MCP config for {name}: {server!r}")
 PY
 then
-  ok "project .mcp.json declares Graphify, Maestro, Playwright and Chrome DevTools"
+  ok "project .mcp.json declares Graphify, Maestro, Playwright, Chrome DevTools and Video Analyzer"
 else
   bad "project .mcp.json is missing or misconfigures a required qualification MCP"
 fi
 
 if command -v claude >/dev/null 2>&1; then
   mcp_list="$(cd "$ROOT" && claude mcp list 2>/dev/null || true)"
-  for mcp_name in graphify maestro playwright chrome-devtools; do
+  for mcp_name in graphify maestro playwright chrome-devtools video-analyzer; do
     if grep -qi "$mcp_name" <<<"$mcp_list"; then
       ok "Claude Code sees the $mcp_name MCP entry"
     else
