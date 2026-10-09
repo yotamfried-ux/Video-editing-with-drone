@@ -11,6 +11,10 @@ on:
       - '.github/workflows/smart-ci-fast-feedback.yml'
   workflow_dispatch:
 
+concurrency:
+  group: smart-ci-fast-feedback-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   pull-requests: read
