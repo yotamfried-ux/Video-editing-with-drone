@@ -1,0 +1,91 @@
+name: Smart CI Fast Feedback
+
+on:
+  pull_request:
+    paths:
+      - 'mobile/.maestro/upl01/**'
+      - 'scripts/test_upl01_maestro_contract.py'
+      - 'scripts/test_existing_failed_run_retry_contract.py'
+      - 'scripts/preflight_frozen_inputs.py'
+      - 'web-api/src/app/api/operator/pipeline/retry/route.ts'
+      - '.github/workflows/smart-ci-fast-feedback.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: smart-ci-fast-feedback-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+# This is an additional fast signal, never a substitute for required qualification.
+jobs:
+  classify:
+    runs-on: ubuntu-latest
+    outputs:
+      upl01: ${{ steps.filter.outputs.upl01 }}
+      retry: ${{ steps.filter.outputs.retry }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            upl01:
+              - 'mobile/.maestro/upl01/**'
+              - 'scripts/test_upl01_maestro_contract.py'
+            retry:
+              - 'scripts/test_existing_failed_run_retry_contract.py'
+              - 'scripts/preflight_frozen_inputs.py'
+              - 'web-api/src/app/api/operator/pipeline/retry/route.ts'
+  upl01-contract:
+    needs: classify
+    if: needs.classify.outputs.upl01 == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache/restore@v4
+        id: passed
+        with:
+          path: .ci-cache/upl01-passed
+          key: smart-upl01-v1-${{ hashFiles('mobile/.maestro/upl01/**', 'scripts/test_upl01_maestro_contract.py', 'scripts/upl01_backend_evidence.py', 'scripts/upl01_error_path_server.py', '.github/workflows/upl-01-android-app-upload-e2e.yml') }}
+      - if: steps.passed.outputs.cache-hit != 'true'
+        run: python -m pip install --quiet pyyaml
+      - if: steps.passed.outputs.cache-hit != 'true'
+        run: python scripts/test_upl01_maestro_contract.py
+      - if: steps.passed.outputs.cache-hit != 'true'
+        run: mkdir -p .ci-cache && printf 'passed\n' > .ci-cache/upl01-passed
+      - if: steps.passed.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-cache/upl01-passed
+          key: smart-upl01-v1-${{ hashFiles('mobile/.maestro/upl01/**', 'scripts/test_upl01_maestro_contract.py', 'scripts/upl01_backend_evidence.py', 'scripts/upl01_error_path_server.py', '.github/workflows/upl-01-android-app-upload-e2e.yml') }}
+  retry-contract:
+    needs: classify
+    if: needs.classify.outputs.retry == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/cache/restore@v4
+        id: passed
+        with:
+          path: .ci-cache/retry-passed
+          key: smart-retry-v1-${{ hashFiles('scripts/test_existing_failed_run_retry_contract.py', 'scripts/preflight_frozen_inputs.py', 'web-api/src/app/api/operator/pipeline/retry/route.ts', 'mobile/src/app/(operator)/pipeline.tsx') }}
+      - if: steps.passed.outputs.cache-hit != 'true'
+        run: python scripts/test_existing_failed_run_retry_contract.py
+      - if: steps.passed.outputs.cache-hit != 'true'
+        run: mkdir -p .ci-cache && printf 'passed\n' > .ci-cache/retry-passed
+      - if: steps.passed.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: .ci-cache/retry-passed
+          key: smart-retry-v1-${{ hashFiles('scripts/test_existing_failed_run_retry_contract.py', 'scripts/preflight_frozen_inputs.py', 'web-api/src/app/api/operator/pipeline/retry/route.ts', 'mobile/src/app/(operator)/pipeline.tsx') }}

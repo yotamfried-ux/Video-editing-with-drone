@@ -5,7 +5,9 @@ on:
   pull_request:
     paths:
       - 'mobile/**'
-      - 'web-api/**'
+      - 'web-api/src/app/api/operator/**'
+      - 'web-api/src/lib/operator-*.ts'
+      - 'web-api/src/types/operator-contracts.ts'
       - 'scripts/app_user_e2e_evidence.py'
       - 'scripts/classify_android_e2e_failure.py'
       - 'scripts/classify_android_e2e_failure.py'
@@ -16,7 +18,9 @@ on:
     branches: [main]
     paths:
       - 'mobile/**'
-      - 'web-api/**'
+      - 'web-api/src/app/api/operator/**'
+      - 'web-api/src/lib/operator-*.ts'
+      - 'web-api/src/types/operator-contracts.ts'
       - 'scripts/app_user_e2e_evidence.py'
       - 'scripts/app_review_delivery_e2e.py'
       - 'scripts/test_app_review_delivery_e2e_contract.py'

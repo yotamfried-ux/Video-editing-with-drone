@@ -213,7 +213,7 @@ if [ "$flow_code" -ne 0 ]; then
       --evidence "$EVIDENCE_DIR/pre-retry-backend-evidence.json"
     no_upload_code=$?
     set -e
-    if [ "$no_upload_code" -eq 0 ]; then
+    if [ "$infra_failure" -eq 1 ] && [ "$no_upload_code" -eq 0 ]; then
       safe_retry=1
     else
       echo "UPL-01 scenario runner: refusing positive-flow retry because backend state is not empty" >&2
@@ -223,7 +223,10 @@ fi
 
 if [ "$safe_retry" -eq 1 ]; then
   echo "UPL-01 scenario runner: retrying once after a failed flow with verified-safe backend state"
+  adb kill-server >/dev/null 2>&1 || true
+  adb start-server >/dev/null 2>&1 || true
   stabilize_adb_device "Maestro infrastructure retry"
+  adb reverse tcp:8081 tcp:8081
   adb shell settings put global airplane_mode_on 0 >/dev/null 2>&1 || true
   adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state false >/dev/null 2>&1 || true
   mkdir -p "$EVIDENCE_DIR/attempt-1"
