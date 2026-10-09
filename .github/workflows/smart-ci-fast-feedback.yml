@@ -13,6 +13,7 @@ on:
 
 permissions:
   contents: read
+  pull-requests: read
 
 # This is an additional fast signal, never a substitute for required qualification.
 jobs:
@@ -44,6 +45,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - run: python -m pip install --quiet pyyaml
       - run: python scripts/test_upl01_maestro_contract.py
   retry-contract:
     needs: classify
