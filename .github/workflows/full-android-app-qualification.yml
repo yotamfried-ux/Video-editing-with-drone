@@ -292,19 +292,20 @@ jobs:
           emulator-boot-timeout: 480
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
-          script: bash -lc 'set -o pipefail; bash mobile/.maestro/app-e2e/run-review-delivery.sh 2>&1 | tee "$RUNNER_TEMP/android-review-journey.log"'
+          script: bash -lc 'set -o pipefail; timeout --signal=TERM --kill-after=20s 1200s bash mobile/.maestro/app-e2e/run-review-delivery.sh 2>&1 | tee "$RUNNER_TEMP/android-review-journey.log"'
       - name: Classify Review Android failure
-        if: ${{ failure() && steps.review-journey.outcome == 'failure' }}
+        if: ${{ !cancelled() && steps.review-journey.outcome == 'failure' }}
+        timeout-minutes: 2
         id: classify-review-failure
         shell: bash
         run: |
           {
             echo "=== adb devices ==="
-            adb devices -l || true
+            timeout 10s adb devices -l || true
             echo "=== runner disk ==="
             df -h || true
             echo "=== emulator data ==="
-            adb shell df -h /data 2>&1 || true
+            timeout 10s adb shell df -h /data 2>&1 || true
           } | tee "$RUNNER_TEMP/android-review-infra-diagnostics.log"
           cat "$RUNNER_TEMP/android-review-infra-diagnostics.log" >> "$RUNNER_TEMP/android-review-journey.log"
           if python3 scripts/classify_android_e2e_failure.py --log "$RUNNER_TEMP/android-review-journey.log" --output "$RUNNER_TEMP/android-review-failure-classification.json"; then
@@ -313,7 +314,7 @@ jobs:
             echo "classification=product_or_test" >> "$GITHUB_OUTPUT"
           fi
       - name: Fail explicit Review product or test regression
-        if: ${{ failure() && steps.review-journey.outcome == 'failure' && steps.classify-review-failure.outputs.classification != 'infrastructure' }}
+        if: ${{ !cancelled() && steps.review-journey.outcome == 'failure' && steps.classify-review-failure.outputs.classification != 'infrastructure' }}
         run: |
           echo "::error::Review Android journey failed without a recognized emulator/runner infrastructure signature."
           exit 1
@@ -343,7 +344,7 @@ jobs:
           emulator-boot-timeout: 480
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on -wipe-data
-          script: bash -lc 'set -o pipefail; bash mobile/.maestro/app-e2e/run-review-delivery.sh 2>&1 | tee "$RUNNER_TEMP/android-review-journey-retry.log"'
+          script: bash -lc 'set -o pipefail; timeout --signal=TERM --kill-after=20s 600s bash mobile/.maestro/app-e2e/run-review-delivery.sh 2>&1 | tee "$RUNNER_TEMP/android-review-journey-retry.log"'
       - name: Clean review qualification fixtures
         if: always()
         env:
@@ -366,6 +367,9 @@ jobs:
             ${{ runner.temp }}/review-delivery-state.json
             ${{ runner.temp }}/review-delivery-maestro/
             ${{ runner.temp }}/metro-review-delivery.log
+            ${{ runner.temp }}/android-review-journey*.log
+            ${{ runner.temp }}/android-review-infra-diagnostics.log
+            ${{ runner.temp }}/android-review-failure-classification.json
           retention-days: 30
           if-no-files-found: warn
 
