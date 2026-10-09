@@ -466,16 +466,19 @@ jobs:
         if: ${{ !cancelled() && steps.android-journey.outcome == 'failure' }}
         id: classify-failure
         shell: bash
+        timeout-minutes: 2
         run: |
+          # The emulator action has already exited. ADB can block forever while
+          # reconnecting to a dead emulator, so bound every diagnostic call.
           {
             echo "=== adb devices ==="
-            adb devices -l || true
+            timeout 10s adb devices -l || true
             echo "=== runner disk ==="
             df -h || true
             echo "=== emulator data ==="
-            adb shell df -h /data 2>&1 || true
+            timeout 10s adb shell df -h /data 2>&1 || true
             echo "=== recent Android system errors ==="
-            adb logcat -d -t 2000 2>&1 | grep -E "FAILED BINDER TRANSACTION|No space left on device|DeviceServerDiedException|FATAL EXCEPTION|AndroidRuntime" || true
+            timeout 15s adb logcat -d -t 2000 2>&1 | grep -E "FAILED BINDER TRANSACTION|No space left on device|DeviceServerDiedException|FATAL EXCEPTION|AndroidRuntime" || true
           } | tee "$RUNNER_TEMP/android-infra-diagnostics.log"
           cat "$RUNNER_TEMP/android-infra-diagnostics.log" >> "$RUNNER_TEMP/android-user-journey.log"
           if python3 scripts/classify_android_e2e_failure.py --log "$RUNNER_TEMP/android-user-journey.log" --output "$RUNNER_TEMP/android-failure-classification.json"; then
