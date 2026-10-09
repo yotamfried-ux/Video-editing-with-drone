@@ -12,7 +12,6 @@ on:
       - mobile/.maestro/upl01/**
       - scripts/upl01_backend_evidence.py
       - scripts/upl01_error_path_server.py
-      - scripts/test_upl01_maestro_contract.py
       - mobile/src/shared/components/**
       - mobile/src/shared/lib/api.ts
       - mobile/src/app/(operator)/**
@@ -25,7 +24,6 @@ on:
       - mobile/.maestro/upl01/**
       - scripts/upl01_backend_evidence.py
       - scripts/upl01_error_path_server.py
-      - scripts/test_upl01_maestro_contract.py
       - mobile/src/shared/components/**
       - mobile/src/shared/lib/api.ts
       - mobile/src/app/(operator)/**
