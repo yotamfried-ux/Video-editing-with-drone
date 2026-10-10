@@ -39,6 +39,8 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install lightweight pipeline test configuration dependency
+        run: python -m pip install --disable-pip-version-check --quiet python-dotenv
       - name: Run focused pipeline regressions and diagnostic negative controls
         shell: bash
         run: |
