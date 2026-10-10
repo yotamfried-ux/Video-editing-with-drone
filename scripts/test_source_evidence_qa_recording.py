@@ -84,6 +84,26 @@ def main() -> None:
             recorded = get_recorded_qa(str(reel), invocation_token=token)
             assert recorded is not None, "source-evidence QA result bypassed final QA evidence recorder"
             assert recorded == result, "recorded QA did not match final verdict used by the gate"
+            # A later failed assessment for the same rendered path must replace
+            # the evidence (never inherit an earlier PASS).
+            FakeResponse.text = json.dumps({
+                "content": {},
+                "defects": [{"type": "IDENTITY_MISMATCH", "severity": "critical"}],
+                "engagement_score": 34,
+                "overall": "Wrong athlete",
+            })
+            failed = runner.with_source_evidence(
+                FakeAnalyzer(),
+                lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("unexpected fallback")),
+                str(reel),
+                sport="surfing",
+                athlete_label="athlete one",
+                context={"source_windows": [{"source": str(source)}]},
+            )
+            assert failed["verdict"] == "FAIL"
+            assert get_recorded_qa(str(reel), invocation_token=token) == failed, (
+                "latest explicit QA failure must replace older PASS evidence"
+            )
         finally:
             clear_recorded_qa(token)
             release_scope(token)
