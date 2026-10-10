@@ -18,6 +18,8 @@ on:
       - 'scripts/record_publishable_business_gate_status.py'
       - 'scripts/test_frozen_input_restore_contract.py'
       - 'scripts/test_existing_failed_run_retry_contract.py'
+      - 'scripts/test_retry_route_behavior.mjs'
+      - 'scripts/repair_frozen_batch_manifest.sql'
       - 'web-api/src/app/api/operator/pipeline/retry/route.ts'
       - 'scripts/test_finalize_upload_batch_contract.py'
       - 'scripts/test_perception_cold_start_contract.py'
@@ -53,6 +55,19 @@ jobs:
                    test_draft_identity_lineage_contract test_athlete_canonicalization_contract; do
             echo "::group::$t"; python scripts/$t.py; echo "::endgroup::"
           done
+
+  retry-route-behavior:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Retry route behavioural test (in-memory DB, mocked GitHub dispatch)
+        run: |
+          mkdir -p /tmp/esb && cd /tmp/esb && npm init -y >/dev/null && npm i esbuild@0.25.0
+          cd "$GITHUB_WORKSPACE" && ESBUILD_PATH=/tmp/esb/node_modules/esbuild node scripts/test_retry_route_behavior.mjs
 
   database-regression:
     runs-on: ubuntu-latest
