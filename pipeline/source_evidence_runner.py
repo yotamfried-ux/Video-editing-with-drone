@@ -33,16 +33,32 @@ def _parse_qa_json(raw: str) -> dict[str, Any]:
     int(parsed.get("engagement_score", 0))
     return parsed
 
+def _remember_final_qa(reel_path: str, result: dict[str, Any]) -> dict[str, Any]:
+    """Preserve source-evidence verdict for the active render-to-QA invocation.
+
+    Successful multimodal QA does not invoke the base analyzer's QA wrapper.
+    Preserve the final result explicitly; outside publishable QA, be a no-op.
+    """
+    from pipeline.publishable_pending_scope import current_scope_token
+
+    token = current_scope_token()
+    if token:
+        from pipeline.publishable_qa_evidence import record_qa_result
+
+        record_qa_result(reel_path, result, invocation_token=token)
+    return result
+
+
 def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context: dict[str, Any] | None = None, **kwargs) -> dict[str, Any]:
     if not context:
-        return original(reel_path, *args, **kwargs)
+        return _remember_final_qa(reel_path, original(reel_path, *args, **kwargs))
     clips = make_source_clips(context)
     if not clips:
         result = original(reel_path, *args, **kwargs)
         extra = _context_defects(context)
         if extra:
             result.update({"verdict": "FAIL", "defects": [*(result.get("defects", []) or []), *extra], "qa_review_required": True})
-        return result
+        return _remember_final_qa(reel_path, result)
     uploaded = []
     try:
         sport = str(kwargs.get("sport", ""))
@@ -70,20 +86,20 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
             defects = list(result.get("defects", []) or []) + _context_defects(context)
             defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": f"source evidence QA response unavailable after {_QA_RESPONSE_ATTEMPTS} attempts: {last_error}"})
             result.update({"verdict": "FAIL", "defects": defects, "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": True, "qa_failure_reason": "response_parse_failed"})
-            return result
+            return _remember_final_qa(reel_path, result)
         defects = [d for d in (parsed.get("defects") or []) if isinstance(d, dict)] + _context_defects(context)
         critical = [d for d in defects if str(d.get("severity", "")).lower() == "critical"]
         score = int(parsed.get("engagement_score", 0))
         threshold = int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60"))
         result = {"verdict": "PASS" if tech_ok and score >= threshold and not critical else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": bool(critical)}
         analyzer._persist_qa_result(result, reel_path, sport)
-        return result
+        return _remember_final_qa(reel_path, result)
     except Exception as exc:
         result = original(reel_path, *args, **kwargs)
         defects = list(result.get("defects", []) or []) + _context_defects(context)
         defects.append({"type": "QA_REVIEW_REQUIRED", "severity": "critical", "note": f"source evidence upload/generation failed: {type(exc).__name__}: {exc}"})
         result.update({"verdict": "FAIL", "defects": defects, "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": False, "qa_review_required": True})
-        return result
+        return _remember_final_qa(reel_path, result)
     finally:
         for item in uploaded:
             try:
