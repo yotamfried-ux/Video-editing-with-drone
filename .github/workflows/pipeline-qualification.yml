@@ -6,6 +6,7 @@ on:
       - '.github/workflows/pipeline-qualification.yml'
       - 'scripts/qualify_pipeline_diagnostics.py'
       - 'scripts/test_pipeline_qualification.py'
+      - 'scripts/test_source_evidence_qa_recording.py'
       - 'scripts/test_production_qa_manifest_coverage_simulation.py'
       - 'scripts/test_publishable_qa_evidence_contract.py'
       - 'scripts/test_publishable_reel_business_contract.py'
@@ -48,6 +49,7 @@ jobs:
           failed=0
           for test in \
             scripts/test_pipeline_qualification.py \
+            scripts/test_source_evidence_qa_recording.py \
             scripts/test_athlete_canonicalization_contract.py \
             scripts/test_athlete_coverage_report_contract.py \
             scripts/test_canonical_athlete_reconciliation.py \
