@@ -213,7 +213,7 @@ def run_simple_raw_reset_probe() -> None:
     import integrations
     previous_uploads = sys.modules.get("integrations.source_uploads")
     previous_uploads_attr = getattr(integrations, "source_uploads", None)
-    fake_uploads = types.SimpleNamespace(get_source_upload=lambda key: {"status": "verified"} if key == "raw/other_batch/two.mp4" else None)
+    fake_uploads = types.SimpleNamespace(get_source_upload=lambda key: {"status": "verified"} if key in {"raw/other_batch/two.mp4", "raw/duplicate/existing.mp4"} else None)
     sys.modules["integrations.source_uploads"] = fake_uploads
     integrations.source_uploads = fake_uploads
     previous = sys.modules.get("integrations.r2_storage")
