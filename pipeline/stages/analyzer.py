@@ -356,18 +356,18 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
     verdict (advisory only — never blocks): PASS iff technical_pass AND
     engagement_score >= config.QA_ENGAGEMENT_THRESHOLD.
 
-    Always returns a full PASS dict on any error — never drops a reel due to QA failure.
+    Returns FAIL with explicit unavailable evidence on provider errors; never fabricates QA PASS.
     Result is persisted to qa_results.jsonl for future calibration.
     """
     specs, technical_pass, tech_issues = _check_technical_compliance(reel_path)
 
     _PASS = {
-        "verdict": "PASS",
+        "verdict": "FAIL",
         "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
-        "content": dict(_QA_PASS_CONTENT),
-        "defects": [],
-        "engagement_score": 100,
-        "overall": "QA skipped",
+        "content": {},
+        "defects": [{"code": "QA_PROVIDER_UNAVAILABLE", "severity": "critical"}],
+        "engagement_score": 0,
+        "overall": "QA provider unavailable; review required",
     }
     try:
         vf = _upload_video(reel_path)
@@ -416,6 +416,7 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
             _delete_video(vf)
     except Exception as exc:
         logger.warning("qa_check_reel failed for %s: %s", Path(reel_path).name, exc)
+        _persist_qa_result(_PASS, reel_path, sport)
         return _PASS
 
 
