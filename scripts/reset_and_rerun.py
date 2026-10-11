@@ -266,39 +266,55 @@ def _r2_delete_prefix(prefix: str, label: str, dry_run: bool = False) -> int:
     return len(videos)
 
 
+def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
+    """Recover processed source videos to flat raw/; never overwrite a RAW file."""
+    from integrations import r2_storage as r2
+    processed = [obj for obj in r2.list_objects(r2.PROCESSED_PREFIX)
+                 if r2._is_video_key(obj["Key"])]
+    existing = {obj["Key"] for obj in r2.list_objects(r2.RAW_PREFIX)}
+    planned = {}
+    for obj in processed:
+        source = obj["Key"]
+        dest = r2.RAW_PREFIX + source.rsplit("/", 1)[-1]
+        if dest in existing or dest in planned:
+            raise RuntimeError(f"RAW restore collision at {dest}; no files were changed")
+        planned[dest] = source
+    if dry_run:
+        for dest, source in planned.items():
+            print(f"  [dry-run] Would restore {source} -> {dest}")
+        return len(planned)
+    # Preserve originals until every destination is copied and size-verified.
+    for dest, source in planned.items():
+        r2.copy_object(source, dest)
+        client = r2._client()
+        src_head = client.head_object(Bucket=r2._bucket(), Key=source)
+        dst_head = client.head_object(Bucket=r2._bucket(), Key=dest)
+        if src_head["ContentLength"] != dst_head["ContentLength"]:
+            raise RuntimeError(f"Restore size mismatch: {source} -> {dest}")
+    for dest, source in planned.items():
+        r2.delete_object(source)
+    return len(planned)
+
+
 def _reset_r2(args) -> bool:
     if _storage_backend_name() == "drive":
         return False
     if _storage_backend_name() != "r2":
         raise RuntimeError(f"Unsupported STORAGE_BACKEND for reset: {_storage_backend_name()}")
-
     from integrations import r2_storage
-    print("\n☁️  R2 reset mode")
+    # Recover all originals before deleting any generated outputs.
+    if not args.no_restore:
+        if os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID"):
+            from pipeline.r2_batch_scope import ensure_frozen_inputs
+            report = ensure_frozen_inputs(restore=not args.dry_run)
+            print(f"  Frozen inputs: {report.summary()}")
+        else:
+            restored = _restore_r2_sources_to_raw(dry_run=args.dry_run)
+            print(f"  Restored or planned {restored} source videos to RAW")
     if args.full_clean:
-        print("\n── Step 0: Delete generated outputs from approved/ ────────────────")
         _r2_delete_prefix(r2_storage.APPROVED_PREFIX, "approved/", dry_run=args.dry_run)
     if not args.keep_drafts:
-        print("\n── Step 1: Delete draft reels from review/ ────────────────────────")
         _r2_delete_prefix(r2_storage.REVIEW_PREFIX, "review/", dry_run=args.dry_run)
-    if not args.no_restore:
-        print("\n── Step 2: Restore frozen batch inputs processed/ → raw/ ───────────")
-        batch = (os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID") or "").strip()
-        if batch:
-            # Batch-scoped runs restore exactly the frozen manifest, never a global sweep.
-            from pipeline.r2_batch_scope import ensure_frozen_inputs
-
-            report = ensure_frozen_inputs(restore=not args.dry_run)
-            print(f"  ✅ Frozen inputs: {report.summary()}")
-        elif args.dry_run:
-            processed = r2_storage.list_objects(r2_storage.PROCESSED_PREFIX)
-            if not processed:
-                print("  No objects found in processed/.")
-            for obj in processed:
-                print(f"  [dry-run] Would restore to raw/: {obj['Key']}")
-        else:
-            print("  ⚠️  No batch id: legacy global processed/ → raw/ restore")
-            restored = r2_storage.restore_processed_to_raw()
-            print(f"  ✅ Restored {restored} object(s) to raw/.")
     step3_clear_local_state(dry_run=args.dry_run)
     return True
 
