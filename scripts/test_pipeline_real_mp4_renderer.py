@@ -33,12 +33,12 @@ def pixel_at(path: Path, x: int, y: int) -> tuple[int, int, int]:
     # Read ONE frame pixel using FFmpeg, independent of the editor.
     rgb = subprocess.run(
         ["ffmpeg", "-v", "error", "-ss", "2", "-i", str(path),
-         "-vf", f"crop=1:1:{x}:{y},format=rgb24", "-frames:v", "1",
+         "-vf", f"crop=2:2:{x}:{y},format=rgb24", "-frames:v", "1",
          "-f", "rawvideo", "-"],
         capture_output=True, timeout=60, check=True,
     ).stdout
-    assert len(rgb) == 3, f"missing decoded pixel: {len(rgb)}"
-    return tuple(rgb)
+    assert len(rgb) == 12, f"missing decoded pixels: {len(rgb)}"
+    return tuple(rgb[:3])
 
 
 def main() -> None:
