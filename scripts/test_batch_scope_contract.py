@@ -261,10 +261,17 @@ def main() -> int:
     require("pipeline reset route", reset_route, ["batch_id", "safeBatchId", "inputs", "pipeline_run_id: run.id", "prepareUploadBatchRerun", "releaseUploadBatchAfterDispatchFailure", "input_files: []", "rerunBatch.inputManifest"])
     rerun_migration = read("supabase/migrations/20261004_prepare_upload_batch_rerun.sql")
     require("atomic rerun migration", rerun_migration, ["for update", "previous pipeline run", "still active", "v_actual <> v_batch.expected_file_count", "v_verified <> v_batch.expected_file_count", "jsonb_array_length(v_manifest) <> v_batch.expected_file_count", "pipeline_run_id=p_pipeline_run_id", "input_manifest=v_manifest"])
+    require("run-scoped reset authority", reset_route, [
+        "sourceRunId", "sourceRun.meta?.batch_id", "sourceRun.input_files",
+        "Cannot reset an active pipeline run", "Selected run has no matching frozen input manifest",
+    ])
+    require("run selection UI", read("mobile/src/features/operator/components/PipelineRunsCard.tsx"), [
+        "onSelectRun", "Select this run for reset",
+    ])
     if "assertUploadBatchReady(batchId)" in reset_route:
         raise SystemExit("reset must use the migration-compatible atomic rerun gate, not ready-only assertion")
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
-    require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "batch_id: lastBatchId ?? activeBatchId", "Current upload batch"])
+    require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "selectedResetRun", "batch_id: batchId, pipeline_run_id: selectedResetRun?.id", "Current upload batch"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
     require("canonical R2 bootstrap", bootstrap, ["pipeline.r2_batch_scope", "_install_r2_batch_scope", 'if backend != "r2":'])
     if "or not batch_id" in bootstrap:
