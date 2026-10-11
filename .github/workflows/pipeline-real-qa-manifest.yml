@@ -1,0 +1,31 @@
+name: Pipeline Real MP4 QA Manifest (isolated)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-real-qa-manifest.yml'
+      - 'scripts/test_pipeline_real_qa_manifest.py'
+      - 'pipeline/publishable_qa_evidence.py'
+      - 'pipeline/publishable_reel_policy.py'
+      - 'pipeline/stages/editor.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa-manifest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install FFmpeg
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --quiet python-dotenv
+      - name: Real renderer to QA and fail-closed manifest
+        run: python scripts/test_pipeline_real_qa_manifest.py
