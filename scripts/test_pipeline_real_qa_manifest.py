@@ -65,7 +65,7 @@ def main() -> None:
             assert reel and Path(reel).is_file(), "final reel compilation failed"
             audio = run("ffprobe", "-v", "error", "-select_streams", "a:0",
                         "-show_entries", "stream=codec_name", "-of", "csv=p=0", reel)
-            assert b"aac" in audio.stdout, "final reel missing AAC audio"
+            assert "aac" in audio.stdout, "final reel missing AAC audio"
             assert probe(Path(reel))["codec_name"] == "h264"
             final_paths.append((reel, event))
         paths = final_paths
