@@ -210,8 +210,11 @@ def run_simple_raw_reset_probe() -> None:
         delete_object=lambda key: (events.append(("delete", key)), objects.pop(key)),
         _client=lambda: Client(), _bucket=lambda: "sandbox",
     )
+    import integrations
     previous = sys.modules.get("integrations.r2_storage")
+    previous_attr = getattr(integrations, "r2_storage", None)
     sys.modules["integrations.r2_storage"] = fake
+    integrations.r2_storage = fake
     try:
         recover = namespace["_restore_r2_sources_to_raw"]
         assert recover(dry_run=True) == 2 and not events
@@ -231,6 +234,10 @@ def run_simple_raw_reset_probe() -> None:
             sys.modules.pop("integrations.r2_storage", None)
         else:
             sys.modules["integrations.r2_storage"] = previous
+        if previous_attr is None:
+            delattr(integrations, "r2_storage")
+        else:
+            integrations.r2_storage = previous_attr
 
 
 def main() -> int:
