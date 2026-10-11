@@ -82,7 +82,7 @@ def main() -> None:
             ["ffprobe", "-v", "error", "-select_streams", "a",
              "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(rendered)],
             check=True, capture_output=True, text=True)
-        assert "audio" in audio_probe.stdout, "rendered fixture missing audio"
+        assert "audio" not in audio_probe.stdout, "cut_clip unexpectedly changed its silent-clip contract"
         assert (rendered_spec["width"], rendered_spec["height"]) == (1080, 1920), rendered_spec
         # Carry the SAME real-detector render into production manifest/QA policy.
         # Controlled QA verdict: this does NOT execute an LLM visual reviewer.
@@ -92,7 +92,7 @@ def main() -> None:
         policy.reset_manifest()
         enriched["athlete_id"] = str(enriched["target_track_id"])
         spec = {"duration": 3, "width": 1080, "height": 1920,
-                "aspect": 9 / 16, "has_audio": True}
+                "aspect": 9 / 16, "has_audio": False}
         policy.record_athlete_outcome(
             sport="surfing", athlete_label="tracked person",
             final_reels=[rendered], events_by_reel={rendered: [enriched]},
@@ -109,7 +109,8 @@ def main() -> None:
         assert len(manifest["athletes"]) == 1, manifest
         part = manifest["athletes"][0]["parts"][0]
         assert part["qa_verdict"] == "PASS" and part["qa_evidence_recorded"], part
-        assert part["render_ready"] is True, part
+        assert part["render_ready"] is False, part
+        assert "missing_audio" in part["technical_issues"], part
         assert manifest["summary"]["publishable_athlete_count"] == 0, manifest
         assert manifest["summary"]["coverage_gap_count"] == 1, manifest
         report = {
@@ -127,6 +128,7 @@ def main() -> None:
             "production_access": False,
             "actual_ffmpeg_render": True,
             "actual_manifest_qa_policy": True,
+            "silent_intermediate_blocked": True,
             "qa_verdict_controlled_not_llm": True,
             "upload_executed": False,
             "publication_fail_closed": True,
