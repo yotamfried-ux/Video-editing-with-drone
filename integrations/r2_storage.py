@@ -180,6 +180,38 @@ def copy_object(source_key: str, dest_key: str) -> None:
     )
 
 
+def copy_object_if_absent(source_key: str, dest_key: str) -> None:
+    """Create a destination atomically, without overwriting concurrent writers.
+
+    S3 CopyObject has source preconditions but no destination If-None-Match.
+    A conditional PutObject provides destination create-if-absent semantics.
+    Stream the source to avoid loading a full video into process memory.
+    R2 must support IfNoneMatch='*'; unsupported preconditions fail closed.
+    """
+    from botocore.exceptions import ClientError
+    client = _client()
+    bucket = _bucket()
+    source = client.get_object(Bucket=bucket, Key=source_key)
+    body = source["Body"]
+    try:
+        try:
+            client.put_object(
+                Bucket=bucket,
+                Key=dest_key,
+                Body=body,
+                ContentLength=source["ContentLength"],
+                ContentType=source.get("ContentType") or _content_type(source_key),
+                IfNoneMatch="*",
+            )
+        except ClientError as exc:
+            status = exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode")
+            if status in (409, 412):
+                raise RuntimeError(f"Destination already exists or concurrent write: {dest_key}") from exc
+            raise
+    finally:
+        body.close()
+
+
 def delete_object(key: str) -> None:
     _client().delete_object(Bucket=_bucket(), Key=key)
 
