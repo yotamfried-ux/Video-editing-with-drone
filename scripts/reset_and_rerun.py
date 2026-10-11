@@ -281,6 +281,15 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
         if r2._is_video_key(obj["Key"])
         and "/" in obj["Key"][len(r2.RAW_PREFIX):]
     ]
+    # Fail closed: processed/ may also hold generated outputs.
+    from integrations.source_uploads import get_source_upload
+    for obj in sources:
+        key = obj["Key"]
+        if key.startswith(r2.PROCESSED_PREFIX):
+            raw_key = r2.RAW_PREFIX + key[len(r2.PROCESSED_PREFIX):]
+            evidence = get_source_upload(raw_key) or get_source_upload(key)
+            if not evidence or str(evidence.get("status") or "") not in {"verified", "superseded", "removed"}:
+                raise RuntimeError(f"Unverified processed source provenance: {key}; reset aborted")
     planned = {}
     for obj in sources:
         source = obj["Key"]
