@@ -10,3 +10,13 @@ regexes = [
   '''EXPO_PUBLIC_SUPABASE_ANON_KEY.*sb_publishable_[A-Za-z0-9_-]+''',
   '''"AndroidKeyStore",\s*"AES/GCM/NoPadding"'''
 ]
+
+# Historical false positive: this Python expression constructs an R2 object key
+# from fixed folder prefixes; it contains no credential. Match the exact line
+# and file together so real keys and future changes remain scanned.
+[[allowlists]]
+description = "Historical R2 RAW path concatenation is not an API key"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^scripts/reset_and_rerun\.py$''']
+regexes = ['''^\s*raw_key = r2\.RAW_PREFIX \+ key\[len\(r2\.PROCESSED_PREFIX\):\]$''']
