@@ -452,6 +452,9 @@ def _find_upload_part(
     draft_path: str,
 ) -> tuple[dict[str, Any], dict[str, Any]] | None:
     target = os.path.abspath(str(draft_path))
+    # Exact-path matches must also be unique. Silently choosing the first row
+    # can attribute an uploaded draft to the wrong athlete.
+    exact_matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
     for row in payload.get("athletes", []) or []:
         if not isinstance(row, dict):
             continue
@@ -464,7 +467,12 @@ def _find_upload_part(
                 for alias in part.get("upload_path_aliases", []) or []
             )
             if target in paths:
-                return row, part
+                exact_matches.append((row, part))
+    if len(exact_matches) == 1:
+        return exact_matches[0]
+    if exact_matches:
+        logger.error("Ambiguous upload path %s matches %d manifest parts", target, len(exact_matches))
+        return None
 
     # Some upload paths are materialized in a different temporary directory after
     # the manifest row is written. Reconcile by basename only when it is unique
