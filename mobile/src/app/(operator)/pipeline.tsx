@@ -299,6 +299,7 @@ export default function PipelineScreen() {
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
+  const [selectedResetRun, setSelectedResetRun] = useState<PipelineRun | null>(null);
   const [restoredServerBatch, setRestoredServerBatch] = useState<{ batch_id: string; expected_file_count: number } | null>(null);
 
   const restoreReadyServerBatch = useCallback(async () => {
@@ -532,6 +533,10 @@ export default function PipelineScreen() {
   };
 
   const confirmReset = () => {
+    if (!selectedResetRun) {
+      Alert.alert('Select a run', 'Choose the exact run from Recent pipeline runs before resetting.');
+      return;
+    }
     Alert.alert(
       'Reset and rerun',
       'Choose reset scope:',
@@ -544,12 +549,24 @@ export default function PipelineScreen() {
   };
 
   const resetAndRerun = async (fullClean: boolean) => {
+    // Reset is destructive: never infer its scope from a stale local upload batch.
+    // The latest failed run's frozen batch is the only authoritative target here.
+    const batchId = selectedResetRun
+      ? String(((selectedResetRun.meta ?? {}) as Record<string, unknown>).batch_id ?? '').trim()
+      : '';
+    if (!batchId) {
+      Alert.alert(
+        'Reset blocked',
+        'Cannot verify the failed run batch. No files were changed. Use the non-destructive retry flow or inspect the run metadata.'
+      );
+      return;
+    }
     setResetting(true);
     try {
       const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_clean: fullClean, batch_id: lastBatchId ?? activeBatchId ?? restoredServerBatch?.batch_id }),
+        body: JSON.stringify({ full_clean: fullClean, batch_id: batchId, pipeline_run_id: selectedResetRun?.id }),
       });
       setLastRunId(result.pipeline_run_id);
       if (result.batch_id) setLastBatchId(result.batch_id);
@@ -1100,7 +1117,7 @@ export default function PipelineScreen() {
             )}
           </Card>
 
-          <PipelineRunsCard />
+          <PipelineRunsCard onSelectRun={setSelectedResetRun} selectedRunId={selectedResetRun?.id} />
           <DeliveryStatusCard />
 
           <Card bordered style={{ gap: Spacing.sm }}>
