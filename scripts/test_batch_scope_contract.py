@@ -247,7 +247,7 @@ def run_simple_raw_reset_probe() -> None:
         # Simulate legacy source archival to exercise separate provenance checks.
         objects.pop("raw/old_batch/one.mp4")
         objects.pop("processed/other_batch/two.mp4")
-        objects["processed/duplicate/existing.mp4"] = 10
+        objects["processed/duplicate/existing.mp4"] = 9
         try:
             recover()
         except RuntimeError as exc:
