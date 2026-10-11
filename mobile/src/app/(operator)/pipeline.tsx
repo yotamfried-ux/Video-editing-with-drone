@@ -299,7 +299,6 @@ export default function PipelineScreen() {
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
-  const [selectedResetRun, setSelectedResetRun] = useState<PipelineRun | null>(null);
   const [restoredServerBatch, setRestoredServerBatch] = useState<{ batch_id: string; expected_file_count: number } | null>(null);
 
   const restoreReadyServerBatch = useCallback(async () => {
@@ -533,13 +532,9 @@ export default function PipelineScreen() {
   };
 
   const confirmReset = () => {
-    if (!selectedResetRun) {
-      Alert.alert('Select a run', 'Choose the exact run from Recent pipeline runs before resetting.');
-      return;
-    }
     Alert.alert(
       'Reset and rerun',
-      'Choose reset scope:',
+      'Choose reset scope. The server will verify the latest eligible batch; source videos are preserved.',
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Standard reset', onPress: () => resetAndRerun(false) },
@@ -549,16 +544,25 @@ export default function PipelineScreen() {
   };
 
   const resetAndRerun = async (fullClean: boolean) => {
-    // Reset is destructive: never infer its scope from a stale local upload batch.
-    // The latest failed run's frozen batch is the only authoritative target here.
-    const batchId = selectedResetRun
-      ? String(((selectedResetRun.meta ?? {}) as Record<string, unknown>).batch_id ?? '').trim()
-      : '';
-    if (!batchId) {
-      Alert.alert(
-        'Reset blocked',
-        'Cannot verify the failed run batch. No files were changed. Use the non-destructive retry flow or inspect the run metadata.'
-      );
+    // Resolve the latest eligible durable run at click time, never from stale local state.
+    // Do not reset if the target is ambiguous or missing an immutable manifest.
+    let resetRun: PipelineRun;
+    let batchId: string;
+    try {
+      const history = await operatorFetch<PipelineRunsResponse>('/api/operator/pipeline/runs?limit=50');
+      const eligible = (history.runs ?? []).filter((run) => {
+        const id = String(((run.meta ?? {}) as Record<string, unknown>).batch_id ?? '').trim();
+        return id && Array.isArray(run.input_files) && run.input_files.length > 0
+          && !['queued', 'running'].includes(run.status);
+      });
+      if (!eligible.length) {
+        Alert.alert('Reset unavailable', 'No completed run with a verified frozen batch was found. No videos were changed.');
+        return;
+      }
+      resetRun = eligible[0];
+      batchId = String(((resetRun.meta ?? {}) as Record<string, unknown>).batch_id).trim();
+    } catch (error) {
+      handleOperatorError(error);
       return;
     }
     setResetting(true);
@@ -566,7 +570,7 @@ export default function PipelineScreen() {
       const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_clean: fullClean, batch_id: batchId, pipeline_run_id: selectedResetRun?.id }),
+        body: JSON.stringify({ full_clean: fullClean, batch_id: batchId, pipeline_run_id: resetRun.id }),
       });
       setLastRunId(result.pipeline_run_id);
       if (result.batch_id) setLastBatchId(result.batch_id);
@@ -1117,7 +1121,7 @@ export default function PipelineScreen() {
             )}
           </Card>
 
-          <PipelineRunsCard onSelectRun={setSelectedResetRun} selectedRunId={selectedResetRun?.id} />
+          <PipelineRunsCard />
           <DeliveryStatusCard />
 
           <Card bordered style={{ gap: Spacing.sm }}>
