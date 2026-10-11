@@ -154,7 +154,10 @@ def main() -> None:
         final_row = next(
             row for row in final_manifest["athletes"]
             if row["athlete_label"] == "tracked person final")
-        final_part = final_row["parts"][0]
+        final_parts = [part for part in final_row["parts"]
+                       if part["local_path"] == final]
+        assert len(final_parts) == 1, final_row
+        final_part = final_parts[0]
         assert final_part["render_ready"] is True, final_row
         assert final_part["qa_verdict"] == "PASS", final_row
         assert final_part["qa_evidence_recorded"] is True, final_row
