@@ -98,7 +98,7 @@ def build_selector_candidate_events(
                 good = sorted(eligible, key=lambda item: _int_value(item.get("score"), 0), reverse=True)[:2]
                 selected_reason = "fallback_top_two_for_participant"
 
-        selected_keys: set[tuple[float, str]] = set()
+        selected_ids: set[int] = set()
         selected_events: list[dict[str, Any]] = []
         for event in sorted(good, key=lambda item: _int_value(item.get("score"), 0), reverse=True):
             start = _event_window(event)["start"]
@@ -114,7 +114,7 @@ def build_selector_candidate_events(
                 ))
                 continue
             selected_events.append(event)
-            selected_keys.add((start, str(event.get("type", "highlight"))))
+            selected_ids.add(id(event))
             candidates.append(_candidate(
                 source_video=source_video,
                 person=person,
@@ -125,8 +125,7 @@ def build_selector_candidate_events(
             ))
 
         for event in eligible:
-            key = (_event_window(event)["start"], str(event.get("type", "highlight")))
-            if key in selected_keys:
+            if id(event) in selected_ids:
                 continue
             if event in good:
                 continue

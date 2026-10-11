@@ -318,6 +318,32 @@ def classify_primary_actor(
             "ambiguity_reasons": list(dict.fromkeys(reasons)),
         }
 
+    # Multiple visible athletes require positive attribution; an ID alone is
+    # not evidence that the featured action belongs to the chosen athlete.
+    if visible_subject_count > 1 and not (
+        _target_is_clearly_centered(event)
+        or (pending_focused_validation and actor_id is not None
+            and primary_continuity_ratio is not None
+            and primary_continuity_ratio >= 0.50)
+    ):
+        reasons = _centered_evidence_gaps(event)
+        if primary_continuity_ratio is None or primary_continuity_ratio < 0.50:
+            reasons.append("primary_continuity:not_proven")
+        return {
+            "decision": "review_required",
+            "reason": "primary_actor_not_proven_among_multiple_subjects",
+            "defect_type": PRIMARY_ACTOR_UNCLEAR,
+            "primary_actor_id": actor_id,
+            "primary_actor_clear": clear,
+            "primary_actor_confidence": confidence,
+            "primary_continuity_ratio": primary_continuity_ratio,
+            "visible_subject_count": visible_subject_count,
+            "primary_athlete_centered": False,
+            "other_people_allowed": False,
+            "background_people_allowed": False,
+            "ambiguity_reasons": list(dict.fromkeys(reasons)),
+        }
+
     if actor_id or clear is True or (primary_continuity_ratio is not None and primary_continuity_ratio >= 0.50):
         return {
             "decision": "allowed_primary_actor_clear",
