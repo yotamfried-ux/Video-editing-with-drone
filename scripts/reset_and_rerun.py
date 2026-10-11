@@ -269,11 +269,20 @@ def _r2_delete_prefix(prefix: str, label: str, dry_run: bool = False) -> int:
 def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
     """Recover processed source videos to flat raw/; never overwrite a RAW file."""
     from integrations import r2_storage as r2
-    processed = [obj for obj in r2.list_objects(r2.PROCESSED_PREFIX)
-                 if r2._is_video_key(obj["Key"])]
-    existing = {obj["Key"] for obj in r2.list_objects(r2.RAW_PREFIX)}
+    # Source locations include legacy batch directories under both prefixes.
+    raw_objects = r2.list_objects(r2.RAW_PREFIX)
+    existing = {obj["Key"] for obj in raw_objects
+                if "/" not in obj["Key"][len(r2.RAW_PREFIX):]}
+    sources = [
+        obj for obj in r2.list_objects(r2.PROCESSED_PREFIX)
+        if r2._is_video_key(obj["Key"])
+    ] + [
+        obj for obj in raw_objects
+        if r2._is_video_key(obj["Key"])
+        and "/" in obj["Key"][len(r2.RAW_PREFIX):]
+    ]
     planned = {}
-    for obj in processed:
+    for obj in sources:
         source = obj["Key"]
         dest = r2.RAW_PREFIX + source.rsplit("/", 1)[-1]
         if dest in existing or dest in planned:
