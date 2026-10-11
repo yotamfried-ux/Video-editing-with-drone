@@ -34,8 +34,10 @@ def main() -> None:
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
              "-loop", "1", "-framerate", "8", "-i", str(source_image),
+             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=3",
              "-t", "3", "-vf", "scale=640:384,format=yuv420p",
-             "-c:v", "libx264", "-preset", "ultrafast", str(source)],
+             "-c:v", "libx264", "-preset", "ultrafast",
+             "-c:a", "aac", "-shortest", str(source)],
             check=True, timeout=90,
         )
         from pipeline.perception.producer import sidecar_from_ultralytics
@@ -76,6 +78,11 @@ def main() -> None:
         assert rendered and Path(rendered).is_file(), "real detector event failed to render"
         rendered_spec = probe(Path(rendered))
         assert rendered_spec["codec_name"] == "h264", rendered_spec
+        audio_probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(rendered)],
+            check=True, capture_output=True, text=True)
+        assert "audio" in audio_probe.stdout, "rendered fixture missing audio"
         assert (rendered_spec["width"], rendered_spec["height"]) == (1080, 1920), rendered_spec
         # Carry the SAME real-detector render into production manifest/QA policy.
         # Controlled QA verdict: this does NOT execute an LLM visual reviewer.
@@ -85,7 +92,7 @@ def main() -> None:
         policy.reset_manifest()
         enriched["athlete_id"] = str(enriched["target_track_id"])
         spec = {"duration": 3, "width": 1080, "height": 1920,
-                "aspect": 9 / 16, "has_audio": False}
+                "aspect": 9 / 16, "has_audio": True}
         policy.record_athlete_outcome(
             sport="surfing", athlete_label="tracked person",
             final_reels=[rendered], events_by_reel={rendered: [enriched]},
