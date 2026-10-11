@@ -53,7 +53,7 @@ function compactStage(run: PipelineRun): string {
   return progress ? `${stage} · ${progress}` : stage;
 }
 
-export function PipelineRunsCard() {
+export function PipelineRunsCard({ onSelectRun, selectedRunId }: { onSelectRun?: (run: PipelineRun) => void; selectedRunId?: string | null }) {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -127,6 +127,13 @@ export function PipelineRunsCard() {
                 {compactStage(run)} · {fmtTime(run.queued_at)}
               </Text>
 
+              {onSelectRun && (
+                <Pressable onPress={() => onSelectRun(run)} accessibilityRole="button">
+                  <Text variant="caption" color={selectedRunId === run.id ? Colors.accent : Colors.textSecondary}>
+                    {selectedRunId === run.id ? 'Selected for reset' : 'Select this run for reset'}
+                  </Text>
+                </Pressable>
+              )}
               {hasError && (
                 <Pressable
                   style={styles.errorToggle}

@@ -25,19 +25,40 @@ export async function POST(req: NextRequest) {
 
   let fullClean = false;
   let batchId = '';
+  let sourceRunId = '';
   try {
     const body = await req.json();
     fullClean = body?.full_clean === true;
     batchId = safeBatchId(body?.batch_id);
+    sourceRunId = typeof body?.pipeline_run_id === 'string' ? body.pipeline_run_id.trim() : '';
   } catch {}
 
-  if (!batchId) {
-    return NextResponse.json({ error: 'Reset requires an explicit batch_id so inputs cannot leak across runs' }, { status: 400 });
+  if (!batchId || !sourceRunId) {
+    return NextResponse.json({ error: 'Reset requires an explicit batch_id and pipeline_run_id so inputs cannot leak across runs' }, { status: 400 });
+  }
+
+
+  // The client selects a durable run, never a stale local upload batch.
+  const { data: sourceRun, error: sourceError } = await supabaseAdmin
+    .from('pipeline_runs')
+    .select('id,status,meta,input_files')
+    .eq('id', sourceRunId)
+    .single();
+  if (sourceError || !sourceRun) {
+    return NextResponse.json({ error: 'Selected pipeline run was not found' }, { status: 404 });
+  }
+  if (['queued', 'running'].includes(sourceRun.status)) {
+    return NextResponse.json({ error: 'Cannot reset an active pipeline run' }, { status: 409 });
+  }
+  if (safeBatchId(sourceRun.meta?.batch_id) !== batchId ||
+      !Array.isArray(sourceRun.input_files) || sourceRun.input_files.length === 0) {
+    return NextResponse.json({ error: 'Selected run has no matching frozen input manifest' }, { status: 409 });
   }
 
 
   const meta = {
     requested_by: 'operator_app',
+    source_pipeline_run_id: sourceRunId,
     reset: true,
     full_clean: fullClean,
     batch_id: batchId,
