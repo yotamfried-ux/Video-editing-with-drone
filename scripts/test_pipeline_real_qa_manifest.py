@@ -33,9 +33,9 @@ def main() -> None:
         source = folder / "two_subjects.mp4"
         run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
             "-f", "lavfi", "-i", "color=c=blue:s=1920x1080:r=30:d=6",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=6",
             "-vf", "drawbox=x=140:y=300:w=450:h=450:color=green:t=fill,"
                    "drawbox=x=1330:y=300:w=450:h=450:color=red:t=fill",
-            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=6",
             "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-shortest", str(source))
         info = {"width": 1920, "height": 1080, "fps": 30.0,
