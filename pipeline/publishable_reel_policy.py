@@ -577,7 +577,33 @@ def record_athlete_outcome(
 
     with _MANIFEST_LOCK:
         payload = _read_manifest()
-        existing = [item for item in payload.get("athletes", []) if item.get("athlete_key") != row["athlete_key"]]
+        athletes = [item for item in payload.get("athletes", []) if isinstance(item, dict)]
+        prior = next((item for item in athletes if item.get("athlete_key") == row["athlete_key"]), None)
+        if prior is not None:
+            # An athlete can be emitted in multiple render batches. Do not drop
+            # already rendered/uploaded parts when a later batch is recorded.
+            # Re-recording the same path replaces that part (new QA/specs), while
+            # unrelated paths retain their upload/authority state.
+            merged = {str(part.get("local_path")): dict(part)
+                      for part in prior.get("parts", [])
+                      if isinstance(part, dict) and part.get("local_path")}
+            for part in row["parts"]:
+                merged[str(part["local_path"])] = part
+            row["parts"] = list(merged.values())
+            for index, part in enumerate(row["parts"], start=1):
+                part["part_index"] = index
+            row["action_lineage"] = list(dict.fromkeys(
+                [*(prior.get("action_lineage") or []), *row["action_lineage"]]
+            ))
+            row["action_count"] = len(row["action_lineage"])
+            row["athlete_ids"] = sorted(set(
+                [*(prior.get("athlete_ids") or []), *row["athlete_ids"]]
+            ))
+            row["blocking_reasons"] = sorted(set(
+                [*(prior.get("blocking_reasons") or []), *row["blocking_reasons"]]
+            ))
+            _refresh_row_publishability(row)
+        existing = [item for item in athletes if item.get("athlete_key") != row["athlete_key"]]
         payload["athletes"] = [*existing, row]
         _recompute_summary(payload)
         _atomic_write(_manifest_path(), payload)

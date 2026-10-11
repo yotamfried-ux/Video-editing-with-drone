@@ -1,0 +1,24 @@
+name: Publishable Multi-Part Manifest Regression
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-manifest-regression.yml'
+      - 'pipeline/publishable_reel_policy.py'
+      - 'scripts/test_publishable_multipart_manifest.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  multipart-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Verify athlete manifest accumulates parts safely
+        run: python scripts/test_publishable_multipart_manifest.py
