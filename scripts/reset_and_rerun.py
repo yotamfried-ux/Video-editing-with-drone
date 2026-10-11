@@ -322,7 +322,7 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
         return len(planned)
     # Preserve originals until every destination is copied and size-verified.
     for dest, source in planned.items():
-        r2.copy_object(source, dest)
+        r2.copy_object_if_absent(source, dest)
         client = r2._client()
         src_head = client.head_object(Bucket=r2._bucket(), Key=source)
         dst_head = client.head_object(Bucket=r2._bucket(), Key=dest)
