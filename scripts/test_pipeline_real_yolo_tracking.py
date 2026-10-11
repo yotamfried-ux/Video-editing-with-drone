@@ -13,6 +13,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import types
 import urllib.request
 from pathlib import Path
 
@@ -57,6 +58,25 @@ def main() -> None:
         enriched = enrich_event(event, loaded)
         assert enriched["perception_evidence_status"] == "tracker_sidecar", enriched
         assert enriched.get("target_track_id") is not None, enriched
+        # Continue the SAME real detector event into the production FFmpeg editor.
+        # This proves real YOLO/BoT-SORT -> canonical event -> actual MP4 render,
+        # without replacing detections with synthetic ground truth.
+        sys.modules["config"] = types.SimpleNamespace(
+            TMP_DIR=str(root), QUALITY_LOG_FILE=str(root / "quality.jsonl"),
+            MIN_SOURCE_HEIGHT=1440, SLOWMO_INTERPOLATE=False,
+        )
+        from pipeline.stages import editor
+        from test_pipeline_real_mp4_renderer import probe
+        enriched["edit"] = {"zoom": 1.0, "slowmo": False}
+        source_info = {"width": 640, "height": 384, "fps": 8.0,
+                       "zoom_headroom": 1.0, "can_slowmo": False}
+        rendered = editor.cut_clip(str(source), enriched, 0,
+                                   sport="surfing", source_info=source_info,
+                                   target_fps=24)
+        assert rendered and Path(rendered).is_file(), "real detector event failed to render"
+        rendered_spec = probe(Path(rendered))
+        assert rendered_spec["codec_name"] == "h264", rendered_spec
+        assert (rendered_spec["width"], rendered_spec["height"]) == (1080, 1920), rendered_spec
         report = {
             "result": "PASS",
             "scope": "real YOLO11n + BoT-SORT on public person video fixture",
@@ -70,6 +90,8 @@ def main() -> None:
             "event_primary_track_id": enriched["target_track_id"],
             "real_surf_footage": False,
             "production_access": False,
+            "actual_ffmpeg_render": True,
+            "rendered_dimensions": [1080, 1920],
         }
         print(json.dumps(report, indent=2))
         (root / "qualification.json").write_text(json.dumps(report, indent=2))
