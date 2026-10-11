@@ -1,0 +1,65 @@
+name: Gemini Live QA Budgeted Gate (manual only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      spent_ils:
+        description: 'Externally verified spend attributable to SportReel tests, ILS'
+        required: true
+        type: string
+      reserved_ils:
+        description: 'Outstanding reserved estimated spend, ILS'
+        required: true
+        type: string
+      estimated_next_ils:
+        description: 'Conservative total estimated cost for this invocation, ILS'
+        required: true
+        type: string
+      confirm_budget_source:
+        description: 'Type VERIFIED to acknowledge estimate is NOT a hard Google billing limit'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sportreel-gemini-paid-probe
+  cancel-in-progress: false
+
+jobs:
+  gated-live-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Reject unverified or out-of-budget invocation before any provider call
+        env:
+          SPENT_ILS: ${{ inputs.spent_ils }}
+          RESERVED_ILS: ${{ inputs.reserved_ils }}
+          ESTIMATED_NEXT_ILS: ${{ inputs.estimated_next_ils }}
+          CONFIRM_BUDGET_SOURCE: ${{ inputs.confirm_budget_source }}
+        run: |
+          test "$CONFIRM_BUDGET_SOURCE" = VERIFIED || { echo "::error::Missing verified budget acknowledgment"; exit 1; }
+          python scripts/test_gemini_budget_guard.py \
+            --spent-ils "$SPENT_ILS" \
+            --reserved-ils "$RESERVED_ILS" \
+            --estimated-next-ils "$ESTIMATED_NEXT_ILS"
+      - name: Verify Gemini credential exists
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        run: test -n "$GEMINI_API_KEY" || { echo "::error::Gemini credential unavailable"; exit 1; }
+      - name: Install isolated probe dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --quiet google-genai python-dotenv langsmith
+      - name: Run isolated synthetic Gemini probe
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          LANGSMITH_TRACING: 'false'
+          PYTHONPATH: .
+        run: python scripts/test_gemini_live_qa_probe.py
