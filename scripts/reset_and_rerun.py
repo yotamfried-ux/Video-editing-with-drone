@@ -309,8 +309,9 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
         dst_head = client.head_object(Bucket=r2._bucket(), Key=dest)
         if src_head["ContentLength"] != dst_head["ContentLength"]:
             raise RuntimeError(f"Restore size mismatch: {source} -> {dest}")
-    for dest, source in planned.items():
-        r2.delete_object(source)
+    # Retain the source objects: a successful copy must never be treated as
+    # permission to delete original footage. Repeated resets with colliding
+    # destination names fail closed until provenance can be reconciled.
     return len(planned)
 
 
