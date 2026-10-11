@@ -1,0 +1,48 @@
+name: Pipeline Integrated Video Qualification (isolated)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-integrated-video-qualification.yml'
+      - 'scripts/test_pipeline_real_yolo_tracking.py'
+      - 'scripts/test_pipeline_real_qa_manifest.py'
+      - 'scripts/test_combined_pipeline_fixes.py'
+      - 'pipeline/primary_actor_policy.py'
+      - 'pipeline/stages/selector_candidates.py'
+      - 'pipeline/publishable_reel_policy.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrated-video:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install isolated real-video dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --quiet ultralytics python-dotenv
+      - name: Verify four production policy fixes together
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_combined_pipeline_fixes.py
+      - name: Real video decode, YOLO, tracking, FFmpeg, QA and manifest
+        env:
+          PYTHONPATH: .
+          OMP_NUM_THREADS: '2'
+          OPENBLAS_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: python scripts/test_pipeline_real_yolo_tracking.py
+      - name: Independent final reel QA PASS/FAIL and manifest regression
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_pipeline_real_qa_manifest.py
