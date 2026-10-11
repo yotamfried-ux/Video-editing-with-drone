@@ -299,7 +299,6 @@ export default function PipelineScreen() {
   const [lastRunId, setLastRunId] = useState<string | null>(null);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
-  const [selectedResetRun, setSelectedResetRun] = useState<PipelineRun | null>(null);
   const [restoredServerBatch, setRestoredServerBatch] = useState<{ batch_id: string; expected_file_count: number } | null>(null);
 
   const restoreReadyServerBatch = useCallback(async () => {
@@ -453,47 +452,24 @@ export default function PipelineScreen() {
   };
 
   const confirmReset = () => {
-    if (!selectedResetRun) {
-      Alert.alert('Select a run', 'Choose the exact run from Recent pipeline runs before resetting.');
-      return;
-    }
-    Alert.alert(
-      'Reset and rerun',
-      'Choose reset scope:',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        { text: 'Standard reset', onPress: () => resetAndRerun(false) },
-        { text: 'Full clean', style: 'destructive', onPress: () => resetAndRerun(true) },
-      ]
-    );
+    Alert.alert('Reset and rerun', 'Restore original videos to RAW and start again?', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Standard reset', onPress: () => resetAndRerun(false) },
+      { text: 'Full clean', style: 'destructive', onPress: () => resetAndRerun(true) },
+    ]);
   };
 
   const resetAndRerun = async (fullClean: boolean) => {
-    // Reset is destructive: never infer its scope from a stale local upload batch.
-    // The latest failed run's frozen batch is the only authoritative target here.
-    const batchId = selectedResetRun
-      ? String(((selectedResetRun.meta ?? {}) as Record<string, unknown>).batch_id ?? '').trim()
-      : '';
-    if (!batchId) {
-      Alert.alert(
-        'Reset blocked',
-        'Cannot verify the failed run batch. No files were changed. Use the non-destructive retry flow or inspect the run metadata.'
-      );
-      return;
-    }
     setResetting(true);
     try {
-      const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset', {
+      await operatorFetch<{ ok: boolean }>('/api/operator/pipeline/reset-raw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_clean: fullClean, batch_id: batchId, pipeline_run_id: selectedResetRun?.id }),
+        body: JSON.stringify({ full_clean: fullClean }),
       });
-      setLastRunId(result.pipeline_run_id);
-      if (result.batch_id) setLastBatchId(result.batch_id);
-      const scope = result.full_clean ? 'Full clean' : 'Reset';
-      Alert.alert('Reset triggered', `${scope} run ${result.pipeline_run_id.slice(0, 8)} started. Watch Recent pipeline runs for this reset.`);
-    } catch (e) {
-      handleOperatorError(e);
+      Alert.alert('Reset triggered', 'Source recovery and pipeline run queued. Follow progress in GitHub Actions.');
+    } catch (error) {
+      handleOperatorError(error);
     } finally {
       setResetting(false);
     }
@@ -892,7 +868,7 @@ export default function PipelineScreen() {
             <View style={{ gap: Spacing.xs }}>
               <Text variant="title">Global live progress</Text>
               <Text variant="caption" color={Colors.textSecondary}>
-                Upload all footage for a batch first. Run pipeline now only when the current batch is ready.
+                Run Pipeline processes videos in the RAW folder. Reset restores processed sources before rerunning.
               </Text>
               {activeBatchId && <Text variant="caption" color={Colors.accent}>Current upload batch: {activeBatchId.slice(0, 24)}</Text>}
               {lastBatchId && !activeBatchId && <Text variant="caption" color={Colors.textSecondary}>Last completed batch: {lastBatchId.slice(0, 24)}</Text>}
@@ -914,7 +890,7 @@ export default function PipelineScreen() {
               </Text>
             )}
 
-            <Button testID="pipeline-run" label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy || uploadsIncomplete} variant="secondary" style={{ height: 44 }} />
+            <Button testID="pipeline-run" label={triggering ? 'Triggering...' : 'Run pipeline now'} onPress={runPipeline} disabled={busy} variant="secondary" style={{ height: 44 }} />
             <Button
               label={uploadBusy ? `Uploading ${verifiedUploads}/${uploadItems.length}...` : 'Upload from gallery'}
               onPress={uploadFootage}
@@ -1037,7 +1013,7 @@ export default function PipelineScreen() {
             )}
           </Card>
 
-          <PipelineRunsCard onSelectRun={setSelectedResetRun} selectedRunId={selectedResetRun?.id} />
+          <PipelineRunsCard />
           <DeliveryStatusCard />
 
           <Card bordered style={{ gap: Spacing.sm }}>
