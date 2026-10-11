@@ -183,7 +183,58 @@ def run_manifest_allowlist_probe() -> None:
         raise AssertionError("unexpected raw input must stop the run before admission")
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
 
+def run_simple_raw_reset_probe() -> None:
+    """Exercise real reset recovery logic against isolated in-memory R2."""
+    source = read("scripts/reset_and_rerun.py")
+    parsed = ast.parse(source)
+    function = next(node for node in parsed.body
+                    if isinstance(node, ast.FunctionDef)
+                    and node.name == "_restore_r2_sources_to_raw")
+    namespace: dict = {}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "<isolated-reset>", "exec"), namespace)
+    objects = {
+        "raw/existing.mp4": 10,
+        "raw/old_batch/one.mp4": 11,
+        "processed/other_batch/two.mp4": 12,
+    }
+    events = []
+    def listing(prefix):
+        return [{"Key": key} for key in objects if key.startswith(prefix)]
+    class Client:
+        def head_object(self, *, Bucket, Key):
+            return {"ContentLength": objects[Key]}
+    fake = types.SimpleNamespace(
+        RAW_PREFIX="raw/", PROCESSED_PREFIX="processed/",
+        list_objects=listing, _is_video_key=lambda key: key.endswith(".mp4"),
+        copy_object=lambda src, dest: (events.append(("copy", src, dest)), objects.__setitem__(dest, objects[src])),
+        delete_object=lambda key: (events.append(("delete", key)), objects.pop(key)),
+        _client=lambda: Client(), _bucket=lambda: "sandbox",
+    )
+    previous = sys.modules.get("integrations.r2_storage")
+    sys.modules["integrations.r2_storage"] = fake
+    try:
+        recover = namespace["_restore_r2_sources_to_raw"]
+        assert recover(dry_run=True) == 2 and not events
+        assert recover() == 2
+        assert objects == {"raw/existing.mp4": 10, "raw/one.mp4": 11, "raw/two.mp4": 12}
+        assert all(event[0] == "copy" for event in events[:2]), events
+        assert all(event[0] == "delete" for event in events[2:]), events
+        objects["processed/duplicate/existing.mp4"] = 10
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("RAW collision must block reset")
+    finally:
+        if previous is None:
+            sys.modules.pop("integrations.r2_storage", None)
+        else:
+            sys.modules["integrations.r2_storage"] = previous
+
+
 def main() -> int:
+    run_simple_raw_reset_probe()
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
     multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
     start_route = read("web-api/src/app/api/operator/pipeline/start/route.ts")
