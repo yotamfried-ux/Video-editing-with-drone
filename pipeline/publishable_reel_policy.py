@@ -356,7 +356,15 @@ def _refresh_row_publishability(row: dict[str, Any]) -> None:
             not part.get("authoritative_publishability_required")
             or part.get("authoritative_publishability_persisted") is True
         )
-        publishable = ready and uploaded and not part.get("upload_error") and authority_ok
+        # Never count an uploaded render as publishable without persisted,
+        # positive QA evidence and clean technical checks.
+        qa_ok = (
+            part.get("qa_evidence_recorded") is True
+            and str(part.get("qa_verdict") or "").upper() == "PASS"
+            and part.get("qa_passed") is True
+            and not (part.get("technical_issues") or [])
+        )
+        publishable = ready and uploaded and not part.get("upload_error") and authority_ok and qa_ok
         part["publishable"] = publishable
         if publishable and part.get("review_draft_name"):
             publishable_names.append(str(part["review_draft_name"]))
