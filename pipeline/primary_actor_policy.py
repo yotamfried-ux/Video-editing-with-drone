@@ -320,7 +320,12 @@ def classify_primary_actor(
 
     # Multiple visible athletes require positive attribution; an ID alone is
     # not evidence that the featured action belongs to the chosen athlete.
-    if visible_subject_count > 1 and not (\n        _target_is_clearly_centered(event)\n        or (pending_focused_validation and actor_id is not None\n            and primary_continuity_ratio is not None\n            and primary_continuity_ratio >= 0.50)\n    ):
+    if visible_subject_count > 1 and not (
+        _target_is_clearly_centered(event)
+        or (pending_focused_validation and actor_id is not None
+            and primary_continuity_ratio is not None
+            and primary_continuity_ratio >= 0.50)
+    ):
         reasons = _centered_evidence_gaps(event)
         if primary_continuity_ratio is None or primary_continuity_ratio < 0.50:
             reasons.append("primary_continuity:not_proven")
