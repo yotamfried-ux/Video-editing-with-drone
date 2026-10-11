@@ -24,7 +24,8 @@ def main() -> None:
         os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(folder / "manifest.json")
         sys.modules["config"] = types.SimpleNamespace(
             TMP_DIR=str(folder), QUALITY_LOG_FILE=str(folder / "quality.jsonl"),
-            MIN_SOURCE_HEIGHT=1440, SLOWMO_INTERPOLATE=False)
+            MIN_SOURCE_HEIGHT=1440, SLOWMO_INTERPOLATE=False,
+            MAX_CUT_WORKERS=2, ATHLETE_TEXT_OVERLAY=False)
         from pipeline.stages import editor
         from pipeline import publishable_reel_policy as policy
         from pipeline.publishable_qa_evidence import record_qa_result, apply_final_qa_evidence
@@ -51,6 +52,23 @@ def main() -> None:
             assert output and Path(output).is_file()
             assert probe(Path(output))["codec_name"] == "h264"
             paths.append((output, event))
+        # Assemble actual final reels with music (cut_clip intermediates are silent).
+        music = folder / "music.wav"
+        run("ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+            "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=12",
+            "-c:a", "pcm_s16le", str(music))
+        final_paths = []
+        for index, (clip, event) in enumerate(paths):
+            final_path = folder / f"final_reel_{index}.mp4"
+            reel = editor.compile_reel([clip], "", str(final_path),
+                                        sport="surfing", music_path=str(music), fps=30)
+            assert reel and Path(reel).is_file(), "final reel compilation failed"
+            audio = run("ffprobe", "-v", "error", "-select_streams", "a:0",
+                        "-show_entries", "stream=codec_name", "-of", "csv=p=0", reel)
+            assert "aac" in audio.stdout, "final reel missing AAC audio"
+            assert probe(Path(reel))["codec_name"] == "h264"
+            final_paths.append((reel, event))
+        paths = final_paths
         specs = {"duration": 4, "width": 1080, "height": 1920,
                  "aspect": 9 / 16, "has_audio": True}
         for index, (path, event) in enumerate(paths):
@@ -106,7 +124,8 @@ def main() -> None:
         assert manifest["summary"]["publishable_athlete_count"] == 0
         assert manifest["summary"]["coverage_gap_count"] == 2
         print(json.dumps({"result": "PASS",
-                          "actual_renderer": True, "actual_qa_manifest_policy": True,
+                          "actual_renderer": True, "actual_reel_compiler": True,
+                          "verified_aac_audio": True, "actual_qa_manifest_policy": True,
                           "llm_qa_executed": False, "real_detector_executed": False,
                           "upload_executed": False, "rendered_reels": len(paths),
                           "positive_qa": "render_ready_not_published",
