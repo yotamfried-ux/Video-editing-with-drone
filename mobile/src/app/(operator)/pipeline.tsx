@@ -436,97 +436,17 @@ export default function PipelineScreen() {
   }, []);
 
   const runPipeline = async () => {
-    // A failed production run owns its frozen batch. Retry that exact run instead of
-    // requiring a ready upload batch or creating a reset run.
-    const failedRunBatchId = latestRun?.status === 'failed'
-      ? String(((latestRun.meta ?? {}) as Record<string, unknown>).batch_id ?? '').trim()
-      : '';
-    if (!uploadItems.length && !restoredServerBatch && latestRun?.status === 'failed' && failedRunBatchId) {
-      setTriggering(true);
-      try {
-        const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/retry', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ pipeline_run_id: latestRun.id, batch_id: failedRunBatchId }),
-        });
-        setLastRunId(result.pipeline_run_id);
-        setLastBatchId(result.batch_id ?? failedRunBatchId);
-        Alert.alert('Pipeline retry triggered', `Retry of ${result.pipeline_run_id.slice(0, 8)} started with its frozen inputs. No videos were re-uploaded or reset.`);
-      } catch (e) {
-        handleOperatorError(e);
-      } finally {
-        setTriggering(false);
-      }
-      return;
-    }
-    // Derive dispatch identity from the verified upload rows, never from stale screen state.
-    if (!uploadItems.length && restoredServerBatch) {
-      setActiveBatchId(restoredServerBatch.batch_id);
-      setTriggering(true);
-      try {
-        const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ batch_id: restoredServerBatch.batch_id }),
-        });
-        setLastRunId(result.pipeline_run_id);
-        setLastBatchId(result.batch_id ?? restoredServerBatch.batch_id);
-        setRestoredServerBatch(null);
-        setActiveBatchId(null);
-        Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds. Watch Recent pipeline runs for this run.`);
-      } catch (e) {
-        handleOperatorError(e);
-      } finally {
-        setTriggering(false);
-      }
-      return;
-    }
-    if (!uploadItems.length) {
-      Alert.alert('No verified batch selected', 'No unique verified server batch or retryable failed run is available. Restore or upload the videos before starting the pipeline.');
-      return;
-    }
-    if (hasIncompleteUploads(uploadItems)) {
-      Alert.alert('Uploads not finished', 'Every selected video must finish uploading and verify before the pipeline can start.');
-      return;
-    }
-    const verifiedBatchIds = [...new Set(
-      uploadItems
-        .filter((item) => item.status === 'verified')
-        .map((item) => item.batch_id?.trim())
-        .filter((batchId): batchId is string => Boolean(batchId))
-    )];
-    if (verifiedBatchIds.length !== 1) {
-      Alert.alert(
-        'Upload batch is ambiguous',
-        verifiedBatchIds.length
-          ? `Verified videos belong to ${verifiedBatchIds.length} batches. Select one batch before running.`
-          : 'Verified videos are not bound to a durable upload batch. Restore or upload them again before running.'
-      );
-      return;
-    }
-    const dispatchBatchId = verifiedBatchIds[0];
-    setActiveBatchId(dispatchBatchId);
+    // Simple RAW-folder mode: the server dispatches a batch-less workflow.
     setTriggering(true);
     try {
-      const result = await operatorFetch<PipelineDispatchResponse>('/api/operator/pipeline/start', {
+      const result = await operatorFetch<{ ok: boolean; github_actions_url: string }>('/api/operator/pipeline/start-raw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ batch_id: dispatchBatchId }),
+        body: JSON.stringify({}),
       });
-      setLastRunId(result.pipeline_run_id);
-      const finishedBatch = result.batch_id ?? dispatchBatchId;
-      if (finishedBatch) {
-        setLastBatchId(finishedBatch);
-        setActiveBatchId(null);
-        if (isBackgroundUploadAvailable()) {
-          // The server has consumed this batch; drop its durable verified records and finished rows.
-          void getBackgroundUploadClient().forgetBatch(finishedBatch).catch(() => undefined);
-          setUploadItems((items) => items.filter((item) => item.batch_id !== finishedBatch));
-        }
-      }
-      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} starts within a few seconds. Watch Recent pipeline runs for this run.`);
-    } catch (e) {
-      handleOperatorError(e);
+      Alert.alert('Pipeline triggered', 'Processing videos from the RAW folder. Follow progress in Pipeline status or GitHub Actions.');
+    } catch (error) {
+      handleOperatorError(error);
     } finally {
       setTriggering(false);
     }
