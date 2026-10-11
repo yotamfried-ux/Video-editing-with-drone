@@ -1,0 +1,40 @@
+name: Pipeline Real YOLO Tracking (isolated)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-real-yolo.yml'
+      - 'scripts/test_pipeline_real_yolo_tracking.py'
+      - 'pipeline/perception/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-real-yolo-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-yolo-tracking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install FFmpeg and CPU-only Ultralytics
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --quiet --upgrade pip
+          python -m pip install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install --quiet ultralytics python-dotenv
+      - name: Run real detector and tracker against isolated MP4
+        env:
+          PYTHONPATH: .
+          OMP_NUM_THREADS: '2'
+          OPENBLAS_NUM_THREADS: '2'
+          MKL_NUM_THREADS: '2'
+        run: python scripts/test_pipeline_real_yolo_tracking.py
