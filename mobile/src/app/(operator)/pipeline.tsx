@@ -35,6 +35,7 @@ import type {
   PipelineDispatchResponse,
   PipelineResetResponse,
   PipelineRun,
+  PipelineRunsResponse,
   ReprocessListResponse,
   ReprocessRow,
   UploadVerifyResponse,
