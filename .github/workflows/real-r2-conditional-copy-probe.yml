@@ -1,0 +1,42 @@
+name: Real R2 Conditional Copy Probe
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_cleanup:
+        description: 'Type PROBE to create and remove isolated temporary R2 objects'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  conditional-copy:
+    if: inputs.confirm_cleanup == 'PROBE'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install --disable-pip-version-check boto3
+      - name: Verify conditional copy against real R2 and clean isolated keys
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PROBE_EVIDENCE_PATH: ${{ runner.temp }}/r2-conditional-copy-evidence.json
+          PYTHONPATH: .
+        run: python scripts/test_real_r2_conditional_copy.py
+      - name: Retain evidence even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: r2-conditional-copy-evidence-${{ github.run_id }}
+          path: ${{ runner.temp }}/r2-conditional-copy-evidence.json
+          if-no-files-found: warn
+          retention-days: 30
