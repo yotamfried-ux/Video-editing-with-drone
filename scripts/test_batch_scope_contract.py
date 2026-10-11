@@ -337,8 +337,66 @@ def run_simple_raw_reset_probe() -> None:
             integrations.r2_storage = previous_attr
 
 
+def run_atomic_r2_copy_probe() -> None:
+    """Exercise the actual create-only copy implementation with a competing writer."""
+    parsed = ast.parse(read("integrations/r2_storage.py"))
+    fn = next(node for node in parsed.body if isinstance(node, ast.FunctionDef)
+              and node.name == "copy_object_if_absent")
+    class ClientError(Exception):
+        def __init__(self, status):
+            self.response = {"ResponseMetadata": {"HTTPStatusCode": status}}
+    prior = sys.modules.get("botocore.exceptions")
+    sys.modules["botocore.exceptions"] = types.SimpleNamespace(ClientError=ClientError)
+    objects = {"raw/source.mp4": b"original"}
+    calls = []
+    class Body:
+        def __init__(self, data):
+            self.data = data
+            self.closed = False
+        def read(self, amount=-1):
+            return self.data
+        def close(self):
+            self.closed = True
+    class Client:
+        def get_object(self, *, Bucket, Key):
+            return {"Body": Body(objects[Key]), "ContentLength": len(objects[Key]),
+                    "ContentType": "video/mp4"}
+        def put_object(self, *, Bucket, Key, Body, ContentLength, ContentType, IfNoneMatch):
+            assert IfNoneMatch == "*" and ContentLength == len(objects["raw/source.mp4"])
+            calls.append(Key)
+            if Key in objects:
+                raise ClientError(412)
+            objects[Key] = Body.read()
+    client = Client()
+    namespace = {"_client": lambda: client, "_bucket": lambda: "sandbox",
+                 "_content_type": lambda key: "video/mp4"}
+    try:
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "<isolated-conditional-copy>", "exec"), namespace)
+        copy = namespace["copy_object_if_absent"]
+        copy("raw/source.mp4", "raw/restored.mp4")
+        assert objects["raw/restored.mp4"] == b"original"
+        # A concurrent writer wins before our conditional PutObject.
+        objects["raw/race.mp4"] = b"other"
+        for dest in ("raw/restored.mp4", "raw/race.mp4"):
+            try:
+                copy("raw/source.mp4", dest)
+            except RuntimeError as exc:
+                assert "Destination already exists" in str(exc)
+            else:
+                raise AssertionError("Conditional copy overwrote an existing destination")
+        assert objects["raw/race.mp4"] == b"other"
+        assert objects["raw/restored.mp4"] == b"original"
+        assert objects["raw/source.mp4"] == b"original"
+    finally:
+        if prior is None:
+            sys.modules.pop("botocore.exceptions", None)
+        else:
+            sys.modules["botocore.exceptions"] = prior
+
+
 def main() -> int:
     run_simple_raw_reset_probe()
+    run_atomic_r2_copy_probe()
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
     multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
     start_route = read("web-api/src/app/api/operator/pipeline/start/route.ts")
