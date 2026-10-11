@@ -11,11 +11,14 @@ regexes = [
   '''"AndroidKeyStore",\s*"AES/GCM/NoPadding"'''
 ]
 
-# Historical false positive: this Python expression constructs an R2 object key
-# from fixed folder prefixes; it contains no credential. Match the exact line
-# and file together so real keys and future changes remain scanned.
-[[allowlists]]
-description = "Historical R2 RAW path concatenation is not an API key"
+# Historical false positive in commit 7ff29cf: concatenation of fixed R2
+# storage prefixes, not a credential. The scan is over Git history, so the
+# current file's refactor alone cannot remove the historical finding.
+# Restrict this exception to the exact rule, path and historical expression.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Historical R2 RAW object path concatenation (not a secret)"
 condition = "AND"
 regexTarget = "line"
 paths = ['''^scripts/reset_and_rerun\.py$''']
