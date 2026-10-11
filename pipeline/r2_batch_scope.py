@@ -168,7 +168,7 @@ def install() -> None:
             raise RuntimeError("Cannot mark a non-RAW object as processed")
         if any(obj["Key"] == dest_key for obj in r2.list_objects(r2.PROCESSED_PREFIX)):
             raise RuntimeError(f"Processed destination already exists: {dest_key}")
-        r2.copy_object(file_id_or_key, dest_key)
+        r2.copy_object_if_absent(file_id_or_key, dest_key)
         client = r2._client()
         bucket = r2._bucket()
         src = client.head_object(Bucket=bucket, Key=file_id_or_key)
