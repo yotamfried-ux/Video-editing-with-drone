@@ -200,9 +200,18 @@ def run_simple_raw_reset_probe() -> None:
     events = []
     def listing(prefix):
         return [{"Key": key} for key in objects if key.startswith(prefix)]
+    class Body:
+        def __init__(self, value):
+            self.value = value
+        def iter_chunks(self, chunk_size):
+            yield bytes([self.value % 256]) * self.value
+        def close(self):
+            pass
     class Client:
         def head_object(self, *, Bucket, Key):
             return {"ContentLength": objects[Key]}
+        def get_object(self, *, Bucket, Key):
+            return {"Body": Body(objects[Key])}
     fake = types.SimpleNamespace(
         RAW_PREFIX="raw/", PROCESSED_PREFIX="processed/",
         list_objects=listing, _is_video_key=lambda key: key.endswith(".mp4"),
@@ -230,13 +239,11 @@ def run_simple_raw_reset_probe() -> None:
             "raw/one.mp4": 11, "raw/two.mp4": 12,
         }, "Reset must preserve both original source objects"
         assert len(events) == 2 and all(event[0] == "copy" for event in events), events
-        # Repeat recovery must fail closed rather than overwrite an existing RAW copy.
-        try:
-            recover()
-        except RuntimeError as exc:
-            assert "collision" in str(exc)
-        else:
-            raise AssertionError("Repeated restore must not overwrite original footage")
+        # Identical destinations from a completed restore are idempotent.
+        snapshot = dict(objects)
+        event_count = len(events)
+        assert recover() == 0
+        assert objects == snapshot and len(events) == event_count
         # Simulate legacy source archival to exercise separate provenance checks.
         objects.pop("raw/old_batch/one.mp4")
         objects.pop("processed/other_batch/two.mp4")
