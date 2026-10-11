@@ -1,0 +1,37 @@
+name: Pipeline Real MP4 Renderer (isolated)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-real-mp4.yml'
+      - 'scripts/test_pipeline_real_mp4_renderer.py'
+      - 'pipeline/stages/editor.py'
+      - 'integrations/ffmpeg.py'
+      - 'pipeline/window_policy.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pipeline-real-mp4-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  real-mp4-render:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install system FFmpeg and lightweight Python dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ffmpeg
+          python -m pip install --quiet python-dotenv
+      - name: Run actual editor on synthetic two-subject MP4 and inspect encoded frames
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_pipeline_real_mp4_renderer.py
