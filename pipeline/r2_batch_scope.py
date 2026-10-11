@@ -158,7 +158,23 @@ def install() -> None:
 
     def mark_as_processed(file_id_or_key: str) -> None:
         dest_key = move_between_prefixes(file_id_or_key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
-        r2.move_object(file_id_or_key, dest_key)
+        if safe_batch_id():
+            # Batch-scoped runs retain their existing frozen-manifest semantics.
+            r2.move_object(file_id_or_key, dest_key)
+            return
+        # Batchless operator runs must retain the original RAW footage. Do not
+        # call move_object here: its implementation deletes the source.
+        if not str(file_id_or_key).startswith(r2.RAW_PREFIX):
+            raise RuntimeError("Cannot mark a non-RAW object as processed")
+        if any(obj["Key"] == dest_key for obj in r2.list_objects(r2.PROCESSED_PREFIX)):
+            raise RuntimeError(f"Processed destination already exists: {dest_key}")
+        r2.copy_object(file_id_or_key, dest_key)
+        client = r2._client()
+        bucket = r2._bucket()
+        src = client.head_object(Bucket=bucket, Key=file_id_or_key)
+        dst = client.head_object(Bucket=bucket, Key=dest_key)
+        if src["ContentLength"] != dst["ContentLength"]:
+            raise RuntimeError(f"Processed copy size mismatch: {file_id_or_key}")
 
     def requeue_video(file_id_or_key: str) -> bool:
         try:
