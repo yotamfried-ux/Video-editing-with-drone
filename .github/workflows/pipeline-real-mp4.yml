@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/pipeline-real-mp4.yml'
       - 'scripts/test_pipeline_real_mp4_renderer.py'
+      - 'scripts/test_pipeline_track_to_render_mp4.py'
+      - 'pipeline/perception/**'
       - 'pipeline/stages/editor.py'
       - 'integrations/ffmpeg.py'
       - 'pipeline/window_policy.py'
@@ -34,4 +36,6 @@ jobs:
       - name: Run actual editor on synthetic two-subject MP4 and inspect encoded frames
         env:
           PYTHONPATH: .
-        run: python scripts/test_pipeline_real_mp4_renderer.py
+        run: |
+          python scripts/test_pipeline_real_mp4_renderer.py
+          python scripts/test_pipeline_track_to_render_mp4.py
