@@ -544,12 +544,24 @@ export default function PipelineScreen() {
   };
 
   const resetAndRerun = async (fullClean: boolean) => {
+    // Reset is destructive: never infer its scope from a stale local upload batch.
+    // The latest failed run's frozen batch is the only authoritative target here.
+    const batchId = latestRun?.status === 'failed'
+      ? String(((latestRun.meta ?? {}) as Record<string, unknown>).batch_id ?? '').trim()
+      : '';
+    if (!batchId) {
+      Alert.alert(
+        'Reset blocked',
+        'Cannot verify the failed run batch. No files were changed. Use the non-destructive retry flow or inspect the run metadata.'
+      );
+      return;
+    }
     setResetting(true);
     try {
       const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ full_clean: fullClean, batch_id: lastBatchId ?? activeBatchId ?? restoredServerBatch?.batch_id }),
+        body: JSON.stringify({ full_clean: fullClean, batch_id: batchId }),
       });
       setLastRunId(result.pipeline_run_id);
       if (result.batch_id) setLastBatchId(result.batch_id);
