@@ -110,6 +110,13 @@ def install() -> None:
             # Restore exactly those objects (idempotent) before admitting anything.
             ensure_frozen_inputs()
         objects = r2.list_objects(scoped_prefix(r2.RAW_PREFIX))
+        if not safe_batch_id():
+            # Simple RAW mode reads ONLY direct children of raw/.
+            # Do not silently ingest historical raw/<batch>/ sources.
+            objects = [
+                obj for obj in objects
+                if "/" not in str(obj.get("Key") or "")[len(r2.RAW_PREFIX):]
+            ]
         if allowed:
             present = {str(obj.get("Key") or "") for obj in objects}
             missing = sorted(allowed - present)
