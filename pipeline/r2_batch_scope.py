@@ -137,7 +137,10 @@ def install() -> None:
             videos,
             download_for_dedup,
             storage_backend="r2",
-            delete_source=r2.delete_object,
+            # Never delete original RAW objects in the batchless operator flow.
+            # Duplicate candidates can be excluded from this run without
+            # mutating the uploaded footage.
+            delete_source=r2.delete_object if safe_batch_id() else None,
         )
         for video in canonical:
             key = str(video.get("id") or "")
