@@ -294,9 +294,28 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
     for obj in sources:
         source = obj["Key"]
         dest = r2.RAW_PREFIX + source.rsplit("/", 1)[-1]
-        if dest in existing or dest in planned:
+        if dest in planned:
             raise RuntimeError(f"RAW restore collision at {dest}; no files were changed")
         planned[dest] = source
+    # An existing destination is never overwritten. Identical bytes mean a
+    # previous restore already completed; differing bytes are a hard collision.
+    # Hash the R2 bodies rather than trusting ContentLength or multipart ETags.
+    def sha256(key):
+        import hashlib
+        stream = r2._client().get_object(Bucket=r2._bucket(), Key=key)["Body"]
+        digest = hashlib.sha256()
+        try:
+            for chunk in stream.iter_chunks(chunk_size=1024 * 1024):
+                if chunk:
+                    digest.update(chunk)
+        finally:
+            stream.close()
+        return digest.digest()
+    for dest, source in list(planned.items()):
+        if dest in existing:
+            if sha256(source) != sha256(dest):
+                raise RuntimeError(f"RAW restore collision at {dest}; no files were changed")
+            del planned[dest]
     if dry_run:
         for dest, source in planned.items():
             print(f"  [dry-run] Would restore {source} -> {dest}")
@@ -309,6 +328,8 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
         dst_head = client.head_object(Bucket=r2._bucket(), Key=dest)
         if src_head["ContentLength"] != dst_head["ContentLength"]:
             raise RuntimeError(f"Restore size mismatch: {source} -> {dest}")
+        if sha256(source) != sha256(dest):
+            raise RuntimeError(f"Restore checksum mismatch: {source} -> {dest}")
     # Retain the source objects: a successful copy must never be treated as
     # permission to delete original footage. Repeated resets with colliding
     # destination names fail closed until provenance can be reconciled.
