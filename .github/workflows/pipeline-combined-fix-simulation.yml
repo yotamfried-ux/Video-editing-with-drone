@@ -1,0 +1,28 @@
+name: Pipeline Combined Fix Simulation (isolated)
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/primary_actor_policy.py'
+      - 'pipeline/stages/selector_candidates.py'
+      - 'pipeline/publishable_reel_policy.py'
+      - 'scripts/test_*fix*.py'
+      - '.github/workflows/pipeline-combined-fix-simulation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  combined-fix-simulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Run combined isolated simulation
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_combined_pipeline_fixes.py
