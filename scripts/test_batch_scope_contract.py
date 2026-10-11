@@ -271,7 +271,10 @@ def main() -> int:
     if "assertUploadBatchReady(batchId)" in reset_route:
         raise SystemExit("reset must use the migration-compatible atomic rerun gate, not ready-only assertion")
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
-    require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "selectedResetRun", "batch_id: batchId, pipeline_run_id: selectedResetRun?.id", "Current upload batch"])
+    require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId"])
+    require("simple operator run/reset", mobile, ["/api/operator/pipeline/start-raw", "/api/operator/pipeline/reset-raw", "Standard reset", "Full clean"])
+    require("simple server run/reset", read("web-api/src/app/api/operator/pipeline/start-raw/route.ts"), ["requireOperator", "pipeline-run.yml/dispatches", "batch_id: ''"])
+    require("simple server reset", read("web-api/src/app/api/operator/pipeline/reset-raw/route.ts"), ["requireOperator", "pipeline-run.yml/dispatches", "batch_id: ''", "full_clean"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
     require("canonical R2 bootstrap", bootstrap, ["pipeline.r2_batch_scope", "_install_r2_batch_scope", 'if backend != "r2":'])
     if "or not batch_id" in bootstrap:
