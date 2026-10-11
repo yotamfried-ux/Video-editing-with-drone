@@ -1,0 +1,24 @@
+name: Pipeline Real QA Fail-Closed Regression
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/stages/analyzer.py'
+      - 'scripts/test_real_qa_fail_closed.py'
+      - '.github/workflows/pipeline-real-qa-fail-closed.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa-fail-closed:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Simulate Gemini outage against production QA function
+        run: python scripts/test_real_qa_fail_closed.py
