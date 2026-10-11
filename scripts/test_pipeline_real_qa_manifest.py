@@ -72,15 +72,36 @@ def main() -> None:
                 sport="surfing", athlete_label=label, final_reels=[path],
                 invocation_token=token)
             assert (path in blocked) == (index == 1), blocked
+        # QA retry must clear its own stale FAIL reason, but not unrelated blockers.
+        policy_manifest_path = Path(os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"])
+        before_retry = json.loads(policy_manifest_path.read_text())
+        failing_row = next(r for r in before_retry["athletes"]
+                           if r["athlete_label"] == "surfer 1")
+        assert any(reason.startswith("final_qa_failed:")
+                   for reason in failing_row["blocking_reasons"])
+        retry_path = paths[1][0]
+        retry_token = "isolated-qa-retry-1"
+        record_qa_result(retry_path, {"verdict": "PASS", "overall": "verified retry"},
+                         invocation_token=retry_token)
+        assert not apply_final_qa_evidence(
+            sport="surfing", athlete_label="surfer 1",
+            final_reels=[retry_path], invocation_token=retry_token)
+        after_retry = json.loads(policy_manifest_path.read_text())
+        retry_row = next(r for r in after_retry["athletes"]
+                         if r["athlete_label"] == "surfer 1")
+        assert not any(reason.startswith(("final_qa_failed:", "missing_final_qa_evidence:"))
+                       for reason in retry_row["blocking_reasons"]), retry_row
+        assert retry_row["parts"][0]["qa_verdict"] == "PASS", retry_row
+        assert retry_row["parts"][0]["render_ready"] is True, retry_row
         manifest = json.loads(Path(os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"]).read_text())
         assert len(manifest["athletes"]) == 2, manifest
         by_label = {r["athlete_label"]: r["parts"][0] for r in manifest["athletes"]}
         assert by_label["surfer 0"]["qa_verdict"] == "PASS"
         assert by_label["surfer 0"]["qa_evidence_recorded"] is True
         assert by_label["surfer 0"]["render_ready"] is True
-        assert by_label["surfer 1"]["qa_verdict"] == "FAIL"
-        assert by_label["surfer 1"]["render_ready"] is False
-        assert "final_qa_failed" in by_label["surfer 1"]["technical_issues"]
+        assert by_label["surfer 1"]["qa_verdict"] == "PASS"
+        assert by_label["surfer 1"]["render_ready"] is True
+        assert "final_qa_failed" not in by_label["surfer 1"]["technical_issues"]
         # A PASS must never become publishable until upload is confirmed.
         assert manifest["summary"]["publishable_athlete_count"] == 0
         assert manifest["summary"]["coverage_gap_count"] == 2
@@ -89,7 +110,8 @@ def main() -> None:
                           "llm_qa_executed": False, "real_detector_executed": False,
                           "upload_executed": False, "rendered_reels": len(paths),
                           "positive_qa": "render_ready_not_published",
-                          "negative_qa": "blocked",
+                          "negative_qa": "blocked_before_retry",
+                          "qa_retry": "stale_blocker_cleared",
                           "missing_upload": "fail_closed"}, indent=2))
 
 
