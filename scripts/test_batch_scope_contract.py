@@ -234,6 +234,7 @@ def run_simple_raw_reset_probe() -> None:
             assert "collision" in str(exc)
         else:
             raise AssertionError("RAW collision must block reset")
+        objects.pop("processed/duplicate/existing.mp4")
         objects["processed/unknown.mp4"] = 13
         before = dict(objects)
         try:
