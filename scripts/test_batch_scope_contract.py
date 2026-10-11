@@ -259,6 +259,7 @@ def run_simple_raw_reset_probe() -> None:
             raise AssertionError("Same-name source collision must fail closed")
         assert objects == snapshot and len(events) == event_count
         objects.pop("raw/another_batch/one.mp4")
+        objects.pop("processed/duplicate/existing.mp4")
         # Inject a copy failure; originals must survive an interrupted reset.
         objects.pop("raw/one.mp4")
         objects.pop("raw/two.mp4")
@@ -285,7 +286,6 @@ def run_simple_raw_reset_probe() -> None:
         objects.pop("raw/two.mp4", None)
         objects.pop("raw/old_batch/one.mp4")
         objects.pop("processed/other_batch/two.mp4")
-        objects.pop("processed/duplicate/existing.mp4")
         objects["processed/unknown.mp4"] = 13
         before = dict(objects)
         try:
