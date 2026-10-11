@@ -211,6 +211,11 @@ def run_simple_raw_reset_probe() -> None:
         _client=lambda: Client(), _bucket=lambda: "sandbox",
     )
     import integrations
+    previous_uploads = sys.modules.get("integrations.source_uploads")
+    previous_uploads_attr = getattr(integrations, "source_uploads", None)
+    fake_uploads = types.SimpleNamespace(get_source_upload=lambda key: {"status": "verified"} if key == "raw/other_batch/two.mp4" else None)
+    sys.modules["integrations.source_uploads"] = fake_uploads
+    integrations.source_uploads = fake_uploads
     previous = sys.modules.get("integrations.r2_storage")
     previous_attr = getattr(integrations, "r2_storage", None)
     sys.modules["integrations.r2_storage"] = fake
@@ -229,7 +234,24 @@ def run_simple_raw_reset_probe() -> None:
             assert "collision" in str(exc)
         else:
             raise AssertionError("RAW collision must block reset")
+        objects["processed/unknown.mp4"] = 13
+        before = dict(objects)
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "provenance" in str(exc)
+        else:
+            raise AssertionError("Unknown processed video must fail closed")
+        assert objects == before and not any(event[1] == "processed/unknown.mp4" for event in events)
     finally:
+        if previous_uploads is None:
+            sys.modules.pop("integrations.source_uploads", None)
+        else:
+            sys.modules["integrations.source_uploads"] = previous_uploads
+        if previous_uploads_attr is None:
+            delattr(integrations, "source_uploads")
+        else:
+            integrations.source_uploads = previous_uploads_attr
         if previous is None:
             sys.modules.pop("integrations.r2_storage", None)
         else:
