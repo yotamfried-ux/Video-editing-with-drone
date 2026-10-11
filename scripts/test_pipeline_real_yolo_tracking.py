@@ -34,8 +34,10 @@ def main() -> None:
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
              "-loop", "1", "-framerate", "8", "-i", str(source_image),
+             "-f", "lavfi", "-i", "sine=frequency=440:sample_rate=44100:duration=3",
              "-t", "3", "-vf", "scale=640:384,format=yuv420p",
-             "-c:v", "libx264", "-preset", "ultrafast", str(source)],
+             "-c:v", "libx264", "-preset", "ultrafast",
+             "-c:a", "aac", "-shortest", str(source)],
             check=True, timeout=90,
         )
         from pipeline.perception.producer import sidecar_from_ultralytics
@@ -76,7 +78,41 @@ def main() -> None:
         assert rendered and Path(rendered).is_file(), "real detector event failed to render"
         rendered_spec = probe(Path(rendered))
         assert rendered_spec["codec_name"] == "h264", rendered_spec
+        audio_probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a",
+             "-show_entries", "stream=codec_type", "-of", "csv=p=0", str(rendered)],
+            check=True, capture_output=True, text=True)
+        assert "audio" not in audio_probe.stdout, "cut_clip unexpectedly changed its silent-clip contract"
         assert (rendered_spec["width"], rendered_spec["height"]) == (1080, 1920), rendered_spec
+        # Carry the SAME real-detector render into production manifest/QA policy.
+        # Controlled QA verdict: this does NOT execute an LLM visual reviewer.
+        os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(root / "manifest.json")
+        from pipeline import publishable_reel_policy as policy
+        from pipeline.publishable_qa_evidence import record_qa_result, apply_final_qa_evidence
+        policy.reset_manifest()
+        enriched["athlete_id"] = str(enriched["target_track_id"])
+        spec = {"duration": 3, "width": 1080, "height": 1920,
+                "aspect": 9 / 16, "has_audio": False}
+        policy.record_athlete_outcome(
+            sport="surfing", athlete_label="tracked person",
+            final_reels=[rendered], events_by_reel={rendered: [enriched]},
+            flagged_paths=set(), specs_by_path={rendered: spec})
+        token = "real-yolo-render-qa"
+        record_qa_result(rendered, {"verdict": "PASS",
+                                   "overall": "isolated controlled QA fixture"},
+                         invocation_token=token)
+        blocked = apply_final_qa_evidence(
+            sport="surfing", athlete_label="tracked person",
+            final_reels=[rendered], invocation_token=token)
+        assert not blocked, blocked
+        manifest = json.loads(Path(os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"]).read_text())
+        assert len(manifest["athletes"]) == 1, manifest
+        part = manifest["athletes"][0]["parts"][0]
+        assert part["qa_verdict"] == "PASS" and part["qa_evidence_recorded"], part
+        assert part["render_ready"] is False, part
+        assert "missing_audio" in part["technical_issues"], part
+        assert manifest["summary"]["publishable_athlete_count"] == 0, manifest
+        assert manifest["summary"]["coverage_gap_count"] == 1, manifest
         report = {
             "result": "PASS",
             "scope": "real YOLO11n + BoT-SORT on public person video fixture",
@@ -91,6 +127,11 @@ def main() -> None:
             "real_surf_footage": False,
             "production_access": False,
             "actual_ffmpeg_render": True,
+            "actual_manifest_qa_policy": True,
+            "silent_intermediate_blocked": True,
+            "qa_verdict_controlled_not_llm": True,
+            "upload_executed": False,
+            "publication_fail_closed": True,
             "rendered_dimensions": [1080, 1920],
         }
         print(json.dumps(report, indent=2))
