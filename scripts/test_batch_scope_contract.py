@@ -247,6 +247,44 @@ def run_simple_raw_reset_probe() -> None:
             assert "collision" in str(exc)
         else:
             raise AssertionError("RAW collision must block reset")
+        # Two distinct historical sources with one basename must fail before copying.
+        objects["raw/another_batch/one.mp4"] = 99
+        snapshot = dict(objects)
+        event_count = len(events)
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("Same-name source collision must fail closed")
+        assert objects == snapshot and len(events) == event_count
+        objects.pop("raw/another_batch/one.mp4")
+        # Inject a copy failure; originals must survive an interrupted reset.
+        objects.pop("raw/one.mp4")
+        objects.pop("raw/two.mp4")
+        objects["raw/old_batch/one.mp4"] = 11
+        objects["processed/other_batch/two.mp4"] = 12
+        original_copy = fake.copy_object
+        def failing_copy(src, dest):
+            if src == "processed/other_batch/two.mp4":
+                raise RuntimeError("simulated R2 copy outage")
+            return original_copy(src, dest)
+        fake.copy_object = failing_copy
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "simulated R2 copy outage" in str(exc)
+        else:
+            raise AssertionError("Copy outage must abort reset")
+        finally:
+            fake.copy_object = original_copy
+        assert objects["raw/old_batch/one.mp4"] == 11
+        assert objects["processed/other_batch/two.mp4"] == 12
+        # Clear partial destination only in this isolated mock, not in production.
+        objects.pop("raw/one.mp4", None)
+        objects.pop("raw/two.mp4", None)
+        objects.pop("raw/old_batch/one.mp4")
+        objects.pop("processed/other_batch/two.mp4")
         objects.pop("processed/duplicate/existing.mp4")
         objects["processed/unknown.mp4"] = 13
         before = dict(objects)
