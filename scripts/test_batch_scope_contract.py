@@ -224,9 +224,22 @@ def run_simple_raw_reset_probe() -> None:
         recover = namespace["_restore_r2_sources_to_raw"]
         assert recover(dry_run=True) == 2 and not events
         assert recover() == 2
-        assert objects == {"raw/existing.mp4": 10, "raw/one.mp4": 11, "raw/two.mp4": 12}
-        assert all(event[0] == "copy" for event in events[:2]), events
-        assert all(event[0] == "delete" for event in events[2:]), events
+        assert objects == {
+            "raw/existing.mp4": 10, "raw/old_batch/one.mp4": 11,
+            "processed/other_batch/two.mp4": 12,
+            "raw/one.mp4": 11, "raw/two.mp4": 12,
+        }, "Reset must preserve both original source objects"
+        assert len(events) == 2 and all(event[0] == "copy" for event in events), events
+        # Repeat recovery must fail closed rather than overwrite an existing RAW copy.
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("Repeated restore must not overwrite original footage")
+        # Simulate legacy source archival to exercise separate provenance checks.
+        objects.pop("raw/old_batch/one.mp4")
+        objects.pop("processed/other_batch/two.mp4")
         objects["processed/duplicate/existing.mp4"] = 10
         try:
             recover()
