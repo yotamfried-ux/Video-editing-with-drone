@@ -99,7 +99,18 @@ def apply_final_qa_evidence(
             if not any(_path_key(part.get("local_path") or "") in final_keys for part in parts):
                 continue
             matched_row = True
-            reasons = list(row.get("blocking_reasons") or [])
+            # A fresh QA verdict supersedes only the path-scoped QA blockers
+            # for reels in this invocation. Preserve unrelated business blockers.
+            refreshed_names = {Path(path).name for path in final_reels or []}
+            stale_qa_reasons = {
+                f"{reason}:{name}"
+                for name in refreshed_names
+                for reason in ("missing_final_qa_evidence", "final_qa_failed")
+            }
+            reasons = [
+                reason for reason in (row.get("blocking_reasons") or [])
+                if reason not in stale_qa_reasons
+            ]
             for part in parts:
                 local_path = str(part.get("local_path") or "")
                 key = _path_key(local_path)
