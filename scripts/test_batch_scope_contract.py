@@ -218,6 +218,10 @@ def run_simple_raw_reset_probe() -> None:
         RAW_PREFIX="raw/", PROCESSED_PREFIX="processed/",
         list_objects=listing, _is_video_key=lambda key: key.endswith(".mp4"),
         copy_object=lambda src, dest: (events.append(("copy", src, dest)), objects.__setitem__(dest, objects[src])),
+        copy_object_if_absent=lambda src, dest: (
+            (_ for _ in ()).throw(RuntimeError(f"Destination already exists: {dest}"))
+            if dest in objects else (events.append(("copy", src, dest)), objects.__setitem__(dest, objects[src]))
+        ),
         delete_object=lambda key: (events.append(("delete", key)), objects.pop(key)),
         _client=lambda: Client(), _bucket=lambda: "sandbox",
     )
@@ -284,12 +288,12 @@ def run_simple_raw_reset_probe() -> None:
         objects.pop("raw/two.mp4")
         objects["raw/old_batch/one.mp4"] = 11
         objects["processed/other_batch/two.mp4"] = 12
-        original_copy = fake.copy_object
+        original_copy = fake.copy_object_if_absent
         def failing_copy(src, dest):
             if src == "processed/other_batch/two.mp4":
                 raise RuntimeError("simulated R2 copy outage")
             return original_copy(src, dest)
-        fake.copy_object = failing_copy
+        fake.copy_object_if_absent = failing_copy
         try:
             recover()
         except RuntimeError as exc:
@@ -297,7 +301,7 @@ def run_simple_raw_reset_probe() -> None:
         else:
             raise AssertionError("Copy outage must abort reset")
         finally:
-            fake.copy_object = original_copy
+            fake.copy_object_if_absent = original_copy
         assert objects["raw/old_batch/one.mp4"] == 11
         assert objects["processed/other_batch/two.mp4"] == 12
         # Clear partial destination only in this isolated mock, not in production.
