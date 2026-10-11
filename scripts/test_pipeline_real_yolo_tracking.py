@@ -162,7 +162,11 @@ def main() -> None:
         assert final_part["qa_verdict"] == "PASS", final_row
         assert final_part["qa_evidence_recorded"] is True, final_row
         assert final_manifest["summary"]["publishable_athlete_count"] == 0
-        assert final_manifest["summary"]["coverage_gap_count"] == 2
+        # One canonical athlete owns both intermediate and final reel.
+        assert len(final_manifest["athletes"]) == 1, final_manifest
+        assert len(final_row["parts"]) == 2, final_row
+        assert final_manifest["summary"]["eligible_athlete_count"] == 1
+        assert final_manifest["summary"]["coverage_gap_count"] == 1
         report = {
             "result": "PASS",
             "scope": "real YOLO11n + BoT-SORT on public person video fixture",
