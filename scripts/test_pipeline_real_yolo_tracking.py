@@ -66,6 +66,7 @@ def main() -> None:
         sys.modules["config"] = types.SimpleNamespace(
             TMP_DIR=str(root), QUALITY_LOG_FILE=str(root / "quality.jsonl"),
             MIN_SOURCE_HEIGHT=1440, SLOWMO_INTERPOLATE=False,
+            MAX_CUT_WORKERS=2, ATHLETE_TEXT_OVERLAY=False,
         )
         from pipeline.stages import editor
         from test_pipeline_real_mp4_renderer import probe
@@ -113,6 +114,52 @@ def main() -> None:
         assert "missing_audio" in part["technical_issues"], part
         assert manifest["summary"]["publishable_athlete_count"] == 0, manifest
         assert manifest["summary"]["coverage_gap_count"] == 1, manifest
+        # Qualify a final compiled reel from the SAME real YOLO/BoT-SORT event.
+        # cut_clip is intentionally silent; compile_reel adds the final audio.
+        music = root / "music.wav"
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i",
+             "sine=frequency=440:sample_rate=44100:duration=12",
+             "-c:a", "pcm_s16le", str(music)], check=True, timeout=60)
+        final_path = root / "final_yolo_reel.mp4"
+        final = editor.compile_reel(
+            [rendered], "", str(final_path), sport="surfing",
+            music_path=str(music), fps=24)
+        assert final and Path(final).is_file(), "final YOLO reel compilation failed"
+        final_audio = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "a:0",
+             "-show_entries", "stream=codec_name", "-of", "csv=p=0", final],
+            check=True, capture_output=True, text=True)
+        assert "aac" in final_audio.stdout, "final reel missing AAC audio"
+        final_video = probe(Path(final))
+        assert final_video["codec_name"] == "h264", final_video
+        assert (final_video["width"], final_video["height"]) == (1080, 1920), final_video
+        final_spec = {"duration": 3, "width": final_video["width"],
+                      "height": final_video["height"], "aspect": 9 / 16,
+                      "has_audio": True}
+        policy.record_athlete_outcome(
+            sport="surfing", athlete_label="tracked person final",
+            final_reels=[final], events_by_reel={final: [enriched]},
+            flagged_paths=set(), specs_by_path={final: final_spec})
+        final_token = "real-yolo-final-reel-qa"
+        record_qa_result(
+            final, {"verdict": "PASS", "overall": "controlled isolated QA fixture"},
+            invocation_token=final_token)
+        assert not apply_final_qa_evidence(
+            sport="surfing", athlete_label="tracked person final",
+            final_reels=[final], invocation_token=final_token)
+        final_manifest = json.loads(
+            Path(os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"]).read_text())
+        final_row = next(
+            row for row in final_manifest["athletes"]
+            if row["athlete_label"] == "tracked person final")
+        final_part = final_row["parts"][0]
+        assert final_part["render_ready"] is True, final_row
+        assert final_part["qa_verdict"] == "PASS", final_row
+        assert final_part["qa_evidence_recorded"] is True, final_row
+        assert final_manifest["summary"]["publishable_athlete_count"] == 0
+        assert final_manifest["summary"]["coverage_gap_count"] == 2
         report = {
             "result": "PASS",
             "scope": "real YOLO11n + BoT-SORT on public person video fixture",
@@ -129,6 +176,9 @@ def main() -> None:
             "actual_ffmpeg_render": True,
             "actual_manifest_qa_policy": True,
             "silent_intermediate_blocked": True,
+            "real_yolo_final_reel_compiled": True,
+            "final_aac_audio_verified": True,
+            "final_render_ready": True,
             "qa_verdict_controlled_not_llm": True,
             "upload_executed": False,
             "publication_fail_closed": True,
