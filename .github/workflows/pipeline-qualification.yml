@@ -1,0 +1,94 @@
+name: Pipeline Qualification (isolated)
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-qualification.yml'
+      - 'scripts/qualify_pipeline_diagnostics.py'
+      - 'scripts/test_pipeline_qualification.py'
+      - 'scripts/test_source_evidence_qa_recording.py'
+      - 'scripts/test_production_qa_manifest_coverage_simulation.py'
+      - 'scripts/test_publishable_qa_evidence_contract.py'
+      - 'scripts/test_publishable_reel_business_contract.py'
+      - 'scripts/test_athlete_canonicalization_contract.py'
+      - 'scripts/test_athlete_coverage_report_contract.py'
+      - 'scripts/test_canonical_athlete_reconciliation.py'
+      - 'scripts/test_primary_actor_subject_report_contract.py'
+      - 'pipeline/**'
+      - 'docs/pipeline-qualification.md'
+  workflow_dispatch:
+    inputs:
+      diagnostics_run_id:
+        description: 'Optional completed pipeline Actions run ID for read-only diagnostics audit'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: pipeline-qualification-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pipeline-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install lightweight pipeline test configuration dependency
+        run: python -m pip install --disable-pip-version-check --quiet python-dotenv
+      - name: Run focused pipeline regressions and diagnostic negative controls
+        shell: bash
+        run: |
+          set -u
+          failed=0
+          for test in \
+            scripts/test_pipeline_qualification.py \
+            scripts/test_source_evidence_qa_recording.py \
+            scripts/test_athlete_canonicalization_contract.py \
+            scripts/test_athlete_coverage_report_contract.py \
+            scripts/test_canonical_athlete_reconciliation.py \
+            scripts/test_publishable_qa_evidence_contract.py \
+            scripts/test_publishable_reel_business_contract.py \
+            scripts/test_production_qa_manifest_coverage_simulation.py \
+            scripts/test_primary_actor_subject_report_contract.py; do
+            echo "::group::${test}"
+            PYTHONPATH=.:scripts python "$test" || failed=1
+            echo '::endgroup::'
+          done
+          exit "$failed"
+
+  audit-completed-run:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostics_run_id != '' }}
+    needs: pipeline-contracts
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download completed pipeline diagnostic artifact (read-only)
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-diagnostics-${{ inputs.diagnostics_run_id }}
+          run-id: ${{ inputs.diagnostics_run_id }}
+          github-token: ${{ github.token }}
+          path: ./diagnostics
+      - name: Evaluate entire pipeline evidence chain
+        id: audit
+        run: |
+          python scripts/qualify_pipeline_diagnostics.py ./diagnostics \
+            --run-id '${{ inputs.diagnostics_run_id }}' \
+            --out ./qualification-output/qualification-report.json \
+            --markdown ./qualification-output/qualification-report.md
+      - name: Preserve offline qualification reports even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-qualification-${{ inputs.diagnostics_run_id }}
+          path: qualification-output/
+          if-no-files-found: warn
+          retention-days: 30
