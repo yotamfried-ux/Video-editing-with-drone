@@ -141,6 +141,7 @@ def install() -> None:
             # Duplicate candidates can be excluded from this run without
             # mutating the uploaded footage.
             delete_source=r2.delete_object,
+            preserve_sources=not bool(safe_batch_id()),
         )
         for video in canonical:
             key = str(video.get("id") or "")
