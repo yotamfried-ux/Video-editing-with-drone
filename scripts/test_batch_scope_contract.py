@@ -139,6 +139,39 @@ def run_scope_probe() -> None:
 
 
 
+
+def run_flat_raw_admission_probe() -> None:
+    """Batchless mode must reject legacy nested RAW, even when listing is recursive."""
+    import importlib
+    os.environ.pop("RAW_BATCH_ID", None)
+    os.environ.pop("BATCH_ID", None)
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
+    module = fake_r2()
+    candidates = [
+        "raw/flat.mp4", "raw/old_batch/nested.mp4",
+        "raw/old_batch/deeper/hidden.mp4", "raw/note.txt",
+    ]
+    module.list_objects = lambda prefix: [
+        {"Key": key} for key in candidates if key.startswith(prefix)
+    ]
+    sys.modules["integrations.r2_storage"] = module
+    admitted = []
+    def prepare_canonical_sources(videos, download_one, **kwargs):
+        admitted.extend(video["id"] for video in videos)
+        assert kwargs.get("preserve_sources") is True
+        return videos
+    sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
+        prepare_canonical_sources=prepare_canonical_sources
+    )
+    import pipeline.r2_batch_scope as batch_scope
+    batch_scope = importlib.reload(batch_scope)
+    batch_scope.install()
+    result = module.get_new_videos()
+    assert admitted == ["raw/flat.mp4"], admitted
+    assert [item["id"] for item in result] == ["raw/flat.mp4"], result
+
+
 def run_manifest_allowlist_probe() -> None:
     batch = "batch_24"
     os.environ["RAW_BATCH_ID"] = batch
@@ -504,6 +537,7 @@ def main() -> int:
         raise SystemExit("upload route must recover durable batch state instead of trusting only request/mobile state")
 
     run_scope_probe()
+    run_flat_raw_admission_probe()
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
     run_manifest_allowlist_probe()
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
