@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from test_pipeline_real_mp4_renderer import run, probe, pixel_at
+from test_pipeline_real_mp4_renderer import run, probe, pixel_at, persist_synthetic_evidence
 
 
 def main() -> None:
@@ -63,6 +63,7 @@ def main() -> None:
         info = {"width": 1920, "height": 1080, "fps": 30.0,
                 "zoom_headroom": 1.0, "can_slowmo": False}
         outputs = {}
+        rendered_paths = {}
         for index, (label, cx, expected_id) in enumerate(
                 (("left", .20, "10"), ("right", .80, "30"))):
             event = {"start": 0, "end": 4, "type": "highlight", "score": 6,
@@ -75,6 +76,7 @@ def main() -> None:
             result = editor.cut_clip(str(source), enriched, index,
                                      sport="surfing", source_info=info, target_fps=30)
             assert result and Path(result).is_file()
+            rendered_paths[label] = Path(result)
             spec = probe(Path(result))
             assert spec["codec_name"] == "h264" and (
                 spec["width"], spec["height"]) == (1080, 1920), spec
@@ -89,6 +91,7 @@ def main() -> None:
         missing = enrich_event({"start": 0, "end": 4, "crop_x": .5}, [])
         assert missing["perception_evidence_status"] == "no_tracker_detection"
         assert "target_track_id" not in missing
+        persist_synthetic_evidence("track-to-render", folder, source, rendered_paths, outputs)
         print(json.dumps({"status": "PASS", "scope": "synthetic detection JSON to real FFmpeg",
                           "actual_detector_executed": False,
                           "canonical_stitch": {str(k): list(v) for k, v in by_raw.items()},
