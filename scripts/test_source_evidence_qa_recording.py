@@ -70,6 +70,7 @@ def main() -> None:
         token = create_pending_scope("surfing", "athlete one")
         activated = activate_next_scope("surfing", "athlete one")
         assert token == activated
+        original_response_text = FakeResponse.text
         try:
             result = runner.with_source_evidence(
                 FakeAnalyzer(),
@@ -105,6 +106,7 @@ def main() -> None:
                 "latest explicit QA failure must replace older PASS evidence"
             )
         finally:
+            FakeResponse.text = original_response_text
             clear_recorded_qa(token)
             release_scope(token)
             runner.make_source_clips = original_clips
