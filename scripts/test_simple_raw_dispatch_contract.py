@@ -35,4 +35,16 @@ assert "Finalize operator pipeline row if the workflow failed or was cancelled" 
 assert "Finalize upload batch lifecycle" in workflow
 assert "if: always()" in workflow
 
+# Single-flight guard, configurable ref, and no_reviewable_drafts consistency.
+assert "stage: 'run_already_active'" in route and "status: 409" in route
+assert ".in('status', ['queued', 'running'])" in route and ".neq('id', run.id)" in route
+assert "process.env.GITHUB_DISPATCH_REF || 'main'" in route
+for path in (
+    "web-api/src/app/api/operator/pipeline/status/route.ts",
+    "mobile/src/app/(operator)/pipeline.tsx",
+    "mobile/src/features/operator/components/PipelineRunsCard.tsx",
+    "mobile/src/features/operator/types/contracts.ts",
+):
+    assert "no_reviewable_drafts" in (ROOT / path).read_text(), path
+
 print("simple RAW dispatch contract OK")

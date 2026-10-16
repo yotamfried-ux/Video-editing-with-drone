@@ -183,6 +183,7 @@ const RUN_STATUS_LABEL: Record<string, string> = {
   succeeded: 'Succeeded',
   failed: 'Failed',
   no_input: 'No input',
+  no_reviewable_drafts: 'No reviewable drafts',
   dispatch_failed: 'Dispatch failed',
 };
 
@@ -199,13 +200,14 @@ function terminalStageForRun(run: PipelineRun | null): string {
   if (run.status === 'succeeded') return 'done';
   if (run.status === 'failed' || run.status === 'dispatch_failed') return 'failed';
   if (run.status === 'no_input') return 'no_input';
+  if (run.status === 'no_reviewable_drafts') return 'no_reviewable_drafts';
   return run.stage ?? 'idle';
 }
 
 function displayProgressForRun(run: PipelineRun | null): number {
   if (!run) return 0;
   if (run.progress != null) return run.progress;
-  if (['succeeded', 'failed', 'dispatch_failed', 'no_input'].includes(run.status)) return 1;
+  if (['succeeded', 'failed', 'dispatch_failed', 'no_input', 'no_reviewable_drafts'].includes(run.status)) return 1;
   return 0;
 }
 
@@ -877,7 +879,7 @@ export default function PipelineScreen() {
             <PipelineBar stage={displayStage} progress={displayProgress} />
             {globalLiveStale && latestRun && (
               <View style={styles.staleNotice}>
-                <Text variant="caption" color={latestRun.status === 'succeeded' || latestRun.status === 'no_input' ? Colors.success : Colors.danger}>
+                <Text variant="caption" color={latestRun.status === 'succeeded' || latestRun.status === 'no_input' || latestRun.status === 'no_reviewable_drafts' ? Colors.success : Colors.danger}>
                   {globalLiveStaleReason ?? `Global live signal is stale; latest run ${latestRun.id.slice(0, 8)} finished with status ${latestRun.status}.`}
                 </Text>
                 <Text variant="caption" color={Colors.textSecondary}>

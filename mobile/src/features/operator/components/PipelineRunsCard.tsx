@@ -14,6 +14,7 @@ const STATUS_LABEL: Record<string, string> = {
   succeeded: 'Succeeded',
   failed: 'Failed',
   no_input: 'No input',
+  no_reviewable_drafts: 'No reviewable drafts',
   dispatch_failed: 'Dispatch failed',
 };
 

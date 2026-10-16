@@ -22,7 +22,7 @@ export type PipelineStatusResponse = {
 };
 
 export type PipelineRunSource = 'manual' | 'upload' | 'reset' | 'reprocess' | 'drive_watcher' | string;
-export type PipelineRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'no_input' | 'dispatch_failed' | string;
+export type PipelineRunStatus = 'queued' | 'running' | 'succeeded' | 'failed' | 'no_input' | 'no_reviewable_drafts' | 'dispatch_failed' | string;
 
 export type PipelineRun = {
   id: string;
