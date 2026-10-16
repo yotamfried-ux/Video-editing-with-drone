@@ -1,0 +1,207 @@
+name: Android Pipeline Dispatch E2E
+
+# Drives the real Pipeline screen on an emulator (Maestro) against a local stub API: Run pipeline
+# and Reset and rerun must show the new run id, reject a duplicate while active, and list the run
+# with live status and the exact GitHub link. Never calls production.
+on:
+  pull_request:
+    paths:
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/**'
+      - 'mobile/.maestro/pipeline-dispatch/**'
+      - 'scripts/pipeline_dispatch_stub_server.py'
+      - 'scripts/test_pipeline_dispatch_stub_contract.py'
+      - '.github/workflows/android-pipeline-dispatch-e2e.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-pipeline-dispatch-e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  APP_ID: com.sportreel.app
+  MAESTRO_VERSION: '2.10.0'
+  CI: '1'
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  prepare-apk:
+    name: prepare cached APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Compute APK checkpoint key
+        id: apk-key
+        shell: bash
+        run: |
+          KEY=$(
+            {
+              printf '%s\0' \
+                mobile/package.json \
+                mobile/package-lock.json \
+                mobile/app.json \
+                mobile/google-services.json \
+                mobile/scripts/postinstall.js
+              find mobile/plugins mobile/modules mobile/assets -type f -print0
+            } | sort -z | xargs -0 sha256sum | sha256sum | cut -d' ' -f1
+          )
+          echo "key=upl01-apk-$KEY" >> "$GITHUB_OUTPUT"
+
+      - name: Restore APK checkpoint
+        id: apk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - uses: actions/setup-node@v4
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies for APK build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        run: npm ci
+
+      - name: Build Android debug APK
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        working-directory: mobile
+        env:
+          ANDROID_HOME: /usr/local/lib/android/sdk
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: https://video-editing-with-drone.vercel.app
+        run: |
+          npx expo prebuild --platform android --no-install
+          cd android
+          ./gradlew assembleDebug --no-daemon
+          cp app/build/outputs/apk/debug/app-debug.apk "$RUNNER_TEMP/sportreel-upl01.apk"
+
+      - name: Save APK checkpoint immediately after build
+        if: steps.apk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          key: ${{ steps.apk-key.outputs.key }}
+
+      - name: Publish APK once for parallel scenario workers
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-dispatch-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}/sportreel-upl01.apk
+          retention-days: 1
+          if-no-files-found: error
+
+  pipeline-dispatch-e2e:
+    name: Android pipeline dispatch (Run + Reset visibility)
+    needs: prepare-apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stub server contract (no emulator)
+        run: python3 scripts/test_pipeline_dispatch_stub_contract.py
+
+      - name: Download prepared APK
+        uses: actions/download-artifact@v4
+        with:
+          name: pipeline-dispatch-apk-${{ github.run_id }}
+          path: ${{ runner.temp }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci
+
+      - name: Start controlled operator API stub (never production)
+        run: |
+          nohup python3 scripts/pipeline_dispatch_stub_server.py --port 8787 --run-duration 20 > "$RUNNER_TEMP/dispatch-api.log" 2>&1 &
+          for i in $(seq 1 30); do
+            curl -fsS "http://127.0.0.1:8787/__test__/evidence" >/dev/null && exit 0
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/dispatch-api.log"
+          exit 1
+
+      - name: Start validation Metro against the stub API
+        working-directory: mobile
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: sb_publishable_mwAM5lvgulv3sCtrHm-OkA_4wMCpNZJ
+          EXPO_PUBLIC_API_BASE_URL: http://127.0.0.1:8787
+          EXPO_PUBLIC_UPL01_OPERATOR_BYPASS: '1'
+        run: |
+          nohup npx expo start --localhost --non-interactive > "$RUNNER_TEMP/metro-dispatch.log" 2>&1 &
+          for i in $(seq 1 60); do
+            curl -fsS http://127.0.0.1:8081/status | grep -q "packager-status:running" && exit 0
+            sleep 2
+          done
+          cat "$RUNNER_TEMP/metro-dispatch.log"
+          exit 1
+
+      - name: Restore Maestro CLI cache
+        id: maestro-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.maestro-cli
+          key: maestro-${{ runner.os }}-${{ env.MAESTRO_VERSION }}
+
+      - name: Install Maestro CLI
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/maestro.zip" \
+            "https://github.com/mobile-dev-inc/Maestro/releases/download/cli-${MAESTRO_VERSION}/maestro.zip"
+          rm -rf "$HOME/.maestro-cli"
+          unzip -q "$RUNNER_TEMP/maestro.zip" -d "$HOME/.maestro-cli"
+
+      - name: Put Maestro on PATH
+        run: |
+          echo "$HOME/.maestro-cli/maestro/bin" >> "$GITHUB_PATH"
+          "$HOME/.maestro-cli/maestro/bin/maestro" --version
+
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+
+      - name: Run pipeline dispatch scenario on emulator
+        env:
+          APK: ${{ runner.temp }}/sportreel-upl01.apk
+          EVIDENCE_DIR: ${{ runner.temp }}/pipeline-dispatch-evidence
+          MAESTRO_OPERATOR_SECRET: dispatch-validation-secret
+          MAESTRO_CLI_NO_ANALYTICS: '1'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 480
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash mobile/.maestro/pipeline-dispatch/run-pipeline-dispatch.sh
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-dispatch-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/pipeline-dispatch-evidence/
+            ${{ runner.temp }}/dispatch-api.log
+            ${{ runner.temp }}/metro-dispatch.log
+          retention-days: 30
+          if-no-files-found: warn

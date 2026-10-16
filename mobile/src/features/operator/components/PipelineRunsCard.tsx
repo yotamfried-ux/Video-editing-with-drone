@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, View, StyleSheet } from 'react-native';
+import { Linking, Pressable, View, StyleSheet } from 'react-native';
 import { Card } from '@/shared/components/Card';
 import { Text } from '@/shared/components/Text';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
@@ -54,7 +54,20 @@ function compactStage(run: PipelineRun): string {
   return progress ? `${stage} · ${progress}` : stage;
 }
 
-export function PipelineRunsCard({ onSelectRun, selectedRunId }: { onSelectRun?: (run: PipelineRun) => void; selectedRunId?: string | null }) {
+function modeLabel(run: PipelineRun): string | null {
+  const mode = run.meta && typeof run.meta === 'object' ? (run.meta as Record<string, unknown>).mode : null;
+  if (mode === 'reset_and_rerun') return 'Reset & rerun';
+  if (mode === 'simple_raw') return 'RAW run';
+  return null;
+}
+
+export function PipelineRunsCard({ onSelectRun, selectedRunId, refreshKey = 0, highlightRunId = null }: {
+  onSelectRun?: (run: PipelineRun) => void;
+  selectedRunId?: string | null;
+  // Bump to reload immediately (e.g. right after the operator dispatches a run).
+  refreshKey?: number;
+  highlightRunId?: string | null;
+}) {
   const [runs, setRuns] = useState<PipelineRun[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
@@ -75,7 +88,7 @@ export function PipelineRunsCard({ onSelectRun, selectedRunId }: { onSelectRun?:
     loadRuns();
     const timer = setInterval(loadRuns, 10000);
     return () => clearInterval(timer);
-  }, [loadRuns]);
+  }, [loadRuns, refreshKey]);
 
   const visibleRuns = useMemo(
     () => (showAll ? runs : runs.slice(0, COLLAPSED_LIMIT)),
@@ -113,14 +126,14 @@ export function PipelineRunsCard({ onSelectRun, selectedRunId }: { onSelectRun?:
           const isErrorExpanded = expandedErrorId === run.id;
           const hasError = Boolean(run.error);
           return (
-            <View key={run.id} style={styles.runRow}>
+            <View key={run.id} style={[styles.runRow, highlightRunId === run.id && styles.runRowHighlight]} testID={`pipeline-run-${run.id}`}>
               <View style={styles.runTopLine}>
                 <View style={[styles.statusDot, { backgroundColor: statusColor(run.status) }]} />
                 <Text variant="caption" color={statusColor(run.status)} style={styles.statusText} numberOfLines={1}>
                   {STATUS_LABEL[run.status] ?? run.status}
                 </Text>
                 <Text variant="caption" color={Colors.textPrimary} style={styles.sourceText} numberOfLines={1}>
-                  {SOURCE_LABEL[run.source] ?? run.source} · {run.id.slice(0, 8)}
+                  {modeLabel(run) ?? SOURCE_LABEL[run.source] ?? run.source} · {run.id.slice(0, 8)}
                 </Text>
               </View>
 
@@ -128,6 +141,13 @@ export function PipelineRunsCard({ onSelectRun, selectedRunId }: { onSelectRun?:
                 {compactStage(run)} · {fmtTime(run.queued_at)}
               </Text>
 
+              {/^https:\/\/github\.com\//.test(run.github_run_url ?? '') && (
+                <Pressable onPress={() => Linking.openURL(run.github_run_url as string)} accessibilityRole="link" hitSlop={8}>
+                  <Text variant="caption" color={Colors.accent}>
+                    {/\/actions\/runs\/\d+/.test(run.github_run_url as string) ? 'Open GitHub run' : 'Open GitHub workflow'}
+                  </Text>
+                </Pressable>
+              )}
               {onSelectRun && (
                 <Pressable onPress={() => onSelectRun(run)} accessibilityRole="button">
                   <Text variant="caption" color={selectedRunId === run.id ? Colors.accent : Colors.textSecondary}>
@@ -158,6 +178,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: Spacing.sm,
+  },
+  runRowHighlight: {
+    backgroundColor: Colors.card,
   },
   runRow: {
     gap: 2,

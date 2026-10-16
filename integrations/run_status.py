@@ -9,7 +9,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-TERMINAL_RUN_STATUSES = {"succeeded", "failed", "no_input", "dispatch_failed"}
+TERMINAL_RUN_STATUSES = {"succeeded", "failed", "no_input", "no_reviewable_drafts", "dispatch_failed"}
 
 
 def get_run_id() -> str | None:
@@ -33,13 +33,21 @@ def mark_run_strict(**fields: Any) -> None:
         return
     from integrations.supabase_uploader import _supabase
 
-    response = (
-        _supabase()
-        .table("pipeline_runs")
-        .update(_normalized_run_fields(fields))
-        .eq("id", run_id)
-        .execute()
-    )
+    client = _supabase()
+    update = _normalized_run_fields(fields)
+    if isinstance(update.get("meta"), dict):
+        # Merge rather than replace so request metadata written at dispatch time
+        # (mode, reset/full-clean flags, batch_id) survives progress updates.
+        try:
+            current = (
+                client.table("pipeline_runs").select("meta").eq("id", run_id).limit(1).execute()
+            )
+            existing = (getattr(current, "data", None) or [{}])[0].get("meta")
+            if isinstance(existing, dict):
+                update["meta"] = {**existing, **update["meta"]}
+        except Exception:
+            logger.warning("pipeline_runs meta merge skipped", exc_info=True)
+    response = client.table("pipeline_runs").update(update).eq("id", run_id).execute()
     if getattr(response, "data", None) == []:
         raise RuntimeError(f"pipeline_runs update matched no row for {run_id}")
 

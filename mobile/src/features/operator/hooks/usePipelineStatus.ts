@@ -34,5 +34,5 @@ export function usePipelineStatus() {
     };
   }, []);
 
-  return { status, latestRun, globalLiveStale, globalLiveStaleReason, loading, error };
+  return { status, latestRun, globalLiveStale, globalLiveStaleReason, loading, error, refresh: fetchStatus };
 }
