@@ -1,0 +1,72 @@
+appId: com.sportreel.app
+name: Pipeline dispatch - Run pipeline and Reset and rerun are tracked and visible
+tags: [pipeline-dispatch]
+---
+- runFlow: ../upl01/subflows/launch-to-settings.yaml
+- runFlow: ../upl01/subflows/save-operator-secret.yaml
+- tapOn: "Pipeline"
+- scrollUntilVisible:
+    element:
+      id: "pipeline-run"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+
+# 1. Run pipeline: confirmation shows the new run id.
+- tapOn:
+    id: "pipeline-run"
+- extendedWaitUntil:
+    visible: "Pipeline triggered"
+    timeout: 20000
+- assertVisible: ".*Run [0-9a-f]{8} queued\\..*"
+- tapOn: "(?i)ok"
+
+# 2. A second press while that run is active is rejected, not silently dispatched.
+- tapOn:
+    id: "pipeline-run"
+- extendedWaitUntil:
+    visible: ".*already active.*"
+    timeout: 20000
+- tapOn: "(?i)ok"
+
+# 3. The run appears in Recent pipeline runs, advances and reaches a terminal state.
+- scrollUntilVisible:
+    element: "Recent pipeline runs"
+    direction: DOWN
+    timeout: 60000
+- assertVisible: "RAW run.*"
+- extendedWaitUntil:
+    visible: "Succeeded"
+    timeout: 90000
+- assertVisible: "Open GitHub run"
+- takeScreenshot: "pipeline-dispatch-run-succeeded"
+
+# 4. Reset and rerun is tracked exactly like Run pipeline.
+- scrollUntilVisible:
+    element:
+      id: "pipeline-reset"
+    direction: UP
+    timeout: 60000
+    centerElement: true
+- scrollUntilVisible:
+    element:
+      id: "pipeline-reset"
+    direction: DOWN
+    timeout: 60000
+    centerElement: true
+- tapOn:
+    id: "pipeline-reset"
+- tapOn: "(?i)standard reset"
+- extendedWaitUntil:
+    visible: "Reset triggered"
+    timeout: 20000
+- assertVisible: ".*Run [0-9a-f]{8} queued: source recovery.*"
+- tapOn: "(?i)ok"
+- scrollUntilVisible:
+    element: "Recent pipeline runs"
+    direction: DOWN
+    timeout: 60000
+- extendedWaitUntil:
+    visible: "Reset & rerun.*"
+    timeout: 30000
+- takeScreenshot: "pipeline-dispatch-reset-visible"

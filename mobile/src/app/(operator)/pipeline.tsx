@@ -989,7 +989,7 @@ export default function PipelineScreen() {
                 )}
               </>
             )}
-            <Button label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
+            <Button testID="pipeline-reset" label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
             {uploadItems.length > 0 && (
               <View style={{ gap: Spacing.sm }}>
                 <View style={styles.metaRow}>
