@@ -96,7 +96,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         with urllib.request.urlopen(request, timeout=20) as response:
             rows = json.loads(response.read().decode("utf-8") or "[]")
-    except (urllib.error.URLError, ValueError) as exc:
+    except (urllib.error.URLError, OSError, ValueError) as exc:
         print(f"finalize: could not update {args.table} {run_id}: {exc}", file=sys.stderr)
         return 0
     if rows:

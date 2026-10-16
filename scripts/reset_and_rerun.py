@@ -342,6 +342,10 @@ def _reset_r2(args) -> bool:
     if _storage_backend_name() != "r2":
         raise RuntimeError(f"Unsupported STORAGE_BACKEND for reset: {_storage_backend_name()}")
     from integrations import r2_storage
+    # Visible on the tracked pipeline_runs row (no-op for untracked runs).
+    from integrations.run_status import mark_run
+    mark_run(status="running", stage="resetting", progress=0.005,
+             meta={"reset_requested": True, "full_clean_requested": bool(args.full_clean)})
     # Recover all originals before deleting any generated outputs.
     if not args.no_restore:
         if os.getenv("RAW_BATCH_ID") or os.getenv("BATCH_ID"):
