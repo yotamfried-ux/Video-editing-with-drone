@@ -18,7 +18,7 @@ collect_device_state() {
   curl -fsS "$MOCK_API/__test__/evidence" > "$EVIDENCE_DIR/server-evidence-on-exit.json" 2>/dev/null
   set -e
 }
-trap 'code=$?; if [ "$code" -ne 0 ]; then collect_device_state; fi; exit "$code"' EXIT
+trap 'code=$?; if [ "$code" -ne 0 ]; then collect_device_state; python3 "$FLOWS/../upl01/summarize_failure.py" "$EVIDENCE_DIR" "${GITHUB_STEP_SUMMARY:-}" || true; fi; exit "$code"' EXIT
 
 adb start-server >/dev/null 2>&1 || true
 adb wait-for-device
