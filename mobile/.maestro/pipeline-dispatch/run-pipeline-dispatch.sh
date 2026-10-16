@@ -27,10 +27,37 @@ adb reverse tcp:8787 tcp:8787
 adb install -r "$APK" > "$EVIDENCE_DIR/install.txt"
 curl -fsS "$MOCK_API/__test__/reset" > /dev/null
 
-maestro test "$FLOWS/01-run-reset-visibility.yaml" \
-  -e MAESTRO_OPERATOR_SECRET="$MAESTRO_OPERATOR_SECRET" \
-  --format junit --output "$EVIDENCE_DIR/result.junit.xml" \
-  --debug-output "$EVIDENCE_DIR/debug" --test-output-dir "$EVIDENCE_DIR/debug" --flatten-debug-output
+# Retry only a proven emulator/adb infrastructure failure that happened before the app sent any
+# dispatch request; any assertion failure or a failure after a dispatch is a real failure.
+for attempt in 1 2 3; do
+  curl -fsS "$MOCK_API/__test__/reset" > /dev/null
+  set +e
+  maestro test "$FLOWS/01-run-reset-visibility.yaml" \
+    -e MAESTRO_OPERATOR_SECRET="$MAESTRO_OPERATOR_SECRET" \
+    --format junit --output "$EVIDENCE_DIR/result.junit.xml" \
+    --debug-output "$EVIDENCE_DIR/debug" --test-output-dir "$EVIDENCE_DIR/debug" --flatten-debug-output
+  flow_code=$?
+  set -e
+  [ "$flow_code" -eq 0 ] && break
+  dispatches="$(curl -fsS "$MOCK_API/__test__/evidence" | python3 -c 'import json,sys; print(len(json.load(sys.stdin)["dispatches"]))')"
+  if ! grep -RqsE 'device offline|Device server died|DeviceServerDiedException|StatusRuntimeException: UNAVAILABLE' "$EVIDENCE_DIR/debug"; then
+    echo "pipeline-dispatch: flow failed (not an infrastructure failure); not retrying" >&2
+    exit "$flow_code"
+  fi
+  if [ "$dispatches" -ne 0 ] || [ "$attempt" -eq 3 ]; then
+    echo "pipeline-dispatch: infrastructure failure but retry is unsafe (dispatches=$dispatches attempt=$attempt)" >&2
+    exit "$flow_code"
+  fi
+  echo "pipeline-dispatch: retrying after proven emulator failure with zero dispatches (attempt $attempt/3)"
+  adb kill-server >/dev/null 2>&1 || true
+  sleep 3
+  adb start-server >/dev/null 2>&1 || true
+  adb wait-for-device
+  sleep 5
+  adb reverse tcp:8081 tcp:8081
+  adb reverse tcp:8787 tcp:8787
+  rm -rf "$EVIDENCE_DIR/debug"
+done
 
 curl -fsS "$MOCK_API/__test__/evidence" > "$EVIDENCE_DIR/server-evidence.json"
 python3 - "$EVIDENCE_DIR/server-evidence.json" <<'PY'

@@ -30,11 +30,12 @@ tags: [pipeline-dispatch]
 - tapOn: "(?i)ok"
 
 # 3. The run appears in Recent pipeline runs, advances and reaches a terminal state.
+# Scroll to the run row itself (the card title is above it and can be visible while the row is not).
 - scrollUntilVisible:
-    element: "Recent pipeline runs"
+    element: "RAW run.*"
     direction: DOWN
     timeout: 60000
-- assertVisible: "RAW run.*"
+    centerElement: true
 - extendedWaitUntil:
     visible: "Succeeded"
     timeout: 90000
@@ -63,10 +64,8 @@ tags: [pipeline-dispatch]
 - assertVisible: ".*Run [0-9a-f]{8} queued: source recovery.*"
 - tapOn: "(?i)ok"
 - scrollUntilVisible:
-    element: "Recent pipeline runs"
+    element: "Reset & rerun.*"
     direction: DOWN
     timeout: 60000
-- extendedWaitUntil:
-    visible: "Reset & rerun.*"
-    timeout: 30000
+    centerElement: true
 - takeScreenshot: "pipeline-dispatch-reset-visible"
