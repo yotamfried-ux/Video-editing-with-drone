@@ -34,9 +34,12 @@ def main() -> int:
     assert "GitHub dispatch outcome unknown; retry is locked" in route
     assert ".eq('stage', 'dispatching_retry')" in route, "rollback must be conditional"
 
-    assert "'/api/operator/pipeline/retry'" in mobile
-    assert "latestRun?.status === 'failed'" in mobile
-    assert "pipeline_run_id: latestRun.id" in mobile
+    # The strict failed-run retry API remains available for compatibility.
+    # The operator's one-tap controls now use the simpler RAW-folder flow.
+    assert "'/api/operator/pipeline/start-raw'" in mobile
+    assert "'/api/operator/pipeline/reset-raw'" in mobile
+    assert "Standard reset" in mobile and "Full clean" in mobile
+    assert "selectedResetRun" not in mobile
     assert 'row["state"] not in {"running", "failed"}' in preflight
     print("existing failed-run retry contract: PASS")
     return 0

@@ -91,6 +91,9 @@ on:
       - 'scripts/test_multi_upload_batch_contract.py'
       - 'scripts/test_operator_review_gate_contract.py'
       - 'scripts/test_operator_smoke_contract.py'
+      - 'scripts/test_simple_raw_dispatch_contract.py'
+      - 'web-api/src/app/api/operator/pipeline/start-raw/route.ts'
+      - 'scripts/preflight_frozen_inputs.py'
       - 'scripts/test_operator_smoke_workflow_validator.py'
       - 'scripts/test_pairwise_source_window_overlap_contract.py'
       - 'scripts/test_perception_contract.py'
@@ -213,6 +216,8 @@ jobs:
         run: PYTHONPATH=scripts:. python scripts/test_multi_person_clip_gate_contract.py
       - name: Validate Operator Smoke contract
         run: python scripts/test_operator_smoke_contract.py
+      - name: Validate tracked simple RAW dispatch contract
+        run: python scripts/test_simple_raw_dispatch_contract.py
       - name: Validate Event window contract
         run: python scripts/test_event_window_contract.py
       - name: Validate Analyzer phase-time contract

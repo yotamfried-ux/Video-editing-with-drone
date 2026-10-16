@@ -109,7 +109,7 @@ jobs:
 
       - name: Load frozen pipeline input manifest
         timeout-minutes: 5
-        if: ${{ (github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '') != '' }}
+        if: ${{ (github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '') != '' && (github.event.client_payload.batch_id || inputs.batch_id || '') != '' }}
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}

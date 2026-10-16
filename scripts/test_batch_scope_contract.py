@@ -139,6 +139,39 @@ def run_scope_probe() -> None:
 
 
 
+
+def run_flat_raw_admission_probe() -> None:
+    """Batchless mode must reject legacy nested RAW, even when listing is recursive."""
+    import importlib
+    os.environ.pop("RAW_BATCH_ID", None)
+    os.environ.pop("BATCH_ID", None)
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
+    os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
+    module = fake_r2()
+    candidates = [
+        "raw/flat.mp4", "raw/old_batch/nested.mp4",
+        "raw/old_batch/deeper/hidden.mp4", "raw/note.txt",
+    ]
+    module.list_objects = lambda prefix: [
+        {"Key": key} for key in candidates if key.startswith(prefix)
+    ]
+    sys.modules["integrations.r2_storage"] = module
+    admitted = []
+    def prepare_canonical_sources(videos, download_one, **kwargs):
+        admitted.extend(video["id"] for video in videos)
+        assert kwargs.get("preserve_sources") is True
+        return videos
+    sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
+        prepare_canonical_sources=prepare_canonical_sources
+    )
+    import pipeline.r2_batch_scope as batch_scope
+    batch_scope = importlib.reload(batch_scope)
+    batch_scope.install()
+    result = module.get_new_videos()
+    assert admitted == ["raw/flat.mp4"], admitted
+    assert [item["id"] for item in result] == ["raw/flat.mp4"], result
+
+
 def run_manifest_allowlist_probe() -> None:
     batch = "batch_24"
     os.environ["RAW_BATCH_ID"] = batch
@@ -183,7 +216,220 @@ def run_manifest_allowlist_probe() -> None:
         raise AssertionError("unexpected raw input must stop the run before admission")
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
 
+def run_simple_raw_reset_probe() -> None:
+    """Exercise real reset recovery logic against isolated in-memory R2."""
+    source = read("scripts/reset_and_rerun.py")
+    parsed = ast.parse(source)
+    function = next(node for node in parsed.body
+                    if isinstance(node, ast.FunctionDef)
+                    and node.name == "_restore_r2_sources_to_raw")
+    namespace: dict = {}
+    exec(compile(ast.Module(body=[function], type_ignores=[]), "<isolated-reset>", "exec"), namespace)
+    objects = {
+        "raw/existing.mp4": 10,
+        "raw/old_batch/one.mp4": 11,
+        "processed/other_batch/two.mp4": 12,
+    }
+    events = []
+    def listing(prefix):
+        return [{"Key": key} for key in objects if key.startswith(prefix)]
+    # Payload overrides let tests distinguish same-size but different-content files.
+    payloads = {}
+    class Body:
+        def __init__(self, value):
+            self.value = value
+        def iter_chunks(self, chunk_size):
+            yield self.value
+        def close(self):
+            pass
+    class Client:
+        def head_object(self, *, Bucket, Key):
+            return {"ContentLength": objects[Key]}
+        def get_object(self, *, Bucket, Key):
+            return {"Body": Body(payloads.get(Key, bytes([objects[Key] % 256]) * objects[Key]))}
+    fake = types.SimpleNamespace(
+        RAW_PREFIX="raw/", PROCESSED_PREFIX="processed/",
+        list_objects=listing, _is_video_key=lambda key: key.endswith(".mp4"),
+        copy_object=lambda src, dest: (events.append(("copy", src, dest)), objects.__setitem__(dest, objects[src])),
+        copy_object_if_absent=lambda src, dest: (
+            (_ for _ in ()).throw(RuntimeError(f"Destination already exists: {dest}"))
+            if dest in objects else (events.append(("copy", src, dest)), objects.__setitem__(dest, objects[src]))
+        ),
+        delete_object=lambda key: (events.append(("delete", key)), objects.pop(key)),
+        _client=lambda: Client(), _bucket=lambda: "sandbox",
+    )
+    import integrations
+    previous_uploads = sys.modules.get("integrations.source_uploads")
+    previous_uploads_attr = getattr(integrations, "source_uploads", None)
+    fake_uploads = types.SimpleNamespace(get_source_upload=lambda key: {"status": "verified"} if key in {"raw/other_batch/two.mp4", "raw/duplicate/existing.mp4"} else None)
+    sys.modules["integrations.source_uploads"] = fake_uploads
+    integrations.source_uploads = fake_uploads
+    previous = sys.modules.get("integrations.r2_storage")
+    previous_attr = getattr(integrations, "r2_storage", None)
+    sys.modules["integrations.r2_storage"] = fake
+    integrations.r2_storage = fake
+    try:
+        recover = namespace["_restore_r2_sources_to_raw"]
+        assert recover(dry_run=True) == 2 and not events
+        assert recover() == 2
+        assert objects == {
+            "raw/existing.mp4": 10, "raw/old_batch/one.mp4": 11,
+            "processed/other_batch/two.mp4": 12,
+            "raw/one.mp4": 11, "raw/two.mp4": 12,
+        }, "Reset must preserve both original source objects"
+        assert len(events) == 2 and all(event[0] == "copy" for event in events), events
+        # Identical destinations from a completed restore are idempotent.
+        snapshot = dict(objects)
+        event_count = len(events)
+        assert recover() == 0
+        assert objects == snapshot and len(events) == event_count
+        # Same-size, different-content destination must be rejected, not skipped.
+        payloads["raw/one.mp4"] = b"x" * 11
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("Same-size different-content RAW must fail closed")
+        assert objects == snapshot and len(events) == event_count
+        payloads.pop("raw/one.mp4")
+        # Simulate legacy source archival to exercise separate provenance checks.
+        objects.pop("raw/old_batch/one.mp4")
+        objects.pop("processed/other_batch/two.mp4")
+        objects["processed/duplicate/existing.mp4"] = 9
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("RAW collision must block reset")
+        # Two distinct historical sources with one basename must fail before copying.
+        objects["raw/another_batch/one.mp4"] = 99
+        snapshot = dict(objects)
+        event_count = len(events)
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "collision" in str(exc)
+        else:
+            raise AssertionError("Same-name source collision must fail closed")
+        assert objects == snapshot and len(events) == event_count
+        objects.pop("raw/another_batch/one.mp4")
+        objects.pop("processed/duplicate/existing.mp4")
+        # Inject a copy failure; originals must survive an interrupted reset.
+        objects.pop("raw/one.mp4")
+        objects.pop("raw/two.mp4")
+        objects["raw/old_batch/one.mp4"] = 11
+        objects["processed/other_batch/two.mp4"] = 12
+        original_copy = fake.copy_object_if_absent
+        def failing_copy(src, dest):
+            if src == "processed/other_batch/two.mp4":
+                raise RuntimeError("simulated R2 copy outage")
+            return original_copy(src, dest)
+        fake.copy_object_if_absent = failing_copy
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "simulated R2 copy outage" in str(exc)
+        else:
+            raise AssertionError("Copy outage must abort reset")
+        finally:
+            fake.copy_object_if_absent = original_copy
+        assert objects["raw/old_batch/one.mp4"] == 11
+        assert objects["processed/other_batch/two.mp4"] == 12
+        # Clear partial destination only in this isolated mock, not in production.
+        objects.pop("raw/one.mp4", None)
+        objects.pop("raw/two.mp4", None)
+        objects.pop("raw/old_batch/one.mp4")
+        objects.pop("processed/other_batch/two.mp4")
+        objects["processed/unknown.mp4"] = 13
+        before = dict(objects)
+        try:
+            recover()
+        except RuntimeError as exc:
+            assert "provenance" in str(exc)
+        else:
+            raise AssertionError("Unknown processed video must fail closed")
+        assert objects == before and not any(event[1] == "processed/unknown.mp4" for event in events)
+    finally:
+        if previous_uploads is None:
+            sys.modules.pop("integrations.source_uploads", None)
+        else:
+            sys.modules["integrations.source_uploads"] = previous_uploads
+        if previous_uploads_attr is None:
+            delattr(integrations, "source_uploads")
+        else:
+            integrations.source_uploads = previous_uploads_attr
+        if previous is None:
+            sys.modules.pop("integrations.r2_storage", None)
+        else:
+            sys.modules["integrations.r2_storage"] = previous
+        if previous_attr is None:
+            delattr(integrations, "r2_storage")
+        else:
+            integrations.r2_storage = previous_attr
+
+
+def run_atomic_r2_copy_probe() -> None:
+    """Exercise the actual create-only copy implementation with a competing writer."""
+    parsed = ast.parse(read("integrations/r2_storage.py"))
+    fn = next(node for node in parsed.body if isinstance(node, ast.FunctionDef)
+              and node.name == "copy_object_if_absent")
+    class ClientError(Exception):
+        def __init__(self, status):
+            self.response = {"ResponseMetadata": {"HTTPStatusCode": status}}
+    prior = sys.modules.get("botocore.exceptions")
+    sys.modules["botocore.exceptions"] = types.SimpleNamespace(ClientError=ClientError)
+    objects = {"raw/source.mp4": b"original"}
+    calls = []
+    class Body:
+        def __init__(self, data):
+            self.data = data
+            self.closed = False
+        def read(self, amount=-1):
+            return self.data
+        def close(self):
+            self.closed = True
+    class Client:
+        def get_object(self, *, Bucket, Key):
+            return {"Body": Body(objects[Key]), "ContentLength": len(objects[Key]),
+                    "ContentType": "video/mp4"}
+        def put_object(self, *, Bucket, Key, Body, ContentLength, ContentType, IfNoneMatch):
+            assert IfNoneMatch == "*" and ContentLength == len(objects["raw/source.mp4"])
+            calls.append(Key)
+            if Key in objects:
+                raise ClientError(412)
+            objects[Key] = Body.read()
+    client = Client()
+    namespace = {"_client": lambda: client, "_bucket": lambda: "sandbox",
+                 "_content_type": lambda key: "video/mp4"}
+    try:
+        exec(compile(ast.Module(body=[fn], type_ignores=[]), "<isolated-conditional-copy>", "exec"), namespace)
+        copy = namespace["copy_object_if_absent"]
+        copy("raw/source.mp4", "raw/restored.mp4")
+        assert objects["raw/restored.mp4"] == b"original"
+        # A concurrent writer wins before our conditional PutObject.
+        objects["raw/race.mp4"] = b"other"
+        for dest in ("raw/restored.mp4", "raw/race.mp4"):
+            try:
+                copy("raw/source.mp4", dest)
+            except RuntimeError as exc:
+                assert "Destination already exists" in str(exc)
+            else:
+                raise AssertionError("Conditional copy overwrote an existing destination")
+        assert objects["raw/race.mp4"] == b"other"
+        assert objects["raw/restored.mp4"] == b"original"
+        assert objects["raw/source.mp4"] == b"original"
+    finally:
+        if prior is None:
+            sys.modules.pop("botocore.exceptions", None)
+        else:
+            sys.modules["botocore.exceptions"] = prior
+
+
 def main() -> int:
+    run_simple_raw_reset_probe()
+    run_atomic_r2_copy_probe()
     upload_route = read("web-api/src/app/api/operator/upload/route.ts")
     multipart_start = read("web-api/src/app/api/operator/upload/multipart/start/route.ts")
     start_route = read("web-api/src/app/api/operator/pipeline/start/route.ts")
@@ -271,7 +517,10 @@ def main() -> int:
     if "assertUploadBatchReady(batchId)" in reset_route:
         raise SystemExit("reset must use the migration-compatible atomic rerun gate, not ready-only assertion")
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
-    require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId", "selectedResetRun", "batch_id: batchId, pipeline_run_id: selectedResetRun?.id", "Current upload batch"])
+    require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId"])
+    require("simple operator run/reset", mobile, ["/api/operator/pipeline/start-raw", "/api/operator/pipeline/reset-raw", "Standard reset", "Full clean"])
+    require("simple server run/reset", read("web-api/src/app/api/operator/pipeline/start-raw/route.ts"), ["requireOperator", "pipeline-run.yml/dispatches", "batch_id: ''"])
+    require("simple server reset", read("web-api/src/app/api/operator/pipeline/reset-raw/route.ts"), ["requireOperator", "pipeline-run.yml/dispatches", "batch_id: ''", "full_clean"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
     require("canonical R2 bootstrap", bootstrap, ["pipeline.r2_batch_scope", "_install_r2_batch_scope", 'if backend != "r2":'])
     if "or not batch_id" in bootstrap:
@@ -288,6 +537,7 @@ def main() -> int:
         raise SystemExit("upload route must recover durable batch state instead of trusting only request/mobile state")
 
     run_scope_probe()
+    run_flat_raw_admission_probe()
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)
     run_manifest_allowlist_probe()
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_JSON", None)

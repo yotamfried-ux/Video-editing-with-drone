@@ -50,6 +50,7 @@ def prepare_canonical_sources(
     get_upload: Callable[[str], dict[str, Any] | None] | None = None,
     resolve_duplicate: Callable[[str, str], dict[str, Any]] | None = None,
     delete_source: Callable[[str], None] | None = None,
+    preserve_sources: bool = False,
     mark_removed: Callable[[str, str], None] | None = None,
     mark_removal_error: Callable[[str, str, str], None] | None = None,
 ) -> list[dict[str, Any]]:
@@ -120,8 +121,9 @@ def prepare_canonical_sources(
 
         if status == "superseded":
             try:
-                delete_source(key)
-                mark_removed(upload_id, canonical_upload_id)
+                if not preserve_sources:
+                    delete_source(key)
+                    mark_removed(upload_id, canonical_upload_id)
             except Exception as exc:
                 mark_removal_error(upload_id, canonical_upload_id, str(exc))
                 logger.error("Superseded R2 source %s could not be deleted; it remains ineligible", key)
@@ -164,8 +166,9 @@ def prepare_canonical_sources(
             old_meta = prepared_by_key.pop(old_key, None)
             _remove_local(str(old_meta.get("_local_path")) if old_meta else None)
             try:
-                delete_source(old_key)
-                mark_removed(old_id, canonical_id)
+                if not preserve_sources:
+                    delete_source(old_key)
+                    mark_removed(old_id, canonical_id)
             except Exception as exc:
                 mark_removal_error(old_id, canonical_id, str(exc))
                 logger.error(

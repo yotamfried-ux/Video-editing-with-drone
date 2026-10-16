@@ -126,10 +126,12 @@ def main() -> int:
         print(f"frozen-input preflight skipped: STORAGE_BACKEND={backend}")
         return 0
     if not batch:
-        if run_id or args.phase == "predispatch":
-            print("::error::tracked R2 pipeline run has no explicit RAW_BATCH_ID", file=sys.stderr)
+        if args.phase == "predispatch":
+            print("::error::batch predispatch requires an explicit RAW_BATCH_ID", file=sys.stderr)
             return 2
-        print("frozen-input preflight skipped: untracked legacy run without a batch id")
+        # A tracked simple-RAW run is intentionally batchless; it is not
+        # authorized to restore or claim a frozen upload-batch manifest.
+        print("frozen-input preflight skipped: batchless RAW run (tracked or legacy)")
         return 0
 
     try:

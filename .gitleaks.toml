@@ -10,3 +10,16 @@ regexes = [
   '''EXPO_PUBLIC_SUPABASE_ANON_KEY.*sb_publishable_[A-Za-z0-9_-]+''',
   '''"AndroidKeyStore",\s*"AES/GCM/NoPadding"'''
 ]
+
+# Historical false positive in commit 7ff29cf: concatenation of fixed R2
+# storage prefixes, not a credential. The scan is over Git history, so the
+# current file's refactor alone cannot remove the historical finding.
+# Restrict this exception to the exact rule, path and historical expression.
+[[rules]]
+id = "generic-api-key"
+[[rules.allowlists]]
+description = "Historical R2 RAW object path concatenation (not a secret)"
+condition = "AND"
+regexTarget = "line"
+paths = ['''^scripts/reset_and_rerun\.py$''']
+regexes = ['''^\s*raw_key = r2\.RAW_PREFIX \+ key\[len\(r2\.PROCESSED_PREFIX\):\]$''']

@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic';
 
 const STALE_GLOBAL_AFTER_MS = 15 * 60 * 1000;
 const TERMINAL_DRIFT_MS = 30 * 1000;
-const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed', 'no_input', 'dispatch_failed']);
-const GLOBAL_TERMINAL_STAGES = new Set(['done', 'failed', 'no_input']);
+const TERMINAL_RUN_STATUSES = new Set(['succeeded', 'failed', 'no_input', 'no_reviewable_drafts', 'dispatch_failed']);
+const GLOBAL_TERMINAL_STAGES = new Set(['done', 'failed', 'no_input', 'no_reviewable_drafts']);
 
 function parseTime(value: string | null | undefined): number | null {
   if (!value) return null;
@@ -54,6 +54,9 @@ function buildGlobalStaleReason(latestRun: PipelineRunRow | null): string | null
   const runLabel = latestRun.id.slice(0, 8);
   if (latestRun.status === 'succeeded') {
     return `Global live signal is stale; latest run ${runLabel} finished successfully.`;
+  }
+  if (latestRun.status === 'no_reviewable_drafts') {
+    return `Global live signal is stale; latest run ${runLabel} finished without reviewable drafts.`;
   }
   if (latestRun.status === 'no_input') {
     return `Global live signal is stale; latest run ${runLabel} finished with no new input.`;
