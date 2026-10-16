@@ -8,10 +8,16 @@ workflow = (ROOT / ".github/workflows/pipeline-run.yml").read_text()
 assert "requireOperator(req)" in route
 assert "enforceRateLimit(req" in route
 assert "pipeline-run.yml/dispatches" in route
-assert "batch_id: ''" in route and "pipeline_run_id: ''" in route
+assert "batch_id: ''" in route and "pipeline_run_id: run.id" in route
+assert ".from('pipeline_runs').insert(" in route
+assert "status: 'queued'" in route and "stage: 'dispatching'" in route
+assert "status: 'dispatch_failed'" in route
+assert "pipeline_run_id: run.id" in route
 assert "start-raw" in mobile[mobile.index("  const runPipeline = async"):mobile.index("  const confirmReset = () => {")]
 assert "batch_id: dispatchBatchId" not in mobile[mobile.index("  const runPipeline = async"):mobile.index("  const confirmReset = () => {")]
-assert "frozen-input preflight skipped: untracked legacy run without a batch id" in (ROOT / "scripts/preflight_frozen_inputs.py").read_text()
+assert "frozen-input preflight skipped: batchless RAW run (tracked or legacy)" in (ROOT / "scripts/preflight_frozen_inputs.py").read_text()
+assert 'if args.phase == "predispatch":' in (ROOT / "scripts/preflight_frozen_inputs.py").read_text()
+assert "&& (github.event.client_payload.batch_id || inputs.batch_id || '') != ''" in workflow
 assert "raw/" in (ROOT / "integrations/r2_storage.py").read_text()
 
 # Progress visibility and run isolation contract for batchless dispatch.
