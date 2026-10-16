@@ -1,0 +1,24 @@
+name: Pipeline Gemini QA Decision Matrix (isolated)
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/stages/analyzer.py'
+      - 'scripts/test_gemini_qa_decision_matrix.py'
+      - '.github/workflows/pipeline-gemini-qa-decision-matrix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  qa-decision-matrix:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Exercise production QA on provider pass, fail, invalid, unavailable
+        run: python scripts/test_gemini_qa_decision_matrix.py
