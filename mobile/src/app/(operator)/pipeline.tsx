@@ -438,12 +438,13 @@ export default function PipelineScreen() {
     // Simple RAW-folder mode: the server dispatches a batch-less workflow.
     setTriggering(true);
     try {
-      const result = await operatorFetch<{ ok: boolean; github_actions_url: string }>('/api/operator/pipeline/start-raw', {
+      const result = await operatorFetch<{ ok: boolean; pipeline_run_id: string; github_actions_url: string }>('/api/operator/pipeline/start-raw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      Alert.alert('Pipeline triggered', 'Processing videos from the RAW folder. Follow progress in Pipeline status or GitHub Actions.');
+      setLastRunId(result.pipeline_run_id);
+      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} queued. Follow progress in Pipeline status or GitHub Actions.`);
     } catch (error) {
       handleOperatorError(error);
     } finally {
