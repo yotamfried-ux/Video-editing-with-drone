@@ -284,7 +284,7 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
     for obj in processed_videos:
         key = obj["Key"]
         suffix = key.removeprefix(r2.PROCESSED_PREFIX)
-        raw_key = r2.RAW_PREFIX + suffix
+        raw_key = f"{r2.RAW_PREFIX}{suffix}"
         evidence = get_source_upload(raw_key) or get_source_upload(key)
         if not evidence or str(evidence.get("status") or "") not in {"verified", "superseded", "removed"}:
             skipped.append(key)  # not a tracked source upload: never moved, never deleted
