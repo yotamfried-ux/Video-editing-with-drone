@@ -267,73 +267,55 @@ def _r2_delete_prefix(prefix: str, label: str, dry_run: bool = False) -> int:
 
 
 def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
-    """Recover processed source videos to flat raw/; never overwrite a RAW file."""
+    """Return every processed source video to the first folder (raw/), then clear processed/.
+
+    Stage-folder model: a source lives in exactly one stage folder. Reset moves each source
+    back to raw/ at the SAME relative path it was uploaded to (raw/<batch>/file.mp4), so the
+    next run admits it again. The processed/ copy is deleted only after every restored copy
+    has been verified byte-for-byte. Objects in processed/ that are not source uploads (for
+    example delivered reels) have no provenance row and are left untouched.
+    """
     from integrations import r2_storage as r2
-    # Source locations include legacy batch directories under both prefixes.
-    raw_objects = r2.list_objects(r2.RAW_PREFIX)
-    existing = {obj["Key"] for obj in raw_objects
-                if "/" not in obj["Key"][len(r2.RAW_PREFIX):]}
-    sources = [
-        obj for obj in r2.list_objects(r2.PROCESSED_PREFIX)
-        if r2._is_video_key(obj["Key"])
-    ] + [
-        obj for obj in raw_objects
-        if r2._is_video_key(obj["Key"])
-        and "/" in obj["Key"][len(r2.RAW_PREFIX):]
-    ]
-    # Fail closed: processed/ may also hold generated outputs.
     from integrations.source_uploads import get_source_upload
-    for obj in sources:
+
+    processed_videos = [obj for obj in r2.list_objects(r2.PROCESSED_PREFIX) if r2._is_video_key(obj["Key"])]
+    plan: dict[str, str] = {}  # processed key -> raw key
+    skipped: list[str] = []
+    for obj in processed_videos:
         key = obj["Key"]
-        if key.startswith(r2.PROCESSED_PREFIX):
-            source_suffix = key.removeprefix(r2.PROCESSED_PREFIX)
-            evidence = get_source_upload(f"{r2.RAW_PREFIX}{source_suffix}") or get_source_upload(key)
-            if not evidence or str(evidence.get("status") or "") not in {"verified", "superseded", "removed"}:
-                raise RuntimeError(f"Unverified processed source provenance: {key}; reset aborted")
-    planned = {}
-    for obj in sources:
-        source = obj["Key"]
-        dest = r2.RAW_PREFIX + source.rsplit("/", 1)[-1]
-        if dest in planned:
+        suffix = key.removeprefix(r2.PROCESSED_PREFIX)
+        raw_key = r2.RAW_PREFIX + suffix
+        evidence = get_source_upload(raw_key) or get_source_upload(key)
+        if not evidence or str(evidence.get("status") or "") not in {"verified", "superseded", "removed"}:
+            skipped.append(key)  # not a tracked source upload: never moved, never deleted
+            continue
+        plan[key] = raw_key
+    if skipped:
+        print(f"  Leaving {len(skipped)} non-source object(s) in processed/ untouched, e.g. {skipped[0]}")
+
+    dest_to_source: dict[str, str] = {}
+    for source, dest in plan.items():
+        if dest in dest_to_source:
             raise RuntimeError(f"RAW restore collision at {dest}; no files were changed")
-        planned[dest] = source
-    # An existing destination is never overwritten. Identical bytes mean a
-    # previous restore already completed; differing bytes are a hard collision.
-    # Hash the R2 bodies rather than trusting ContentLength or multipart ETags.
-    def sha256(key):
-        import hashlib
-        stream = r2._client().get_object(Bucket=r2._bucket(), Key=key)["Body"]
-        digest = hashlib.sha256()
-        try:
-            for chunk in stream.iter_chunks(chunk_size=1024 * 1024):
-                if chunk:
-                    digest.update(chunk)
-        finally:
-            stream.close()
-        return digest.digest()
-    for dest, source in list(planned.items()):
-        if dest in existing:
-            if sha256(source) != sha256(dest):
-                raise RuntimeError(f"RAW restore collision at {dest}; no files were changed")
-            del planned[dest]
+        dest_to_source[dest] = source
+
+    # An existing destination is acceptable only when it already holds identical bytes (an
+    # earlier interrupted reset). Different bytes are a hard collision: nothing is changed.
+    for dest, source in dest_to_source.items():
+        if r2._head(dest) is not None and not r2.same_object_bytes(source, dest):
+            raise RuntimeError(f"RAW restore collision at {dest}; no files were changed")
+
     if dry_run:
-        for dest, source in planned.items():
-            print(f"  [dry-run] Would restore {source} -> {dest}")
-        return len(planned)
-    # Preserve originals until every destination is copied and size-verified.
-    for dest, source in planned.items():
-        r2.copy_object_if_absent(source, dest)
-        client = r2._client()
-        src_head = client.head_object(Bucket=r2._bucket(), Key=source)
-        dst_head = client.head_object(Bucket=r2._bucket(), Key=dest)
-        if src_head["ContentLength"] != dst_head["ContentLength"]:
-            raise RuntimeError(f"Restore size mismatch: {source} -> {dest}")
-        if sha256(source) != sha256(dest):
-            raise RuntimeError(f"Restore checksum mismatch: {source} -> {dest}")
-    # Retain the source objects: a successful copy must never be treated as
-    # permission to delete original footage. Repeated resets with colliding
-    # destination names fail closed until provenance can be reconciled.
-    return len(planned)
+        for source, dest in plan.items():
+            print(f"  [dry-run] Would move {source} -> {dest} (and delete the processed copy)")
+        return len(plan)
+
+    # Phase 1: restore and verify every source. Phase 2: only then clear processed/.
+    for source, dest in plan.items():
+        r2.copy_object_verified(source, dest)
+    for source in plan:
+        r2.delete_object(source)
+    return len(plan)
 
 
 def _reset_r2(args) -> bool:

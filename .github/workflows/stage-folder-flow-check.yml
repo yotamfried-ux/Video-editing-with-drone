@@ -1,0 +1,38 @@
+name: Stage Folder Flow Check
+
+# End-to-end test of the folder-per-stage model against a real S3 protocol server (moto).
+# Runs the project's real boto3 storage code, the batchless admission/move hooks and the reset
+# script. Never touches production storage.
+on:
+  pull_request:
+    paths:
+      - 'integrations/r2_storage.py'
+      - 'integrations/source_uploads.py'
+      - 'pipeline/r2_batch_scope.py'
+      - 'pipeline/source_upload_dedup.py'
+      - 'scripts/reset_and_rerun.py'
+      - 'scripts/test_stage_folder_flow_e2e.py'
+      - 'scripts/test_batch_scope_contract.py'
+      - '.github/workflows/stage-folder-flow-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage-folder-flow:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: |
+          python -m pip install --disable-pip-version-check boto3 "moto[server]" pyyaml python-dotenv httplib2 \
+            google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
+      - name: Stage-folder flow (run -> move on -> reset -> rerun -> reuse)
+        run: python scripts/test_stage_folder_flow_e2e.py
+      - name: Batch scope contract
+        run: PYTHONPATH=. python scripts/test_batch_scope_contract.py
