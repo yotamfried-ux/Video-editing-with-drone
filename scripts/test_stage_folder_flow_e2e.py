@@ -26,6 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "scripts"))
 
+_HOOKED = ("get_new_videos", "download_video", "mark_as_processed", "requeue_video", "restore_processed_to_raw")
+_ORIGINALS: dict = {}
 BUCKET = "stage-folder-e2e"
 PORT = 5599
 BATCH = "batch_2026-10-03T12-19-52_e2e"
@@ -125,7 +127,21 @@ def run_pipeline() -> list[str]:
 
 
 def reset(*, full_clean: bool = False) -> None:
+    """The workflow's Reset step is its own process: the pipeline's runtime storage hooks are
+    not installed there, so run the reset against the unhooked storage module."""
+    import integrations.r2_storage as r2
     import reset_and_rerun
+    hooked = {name: getattr(r2, name) for name in _HOOKED if name in _ORIGINALS}
+    for name in hooked:
+        setattr(r2, name, _ORIGINALS[name])
+    try:
+        _reset_unhooked(reset_and_rerun, full_clean)
+    finally:
+        for name, value in hooked.items():
+            setattr(r2, name, value)
+
+
+def _reset_unhooked(reset_and_rerun, full_clean: bool) -> None:
     args = argparse.Namespace(no_restore=False, dry_run=False, full_clean=full_clean,
                               keep_drafts=False, reset_only=True)
     assert reset_and_rerun._reset_r2(args) is True
@@ -142,6 +158,8 @@ def main() -> int:
     failures: list[str] = []
     try:
         bucket = Bucket()
+        import integrations.r2_storage as r2_module
+        _ORIGINALS.update({name: getattr(r2_module, name) for name in _HOOKED})
         import pipeline.r2_batch_scope as scope
         scope.install()
 
