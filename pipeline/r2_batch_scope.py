@@ -153,17 +153,26 @@ def install() -> None:
         return original_download_video(file_id_or_key, filename)
 
     def mark_as_processed(file_id_or_key: str) -> None:
-        dest_key = move_between_prefixes(file_id_or_key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
         if safe_batch_id():
             # Batch-scoped runs retain their existing frozen-manifest semantics.
+            dest_key = move_between_prefixes(file_id_or_key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
             r2.move_object(file_id_or_key, dest_key)
             return
         # Batchless operator runs move the source one stage on (raw/ -> processed/) so the
-        # first folder only ever holds what still has to be processed. The original is deleted
-        # only after the processed copy is proven byte-identical; relative paths are kept.
+        # first folder only ever holds what still has to be processed. Stage folders are flat:
+        # a source lands at processed/<file>, whatever sub-folder it was uploaded into. The
+        # original is deleted only after the processed copy is proven byte-identical.
         if not str(file_id_or_key).startswith(r2.RAW_PREFIX):
             raise RuntimeError("Cannot mark a non-RAW object as processed")
-        r2.move_object_verified(file_id_or_key, dest_key)
+        name = Path(file_id_or_key).name
+        flat_raw = f"{r2.RAW_PREFIX}{name}"
+        if flat_raw != file_id_or_key:
+            # Legacy nested upload (raw/<batch>/file): its provenance row follows it to the
+            # flat key so a later Reset can still recognise it as a tracked source.
+            from integrations.source_uploads import rekey_source_upload
+
+            rekey_source_upload(file_id_or_key, flat_raw)
+        r2.move_object_verified(file_id_or_key, f"{r2.PROCESSED_PREFIX}{name}")
 
     def requeue_video(file_id_or_key: str) -> bool:
         try:

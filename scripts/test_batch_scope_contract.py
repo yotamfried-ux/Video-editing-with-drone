@@ -270,8 +270,18 @@ def run_simple_raw_reset_probe() -> None:
     previous_uploads = sys.modules.get("integrations.source_uploads")
     previous_uploads_attr = getattr(integrations, "source_uploads", None)
     tracked = {"raw/batch_a/one.mp4", "raw/batch_b/two.mp4"}
+    rekeyed: list[tuple[str, str]] = []
+
+    def rekey(old, new):
+        rekeyed.append((old, new))
+        if old in tracked:
+            tracked.discard(old)
+            tracked.add(new)
+        return True
+
     fake_uploads = types.SimpleNamespace(
-        get_source_upload=lambda key: {"status": "verified"} if key in tracked else None)
+        get_source_upload=lambda key: {"status": "verified"} if key in tracked else None,
+        rekey_source_upload=rekey)
     sys.modules["integrations.source_uploads"] = fake_uploads
     integrations.source_uploads = fake_uploads
     previous = sys.modules.get("integrations.r2_storage")
@@ -285,9 +295,10 @@ def run_simple_raw_reset_probe() -> None:
         assert recover() == 2
         assert objects == {
             "raw/existing.mp4": b"e" * 10,
-            "raw/batch_a/one.mp4": b"1" * 11, "raw/batch_b/two.mp4": b"2" * 12,
+            "raw/one.mp4": b"1" * 11, "raw/two.mp4": b"2" * 12,
             "processed/delivered_reel.mp4": b"d" * 13,
-        }, "sources must return to raw/ at their own path; non-source outputs stay put"
+        }, "sources must return flat to raw/ (no batch folder); non-source outputs stay put"
+        assert sorted(rekeyed) == [("raw/batch_a/one.mp4", "raw/one.mp4"), ("raw/batch_b/two.mp4", "raw/two.mp4")], rekeyed
         # Every verified copy happens before any deletion from processed/.
         kinds = [event[0] for event in events]
         assert kinds == ["copy", "copy", "delete", "delete"], kinds
@@ -296,7 +307,8 @@ def run_simple_raw_reset_probe() -> None:
         assert recover() == 0 and objects == before
         # A different-content file already at the destination fails closed, changing nothing.
         objects["processed/batch_a/one.mp4"] = b"1" * 11
-        objects["raw/batch_a/one.mp4"] = b"X" * 11
+        tracked.add("raw/batch_a/one.mp4")
+        objects["raw/one.mp4"] = b"X" * 11
         before = dict(objects)
         try:
             recover()
@@ -306,10 +318,11 @@ def run_simple_raw_reset_probe() -> None:
             raise AssertionError("different content at the destination must block reset")
         assert objects == before
         # An outage while restoring must not delete anything from processed/.
-        objects["raw/batch_a/one.mp4"] = b"1" * 11
-        objects.pop("raw/batch_a/one.mp4")
+        objects["raw/one.mp4"] = b"1" * 11
+        objects.pop("raw/one.mp4")
+        tracked.add("raw/batch_b/two.mp4")
         objects["processed/batch_b/two.mp4"] = b"2" * 12
-        objects.pop("raw/batch_b/two.mp4")
+        objects.pop("raw/two.mp4")
         fail_copy_for.add("processed/batch_b/two.mp4")
         before = dict(objects)
         try:
@@ -414,7 +427,7 @@ def main() -> int:
     for text in [scope, bootstrap, dedup, read("scripts/test_batch_scope_contract.py")]:
         ast.parse(text)
 
-    require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
+    require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${storageName}", "batch_id: batchId"])
     if ".replace(/^_+|_+$/g, '')" in r2_lib:
         raise SystemExit("safeBatchId must not use the polynomial-time boundary-trim regex")
     require(
@@ -497,8 +510,8 @@ def main() -> int:
         raise SystemExit("global R2 runs must not bypass exact dedup admission")
     require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "prepare_canonical_sources", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
 
-    if "const key = `raw/${storageName}`" in r2_lib:
-        raise SystemExit("r2 storage key must include batch id")
+    if "const key = `raw/${batchId}/${storageName}`" in r2_lib:
+        raise SystemExit("r2 storage key must be flat (raw/<file>); the batch id is not part of the path")
     if "createR2UploadUrl(filename, requestedBatchId)" in upload_route:
         raise SystemExit("upload route must use normalized batch files")
     if "createR2UploadUrl(file.filename, batchId)" in upload_route:

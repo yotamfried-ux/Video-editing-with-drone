@@ -33,6 +33,25 @@ def get_source_upload(storage_key: str, *, client: Client | None = None) -> dict
     return response.data[0] if response.data else None
 
 
+def rekey_source_upload(old_key: str, new_key: str, *, client: Client | None = None) -> bool:
+    """Point a source's provenance row at the key it now lives under (flat stage-folder layout).
+
+    Returns True when a row was updated. A row already at ``new_key`` or a source without a row
+    is a no-op; a conflicting row at ``new_key`` raises (unique storage_key) so callers fail closed.
+    """
+    if old_key == new_key:
+        return False
+    db = client or _supabase()
+    now = datetime.now(timezone.utc).isoformat()
+    response = (
+        db.table("source_uploads")
+        .update({"storage_key": new_key, "updated_at": now})
+        .eq("storage_key", old_key)
+        .execute()
+    )
+    return bool(response.data)
+
+
 def resolve_exact_source_duplicate(
     upload_id: str,
     content_sha256: str,

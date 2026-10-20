@@ -7,9 +7,11 @@ admission/move hooks (pipeline.r2_batch_scope) and the real reset script
 moto server and source-provenance rows come from an in-memory stand-in for Supabase.
 
 Intended behaviour (the operator's folder-per-stage model):
-  * Run pipeline processes everything in the first folder (raw/, including raw/<batch>/ where
-    the app uploads) and MOVES each source on to processed/, so a second run finds nothing new.
-  * Reset returns every source to raw/, removes it from processed/, clears review/ drafts
+  * Stage folders are flat: the app uploads to raw/<file> (legacy uploads sit in raw/<batch>/).
+    Run pipeline processes everything in the first folder and MOVES each source on to
+    processed/<file>, so a second run finds nothing new.
+  * Reset returns every source to raw/<file> (flattening legacy ones), removes it from
+    processed/, clears review/ drafts
     (and approved/ on full clean), after which the pipeline runs again from the first folder.
 """
 from __future__ import annotations
@@ -61,9 +63,22 @@ def _install_fake_source_uploads() -> None:
     def resolve_exact_source_duplicate(upload_id, content_sha256, client=None):
         key = next(k for k, row in UPLOADS.items() if row["id"] == upload_id)
         first = CANONICAL_BY_HASH.setdefault(content_sha256, (upload_id, key))
-        return {"canonical": {"upload_id": first[0], "storage_key": first[1]}, "superseded": []}
+        # The real RPC joins the canonical upload's CURRENT storage_key from its row.
+        current = next(k for k, row in UPLOADS.items() if row["id"] == first[0])
+        return {"canonical": {"upload_id": first[0], "storage_key": current}, "superseded": []}
 
     module.resolve_exact_source_duplicate = resolve_exact_source_duplicate
+    def rekey_source_upload(old_key, new_key, client=None):
+        row = UPLOADS.get(old_key)
+        if old_key == new_key or row is None:
+            return False
+        if new_key in UPLOADS:
+            raise RuntimeError(f"duplicate storage_key {new_key}")
+        UPLOADS[new_key] = {**row, "storage_key": new_key}
+        del UPLOADS[old_key]
+        return True
+
+    module.rekey_source_upload = rekey_source_upload
     module.mark_source_removed = lambda *a, **k: None
     module.mark_source_removal_error = lambda *a, **k: None
     sys.modules["integrations.source_uploads"] = module
@@ -98,11 +113,12 @@ def video(index: int) -> bytes:
     return (f"video-{index:03d}-".encode() * 2000)
 
 
-def seed_uploads(bucket: Bucket, count: int = 24, batch: str = BATCH, tag: str = "") -> dict[str, bytes]:
-    """The app uploads into raw/<batch>/ and records a verified source_uploads row per file."""
+def seed_uploads(bucket: Bucket, count: int = 24, batch: str | None = BATCH, tag: str = "") -> dict[str, bytes]:
+    """Legacy uploads sit in raw/<batch>/; current uploads are flat (raw/<file>)."""
     contents = {}
     for i in range(count):
-        key = f"raw/{batch}/{tag}2026-10-03T12-19-{i:02d}_DJI_{i:04d}.mp4"
+        folder = f"raw/{batch}/" if batch else "raw/"
+        key = f"{folder}{tag}2026-10-03T12-19-{i:02d}_DJI_{i:04d}.mp4"
         bucket.put(key, video(i + (5000 if tag else 0)))
         contents[key] = bucket.get(key)
         UPLOADS[key] = {
@@ -178,12 +194,14 @@ def main() -> int:
         check("run 1 wrote a draft per source to review/", len(bucket.keys("review/")) == 24)
         if first:
             check("moved sources are byte-identical", all(
-                bucket.get(k.replace("raw/", "processed/", 1)) == v for k, v in original.items()))
+                bucket.get(f"processed/{os.path.basename(k)}") == v for k, v in original.items()))
+        check("processed/ is flat (no batch sub-folders)",
+              all("/" not in k[len("processed/"):] for k in bucket.keys("processed/")))
 
         # --- Scenario 2: a second run only handles what is new in the first folder ---------------
         second = run_pipeline()
         check("run 2 (nothing new in raw/) admits 0 videos", len(second) == 0, f"admitted {len(second)}")
-        extra = seed_uploads(bucket, count=3, batch="batch_new_upload", tag="second_")
+        extra = seed_uploads(bucket, count=3, batch=None, tag="second_")  # current flat upload layout
         third = run_pipeline()
         check("run 3 admits only the 3 newly uploaded videos", sorted(third) == sorted(extra), f"admitted {len(third)}")
         total_sources = 27
@@ -196,7 +214,9 @@ def main() -> int:
         reset()
         raw_after = bucket.keys("raw/")
         check("reset returns all 27 sources to raw/", len(raw_after) == total_sources, f"raw={len(raw_after)}")
-        check("reset keeps each source at its original path", set(raw_after) == set(original) | set(extra))
+        flat = lambda k: f"raw/{os.path.basename(k)}"
+        check("reset restores every source flat to raw/<file> (no batch folder)",
+              set(raw_after) == {flat(k) for k in set(original) | set(extra)})
         check("reset removes the sources from processed/",
               [k for k in bucket.keys("processed/") if k != delivered_key] == [],
               str(bucket.keys("processed/"))[:200])
@@ -204,7 +224,9 @@ def main() -> int:
         check("reset leaves approved/ outputs alone (standard reset)", bucket.keys("approved/") == [approved_key])
         check("reset never touches a non-source object in processed/", delivered_key in bucket.keys("processed/"))
         check("restored sources are byte-identical to the originals",
-              all(bucket.get(k) == v for k, v in original.items()))
+              all(bucket.get(flat(k)) == v for k, v in original.items()))
+        check("provenance rows follow the sources to their flat keys",
+              all(flat(k) in UPLOADS and k not in UPLOADS for k in original))
 
         # --- Scenario 4: rerun after reset runs everything again from the first folder -----------
         rerun = run_pipeline()
@@ -240,6 +262,26 @@ def main() -> int:
         check("reset aborts when raw/ already holds different bytes at the same path", aborted)
         check("an aborted reset deleted nothing from processed/", bucket.keys("processed/") == before_processed)
         check("an aborted reset did not overwrite the existing raw object", bucket.get(raw_twin) == b"DIFFERENT BYTES")
+
+        # --- Scenario 8: the real production layout (23 legacy sources in processed/<batch>/,
+        #     1 still in raw/<batch>/) is brought to the flat stage-folder model --------------
+        bucket.wipe()
+        UPLOADS.clear()
+        CANONICAL_BY_HASH.clear()
+        legacy = seed_uploads(bucket, count=24)
+        for key in sorted(legacy)[:23]:
+            bucket.put(key.replace("raw/", "processed/", 1), legacy[key])
+            bucket.client.delete_object(Bucket=BUCKET, Key=key)
+        reset()
+        raw_flat = bucket.keys("raw/")
+        check("production layout: reset restores the 23 processed sources flat",
+              sum(1 for k in raw_flat if k.count("/") == 1) == 23, str(raw_flat)[:200])
+        check("production layout: nothing left in processed/", bucket.keys("processed/") == [])
+        prod_run = run_pipeline()
+        check("production layout: run processes all 24 from the first folder", len(prod_run) == 24, f"admitted {len(prod_run)}")
+        check("production layout: every source ends flat in processed/, raw/ is empty",
+              bucket.keys("raw/") == [] and len(bucket.keys("processed/")) == 24
+              and all(k.count("/") == 1 for k in bucket.keys("processed/")))
     finally:
         server.stop()
 

@@ -269,14 +269,14 @@ def _r2_delete_prefix(prefix: str, label: str, dry_run: bool = False) -> int:
 def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
     """Return every processed source video to the first folder (raw/), then clear processed/.
 
-    Stage-folder model: a source lives in exactly one stage folder. Reset moves each source
-    back to raw/ at the SAME relative path it was uploaded to (raw/<batch>/file.mp4), so the
-    next run admits it again. The processed/ copy is deleted only after every restored copy
+    Stage-folder model: a source lives in exactly one stage folder and stage folders are flat.
+    Reset moves each source back to raw/<file> (legacy sources uploaded under raw/<batch>/ are
+    flattened and their provenance row re-pointed), so the next run admits it again. The processed/ copy is deleted only after every restored copy
     has been verified byte-for-byte. Objects in processed/ that are not source uploads (for
     example delivered reels) have no provenance row and are left untouched.
     """
     from integrations import r2_storage as r2
-    from integrations.source_uploads import get_source_upload
+    from integrations.source_uploads import get_source_upload, rekey_source_upload
 
     processed_videos = [obj for obj in r2.list_objects(r2.PROCESSED_PREFIX) if r2._is_video_key(obj["Key"])]
     plan: dict[str, str] = {}  # processed key -> raw key
@@ -284,8 +284,9 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
     for obj in processed_videos:
         key = obj["Key"]
         suffix = key.removeprefix(r2.PROCESSED_PREFIX)
-        raw_key = f"{r2.RAW_PREFIX}{suffix}"
-        evidence = get_source_upload(raw_key) or get_source_upload(key)
+        raw_key = f"{r2.RAW_PREFIX}{suffix.rsplit('/', 1)[-1]}"
+        # Current rows are keyed by the flat raw key; rows of legacy uploads by raw/<batch>/file.
+        evidence = get_source_upload(raw_key) or get_source_upload(f"{r2.RAW_PREFIX}{suffix}")
         if not evidence or str(evidence.get("status") or "") not in {"verified", "superseded", "removed"}:
             skipped.append(key)  # not a tracked source upload: never moved, never deleted
             continue
@@ -313,6 +314,8 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
     # Phase 1: restore and verify every source. Phase 2: only then clear processed/.
     for source, dest in plan.items():
         r2.copy_object_verified(source, dest)
+        legacy_key = f"{r2.RAW_PREFIX}{source.removeprefix(r2.PROCESSED_PREFIX)}"
+        rekey_source_upload(legacy_key, dest)  # no-op when the row already uses the flat key
     for source in plan:
         r2.delete_object(source)
     return len(plan)
