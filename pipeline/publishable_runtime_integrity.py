@@ -81,10 +81,15 @@ def _patch_policy() -> None:
                 if manifest_row.get("athlete_key") != row.get("athlete_key"):
                     continue
                 reasons = list(manifest_row.get("blocking_reasons") or [])
+                # An athlete row accumulates Parts across render invocations. Only the Parts
+                # recorded by THIS call start fail-closed; earlier Parts keep their QA evidence.
+                recorded_keys = {_path_key(path) for path in final_reels or []}
                 for part in manifest_row.get("parts", []) or []:
                     if not isinstance(part, dict):
                         continue
                     local_path = str(part.get("local_path") or "")
+                    if _path_key(local_path) not in recorded_keys:
+                        continue
                     specs = snapshot.get(_path_key(local_path), {}) or snapshot.get(local_path, {})
                     part["has_audio"] = _audio_state(specs)
                     part["qa_evidence_recorded"] = False
