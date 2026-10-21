@@ -77,7 +77,7 @@ def main() -> int:
         [
             'selector_candidate_events.json',
             'build_selector_candidate_events',
-            'analyzer._parse_session = parse_and_capture',
+            '_CAPTURE.fn = parse_and_capture',
             'write_selector_candidate_events',
         ],
     )

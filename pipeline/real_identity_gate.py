@@ -1,6 +1,7 @@
 """Real-output identity gate for mixed-athlete prevention."""
 from __future__ import annotations
 
+import os
 import sys
 from typing import Any
 
@@ -40,6 +41,21 @@ def _stable_track(cluster: dict[str, Any]) -> str | None:
     return next(iter(all_ids)) if len(all_ids) == 1 else None
 
 
+def _verified_single_track_per_source(cluster: dict[str, Any]) -> bool:
+    """One reel per athlete: keep a multi-source cluster together only when the visual verifier
+    positively confirmed it AND the athlete is a single tracked subject inside every source.
+
+    Tracker ids are numbered per video, so they cannot be compared across sources; each source
+    must instead show at most one track for this athlete. Disable with
+    SPORTREEL_MERGE_VERIFIED_CLUSTERS=0 to restore split-to-single behaviour.
+    """
+    if os.getenv("SPORTREEL_MERGE_VERIFIED_CLUSTERS", "1").strip().lower() in {"0", "false", "no"}:
+        return False
+    if cluster.get("_visual_verified") is not True:
+        return False
+    return all(len(_track_ids(app)) <= 1 for app in cluster.get("appearances", []) or [])
+
+
 def _identity_gate(reason: str, decision: str, cluster: dict[str, Any], app: dict[str, Any]) -> dict[str, Any]:
     return {
         "decision": decision,
@@ -70,6 +86,14 @@ def enforce_identity_gate(clusters: list[dict[str, Any]]) -> list[dict[str, Any]
                 gate["stable_track_id"] = stable
                 passed.append(_annotate_app(app, gate))
             result.append({**cluster, "appearances": passed, "_identity_gate": "pass", "_stable_track_id": stable})
+            continue
+        if _verified_single_track_per_source(cluster):
+            passed = []
+            for app in apps:
+                gate = _identity_gate("visual_verified_per_source_tracks", "pass", cluster, app)
+                passed.append(_annotate_app(app, gate))
+            result.append({**cluster, "appearances": passed, "_identity_gate": "pass",
+                           "_identity_gate_reason": "visual_verified_per_source_tracks"})
             continue
         reason = "missing_track_evidence"
         track_sets = [_track_ids(app) for app in apps]

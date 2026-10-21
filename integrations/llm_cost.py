@@ -128,6 +128,7 @@ def record_call(response: Any, *, model: str | None, label: str | None = None) -
             "prompt_tokens": prompt, "output_tokens": output, "thinking_tokens": thoughts,
             "prompt_by_modality": modalities, "cost_usd": cost,
         }
+        _append_jsonl(entry)
         with _lock:
             _calls.append(entry)
             total = sum(c["cost_usd"] or 0.0 for c in _calls)
@@ -148,6 +149,23 @@ def record_call(response: Any, *, model: str | None, label: str | None = None) -
     except Exception as exc:
         logger.debug("LLM cost logging failed: %s", exc)
         return None
+
+
+def _debug_dir() -> str:
+    return os.path.join(os.getenv("TMP_DIR", "/tmp/dtor"), "pipeline-debug")
+
+
+def _append_jsonl(entry: dict[str, Any]) -> None:
+    """Persist each call as it happens so a killed/cancelled run keeps every record."""
+    try:
+        import time
+        os.makedirs(_debug_dir(), exist_ok=True)
+        line = json.dumps({"ts": round(time.time(), 3), **entry}, ensure_ascii=False)
+        with _lock, open(os.path.join(_debug_dir(), "llm_cost_calls.jsonl"), "a", encoding="utf-8") as handle:
+            handle.write(line + "\n")
+            handle.flush()
+    except Exception as exc:
+        logger.debug("LLM cost jsonl append failed: %s", exc)
 
 
 def snapshot() -> list[dict[str, Any]]:
@@ -207,8 +225,7 @@ def _write_summary() -> None:
         text = "\n".join(lines)
         print(text, flush=True)
         logger.info(text)
-        tmp_dir = os.getenv("TMP_DIR", "/tmp/dtor")
-        out_dir = os.path.join(tmp_dir, "pipeline-debug")
+        out_dir = _debug_dir()
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, "llm_cost.json"), "w", encoding="utf-8") as handle:
             json.dump({**summary, "calls": snapshot()}, handle, indent=2)

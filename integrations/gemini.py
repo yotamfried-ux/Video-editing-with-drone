@@ -32,18 +32,48 @@ def _get_client() -> _genai_lib.Client:
 # ── Compatibility wrappers ─────────────────────────────────────────────────
 
 class _Model:
-    """Wraps client.models.generate_content to look like GenerativeModel."""
+    """Wraps client.models.generate_content to look like GenerativeModel.
 
-    def __init__(self, model_name: str):
+    Optional cost/latency controls (all default to the SDK defaults, i.e. unchanged behaviour):
+      media_resolution: "LOW" | "MEDIUM" | "HIGH" — tokens per video frame.
+      video_metadata:   {"fps": float, "start_offset": "12s", "end_offset": "90s"} applied to
+                        every uploaded video part.
+    """
+
+    def __init__(self, model_name: str, media_resolution: str | None = None,
+                 video_metadata: dict | None = None):
         self._model = model_name
+        self._media_resolution = (media_resolution or "").strip().upper() or None
+        self._video_metadata = {k: v for k, v in (video_metadata or {}).items() if v not in (None, "")}
+
+    def _config(self):
+        if not self._media_resolution:
+            return None
+        level = getattr(_types.MediaResolution, f"MEDIA_RESOLUTION_{self._media_resolution}", None)
+        if level is None:
+            logger.warning("Unknown media_resolution %r ignored", self._media_resolution)
+            return None
+        return _types.GenerateContentConfig(media_resolution=level)
+
+    def _video_part(self, file_obj):
+        return _types.Part(
+            file_data=_types.FileData(file_uri=file_obj.uri, mime_type=file_obj.mime_type),
+            video_metadata=_types.VideoMetadata(**self._video_metadata),
+        )
 
     def generate_content(self, contents, request_options=None):
         client = _get_client()
         # Convert any _CompatFile wrappers back to real SDK File objects
         converted = []
         for item in (contents if isinstance(contents, list) else [contents]):
-            converted.append(item._file if isinstance(item, _CompatFile) else item)
-        response = client.models.generate_content(model=self._model, contents=converted)
+            raw = item._file if isinstance(item, _CompatFile) else item
+            is_video = str(getattr(raw, "mime_type", "") or "").startswith("video/")
+            converted.append(self._video_part(raw) if (self._video_metadata and is_video) else raw)
+        kwargs = {"model": self._model, "contents": converted}
+        config_obj = self._config()
+        if config_obj is not None:
+            kwargs["config"] = config_obj
+        response = client.models.generate_content(**kwargs)
         # Token and estimated-cost line per call, plus a per-step summary at process exit.
         llm_cost.record_call(response, model=self._model, label=llm_cost.caller_label())
         return response
@@ -90,8 +120,9 @@ class _GenaiCompat:
         except Exception as exc:
             logger.debug("delete_file(%s) failed: %s", name, exc)
 
-    def GenerativeModel(self, model_name: str = None, **_kwargs) -> _Model:  # noqa: N802
-        return _Model(model_name)
+    def GenerativeModel(self, model_name: str = None, media_resolution: str | None = None,  # noqa: N802
+                        video_metadata: dict | None = None, **_kwargs) -> _Model:
+        return _Model(model_name, media_resolution=media_resolution, video_metadata=video_metadata)
 
 
 # Public export — import `genai` from here instead of google.generativeai

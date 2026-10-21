@@ -31,7 +31,14 @@ def make_source_clips(context: dict[str, Any], tmp_dir: str | None = None) -> li
         end = max(start + 0.5, _num(win.get("source_end")) + PAD_AFTER)
         out = os.path.join(tmp_dir, f"qa_src_{Path(src).stem}_{idx:02d}.mp4")
         try:
-            subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", src, "-t", str(end - start), "-c", "copy", out], capture_output=True, timeout=120, check=True)
+            try:
+                # Small re-encode (<=1280px wide, silent) so the upload is a few MB, not the 4K window.
+                subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", src, "-t", str(end - start),
+                                "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
+                                "-crf", "26", "-pix_fmt", "yuv420p", "-an", out],
+                               capture_output=True, timeout=180, check=True)
+            except Exception:
+                subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", src, "-t", str(end - start), "-c", "copy", out], capture_output=True, timeout=120, check=True)
             if os.path.exists(out):
                 clips.append(out)
         except Exception:

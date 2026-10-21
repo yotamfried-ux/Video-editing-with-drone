@@ -246,10 +246,13 @@ def _strip_internal_fields(clusters: list[dict]) -> list[dict]:
                 out["thumbnail"] = app["thumbnail"]
             appearances.append(out)
         if appearances:
-            clean.append({
+            item = {
                 "description": cluster.get("description", "unknown athlete"),
                 "appearances": appearances,
-            })
+            }
+            if cluster.get("_visual_verified"):
+                item["_visual_verified"] = True
+            clean.append(item)
     return clean
 
 

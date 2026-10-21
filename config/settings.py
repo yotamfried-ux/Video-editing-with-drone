@@ -44,7 +44,7 @@ QA_CROP_CHECK: bool      = os.getenv("QA_CROP_CHECK", "false").lower() == "true"
 QA_REEL_CHECK: bool      = os.getenv("QA_REEL_CHECK", "true").lower() == "true"
 # Reel-level social-media QA thresholds (TikTok + Instagram; advisory, calibratable)
 QA_ENGAGEMENT_THRESHOLD: int = int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60"))
-QA_DUR_OK_MIN: float         = float(os.getenv("QA_DUR_OK_MIN", "7"))
+QA_DUR_OK_MIN: float         = float(os.getenv("QA_DUR_OK_MIN", "5"))
 # Aligned with the editor's TARGET_REEL_MAX (85s) — flag only true outliers.
 QA_DUR_OK_MAX: float         = float(os.getenv("QA_DUR_OK_MAX", "90"))
 QA_RESULTS_FILE: str         = os.getenv("QA_RESULTS_FILE", "qa_results.jsonl")

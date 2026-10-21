@@ -24,6 +24,22 @@ from integrations.ffmpeg      import get_source_info as _get_source_info
 
 logger = logging.getLogger(__name__)
 
+# Durable stage timings (stage_timings.jsonl): where wall-clock time goes, per run.
+from integrations.stage_timer import timed as _timed
+
+_raw_create_reel = create_reel
+_raw_compile_multi_source_reel = compile_multi_source_reel
+
+
+def create_reel(*args, **kwargs):  # noqa: F811 - timed wrapper over the editor entry point
+    with _timed("render_reels", athlete=kwargs.get("athlete_label", "")):
+        return _raw_create_reel(*args, **kwargs)
+
+
+def compile_multi_source_reel(*args, **kwargs):  # noqa: F811
+    with _timed("render_reels", athlete=kwargs.get("athlete_label", "")):
+        return _raw_compile_multi_source_reel(*args, **kwargs)
+
 # Set to True by main() when pipeline exits with no new videos to process.
 # run_tracked.py reads this flag to write no_input instead of succeeded.
 no_input: bool = False
@@ -31,6 +47,7 @@ no_input: bool = False
 _LARGE_FILE_BYTES    = 100_000_000
 _MAX_DL_WORKERS      = min(4, config.MAX_CUT_WORKERS)
 _MAX_UL_WORKERS      = 3
+_ANALYSIS_WORKERS    = max(1, int(os.getenv("ANALYSIS_WORKERS", "3")))
 _MAX_STAGED_ATTEMPTS = 5
 _MIN_FREE_GB         = 5.0
 
@@ -216,6 +233,14 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
                   f"uploading FLAGGED for operator review")
 
     return final, events_by_reel, flagged
+
+
+_raw_qa_gate = _qa_gate
+
+
+def _qa_gate(reels, events_out, sport, athlete_label, recompile):  # noqa: F811
+    with _timed("qa_gate", athlete=athlete_label):
+        return _raw_qa_gate(reels, events_out, sport, athlete_label, recompile)
 
 
 def _group_appearances(events: list[dict]) -> list[dict]:
@@ -625,6 +650,38 @@ def _process_long_video(video_meta: dict) -> int:
     return drafts
 
 
+
+def _analyze_one_source(item: dict) -> dict | None:
+    """Analyze one downloaded source; on failure record it and drop the file (never raises)."""
+    from integrations.stage_timer import timed
+    try:
+        with timed("analyze_source", source=item["meta"]["name"]):
+            analysis = analyze_session(item["path"])
+    except Exception:
+        logger.exception("Analysis failed for %s — will retry", item["meta"]["name"])
+        if record_failure(item["meta"]["id"]):
+            mark_as_processed(item["meta"]["id"])
+        try: os.remove(item["path"])
+        except OSError: pass
+        return None
+    return {"path": item["path"], "analysis": analysis, "meta": item["meta"]}
+
+
+def _analyze_downloaded(downloaded: list[dict]) -> list[dict]:
+    """Analyze all sources, `_ANALYSIS_WORKERS` at a time, preserving input order.
+
+    Analysis is dominated by waiting on Gemini and uploads, so overlapping sources cuts wall
+    time without changing any per-source result. ANALYSIS_WORKERS=1 restores the serial loop.
+    """
+    workers = max(1, min(len(downloaded), _ANALYSIS_WORKERS))
+    if workers == 1:
+        results = [_analyze_one_source(item) for item in downloaded]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            results = list(pool.map(_analyze_one_source, downloaded))
+    return [r for r in results if r is not None]
+
+
 def _process_clips_session(videos: list[dict]) -> int:
     print(f"\n{'='*60}")
     print(f"🎬 Clips session: {len(videos)} clip(s)")
@@ -633,18 +690,7 @@ def _process_clips_session(videos: list[dict]) -> int:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         dl_results = list(pool.map(_download_one, videos))
     downloaded = [r for r in dl_results if r is not None]
-    clip_analyses: list[dict] = []
-    for item in downloaded:
-        try:
-            analysis = analyze_session(item["path"])
-        except Exception:
-            logger.exception("Analysis failed for %s — will retry", item["meta"]["name"])
-            if record_failure(item["meta"]["id"]):
-                mark_as_processed(item["meta"]["id"])
-            try: os.remove(item["path"])
-            except OSError: pass
-            continue
-        clip_analyses.append({"path": item["path"], "analysis": analysis, "meta": item["meta"]})
+    clip_analyses = _analyze_downloaded(downloaded)
     if not clip_analyses:
         print("⚠️ No clips downloaded or analyzed — nothing to process")
         return 0
@@ -682,18 +728,7 @@ def _process_mixed_session(videos: list[dict]) -> int:
     with ThreadPoolExecutor(max_workers=workers) as pool:
         dl_results = list(pool.map(_download_one, videos))
     downloaded = [r for r in dl_results if r is not None]
-    clip_analyses: list[dict] = []
-    for item in downloaded:
-        try:
-            analysis = analyze_session(item["path"])
-        except Exception:
-            logger.exception("Analysis failed for %s — will retry", item["meta"]["name"])
-            if record_failure(item["meta"]["id"]):
-                mark_as_processed(item["meta"]["id"])
-            try: os.remove(item["path"])
-            except OSError: pass
-            continue
-        clip_analyses.append({"path": item["path"], "analysis": analysis, "meta": item["meta"]})
+    clip_analyses = _analyze_downloaded(downloaded)
     if not clip_analyses:
         print("⚠️ No files downloaded — nothing to process")
         return 0

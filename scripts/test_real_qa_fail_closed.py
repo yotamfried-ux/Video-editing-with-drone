@@ -23,6 +23,8 @@ env = {
     "_check_technical_compliance": lambda path: ({"duration": 15, "aspect": 9/16}, True, []),
     "_QA_PASS_CONTENT": {"hook": 10},
     "_upload_video": unavailable,
+    "_make_qa_proxy": lambda path: None,
+    "os": __import__("os"),
     "_persist_qa_result": persist,
     "logger": Logger(),
     "Path": Path,

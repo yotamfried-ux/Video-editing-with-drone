@@ -151,7 +151,9 @@ def _wrap_verify_multi_clusters(identity):
                 }
 
                 if same_person and not bad:
-                    verified.append(cluster)
+                    # Positive visual confirmation: the real identity gate may keep these
+                    # appearances in one reel (see pipeline.real_identity_gate).
+                    verified.append({**cluster, "_visual_verified": True})
                     continue
 
                 if not bad or len(bad) >= len(apps):

@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from pipeline.source_evidence import make_source_clips, source_evidence_prompt
@@ -60,13 +61,27 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
             result.update({"verdict": "FAIL", "defects": [*(result.get("defects", []) or []), *extra], "qa_review_required": True})
         return _remember_final_qa(reel_path, result)
     uploaded = []
+    proxies: list[str] = []
     try:
         sport = str(kwargs.get("sport", ""))
         label = str(kwargs.get("athlete_label", ""))
         specs, tech_ok, issues = analyzer._check_technical_compliance(reel_path)
-        uploaded.append(analyzer._upload_video(reel_path))
-        for clip in clips:
-            uploaded.append(analyzer._upload_video(clip))
+        qa_proxy = analyzer._make_qa_proxy(reel_path) if hasattr(analyzer, "_make_qa_proxy") else None
+        if qa_proxy:
+            proxies.append(qa_proxy)
+        # Upload the draft and every source window concurrently: each upload mostly waits on
+        # Gemini's file processing, so total wait is the slowest one, not the sum.
+        paths = [qa_proxy or reel_path, *clips]
+        with ThreadPoolExecutor(max_workers=min(4, len(paths))) as pool:
+            futures = [pool.submit(analyzer._upload_video, path) for path in paths]
+        errors = []
+        for future in futures:
+            try:
+                uploaded.append(future.result())
+            except Exception as upload_exc:  # keep successes so the finally block deletes them
+                errors.append(upload_exc)
+        if errors:
+            raise errors[0]
         prompt = analyzer._QA_REEL_PROMPT
         if sport:
             prompt += "\nSport context: " + sport
@@ -106,7 +121,7 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
                 analyzer._delete_video(item)
             except Exception:
                 pass
-        for clip in clips:
+        for clip in [*clips, *proxies]:
             try:
                 os.remove(clip)
             except OSError:
