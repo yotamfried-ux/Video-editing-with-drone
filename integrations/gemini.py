@@ -11,6 +11,7 @@ from google import genai as _genai_lib
 from google.genai import types as _types
 
 import config
+from integrations import llm_cost
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +43,10 @@ class _Model:
         converted = []
         for item in (contents if isinstance(contents, list) else [contents]):
             converted.append(item._file if isinstance(item, _CompatFile) else item)
-        return client.models.generate_content(model=self._model, contents=converted)
+        response = client.models.generate_content(model=self._model, contents=converted)
+        # Token and estimated-cost line per call, plus a per-step summary at process exit.
+        llm_cost.record_call(response, model=self._model, label=llm_cost.caller_label())
+        return response
 
 
 class _CompatFile:
