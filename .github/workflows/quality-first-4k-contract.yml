@@ -24,7 +24,8 @@ on:
 
 jobs:
   contract:
-    runs-on: ubuntu-latest
+    # Same image as pipeline-run.yml so the contract validates the encoder production uses.
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     env:
       GEMINI_API_KEY: fixture-not-used

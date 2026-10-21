@@ -33,7 +33,9 @@ concurrency:
 jobs:
   run:
     name: Process new drone footage
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to ubuntu-26.04 (ffmpeg 8, different disk layout), which broke the
+    # first production run; every earlier successful run was on 24.04 (ffmpeg 6.1).
+    runs-on: ubuntu-24.04
     timeout-minutes: 330
     env:
       STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || secrets.STORAGE_BACKEND || 'drive' }}
