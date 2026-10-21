@@ -145,16 +145,24 @@ def framing(debug: Path) -> list[str]:
             f"athlete height as share of source frame: median={median:.3f} min={heights[0]:.3f} max={heights[-1]:.3f}"]
 
 
+def _qa_notes(part: dict[str, Any]) -> str:
+    kinds = [str(d.get("type") or d.get("code")) for d in part.get("qa_defects", []) or [] if isinstance(d, dict)
+             and str(d.get("type") or d.get("code")) != "QA_REVIEW_REQUIRED"]
+    overall = str(part.get("qa_overall") or "").strip()
+    return (f"  | {','.join(kinds[:5])}" if kinds else "") + (f" | {overall[:90]}" if overall else "")
+
+
 def manifest(debug: Path) -> list[str]:
     data = _json(debug / "publishable_reel_manifest.json")
     if not isinstance(data, dict):
         return ["(no publishable_reel_manifest.json)"]
-    out = ["athlete                                   part  qa_verdict  score  dur_s  audio  publishable  issues"]
+    out = ["athlete                                   part  qa_verdict  score  dur_s  audio  publishable  issues / QA findings"]
     for row in data.get("athletes", []) or []:
         for part in row.get("parts", []) or []:
             out.append(f"{_short(row.get('athlete_label'), 40):<40} {part.get('part_index')!s:>4}  {_short(part.get('qa_verdict'), 10):<10} "
                        f"{_short(part.get('qa_engagement_score'), 5):>5}  {_short(part.get('duration'), 5):>5}  {_short(part.get('has_audio'), 5):<5}  "
-                       f"{_short(part.get('publishable'), 5):<11}  {','.join(str(i) for i in part.get('technical_issues') or [])}")
+                       f"{_short(part.get('publishable'), 5):<11}  {','.join(str(i) for i in part.get('technical_issues') or [])}"
+                       + _qa_notes(part))
     return out
 
 

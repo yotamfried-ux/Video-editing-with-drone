@@ -27,6 +27,10 @@ on:
       - 'scripts/reset_and_rerun.py'
       - 'integrations/r2_storage.py'
       - 'pipeline/quality_preserving_framing.py'
+      - 'pipeline/publishable_reel_policy.py'
+      - 'scripts/publishable_manifest_contract.py'
+      - 'scripts/test_follow_crop_simulation.py'
+      - 'scripts/test_qa_findings_contract.py'
       - 'scripts/run_pipeline_with_diagnostics.sh'
       - '.github/workflows/pipeline-run.yml'
       - '.github/workflows/cost-time-optimizations-check.yml'
@@ -65,3 +69,11 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_ledger_overlap_matching_contract.py
+      - name: QA findings reach the database and the gate error
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_qa_findings_contract.py
+      - name: Follow-crop simulation (real ffmpeg, 4K source)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_follow_crop_simulation.py

@@ -412,6 +412,33 @@ def _manifest_revision(row: dict[str, Any], part: dict[str, Any]) -> str:
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
 
 
+def qa_note_reasons(part: dict[str, Any], limit: int = 6) -> list[str]:
+    """Human-readable QA findings for a Part that did not pass, so the operator sees WHY (and so do we).
+
+    The verdict alone ("final_qa_failed") used to be all that reached the database and the app; the
+    model's score and per-defect notes stayed in the log. Empty for a passing or ungraded Part.
+    """
+    if str(part.get("qa_verdict") or "").upper() != "FAIL":
+        return []
+    out: list[str] = []
+    score = part.get("qa_engagement_score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        out.append(f"qa_score:{int(score)}/{os.getenv('QA_ENGAGEMENT_THRESHOLD', '60')}")
+    overall = str(part.get("qa_overall") or "").strip()
+    if overall:
+        out.append(f"qa_summary:{overall[:160]}")
+    for defect in part.get("qa_defects", []) or []:
+        if not isinstance(defect, dict) or len(out) >= limit:
+            continue
+        kind = str(defect.get("type") or defect.get("code") or "DEFECT").upper()
+        if kind == "QA_REVIEW_REQUIRED":
+            continue  # bookkeeping marker, not a finding
+        note = str(defect.get("note") or "").strip()
+        severity = str(defect.get("severity") or "").lower()
+        out.append(f"qa_{severity or 'defect'}:{kind}" + (f": {note[:140]}" if note else ""))
+    return out
+
+
 def _draft_publishability_record(
     row: dict[str, Any],
     part: dict[str, Any],
@@ -430,6 +457,7 @@ def _draft_publishability_record(
         and part.get("qa_passed") is True
     )
     reasons = [str(item) for item in row.get("blocking_reasons", []) or []]
+    reasons.extend(qa_note_reasons(part))
     if not intended_publishable and not reasons:
         reasons.append("authoritative_publishability_contract_not_satisfied")
     return {
