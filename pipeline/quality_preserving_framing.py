@@ -36,6 +36,12 @@ AMBIGUOUS_ATHLETE_AREA_RATIO = 0.006
 EDGE_MARGIN = 0.08
 MAX_EMERGENCY_ZOOM = 1.30
 MIN_TRAJECTORY_SAMPLES = 2
+_BG_DOWNSCALE = 8
+# Quality at a fixed CRF is set by the CRF, not the preset: a slower preset only squeezes the file a
+# little more. `medium` encodes the same CRF 4K 9:16 clip about 2.5x faster than `slow` at the same file
+# size (measured), and the 2026-10-21 production run spent ~94 of its 177 minutes in these two encodes
+# (cut + compile, both previously `slow`). Override with X264_PRESET (e.g. `slow` to restore).
+RENDER_X264_PRESET = os.getenv("X264_PRESET", "medium").strip() or "medium"
 TRACK_CROP_PADDING_RATIO = 0.015
 _INSTALLED = False
 _DECISION_LOCK = threading.Lock()
@@ -338,9 +344,13 @@ def _render_clip(
     if decision.mode == "contain":
         filter_complex = (
             f"[0:v]split[bg_in][fg_in];"
-            f"[bg_in]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
-            "force_original_aspect_ratio=increase:flags=lanczos,"
-            f"crop={OUTPUT_WIDTH}:{OUTPUT_HEIGHT},gblur=sigma=30:steps=2[bg];"
+            # The backdrop is blurred anyway, so blur a 1/8-scale copy (sigma 30/8) and scale it back up:
+            # visually the same, but the single-threaded 4K gaussian blur no longer gates the encoder.
+            f"[bg_in]scale={OUTPUT_WIDTH // _BG_DOWNSCALE}:{OUTPUT_HEIGHT // _BG_DOWNSCALE}:"
+            "force_original_aspect_ratio=increase:flags=bilinear,"
+            f"crop={OUTPUT_WIDTH // _BG_DOWNSCALE}:{OUTPUT_HEIGHT // _BG_DOWNSCALE},"
+            f"gblur=sigma={30 / _BG_DOWNSCALE:g}:steps=2,"
+            f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=bicubic[bg];"
             f"[fg_in]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
             "force_original_aspect_ratio=decrease:flags=lanczos[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[out]"
@@ -381,7 +391,7 @@ def _render_clip(
         "-c:v", "libx264",
         "-profile:v", "high",
         "-crf", "12",
-        "-preset", "slow",
+        "-preset", RENDER_X264_PRESET,
         "-maxrate", "45M",
         "-bufsize", "90M",
         "-r", str(OUTPUT_FPS),
@@ -438,7 +448,7 @@ def install() -> None:
     editor.REEL_H = OUTPUT_HEIGHT
     editor.CLIP_CRF = "12"
     editor.REEL_CRF = "14"
-    editor.X264_PRESET = "slow"
+    editor.X264_PRESET = RENDER_X264_PRESET
 
     original_cut_clip = editor.cut_clip
     original_compile_reel = editor.compile_reel

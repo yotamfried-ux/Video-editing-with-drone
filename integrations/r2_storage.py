@@ -247,7 +247,11 @@ def same_object_bytes(key_a: str, key_b: str) -> bool:
         return False
     if a.get("ETag") and a.get("ETag") == b.get("ETag"):
         return True
-    return _sha256_of(key_a) == _sha256_of(key_b)
+    # Hash both bodies at the same time: the check is network-bound, so this halves its wall time.
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        hash_a, hash_b = pool.submit(_sha256_of, key_a), pool.submit(_sha256_of, key_b)
+        return hash_a.result() == hash_b.result()
 
 
 def copy_object_verified(source_key: str, dest_key: str) -> str:
