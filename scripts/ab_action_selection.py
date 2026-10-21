@@ -102,8 +102,15 @@ def judge(per_source: dict[str, dict[str, dict[str, Any]]], variant: str) -> dic
     for key in ("recall", "top_recall"):
         checks[key] = (None if result[key] is None or noise[key] is None
                        else result[key] >= noise[key] - NOISE_TOLERANCE)
-    persons_ok = [src[variant].get("same_person_count") for src in per_source.values() if variant in src]
-    checks["person_count"] = (all(persons_ok) if persons_ok else None)
+    # Athlete counts vary run to run even with identical settings, so compare the agreement RATE with
+    # the control-vs-control rate instead of demanding a perfect match.
+    def count_agreement(name: str) -> float | None:
+        flags = [src[name].get("same_person_count") for src in per_source.values() if name in src]
+        return (sum(bool(f) for f in flags) / len(flags)) if flags else None
+    persons_variant, persons_noise = count_agreement(variant), count_agreement("control_repeat")
+    result["person_count_agreement"], noise["person_count_agreement"] = persons_variant, persons_noise
+    checks["person_count"] = (None if persons_variant is None or persons_noise is None
+                              else persons_variant >= persons_noise - NOISE_TOLERANCE)
     checks["no_errors"] = not any(src[variant].get("errored") for src in per_source.values() if variant in src)
     verdict = "PASS" if all(v is True for v in checks.values()) else (
         "INCONCLUSIVE" if any(v is None for v in checks.values()) and not any(v is False for v in checks.values()) else "FAIL")
@@ -246,15 +253,16 @@ def main() -> int:
 
     base_cost = totals.get("control", {}).get("cost_usd") or 0.0
     lines = ["## A/B: action selection vs control", "",
-             "| variant | verdict | recall | top recall | cost vs control | time vs control |", "|---|---|---|---|---|---|"]
+             "| variant | verdict | recall | top recall | athlete-count agreement | cost vs control | time vs control |", "|---|---|---|---|---|---|---|"]
     for v in verdicts:
         t = totals.get(v["variant"], {})
         fmt = lambda x: "n/a" if x is None else f"{x:.2f}"
+        persons = f"{fmt(v['result'].get('person_count_agreement'))} (noise {fmt(v['noise_floor'].get('person_count_agreement'))})"
         cost = f"{(t.get('cost_usd', 0) / base_cost - 1) * 100:+.0f}%" if base_cost else "n/a"
         secs = totals.get("control", {}).get("seconds") or 0
         time_delta = f"{(t.get('seconds', 0) / secs - 1) * 100:+.0f}%" if secs else "n/a"
         lines.append(f"| {v['variant']} | **{v['verdict']}** | {fmt(v['result']['recall'])} (noise {fmt(v['noise_floor']['recall'])}) "
-                     f"| {fmt(v['result']['top_recall'])} (noise {fmt(v['noise_floor']['top_recall'])}) | {cost} | {time_delta} |")
+                     f"| {fmt(v['result']['top_recall'])} (noise {fmt(v['noise_floor']['top_recall'])}) | {persons} | {cost} | {time_delta} |")
     if shift_flags:
         lines += ["", f"⚠️ Trim variants returned times relative to the trimmed clip on {shift_flags} source(s) — timeline NOT preserved."]
     lines += ["", f"Sources: {len(videos)} · {report['rule']}"]

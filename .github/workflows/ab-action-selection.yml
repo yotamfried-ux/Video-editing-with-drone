@@ -4,11 +4,6 @@ name: A/B Action Selection
 # analysis with the baseline and each cost-saving variant, and compares which actions get selected.
 # Writes nothing to storage or Supabase. It spends Gemini quota (see llm cost lines in the log).
 on:
-  # One-shot trigger for the feature branch (a workflow can only be dispatched by API once it exists on
-  # the default branch): editing .github/ab-run-request.txt on this branch starts a run.
-  push:
-    branches: [feat/cost-time-optimizations]
-    paths: ['.github/ab-run-request.txt']
   workflow_dispatch:
     inputs:
       sample:
@@ -20,6 +15,10 @@ on:
 
 permissions:
   contents: read
+
+concurrency:
+  group: ab-action-selection
+  cancel-in-progress: false
 
 jobs:
   ab:

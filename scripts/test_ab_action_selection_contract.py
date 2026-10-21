@@ -44,7 +44,12 @@ def test_judge_uses_the_control_repeat_noise_floor() -> None:
     }}
     assert ab.judge(per_source, "good")["verdict"] == "PASS"
     assert ab.judge(per_source, "lossy")["verdict"] == "FAIL"
-    assert ab.judge(per_source, "persons")["verdict"] == "FAIL"
+    assert ab.judge(per_source, "persons")["verdict"] == "FAIL", "perfectly stable control but the variant changes athlete counts"
+    flaky = {"a": {"control_repeat": {**ab.agreement(reference, reference), "same_person_count": False},
+                   "v": {**ab.agreement(reference, reference), "same_person_count": False}},
+             "b": {"control_repeat": {**ab.agreement(reference, reference), "same_person_count": True},
+                   "v": {**ab.agreement(reference, reference), "same_person_count": True}}}
+    assert ab.judge(flaky, "v")["verdict"] == "PASS", "athlete counts the model itself disagrees on are noise, not regression"
     errored = {"s": {**per_source["s"], "boom": {**per_source["s"]["good"], "errored": True}}}
     assert ab.judge(errored, "boom")["verdict"] == "FAIL", "a variant whose Gemini call errored cannot pass"
     noisy = {"s": {"control_repeat": {**ab.agreement(reference, [ev(0, 10)]), "same_person_count": True},
