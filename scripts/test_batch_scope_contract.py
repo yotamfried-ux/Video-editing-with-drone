@@ -141,7 +141,12 @@ def run_scope_probe() -> None:
 
 
 def run_flat_raw_admission_probe() -> None:
-    """Batchless mode must reject legacy nested RAW, even when listing is recursive."""
+    """Batchless mode processes everything in the first folder, at any depth under raw/.
+
+    The app uploads into raw/<batch>/, so root-only admission would find nothing and every
+    "Run pipeline" would end as no_input. Non-video objects are still ignored, and duplicate
+    candidates are excluded without deleting any source footage.
+    """
     import importlib
     os.environ.pop("RAW_BATCH_ID", None)
     os.environ.pop("BATCH_ID", None)
@@ -168,8 +173,9 @@ def run_flat_raw_admission_probe() -> None:
     batch_scope = importlib.reload(batch_scope)
     batch_scope.install()
     result = module.get_new_videos()
-    assert admitted == ["raw/flat.mp4"], admitted
-    assert [item["id"] for item in result] == ["raw/flat.mp4"], result
+    expected = ["raw/flat.mp4", "raw/old_batch/nested.mp4", "raw/old_batch/deeper/hidden.mp4"]
+    assert admitted == expected, admitted
+    assert [item["id"] for item in result] == expected, result
 
 
 def run_manifest_allowlist_probe() -> None:
@@ -217,7 +223,13 @@ def run_manifest_allowlist_probe() -> None:
     os.environ.pop("SPORTREEL_INPUT_MANIFEST_B64", None)
 
 def run_simple_raw_reset_probe() -> None:
-    """Exercise real reset recovery logic against isolated in-memory R2."""
+    """Exercise the real reset recovery logic against an isolated in-memory R2.
+
+    Stage-folder model: reset returns each tracked source to raw/ at the same relative path,
+    and clears it from processed/ only after every restored copy is verified. Objects in
+    processed/ that are not tracked source uploads are never touched. The full flow against a
+    real S3 protocol server is covered by test_stage_folder_flow_e2e.py.
+    """
     source = read("scripts/reset_and_rerun.py")
     parsed = ast.parse(source)
     function = next(node for node in parsed.body
@@ -225,43 +237,51 @@ def run_simple_raw_reset_probe() -> None:
                     and node.name == "_restore_r2_sources_to_raw")
     namespace: dict = {}
     exec(compile(ast.Module(body=[function], type_ignores=[]), "<isolated-reset>", "exec"), namespace)
-    objects = {
-        "raw/existing.mp4": 10,
-        "raw/old_batch/one.mp4": 11,
-        "processed/other_batch/two.mp4": 12,
+    objects: dict[str, bytes] = {
+        "raw/existing.mp4": b"e" * 10,
+        "processed/batch_a/one.mp4": b"1" * 11,
+        "processed/batch_b/two.mp4": b"2" * 12,
+        "processed/delivered_reel.mp4": b"d" * 13,
     }
-    events = []
-    def listing(prefix):
-        return [{"Key": key} for key in objects if key.startswith(prefix)]
-    # Payload overrides let tests distinguish same-size but different-content files.
-    payloads = {}
-    class Body:
-        def __init__(self, value):
-            self.value = value
-        def iter_chunks(self, chunk_size):
-            yield self.value
-        def close(self):
-            pass
-    class Client:
-        def head_object(self, *, Bucket, Key):
-            return {"ContentLength": objects[Key]}
-        def get_object(self, *, Bucket, Key):
-            return {"Body": Body(payloads.get(Key, bytes([objects[Key] % 256]) * objects[Key]))}
+    events: list[tuple] = []
+    fail_copy_for: set[str] = set()
+
+    def copy_verified(src, dest):
+        if src in fail_copy_for:
+            raise RuntimeError("simulated R2 copy outage")
+        if dest in objects:
+            if objects[dest] == objects[src]:
+                return "present"
+            raise RuntimeError(f"Destination already exists with different content: {dest}")
+        events.append(("copy", src, dest))
+        objects[dest] = objects[src]
+        return "copied"
+
     fake = types.SimpleNamespace(
         RAW_PREFIX="raw/", PROCESSED_PREFIX="processed/",
-        list_objects=listing, _is_video_key=lambda key: key.endswith(".mp4"),
-        copy_object=lambda src, dest: (events.append(("copy", src, dest)), objects.__setitem__(dest, objects[src])),
-        copy_object_if_absent=lambda src, dest: (
-            (_ for _ in ()).throw(RuntimeError(f"Destination already exists: {dest}"))
-            if dest in objects else (events.append(("copy", src, dest)), objects.__setitem__(dest, objects[src]))
-        ),
+        list_objects=lambda prefix: [{"Key": key} for key in objects if key.startswith(prefix)],
+        _is_video_key=lambda key: key.endswith(".mp4"),
+        _head=lambda key: {"ContentLength": len(objects[key])} if key in objects else None,
+        same_object_bytes=lambda a, b: a in objects and b in objects and objects[a] == objects[b],
+        copy_object_verified=copy_verified,
         delete_object=lambda key: (events.append(("delete", key)), objects.pop(key)),
-        _client=lambda: Client(), _bucket=lambda: "sandbox",
     )
     import integrations
     previous_uploads = sys.modules.get("integrations.source_uploads")
     previous_uploads_attr = getattr(integrations, "source_uploads", None)
-    fake_uploads = types.SimpleNamespace(get_source_upload=lambda key: {"status": "verified"} if key in {"raw/other_batch/two.mp4", "raw/duplicate/existing.mp4"} else None)
+    tracked = {"raw/batch_a/one.mp4", "raw/batch_b/two.mp4"}
+    rekeyed: list[tuple[str, str]] = []
+
+    def rekey(old, new):
+        rekeyed.append((old, new))
+        if old in tracked:
+            tracked.discard(old)
+            tracked.add(new)
+        return True
+
+    fake_uploads = types.SimpleNamespace(
+        get_source_upload=lambda key: {"status": "verified"} if key in tracked else None,
+        rekey_source_upload=rekey)
     sys.modules["integrations.source_uploads"] = fake_uploads
     integrations.source_uploads = fake_uploads
     previous = sys.modules.get("integrations.r2_storage")
@@ -270,87 +290,48 @@ def run_simple_raw_reset_probe() -> None:
     integrations.r2_storage = fake
     try:
         recover = namespace["_restore_r2_sources_to_raw"]
-        assert recover(dry_run=True) == 2 and not events
+        snapshot = dict(objects)
+        assert recover(dry_run=True) == 2 and objects == snapshot and not events
         assert recover() == 2
         assert objects == {
-            "raw/existing.mp4": 10, "raw/old_batch/one.mp4": 11,
-            "processed/other_batch/two.mp4": 12,
-            "raw/one.mp4": 11, "raw/two.mp4": 12,
-        }, "Reset must preserve both original source objects"
-        assert len(events) == 2 and all(event[0] == "copy" for event in events), events
-        # Identical destinations from a completed restore are idempotent.
-        snapshot = dict(objects)
-        event_count = len(events)
-        assert recover() == 0
-        assert objects == snapshot and len(events) == event_count
-        # Same-size, different-content destination must be rejected, not skipped.
-        payloads["raw/one.mp4"] = b"x" * 11
+            "raw/existing.mp4": b"e" * 10,
+            "raw/one.mp4": b"1" * 11, "raw/two.mp4": b"2" * 12,
+            "processed/delivered_reel.mp4": b"d" * 13,
+        }, "sources must return flat to raw/ (no batch folder); non-source outputs stay put"
+        assert sorted(rekeyed) == [("raw/batch_a/one.mp4", "raw/one.mp4"), ("raw/batch_b/two.mp4", "raw/two.mp4")], rekeyed
+        # Every verified copy happens before any deletion from processed/.
+        kinds = [event[0] for event in events]
+        assert kinds == ["copy", "copy", "delete", "delete"], kinds
+        # Nothing left to do on a second reset.
+        before = dict(objects)
+        assert recover() == 0 and objects == before
+        # A different-content file already at the destination fails closed, changing nothing.
+        objects["processed/batch_a/one.mp4"] = b"1" * 11
+        tracked.add("raw/batch_a/one.mp4")
+        objects["raw/one.mp4"] = b"X" * 11
+        before = dict(objects)
         try:
             recover()
         except RuntimeError as exc:
             assert "collision" in str(exc)
         else:
-            raise AssertionError("Same-size different-content RAW must fail closed")
-        assert objects == snapshot and len(events) == event_count
-        payloads.pop("raw/one.mp4")
-        # Simulate legacy source archival to exercise separate provenance checks.
-        objects.pop("raw/old_batch/one.mp4")
-        objects.pop("processed/other_batch/two.mp4")
-        objects["processed/duplicate/existing.mp4"] = 9
-        try:
-            recover()
-        except RuntimeError as exc:
-            assert "collision" in str(exc)
-        else:
-            raise AssertionError("RAW collision must block reset")
-        # Two distinct historical sources with one basename must fail before copying.
-        objects["raw/another_batch/one.mp4"] = 99
-        snapshot = dict(objects)
-        event_count = len(events)
-        try:
-            recover()
-        except RuntimeError as exc:
-            assert "collision" in str(exc)
-        else:
-            raise AssertionError("Same-name source collision must fail closed")
-        assert objects == snapshot and len(events) == event_count
-        objects.pop("raw/another_batch/one.mp4")
-        objects.pop("processed/duplicate/existing.mp4")
-        # Inject a copy failure; originals must survive an interrupted reset.
+            raise AssertionError("different content at the destination must block reset")
+        assert objects == before
+        # An outage while restoring must not delete anything from processed/.
+        objects["raw/one.mp4"] = b"1" * 11
         objects.pop("raw/one.mp4")
+        tracked.add("raw/batch_b/two.mp4")
+        objects["processed/batch_b/two.mp4"] = b"2" * 12
         objects.pop("raw/two.mp4")
-        objects["raw/old_batch/one.mp4"] = 11
-        objects["processed/other_batch/two.mp4"] = 12
-        original_copy = fake.copy_object_if_absent
-        def failing_copy(src, dest):
-            if src == "processed/other_batch/two.mp4":
-                raise RuntimeError("simulated R2 copy outage")
-            return original_copy(src, dest)
-        fake.copy_object_if_absent = failing_copy
+        fail_copy_for.add("processed/batch_b/two.mp4")
+        before = dict(objects)
         try:
             recover()
         except RuntimeError as exc:
             assert "simulated R2 copy outage" in str(exc)
         else:
-            raise AssertionError("Copy outage must abort reset")
-        finally:
-            fake.copy_object_if_absent = original_copy
-        assert objects["raw/old_batch/one.mp4"] == 11
-        assert objects["processed/other_batch/two.mp4"] == 12
-        # Clear partial destination only in this isolated mock, not in production.
-        objects.pop("raw/one.mp4", None)
-        objects.pop("raw/two.mp4", None)
-        objects.pop("raw/old_batch/one.mp4")
-        objects.pop("processed/other_batch/two.mp4")
-        objects["processed/unknown.mp4"] = 13
-        before = dict(objects)
-        try:
-            recover()
-        except RuntimeError as exc:
-            assert "provenance" in str(exc)
-        else:
-            raise AssertionError("Unknown processed video must fail closed")
-        assert objects == before and not any(event[1] == "processed/unknown.mp4" for event in events)
+            raise AssertionError("copy outage must abort reset")
+        assert {k for k in before if k.startswith("processed/")} <= set(objects), "processed sources must survive"
     finally:
         if previous_uploads is None:
             sys.modules.pop("integrations.source_uploads", None)
@@ -446,7 +427,7 @@ def main() -> int:
     for text in [scope, bootstrap, dedup, read("scripts/test_batch_scope_contract.py")]:
         ast.parse(text)
 
-    require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${batchId}/${storageName}", "batch_id: batchId"])
+    require("r2 upload key", r2_lib, ["safeBatchId", "newBatchId", "raw/${storageName}", "batch_id: batchId"])
     if ".replace(/^_+|_+$/g, '')" in r2_lib:
         raise SystemExit("safeBatchId must not use the polynomial-time boundary-trim regex")
     require(
@@ -519,16 +500,18 @@ def main() -> int:
     require("pipeline workflow", workflow, ["batch_id:", "RAW_BATCH_ID", "github.event.client_payload.batch_id || inputs.batch_id || ''"])
     require("mobile batch state", mobile, ["activeBatchId", "lastBatchId", "batch_id: activeBatchId"])
     require("simple operator run/reset", mobile, ["/api/operator/pipeline/start-raw", "/api/operator/pipeline/reset-raw", "Standard reset", "Full clean"])
-    require("simple server run/reset", read("web-api/src/app/api/operator/pipeline/start-raw/route.ts"), ["requireOperator", "pipeline-run.yml/dispatches", "batch_id: ''"])
-    require("simple server reset", read("web-api/src/app/api/operator/pipeline/reset-raw/route.ts"), ["requireOperator", "pipeline-run.yml/dispatches", "batch_id: ''", "full_clean"])
+    shared = read("web-api/src/lib/pipeline-dispatch-core.ts")
+    require("simple server run", read("web-api/src/app/api/operator/pipeline/start-raw/route.ts"), ["requireOperator", "dispatchOperatorPipelineRun('process')"])
+    require("simple server reset", read("web-api/src/app/api/operator/pipeline/reset-raw/route.ts"), ["requireOperator", "dispatchOperatorPipelineRun('reset_and_rerun'", "full_clean"])
+    require("shared dispatch service", shared, ["pipeline-run.yml/dispatches", "batch_id: ''", "pipeline_run_id: runId", "full_clean"])
     require("operator contracts", contracts, ["batch_id?: string | null"])
     require("canonical R2 bootstrap", bootstrap, ["pipeline.r2_batch_scope", "_install_r2_batch_scope", 'if backend != "r2":'])
     if "or not batch_id" in bootstrap:
         raise SystemExit("global R2 runs must not bypass exact dedup admission")
     require("r2 batch scope runtime", scope, ["scoped_prefix", "move_between_prefixes", "prepare_canonical_sources", "get_new_videos", "mark_as_processed", "restore_processed_to_raw"])
 
-    if "const key = `raw/${storageName}`" in r2_lib:
-        raise SystemExit("r2 storage key must include batch id")
+    if "const key = `raw/${batchId}/${storageName}`" in r2_lib:
+        raise SystemExit("r2 storage key must be flat (raw/<file>); the batch id is not part of the path")
     if "createR2UploadUrl(filename, requestedBatchId)" in upload_route:
         raise SystemExit("upload route must use normalized batch files")
     if "createR2UploadUrl(file.filename, batchId)" in upload_route:

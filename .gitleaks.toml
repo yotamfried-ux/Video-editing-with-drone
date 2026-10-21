@@ -22,4 +22,7 @@ description = "Historical R2 RAW object path concatenation (not a secret)"
 condition = "AND"
 regexTarget = "line"
 paths = ['''^scripts/reset_and_rerun\.py$''']
-regexes = ['''^\s*raw_key = r2\.RAW_PREFIX \+ key\[len\(r2\.PROCESSED_PREFIX\):\]$''']
+regexes = [
+  '''^\s*raw_key = r2\.RAW_PREFIX \+ key\[len\(r2\.PROCESSED_PREFIX\):\]$''',
+  '''^\s*raw_key = r2\.RAW_PREFIX \+ suffix$'''
+]

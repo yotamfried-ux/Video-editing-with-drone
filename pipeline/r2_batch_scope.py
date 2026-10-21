@@ -110,13 +110,9 @@ def install() -> None:
             # Restore exactly those objects (idempotent) before admitting anything.
             ensure_frozen_inputs()
         objects = r2.list_objects(scoped_prefix(r2.RAW_PREFIX))
-        if not safe_batch_id():
-            # Simple RAW mode reads ONLY direct children of raw/.
-            # Do not silently ingest historical raw/<batch>/ sources.
-            objects = [
-                obj for obj in objects
-                if "/" not in str(obj.get("Key") or "")[len(r2.RAW_PREFIX):]
-            ]
+        # Batchless (operator "Run pipeline") mode processes everything in the first folder.
+        # The app uploads into raw/<batch>/, so that means raw/ at any depth. Sources that
+        # were already processed have been moved on to processed/ and are not listed here.
         if allowed:
             present = {str(obj.get("Key") or "") for obj in objects}
             missing = sorted(allowed - present)
@@ -157,24 +153,26 @@ def install() -> None:
         return original_download_video(file_id_or_key, filename)
 
     def mark_as_processed(file_id_or_key: str) -> None:
-        dest_key = move_between_prefixes(file_id_or_key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
         if safe_batch_id():
             # Batch-scoped runs retain their existing frozen-manifest semantics.
+            dest_key = move_between_prefixes(file_id_or_key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
             r2.move_object(file_id_or_key, dest_key)
             return
-        # Batchless operator runs must retain the original RAW footage. Do not
-        # call move_object here: its implementation deletes the source.
+        # Batchless operator runs move the source one stage on (raw/ -> processed/) so the
+        # first folder only ever holds what still has to be processed. Stage folders are flat:
+        # a source lands at processed/<file>, whatever sub-folder it was uploaded into. The
+        # original is deleted only after the processed copy is proven byte-identical.
         if not str(file_id_or_key).startswith(r2.RAW_PREFIX):
             raise RuntimeError("Cannot mark a non-RAW object as processed")
-        if any(obj["Key"] == dest_key for obj in r2.list_objects(r2.PROCESSED_PREFIX)):
-            raise RuntimeError(f"Processed destination already exists: {dest_key}")
-        r2.copy_object_if_absent(file_id_or_key, dest_key)
-        client = r2._client()
-        bucket = r2._bucket()
-        src = client.head_object(Bucket=bucket, Key=file_id_or_key)
-        dst = client.head_object(Bucket=bucket, Key=dest_key)
-        if src["ContentLength"] != dst["ContentLength"]:
-            raise RuntimeError(f"Processed copy size mismatch: {file_id_or_key}")
+        name = Path(file_id_or_key).name
+        flat_raw = f"{r2.RAW_PREFIX}{name}"
+        if flat_raw != file_id_or_key:
+            # Legacy nested upload (raw/<batch>/file): its provenance row follows it to the
+            # flat key so a later Reset can still recognise it as a tracked source.
+            from integrations.source_uploads import rekey_source_upload
+
+            rekey_source_upload(file_id_or_key, flat_raw)
+        r2.move_object_verified(file_id_or_key, f"{r2.PROCESSED_PREFIX}{name}")
 
     def requeue_video(file_id_or_key: str) -> bool:
         try:

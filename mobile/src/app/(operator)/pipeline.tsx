@@ -275,6 +275,7 @@ export default function PipelineScreen() {
     globalLiveStaleReason,
     loading: statusLoading,
     error: statusError,
+    refresh: refreshPipelineStatus,
   } = usePipelineStatus();
   const meta = (status?.meta ?? {}) as Record<string, unknown>;
   const displayStage = globalLiveStale && latestRun ? terminalStageForRun(latestRun) : status?.stage ?? 'idle';
@@ -299,6 +300,7 @@ export default function PipelineScreen() {
   const [externalCandidates, setExternalCandidates] = useState<ExternalVideoCandidate[]>([]);
   const [uploadItems, setUploadItems] = useState<UploadFileState[]>([]);
   const [lastRunId, setLastRunId] = useState<string | null>(null);
+  const [runsRefreshKey, setRunsRefreshKey] = useState(0);
   const [activeBatchId, setActiveBatchId] = useState<string | null>(null);
   const [lastBatchId, setLastBatchId] = useState<string | null>(null);
   const [restoredServerBatch, setRestoredServerBatch] = useState<{ batch_id: string; expected_file_count: number } | null>(null);
@@ -436,6 +438,15 @@ export default function PipelineScreen() {
       });
   }, []);
 
+  // Shared by Run pipeline and Reset and rerun so both give the same tracked experience:
+  // remember the run id, refresh status and history immediately, and confirm with the id.
+  const onRunDispatched = useCallback((runId: string, title: string, detail: string) => {
+    setLastRunId(runId);
+    setRunsRefreshKey((key) => key + 1);
+    void refreshPipelineStatus();
+    Alert.alert(title, `Run ${runId.slice(0, 8)} ${detail} It appears under Recent pipeline runs with live stage, progress and a link to the GitHub run.`);
+  }, [refreshPipelineStatus]);
+
   const runPipeline = async () => {
     // Simple RAW-folder mode: the server dispatches a batch-less workflow.
     setTriggering(true);
@@ -445,10 +456,11 @@ export default function PipelineScreen() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({}),
       });
-      setLastRunId(result.pipeline_run_id);
-      Alert.alert('Pipeline triggered', `Run ${result.pipeline_run_id.slice(0, 8)} queued. Follow progress in Pipeline status or GitHub Actions.`);
+      onRunDispatched(result.pipeline_run_id, 'Pipeline triggered', 'queued.');
     } catch (error) {
       handleOperatorError(error);
+      // A rejected dispatch (e.g. another run is active) is also recorded server-side.
+      setRunsRefreshKey((key) => key + 1);
     } finally {
       setTriggering(false);
     }
@@ -465,14 +477,19 @@ export default function PipelineScreen() {
   const resetAndRerun = async (fullClean: boolean) => {
     setResetting(true);
     try {
-      await operatorFetch<{ ok: boolean }>('/api/operator/pipeline/reset-raw', {
+      const result = await operatorFetch<PipelineResetResponse>('/api/operator/pipeline/reset-raw', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ full_clean: fullClean }),
       });
-      Alert.alert('Reset triggered', 'Source recovery and pipeline run queued. Follow progress in GitHub Actions.');
+      onRunDispatched(
+        result.pipeline_run_id,
+        'Reset triggered',
+        `queued: source recovery${fullClean ? ' (full clean)' : ''}, then the pipeline.`,
+      );
     } catch (error) {
       handleOperatorError(error);
+      setRunsRefreshKey((key) => key + 1);
     } finally {
       setResetting(false);
     }
@@ -889,7 +906,7 @@ export default function PipelineScreen() {
             )}
             {lastRunId && (
               <Text variant="caption" color={Colors.textSecondary}>
-                Last app-triggered run: {lastRunId.slice(0, 8)} · see Recent pipeline runs for run-scoped status
+                Last app-triggered run: {lastRunId.slice(0, 8)} · live status below in Recent pipeline runs
               </Text>
             )}
 
@@ -972,7 +989,7 @@ export default function PipelineScreen() {
                 )}
               </>
             )}
-            <Button label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
+            <Button testID="pipeline-reset" label={resetting ? 'Resetting...' : 'Reset and rerun'} onPress={confirmReset} disabled={busy} variant="secondary" style={{ height: 44, borderColor: Colors.danger }} />
             {uploadItems.length > 0 && (
               <View style={{ gap: Spacing.sm }}>
                 <View style={styles.metaRow}>
@@ -1016,7 +1033,7 @@ export default function PipelineScreen() {
             )}
           </Card>
 
-          <PipelineRunsCard />
+          <PipelineRunsCard refreshKey={runsRefreshKey} highlightRunId={lastRunId} />
           <DeliveryStatusCard />
 
           <Card bordered style={{ gap: Spacing.sm }}>

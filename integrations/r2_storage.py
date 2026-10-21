@@ -212,6 +212,82 @@ def copy_object_if_absent(source_key: str, dest_key: str) -> None:
         body.close()
 
 
+def _head(key: str) -> dict | None:
+    from botocore.exceptions import ClientError
+    try:
+        return _client().head_object(Bucket=_bucket(), Key=key)
+    except ClientError as exc:
+        if exc.response.get("ResponseMetadata", {}).get("HTTPStatusCode") == 404 or \
+                exc.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound"):
+            return None
+        raise
+
+
+def _sha256_of(key: str) -> bytes:
+    import hashlib
+    body = _client().get_object(Bucket=_bucket(), Key=key)["Body"]
+    digest = hashlib.sha256()
+    try:
+        for chunk in body.iter_chunks(chunk_size=1024 * 1024):
+            if chunk:
+                digest.update(chunk)
+    finally:
+        body.close()
+    return digest.digest()
+
+
+def same_object_bytes(key_a: str, key_b: str) -> bool:
+    """True when both objects exist with identical content.
+
+    Equal size and equal ETag is conclusive for a server-side copy (the copy preserves the
+    ETag); otherwise the bodies are hashed so a streamed copy is still verified byte for byte.
+    """
+    a, b = _head(key_a), _head(key_b)
+    if a is None or b is None or a["ContentLength"] != b["ContentLength"]:
+        return False
+    if a.get("ETag") and a.get("ETag") == b.get("ETag"):
+        return True
+    return _sha256_of(key_a) == _sha256_of(key_b)
+
+
+def copy_object_verified(source_key: str, dest_key: str) -> str:
+    """Copy source -> dest without ever overwriting, and prove the copy is identical.
+
+    Returns "copied", or "present" when dest already holds identical bytes (an interrupted
+    earlier attempt). Raises, changing nothing, when dest exists with different bytes.
+    """
+    if _head(source_key) is None:
+        raise RuntimeError(f"Source object is missing: {source_key}")
+    if _head(dest_key) is not None:
+        if same_object_bytes(source_key, dest_key):
+            return "present"
+        raise RuntimeError(f"Destination already exists with different content: {dest_key}")
+    from botocore.exceptions import ClientError
+    try:
+        # Server-side copy: no download, preserves bytes and ETag. Destination was just
+        # checked absent, and runs are single-flight, so nothing can be overwritten.
+        _client().copy_object(
+            Bucket=_bucket(), Key=dest_key,
+            CopySource={"Bucket": _bucket(), "Key": source_key},
+        )
+    except ClientError as exc:
+        code = exc.response.get("Error", {}).get("Code", "")
+        if code not in ("InvalidRequest", "EntityTooLarge", "InvalidArgument"):
+            raise
+        # Objects above the single-copy size limit use the streamed conditional copy.
+        copy_object_if_absent(source_key, dest_key)
+    if not same_object_bytes(source_key, dest_key):
+        raise RuntimeError(f"Copy verification failed: {source_key} -> {dest_key}")
+    return "copied"
+
+
+def move_object_verified(source_key: str, dest_key: str) -> str:
+    """Move a source video one stage on: verified copy first, delete the original only after."""
+    outcome = copy_object_verified(source_key, dest_key)
+    delete_object(source_key)
+    return outcome
+
+
 def delete_object(key: str) -> None:
     _client().delete_object(Bucket=_bucket(), Key=key)
 

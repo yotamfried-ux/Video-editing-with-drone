@@ -123,8 +123,11 @@ export function createR2UploadTarget(
 ): { key: string; filename: string; batch_id: string } {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
   const batchId = safeBatchId(requestedBatchId) || newBatchId();
-  const storageName = `${stamp}_${safeFilename(filename)}`;
-  const key = `raw/${batchId}/${storageName}`;
+  // Stage folders are flat: the source lands directly in raw/. The batch id only groups the
+  // upload for verification; it is not part of the storage path.
+  const token = Math.random().toString(36).slice(2, 8);
+  const storageName = `${stamp}_${token}_${safeFilename(filename)}`;
+  const key = `raw/${storageName}`;
   return { key, filename: storageName, batch_id: batchId };
 }
 
