@@ -33,7 +33,9 @@ concurrency:
 jobs:
   run:
     name: Process new drone footage
-    runs-on: ubuntu-latest
+    # Pinned: ubuntu-latest moved to ubuntu-26.04 (ffmpeg 8, different disk layout), which broke the
+    # first production run; every earlier successful run was on 24.04 (ffmpeg 6.1).
+    runs-on: ubuntu-24.04
     timeout-minutes: 330
     env:
       STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || secrets.STORAGE_BACKEND || 'drive' }}
@@ -50,6 +52,18 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TRACKED_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
         run: python3 scripts/record_run_correlation.py --run-id "$TRACKED_RUN_ID"
+
+      - name: Free runner disk space
+        # A run downloads every admitted RAW source (about 7 GB for 24 drone clips) before
+        # analysis, on top of the Python/torch install, and failed with "Disk quota exceeded"
+        # on a stock runner. Remove preinstalled toolchains this job never uses (never the
+        # hosted Python toolcache).
+        run: |
+          df -h / | tail -1
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h / | tail -1
 
       - name: Install ffmpeg
         run: |
