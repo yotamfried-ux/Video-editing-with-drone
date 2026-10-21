@@ -16,13 +16,15 @@ from pathlib import Path
 from langsmith import traceable
 
 import config
+from integrations import llm_cache as _llm_cache
 from integrations.gemini import genai, upload_video as _upload_video, delete_video as _delete_video
 from integrations.ffmpeg import get_reel_specs
 
 logger = logging.getLogger(__name__)
 
+_ANALYSIS_CACHE_VERSION = "1"   # bump to invalidate every cached analysis
 _MODEL             = config.GEMINI_MODEL   # native video understanding
-_QA_MODEL          = "gemini-1.5-flash"   # lightweight model for 5-class QA classification
+_QA_MODEL          = os.getenv("GEMINI_CLIP_QA_MODEL", "gemini-2.5-flash-lite")   # cheap per-clip crop QA (QA_CROP_CHECK)
 _MIN_CLIP_SEC      = 6.0
 _CHUNK_MAX_MINUTES = 8   # Gemini ~1M token limit ≈ 8 min of drone footage @1fps
 
@@ -45,6 +47,16 @@ def _extract_thumbnail(video_path: str, timestamp: float) -> str | None:
     except Exception as e:
         logger.debug("Thumbnail extraction failed at %.1fs: %s", timestamp, e)
         return None
+
+
+def _video_duration(video_path: str) -> float:
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", video_path],
+            capture_output=True, timeout=30, check=True)
+        return float(json.loads(probe.stdout)["format"]["duration"])
+    except Exception:
+        return 0.0
 
 
 def _chunk_video(video_path: str, max_minutes: int = _CHUNK_MAX_MINUTES) -> list[str]:
@@ -347,6 +359,33 @@ def _persist_qa_result(result: dict, reel_path: str, sport: str) -> None:
         logger.debug("Failed to persist QA result: %s", exc)
 
 
+def _make_qa_proxy(reel_path: str) -> str | None:
+    """1080x1920 silent copy of a (typically 4K) reel for the QA upload.
+
+    Gemini bills video by duration, so this saves upload + processing time, not tokens; 1080p is the
+    delivery standard the QA judges against. Technical specs are always probed on the ORIGINAL file.
+    Returns None (caller uploads the original) when disabled, already small, or on any failure.
+    """
+    if os.getenv("QA_PROXY", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return None
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=height",
+             "-of", "csv=p=0", reel_path], capture_output=True, text=True, timeout=30)
+        if probe.returncode != 0 or int(probe.stdout.strip().split(",")[0] or 0) <= 1920:
+            return None
+        out = os.path.join(config.TMP_DIR, f"qa_proxy_{Path(reel_path).stem}.mp4")
+        os.makedirs(config.TMP_DIR, exist_ok=True)
+        subprocess.run(
+            ["ffmpeg", "-y", "-i", reel_path, "-vf", "scale=-2:1920", "-c:v", "libx264",
+             "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p", "-an", out],
+            capture_output=True, timeout=300, check=True)
+        return out if os.path.exists(out) else None
+    except Exception as exc:
+        logger.debug("QA proxy unavailable for %s (%s) — uploading original", reel_path, exc)
+        return None
+
+
 def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> dict:
     """Independent social-media QA on a compiled reel — two layers:
 
@@ -369,8 +408,9 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
         "engagement_score": 0,
         "overall": "QA provider unavailable; review required",
     }
+    qa_proxy = _make_qa_proxy(reel_path)
     try:
-        vf = _upload_video(reel_path)
+        vf = _upload_video(qa_proxy or reel_path)
         try:
             prompt = _QA_REEL_PROMPT
             if sport:
@@ -418,6 +458,12 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
         logger.warning("qa_check_reel failed for %s: %s", Path(reel_path).name, exc)
         _persist_qa_result(_PASS, reel_path, sport)
         return _PASS
+    finally:
+        if qa_proxy:
+            try:
+                os.remove(qa_proxy)
+            except OSError:
+                pass
 
 
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
@@ -437,13 +483,37 @@ def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
 
 
 @traceable(run_type="llm", name="gemini-analyze-chunk")
-def _gemini_call_session(vf, prompt: str, model_name: str, video_name: str) -> str:
+def _gemini_call_session(vf, prompt: str, model_name: str, video_name: str, trim_window=None) -> str:
     """Traced Gemini call for session analysis — inputs/output logged to LangSmith."""
-    model = genai.GenerativeModel(model_name=model_name)
+    model = genai.GenerativeModel(model_name=model_name, **_analysis_call_options(trim_window))
     resp = _with_retry(lambda: model.generate_content(
         [vf, prompt], request_options={"timeout": 300}
     ))
     return resp.text
+
+
+def _analysis_call_options(trim_window=None) -> dict:
+    """Opt-in token savers for session analysis (unset = SDK defaults, identical to before).
+
+    ANALYSIS_MEDIA_RESOLUTION: LOW|MEDIUM|HIGH   ANALYSIS_VIDEO_FPS: frames sampled per second.
+    Enable only after the A/B action-selection check (see scripts/ab_action_selection.py).
+    """
+    options: dict = {}
+    resolution = os.getenv("ANALYSIS_MEDIA_RESOLUTION", "").strip()
+    if resolution:
+        options["media_resolution"] = resolution
+    fps = os.getenv("ANALYSIS_VIDEO_FPS", "").strip()
+    if fps:
+        try:
+            options["video_metadata"] = {"fps": float(fps)}
+        except ValueError:
+            logger.warning("ANALYSIS_VIDEO_FPS=%r ignored (not a number)", fps)
+    if trim_window:
+        metadata = dict(options.get("video_metadata", {}))
+        metadata["start_offset"] = f"{trim_window[0]:.1f}s"
+        metadata["end_offset"] = f"{trim_window[1]:.1f}s"
+        options["video_metadata"] = metadata
+    return options
 
 
 _IDENTITY_PROMPT = """
@@ -799,6 +869,28 @@ def analyze_session(video_path: str) -> dict:
         proxy_path = None
         vf = None
         try:
+            cache_key = None
+            trim_window = None
+            if not is_chunked:
+                from pipeline import activity_window
+                if activity_window.enabled():
+                    trim_window = activity_window.window_for_video(chunk_path, _video_duration(chunk_path))
+                    if trim_window:
+                        print(f"✂️  Activity window {trim_window[0]:.0f}s–{trim_window[1]:.0f}s from detector sidecar")
+            try:
+                cache_key = _llm_cache.make_key(
+                    "analyze-session", media_sha256=_llm_cache.file_sha256(chunk_path),
+                    prompt=prompt, model=_MODEL, version=_ANALYSIS_CACHE_VERSION,
+                    extra=json.dumps([_analysis_call_options(trim_window)], sort_keys=True))
+                cached_text = _llm_cache.get(cache_key)
+                if cached_text:
+                    parsed_cached = _parse_session(cached_text)
+                    print(f"♻️  Analysis cache hit for '{Path(chunk_path).name}' — no Gemini call")
+                    return parsed_cached
+            except json.JSONDecodeError:
+                pass  # corrupt/obsolete cache entry → fall through to a fresh analysis
+            except Exception as _cache_exc:
+                logger.debug("analysis cache lookup skipped: %s", _cache_exc)
             proxy_path = _make_proxy(chunk_path)
             upload_path = proxy_path if proxy_path else chunk_path
             vf = _with_retry(lambda: _upload_video(upload_path))
@@ -807,8 +899,12 @@ def analyze_session(video_path: str) -> dict:
                 prompt=prompt,
                 model_name=_MODEL,
                 video_name=Path(upload_path).name,
+                trim_window=trim_window,
             )
-            return _parse_session(response_text)
+            parsed = _parse_session(response_text)
+            if cache_key:
+                _llm_cache.put(cache_key, response_text, model=_MODEL, source=Path(chunk_path).name)
+            return parsed
         except json.JSONDecodeError as e:
             logger.error("Gemini JSON parse error: %s", e)
             print(f"⚠️ JSON parse error from Gemini: {e}")

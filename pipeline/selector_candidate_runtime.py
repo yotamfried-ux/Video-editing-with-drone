@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 from collections import Counter
 from pathlib import Path
 from typing import Any
@@ -45,7 +46,16 @@ def _merge_counter_summaries(summaries: list[dict[str, Any]], key: str) -> dict[
     return dict(counter)
 
 
+_CAPTURE = threading.local()
+_APPEND_LOCK = threading.Lock()
+
+
 def _append_payload(path: Path, payload: dict[str, Any]) -> None:
+    with _APPEND_LOCK:
+        _append_payload_locked(path, payload)
+
+
+def _append_payload_locked(path: Path, payload: dict[str, Any]) -> None:
     existing = _read_existing(path)
     candidates = [item for item in existing.get("candidates", []) if isinstance(item, dict)]
     candidates.extend(item for item in payload.get("candidates", []) if isinstance(item, dict))
@@ -98,6 +108,12 @@ def install() -> None:
     # recovery-aware wrapper and therefore feeds the same events to the pipeline.
     original_parse_session = analyzer._parse_session
 
+    def dispatch_parse_session(raw_text: str) -> dict:
+        capture = getattr(_CAPTURE, "fn", None)
+        return capture(raw_text) if capture is not None else original_parse_session(raw_text)
+
+    analyzer._parse_session = dispatch_parse_session
+
     def analyze_session_with_selector_candidates(video_path: str) -> dict:
         captured_payloads: list[dict[str, Any]] = []
         source_video = Path(video_path).name
@@ -117,11 +133,13 @@ def install() -> None:
                 logger.warning("Selector candidate capture failed: %s", exc)
             return original_parse_session(raw_text)
 
-        analyzer._parse_session = parse_and_capture
+        # Per-thread capture: sources are analysed concurrently, so the parser hook is installed
+        # once and routes to the capture belonging to the calling thread.
+        _CAPTURE.fn = parse_and_capture
         try:
             result = original_analyze_session(video_path)
         finally:
-            analyzer._parse_session = original_parse_session
+            _CAPTURE.fn = None
 
         result = dedupe_session(result, default_source=source_video)
         dropped_count = result.get("diagnostics", {}).get("source_window_dedup_dropped_count", 0)

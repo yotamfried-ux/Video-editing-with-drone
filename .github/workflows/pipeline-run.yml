@@ -189,9 +189,19 @@ jobs:
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
         run: python scripts/preflight_frozen_inputs.py --phase run
 
+      - name: Restore LLM analysis cache
+        uses: actions/cache/restore@v4
+        with:
+          path: /tmp/llm-cache
+          key: llm-analysis-cache-v1-${{ github.run_id }}
+          restore-keys: |
+            llm-analysis-cache-v1-
+
       - name: Run pipeline
         timeout-minutes: 300
         env:
+          LLM_CACHE_DIR: /tmp/llm-cache
+          ANALYSIS_WORKERS: ${{ vars.ANALYSIS_WORKERS || '3' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
           GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
@@ -231,6 +241,14 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           TMP_DIR: /tmp/dtor
         run: python scripts/verify_qa_reedit_tasks.py
+
+      - name: Save LLM analysis cache
+        # Saved even when the run fails: the analysis is the expensive part and stays valid.
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: /tmp/llm-cache
+          key: llm-analysis-cache-v1-${{ github.run_id }}
 
       - name: Upload pipeline diagnostics
         if: always()

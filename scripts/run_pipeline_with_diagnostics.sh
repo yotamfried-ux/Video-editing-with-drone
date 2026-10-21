@@ -19,7 +19,9 @@ RUN_QUALITY_REPORT_FILE="$DEBUG_DIR/run_quality_report.json"
 mkdir -p "$DEBUG_DIR" "$DEBUG_DIR/sidecars"
 cd "$ROOT_DIR" || exit 98
 
-python scripts/run_tracked.py 2>&1 | tee "$LOG_FILE"
+# Unbuffered so a timeout/cancel/OOM kill never loses the tail of the log, and every line
+# carries its real emit time instead of being flushed in blocks.
+PYTHONUNBUFFERED=1 python -u scripts/run_tracked.py 2>&1 | tee "$LOG_FILE"
 STATUS=${PIPESTATUS[0]}
 
 python scripts/build_draft_decision_trace.py "$REEL_METADATA_FILE" "$LOG_FILE" "$DRAFT_TRACE_FILE" || true
