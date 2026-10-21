@@ -4,6 +4,11 @@ name: A/B Action Selection
 # analysis with the baseline and each cost-saving variant, and compares which actions get selected.
 # Writes nothing to storage or Supabase. It spends Gemini quota (see llm cost lines in the log).
 on:
+  # One-shot trigger for the feature branch (a workflow can only be dispatched by API once it exists on
+  # the default branch): editing .github/ab-run-request.txt on this branch starts a run.
+  push:
+    branches: [feat/cost-time-optimizations]
+    paths: ['.github/ab-run-request.txt']
   workflow_dispatch:
     inputs:
       sample:
@@ -41,7 +46,7 @@ jobs:
           STORAGE_BACKEND: r2
           PYTHONUNBUFFERED: '1'
           PYTHONPATH: .
-        run: python -u scripts/ab_action_selection.py --sample "${{ inputs.sample }}" --variants "${{ inputs.variants }}" --out /tmp/ab
+        run: python -u scripts/ab_action_selection.py --sample "${{ inputs.sample || '8' }}" --variants "${{ inputs.variants || 'lowres,fps05,trim,combined' }}" --out /tmp/ab
       - name: Upload A/B results
         if: always()
         uses: actions/upload-artifact@v4
