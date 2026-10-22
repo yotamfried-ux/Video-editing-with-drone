@@ -1,0 +1,61 @@
+name: QA Evidence Frames
+run-name: QA Evidence Frames · ${{ github.sha }}
+
+# Read-only inspection aid: contact sheets of the REVIEW drafts and their source footage, printed as base64
+# JPEGs into the job log (artifacts live on blob storage that automation outside GitHub cannot fetch, the
+# job log can always be read). Does not run the pipeline, reset, or write/delete anything in R2.
+on:
+  push:
+    branches: [ccr-9307ebf1-etx2xv]
+    paths:
+      - .github/qa-evidence-request.json
+      - .github/workflows/qa-evidence.yml
+      - scripts/qa_evidence_frames.py
+
+concurrency:
+  group: qa-evidence
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  frames:
+    name: Build evidence contact sheets
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    env:
+      STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || secrets.STORAGE_BACKEND || 'drive' }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install ffmpeg and fonts
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ffmpeg fonts-dejavu-core
+
+      - name: Install boto3
+        run: python3 -m pip install boto3
+
+      - name: Build contact sheets
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        run: python3 scripts/qa_evidence_frames.py .github/qa-evidence-request.json "$RUNNER_TEMP/evidence"
+
+      - name: Print evidence into the job log
+        run: |
+          cd "$RUNNER_TEMP/evidence"
+          du -sh .
+          echo "EVIDENCE_BEGIN manifest.json"
+          base64 -w 0 manifest.json; echo
+          echo "EVIDENCE_END manifest.json"
+          find . -name '*.jpg' | sort | while read -r f; do
+            echo "EVIDENCE_BEGIN ${f#./}"
+            base64 -w 0 "$f"; echo
+            echo "EVIDENCE_END ${f#./}"
+          done
