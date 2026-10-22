@@ -2,7 +2,7 @@
 """Read-only: build timestamped contact sheets for the review drafts and their RAW/PROCESSED sources.
 
 The draft MP4s and the original footage live in R2, which automation outside CI cannot reach. This
-runs in CI, streams frames out of R2 (presigned URL, no full download for sources), and writes small
+runs in CI, downloads each file in turn (deleted right after use), and writes small
 JPEG contact sheets plus a manifest.json so a reviewer can compare each final reel to its original.
 It never writes, moves or deletes anything in R2.
 """
@@ -67,11 +67,18 @@ def main() -> int:
     src_cap = float(req.get("source_cap_sec", 60))
     src_filter = req.get("sources") or "all"
 
-    client = r2_storage._client()
-    bucket = r2_storage._bucket()
+    out_root.mkdir(parents=True, exist_ok=True)
+    work = out_root.parent / "dl"
+    work.mkdir(parents=True, exist_ok=True)
 
-    def presign(key: str) -> str:
-        return client.generate_presigned_url("get_object", Params={"Bucket": bucket, "Key": key}, ExpiresIn=3600)
+    def sheets_for(key: str, sub: str, stem: str, step: float, cap: float) -> tuple[dict, list[str]]:
+        local = work / Path(key).name
+        try:
+            r2_storage.download_object(key, str(local))
+            info = _probe(str(local))
+            return info, _sheets(str(local), out_root / sub, stem, info, step, cap)
+        finally:
+            local.unlink(missing_ok=True)
 
     manifest: dict = {"drafts": [], "sources": []}
 
@@ -83,9 +90,7 @@ def main() -> int:
             name = Path(key).name
             stem = "draft_%02d" % (len(manifest["drafts"]) + 1)
             try:
-                url = presign(key)
-                info = _probe(url)
-                sheets = _sheets(url, out_root / "drafts", stem, info, draft_step, 120)
+                info, sheets = sheets_for(key, "drafts", stem, draft_step, 120)
                 manifest["drafts"].append({"id": stem, "key": key, "name": name, "info": info, "sheets": sheets})
                 print(f"draft {stem} {name} {info.get('duration_s')}s sheets={len(sheets)}", flush=True)
             except Exception as exc:
@@ -101,9 +106,7 @@ def main() -> int:
             continue
         stem = "src_" + Path(name).stem
         try:
-            url = presign(key)
-            info = _probe(url)
-            sheets = _sheets(url, out_root / "sources", stem, info, src_step, src_cap)
+            info, sheets = sheets_for(key, "sources", stem, src_step, src_cap)
             manifest["sources"].append({"key": key, "name": name, "info": info, "sheets": sheets})
             print(f"source {name} {info.get('duration_s')}s sheets={len(sheets)}", flush=True)
         except Exception as exc:
@@ -112,7 +115,8 @@ def main() -> int:
 
     (out_root / "manifest.json").write_text(json.dumps(manifest, indent=1), encoding="utf-8")
     print(f"drafts={len(manifest['drafts'])} sources={len(manifest['sources'])}")
-    return 0
+    produced = sum(1 for item in manifest["drafts"] + manifest["sources"] if item.get("sheets"))
+    return 0 if produced else 1
 
 
 if __name__ == "__main__":
