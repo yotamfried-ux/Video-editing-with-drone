@@ -3,5 +3,5 @@
   "source_step_sec": 2,
   "source_cap_sec": 60,
   "include_drafts": true,
-  "sources": "all"
+  "sources": ["__none__"]
 }
