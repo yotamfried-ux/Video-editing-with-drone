@@ -52,6 +52,22 @@ def _coverage_matches(
     ]
 
 
+def _qa_findings(part: dict[str, Any]) -> str:
+    """' (score 40; BAD_FIRST_CLIP, DEAD_TIME)' - why QA failed this Part, appended to the gate error."""
+    bits: list[str] = []
+    score = part.get("qa_engagement_score")
+    if isinstance(score, (int, float)) and not isinstance(score, bool):
+        bits.append(f"score {int(score)}")
+    kinds = []
+    for defect in part.get("qa_defects", []) or []:
+        kind = str(defect.get("type") or defect.get("code") or "").upper() if isinstance(defect, dict) else ""
+        if kind and kind != "QA_REVIEW_REQUIRED" and kind not in kinds:
+            kinds.append(kind)
+    if kinds:
+        bits.append(", ".join(kinds[:5]))
+    return f" ({'; '.join(bits)})" if bits else ""
+
+
 def validate_athlete_coverage(
     manifest_rows: list[dict[str, Any]],
     coverage: dict[str, Any],
@@ -260,7 +276,7 @@ def validate_manifest(
             if part.get("qa_evidence_recorded") is not True:
                 errors.append(f"{label}: Part {part_pos} lacks explicit final QA evidence")
             if str(part.get("qa_verdict") or "").upper() != "PASS":
-                errors.append(f"{label}: Part {part_pos} final QA verdict is not PASS")
+                errors.append(f"{label}: Part {part_pos} final QA verdict is not PASS{_qa_findings(part)}")
             if part.get("qa_passed") is not True:
                 errors.append(f"{label}: Part {part_pos} did not pass final QA")
 

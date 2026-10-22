@@ -62,6 +62,44 @@ def _keys_match(left: WindowKey, right: WindowKey) -> bool:
     return source_ok and time_type_ok and person_ok
 
 
+# The selector reports the model's own window; by the time a draft is cut, the window policy has moved
+# and padded it (start/end shift, event type normalised), so exact equality almost never holds in
+# production. A selected action counts as emitted when a draft window in the same source overlaps it
+# for at least this share of the shorter window.
+OVERLAP_MATCH_FRACTION = 0.5
+
+
+def _bounds(candidate: dict[str, Any], field: str) -> tuple[float, float] | None:
+    window = candidate.get(field) if isinstance(candidate.get(field), dict) else {}
+    start, end = _float_or_none(window.get("start")), _float_or_none(window.get("end"))
+    if start is None or end is None or end <= start:
+        return None
+    return start, end
+
+
+def _overlap_score(upstream: dict[str, Any], trace: dict[str, Any]) -> float:
+    """Best overlap share (0..1) between an upstream selection and a draft window; 0 if incompatible."""
+    up_source, tr_source = str(upstream.get("source_video") or ""), str(trace.get("source_video") or "")
+    if up_source and tr_source and up_source != tr_source:
+        return 0.0
+    up_person = str(upstream.get("person_id") or upstream.get("chunk_person_id") or "")
+    tr_person = str(trace.get("person_id") or trace.get("chunk_person_id") or "")
+    if up_person and tr_person and up_person != tr_person:
+        return 0.0
+    up_window = _bounds(upstream, "source_window")
+    if up_window is None:
+        return 0.0
+    best = 0.0
+    for field in ("source_window", "original_source_window"):
+        window = _bounds(trace, field)
+        if window is None:
+            continue
+        overlap = max(0.0, min(up_window[1], window[1]) - max(up_window[0], window[0]))
+        shorter = min(up_window[1] - up_window[0], window[1] - window[0])
+        best = max(best, overlap / shorter if shorter > 0 else 0.0)
+    return best if best >= OVERLAP_MATCH_FRACTION else 0.0
+
+
 def _find_matching_key(candidate: dict[str, Any], by_key: dict[WindowKey, dict[str, Any]]) -> WindowKey | None:
     for candidate_key in _candidate_window_keys(candidate):
         if candidate_key in by_key:
@@ -73,6 +111,8 @@ def _find_matching_key(candidate: dict[str, Any], by_key: dict[WindowKey, dict[s
 
 
 def _matches_any_trace(candidate: dict[str, Any], trace_candidates: list[dict[str, Any]]) -> bool:
+    if any(_overlap_score(candidate, trace_candidate) > 0 for trace_candidate in trace_candidates):
+        return True
     candidate_keys = _candidate_window_keys(candidate)
     return any(
         _keys_match(candidate_key, trace_key)
@@ -207,8 +247,10 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
         return trace_candidates
 
     by_key: dict[WindowKey, dict[str, Any]] = {}
+    upstream_keys: set[WindowKey] = set()
     for item in upstream_candidates:
         key = _window_key(item)
+        upstream_keys.add(key)
         candidate = dict(item)
         if candidate.get("selected") and not _matches_any_trace(candidate, trace_candidates):
             candidate = _unmatched_upstream_selected_to_discarded(candidate)
@@ -227,10 +269,26 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
         "chunk_local_end",
         "timestamp_basis",
     )
+    consumed: set[WindowKey] = set()  # upstream keys already paired with a draft window (1:1 pairing)
     for trace_candidate in trace_candidates:
         trace_key = _window_key(trace_candidate)
         existing_key = _find_matching_key(trace_candidate, by_key)
+        if existing_key is not None and existing_key in consumed:
+            existing_key = None
+        matched_by_overlap = False
+        if existing_key is None:
+            # Fallback: the selector's selected window that this draft window overlaps most.
+            scored = [
+                (_overlap_score(candidate, trace_candidate), key)
+                for key, candidate in by_key.items()
+                if candidate.get("selected") is True and key not in consumed
+            ]
+            scored = [(score, key) for score, key in scored if score > 0]
+            if scored:
+                existing_key = max(scored, key=lambda item: item[0])[1]
+                matched_by_overlap = True
         if existing_key is not None:
+            consumed.add(existing_key)
             merged = {**by_key.pop(existing_key)}
             merged.update({
                 "draft_id": trace_candidate.get("draft_id"),
@@ -242,6 +300,7 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
                 "unmatched_selector_selection": False,
                 "final_source_window": trace_candidate.get("source_window"),
                 "matched_via_original_source_window": existing_key != trace_key,
+                "matched_via_window_overlap": matched_by_overlap,
             })
             for key in lineage_keys:
                 if trace_candidate.get(key) is not None:
@@ -253,6 +312,11 @@ def _merge_candidates(trace_candidates: list[dict[str, Any]], upstream_candidate
             by_key[existing_key] = merged
         else:
             by_key[trace_key] = trace_candidate
+    # A selector selection that no draft window was ever paired with was not emitted (overlap pairing
+    # is one-to-one, so a second selection inside one draft window is not silently absorbed).
+    for key in upstream_keys - consumed:
+        if key in by_key and by_key[key].get("selected") is True and not by_key[key].get("draft_id"):
+            by_key[key] = _unmatched_upstream_selected_to_discarded(by_key[key])
     return list(by_key.values())
 
 

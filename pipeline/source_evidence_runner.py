@@ -82,7 +82,7 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
                 errors.append(upload_exc)
         if errors:
             raise errors[0]
-        prompt = analyzer._QA_REEL_PROMPT
+        prompt = analyzer._QA_REEL_PROMPT + getattr(analyzer, "_QA_LAYOUT_NOTE", "")
         if sport:
             prompt += "\nSport context: " + sport
         prompt += "\nAthlete: " + label + source_evidence_prompt(context)

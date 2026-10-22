@@ -18,7 +18,7 @@ import math
 import os
 import subprocess
 import threading
-from dataclasses import asdict, dataclass, replace
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from statistics import median
 from typing import Any
@@ -36,6 +36,21 @@ AMBIGUOUS_ATHLETE_AREA_RATIO = 0.006
 EDGE_MARGIN = 0.08
 MAX_EMERGENCY_ZOOM = 1.30
 MIN_TRAJECTORY_SAMPLES = 2
+_BG_DOWNSCALE = 8
+# Follow-crop: a 9:16 window that pans with the bound athlete instead of letterboxing the 16:9 frame.
+# A letterboxed drone shot uses ~32% of the vertical canvas, so a surfer is a ~1.6%-tall dot and the QA
+# (rightly) reports the dead bars. Disable with SPORTREEL_FOLLOW_CROP=0 to restore contain-only framing.
+MAX_FOLLOW_ZOOM = 1.6
+FOLLOW_MIN_SAMPLES = 3
+FOLLOW_MAX_GAP_SEC = 2.0
+FOLLOW_SMOOTH_SEC = 1.5
+FOLLOW_MAX_KEYFRAMES = 40
+FOLLOW_MIN_INSIDE_RATIO = 0.9
+# Quality at a fixed CRF is set by the CRF, not the preset: a slower preset only squeezes the file a
+# little more. `medium` encodes the same CRF 4K 9:16 clip about 2.5x faster than `slow` at the same file
+# size (measured), and the 2026-10-21 production run spent ~94 of its 177 minutes in these two encodes
+# (cut + compile, both previously `slow`). Override with X264_PRESET (e.g. `slow` to restore).
+RENDER_X264_PRESET = os.getenv("X264_PRESET", "medium").strip() or "medium"
 TRACK_CROP_PADDING_RATIO = 0.015
 _INSTALLED = False
 _DECISION_LOCK = threading.Lock()
@@ -53,6 +68,10 @@ class FramingDecision:
     athlete_height_ratio: float
     athlete_area_ratio: float
     visible_track_count: int
+    # follow_crop only: (source_time_sec, crop_left_px, crop_top_px) keyframes and the source frame size.
+    path: tuple[tuple[float, float, float], ...] = field(default=(), repr=False)
+    frame_width: float = 0.0
+    frame_height: float = 0.0
 
 
 def _number(value: Any, default: float = 0.0) -> float:
@@ -211,18 +230,136 @@ def _track_trajectory(video_path: str, event: dict[str, Any]) -> list[dict[str, 
     return samples
 
 
+def follow_enabled() -> bool:
+    return os.getenv("SPORTREEL_FOLLOW_CROP", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _interp(points: list[tuple[float, float]], t: float) -> float:
+    """Piecewise-linear value at t, holding the first/last value outside the sampled range."""
+    if t <= points[0][0]:
+        return points[0][1]
+    for (t0, v0), (t1, v1) in zip(points, points[1:]):
+        if t <= t1:
+            return v0 + (v1 - v0) * ((t - t0) / (t1 - t0) if t1 > t0 else 0.0)
+    return points[-1][1]
+
+
+def build_follow_path(
+    samples: list[dict[str, float]],
+    start: float,
+    end: float,
+    zoom: float,
+) -> tuple[tuple[tuple[float, float, float], ...], float] | None:
+    """Smoothed crop-window keyframes that keep the bound athlete in a 9:16 window.
+
+    Returns ((time, left_px, top_px), ...) and the share of samples the window actually contains, or None
+    when the track is too sparse (a gap > FOLLOW_MAX_GAP_SEC) to pan on without guessing.
+    """
+    good = sorted(samples, key=lambda item: item["time_sec"])
+    if len(good) < FOLLOW_MIN_SAMPLES:
+        return None
+    if any(b["time_sec"] - a["time_sec"] > FOLLOW_MAX_GAP_SEC for a, b in zip(good, good[1:])):
+        return None
+    frame_w, frame_h = good[0]["frame_width"], good[0]["frame_height"]
+    base_w_ratio, base_h_ratio = _base_crop_ratios(frame_w, frame_h)
+    crop_w, crop_h = base_w_ratio * frame_w / zoom, base_h_ratio * frame_h / zoom
+    xs = [(item["time_sec"], item["center_x"] * frame_w) for item in good]
+    ys = [(item["time_sec"], item["center_y"] * frame_h) for item in good]
+
+    def smoothed(series: list[tuple[float, float]], t: float) -> float:
+        half = FOLLOW_SMOOTH_SEC / 2.0
+        taps = [_interp(series, t + offset) for offset in (-half, -half / 2, 0.0, half / 2, half)]
+        return sum(taps) / len(taps)
+
+    duration = max(end - start, 0.1)
+    count = max(2, min(FOLLOW_MAX_KEYFRAMES, int(duration / 0.5) + 1))
+    keyframes: list[tuple[float, float, float]] = []
+    for index in range(count):
+        t = start + duration * index / (count - 1)
+        left = max(0.0, min(frame_w - crop_w, smoothed(xs, t) - crop_w / 2.0))
+        top = max(0.0, min(frame_h - crop_h, smoothed(ys, t) - crop_h / 2.0))
+        keyframes.append((round(t, 3), round(left, 1), round(top, 1)))
+
+    lefts = [(t, left) for t, left, _ in keyframes]
+    tops = [(t, top) for t, _, top in keyframes]
+    inside = 0
+    for item in good:
+        left, top = _interp(lefts, item["time_sec"]), _interp(tops, item["time_sec"])
+        cx, cy = item["center_x"] * frame_w, item["center_y"] * frame_h
+        if left <= cx <= left + crop_w and top <= cy <= top + crop_h:
+            inside += 1
+    return tuple(keyframes), inside / len(good)
+
+
+def follow_expression(keyframes: tuple[tuple[float, float, float], ...], index: int, origin: float) -> str:
+    """ffmpeg crop expression (in the clip's own time t) interpolating keyframe column `index` (1=x, 2=y)."""
+    points = [(round(frame[0] - origin, 3), frame[index]) for frame in keyframes]
+    expression = f"{points[-1][1]:g}"
+    for (t0, v0), (t1, v1) in reversed(list(zip(points, points[1:]))):
+        span = max(t1 - t0, 1e-3)
+        expression = f"if(lt(t\\,{t1:g})\\,{v0:g}+({v1 - v0:g})*(t-({t0:g}))/{span:g}\\,{expression})"
+    return expression
+
+
+def _follow_decision(
+    decision: FramingDecision,
+    samples: list[dict[str, float]],
+    start: float,
+    end: float,
+    sport: str,
+) -> FramingDecision | None:
+    if not follow_enabled():
+        return None
+    reliable = [
+        sample for sample in samples
+        if sample["confidence"] >= MIN_TRACK_CONFIDENCE and sample["visible_ratio"] >= MIN_VISIBLE_RATIO
+    ]
+    if len(reliable) < FOLLOW_MIN_SAMPLES:
+        return None
+    if len({round(sample["frame_width"], 3) for sample in reliable}) != 1 or len({round(sample["frame_height"], 3) for sample in reliable}) != 1:
+        return None
+    height_ratio = float(median(sample["y2"] - sample["y1"] for sample in reliable))
+    desired = 0.16 if sport.lower() == "surfing" else 0.18
+    zoom = round(max(1.0, min(MAX_FOLLOW_ZOOM, desired / max(height_ratio, 0.001))), 3)
+    built = build_follow_path(reliable, start, end, zoom)
+    if built is None:
+        return None
+    path, inside_ratio = built
+    if inside_ratio < FOLLOW_MIN_INSIDE_RATIO:
+        return None
+    return replace(
+        decision,
+        mode="follow_crop",
+        reason=f"{decision.reason}+following_bound_track",
+        zoom=zoom,
+        crop_x=float(median(sample["center_x"] for sample in reliable)),
+        crop_y=float(median(sample["center_y"] for sample in reliable)),
+        athlete_height_ratio=height_ratio,
+        path=path,
+        frame_width=reliable[0]["frame_width"],
+        frame_height=reliable[0]["frame_height"],
+    )
+
+
 def _resolve_track_safe_decision(
     video_path: str,
     event: dict[str, Any],
     decision: FramingDecision,
 ) -> FramingDecision:
-    """Use a fixed crop only when the full bound trajectory fits inside it.
+    """Pick the framing the bound track actually supports.
 
-    The current FFmpeg path does not animate crop coordinates. When the athlete
-    moves outside a single safe crop, preserving the full frame is safer than
-    pretending a static crop is tracked.
+    A fixed crop is used when the whole trajectory fits one window. Otherwise, with a dense and reliable
+    track, a follow_crop pans a 9:16 window with the athlete. Without that evidence the full frame is
+    preserved (contain) rather than pretending a crop is tracked.
     """
+    start_end = _event_window(event)
+    sport = str(event.get("sport") or "")
     if decision.mode != "tracked_crop":
+        if decision.mode == "contain" and follow_enabled():
+            samples = _track_trajectory(video_path, event)
+            followed = _follow_decision(decision, samples, start_end[0], start_end[1], sport) if samples else None
+            if followed is not None:
+                return followed
         return decision
 
     samples = _track_trajectory(video_path, event)
@@ -239,6 +376,9 @@ def _resolve_track_safe_decision(
         or sample["visible_ratio"] < MIN_VISIBLE_RATIO
         for sample in samples
     ):
+        followed = _follow_decision(decision, samples, start_end[0], start_end[1], sport)
+        if followed is not None:
+            return followed
         return replace(
             decision,
             mode="contain",
@@ -278,6 +418,9 @@ def _resolve_track_safe_decision(
         for sample in samples
     )
     if not trajectory_fits:
+        followed = _follow_decision(decision, samples, start_end[0], start_end[1], sport)
+        if followed is not None:
+            return followed
         return replace(
             decision,
             mode="contain",
@@ -307,7 +450,8 @@ def _record_decision(video_path: str, event: dict[str, Any], decision: FramingDe
         "event_id": event.get("event_id") or event.get("id"),
         "event_type": event.get("type"),
         "sport": event.get("sport"),
-        **asdict(decision),
+        **{k: v for k, v in asdict(decision).items() if k != "path"},
+        "path_keyframes": len(decision.path),
     }
     with _DECISION_LOCK:
         with _decision_log_path().open("a", encoding="utf-8") as handle:
@@ -338,12 +482,28 @@ def _render_clip(
     if decision.mode == "contain":
         filter_complex = (
             f"[0:v]split[bg_in][fg_in];"
-            f"[bg_in]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
-            "force_original_aspect_ratio=increase:flags=lanczos,"
-            f"crop={OUTPUT_WIDTH}:{OUTPUT_HEIGHT},gblur=sigma=30:steps=2[bg];"
+            # The backdrop is blurred anyway, so blur a 1/8-scale copy (sigma 30/8) and scale it back up:
+            # visually the same, but the single-threaded 4K gaussian blur no longer gates the encoder.
+            f"[bg_in]scale={OUTPUT_WIDTH // _BG_DOWNSCALE}:{OUTPUT_HEIGHT // _BG_DOWNSCALE}:"
+            "force_original_aspect_ratio=increase:flags=bilinear,"
+            f"crop={OUTPUT_WIDTH // _BG_DOWNSCALE}:{OUTPUT_HEIGHT // _BG_DOWNSCALE},"
+            f"gblur=sigma={30 / _BG_DOWNSCALE:g}:steps=2,"
+            f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=bicubic[bg];"
             f"[fg_in]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
             "force_original_aspect_ratio=decrease:flags=lanczos[fg];"
             "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[out]"
+        )
+    elif decision.mode == "follow_crop" and decision.path:
+        frame_w, frame_h = decision.frame_width, decision.frame_height
+        base_w_ratio, base_h_ratio = _base_crop_ratios(frame_w, frame_h)
+        crop_w = _even(base_w_ratio * frame_w / decision.zoom)
+        crop_h = _even(base_h_ratio * frame_h / decision.zoom)
+        x_expr = follow_expression(decision.path, 1, start)
+        y_expr = follow_expression(decision.path, 2, start)
+        filter_complex = (
+            f"[0:v]crop={crop_w}:{crop_h}:x='{x_expr}':y='{y_expr}':exact=1,"
+            f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos,"
+            "format=yuv420p[out]"
         )
     else:
         frame_w = _number(event.get("perception_frame_width") or event.get("frame_width"))
@@ -381,7 +541,7 @@ def _render_clip(
         "-c:v", "libx264",
         "-profile:v", "high",
         "-crf", "12",
-        "-preset", "slow",
+        "-preset", RENDER_X264_PRESET,
         "-maxrate", "45M",
         "-bufsize", "90M",
         "-r", str(OUTPUT_FPS),
@@ -438,7 +598,7 @@ def install() -> None:
     editor.REEL_H = OUTPUT_HEIGHT
     editor.CLIP_CRF = "12"
     editor.REEL_CRF = "14"
-    editor.X264_PRESET = "slow"
+    editor.X264_PRESET = RENDER_X264_PRESET
 
     original_cut_clip = editor.cut_clip
     original_compile_reel = editor.compile_reel

@@ -359,6 +359,17 @@ def _persist_qa_result(result: dict, reel_path: str, sport: str) -> None:
         logger.debug("Failed to persist QA result: %s", exc)
 
 
+# Fallback framing (no reliable track to follow) letterboxes the 16:9 clip over a blurred copy of itself.
+# Without this note the QA model reads that deliberate backdrop as a defect (SOFT_FOCUS / split-screen /
+# the same action shown twice), which hid the real findings in the 2026-10-21 run.
+_QA_LAYOUT_NOTE = (
+    "\nLAYOUT NOTE: some drafts show the original wide footage in the middle of the frame over a blurred, "
+    "enlarged copy of the same footage. That blurred backdrop is a deliberate layout, not a defect: do not "
+    "report it as SOFT_FOCUS, a split screen or DUPLICATE_MOMENT, and judge only the sharp foreground clip. "
+    "Do still report it if the athlete is too small to read on a phone."
+)
+
+
 def _make_qa_proxy(reel_path: str) -> str | None:
     """1080x1920 silent copy of a (typically 4K) reel for the QA upload.
 
@@ -412,7 +423,7 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> d
     try:
         vf = _upload_video(qa_proxy or reel_path)
         try:
-            prompt = _QA_REEL_PROMPT
+            prompt = _QA_REEL_PROMPT + _QA_LAYOUT_NOTE
             if sport:
                 prompt += f"\nSport context: {sport}"
             if athlete_label:

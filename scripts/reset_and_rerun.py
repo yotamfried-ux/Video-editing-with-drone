@@ -312,8 +312,29 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
         return len(plan)
 
     # Phase 1: restore and verify every source. Phase 2: only then clear processed/.
+    # Copies are server-side and the byte-for-byte verification is network-bound, so several run at
+    # once; nothing is deleted until every copy has been verified, whatever the order they finish in.
+    import os
+    from concurrent.futures import ThreadPoolExecutor
+    from integrations.stage_timer import timed
+
+    def restore_one(item: tuple[str, str]) -> str:
+        source, dest = item
+        with timed("reset_copy_verify", source=source.rsplit("/", 1)[-1]):
+            return r2.copy_object_verified(source, dest)
+
+    workers = max(1, min(len(plan), int(os.getenv("RESET_COPY_WORKERS", "6"))))
+    errors: list[BaseException] = []
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        futures = [pool.submit(restore_one, item) for item in plan.items()]
+    for future in futures:
+        try:
+            future.result()
+        except BaseException as exc:  # noqa: BLE001 - report after every copy attempt finished
+            errors.append(exc)
+    if errors:
+        raise RuntimeError(f"RAW restore failed for {len(errors)} source(s); processed/ was not touched: {errors[0]}")
     for source, dest in plan.items():
-        r2.copy_object_verified(source, dest)
         legacy_key = f"{r2.RAW_PREFIX}{source.removeprefix(r2.PROCESSED_PREFIX)}"
         rekey_source_upload(legacy_key, dest)  # no-op when the row already uses the flat key
     for source in plan:
