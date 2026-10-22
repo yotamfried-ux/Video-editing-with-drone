@@ -1,9 +1,10 @@
 name: QA Evidence Frames
 run-name: QA Evidence Frames · ${{ github.sha }}
 
-# Read-only inspection aid: contact sheets of the REVIEW drafts and their source footage, printed as base64
-# JPEGs into the job log (artifacts live on blob storage that automation outside GitHub cannot fetch, the
-# job log can always be read). Does not run the pipeline, reset, or write/delete anything in R2.
+# Read-only inspection aid: contact sheets of the REVIEW drafts and their source footage, printed as hex
+# into the job log (artifacts live on blob storage that automation outside GitHub cannot fetch, the job log
+# can always be read). Hex, not base64: the log masks secret values such as STORAGE_BACKEND inside the text,
+# which corrupts base64 data. Does not run the pipeline, reset, or write/delete anything in R2.
 on:
   push:
     branches: [ccr-9307ebf1-etx2xv]
@@ -51,11 +52,12 @@ jobs:
         run: |
           cd "$RUNNER_TEMP/evidence"
           du -sh .
-          echo "EVIDENCE_BEGIN manifest.json"
-          base64 -w 0 manifest.json; echo
-          echo "EVIDENCE_END manifest.json"
-          find . -name '*.jpg' | sort | while read -r f; do
-            echo "EVIDENCE_BEGIN ${f#./}"
-            base64 -w 0 "$f"; echo
-            echo "EVIDENCE_END ${f#./}"
-          done
+          python3 - <<'PY'
+          import binascii
+          import pathlib
+          for p in sorted(pathlib.Path('.').rglob('*')):
+              if p.is_file():
+                  print('EVIDENCE_BEGIN', p.as_posix(), flush=True)
+                  print(binascii.hexlify(p.read_bytes()).decode(), flush=True)
+                  print('EVIDENCE_END', p.as_posix(), flush=True)
+          PY
