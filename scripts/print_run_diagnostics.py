@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from collections import Counter, defaultdict
 from pathlib import Path
@@ -117,12 +118,61 @@ def trace(debug: Path) -> list[str]:
     return out
 
 
+_CLUSTERING = re.compile(r"Clustering (\d+) source\(s\) by person identity")
+_UNIQUE_PERSONS = re.compile(r"Found (\d+) unique person")
+_CLUSTER_WARNING = re.compile(r"Cluster '(.*?)' spans (\d+) clips with confidence=(\w+)")
+_VERIFIER_SPLIT = re.compile(r"Identity verification split (\d+) clip\(s\) out of '(.*?)'")
+_FRAGMENT_LABEL = re.compile(r"^(.*?)\s+identity-split\s+(\d+)$")
+
+
+def identity(debug: Path) -> list[str]:
+    """How the sources were grouped into athletes, what the verifier changed, and which athletes ended
+    up as separate `identity-split` rows (each of which needs its own publishable reel)."""
+    try:
+        log = (debug / "run_tracked.log").read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        log = ""
+    out: list[str] = []
+    clustering, found = _CLUSTERING.search(log), _UNIQUE_PERSONS.search(log)
+    if clustering or found:
+        out.append(f"sources clustered={clustering.group(1) if clustering else '?'} -> "
+                   f"unique persons={found.group(1) if found else '?'}")
+    splits = [(int(n), desc) for n, desc in _VERIFIER_SPLIT.findall(log)]
+    warned = _CLUSTER_WARNING.findall(log)
+    if warned:
+        out.append("multi-clip clusters (model confidence; the verifier only logs when it splits a cluster):")
+        out.append("  cluster                                    clips  confidence  verifier")
+        for desc, clips, confidence in warned[:MAX_ROWS]:
+            cut = next((n for n, d in splits if desc.startswith(d.rstrip())), 0)
+            out.append(f"  {_short(desc, 42):<42} {clips:>5}  {confidence:<10}  "
+                       + (f"split {cut} clip(s) off" if cut else "kept together / no split logged"))
+    data = _json(debug / "publishable_reel_manifest.json")
+    rows = [r for r in (data or {}).get("athletes", []) if isinstance(r, dict)] if isinstance(data, dict) else []
+    if rows:
+        by_base: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        fragments = 0
+        for row in rows:
+            match = _FRAGMENT_LABEL.match(str(row.get("athlete_label") or ""))
+            if match:
+                fragments += 1
+                by_base[match.group(1)].append(row)
+        out.append(f"athlete rows in the manifest={len(rows)}; identity-split rows={fragments} from {len(by_base)} cluster(s) "
+                   f"(a split row is its own athlete and needs its own publishable reel)")
+        for base, items in by_base.items():
+            parts = [p for r in items for p in r.get("parts", []) or [] if isinstance(p, dict)]
+            ok = sum(1 for p in parts if p.get("publishable"))
+            out.append(f"  {_short(base, 52):<52} rows={len(items)} parts={len(parts)} publishable_parts={ok}")
+    return out or ["(no identity data in run_tracked.log or publishable_reel_manifest.json)"]
+
+
 def coverage(debug: Path) -> list[str]:
     data = _json(debug / "athlete_coverage_report.json")
     if not isinstance(data, dict):
         return ["(no athlete_coverage_report.json)"]
     summary = data.get("summary", {})
-    out = [f"summary: {json.dumps(summary, ensure_ascii=False)[:600]}"]
+    out = ["note: 'clusters' = canonical athletes plus every detected person that has no canonical id (source::person); "
+           "it is not a count of distinct athletes, and draft_coverage is low when most detected persons have no usable action",
+           f"summary: {json.dumps(summary, ensure_ascii=False)[:600]}"]
     gaps = [a for a in data.get("athletes", []) if isinstance(a, dict) and a.get("candidate_action_count", 0) > 0
             and not a.get("coverage_requirement_met")]
     out.append(f"unresolved clusters: {len(gaps)}")
@@ -184,6 +234,7 @@ SECTIONS: list[tuple[str, Callable[[Path], list[str]]]] = [
     ("Selector candidates → ledger", ledger),
     ("Draft windows (trace)", trace),
     ("Athlete coverage", coverage),
+    ("Identity clustering", identity),
 ]
 
 
