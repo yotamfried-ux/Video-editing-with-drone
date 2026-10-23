@@ -1,0 +1,27 @@
+name: QA Re-edit No-op Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/qa-reedit-noop-check.yml'
+      - 'pipeline/orchestrator.py'
+      - 'pipeline/qa_reedit_noop.py'
+      - 'pipeline/qa_reedit_window_contract.py'
+      - 'pipeline/qa_gate_policy.py'
+      - 'scripts/test_qa_reedit_noop_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate QA re-edit no-op contract
+        run: python scripts/test_qa_reedit_noop_contract.py
+      - name: Existing QA re-edit contracts still hold
+        run: |
+          python scripts/test_qa_reedit_window_contract.py
+          python scripts/test_qa_gate_contract.py
+          python scripts/test_premature_cut_qa_gate_contract.py
