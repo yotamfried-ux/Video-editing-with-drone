@@ -494,31 +494,47 @@ def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
 
 
 @traceable(run_type="llm", name="gemini-analyze-chunk")
-def _gemini_call_session(vf, prompt: str, model_name: str, video_name: str, trim_window=None) -> str:
+def _gemini_call_session(vf, prompt: str, model_name: str, video_name: str, trim_window=None,
+                         duration: float | None = None) -> str:
     """Traced Gemini call for session analysis — inputs/output logged to LangSmith."""
-    model = genai.GenerativeModel(model_name=model_name, **_analysis_call_options(trim_window))
+    model = genai.GenerativeModel(model_name=model_name, **_analysis_call_options(trim_window, duration))
     resp = _with_retry(lambda: model.generate_content(
         [vf, prompt], request_options={"timeout": 300}
     ))
     return resp.text
 
 
-def _analysis_call_options(trim_window=None) -> dict:
-    """Opt-in token savers for session analysis (unset = SDK defaults, identical to before).
+_SHORT_VIDEO_FPS_DEFAULT = "4"
+_SHORT_VIDEO_MAX_SEC_DEFAULT = 60.0
 
-    ANALYSIS_MEDIA_RESOLUTION: LOW|MEDIUM|HIGH   ANALYSIS_VIDEO_FPS: frames sampled per second.
-    Enable only after the A/B action-selection check (see scripts/ab_action_selection.py).
+
+def _analysis_call_options(trim_window=None, duration: float | None = None) -> dict:
+    """Frame sampling and resolution for session analysis.
+
+    ANALYSIS_MEDIA_RESOLUTION: LOW|MEDIUM|HIGH (unset = SDK default).
+    ANALYSIS_VIDEO_FPS: frames sampled per second; set it to override everything.
+    Unset, sources up to ANALYSIS_SHORT_VIDEO_MAX_SEC (default 60s) are sampled at
+    ANALYSIS_SHORT_VIDEO_FPS (default 4) instead of the SDK's 1 fps: at 1 fps the model's
+    start/end seconds can be off by a second or more, which becomes dead time and paddling in
+    the cut. A 40s source at 4 fps stays well inside the context window; longer sources keep 1 fps.
     """
     options: dict = {}
     resolution = os.getenv("ANALYSIS_MEDIA_RESOLUTION", "").strip()
     if resolution:
         options["media_resolution"] = resolution
     fps = os.getenv("ANALYSIS_VIDEO_FPS", "").strip()
+    if not fps and duration is not None:
+        try:
+            short_max = float(os.getenv("ANALYSIS_SHORT_VIDEO_MAX_SEC", _SHORT_VIDEO_MAX_SEC_DEFAULT))
+        except ValueError:
+            short_max = _SHORT_VIDEO_MAX_SEC_DEFAULT
+        if 0 < duration <= short_max:
+            fps = os.getenv("ANALYSIS_SHORT_VIDEO_FPS", _SHORT_VIDEO_FPS_DEFAULT).strip()
     if fps:
         try:
             options["video_metadata"] = {"fps": float(fps)}
         except ValueError:
-            logger.warning("ANALYSIS_VIDEO_FPS=%r ignored (not a number)", fps)
+            logger.warning("video fps %r ignored (not a number)", fps)
     if trim_window:
         metadata = dict(options.get("video_metadata", {}))
         metadata["start_offset"] = f"{trim_window[0]:.1f}s"
@@ -627,8 +643,15 @@ For each EVENT:
     Bike/skate:    jump, landing, grind, manual, crash
     General:       sprint, approach, wipeout, near_miss, highlight
     (use "highlight" only when nothing else fits)
-- start: exact start in seconds — include 1-2s buildup before the action peak
-- end: exact end in seconds — include followthrough; minimum 6s after start
+- start: the FIRST second the athlete is visibly performing the action, in seconds with one
+    decimal (for a wave: the moment they pop up and stand on the board; for a trick: the
+    take-off). NEVER start while the athlete is paddling, waiting, sitting on the board or
+    while only empty water is in frame. At most 0.5s of lead-in before the first visible action.
+- end: the LAST second the action is still readable on a phone screen (the ride finishes, the
+    athlete falls, the wave closes out). Stop there: do NOT add follow-through, empty water, a
+    wave washing through or the athlete paddling back. Report the true boundaries — never
+    stretch `end` to reach any minimum duration. A moment shorter than 5 seconds is discarded
+    by the pipeline, which is correct: omit it rather than pad it.
 - setup_start: OPTIONAL — seconds where the athlete visibly begins setting up for the
     action (stance change, takeoff run-up, paddle into position). Omit if there is no
     distinct setup phase or you are not confident of the exact second.
@@ -640,6 +663,10 @@ For each EVENT:
     Only report these three fields when you can point to the actual second with
     confidence — a wrong guess is worse than omitting the field, since editing logic
     treats a missing field as "use start/end as-is" and a present field as a firm claim.
+- timing_evidence: REQUIRED, one short sentence naming what is visible at `start` and at `end`
+    (e.g. "start 3.5s: pops up on the board; end 11.0s: falls off as the wave closes").
+    If you cannot say what is visible at both seconds, the boundaries are a guess — look at
+    the footage again at those seconds and correct them before answering.
 - score: 1-10 relative to this video
 - description: one sentence — what specifically happens
 - crop_x: horizontal position of athlete's center in frame (0.0=far left, 0.5=center, 1.0=far right)
@@ -690,10 +717,12 @@ Return ONLY valid JSON, no markdown:
         {"type": "aerial", "start": 12.0, "end": 21.5, "score": 9,
          "description": "Launches off the lip into a full rotation above the wave.",
          "setup_start": 13.0, "peak_time": 16.5, "outcome_end": 20.0,
+         "timing_evidence": "start 12.0s: drops into the lip; end 21.5s: lands and rides out",
          "crop_x": 0.4, "crop_y": 0.35,
          "edit": {"zoom": 1.4, "slowmo": true, "focus": "peak", "transition_out": "fade"}},
         {"type": "wave_catch", "start": 35.0, "end": 44.0, "score": 7,
-         "description": "Catches a shoulder-high wave and paddles into position.",
+         "description": "Pops up on a shoulder-high wave and rides it down the line.",
+         "timing_evidence": "start 35.0s: stands up on the board; end 44.0s: the ride ends in whitewater",
          "crop_x": 0.55, "crop_y": 0.72,
          "edit": {"zoom": 1.1, "slowmo": false, "focus": "full", "transition_out": "slide"}}
       ]
@@ -704,6 +733,7 @@ Return ONLY valid JSON, no markdown:
       "events": [
         {"type": "snap", "start": 58.0, "end": 66.0, "score": 8,
          "description": "Sharp snap off the top, spray flies off the lip.",
+         "timing_evidence": "start 58.0s: climbs to the lip; end 66.0s: finishes the snap and kicks out",
          "crop_x": 0.6, "crop_y": 0.55,
          "edit": {"zoom": 1.3, "slowmo": true, "focus": "peak", "transition_out": "cut"}}
       ]
@@ -730,6 +760,17 @@ def _optional_phase_time(value) -> float | None:
         return round(float(value), 2)
     except (TypeError, ValueError):
         return None
+
+
+def _timing_fields(ev: dict) -> dict:
+    """Evidence the model gave for its own start/end seconds.
+
+    An event that names what is visible at both boundaries has exact timing: downstream must not
+    pad it (analyzer minimum-clip padding, pipeline.cut_window_guard tail padding). Events from
+    older cached responses carry no evidence and keep the legacy padding behaviour.
+    """
+    evidence = " ".join(str(ev.get("timing_evidence") or "").split())[:240]
+    return {"timing_evidence": evidence or None, "timing_precise": bool(evidence)}
 
 
 def _parse_session(raw_text: str) -> dict:
@@ -770,7 +811,8 @@ def _parse_session(raw_text: str) -> dict:
                 logger.info("Dropping %.1fs fragment '%s' @%.1fs (< %.0fs min)",
                             end - start, ev.get("type", "?"), start, config.MIN_EVENT_SEC)
                 continue
-            if end - start < _MIN_CLIP_SEC:
+            timing = _timing_fields(ev)
+            if end - start < _MIN_CLIP_SEC and not timing["timing_precise"]:
                 end = start + _MIN_CLIP_SEC
             crop_x = float(ev.get("crop_x", 0.5))
             crop_x = max(0.0, min(1.0, crop_x))
@@ -798,6 +840,7 @@ def _parse_session(raw_text: str) -> dict:
                 "setup_start": _optional_phase_time(ev.get("setup_start")),
                 "peak_time":   _optional_phase_time(ev.get("peak_time")),
                 "outcome_end": _optional_phase_time(ev.get("outcome_end")),
+                **timing,
             })
 
         # Keep only score >= 6. Safety net for beginner/mixed-ability sessions:
@@ -882,6 +925,10 @@ def analyze_session(video_path: str) -> dict:
         try:
             cache_key = None
             trim_window = None
+            try:
+                chunk_duration = float(_video_duration(chunk_path))
+            except Exception:
+                chunk_duration = None
             if not is_chunked:
                 from pipeline import activity_window
                 if activity_window.enabled():
@@ -892,7 +939,7 @@ def analyze_session(video_path: str) -> dict:
                 cache_key = _llm_cache.make_key(
                     "analyze-session", media_sha256=_llm_cache.file_sha256(chunk_path),
                     prompt=prompt, model=_MODEL, version=_ANALYSIS_CACHE_VERSION,
-                    extra=json.dumps([_analysis_call_options(trim_window)], sort_keys=True))
+                    extra=json.dumps([_analysis_call_options(trim_window, chunk_duration)], sort_keys=True))
                 cached_text = _llm_cache.get(cache_key)
                 if cached_text:
                     parsed_cached = _parse_session(cached_text)
@@ -911,6 +958,7 @@ def analyze_session(video_path: str) -> dict:
                 model_name=_MODEL,
                 video_name=Path(upload_path).name,
                 trim_window=trim_window,
+                duration=chunk_duration,
             )
             parsed = _parse_session(response_text)
             if cache_key:
@@ -989,7 +1037,8 @@ def _parse_analysis(raw_text: str) -> dict:
             logger.info("Dropping %.1fs fragment '%s' @%.1fs (< %.0fs min)",
                         end - start, ev.get("type", "?"), start, config.MIN_EVENT_SEC)
             continue
-        if end - start < _MIN_CLIP_SEC:
+        timing = _timing_fields(ev)
+        if end - start < _MIN_CLIP_SEC and not timing["timing_precise"]:
             end = start + _MIN_CLIP_SEC
         crop_x = max(0.0, min(1.0, float(ev.get("crop_x", 0.5))))
         crop_y = max(0.0, min(1.0, float(ev.get("crop_y", 0.65))))
@@ -1014,6 +1063,7 @@ def _parse_analysis(raw_text: str) -> dict:
             "setup_start": _optional_phase_time(ev.get("setup_start")),
             "peak_time":   _optional_phase_time(ev.get("peak_time")),
             "outcome_end": _optional_phase_time(ev.get("outcome_end")),
+            **timing,
         })
 
     # Keep only score >= 6. Safety net for beginner/mixed-ability sessions:

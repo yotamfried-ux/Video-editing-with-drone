@@ -1,0 +1,29 @@
+name: Window Precision Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/window-precision-check.yml'
+      - 'pipeline/stages/analyzer.py'
+      - 'pipeline/cut_window_guard.py'
+      - 'pipeline/window_refinement.py'
+      - 'pipeline/window_policy.py'
+      - 'pipeline/perception/runtime.py'
+      - 'scripts/test_window_precision_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate window precision contract
+        run: python scripts/test_window_precision_contract.py
+      - name: Existing window and analyzer contracts still hold
+        run: |
+          python scripts/test_cut_window_guard_contract.py
+          python scripts/test_event_window_contract.py
+          python scripts/test_analyzer_phase_time_contract.py
+          python scripts/test_cost_time_optimizations_contract.py
