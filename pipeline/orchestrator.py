@@ -112,6 +112,15 @@ from pipeline.rendered_timeline import (
 )
 
 
+def _reedit_is_noop(before: list[dict], after: list[dict]) -> tuple[bool, str]:
+    """True when re-rendering `after` would reproduce `before` (see pipeline.qa_reedit_noop)."""
+    from pipeline import qa_reedit_noop
+    if not qa_reedit_noop.enabled():
+        return False, ""
+    from integrations.ffmpeg import get_duration
+    return qa_reedit_noop.reedit_is_noop(before, after, get_duration)
+
+
 def _apply_qa_fixes(ordered_events: list[dict], defects: list[dict]) -> tuple[list[dict], bool]:
     """Translate QA defects into event-level edits.
 
@@ -184,7 +193,7 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
                       athlete=str(athlete_label)[:60])
         qa = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
         _print_qa_result(reel, qa)
-        cur, attempt = reel, 0
+        cur, attempt, skipped_noop = reel, 0, 0
 
         while config.QA_GATE and _qa_blocking(qa) and attempt < config.QA_MAX_RETRIES:
             evs = events_by_reel.get(cur)
@@ -193,6 +202,14 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
             fixed, ok = _apply_qa_fixes(evs, qa.get("defects", []))
             if not ok:
                 print("  ⏭️  No actionable fix for QA defects — keeping reel as-is")
+                break
+            noop, why = _reedit_is_noop(evs, fixed)
+            if noop:
+                # The editor would clamp the repair away (e.g. a PREMATURE_CUT extension on a clip that
+                # already runs to the end of its source): the render would come out identical.
+                print(f"  ⏭️  QA re-edit would not change the render ({why}) — "
+                      f"skipping the re-render and re-check")
+                skipped_noop += 1
                 break
             attempt += 1
             n_before = sum(1 for e in evs if not e.get("_teaser"))
@@ -229,7 +246,8 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
 
         if _qa_blocking(qa):
             flagged.add(cur)
-            print(f"  🚩 QA still failing after {attempt} re-edit(s) — "
+            skipped = f", {skipped_noop} no-op re-edit(s) skipped" if skipped_noop else ""
+            print(f"  🚩 QA still failing after {attempt} re-edit(s){skipped} — "
                   f"uploading FLAGGED for operator review")
 
     return final, events_by_reel, flagged
