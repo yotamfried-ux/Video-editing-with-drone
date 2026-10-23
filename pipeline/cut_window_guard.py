@@ -26,6 +26,10 @@ def _match(event: dict[str, Any], sport: str = "") -> bool:
 
 
 def needs_cut_window_guard(event: dict[str, Any], sport: str = "") -> bool:
+    # An event whose model-reported boundaries came with visible-evidence text is exact: padding the
+    # tail would only add the dead time final QA then flags.
+    if event.get("timing_precise") is True or event.get("window_refined") is True:
+        return False
     return not event.get("_teaser") and not _has(event, "outcome_end", "landing_time") and _match(event, sport)
 
 

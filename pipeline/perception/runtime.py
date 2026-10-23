@@ -398,6 +398,26 @@ def enrich_event(event: dict[str, Any], detections: list[PerceptionDetection]) -
     }
 
 
+def _window_refiner():
+    """Window trimming against the tracked athlete span; a no-op when disabled or on any error."""
+    try:
+        from pipeline import window_refinement
+        if not window_refinement.enabled():
+            return lambda event, _detections: event
+    except Exception as exc:  # fail open: refinement must never break enrichment
+        logger.warning("window refinement unavailable: %s", exc)
+        return lambda event, _detections: event
+
+    def refine(event: dict[str, Any], detections: list[PerceptionDetection]) -> dict[str, Any]:
+        try:
+            return window_refinement.refine_event_window(event, detections)
+        except Exception as exc:
+            logger.warning("window refinement skipped for event at %s: %s", event.get("start"), exc)
+            return event
+
+    return refine
+
+
 def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dict[str, Any]:
     try:
         detections = load_sidecar_detections(video_path)
@@ -408,9 +428,10 @@ def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dic
         return {**session, "perception_evidence_source": "tracker_sidecar_error", "perception_evidence_error": str(exc)}
     if not detections:
         return session
+    refine = _window_refiner()
     people = []
     for person in session.get("persons", []) or []:
-        events = [enrich_event(event, detections) for event in person.get("events", []) or []]
+        events = [refine(enrich_event(event, detections), detections) for event in person.get("events", []) or []]
         people.append({**person, "events": events, "perception_evidence_source": "tracker_sidecar"})
     return {**session, "persons": people, "perception_evidence_source": "tracker_sidecar"}
 

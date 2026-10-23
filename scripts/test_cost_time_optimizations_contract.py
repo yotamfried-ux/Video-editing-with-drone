@@ -83,7 +83,7 @@ def test_analysis_cache_hit_skips_gemini_and_a_miss_stores() -> None:
         analyzer._chunk_video = lambda path, *a, **k: [path]
         analyzer._extract_thumbnail = lambda *a, **k: None
 
-        def fake_call(vf, prompt, model_name, video_name, trim_window=None):
+        def fake_call(vf, prompt, model_name, video_name, trim_window=None, duration=None):
             calls["gemini"] += 1
             return SESSION
         analyzer._gemini_call_session = fake_call
