@@ -133,6 +133,12 @@ def test_run_diagnostics_digest_is_readable_bounded_and_never_fails() -> None:
         (debug / "framing_decisions.jsonl").write_text(json.dumps(
             {"mode": "contain", "reason": "default", "athlete_height_ratio": 0.08}) + "\n")
         (debug / "publishable_reel_gate_result.json").write_text(json.dumps({"passed": False, "errors": ["x: Part 1 did not pass final QA"] * 3}))
+        (debug / "run_quality_report.json").write_text(json.dumps({
+            "status": "fail",
+            "alerts": [{"metric": "bbox_out_of_bounds_rate", "severity": "hard_block", "reason": "one or more detections have invalid bboxes"}],
+            "bug_classifications": [{"code": "BUG_MIXED_SUBJECT_LIKELY", "evidence": "1 mixed-subject source-window(s)"}],
+            "mixed_subject_likely_windows": [{"draft": "DRAFT_a.mp4", "primary_track_id": "7", "primary_track_dominance_ratio": 0.4}]
+        }))
         os.environ["TMP_DIR"] = tmp
         try:
             buffer = io.StringIO()
@@ -142,7 +148,9 @@ def test_run_diagnostics_digest_is_readable_bounded_and_never_fails() -> None:
         finally:
             os.environ.pop("TMP_DIR", None)
     for needle in ("render_reels", "400", "analyzer.x", "selected_by_selector_not_emitted_as_draft", "[overlap-matched]",
-                   "unresolved clusters: 1", "modes: contain=1", "3 × Part 1 did not pass final QA"):
+                   "unresolved clusters: 1", "modes: contain=1", "3 × Part 1 did not pass final QA",
+                   "status=fail alerts=1 bugs=1", "bbox_out_of_bounds_rate", "BUG_MIXED_SUBJECT_LIKELY",
+                   "violations (1 mixed-subject):", "DRAFT_a.mp4", "primary_track=7"):
         assert needle in text, (needle, text)
     with tempfile.TemporaryDirectory() as empty:           # nothing written at all: still exit 0
         os.environ["TMP_DIR"] = empty
