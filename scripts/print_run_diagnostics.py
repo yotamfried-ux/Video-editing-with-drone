@@ -175,9 +175,36 @@ def gate(debug: Path) -> list[str]:
     return [f"passed={data.get('passed')} errors={len(errors)}", *[f"  {n:>3} × {k}" for k, n in kinds.most_common(12)]]
 
 
+def run_quality(debug: Path) -> list[str]:
+    data = _json(debug / "run_quality_report.json")
+    if not isinstance(data, dict):
+        return ["(no run_quality_report.json)"]
+    alerts = data.get("alerts", []) or []
+    bugs = data.get("bug_classifications", []) or []
+    out = [f"status={data.get('status', 'unknown')} alerts={len(alerts)} bugs={len(bugs)}"]
+    if alerts:
+        out.append("alerts:")
+        for alert in alerts:
+            if isinstance(alert, dict):
+                out.append(f"  [{_short(alert.get('severity'), 12):<12}] {_short(alert.get('metric'), 36):<36} : {alert.get('reason')}")
+    if bugs:
+        out.append("bugs:")
+        for bug in bugs:
+            if isinstance(bug, dict):
+                out.append(f"  {_short(bug.get('code'), 36):<36} : {bug.get('evidence')}")
+    violations = data.get("mixed_subject_likely_windows", []) or []
+    if violations:
+        out.append(f"violations ({len(violations)} mixed-subject):")
+        for v in violations:
+            if isinstance(v, dict):
+                out.append(f"  draft={_short(v.get('draft'), 24):<24} primary_track={v.get('primary_track_id')} dominance={v.get('primary_track_dominance_ratio')}")
+    return out
+
+
 SECTIONS: list[tuple[str, Callable[[Path], list[str]]]] = [
     ("Stage timings (seconds)", stage_timings),
     ("LLM cost", llm_cost),
+    ("Run quality report", run_quality),
     ("Publishable gate result", gate),
     ("Framing decisions", framing),
     ("Reel QA / manifest", manifest),
