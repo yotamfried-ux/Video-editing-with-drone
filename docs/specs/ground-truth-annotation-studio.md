@@ -272,3 +272,14 @@ Product requirements above are unchanged. These are technical adaptations discov
 - **Intervals:** half-open `[start_frame, end_frame)`; the `O` key marks the *current* frame as included (`end = frame + 1`). Seeking uses mid-frame time `(f+0.5)/fps`. Proxy videos are constant-fps VP9/WebM with the source frame rate.
 - **Editing evaluation:** `edl/v1` (shots with linear crop interpolation in source pixels, optional output rotation, optional `subject_track`); `contain` is never scored against a centre target; no EDL or `mapping:"visual_match"` ⇒ `NOT_EVALUABLE`/`unverified_mapping`. The production pipeline does not emit this format yet (separate approval).
 - **Evaluator identity mapping:** pipeline athlete keys are mapped to GT athletes by deterministic co-occurrence over temporally matched events; deviations are reported as `wrong_athlete`.
+
+## 19. Implementation notes — Phase B (infrastructure and pipeline integration)
+
+Status of live infrastructure and real-footage validation: see `docs/annotation-studio/STATUS-PHASE-B.md`. Product requirements are unchanged; technical adaptations:
+
+- **Pluggable backends.** Catalog: SQLite (default) or PostgreSQL (`STUDIO_DB_URL`, role `gt_studio`); archive: local write-once or `R2Archive` (`STUDIO_R2_*`, dedicated bucket). Schema/roles live in `annotation-studio/db/` (never under `supabase/migrations/`) and are applied only by `npm run migrate` with an admin connection.
+- **Isolation is privilege-based.** `service_role` bypasses RLS, so Ground Truth is protected by schema ownership and `REVOKE`s (tested against real PostgreSQL roles), with RLS and append-only triggers as additional fences. The evaluator uses role `gt_evaluator` with access to `frozen_*` views, predictions, and its own results only.
+- **Archive deletion protection** cannot be expressed in an R2 token (Object R/W includes delete): use a dedicated bucket, bucket lock/retention (to be verified live), a write token held only by ingest and a read-only token elsewhere; the adapter exposes no delete.
+- **`edl/v1` additions:** per-shot `mode`, `source_sha256`/`source`, `keyframes` (piecewise-linear crop in output frames), `subject_track`, and top-level `blends`; reel `mode` may be `mixed`. Cross-dissolve frames are excluded from scoring.
+- **`predictions/v1`:** produced from the existing candidate ledger + EDLs; carries `run_id` and the full code commit; the importer rejects exports without them. Rejected candidates are diagnostics (a missed GT event overlapping a pipeline rejection is reported as `pipeline_rejected`).
+- **Export is opt-in and observational:** `SPORTREEL_EXPORT_EDL=1`; rendering arguments are unchanged (tested). EDL records are built from the exact values passed to ffmpeg and checked against rendered pixels.

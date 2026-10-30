@@ -20,7 +20,7 @@ const overlaps = (a, b) => Math.min(a.end_frame, b.end_frame) > Math.max(a.start
 const inRanges = (frame, ranges) => ranges.some(r => frame >= r.start_frame && frame < r.end_frame);
 
 /** @returns per-source result with every decision traceable to a reason code. */
-export function evaluateSource(gt, preds, params) {
+export function evaluateSource(gt, preds, params, rejected = []) {
   const thr = params.iou_threshold;
   const G = gt.segments.filter(s => s.decision === 'include').map(s => ({ ...s }))
     .sort((a, b) => a.start_frame - b.start_frame || a.end_frame - b.end_frame || cmp(a.id, b.id));
@@ -68,24 +68,30 @@ export function evaluateSource(gt, preds, params) {
     if (!inRanges(mid, gt.reviewed_ranges)) { counts.unreviewed_predictions++; continue; }
     counts.false_positives++; errors.push({ type: 'false_positive', pred_index: p.idx, start_frame: p.start_frame, end_frame: p.end_frame });
   }
-  for (const g of G) if (!usedG.has(g.id)) errors.push({ type: 'missed_event', segment_id: g.id, start_frame: g.start_frame, end_frame: g.end_frame });
+  let missedButRejected = 0;
+  for (const g of G) if (!usedG.has(g.id)) {
+    // Diagnosis only: was the event found by the pipeline and then rejected (selection problem) or never found (detection problem)?
+    const rj = rejected.find(r => overlaps(g, r));
+    if (rj) missedButRejected++;
+    errors.push({ type: 'missed_event', segment_id: g.id, start_frame: g.start_frame, end_frame: g.end_frame, ...(rj ? { pipeline_rejected: rj.reason } : {}) });
+  }
   errors.sort((a, b) => a.start_frame - b.start_frame || cmp(a.type, b.type));
   return {
     gt_included: G.length, predictions: P.length, matched: matches.length, missed: G.length - matches.length,
-    ...counts, attributable, correct_attribution: correctAttr,
+    ...counts, missed_but_rejected: missedButRejected, attributable, correct_attribution: correctAttr,
     sum_abs_start_error: startErr, sum_abs_end_error: endErr, uncertain_gt: uncertain.length, errors,
   };
 }
 
 const ratio = (n, d) => d > 0 ? Math.round(n / d * 1e6) / 1e6 : null;
 
-export function importPredictions(db, { run_id, pipeline_version, sources }) {
+export function importPredictions(db, { run_id, pipeline_version, sources, extra = {} }) {
   if (!run_id || !pipeline_version || !Array.isArray(sources)) throw new ApiError('INVALID_INPUT');
   for (const s of sources) {
     if (!/^[0-9a-f]{64}$/.test(s.source_sha256 ?? '') || !Array.isArray(s.events)) throw new ApiError('INVALID_INPUT');
     for (const e of s.events) if (!Number.isInteger(e.start_frame) || !Number.isInteger(e.end_frame) || e.end_frame <= e.start_frame) throw new ApiError('INVALID_INTERVAL');
   }
-  const payload = { run_id, pipeline_version, sources };
+  const payload = { run_id, pipeline_version, sources, ...extra };
   const id = randomUUID();
   db.prepare('insert into pipeline_predictions(id,run_id,pipeline_version,payload,digest,created_at) values(?,?,?,?,?,?)')
     .run(id, run_id, pipeline_version, JSON.stringify(payload), digestOf(payload), now());
@@ -98,15 +104,17 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
   const ds = db.prepare('select * from frozen_datasets where id=?').get(dataset_id);
   const pr = db.prepare('select * from pipeline_predictions where id=?').get(prediction_id);
   if (!ds || !pr) throw new ApiError('NOT_FOUND');
-  const preds = new Map(JSON.parse(pr.payload).sources.map(s => [s.source_sha256, s.events]));
+  const predSources = JSON.parse(pr.payload).sources;
+  const preds = new Map(predSources.map(s => [s.source_sha256, s.events]));
+  const rejects = new Map(predSources.map(s => [s.source_sha256, s.rejected ?? []]));
   const per = [];
   const tot = { gt_included: 0, predictions: 0, matched: 0, missed: 0, duplicates: 0, predicted_excluded: 0, false_positives: 0,
-    unreviewed_predictions: 0, uncertain_overlap: 0, attributable: 0, correct_attribution: 0, sum_abs_start_error: 0, sum_abs_end_error: 0 };
+    unreviewed_predictions: 0, uncertain_overlap: 0, missed_but_rejected: 0, attributable: 0, correct_attribution: 0, sum_abs_start_error: 0, sum_abs_end_error: 0 };
   const members = db.prepare('select * from frozen_revisions where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
   for (const m of members) {
     const gt = JSON.parse(m.content);
     const events = preds.get(m.sha256);
-    const r = evaluateSource(gt, events ?? [], p);
+    const r = evaluateSource(gt, events ?? [], p, rejects.get(m.sha256) ?? []);
     per.push({ sha256: m.sha256, split: m.split, revision_id: m.revision_id, has_prediction: !!events, ...r });
     for (const k of Object.keys(tot)) tot[k] += r[k];
   }

@@ -18,8 +18,9 @@ const ADMIN = process.env.STUDIO_TEST_DB_URL;
 const skip = !ADMIN;
 const require = createRequire(import.meta.url);
 
-const withDb = u => name => u.replace(/\/[^/?]*(\?|$)/, `/${name}$1`);
-const asRole = (admin, db, role) => withDb(admin)(db).replace('//postgres@', `//${role}@`);
+// Throwaway test-database roles get throwaway passwords so the same tests work with trust auth (local) and scram (CI service container).
+const withDb = u => name => { const x = new URL(u); x.pathname = `/${name}`; return x.toString(); };
+const asRole = (admin, db, role) => { const x = new URL(withDb(admin)(db)); x.username = role; x.password = `pw_${role}`; return x.toString(); };
 const denied = async (pool, sql, params = []) => { try { await pool.query(sql, params); } catch (e) { return e.code; } return 'allowed'; };
 
 async function setup() {
@@ -33,6 +34,8 @@ async function setup() {
   await a.query(`do $$ begin if not exists (select 1 from pg_roles where rolname='service_role') then create role service_role login bypassrls; end if; end $$`);
   await a.query(`alter role anon login; alter role authenticated login;`);
   await a.query(`create table public.reels(id int primary key); grant all on public.reels to anon, authenticated, service_role`);
+  await a.query(`do $$ begin if not exists (select 1 from pg_roles where rolname='gt_studio') then create role gt_studio login; end if; if not exists (select 1 from pg_roles where rolname='gt_evaluator') then create role gt_evaluator login; end if; end $$`);
+  for (const r of ['gt_studio', 'gt_evaluator', 'anon', 'authenticated', 'service_role']) await a.query(`alter role ${r} password 'pw_${r}'`);
   const cleanup = async () => { await a.end().catch(() => {}); await admin.query(`drop database if exists ${db} with (force)`).catch(() => {}); await admin.end().catch(() => {}); };
   try { await migrate(withDb(ADMIN)(db), { schema: 'ground_truth', roles: true }); } catch (e) { await cleanup(); throw e; }
   const mk = role => new pg.Pool({ connectionString: asRole(ADMIN, db, role), max: 1 });

@@ -11,6 +11,8 @@ import * as D from './datasets.mjs';
 import * as E from './evaluate.mjs';
 import * as L from './edl.mjs';
 import { reconcile, verifyArchives } from './ingest.mjs';
+import * as I from './imports.mjs';
+import { exportBackup, verifyIntegrity } from './backup.mjs';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -116,7 +118,7 @@ export function createApp(ctx) {
     }
     if ((r = /^\/api\/datasets\/([\w-]+)\/blind-manifest$/.exec(p)) && m === 'GET') return send(res, 200, { items: D.blindInferenceManifest(db, r[1]) });
     if (p === '/api/predictions') {
-      if (m === 'POST') return send(res, 201, E.importPredictions(db, await body(req)));
+      if (m === 'POST') { const b = await body(req); return send(res, 201, b.schema === 'predictions/v1' ? I.importPipelinePredictions(db, b) : E.importPredictions(db, b)); }
       if (m === 'GET') return send(res, 200, { items: db.prepare('select id,run_id,pipeline_version,digest,created_at from pipeline_predictions order by created_at desc').all() });
     }
     if (p === '/api/evaluations') {
@@ -124,23 +126,33 @@ export function createApp(ctx) {
       if (m === 'GET') return send(res, 200, { items: E.listEvaluations(db) });
     }
     if ((r = /^\/api\/evaluations\/([\w-]+)$/.exec(p)) && m === 'GET') { const e = db.prepare('select report,digest from evaluation_runs where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND'); return send(res, 200, { digest: e.digest, report: JSON.parse(e.report) }); }
+    if (m === 'POST' && p === '/api/imports/edl') { const b = await body(req); return send(res, 201, I.importEdl(db, b.edl ?? b)); }
+    if (m === 'POST' && p === '/api/imports/predictions') return send(res, 201, I.importPipelinePredictions(db, await body(req)));
+    if (m === 'POST' && p === '/api/integrity/verify') return send(res, 200, verifyIntegrity(db));
     if (m === 'GET' && p === '/api/outputs') return send(res, 200, { items: db.prepare('select id,output_id,run_id,source_id,created_at,payload from edl_records order by created_at desc').all().map(e => { const x = JSON.parse(e.payload); return { id: e.id, output_id: e.output_id, run_id: e.run_id, source_id: e.source_id, mode: x.mode, has_video: !!x.output_file, mapping: x.mapping ?? 'verified', output: x.output, source: x.source }; }) });
     if ((r = /^\/api\/outputs\/([\w-]+)\/edl$/.exec(p)) && m === 'GET') { const e = db.prepare('select payload from edl_records where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND'); return send(res, 200, JSON.parse(e.payload)); }
     if ((r = /^\/api\/outputs\/([\w-]+)\/review$/.exec(p)) && m === 'GET') {
       const e = db.prepare('select payload,source_id from edl_records where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND');
-      const edl = JSON.parse(e.payload), rev = e.source_id && A.latestRevision(db, e.source_id);
-      if (!rev) return send(res, 200, { edl, verified: false, report: L.evaluateEditing(null, A.emptyContent()), frames: [], revision: null });
-      const gt = JSON.parse(rev.content);
-      return send(res, 200, { edl, revision: { id: rev.id, seq: rev.seq }, report: L.evaluateEditing(edl, gt), ...L.frameEvidence(edl, gt), source_id: e.source_id });
+      const edl = JSON.parse(e.payload), g = I.gtBySha(db, edl);
+      const sources = {};
+      for (const sha of I.edlShas(edl)) {
+        const src = I.sourceBySha(db, sha);
+        if (src && src.ingest_state === 'ready') sources[sha] = { id: src.id, name: src.display_name, fps_num: src.fps_num, fps_den: src.fps_den, width: src.width, height: src.height, playback_url: src.proxy_path ? `/media/${src.id}/proxy` : `/media/${src.id}/original`, revision: g.revisions[sha] ?? null };
+      }
+      const single = Object.keys(g.bySha).length === 1 && I.edlShas(edl).length === 1;
+      return send(res, 200, { edl, sources, unresolved: g.unresolved, revisions: g.revisions, source_id: single ? Object.values(g.revisions)[0].source_id : e.source_id,
+        report: L.evaluateEditing(edl, { bySha: g.bySha }), ...L.frameEvidence(edl, { bySha: g.bySha }) });
     }
     if (m === 'POST' && p === '/api/editing/evaluate') {
       const b = await body(req);
-      const rec = b.edl_id ? db.prepare('select payload,source_id from edl_records where id=?').get(b.edl_id) : null;
-      const rev = A.getRevision(db, b.revision_id);
-      const rep = L.evaluateEditing(rec ? JSON.parse(rec.payload) : null, rev.content, { thresholds: b.thresholds });
+      const rec = b.edl_id ? db.prepare('select payload from edl_records where id=?').get(b.edl_id) : null;
+      const edl = rec ? JSON.parse(rec.payload) : null;
+      const g = edl ? I.gtBySha(db, edl) : { bySha: {}, revisions: {}, unresolved: [] };
+      const rep = L.evaluateEditing(edl, { bySha: g.bySha }, { thresholds: b.thresholds });
+      const full = { ...rep, revisions: g.revisions, unresolved_sources: g.unresolved };
       const id = randomUUID();
-      db.prepare('insert into editing_reports(id,edl_id,revision_id,evaluator_version,report,digest,created_at) values(?,?,?,?,?,?,?)').run(id, b.edl_id ?? null, b.revision_id, rep.evaluator_version, JSON.stringify(rep), A.digestOf(rep), now());
-      return send(res, 200, { id, report: rep });
+      db.prepare('insert into editing_reports(id,edl_id,revision_id,evaluator_version,report,digest,created_at) values(?,?,?,?,?,?,?)').run(id, b.edl_id ?? null, Object.values(g.revisions).map(x => x.id).join(',') || null, rep.evaluator_version, JSON.stringify(full), A.digestOf(full), now());
+      return send(res, 200, { id, report: full });
     }
     if (m === 'POST' && p === '/api/editing/proposals') {
       const b = await body(req);

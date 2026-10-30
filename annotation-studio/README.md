@@ -59,8 +59,15 @@ npm run test:e2e   # Playwright browser scenarios + screenshots (needs `playwrig
   append-only at the database level; source identity (`id`, `sha256`, `byte_size`) cannot be updated.
 * The blind manifest handed to a pipeline contains only `sha256`, `byte_size`, `display_name`.
 
+## Phase B additions
+
+* **Backends:** `STUDIO_DB_URL` selects PostgreSQL (`npm run migrate` applies `db/`), `STUDIO_R2_*` selects the protected R2 archive. See `docs/annotation-studio/phase-b/ENVIRONMENT.md`.
+* **Pipeline evidence:** `node scripts/gt-import.mjs edl EDL.json --output reel.mp4` and `… predictions predictions.v1.json` (or `POST /api/imports/*`).
+* **Backup:** `node scripts/gt-backup.mjs export|verify|restore|audit` — `docs/annotation-studio/phase-b/BACKUP-RECOVERY.md`.
+* **Tests:** `npm test` (includes the pipeline-render qualification; needs python3 + ffmpeg), `STUDIO_TEST_DB_URL=postgres://… npm test && npm run test:pg` for PostgreSQL and role-isolation tests.
+
 ## Not production integration
 
-The archive is a **local filesystem** implementation and the DB is **SQLite**. Real R2 (separate bucket
-and credentials) and a separate Supabase project are *adapter work awaiting operator approval* — see
-STATUS.md. Nothing here has touched production storage, credentials, or the pipeline.
+The R2 and PostgreSQL backends are implemented and tested against an S3 stub and a local PostgreSQL 16, **not** against live
+Cloudflare or Supabase — creating those resources awaits operator approval (`phase-b/APPROVAL-REQUESTS.md`). Nothing here has
+touched production storage, credentials, or the pipeline.

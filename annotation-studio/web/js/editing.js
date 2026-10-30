@@ -14,8 +14,9 @@ export async function renderEditing(root, id) {
   if (!outs.length) return root.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'empty' }, 'אין פלטים עם EDL. ללא EDL לא ניתן לבצע הערכה מדויקת — מיפוי חזותי הוא חלופה בביטחון נמוך בלבד ומסומן "לא מאומת".')));
   id = id || outs[0].id;
   const rv = await api(`/api/outputs/${id}/review`);
-  const src = rv.source_id ? await api(`/api/sources/${rv.source_id}`) : null;
-  E = { id, rv, src, f: 0, frames: rv.frames, fps: rv.edl.output.fps, proposal: null, playing: false };
+  const firstSha = rv.frames.find(x => x.sha && rv.sources[x.sha])?.sha ?? Object.keys(rv.sources)[0];
+  const src = firstSha ? rv.sources[firstSha] : null;
+  E = { id, rv, src, sources: rv.sources, curSha: firstSha, f: 0, frames: rv.frames, fps: rv.edl.output.fps, proposal: null, playing: false };
   const sel = h('select', { 'aria-label': 'פלט', onchange: e => { location.hash = `#/editing/${e.target.value}`; } }, outs.map(o => h('option', { value: o.id, selected: o.id === id }, `${o.output_id} · ${o.mode}`)));
   const verified = rv.verified !== false && rv.report.mapping === 'verified';
   root.replaceChildren(h('div', { class: 'editgrid', 'data-testid': 'editing' },
@@ -49,14 +50,25 @@ function seek(f) {
   E.f = Math.max(0, Math.min(E.frames.length ? E.frames[E.frames.length - 1].f : 0, Math.round(f)));
   const row = E.frames.find(x => x.f === E.f), ov = $('#outv'), sv = $('#srcv');
   if (ov) { ov.pause(); ov.currentTime = (E.f + 0.5) / E.fps; }
-  if (sv && row && E.src) { sv.pause(); sv.currentTime = (row.src + 0.5) / (E.src.fps_num / E.src.fps_den); }
+  if (sv && row) { sv.pause(); pointSource(row, sv); }
   paintOverlays(); paintMeta();
+}
+/** Point the source player at the exact source frame of an output row, switching file for multi-source reels. */
+function pointSource(row, sv) {
+  const info = E.sources[row.sha];
+  if (!info) return;
+  const t = (row.src + 0.5) / (info.fps_num / info.fps_den);
+  if (E.curSha !== row.sha) {
+    E.curSha = row.sha; E.src = info;
+    sv.addEventListener('loadedmetadata', () => { sv.currentTime = t; place('srcv'); paintOverlays(); }, { once: true });
+    sv.src = info.playback_url;
+  } else sv.currentTime = t;
 }
 function play() {
   const ov = $('#outv'); if (!ov) return;
   if (!ov.paused) { ov.pause(); E.playing = false; return; }
   E.playing = true; ov.play();
-  const tick = () => { if (!E || !E.playing || ov.paused) { if (E) E.playing = false; return; } E.f = Math.floor(ov.currentTime * E.fps); const row = E.frames.find(x => x.f === E.f), sv = $('#srcv'); if (row && sv && E.src) sv.currentTime = (row.src + 0.5) / (E.src.fps_num / E.src.fps_den); paintOverlays(); paintMeta(); requestAnimationFrame(tick); };
+  const tick = () => { if (!E || !E.playing || ov.paused) { if (E) E.playing = false; return; } E.f = Math.floor(ov.currentTime * E.fps); const row = E.frames.find(x => x.f === E.f), sv = $('#srcv'); if (row && sv) pointSource(row, sv); paintOverlays(); paintMeta(); requestAnimationFrame(tick); };
   requestAnimationFrame(tick);
 }
 function paintOverlays() {
@@ -64,7 +76,7 @@ function paintOverlays() {
   const s = $('#srcsvg'), o = $('#outsvg'); if (!s || !o) return;
   s.replaceChildren(); o.replaceChildren();
   if (!row) return;
-  const SW = edl.source.width, SH = edl.source.height, OW = edl.output.width, OH = edl.output.height;
+  const dims = E.sources[row.sha] ?? edl.source, SW = dims.width, SH = dims.height, OW = edl.output.width, OH = edl.output.height;
   const c = row.crop;
   s.append(svgEl('rect', { x: (c.cx - c.w / 2) / SW, y: (c.cy - c.h / 2) / SH, width: c.w / SW, height: c.h / SH, fill: 'none', stroke: '#ffd166', 'stroke-width': 2, 'vector-effect': 'non-scaling-stroke', 'data-testid': 'crop-rect' }));
   if (row.reviewed) {
@@ -82,12 +94,12 @@ function paintOverlays() {
 }
 function drawPreview() {
   const cv = $('#prev'), sv = $('#srcv'); if (!cv || !sv || !E.proposal || !sv.videoWidth) return;
-  const p = E.proposal, k = sv.videoWidth / E.rv.edl.source.width, ctx = cv.getContext('2d');
+  const p = E.proposal, k = sv.videoWidth / (E.sources[E.curSha]?.width ?? E.rv.edl.source.width), ctx = cv.getContext('2d');
   ctx.drawImage(sv, (p.cx - p.w / 2) * k, (p.cy - p.h / 2) * k, p.w * k, p.h * k, 0, 0, cv.width, cv.height);
 }
 function paintMeta() {
   const row = E.frames.find(x => x.f === E.f), el = $('#meta'); if (!el) return;
-  el.replaceChildren(ltr(`out f${E.f} · ${timecode(E.f, E.fps)}`), ' → ', row ? ltr(`src f${row.src}`) : '—', row?.reviewed ? ` · נראות ${fx(row.vis)}${row.err != null ? ` · סטיית מרכוז ${row.err.toFixed(3)}` : ''}${row.origin !== 'manual' ? ' · משוער' : ''}` : ' · לא נבדק');
+  el.replaceChildren(ltr(`out f${E.f} · ${timecode(E.f, E.fps)}`), ' → ', row ? ltr(`src f${row.src}`) : '—', row?.blend ? ' · מעבר בין קליפים (לא נמדד)' : row?.reviewed ? ` · נראות ${fx(row.vis)}${row.err != null ? ` · סטיית מרכוז ${row.err.toFixed(3)}` : ''}${row.origin !== 'manual' ? ' · משוער' : ''}` : ' · לא נבדק');
   for (const p of E.phs ?? []) { p.setAttribute('x1', E.f); p.setAttribute('x2', E.f); }
 }
 function chart(title, key, max, color) {
@@ -106,9 +118,10 @@ function paintSide(sel, verified) {
   const errs = r.errors ?? [];
   side.replaceChildren(
     h('div', {}, sel),
-    h('div', { class: 'toolbar', style: { margin: 0 } }, verified ? pill('מיפוי מאומת (EDL)', 'ok') : pill('מיפוי לא מאומת — אין ציון מדויק', 'bad'), pill(edl.mode === 'contain' ? 'Contain' : edl.mode === 'tracked_crop' ? 'חיתוך עוקב' : 'Pad'), ltr(`${edl.output.width}×${edl.output.height}`)),
+    h('div', { class: 'toolbar', style: { margin: 0 } }, verified ? pill('מיפוי מאומת (EDL)', 'ok') : pill('מיפוי לא מאומת — אין ציון מדויק', 'bad'), pill(edl.mode === 'contain' ? 'Contain' : edl.mode === 'tracked_crop' ? 'חיתוך עוקב' : edl.mode === 'mixed' ? 'משולב' : 'Pad'), ltr(edl.pipeline_commit ? `commit ${String(edl.pipeline_commit).slice(0, 8)}` : ''), ltr(`${edl.output.width}×${edl.output.height}`)),
     h('div', { class: 'mono meta', id: 'meta', 'data-testid': 'editmeta' }),
     h('div', { class: 'toolbar', style: { margin: 0 } }, h('button', { class: 'btn sm', onclick: () => seek(E.f - 1) }, '◀|'), h('button', { class: 'btn sm', 'data-testid': 'edit-play', onclick: play }, '▶ / ❚❚'), h('button', { class: 'btn sm', onclick: () => seek(E.f + 1) }, '|▶')),
+    (rv0 => rv0.unresolved?.length ? h('div', { class: 'banner warn', 'data-testid': 'unresolved-sources' }, `${rv0.unresolved.length} מקורות אינם ניתנים להערכה: ${rv0.unresolved.map(u => u.reason === 'no_approved_revision' ? 'אין גרסה מאושרת' : 'המקור אינו בקטלוג').join(', ')}`) : null)(E.rv),
     !verified ? h('div', { class: 'banner bad' }, 'לא ניתן לחשב מדדי מרכוז/נראות ללא EDL מאומת. ', h('code', {}, r.reason ?? 'EDL_UNVERIFIED')) : metrics(r),
     verified ? h('div', {}, chart('סטיית מרכוז (מנורמל)', 'err', 0.5, '#ffa657'), chart('נראות הגולש בפלט', 'vis', 1, '#3ddc97')) : null,
     verified ? h('div', {}, h('b', {}, `ציר שגיאות (${errs.length})`), h('div', { style: { maxHeight: '180px', overflow: 'auto' } }, h('table', { class: 't', 'data-testid': 'error-table' }, h('tbody', {}, errs.length ? summarize(errs).map(g => h('tr', { class: 'err-row', 'data-testid': 'err-row', onclick: () => seek(g.out_frame) }, h('td', {}, pill(ERR_HE[g.type] ?? g.type, 'warn')), h('td', {}, ltr(`out ${g.out_frame}${g.count > 1 ? `–${g.out_frame + g.count - 1}` : ''}`)), h('td', {}, ltr(`src ${g.src_frame}`)))) : [h('tr', {}, h('td', {}, 'אין שגיאות'))])))) : null,
@@ -119,7 +132,7 @@ function summarize(errs) { // collapse consecutive frames of the same type into 
 }
 function metrics(r) {
   const v = r.visibility, c = r.centering;
-  return h('div', { class: 'stats', style: { margin: 0 } }, [['כיסוי הערכה', fx(r.coverage.coverage_ratio)], ['נראה במלואו', fx(v.fully_visible)], ['חתוך חלקית', fx(v.partially_clipped)], ['חסר', fx(v.missing)], ['מרכוז (חציון)', c.scored_frames ? c.median.toFixed(3) : 'לא נמדד'], ['p95', c.scored_frames ? c.p95.toFixed(3) : '—'], ['קפיצות חיתוך', r.smoothness.crop_jumps], ['חריגות שוליים', fx(r.edge_violation_share)]].map(([l, x]) => h('div', { class: 'stat', style: { minWidth: '90px', padding: '6px 10px' } }, h('b', { style: { fontSize: '16px' } }, x), h('span', {}, l))));
+  return h('div', { class: 'stats', style: { margin: 0 } }, [['כיסוי הערכה', fx(r.coverage.coverage_ratio)], ['פריימי מעבר', r.coverage.blend_frames ?? 0], ['נראה במלואו', fx(v.fully_visible)], ['חתוך חלקית', fx(v.partially_clipped)], ['חסר', fx(v.missing)], ['מרכוז (חציון)', c.scored_frames ? c.median.toFixed(3) : 'לא נמדד'], ['p95', c.scored_frames ? c.p95.toFixed(3) : '—'], ['קפיצות חיתוך', r.smoothness.crop_jumps], ['חריגות שוליים', fx(r.edge_violation_share)]].map(([l, x]) => h('div', { class: 'stat', style: { minWidth: '90px', padding: '6px 10px' } }, h('b', { style: { fontSize: '16px' } }, x), h('span', {}, l))));
 }
 function altCrop() {
   const cv = h('canvas', { id: 'prev', width: 180, height: 320, style: { background: '#000', borderRadius: '6px', border: '1px solid var(--line)' }, 'aria-label': 'תצוגה מקדימה של חיתוך חלופי' });
@@ -128,7 +141,7 @@ function altCrop() {
       h('button', { class: 'btn sm', 'data-testid': 'propose', onclick: async () => {
         const row = E.frames.find(x => x.f === E.f && x.reviewed); if (!row) return toast('בפריים זה אין תיבת אמת נבדקת', true);
         const mode = row.framing_mode === 'directional_lead_room' && row.target ? 'directional_lead_room' : 'geometric_center';
-        try { const r = await api('/api/editing/proposals', { method: 'POST', body: { source_id: E.rv.source_id, bbox: row.src_bbox, mode, target: row.target } }); E.proposal = { ...r.proposal, id: r.id }; paintOverlays(); toast('הצעת חיתוך נוצרה (טרם אושרה)'); paintProposalState(); } catch (e) { toast(e.message, true); } } }, 'הצע חיתוך'),
+        try { const r = await api('/api/editing/proposals', { method: 'POST', body: { source_id: E.sources[row.sha].id, bbox: row.src_bbox, mode, target: row.target } }); E.proposal = { ...r.proposal, id: r.id }; paintOverlays(); toast('הצעת חיתוך נוצרה (טרם אושרה)'); paintProposalState(); } catch (e) { toast(e.message, true); } } }, 'הצע חיתוך'),
       h('button', { class: 'btn sm primary', id: 'approve-prop', disabled: true, 'data-testid': 'approve-crop', onclick: async () => { try { await api(`/api/editing/proposals/${E.proposal.id}/approve`, { method: 'POST', body: {} }); toast('נשמרה גרסת עריכה מאושרת חדשה'); } catch (e) { toast(e.message, true); } } }, 'אשר כדוגמה')),
     cv);
 }
