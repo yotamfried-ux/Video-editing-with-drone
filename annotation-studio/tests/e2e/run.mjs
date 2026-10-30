@@ -33,7 +33,14 @@ page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text())
 const shot = n => page.screenshot({ path: path.join(SHOTS, `${n}.png`) });
 const frameNum = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
 const waitSaved = () => page.waitForSelector('[data-testid=savepill][data-state=saved]', { timeout: 8000 });
-const videoReady = () => page.waitForFunction(() => { const v = document.querySelector('#vid'); return v && v.readyState >= 2 && v.videoWidth > 0; }, null, { timeout: 15000 });
+// page.waitForFunction evaluates strings, which the app's CSP (no unsafe-eval) correctly forbids in some Playwright versions.
+// Poll with page.evaluate instead (CDP callFunctionOn is unaffected).
+async function until(fn, timeout = 15000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) { if (await page.evaluate(fn)) return; await page.waitForTimeout(100); }
+  throw new Error(`timed out waiting for: ${fn}`);
+}
+const videoReady = () => until(() => { const v = document.querySelector('#vid'); return !!v && v.readyState >= 2 && v.videoWidth > 0; });
 
 console.log('Annotation Studio E2E');
 await page.goto(`${base}/?t=demo-token`);
@@ -61,7 +68,7 @@ await scenario('annotate: loads source, frame-exact stepping, timecode', async (
   await page.keyboard.press('Shift+ArrowRight'); assert.equal(await frameNum(), 13);
   await page.keyboard.press('ArrowLeft'); assert.equal(await frameNum(), 12);
   // the displayed frame truly is frame 12: surfer square sits at x=2n of 1280 => compare to video pixels
-  await page.waitForFunction(() => document.querySelector('#vid').seeking === false, null, { timeout: 10000 });
+  await until(() => document.querySelector('#vid').seeking === false, 10000);
   const t = await page.evaluate(() => document.querySelector('#vid').currentTime);
   assert.ok(Math.abs(t * 30 - 12.5) < 0.2, `seek lands mid-frame 12 (got ${t * 30})`);
   assert.equal(await page.textContent('[data-testid=timecode]'), '00:00:12');
@@ -205,7 +212,7 @@ await scenario('evaluations: history table and detailed error report', async () 
 
 await scenario('editing review: synchronized source/output, EDL-verified overlays, jump-to-failure, proposal', async () => {
   await page.goto(`${base}/#/editing`); await page.waitForSelector('[data-testid=editing]');
-  await page.waitForFunction(() => { const a = document.querySelector('#srcv'), b = document.querySelector('#outv'); return a?.readyState >= 2 && b?.readyState >= 2; }, null, { timeout: 20000 });
+  await until(() => { const a = document.querySelector('#srcv'), b = document.querySelector('#outv'); return a?.readyState >= 2 && b?.readyState >= 2; }, 20000);
   assert.ok(await page.locator('text=מיפוי מאומת (EDL)').isVisible());
   await page.waitForSelector('[data-testid=error-table] [data-testid=err-row]');
   await page.locator('[data-testid=err-row]').first().click();
