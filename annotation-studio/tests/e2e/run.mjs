@@ -61,7 +61,7 @@ await scenario('annotate: loads source, frame-exact stepping, timecode', async (
   await page.keyboard.press('Shift+ArrowRight'); assert.equal(await frameNum(), 13);
   await page.keyboard.press('ArrowLeft'); assert.equal(await frameNum(), 12);
   // the displayed frame truly is frame 12: surfer square sits at x=2n of 1280 => compare to video pixels
-  await page.waitForFunction(() => document.querySelector('#vid').seeking === false);
+  await page.waitForFunction(() => document.querySelector('#vid').seeking === false, null, { timeout: 10000 });
   const t = await page.evaluate(() => document.querySelector('#vid').currentTime);
   assert.ok(Math.abs(t * 30 - 12.5) < 0.2, `seek lands mid-frame 12 (got ${t * 30})`);
   assert.equal(await page.textContent('[data-testid=timecode]'), '00:00:12');
@@ -184,7 +184,7 @@ await scenario('athletes screen: persistent ids and appearance history', async (
   await page.goto(`${base}/#/athletes`); await page.waitForSelector('[data-testid=athlete-card]');
   assert.ok(await page.locator('[data-testid=athlete-card]').count() >= 2);
   await page.fill('#newath', 'גולש חדש מ-E2E'); await page.click('[data-testid=add-athlete]');
-  await page.waitForFunction(() => document.querySelectorAll('[data-testid=athlete-card]').length >= 3);
+  await page.locator('[data-testid=athlete-card]').nth(2).waitFor();
   await shot('07-athletes');
 });
 
