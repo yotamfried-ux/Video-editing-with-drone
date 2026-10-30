@@ -113,6 +113,42 @@ def record_gate_failure(
     return True
 
 
+def partial_meta(payload: dict[str, Any], *, result_path: str) -> dict[str, Any]:
+    """Run-row meta describing a partial publish (reels withheld for failing QA)."""
+    gaps = [str(item).strip() for item in payload.get("qa_gaps", []) or [] if str(item).strip()]
+    return {
+        "publishable_gate_outcome": "partial",
+        "publishable_gate_result_path": result_path,
+        "publishable_athlete_count": payload.get("publishable_athlete_count"),
+        "eligible_athlete_count": payload.get("eligible_athlete_count"),
+        "published_part_count": payload.get("published_part_count"),
+        "qa_gap_count": len(gaps),
+        "qa_gaps": gaps[:20],
+    }
+
+
+def record_partial_outcome(
+    payload: dict[str, Any],
+    *,
+    result_path: str,
+    marker: Callable[..., None],
+) -> bool:
+    """Annotate a run whose gate passed with reels withheld for QA.
+
+    The run keeps the terminal status the pipeline already wrote (it succeeded and published what
+    passed); only meta is added, so the operator can see how many athletes were withheld and why.
+    Best effort: a failure to annotate must not turn a publishing run into a failed one.
+    """
+    if payload.get("passed") is not True or payload.get("outcome") != "partial":
+        return False
+    try:
+        marker(meta=partial_meta(payload, result_path=result_path))
+    except Exception as exc:  # noqa: BLE001 - annotation only
+        print(f"could not annotate the run with the partial publish outcome: {exc}", file=sys.stderr)
+        return False
+    return True
+
+
 def main() -> int:
     if len(sys.argv) != 2:
         print("usage: record_publishable_business_gate_status.py GATE_RESULT_JSON", file=sys.stderr)
@@ -120,6 +156,14 @@ def main() -> int:
     result_path = Path(sys.argv[1])
     payload = _load(result_path)
     from integrations.run_status import mark_terminal_run_strict, read_terminal_state
+    from integrations.run_status import mark_run
+
+    if record_partial_outcome(payload, result_path=str(result_path), marker=mark_run):
+        print(
+            "publishable business gate passed with reels withheld for QA; "
+            "run status unchanged, partial outcome recorded in run meta"
+        )
+        return 0
 
     changed = record_gate_failure(
         payload,

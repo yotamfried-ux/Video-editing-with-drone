@@ -222,7 +222,18 @@ def gate(debug: Path) -> list[str]:
         return ["(no publishable_reel_gate_result.json)"]
     errors = [str(e) for e in data.get("errors", [])]
     kinds = Counter(e.split(": ", 1)[-1][:70] for e in errors)
-    return [f"passed={data.get('passed')} errors={len(errors)}", *[f"  {n:>3} × {k}" for k, n in kinds.most_common(12)]]
+    head = f"passed={data.get('passed')} errors={len(errors)}"
+    if data.get("outcome"):
+        head += (f" outcome={data.get('outcome')} mode={data.get('mode')} "
+                 f"published_athletes={data.get('publishable_athlete_count')}/{data.get('eligible_athlete_count')} "
+                 f"published_parts={data.get('published_part_count')}")
+    out = [head, *[f"  {n:>3} × {k}" for k, n in kinds.most_common(12)]]
+    gaps = [str(g) for g in data.get("qa_gaps", []) or []]
+    if gaps:
+        gap_kinds = Counter(g.split(": ", 1)[-1][:70] for g in gaps)
+        out.append(f"withheld for QA (not failing the run): {len(gaps)} finding(s)")
+        out.extend(f"  {n:>3} × {k}" for k, n in gap_kinds.most_common(12))
+    return out
 
 
 SECTIONS: list[tuple[str, Callable[[Path], list[str]]]] = [
