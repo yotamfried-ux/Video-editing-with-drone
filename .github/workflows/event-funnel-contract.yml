@@ -1,0 +1,25 @@
+name: Event Funnel Contract
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/event-funnel-contract.yml'
+      - 'integrations/event_funnel.py'
+      - 'pipeline/stages/editor.py'
+      - 'pipeline/orchestrator.py'
+      - 'pipeline/performance_reel_policy.py'
+      - 'scripts/print_run_diagnostics.py'
+      - 'scripts/test_event_funnel_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+      - name: Validate that an athlete without a reel names the stage and reason
+        run: PYTHONPATH=. python scripts/test_event_funnel_contract.py

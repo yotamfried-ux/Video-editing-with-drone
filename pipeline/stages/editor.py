@@ -18,6 +18,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+from integrations import event_funnel as _funnel
 from pipeline.window_policy import MAX_NORMAL_WINDOW
 from integrations.ffmpeg import (
     get_duration as _get_duration,
@@ -150,10 +151,14 @@ def _sanitize_events(events: list[dict], video_path: str) -> list[dict]:
         if s >= total - 2.0:
             logger.warning("⚠️ Dropping event '%s' [%.1f,%.1f] — beyond source end (%.1fs)",
                            ev.get("type", "?"), s, e, total)
+            _funnel.record("sanitize_drop", source=Path(video_path).name, reason="beyond_source_end",
+                           start=s, end=e, source_duration=round(total, 2))
             continue
         e = min(e, total)
         if e - s < 4.0:
             logger.info("Dropping event '%s' — only %.1fs remain inside source", ev.get("type", "?"), e - s)
+            _funnel.record("sanitize_drop", source=Path(video_path).name, reason="shorter_than_4s_inside_source",
+                           start=s, end=e, source_duration=round(total, 2))
             continue
         valid.append({**ev, "end": round(e, 2)})
 
@@ -168,6 +173,8 @@ def _sanitize_events(events: list[dict], video_path: str) -> list[dict]:
             if overlap > 0.4 * min(dur, k["end"] - k["start"]):
                 logger.info("Dropping duplicate event '%s' [%.1f,%.1f] — overlaps kept [%.1f,%.1f]",
                             ev.get("type", "?"), s, e, k["start"], k["end"])
+                _funnel.record("sanitize_drop", source=Path(video_path).name, reason="duplicate_overlap",
+                               start=s, end=e, kept_start=k["start"], kept_end=k["end"])
                 dup = True
                 break
         if not dup:
@@ -1440,18 +1447,27 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     has many high-scoring events that would exceed TARGET_REEL_MAX in a single reel).
     """
     if not appearances:
+        _funnel.record("compile_no_reel", athlete=athlete_label, reason="no_appearances")
+        print(f"  ⚠️  No reel for '{athlete_label[:60]}': the cluster has no source appearances")
         return []
 
     # Attach source path to each event so we can look it up after narrative ordering.
     # Sanitize per-source first: drops hallucinated timestamps and deduplicates moments
     # within each clip so a bad source doesn't corrupt the cross-source reel.
     all_events: list[dict] = []
+    events_in = 0
     for app in appearances:
+        events_in += len(app["events"])
         sanitized = _sanitize_events(app["events"], app["path"])
         for ev in sanitized:
             all_events.append({**ev, "_src": app["path"]})
 
     if not all_events:
+        reason = "cluster_has_no_events" if not events_in else "all_events_dropped_by_sanitize"
+        _funnel.record("compile_no_reel", athlete=athlete_label, reason=reason, events_in=events_in,
+                       appearances=len(appearances))
+        print(f"  ⚠️  No reel for '{athlete_label[:60]}': {reason} (events_in={events_in}, "
+              f"appearances={len(appearances)})")
         return []
 
     session_peak   = max((ev.get("score", 7) for ev in all_events), default=7)
@@ -1464,6 +1480,11 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     partitions     = _partition_events(all_events, slowmo_capable)
     first_stem     = Path(appearances[0]["path"]).stem
     reels: list[str] = []
+    if not partitions:
+        _funnel.record("compile_no_reel", athlete=athlete_label, reason="partition_empty",
+                       events_in=events_in, events_after_sanitize=len(all_events))
+        print(f"  ⚠️  No reel for '{athlete_label[:60]}': partition_empty "
+              f"(events_after_sanitize={len(all_events)})")
 
     for part_idx, part_events in enumerate(partitions):
         ordered = _narrative_order(part_events)
