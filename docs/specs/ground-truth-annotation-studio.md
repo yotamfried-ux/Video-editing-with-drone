@@ -260,3 +260,15 @@ For each milestone: commit scoped changes to feature branch, run relevant lint/t
 Approved: single-user desktop-first local interface; Precision Studio as primary annotator; library and evaluation as supporting views; future upload support; immutable independent Ground Truth; temporal/identity/tracking labels; editing-quality assessment of actual renders.
 
 Pending: precise archive service/cost and retention settings; consent and source retention; final visual details; local-only versus localhost UI with protected remote backend; approval of any real cloud resource creation and last-run reset. Claude should make reversible defaults for mock implementation, clearly flag decisions needing authorization, and continue non-destructive work rather than blocking on minor styling choices.
+
+## 18. Implementation notes (as built — M1–M5 local implementation)
+
+Product requirements above are unchanged. These are technical adaptations discovered during implementation (see `annotation-studio/` and `docs/annotation-studio/STATUS.md`):
+
+- **Delivery form:** zero-dependency Node 22 service (`node:sqlite`) + vanilla ES-module UI under `annotation-studio/`, bound to `127.0.0.1`, per-install token. The R2 archive and separate Supabase project in §3 are expressed as adapters (`ArchiveStore`, `db.mjs`); only local implementations exist. Creating the real resources still requires operator approval.
+- **Revision storage:** an approved revision is one immutable JSON document (`annotation_revisions.content`, schema 1) with a SHA-256 content digest, instead of separate normalized `segments`/`frame_annotations` tables. Segments reference persistent `athlete_id`s; `athlete_appearances` rows are derived per (athlete, source). Normalized projections for training export are produced from frozen revisions (`exportJsonl`).
+- **Drafts vs revisions:** drafts are mutable with optimistic `version`; only approval creates a revision. Idempotent when the digest is unchanged.
+- **Approval gating:** unresolved counts (`uncertain` segments, `include` with unknown athlete) require explicit `acknowledge_unresolved`; approval also requires `ingest_state='ready'` (verified archive).
+- **Intervals:** half-open `[start_frame, end_frame)`; the `O` key marks the *current* frame as included (`end = frame + 1`). Seeking uses mid-frame time `(f+0.5)/fps`. Proxy videos are constant-fps VP9/WebM with the source frame rate.
+- **Editing evaluation:** `edl/v1` (shots with linear crop interpolation in source pixels, optional output rotation, optional `subject_track`); `contain` is never scored against a centre target; no EDL or `mapping:"visual_match"` ⇒ `NOT_EVALUABLE`/`unverified_mapping`. The production pipeline does not emit this format yet (separate approval).
+- **Evaluator identity mapping:** pipeline athlete keys are mapped to GT athletes by deterministic co-occurrence over temporally matched events; deviations are reported as `wrong_athlete`.

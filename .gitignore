@@ -63,3 +63,9 @@ web-api/.next/
 # TS build artifacts
 web-api/tsconfig.tsbuildinfo
 web-api/*.tsbuildinfo
+
+# annotation-studio local state
+.demo-home/
+annotation-studio/.demo-home/
+annotation-studio/.e2e-home/
+annotation-studio/tests/e2e/shots-tmp/
