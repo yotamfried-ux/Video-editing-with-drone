@@ -33,7 +33,7 @@ Wiring the R2 archive into the server (`server/main.mjs`) selects the backend fr
 | Variable | Default | Purpose |
 |---|---|---|
 | `SPORTREEL_EXPORT_EDL` | unset = **off** | `1` enables EDL recording and the `predictions/v1` step in the diagnostics wrapper |
-| `PIPELINE_RUN_ID`, `GITHUB_SHA` / `SPORTREEL_COMMIT` | – | recorded in every export; the importer rejects exports without them |
+| `PIPELINE_RUN_ID`, `SPORTREEL_COMMIT` (wins) or `GITHUB_SHA` | – | recorded in every export; the importer rejects exports without them |
 
 ## Credential separation matrix
 

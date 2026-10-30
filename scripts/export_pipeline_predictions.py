@@ -29,7 +29,7 @@ def main() -> int:
     edls = [json.loads(p.read_text(encoding="utf-8")) for p in sorted(Path(args.edl_dir).glob("*.edl.json"))] if Path(args.edl_dir).is_dir() else []
     hashes = json.loads(Path(args.source_hashes).read_text(encoding="utf-8")) if args.source_hashes else None
     payload = build_predictions(ledger, edls, run_id=os.getenv("PIPELINE_RUN_ID"),
-                                commit=os.getenv("GITHUB_SHA") or os.getenv("SPORTREEL_COMMIT"), source_hashes=hashes)
+                                commit=os.getenv("SPORTREEL_COMMIT") or os.getenv("GITHUB_SHA"), source_hashes=hashes)
     Path(args.output).parent.mkdir(parents=True, exist_ok=True)
     Path(args.output).write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     problems = validate_predictions(payload)

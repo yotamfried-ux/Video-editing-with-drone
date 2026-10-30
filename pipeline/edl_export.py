@@ -353,7 +353,7 @@ def write_reel_edl(
         overlaps = editor._pair_transitions(len(clip_paths), transitions)
         edl = build_reel_edl(
             clip_paths, output_path, durations, overlaps, fps, out_w, out_h,
-            run_id=os.getenv("PIPELINE_RUN_ID"), commit=os.getenv("GITHUB_SHA") or os.getenv("SPORTREEL_COMMIT"))
+            run_id=os.getenv("PIPELINE_RUN_ID"), commit=os.getenv("SPORTREEL_COMMIT") or os.getenv("GITHUB_SHA"))
         target = export_dir() / f"{edl['output_id']}.edl.json"
         target.write_text(json.dumps(edl, ensure_ascii=False, indent=2), encoding="utf-8")
         return str(target)
