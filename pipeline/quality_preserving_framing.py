@@ -458,6 +458,37 @@ def _record_decision(video_path: str, event: dict[str, Any], decision: FramingDe
             handle.write(json.dumps(payload, ensure_ascii=False) + "\n")
 
 
+def _export_edl_clip(video_path: str, event: dict[str, Any], decision: FramingDecision, clip: str) -> None:
+    """Additive, opt-in (SPORTREEL_EXPORT_EDL=1) record of how this clip was rendered. Never alters rendering."""
+    from pipeline import edl_export
+
+    if not edl_export.enabled():
+        return
+    from pipeline.stages import editor
+
+    clamped = editor._clamp(event["start"], event["end"], video_path)
+    if clamped is not None:
+        edl_export.record_clip(clip, video_path, event, decision, clamped[0], clamped[1],
+                               OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_FPS)
+
+
+def _export_edl_reel(original_compile_reel: Any, args: list[Any], kwargs: dict[str, Any]) -> None:
+    from pipeline import edl_export
+
+    if not edl_export.enabled():
+        return
+    import inspect
+
+    try:
+        bound = inspect.signature(original_compile_reel).bind(*args, **kwargs)
+        bound.apply_defaults()
+        values = bound.arguments
+        edl_export.write_reel_edl(values["clip_paths"], values["output_path"], values.get("transitions"),
+                                  OUTPUT_FPS, OUTPUT_WIDTH, OUTPUT_HEIGHT)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("EDL reel export skipped: %s", exc)
+
+
 def _even(value: float, minimum: int = 2) -> int:
     result = max(minimum, int(round(value)))
     return result if result % 2 == 0 else result - 1
@@ -619,7 +650,10 @@ def install() -> None:
         decision = decide_framing(event, sport=sport, source_info=source_info)
         decision = _resolve_track_safe_decision(video_path, event, decision)
         _record_decision(video_path, {**event, "sport": sport}, decision)
-        return _render_clip(video_path, event, index, decision)
+        clip = _render_clip(video_path, event, index, decision)
+        if clip:
+            _export_edl_clip(video_path, event, decision, clip)
+        return clip
 
     def compile_4k_30(*args, **kwargs):
         mutable_args = list(args)
@@ -627,7 +661,10 @@ def install() -> None:
             mutable_args[8] = OUTPUT_FPS
         else:
             kwargs["fps"] = OUTPUT_FPS
-        return original_compile_reel(*mutable_args, **kwargs)
+        result = original_compile_reel(*mutable_args, **kwargs)
+        if result:
+            _export_edl_reel(original_compile_reel, mutable_args, kwargs)
+        return result
 
     def specs_with_fps(path: str) -> dict[str, Any]:
         specs = original_specs(path)
