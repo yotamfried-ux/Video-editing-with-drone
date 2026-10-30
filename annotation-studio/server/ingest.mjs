@@ -184,3 +184,20 @@ export async function verifyArchives(ctx) {
   audit(ctx.db, 'operator', 'verify_archives', null, out);
   return out;
 }
+
+/** Regenerate thumbnails/proxies from the archived original (e.g. after restoring onto a machine with an empty cache). */
+export async function rebuildDerivatives(ctx) {
+  const out = { rebuilt: 0, failed: [] };
+  for (const src of ctx.db.prepare("select id,archive_key,fps_num,fps_den,thumb_path,proxy_path from sources where ingest_state='ready' and archive_key is not null").all()) {
+    const missing = f => !f || !existsSync(f);
+    if (!missing(src.thumb_path) && !missing(src.proxy_path)) continue;
+    if (ctx.archive.kind !== 'local') { out.failed.push({ id: src.id, reason: 'archive_not_local' }); continue; }
+    const file = ctx.archive.pathFor(src.archive_key), dir = path.join(ctx.cacheDir, src.id);
+    try {
+      const t = path.join(dir, 'thumb.jpg'), p = path.join(dir, 'proxy.webm');
+      await makeThumb(file, t); await makeProxy(file, p, { fpsNum: src.fps_num, fpsDen: src.fps_den });
+      ctx.db.prepare('update sources set thumb_path=?, proxy_path=? where id=?').run(t, p, src.id); out.rebuilt++;
+    } catch (e) { out.failed.push({ id: src.id, reason: String(e.message).slice(0, 120) }); }
+  }
+  return out;
+}

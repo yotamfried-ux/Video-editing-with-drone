@@ -63,7 +63,8 @@ npm run test:e2e   # Playwright browser scenarios + screenshots (needs `playwrig
 
 * **Backends:** `STUDIO_DB_URL` selects PostgreSQL (`npm run migrate` applies `db/`), `STUDIO_R2_*` selects the protected R2 archive. See `docs/annotation-studio/phase-b/ENVIRONMENT.md`.
 * **Pipeline evidence:** `node scripts/gt-import.mjs edl EDL.json --output reel.mp4` and `… predictions predictions.v1.json` (or `POST /api/imports/*`).
-* **Backup:** `node scripts/gt-backup.mjs export|verify|restore|audit` — `docs/annotation-studio/phase-b/BACKUP-RECOVERY.md`.
+* **Local-first backup:** `node scripts/gt-offsite-backup.mjs run|verify|restore --to <dir on another device>` (refuses the same device; see `phase-b/BACKUP-RECOVERY.md`).
+* **Logical export:** `node scripts/gt-backup.mjs export|verify|restore|audit` — `docs/annotation-studio/phase-b/BACKUP-RECOVERY.md`.
 * **Tests:** `npm test` (includes the pipeline-render qualification; needs python3 + ffmpeg), `STUDIO_TEST_DB_URL=postgres://… npm test && npm run test:pg` for PostgreSQL and role-isolation tests.
 
 ## Not production integration

@@ -48,3 +48,17 @@ export const pill = (text, cls = '') => h('span', { class: `pill ${cls}` }, h('s
 export const EVENT_HE = { wave_ride: 'רכיבה על גל', failed_takeoff: 'עמידה כושלת', wipeout: 'נפילה', paddle_out: 'חתירה החוצה', other: 'אחר' };
 export const DECISION_HE = { include: 'כלול', exclude: 'החרג', uncertain: 'לא בטוח' };
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());
+
+/** External-backup status: Local First only works if the independent copy really exists and is fresh. */
+export async function backupStatus() { try { return await api('/api/backup/status'); } catch { return null; } }
+export function backupBanner(b) {
+  if (!b || b.state === 'ok') return null;
+  const msg = b.state === 'never'
+    ? 'לא בוצע גיבוי חיצוני. סרטונים וגיבוי שלהם על אותו דיסק אינם גיבוי.'
+    : `הגיבוי החיצוני האחרון בוצע לפני ${Math.floor(b.age_days)} ימים (הסף: ${b.stale_after_days}).`;
+  return h('div', { class: 'banner bad', role: 'alert', 'data-testid': 'backup-banner' }, msg, ' ', h('code', { class: 'ltr' }, 'node scripts/gt-offsite-backup.mjs run --to <דיסק אחר>'));
+}
+export function backupPill(b) {
+  if (!b) return null;
+  return b.state === 'ok' ? pill(`גיבוי חיצוני: לפני ${Math.floor(b.age_days)} ימים`, 'ok') : pill(b.state === 'never' ? 'אין גיבוי חיצוני' : 'גיבוי חיצוני ישן', 'bad');
+}

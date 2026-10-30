@@ -1,9 +1,9 @@
-import { h, api, ltr, pill, toast, fmtBytes, timecode, fpsOf, STATUS_HE, STATUS_CLASS } from './ui.js';
+import { h, api, ltr, pill, toast, fmtBytes, timecode, fpsOf, STATUS_HE, STATUS_CLASS, backupStatus, backupBanner, backupPill } from './ui.js';
 import { setTopbar } from './main.js';
 
 export async function renderLibrary(root) {
   setTopbar(h('strong', {}, 'ספרייה'), h('span', { class: 'pill' }, 'סרטוני מקור'));
-  const [batches, first] = await Promise.all([api('/api/batches'), api('/api/sources?limit=200')]);
+  const [batches, first, bk] = await Promise.all([api('/api/batches'), api('/api/sources?limit=200'), backupStatus()]);
   const f = { q: '', status: '', batch: '', view: 'grid' };
   const out = h('div'); const stats = h('div', { class: 'stats' });
   let items = first.items;
@@ -30,6 +30,7 @@ export async function renderLibrary(root) {
   const sel = (opts, key) => { const el = h('select', { 'aria-label': key, onchange: e => { f[key] = e.target.value; render(); } }, opts.map(([v, l]) => h('option', { value: v }, l))); return el; };
   const next = items.find(s => s.annotation_status === 'not_annotated' && s.ingest_state === 'ready');
   root.append(h('div', { class: 'page' }, h('h1', {}, 'ספריית סרטוני מקור'), h('div', { class: 'sub' }, 'זהות הסרטון קבועה (SHA-256), בלתי תלויה בנתיב או בשם הקובץ.'),
+    backupBanner(bk), h('div', { style: { marginBottom: '10px' } }, backupPill(bk)),
     stats,
     h('div', { class: 'toolbar' },
       h('input', { type: 'search', placeholder: 'חיפוש שם / hash', 'aria-label': 'חיפוש', oninput: e => { f.q = e.target.value; render(); } }),

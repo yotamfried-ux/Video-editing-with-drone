@@ -1,5 +1,20 @@
 # Ground Truth — backup and recovery
 
+## Local-first procedure (selected direction; implemented and tested)
+Principle: **footage and its backup on the same disk is not a backup.** The tool enforces it.
+
+| Step | Command | What it guarantees |
+|---|---|---|
+| Back up | `node scripts/gt-offsite-backup.mjs run --to <dir on ANOTHER physical device>` | **Refuses** a destination on the same device (`st_dev`) as the live data. Writes a verified database export + the labelled originals (`--scope all` for everything). Each copy is re-hashed before it is accepted; a corrupt or missing copy is repaired on the next run; a corrupt *source* is never propagated; nothing in the destination is ever deleted |
+| Verify (monthly) | `node scripts/gt-offsite-backup.mjs verify --to <dir>` | Re-reads and re-hashes every object and the database export against the digest-covered manifest |
+| Recovery drill (quarterly) | `STUDIO_HOME=<empty dir> node scripts/gt-offsite-backup.mjs restore --to <dir>` | Rebuilds an empty machine: database, originals (byte-exact), thumbnails/proxies (regenerated), playback. Sources that were not in the backup are marked `unavailable` and heal by `reconcile` under the same identity |
+| Status | `node scripts/gt-offsite-backup.mjs status` / Library banner | The UI warns when there is **no** external backup or the last good one is older than 7 days. A failed run is never recorded as a good backup |
+
+Destination = any directory on a different device: an external drive, a network share, or a mounted remote. A second, **offsite** copy (Hetzner append-only via restic, or an R2 prefix with a lock rule) is added only after the read-only audits and an explicit approval (see `APPROVAL-REQUESTS.md`); until then, **keep at least two destinations on two different devices** and rotate them.
+Unlabelled footage is not copied by default (cost and size); it remains protected only by the operational storage it came from. Use `--scope all` if you want every original.
+
+The rest of this document (database exports, provider backups, archive mirroring) describes the remote options kept as prepared-but-undeployed.
+
 Status: procedures and tooling are **implemented and tested locally**; scheduled jobs on live infrastructure are **NOT set up** (no live resources exist yet).
 
 ## What must survive

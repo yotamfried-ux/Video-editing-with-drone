@@ -4,6 +4,13 @@
 > (R2 lock prefix and/or Hetzner append-only, subject to the read-only audits); database = local SQLite by default, Supabase `ground_truth` schema prepared and tested but **not deployed**.
 > New evidence: 8 PostgreSQL isolation tests incl. a Supabase-faithful replay (non-superuser migration, live role/ACL configuration read from the catalog), `db/verify-isolation.sql`, a guard that the inference workflow holds no database-admin credential.
 
+## Open items (as of the last CI run)
+| # | Item | Status |
+|---|---|---|
+| 1 | EDL/prediction export workflow | **VERIFIED** — `edl-export-contract.yml` (workflow id 402168780) run #5 on head `7d01c85`: success; its log shows `4 prediction export contract tests passed` and `6 EDL export contract tests passed` |
+| 2 | Run the three read-only audits (`scripts/infra-audit/`) | **BLOCKED on the operator** — they need access to R2, the Hetzner server and the REST API that this environment does not have |
+| 3 | Storage architecture | **Local-first selected for development.** Implemented and tested: same-device-refusing independent backup, verification, restore drill, status warning. Offsite target (Hetzner / R2) awaits the audits and approval |
+
 Branch: `ccr-5ce1d535-e7mo2b`. **Phase B is PARTIALLY COMPLETE**: all code, schema and tests exist and pass locally; no live resource was created, no real footage processed, no production run triggered.
 Legend: IMPLEMENTED = code exists · VERIFIED = executed with the evidence shown · NOT TESTED / BLOCKED as stated.
 
