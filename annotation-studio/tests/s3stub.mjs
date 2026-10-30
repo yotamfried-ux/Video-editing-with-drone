@@ -4,6 +4,15 @@ import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
 import { signRequest, sha256hex } from '../server/sigv4.mjs';
 
+/** Linear-time parse of `AWS4-HMAC-SHA256 Credential=<ak>/<scope>, SignedHeaders=<h>, Signature=<hex>` (no backtracking regex). */
+function parseAuthorization(header = '') {
+  const prefix = 'AWS4-HMAC-SHA256 ';
+  if (!header.startsWith(prefix)) return null;
+  const parts = Object.fromEntries(header.slice(prefix.length).split(',').map(p => p.trim()).map(p => { const i = p.indexOf('='); return [p.slice(0, i), p.slice(i + 1)]; }));
+  if (!parts.Credential || !parts.SignedHeaders || !parts.Signature) return null;
+  return [null, parts.Credential.split('/')[0], parts.SignedHeaders, parts.Signature];
+}
+
 export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey = 'test-secret-do-not-use', bucket = 'gt-archive', region = 'auto' } = {}) {
   const objects = new Map(), uploads = new Map(), log = [];
   const faults = { failPuts: 0, corruptNextPut: false, outage: false };
@@ -16,7 +25,7 @@ export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey
     const send = (status, text = '', headers = {}) => { res.writeHead(status, headers); res.end(text); };
     if (faults.outage) return send(503, 'down');
     // ---- SigV4 verification (recompute from what arrived) ----
-    const auth = /Credential=([^/]+)\/[^,]+, SignedHeaders=([^,]+), Signature=([0-9a-f]+)/.exec(req.headers.authorization ?? '');
+    const auth = parseAuthorization(req.headers.authorization);
     if (!auth || auth[1] !== accessKeyId) return send(403, 'InvalidAccessKeyId');
     const signedNames = auth[2].split(';').filter(n => n !== 'host' && n !== 'x-amz-date' && n !== 'x-amz-content-sha256');
     const hdrs = Object.fromEntries(signedNames.map(n => [n, req.headers[n]]));
