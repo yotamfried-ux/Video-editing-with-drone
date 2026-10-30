@@ -9,10 +9,13 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:net';
 import { existsSync } from 'node:fs';
-import { resolve, join } from 'node:path';
+import { resolve, join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
-const WEB_DIR = resolve(process.cwd(), 'web-api');
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const WEB_DIR = resolve(__dirname, '..');
 
 // 1. Verify playwright is available in the environment
 let playwright;
@@ -82,15 +85,15 @@ async function main() {
   const baseUrl = `http://127.0.0.1:${port}`;
   console.log(`[browser-smoke] Target local port: ${port}`);
 
+  const nextBin = resolve(WEB_DIR, 'node_modules/next/dist/bin/next');
   const hasBuild = existsSync(join(WEB_DIR, '.next'));
-  const serverCmd = hasBuild ? ['next', 'start', '-p', String(port)] : ['next', 'dev', '-p', String(port)];
-  console.log(`[browser-smoke] Starting server with: npx ${serverCmd.join(' ')}`);
+  const serverArgs = hasBuild ? [nextBin, 'start', '-p', String(port)] : [nextBin, 'dev', '-p', String(port)];
+  console.log(`[browser-smoke] Starting server with: node ${serverArgs.join(' ')}`);
 
-  const server = spawn(process.platform === 'win32' ? 'npx.cmd' : 'npx', serverCmd, {
+  const server = spawn(process.execPath, serverArgs, {
     cwd: WEB_DIR,
     env: { ...process.env, NEXT_TELEMETRY_DISABLED: '1', PORT: String(port) },
     stdio: 'pipe',
-    shell: process.platform === 'win32',
   });
 
   server.on('error', (err) => {
