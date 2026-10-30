@@ -1,6 +1,6 @@
 # SportReel Annotation Studio — Product & Engineering Specification (DRAFT)
 
-Status: **PROPOSED / awaiting operator UI/UX approval**  
+Status: **APPROVED DESIGN DIRECTION: Precision Studio / implementation specification**  
 Date: 2026-10-30  
 Target: single-user desktop-first local web application for development and evaluation; **not** public athlete-facing product.  
 Repository product contract: [README.md](../../README.md).  
@@ -76,7 +76,7 @@ Autosave drafts with optimistic concurrency, offline/error indication and recove
 
 ## 8. UX concepts — pending explicit approval
 
-These are design alternatives, **not approved implementation requirements**:
+The operator selected **A — Precision Annotation Workbench** as the approved primary screen. B (library/batch ingestion) and C (evaluation) remain supporting screens, not competing primary UI designs. Detailed visual polish remains iterative:
 
 **A — Precision Annotation Workbench (recommended)**  
 Large source video at top-left; frame-accurate, zoomable multitrack timeline below; right-side form for surfer, event type, include/exclude, notes and bounding boxes. Keyboard-first. Good for intensive labeling.
@@ -113,8 +113,65 @@ Before any reset: identify exact last run ID, frozen batch, source manifests, cu
 
 ## 11. Open decisions
 
-- Operator approval of UI layout(s) and visual design, including whether annotation and evaluation are separate screens.
+- Precision Studio approved as primary layout; final styling and detailed interactions to be validated in a clickable local prototype.
 - Archive policy/cost ceiling and verified provider retention capabilities.
 - Whether the single-user app runs entirely local or uses a local UI with remote protected backend (recommended).
 - Source footage consent/retention requirements and whether athlete identity should be session-local by default.
 - Exact most-recent run ID and scope for future reset, to be confirmed in a separate dry run.
+
+## 12. Editing Ground Truth — evaluate actual rendered video (approved scope)
+
+**Goal:** assess not just event selection and athlete identity, but whether the *rendered output* frames the correct surfer and preserves useful wave context. This is a distinct third layer: (1) event truth, (2) tracking truth, (3) editing/composition truth.
+
+### 12.1 Coordinate and time lineage
+
+- Preserve a deterministic **edit decision list (EDL)** for every rendered output: `output_id`, `pipeline_run_id`, `source_id` and immutable source hash, output timestamp/frame -> source presentation timestamp/frame mapping, source dimensions, output dimensions, crop rectangle per output frame or time-keyframe, resize/pad/rotation parameters, playback speed and any stabilization transforms.
+- Store and version EDL alongside output manifest; make it accessible to evaluator only after pipeline inference. When EDL is absent, use visual frame matching as an explicitly lower-confidence fallback and mark results `unverified_mapping`.
+- Ground-truth surfer box is expressed in **source coordinates**. Transform into output coordinates using the actual crop and resize/rotation/padding transform; if a transform is missing, refuse exact center scoring rather than guessing.
+- Multiple people and occlusion are expected. Preserve source-frame subject identity and confidence; mark `not_visible`, `occluded` and `unreviewed` separately.
+
+### 12.2 Composition labels and operator controls
+
+- Operator can choose a target framing mode per segment: `geometric_center` or `directional_lead_room`; optionally manually specify a desired normalized target point or desired crop box at selected keyframes.
+- Keyframe labels can define desired crop path. Interpolated paths are proposals until reviewed; keep original operator labels and automated proposals separately.
+- Editing Review tab in Precision Studio: synchronized **original source + rendered output**, overlay ground-truth athlete box, actual output surfer center, target center/region, crop boundary, safe margins and failure timestamps; click a failure to jump both players to corresponding frames.
+- Permit dragging a proposed crop window on original footage, previewing an alternative edit without changing source video or overwriting the production output. Save operator-approved crop examples as new immutable editing revisions.
+
+### 12.3 Metrics and evidence
+
+- **Centering error:** normalized Euclidean distance from actual output surfer center to operator-selected target; report median, p95 and temporal distribution. A target of (0.5,0.5) is used only when geometric centering is selected.
+- **Visibility:** percentage of *reviewed* frames with surfer fully visible; separately report partially clipped, completely missing and occluded frames. Do not treat missing detection as definitive disappearance without supporting evidence.
+- **Edge violations:** frames where box crosses a configurable safe-area margin; distinguish partial clipping from intentional composition.
+- **Tracking continuity:** source-linked identity switches, interruptions and incorrect-athlete output intervals.
+- **Crop smoothness:** output crop center/scale velocity, acceleration and jerk, normalized by frame time and resolution; flag abrupt changes with configurable thresholds.
+- **Wave context:** human-rated preservation of wave/trajectory and optional future machine-estimated context; do not present unvalidated heuristic as ground truth.
+- Produce frame-level evidence and aggregate per segment, output, surfer, run and frozen dataset. Store evaluator version and thresholds with every report.
+
+### 12.4 Evaluation correctness
+
+- Compare outputs only to the **approved, frozen revision** selected for that evaluation run.
+- Distinguish annotation coverage from actual quality; exclude unreviewed/uncertain intervals from strict aggregate scoring, and report their proportion.
+- Do not optimize model hyperparameters or train on the held-out evaluation/test set. An alternative crop generated by an algorithm is a *proposal*, not a human-approved target.
+- Evaluate timing decisions, subject framing, identity continuity and final output artifact quality independently; a correct event with a poor crop must still fail editing quality criteria.
+
+### 12.5 Editing-specific acceptance tests
+
+1. Known synthetic source boxes and crop transforms yield analytically correct output coordinates, including resize, pad and rotation.
+2. Deliberately off-center surfer triggers centering deviation; directional lead-room is not incorrectly penalized as off-center.
+3. Clipped surfer, identity swap and sudden crop jump are reported with exact output/source timestamps and replayable evidence.
+4. Missing EDL is flagged as unverified, never silently treated as exact.
+5. Operator adjustment of a crop creates a new approved editing revision without mutating original video, historical labels or production output.
+6. Reset or movement of operational files does not change stored source identity, annotations, EDL lineage or archived evaluation reports.
+
+## 13. Claude development handoff
+
+Start with repository discovery and a non-destructive architecture audit. Confirm current upload events, R2 object lifecycle, Supabase schemas, pipeline artifact/EDL provenance, cleanup paths, local dev scripts and existing security boundaries; report evidence and gaps before schema migrations.
+
+Implement in stages with tests and review gates:
+1. Protected source archive and catalog source identity, new-upload reconciliation, safe ingestion states and migrations.
+2. Local desktop-first Precision Studio (video, multitrack segment editor, athlete identities, bbox keyframes, autosave/revisions, approval).
+3. Dataset freezing and blind pipeline evaluation with reproducible reports.
+4. Editing Review, EDL capture, source-to-output coordinate transforms, crop metrics and alternative crop preview.
+5. End-to-end regression, recovery, authorization-denial and backup-restore tests.
+
+Do not run destructive reset, remove production outputs, change production credentials or deploy paid infrastructure without explicit operator approval. Treat generated UI mockups as conceptual references rather than source assets or implemented screens.
