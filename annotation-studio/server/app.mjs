@@ -126,6 +126,13 @@ export function createApp(ctx) {
     if ((r = /^\/api\/evaluations\/([\w-]+)$/.exec(p)) && m === 'GET') { const e = db.prepare('select report,digest from evaluation_runs where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND'); return send(res, 200, { digest: e.digest, report: JSON.parse(e.report) }); }
     if (m === 'GET' && p === '/api/outputs') return send(res, 200, { items: db.prepare('select id,output_id,run_id,source_id,created_at,payload from edl_records order by created_at desc').all().map(e => { const x = JSON.parse(e.payload); return { id: e.id, output_id: e.output_id, run_id: e.run_id, source_id: e.source_id, mode: x.mode, has_video: !!x.output_file, mapping: x.mapping ?? 'verified', output: x.output, source: x.source }; }) });
     if ((r = /^\/api\/outputs\/([\w-]+)\/edl$/.exec(p)) && m === 'GET') { const e = db.prepare('select payload from edl_records where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND'); return send(res, 200, JSON.parse(e.payload)); }
+    if ((r = /^\/api\/outputs\/([\w-]+)\/review$/.exec(p)) && m === 'GET') {
+      const e = db.prepare('select payload,source_id from edl_records where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND');
+      const edl = JSON.parse(e.payload), rev = e.source_id && A.latestRevision(db, e.source_id);
+      if (!rev) return send(res, 200, { edl, verified: false, report: L.evaluateEditing(null, A.emptyContent()), frames: [], revision: null });
+      const gt = JSON.parse(rev.content);
+      return send(res, 200, { edl, revision: { id: rev.id, seq: rev.seq }, report: L.evaluateEditing(edl, gt), ...L.frameEvidence(edl, gt), source_id: e.source_id });
+    }
     if (m === 'POST' && p === '/api/editing/evaluate') {
       const b = await body(req);
       const rec = b.edl_id ? db.prepare('select payload,source_id from edl_records where id=?').get(b.edl_id) : null;

@@ -192,3 +192,32 @@ export function proposeCrop({ source, bbox, mode = 'geometric_center', target = 
   cx = Math.min(W - w / 2, Math.max(w / 2, cx)); cy = Math.min(H - h / 2, Math.max(h / 2, cy));
   return { cx, cy, w, h, mode, target: t, status: 'proposal' };
 }
+
+/**
+ * Per-output-frame evidence for the Editing Review screen: transformed ground-truth box, crop
+ * region and visibility, only on reviewed frames and only with a verified EDL.
+ */
+export function frameEvidence(edl, gt) {
+  if (!edl || edl.mapping === 'visual_match') return { verified: false, frames: [] };
+  validateEdl(edl);
+  const W = edl.output.width, H = edl.output.height, frames = [];
+  const total = edl.shots[edl.shots.length - 1].out_end;
+  for (let f = 0; f < total; f++) {
+    const at = shotAt(edl, f); if (!at) continue;
+    const seg = gt.segments.find(s => s.decision === 'include' && at.src_frame >= s.start_frame && at.src_frame < s.end_frame);
+    const kb = seg && interpBox(gt.keyframes.filter(k => k.segment_id === seg.id), at.src_frame);
+    const reviewed = gt.reviewed_ranges.some(r => at.src_frame >= r.start_frame && at.src_frame < r.end_frame);
+    const base = { f, src: at.src_frame, crop: at.crop, cut: edl.shots.some(s => s.out_start === f && f > 0) };
+    if (!kb || !reviewed) { frames.push({ ...base, reviewed: false }); continue; }
+    const { box, region } = sourceBoxToOutput(edl, at.crop, kb.bbox);
+    const ba = area(box);
+    const vis = ba > 0 ? area(inter(inter(box, region), { x1: 0, y1: 0, x2: W, y2: H })) / ba : 0;
+    let err = null;
+    if (edl.mode === 'tracked_crop') {
+      const t = seg.framing_mode === 'geometric_center' ? { x: 0.5, y: 0.5 } : seg.framing_mode === 'directional_lead_room' ? seg.target : null;
+      if (t) err = Math.hypot((box.x1 + box.x2) / 2 / W - t.x, (box.y1 + box.y2) / 2 / H - t.y);
+    }
+    frames.push({ ...base, reviewed: true, segment_id: seg.id, origin: kb.origin, src_bbox: kb.bbox, framing_mode: seg.framing_mode ?? null, box, region, vis: r6(vis), err: r6(err), target: err == null ? null : (seg.framing_mode === 'geometric_center' ? { x: 0.5, y: 0.5 } : seg.target) });
+  }
+  return { verified: true, frames };
+}
