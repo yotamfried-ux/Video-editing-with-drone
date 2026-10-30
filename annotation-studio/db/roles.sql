@@ -3,7 +3,7 @@
 -- (e.g. `alter role gt_studio password :'pw'` via psql variables) so no secret is ever committed or logged.
 --
 -- Principals
---   gt_owner      NOLOGIN  owns the schema/objects (migrations run as an admin and then `alter ... owner to gt_owner`)
+--   (owner)       the migration role (on Supabase: `postgres`) owns the schema and objects; no extra owner role is needed
 --   gt_studio     LOGIN    the Annotation Studio server: read/write working tables, INSERT-only on append-only tables
 --   gt_evaluator  LOGIN    evaluator: SELECT on frozen views + predictions, INSERT evaluation_runs; nothing else
 --   pipeline      (none)   the production pipeline/web-api roles (anon, authenticated, service_role, ...) get NOTHING
@@ -11,7 +11,6 @@
 set local search_path = __SCHEMA__;
 
 do $$ begin
-  if not exists (select 1 from pg_roles where rolname = 'gt_owner')     then create role gt_owner nologin; end if;
   if not exists (select 1 from pg_roles where rolname = 'gt_studio')    then create role gt_studio login noinherit; end if;
   if not exists (select 1 from pg_roles where rolname = 'gt_evaluator') then create role gt_evaluator login noinherit; end if;
 end $$;
@@ -35,17 +34,6 @@ end $$;
 revoke all on schema __SCHEMA__ from public;
 revoke all on all tables in schema __SCHEMA__ from public;
 revoke all on all functions in schema __SCHEMA__ from public;
-
--- 2. Ownership
-alter schema __SCHEMA__ owner to gt_owner;
-do $$ declare t record; begin
-  for t in select tablename from pg_tables where schemaname = '__SCHEMA__' loop
-    execute format('alter table __SCHEMA__.%I owner to gt_owner', t.tablename);
-  end loop;
-  for t in select viewname from pg_views where schemaname = '__SCHEMA__' loop
-    execute format('alter view __SCHEMA__.%I owner to gt_owner', t.viewname);
-  end loop;
-end $$;
 
 -- 3. Studio server
 grant usage on schema __SCHEMA__ to gt_studio;
@@ -73,7 +61,7 @@ do $$ declare t record; begin
   for t in select tablename from pg_tables where schemaname = '__SCHEMA__' loop
     execute format('alter table __SCHEMA__.%I enable row level security', t.tablename);
     execute format('drop policy if exists studio_all on __SCHEMA__.%I', t.tablename);
-    execute format('create policy studio_all on __SCHEMA__.%I for all to gt_studio, gt_owner using (true) with check (true)', t.tablename);
+    execute format('create policy studio_all on __SCHEMA__.%I for all to gt_studio using (true) with check (true)', t.tablename);
   end loop;
   execute 'drop policy if exists evaluator_read on __SCHEMA__.dataset_members';
   execute 'create policy evaluator_read on __SCHEMA__.dataset_members for select to gt_evaluator using (true)';

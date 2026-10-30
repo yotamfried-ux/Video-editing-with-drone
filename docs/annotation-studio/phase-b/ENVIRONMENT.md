@@ -12,11 +12,11 @@ pipeline workflows, in `NEXT_PUBLIC_*`, in browser bundles, or in logs.
 | `STUDIO_PORT` | no | `4173` | bound to `127.0.0.1` only |
 | `STUDIO_TOKEN` | no | random, stored `0600` in `STUDIO_HOME/token` | UI/API access token (launch URL `/?t=…`) |
 | `STUDIO_RECONCILE_ROOTS` | no | – | `dir:prefix,…` operational folders to catalog (`review/ approved/ previews/ pending_payment/` are refused) |
-| `STUDIO_DB_URL` | for Postgres | – (SQLite) | connection string for role **`gt_studio`** (search_path set by the role) |
+| `STUDIO_DB_URL` | only if the Supabase option is chosen | – (**local SQLite is the default**) | role **`gt_studio`**. On Supabase use the shared pooler, **session mode**: `postgresql://gt_studio.<project-ref>:<pw>@<pooler-host>:5432/postgres` (free, IPv4-compatible). Do not use port 6543. |
 | `STUDIO_R2_ACCOUNT_ID` or `STUDIO_R2_ENDPOINT` | for R2 | – | protected archive endpoint |
-| `STUDIO_R2_BUCKET` | for R2 | – | **a dedicated bucket, not the pipeline bucket** |
+| `STUDIO_R2_BUCKET` | only for the R2 offsite copy | – | the existing bucket is acceptable **only with a lock rule on the Studio prefix**; a dedicated bucket is optional |
 | `STUDIO_R2_ACCESS_KEY_ID` / `STUDIO_R2_SECRET_ACCESS_KEY` | for R2 | – | token scoped to that bucket only |
-| `STUDIO_R2_PREFIX` | no | `sources/` | object key prefix |
+| `STUDIO_R2_PREFIX` | no | `sources/` | use `gt-archive/` when sharing the existing bucket (the lock rule targets this prefix) |
 
 Wiring the R2 archive into the server (`server/main.mjs`) selects the backend from these variables (`r2ConfigFromEnv`).
 

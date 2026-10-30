@@ -1,5 +1,9 @@
 # Phase B status — evidence-based
 
+> **Plan change 2026-10-30 (zero extra cost):** see [`phase-b/INFRASTRUCTURE-DECISION.md`](phase-b/INFRASTRUCTURE-DECISION.md). Rows 2–4 below now read: archive = local write-once + independent encrypted backups
+> (R2 lock prefix and/or Hetzner append-only, subject to the read-only audits); database = local SQLite by default, Supabase `ground_truth` schema prepared and tested but **not deployed**.
+> New evidence: 8 PostgreSQL isolation tests incl. a Supabase-faithful replay (non-superuser migration, live role/ACL configuration read from the catalog), `db/verify-isolation.sql`, a guard that the inference workflow holds no database-admin credential.
+
 Branch: `ccr-5ce1d535-e7mo2b`. **Phase B is PARTIALLY COMPLETE**: all code, schema and tests exist and pass locally; no live resource was created, no real footage processed, no production run triggered.
 Legend: IMPLEMENTED = code exists · VERIFIED = executed with the evidence shown · NOT TESTED / BLOCKED as stated.
 
@@ -28,8 +32,9 @@ Legend: IMPLEMENTED = code exists · VERIFIED = executed with the evidence shown
 ## Findings worth your attention
 1. In the real pipeline, a `contain` decision is frequently **upgraded to follow-crop** by the existing `follow_crop` logic ("full_frame_readable+following_bound_track"). The EDL now makes that measurable; it is a product-contract question (contain-first), not changed here.
 2. The prior single-source EDL assumption was wrong for production: reels combine clips from several sources, so `edl/v1` gained per-shot `source`, `mode`, `keyframes`, and `blends` (backward compatible; old tests unchanged).
-3. R2 cannot grant an Object Read & Write token that excludes delete; deletion protection must come from bucket lock/retention and token separation (see A1).
-4. Supabase's transaction pooler is incompatible with multi-statement transactions; use direct/session connections.
+3. R2 cannot grant an Object Read & Write token that excludes delete; deletion protection must come from a bucket-lock rule (verified live by a probe before use) plus an independent second copy (see R1).
+4. Supabase direct connections are IPv6-only unless a paid add-on is bought; the free route is the shared pooler in **session mode** (port 5432). (An earlier draft wrongly said the transaction pooler breaks multi-statement transactions; it is simply untested with this adapter and not recommended.)
+5. In the live Supabase project the `postgres` role is a member of `pg_read_all_data`; anything holding its password (the `SUPABASE_DB_URL` secret, the dashboard) can read a same-project Ground Truth schema. The inference workflow holds no such secret (enforced by a test).
 
 ## Remaining work / limitations
 EDL covers geometry only (logo overlay and reel fades are listed, not modeled); xfade frames are excluded rather than approximated; follow-crop keyframes are sampled at integer output frames; perception/source dimension mismatch is flagged in `notes`; variable-frame-rate and rotated sources unverified; athlete-key mapping in the evaluator is co-occurrence based.
