@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "graphify": {
-      "command": "${HOME}/.local/bin/graphify-mcp",
-      "args": ["${PWD}/graphify-out/graph.json"],
+      "command": "bash",
+      "args": ["${PWD}/.claude/hooks/graphify-mcp.sh"],
       "env": {}
     },
     "maestro": {
