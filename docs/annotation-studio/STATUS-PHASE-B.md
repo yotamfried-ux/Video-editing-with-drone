@@ -8,7 +8,7 @@ Legend: IMPLEMENTED = code exists · VERIFIED = executed with the evidence shown
 |---|---|---|---|---|
 | 1 | Architecture + gap analysis | yes — `phase-b/ARCHITECTURE-GAP-MATRIX.md` | repo + read-only Supabase metadata inspection | Cloudflare account not inspected (no access) |
 | 2 | Protected archive | `R2Archive` (SigV4, checksums, multipart, no delete method), `mirrorArchive`, `probe-archive-protection.mjs` | 10 tests vs S3 stub: published AWS SigV4 vector, corruption in transit/at rest, multipart abort+retry, outage, credential hygiene, no object DELETE ever issued, mirror skips corrupt sources | **real R2**: NOT TESTED; **bucket+tokens**: BLOCKED (A1); retention-lock behavior unverified |
-| 3 | GT database schema/migrations | `db/migrations/0001`, `db/roles.sql`, runner, `PgDb` adapter | applied to local **PostgreSQL 16**; 61+ tests pass on SQLite **and** Postgres; idempotent migration + dry-run | **Supabase**: NOT TESTED; project/schema choice BLOCKED (A2) |
+| 3 | GT database schema/migrations | `db/migrations/0001`, `db/roles.sql`, runner, `PgDb` adapter | applied to local **PostgreSQL 16**; 62 tests pass on SQLite, 61 (+1 intentionally skipped) on Postgres; idempotent migration + dry-run | **Supabase**: NOT TESTED; project/schema choice BLOCKED (A2) |
 | 4 | Authorization/isolation tests | `tests/pg/isolation.test.mjs` | `anon`/`authenticated`/`service_role` (BYPASSRLS) denied on every GT table/view/function; Studio role: no DELETE/TRUNCATE/DDL, no UPDATE on history, no production tables; owner blocked by triggers; evaluator reads frozen views only; static scan: no production file references Studio | live role grants/Supabase default privileges: NOT TESTED |
 | 5 | Persistent Studio integration | backend selection (SQLite / Postgres, local / R2), importers, backup/restore/audit | qualification + backup tests on both backends | multi-user/RLS-per-user not in scope |
 | 6 | Pipeline EDL export | `pipeline/edl_export.py` + additive hook | **EDL ↔ real ffmpeg pixels** for contain, fixed crop, follow crop (6 tests); rendering args identical on/off; failure isolation; multi-source reel offsets match `editor._events_with_rendered_timeline`; blends listed | a real pipeline run: NOT RUN (A3); reused clip-cache flows record `clip_not_recorded` (incomplete EDL is flagged, never guessed) |
@@ -20,7 +20,8 @@ Legend: IMPLEMENTED = code exists · VERIFIED = executed with the evidence shown
 | 12 | Pull request | see PR | | |
 
 ## Test evidence (executed in this session)
-* Studio: `npm test` (SQLite) and `STUDIO_TEST_DB_URL=… npm test && npm run test:pg` (PostgreSQL 16) — see "Final runs" below.
+* Studio, SQLite: `npm test` — **62/62 passed**.
+* Studio, PostgreSQL 16 (local): `STUDIO_TEST_DB_URL=… npm test` — **61 passed, 1 skipped** (the SQLite-only direct-file tamper test), 0 failed; `npm run test:pg` role-isolation tests — **4/4 passed**.
 * Pipeline: `python scripts/test_edl_export_contract.py` (6) and `python scripts/test_prediction_export_contract.py` (4).
 * Browser: `npm run test:e2e` 17/17 (after Editing Review multi-source changes).
 
