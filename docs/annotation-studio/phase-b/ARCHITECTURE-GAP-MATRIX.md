@@ -33,6 +33,19 @@ It has **no** real R2, **no** Postgres/Supabase, and the pipeline emits **neithe
 | E | Studio consumes exports | file shapes | `import-edl`, `import-predictions`, mapping UI evidence | `edl.mjs`, `evaluate.mjs` | importers + `keyframes` in `edl/v1`, blend frames | importer validates hash against catalog; unknown sha → rejected | $0 | C, D | E2E: real render → EDL → evaluate |
 | F | Pipeline cannot reach GT | static scan only | DB-level denial proof, credential separation doc | — | role tests, CI scan | core requirement | $0 | B | `service_role`/`anon` denied on real PG (executed) |
 
+## 3a. Multi-sport requirement (spec §18, added by #311 after Phase B started) — **NOT IMPLEMENTED in this PR**
+
+| Requirement (§18) | Current state | Gap | Plan |
+|---|---|---|---|
+| `sports` registry + versioned taxonomy | none; `event_type` is a fixed surfing-oriented enum in `annotations.mjs` | missing | migration `0002_sports.sql`: `sports`, `sport_event_types`, `taxonomy_version`; seed `surfing` with today's event keys so legacy data stays valid |
+| `primary_sport_id` / `source_sports`, per-segment sport | none | missing | add nullable `sources.primary_sport_id` (NULL = `unknown`, **never** backfilled to surfing), segment `sport_id`; server-side sport/event compatibility validation |
+| Taxonomy pinned in revisions and frozen datasets | revisions have `schema_version` only | missing | add `taxonomy_version` to revision content + dataset manifest (digest-covered) |
+| Library sport badge/filter/bulk assign, inspector sport selector, Settings admin | none | UI work | extend Library/Annotate/Settings |
+| Sport-separated evaluation (no cross-sport matching, per-sport denominators) | evaluator is sport-blind | missing | group by `sport_id` in `evaluateSource` totals and reports |
+| Backward compatibility for surfing data | — | required | `0002` must be additive; existing 48+ tests must pass unchanged |
+
+Impact on what *is* in this PR: the Phase B schema (`0001`) is surfing-agnostic except the `event_type` values in application code, so `0002` is additive; the pipeline exporters carry `sport` only via event type today (`predictions/v1` has no `sport` field yet — add before the first real multi-sport run). **Needs a scheduling decision** (see PR description).
+
 ## 4. Isolation decisions (recommended; need operator choice)
 
 * **Archive:** separate R2 *bucket* + separate API token scoped to that bucket only (Cloudflare tokens can be scoped per bucket). Enable bucket-level retention/lock **if** available on the account, and **verify** with the probe script rather than assuming. Pipeline/web-api tokens must never be granted this bucket. Studio holds the only read/write token; the evaluator needs none (it reads frozen annotation exports, not footage).

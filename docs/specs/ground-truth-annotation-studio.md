@@ -261,7 +261,48 @@ Approved: single-user desktop-first local interface; Precision Studio as primary
 
 Pending: precise archive service/cost and retention settings; consent and source retention; final visual details; local-only versus localhost UI with protected remote backend; approval of any real cloud resource creation and last-run reset. Claude should make reversible defaults for mock implementation, clearly flag decisions needing authorization, and continue non-destructive work rather than blocking on minor styling choices.
 
-## 18. Implementation notes (as built — M1–M5 local implementation)
+## 18. Multi-sport catalog and sport-aware annotation (approved requirement)
+
+The catalog is **multi-sport by design**; surfing is the initial reference workflow, not a hardcoded system-wide assumption. The existing SportReel README requires sport-specific action definitions with a shared athlete/reel business contract.
+
+### 18.1 Taxonomy and data contracts
+
+- Add a versioned `sports` registry: stable machine key (e.g. `surfing`, `football`, `basketball`, `tennis`), Hebrew/English display names, enabled flag, schema/taxonomy version. Do not rely on translated display strings as identifiers.
+- Each source has an explicit `primary_sport_id` or `unknown/unclassified` until reviewed; optional many-to-many `source_sports` supports mixed-sport footage, with sport assignment per segment authoritative when different. Never infer or overwrite operator-confirmed sport from filename or AI guesses.
+- Add `sport_event_types` with stable sport-scoped event keys, display labels, optional parent event category and configurable required attributes. Examples: surfing `wave_ride`, `takeoff_attempt`, `paddling`; football `shot`, `pass`, `goal`; basketball `shot`, `assist`, `rebound`; tennis `serve`, `rally`, `point`. These are initial examples, not exhaustive or hardcoded enum restrictions.
+- Every segment references a sport and a sport-scoped event type; validate compatibility server-side and in UI. Preserve historical taxonomy version in approved annotation revisions and frozen datasets; retiring an event type must not invalidate existing annotations.
+- Keep sport-neutral base entities: sources, athletes, appearances, tracks, segments, boxes, reviewed ranges, revisions, datasets, predictions and evaluations. Sport-specific attributes live in versioned validated extension payloads or normalized tables when justified, not dozens of nullable sport-specific columns.
+- Support operator correction of sport labels and bulk classification for uploads, with auditable revisions; do not silently reclassify approved data.
+
+### 18.2 UX and ingestion
+
+- Library displays sport badge, sport filter, `Unclassified` queue and bulk assign action. New footage may have a suggested sport from metadata/model, but suggestion is clearly labeled and requires confirmation.
+- Annotation inspector sport selector determines available event types and relevant sport-specific fields. Changing sport warns about incompatible existing event labels and offers explicit remapping; never delete them automatically.
+- Segment timeline and athlete identity remain sport-agnostic. Multiple sports can appear in one source; event overlap and athlete attribution remain supported.
+- Settings includes sport/event taxonomy administration, with validation, versioning and no-code addition of new sports/event types.
+
+### 18.3 Sport-aware evaluation
+
+- Evaluation config and metrics declare sport/taxonomy version and event matching policy. Shared metrics: timing, athlete identity, track continuity, subject visibility, source/output lineage and technical output QA.
+- Sport-specific metrics: surfing wave completeness and wave context; football play/action context; basketball ball/hoop context where annotated; tennis court/ball context where annotated. Do not claim to measure unannotated ball/wave/court context automatically.
+- Maintain shared contain-first framing and publishable-reel contract across sports; do not introduce crop changes merely to improve a sport-specific score.
+- Split datasets by source/session and athlete as appropriate, stratify by sport where feasible, and report per-sport quality and coverage. Do not aggregate scores across sports without denominators and transparent weighting.
+- Existing surfing labels/data remain readable after migration; supply migration/backfill with explicit `unknown` where sport cannot be proven rather than assuming every historical video is surfing.
+
+### 18.4 Acceptance tests
+
+1. Import surfing, football and mixed-sport sources; classify/filter by sport, including unknown.
+2. Create sport-specific segments in one source, validate incompatible sport/event pairs are rejected.
+3. Add a new sport and event type through configuration without application code changes.
+4. Reclassify a draft and preserve audit history; approved historical revisions and frozen datasets remain unchanged.
+5. Produce sport-separated evaluation reports, with no cross-sport event matching.
+6. Verify legacy surfing annotations and existing pipeline workflows remain backward compatible.
+
+### Phase B implementation impact
+
+Include sport registry, sport-event taxonomy, source and segment sport classification, versioned schemas, sport-aware ingestion/UI filters and evaluation grouping in Phase B's gap matrix and migrations. Prefer schema-driven extensibility over sport-specific forks. Build and test the general contract with surfing and at least one additional sport, without requiring production changes until explicitly approved.
+
+## 19. Implementation notes — M1–M5 (as built)
 
 Product requirements above are unchanged. These are technical adaptations discovered during implementation (see `annotation-studio/` and `docs/annotation-studio/STATUS.md`):
 
@@ -273,7 +314,7 @@ Product requirements above are unchanged. These are technical adaptations discov
 - **Editing evaluation:** `edl/v1` (shots with linear crop interpolation in source pixels, optional output rotation, optional `subject_track`); `contain` is never scored against a centre target; no EDL or `mapping:"visual_match"` ⇒ `NOT_EVALUABLE`/`unverified_mapping`. The production pipeline does not emit this format yet (separate approval).
 - **Evaluator identity mapping:** pipeline athlete keys are mapped to GT athletes by deterministic co-occurrence over temporally matched events; deviations are reported as `wrong_athlete`.
 
-## 19. Implementation notes — Phase B (infrastructure and pipeline integration)
+## 20. Implementation notes — Phase B (infrastructure and pipeline integration)
 
 Status of live infrastructure and real-footage validation: see `docs/annotation-studio/STATUS-PHASE-B.md`. Product requirements are unchanged; technical adaptations:
 
