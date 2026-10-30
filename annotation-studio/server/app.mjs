@@ -162,8 +162,8 @@ export function createApp(ctx) {
     throw new ApiError('NOT_FOUND');
   }
 
-  function media(req, res, id, kind) {
-    let file;
+  async function media(req, res, id, kind) {
+    let file = null, archiveKey = null;
     if (kind === 'out') {
       const e = db.prepare('select payload from edl_records where id=?').get(id);
       const f = e && JSON.parse(e.payload).output_file;
@@ -171,20 +171,25 @@ export function createApp(ctx) {
     } else {
       const s = db.prepare('select * from sources where id=?').get(id);
       if (!s) return send(res, 404, { code: 'NOT_FOUND' });
-      file = kind === 'thumb' ? s.thumb_path : kind === 'proxy' ? s.proxy_path : (s.archive_key ? ctx.archive.pathFor(s.archive_key) : null);
+      if (kind === 'original') archiveKey = s.archive_key; else file = kind === 'thumb' ? s.thumb_path : s.proxy_path;
     }
-    if (!file || !existsSync(file)) return send(res, 404, { code: 'SOURCE_UNAVAILABLE' });
-    const size = statSync(file).size, type = kind === 'thumb' ? 'image/jpeg' : (MIME[path.extname(file)] ?? 'application/octet-stream');
+    const type = kind === 'thumb' ? 'image/jpeg' : kind === 'original' ? 'video/mp4' : (MIME[path.extname(file ?? '')] ?? 'application/octet-stream');
+    let size, open;
+    if (archiveKey) {
+      size = await ctx.archive.size(archiveKey);
+      open = o => ctx.archive.open(archiveKey, o);
+    } else if (file && existsSync(file)) { size = statSync(file).size; open = async o => createReadStream(file, o); }
+    if (size == null) return send(res, 404, { code: 'SOURCE_UNAVAILABLE' });
     const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range ?? '');
     if (range) {
       let a = range[1] === '' ? size - Number(range[2]) : Number(range[1]);
       let b = range[1] !== '' && range[2] !== '' ? Number(range[2]) : size - 1;
       if (!(a >= 0 && b < size && a <= b)) { res.writeHead(416, { 'content-range': `bytes */${size}` }); return res.end(); }
       res.writeHead(206, { 'content-type': type, 'content-range': `bytes ${a}-${b}/${size}`, 'accept-ranges': 'bytes', 'content-length': b - a + 1, 'cache-control': 'private, max-age=60' });
-      return createReadStream(file, { start: a, end: b }).pipe(res);
+      return (await open({ start: a, end: b })).pipe(res);
     }
     res.writeHead(200, { 'content-type': type, 'accept-ranges': 'bytes', 'content-length': size, 'cache-control': 'private, max-age=60' });
-    createReadStream(file).pipe(res);
+    (await open()).pipe(res);
   }
 
   function serveStatic(res, pathname) {
@@ -211,7 +216,7 @@ export function createApp(ctx) {
           if (o && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(o)) return send(res, 403, { code: 'PERMISSION_DENIED' });
         }
         const mm = /^\/media\/([\w-]+)\/(proxy|thumb|original|out)$/.exec(url.pathname);
-        if (mm) return media(req, res, mm[1], mm[2]);
+        if (mm) return await media(req, res, mm[1], mm[2]);
         return await api(req, res, url);
       }
       return serveStatic(res, url.pathname);

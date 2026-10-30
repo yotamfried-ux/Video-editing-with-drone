@@ -115,7 +115,8 @@ test('Studio code never imports from or reads pipeline/web-api secrets', () => {
   const bad = [];
   for (const d of ['server', 'web', 'scripts']) for (const f of files2(path.join(here, d))) {
     const t = readFileSync(f, 'utf8');
-    if (/OPERATOR_SECRET|SUPABASE_SERVICE_KEY|GOOGLE_SERVICE_ACCOUNT|R2_SECRET|from ['"]\.\.\/\.\.\//.test(t)) bad.push(path.relative(here, f));
+    // Studio has its own STUDIO_* credentials; the pipeline's production variable names must never appear unprefixed.
+    if (/OPERATOR_SECRET|SUPABASE_SERVICE_KEY|SUPABASE_URL|GOOGLE_SERVICE_ACCOUNT|(?<![A-Z_])R2_(SECRET_ACCESS_KEY|ACCESS_KEY_ID|BUCKET|ACCOUNT_ID)|SECRET_KEY_ID|from ['"]\.\.\/\.\.\//.test(t)) bad.push(path.relative(here, f));
   }
   assert.deepEqual(bad, []);
 });

@@ -55,8 +55,9 @@ async function archiveAndDerive(ctx, src, filePath) {
     audit(ctx.db, 'system', 'archive_failed', src.id, { error: e.message });
     return { ok: false, error: e.message };
   }
-  // Derivatives are best-effort: a missing thumbnail must never block annotation.
-  const archived = ctx.archive.pathFor(ctx.db.prepare('select archive_key k from sources where id=?').get(src.id).k);
+  // Derivatives are best-effort: a missing thumbnail must never block annotation. They are built from the file whose
+  // bytes were just verified into the archive (works for any archive backend, local or remote).
+  const archived = filePath;
   const m = ctx.db.prepare('select fps_num,fps_den from sources where id=?').get(src.id);
   const dir = path.join(ctx.cacheDir, src.id);
   try {
