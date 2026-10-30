@@ -36,15 +36,19 @@ test('splits are deterministic, group-consistent, and the held-out test set is p
   const { db, srcs } = await world(4);
   db.prepare("update sources set session_key='same-day' where id in (?,?)").run(srcs[0].id, srcs[1].id);
   for (const s of srcs) approveWith(db, s, c => c.segments.push(seg('a', 5, 40)));
-  const a = D.freezeDataset(db, { name: 'a', sourceIds: srcs.map(s => s.id) });
+  const ids = srcs.map(s => s.id);
+  const a = D.freezeDataset(db, { name: 'a', sourceIds: ids });
   const sp = Object.fromEntries(a.manifest.members.map(m => [m.source_id, m.split]));
   assert.equal(sp[srcs[0].id], sp[srcs[1].id], 'same session shares a split');
-  const b = D.freezeDataset(db, { name: 'b', sourceIds: srcs.map(s => s.id), policy: { seed: 'other-seed', ratios: { train: 0.9, validation: 0.05, test: 0.05 } } });
+  // Determinism: freezing the same inputs again, with no other dataset in between, reproduces the manifest byte for byte.
+  // (Source ids are random UUIDs, so the held-out set differs from run to run; the comparison must not straddle a second freeze.)
+  const a2 = D.freezeDataset(db, { name: 'a', sourceIds: ids });
+  assert.equal(a2.digest, a.digest, 'same inputs => identical manifest digest');
+  // Permanence: whatever a later dataset's policy says, anything that was ever in a test split stays in test.
+  const b = D.freezeDataset(db, { name: 'b', sourceIds: ids, policy: { seed: 'other-seed', ratios: { train: 0.9, validation: 0.05, test: 0.05 } } });
   for (const m of a.manifest.members.filter(m => m.split === 'test')) {
     assert.equal(b.manifest.members.find(x => x.source_id === m.source_id).split, 'test', 'previously held-out stays test');
   }
-  const a2 = D.freezeDataset(db, { name: 'a', sourceIds: srcs.map(s => s.id) });
-  assert.equal(a2.digest, a.digest, 'same inputs => identical manifest digest');
 });
 
 test('freeze refuses sources with no approved revision', async () => {
