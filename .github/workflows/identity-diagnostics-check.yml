@@ -1,0 +1,19 @@
+name: Identity Diagnostics Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/identity-diagnostics-check.yml'
+      - 'scripts/print_run_diagnostics.py'
+      - 'scripts/test_identity_diagnostics_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate identity diagnostics contract
+        run: python scripts/test_identity_diagnostics_contract.py
