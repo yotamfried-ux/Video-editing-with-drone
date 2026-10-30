@@ -11,7 +11,7 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from pipeline.perception.producer import detections_from_ultralytics_result, generate_sidecar
+from pipeline.perception.producer import _tensor_values, detections_from_ultralytics_result, generate_sidecar
 from pipeline.perception.track_stitching import stitch_sidecar_payload
 
 _ULTRALYTICS_BACKENDS = {"ultralytics", "yolo", "yolo_track"}
@@ -54,6 +54,45 @@ def _write_json(path: Path, payload: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+class _DetectorStats:
+    """What the detector saw, independent of whether the tracker confirmed an ID.
+
+    A sidecar with zero tracked detections is rejected by the production policy. These counters tell
+    "nothing person-like in any sampled frame" (raw_person_boxes == 0) apart from "persons were detected
+    but the tracker never confirmed a track" (raw_person_boxes > 0), which need different fixes.
+    """
+
+    def __init__(self) -> None:
+        self.frames = 0
+        self.raw_boxes = 0
+        self.max_confidence: float | None = None
+        self.width = 0
+        self.height = 0
+
+    def observe(self, result: Any) -> None:
+        self.frames += 1
+        try:
+            shape = getattr(result, "orig_shape", None) or (0, 0)
+            self.height, self.width = int(shape[0]), int(shape[1])
+            boxes = getattr(result, "boxes", None)
+            confidences = [float(value) for value in _tensor_values(getattr(boxes, "conf", None))]
+            self.raw_boxes += len(confidences)
+            if confidences:
+                best = max(confidences)
+                self.max_confidence = best if self.max_confidence is None else max(self.max_confidence, best)
+        except Exception:  # noqa: BLE001 - statistics must never break detection
+            pass
+
+    def as_payload(self) -> dict[str, Any]:
+        return {
+            "frames_processed": self.frames,
+            "raw_person_boxes": self.raw_boxes,
+            "max_person_confidence": None if self.max_confidence is None else round(self.max_confidence, 3),
+            "frame_width": self.width,
+            "frame_height": self.height,
+        }
+
+
 def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
     model = (args.ultralytics_model or os.getenv("SPORTREEL_ULTRALYTICS_MODEL", "")).strip()
     if not model:
@@ -81,7 +120,9 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
 
     model_obj = YOLO(model)
     detections: list[dict[str, Any]] = []
+    seen = _DetectorStats()
     for result_index, result in enumerate(model_obj.track(**track_kwargs)):
+        seen.observe(result)
         detections.extend(detections_from_ultralytics_result(result, frame_index=result_index * stride, fps=fps))
 
     payload = {
@@ -93,6 +134,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
         "vid_stride": stride,
         "imgsz": imgsz,
         "classes": [0],
+        **seen.as_payload(),
         "detections": detections,
     }
     payload = stitch_sidecar_payload(payload, source_video=args.video_path)

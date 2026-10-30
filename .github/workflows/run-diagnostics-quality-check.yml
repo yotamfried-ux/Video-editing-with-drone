@@ -1,0 +1,21 @@
+name: Run Diagnostics Quality Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/run-diagnostics-quality-check.yml'
+      - 'scripts/print_run_diagnostics.py'
+      - 'scripts/generate_perception_sidecar.py'
+      - 'scripts/test_run_diagnostics_quality_sidecar_contract.py'
+      - 'pipeline/perception/runtime.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate run diagnostics and sidecar counters contract
+        run: PYTHONPATH=. python scripts/test_run_diagnostics_quality_sidecar_contract.py

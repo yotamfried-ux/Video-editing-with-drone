@@ -49,6 +49,7 @@ _MAX_NEAREST_SEC = 1.0
 _DIAGNOSTIC_LIMIT = 4000
 _TRUE_VALUES = {"1", "true", "yes", "on", "required"}
 _REUSABLE_SIDECAR_STATUSES = {"ok"}
+_DETECTOR_STAT_KEYS = ("frames_processed", "raw_person_boxes", "max_person_confidence", "frame_width", "frame_height")
 
 
 def _truthy_env(name: str) -> bool:
@@ -173,7 +174,19 @@ def _is_reusable_sidecar(summary: dict[str, Any]) -> bool:
 
 
 def _non_reusable_error(summary: dict[str, Any]) -> str:
-    return f"Perception producer did not create a reusable sidecar: status={summary.get('status')} reason={summary.get('reason')}"
+    message = f"Perception producer did not create a reusable sidecar: status={summary.get('status')} reason={summary.get('reason')}"
+    if "frames_processed" in summary:
+        raw = summary.get("raw_person_boxes")
+        message += (
+            f" (detection_count={summary.get('detection_count')} frames_processed={summary.get('frames_processed')} "
+            f"raw_person_boxes={raw} max_person_confidence={summary.get('max_person_confidence')} "
+            f"frame_size={summary.get('frame_width')}x{summary.get('frame_height')}; "
+            + ("persons were detected but the tracker never confirmed a track"
+               if isinstance(raw, int) and raw > 0 and not summary.get("detection_count")
+               else "no person-like detection in any sampled frame")
+            + ")"
+        )
+    return message
 
 
 def _producer_status_from_sidecar(summary: dict[str, Any]) -> str:
@@ -226,12 +239,17 @@ def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[
     if not isinstance(payload.get("detections", []), list):
         raise ValueError("perception sidecar detections must be a list")
     detections = _detections_from_payload(video_path, payload)
-    return {
+    summary = {
         "path": str(path),
         "status": str(payload.get("status") or "ok"),
         "reason": payload.get("reason"),
         "detection_count": len(detections),
     }
+    # Detector-side counters written by scripts/generate_perception_sidecar.py (absent in older sidecars).
+    for key in _DETECTOR_STAT_KEYS:
+        if key in payload:
+            summary[key] = payload[key]
+    return summary
 
 
 def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
