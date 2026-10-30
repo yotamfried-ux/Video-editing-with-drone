@@ -5,7 +5,7 @@ output shot, which source frames were shown and with which crop / scale / paddin
 that were handed to ffmpeg. It never influences a rendering decision, never reads annotations, and is a no-op
 unless ``SPORTREEL_EXPORT_EDL=1``.
 
-Schema ``edl/v1`` (consumed by annotation-studio/server/edl.mjs):
+Schema ``edl/v1`` (a plain JSON contract for any external evaluator; the pipeline knows no consumer):
 
     {schema, output_id, run_id, pipeline_commit, exported_at?, output:{width,height,fps,file,duration_sec},
      mode: contain|tracked_crop|mixed, rotation, mapping: "edl", source / source_sha256 (single-source reels),

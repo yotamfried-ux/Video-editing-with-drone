@@ -94,17 +94,17 @@ export function importPredictions(db, { run_id, pipeline_version, sources }) {
 
 export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
   const p = { ...DEFAULT_PARAMS, ...params };
-  const ds = db.prepare('select * from dataset_versions where id=?').get(dataset_id);
+  // The evaluator reads frozen ground truth ONLY through these views (its DB role has no other access).
+  const ds = db.prepare('select * from frozen_datasets where id=?').get(dataset_id);
   const pr = db.prepare('select * from pipeline_predictions where id=?').get(prediction_id);
   if (!ds || !pr) throw new ApiError('NOT_FOUND');
   const preds = new Map(JSON.parse(pr.payload).sources.map(s => [s.source_sha256, s.events]));
   const per = [];
   const tot = { gt_included: 0, predictions: 0, matched: 0, missed: 0, duplicates: 0, predicted_excluded: 0, false_positives: 0,
     unreviewed_predictions: 0, uncertain_overlap: 0, attributable: 0, correct_attribution: 0, sum_abs_start_error: 0, sum_abs_end_error: 0 };
-  const members = db.prepare('select * from dataset_members where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
+  const members = db.prepare('select * from frozen_revisions where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
   for (const m of members) {
-    const rev = db.prepare('select content from annotation_revisions where id=?').get(m.revision_id);
-    const gt = JSON.parse(rev.content);
+    const gt = JSON.parse(m.content);
     const events = preds.get(m.sha256);
     const r = evaluateSource(gt, events ?? [], p);
     per.push({ sha256: m.sha256, split: m.split, revision_id: m.revision_id, has_prediction: !!events, ...r });
@@ -132,7 +132,7 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
 }
 
 export function listEvaluations(db) {
-  return db.prepare('select e.id,e.created_at,e.digest,e.report,d.name dataset_name from evaluation_runs e join dataset_versions d on d.id=e.dataset_id order by e.created_at desc').all()
+  return db.prepare('select e.id,e.created_at,e.digest,e.report,d.name dataset_name from evaluation_runs e join frozen_datasets d on d.id=e.dataset_id order by e.created_at desc').all()
     .map(e => { const r = JSON.parse(e.report); return { id: e.id, created_at: e.created_at, digest: e.digest, dataset_name: e.dataset_name,
       pipeline_version: r.pipeline_version, run_id: r.run_id, metrics: r.metrics, totals: r.totals }; });
 }

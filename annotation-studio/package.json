@@ -3,13 +3,20 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Local single-operator Ground Truth annotation studio. Zero npm dependencies; isolated from the production pipeline and web-api.",
-  "engines": { "node": ">=22.13" },
+  "description": "Local single-operator Ground Truth annotation studio. SQLite+local archive by default (zero dependencies); optional PostgreSQL (pg) and S3/R2 archive backends. Isolated from the production pipeline and web-api.",
+  "engines": {
+    "node": ">=22.13"
+  },
   "scripts": {
     "start": "node server/main.mjs",
     "seed": "node scripts/seed-demo.mjs",
     "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.mjs",
     "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/run.mjs",
-    "check": "node scripts/check-syntax.mjs"
+    "check": "node scripts/check-syntax.mjs",
+    "migrate": "node scripts/gt-migrate.mjs",
+    "test:pg": "node --disable-warning=ExperimentalWarning --test tests/pg/*.test.mjs"
+  },
+  "optionalDependencies": {
+    "pg": "8.13.1"
   }
 }

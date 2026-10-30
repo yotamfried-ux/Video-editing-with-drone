@@ -160,7 +160,7 @@ export async function reconcile(ctx, { roots, batchLabel = `reconcile-${now().sl
 function upsertJob(ctx, key, batchId) {
   const t = now();
   ctx.db.prepare(`insert into ingestion_jobs(origin_key,batch_id,state,attempts,created_at,updated_at) values(?,?,'running',1,?,?)
-    on conflict(origin_key,batch_id) do update set state='running', attempts=attempts+1, updated_at=excluded.updated_at`).run(key, batchId, t, t);
+    on conflict(origin_key,batch_id) do update set state='running', attempts=ingestion_jobs.attempts+1, updated_at=excluded.updated_at`).run(key, batchId, t, t);
   return ctx.db.prepare('select id from ingestion_jobs where origin_key=? and batch_id=?').get(key, batchId).id;
 }
 function finishJob(ctx, id, state, error, sourceId) {

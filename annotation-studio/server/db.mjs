@@ -1,6 +1,7 @@
 // Isolated Ground Truth database. Every access to SQLite lives behind this module
 // so a Postgres adapter can replace it without touching callers.
 import { DatabaseSync } from 'node:sqlite';
+import { PgDb } from './pgdb.mjs';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
 
@@ -116,6 +117,12 @@ create table if not exists crop_proposals(
     check(status in ('proposal','approved')), payload text not null, created_at text not null
 );
 
+create view if not exists frozen_revisions as
+  select m.dataset_id, m.split, m.sha256, r.id as revision_id, r.digest, r.content
+  from dataset_members m join annotation_revisions r on r.id = m.revision_id;
+create view if not exists frozen_datasets as
+  select id, name, created_at, digest, manifest from dataset_versions;
+
 create table if not exists audit_log(
   id integer primary key autoincrement, at text not null, actor text not null,
   action text not null, subject text, detail text
@@ -127,7 +134,17 @@ const IMMUTABLE = ['annotation_revisions', 'dataset_versions', 'dataset_members'
   'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log'];
 const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences'];
 
-export function openDb(home) {
+/**
+ * Backend selection: PostgreSQL when `url` (or STUDIO_DB_URL) is given — the schema/roles are applied by
+ * scripts/gt-migrate.mjs with an admin connection, never by the running app — otherwise local SQLite under `home`.
+ */
+export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
+  if (url) {
+    const db = new PgDb(url, { ssl });
+    const v = db.prepare("select value from meta where key='schema_version'").get();
+    if (!v) throw new Error('Ground Truth schema not found: run scripts/gt-migrate.mjs first');
+    return db;
+  }
   mkdirSync(home, { recursive: true });
   const db = new DatabaseSync(path.join(home, 'studio.sqlite'));
   db.exec('pragma journal_mode=WAL; pragma foreign_keys=on; pragma busy_timeout=5000;');

@@ -69,3 +69,4 @@ web-api/*.tsbuildinfo
 annotation-studio/.demo-home/
 annotation-studio/.e2e-home/
 annotation-studio/tests/e2e/shots-tmp/
+annotation-studio/node_modules/
