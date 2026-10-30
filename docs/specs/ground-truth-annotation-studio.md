@@ -1,4 +1,4 @@
-# SportReel Annotation Studio — Product & Engineering Specification (DRAFT)
+# SportReel Annotation Studio — Product & Engineering Specification
 
 Status: **APPROVED DESIGN DIRECTION: Precision Studio / implementation specification**  
 Date: 2026-10-30  
@@ -74,7 +74,7 @@ Autosave drafts with optimistic concurrency, offline/error indication and recove
 - Model-training exports (JSONL/COCO-like or task-specific) are generated from **approved** revisions only, with schema versions, provenance, licensing/consent review and reproducible manifests. This spec does not authorize training or biometric identification.
 - Error-review screen shows human segment, prediction, corresponding original frames, pipeline outputs, and source-to-render lineage. Preserve historical comparisons across model versions.
 
-## 8. UX concepts — pending explicit approval
+## 8. Approved primary UX and supporting screens
 
 The operator selected **A — Precision Annotation Workbench** as the approved primary screen. B (library/batch ingestion) and C (evaluation) remain supporting screens, not competing primary UI designs. Detailed visual polish remains iterative:
 
@@ -87,7 +87,7 @@ Card/grid of source thumbnails, upload batch, duration, archive verification, an
 **C — Athlete & Evaluation Explorer**  
 Athlete directory with appearance galleries and uncertainty flags; side-by-side human-versus-pipeline video/timeline with highlighted misses, wrong identities and duplicates; filter by pipeline run/dataset version. Good for QA and model iteration.
 
-Proposed navigation: Library | Annotate | Athletes | Datasets | Evaluations | Settings. All screens must display source archive integrity and save/sync status where relevant. User must approve layouts, field density, keyboard interaction and light/dark visual direction before UI implementation.
+Proposed navigation: Library | Annotate | Athletes | Datasets | Evaluations | Settings. All screens must display source archive integrity and save/sync status where relevant. Precision Studio layout is approved; visual styling can be refined through a local clickable prototype without reopening the architecture decision.
 
 ### Example interaction
 
@@ -175,3 +175,88 @@ Implement in stages with tests and review gates:
 5. End-to-end regression, recovery, authorization-denial and backup-restore tests.
 
 Do not run destructive reset, remove production outputs, change production credentials or deploy paid infrastructure without explicit operator approval. Treat generated UI mockups as conceptual references rather than source assets or implemented screens.
+
+## 14. Existing SportReel product contract — MUST NOT REGRESS
+
+Read repository `README.md` and `docs/operator-pipeline-contract.md` before implementation. The canonical business contract is **one featured athlete per silent, vertical publishable reel**, complete eligible actions, evidence-backed hard rejects, and QA fail-closed. In particular:
+
+- Default framing is **contain**, keeping the entire 4K source frame inside the 9:16 canvas. Source production is 4K/30 and canonical output 2160x3840/30, silent, maximum 90 seconds. Tracked destructive crop/zoom is exceptional and requires evidence-backed necessity; **do not change pipeline defaults** merely to optimize a centering score.
+- Therefore editing evaluation must distinguish `contain` from `tracked_crop` and `pad` (if present). For `contain`, measure position and readability within the displayed source region and output canvas separately; do not classify a correct contain render as a crop failure. For tracked crop, calculate actual crop geometry and subject visibility.
+- A surfer need not occupy geometric center in every frame; valid context, wave direction and full-source containment matter. An isolated high centering-error score is not grounds to discard a publishable reel.
+- Other surfers in frame are expected. Never mark a reel wrong merely because another surfer appears; only target identity switch/attribution is a defect.
+- No face enrollment, face embeddings or biometric account matching. Existing mandatory detector/tracker evidence stays mandatory; no Gemini-only fallback.
+- Keep operator controls behind existing security boundary, and avoid interfering with upload, reset, approval, payment or delivery flows.
+
+## 15. Implementation-ready UI interaction specification
+
+### 15.1 Navigation and layout
+
+Desktop baseline: 1440x900 viewport, responsive minimum 1280x720, RTL chrome, LTR video timecodes. Top bar shows project name, source name, source archive verified indicator, annotation revision and save status. Left collapsible sidebar: Library, Annotate, Athletes, Datasets, Evaluations, Settings.
+
+Precision Studio:
+- Main video viewport should occupy most available width. Show bbox overlays with stable color per appearance and selected athlete ID; clicking a box selects that appearance. Overlay visibility toggle must not modify saved labels.
+- Below player: synchronized scrubber and zoomable timeline; one track per surfer plus optional global event/review track; overlapping segments allowed. Show event bars, explicit reviewed intervals and unknown/unreviewed areas distinctly.
+- Right inspector: selected source and segment, athlete assignment, event kind, decision include/exclude/uncertain, reject reason, notes, bbox/keyframe controls and approval. Collapsible to prioritize footage.
+- Video controls: play/pause, frame step, playback speed 0.25x/0.5x/1x/2x, jump to next segment, in/out marks, timecode, zoom timeline, fit timeline, keyboard shortcut help.
+- Editing Review: side-by-side synchronized source and final render, source-to-output mapping indicator (verified/unverified), bbox/crop overlays, centering and visibility graphs, jump-to-failure list, proposed crop preview.
+- Library: thumbnail grid/table toggle, search, batch/date/status filters, archive verification badge, count of approved/reviewed/unreviewed, `Continue annotation` CTA. Missing thumbnails do not block annotation.
+
+### 15.2 Interaction states and validation
+
+- Press `I` to set start; `O` to set end; create segment only if end > start and both are inside the source duration. Store half-open `[start_frame,end_frame)` interval for constant-FPS sources; for variable-FPS use exact presentation timestamps and indexed frame references.
+- An event can overlap other events and have multiple appearance references if supported; the featured athlete must be explicit for athlete-specific evaluation. If unknown, choose `unknown`, never silently guess.
+- Bounding box normalized `x,y,w,h` values each within [0,1], with positive width/height and box constrained to image bounds. Source dimensions and rotation are recorded. User can correct a proposed track at keyframes; generated interpolation is visually distinguished from manually confirmed boxes.
+- Approve only after operator explicitly reviews the relevant interval and sees unresolved unknown/uncertain counts. Do not force all footage to be annotated before saving partial revisions; approval scope (segment/interval/source) must be explicit.
+- Save status: `saving`, `saved`, `offline/pending`, `conflict`, `failed`; unsaved work must not be silently lost. Use local durable draft queue with replay and conflict UI, not local cache as authoritative storage.
+- Accessibility: labels for controls, visible focus, contrast, non-color-only meaning, keyboard-only segment workflow, reduced motion where possible.
+
+### 15.3 Example operator journey
+
+Open Library -> select new batch -> source with verified archive -> player loads proxy preserving original timestamp mapping -> choose surfer or create new pseudonymous ID -> I/O segment -> classify wave -> draw bbox on 2–3 keyframes -> optionally request tracking proposal -> review/correct -> mark reviewed time range -> save draft -> approve revision -> freeze dataset -> run blind evaluator later. If source moves from raw to processed at any point, reload shows same source UUID, exact segment frames and approved revision.
+
+## 16. Technical contracts and failure handling
+
+### 16.1 Logical API (adapt paths to actual repo conventions after discovery)
+
+- `GET /annotation/sources?status=&batch=&cursor=` paginated catalog; `GET /annotation/sources/:id` metadata and secure short-lived playback URL for protected archive.
+- `POST /annotation/ingestion/reconcile` idempotent operator-only reconciliation trigger; asynchronous job returns job ID/status. Never blindly import generated output prefixes.
+- `GET /annotation/sources/:id/revisions`, `POST /annotation/sources/:id/drafts` with expected revision/ETag, `POST /annotation/sources/:id/approve` with expected draft version; server validates frames and identity references.
+- `GET/POST /annotation/athletes`, `GET/POST /annotation/datasets`, `POST /annotation/evaluations` (async, immutable version IDs), `GET /annotation/evaluations/:id`.
+- `GET /annotation/outputs/:id/edl` and `POST /annotation/edits/:id/proposals` for editing QA. A proposal must never overwrite production output.
+- API responses use consistent error codes: `INVALID_INTERVAL`, `INVALID_BBOX`, `VERSION_CONFLICT`, `ARCHIVE_UNVERIFIED`, `SOURCE_UNAVAILABLE`, `PERMISSION_DENIED`, `EDL_UNVERIFIED`, `INGEST_RETRYABLE`. Return human-readable Hebrew messages without exposing internal credentials.
+- Pagination and bounded preview generation are mandatory for large collections; no loading 50 full-resolution videos into the browser simultaneously.
+
+### 16.2 DB and ingestion invariants
+
+- Unique index on exact `(sha256, byte_size)` for original content, with a collision/verification fallback; source UUID never changes. Multiple upload occurrences may point to one source.
+- Ingestion is idempotent under repeated webhook delivery, batch re-import and reconcile; status transitions are transactional and auditable. Mark `ready` only after archive integrity verification.
+- Avoid direct production storage rename as a prerequisite for annotation. Archive and catalog operations must be non-destructive.
+- Never place service credentials in `NEXT_PUBLIC_*`, browser bundles, logs or test fixtures. Use least-privilege separate principals; include negative authorization tests.
+- Data migrations are reversible where feasible, applied in test environment first, and do not alter production pipeline tables or policies without separate approval.
+- Dataset split assignment groups near-duplicate recordings/sessions and linked athlete appearances to prevent leakage; freeze revision/hash manifests.
+
+### 16.3 Explicit evaluation formulas
+
+For a reviewed output frame with verified mapping, transform source bbox through actual EDL geometry to output pixel bbox. Normalize center to `(cx/Wout,cy/Hout)`. For operator target `(tx,ty)`, centering error is `sqrt((cx/Wout-tx)^2+(cy/Hout-ty)^2)`. Report distribution and coverage denominator. Edge violation when transformed bbox intersects operator-configured unsafe margin; visibility uses intersection area with displayed output bounds, while separately tracking occlusion. Crop smoothness uses timestamp-normalized derivatives of crop center/scale, excluding genuine edit cuts; compare only within continuous shots. Record thresholds/config and evaluator version. When evidence is missing, report `NOT_EVALUABLE` rather than a passing metric.
+
+### 16.4 Recommended delivery milestones and definition of done
+
+**M0 — Discovery + plan:** inventory exact repository routes, migrations, workflows, R2 lifecycle and output manifests. Produce gap matrix and implementation plan with file paths, dependencies, risks, tests and estimated complexity. No production changes.
+
+**M1 — Safe local prototype:** clickable Precision Studio with synthetic/mock source and bbox/timeline, keyboard workflow and save states; operator can review layout. No real storage writes.
+
+**M2 — Durable catalog:** isolated archive/database, migration/tests, ingestion/reconcile, source UUID/hash, verified archive playback, recovery/backup tests; test data first.
+
+**M3 — Human annotations:** multitrack segment editing, athlete appearances, bbox keyframes, drafts, approvals, revision history, reviewed coverage, autosave/conflict handling; end-to-end browser tests.
+
+**M4 — Blind evaluation:** dataset freezing, access-denial test for pipeline, source/prediction alignment, reproducible event/tracking metrics and evidence dashboard.
+
+**M5 — Editing QA:** EDL output provenance, source/render sync, contain-vs-crop evaluation, centering/visibility/continuity/smoothness metrics and operator-approved alternative crop proposals.
+
+For each milestone: commit scoped changes to feature branch, run relevant lint/type/unit/integration/E2E tests, attach test logs and sample screenshots, document known limitations, and obtain operator approval before production resource changes. Do not claim `PASS` without execution evidence. Never implement a destructive last-run reset as a side effect of this project.
+
+## 17. Decision log
+
+Approved: single-user desktop-first local interface; Precision Studio as primary annotator; library and evaluation as supporting views; future upload support; immutable independent Ground Truth; temporal/identity/tracking labels; editing-quality assessment of actual renders.
+
+Pending: precise archive service/cost and retention settings; consent and source retention; final visual details; local-only versus localhost UI with protected remote backend; approval of any real cloud resource creation and last-run reset. Claude should make reversible defaults for mock implementation, clearly flag decisions needing authorization, and continue non-destructive work rather than blocking on minor styling choices.
