@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import logging
 import sys
+from pathlib import Path
 from typing import Any
+
+from integrations import event_funnel as _funnel
 
 logger = logging.getLogger(__name__)
 
@@ -341,10 +344,14 @@ def _patch_prompt_and_filters() -> None:
             if not events:
                 dropped_people += 1
                 runtime_quality._safe_remove(person.get("thumbnail"))
+                reason = _no_output_reason_for_person(person, activity)
+                _funnel.record("person_without_usable_events", source=Path(video_path).name,
+                               person_id=str(person.get("id") or ""), reason=reason,
+                               events_before=len(person.get("events", []) or []))
                 hardened_people.append({
                     **person,
                     "events": [],
-                    "no_output_reason": _no_output_reason_for_person(person, activity),
+                    "no_output_reason": reason,
                 })
                 continue
             hardened = {**person, "events": events}
