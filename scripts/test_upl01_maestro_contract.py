@@ -373,7 +373,7 @@ class HarnessContract(unittest.TestCase):
         self.assertIn('EXPECTATION="verified-upload"', runner)
 
     def test_testids_used_by_flows_exist_in_app_source(self):
-        source = "\n".join(p.read_text() for p in (ROOT / "mobile/src").rglob("*.tsx"))
+        source = "\n".join(p.read_text(encoding='utf-8', errors='replace') for p in (ROOT / "mobile/src").rglob("*.tsx"))
         for test_id in ("operator-secret-input", "operator-secret-save", "pipeline-upload-gallery", "pipeline-retry-all-failed"):
             self.assertIn(f'testID="{test_id}"', source)
         self.assertIn("testID={`upload-item-status-${item.status}`}", source)
