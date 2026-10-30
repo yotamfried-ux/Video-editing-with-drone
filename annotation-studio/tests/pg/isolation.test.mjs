@@ -37,9 +37,12 @@ async function setup() {
   await a.query(`create table public.reels(id int primary key); grant all on public.reels to anon, authenticated, service_role`);
   await a.query(`do $$ begin if not exists (select 1 from pg_roles where rolname='gt_studio') then create role gt_studio login; end if; if not exists (select 1 from pg_roles where rolname='gt_evaluator') then create role gt_evaluator login; end if; end $$`);
   for (const r of ['gt_studio', 'gt_evaluator', 'anon', 'authenticated', 'service_role']) await a.query(`alter role ${r} password 'pw_${r}'`);
-  const cleanup = async () => { await a.end().catch(() => {}); await admin.query(`drop database if exists ${db} with (force)`).catch(() => {}); await admin.end().catch(() => {}); };
+  // Roles are cluster-wide: a membership left by an interrupted negative-control run must not leak into this proof.
+  await a.query('revoke gt_studio, gt_evaluator from anon, authenticated, service_role');
+  const pools = [];
+  const cleanup = async () => { for (const p of pools) await p.end().catch(() => {}); await a.end().catch(() => {}); await admin.query(`drop database if exists ${db} with (force)`).catch(() => {}); await admin.end().catch(() => {}); };
   try { await migrate(withDb(ADMIN)(db), { schema: 'ground_truth', roles: true }); } catch (e) { await cleanup(); throw e; }
-  const mk = role => new pg.Pool({ connectionString: asRole(ADMIN, db, role), max: 1 });
+  const mk = role => { const p = new pg.Pool({ connectionString: asRole(ADMIN, db, role), max: 1 }); p.on('error', () => {}); pools.push(p); return p; };
   return { pg, db, admin, a, mk, cleanup };
 }
 
@@ -260,6 +263,6 @@ test('db/verify-isolation.sql passes on a correct deployment and FAILS on every 
     try {
       await w.a.query(grant);
       await assert.rejects(w.a.query(verify), expected, grant);
-    } finally { await w.cleanup(); }
+    } finally { await w.a.query('revoke gt_studio, gt_evaluator from anon, authenticated, service_role').catch(() => {}); await w.cleanup(); }
   }
 });
