@@ -38,8 +38,13 @@ def create_reel(*args, **kwargs):  # noqa: F811 - timed wrapper over the editor 
 
 
 def compile_multi_source_reel(*args, **kwargs):  # noqa: F811
+    # Every cluster compile (including the context-QA and re-edit paths that replace _compile_clusters) goes
+    # through here, so this is where events in and reels out are recorded per athlete.
     with _timed("render_reels", athlete=kwargs.get("athlete_label", "")):
-        return _raw_compile_multi_source_reel(*args, **kwargs)
+        reels = _raw_compile_multi_source_reel(*args, **kwargs)
+    appearances = args[0] if args else kwargs.get("appearances")
+    _event_funnel.record_compile(kwargs.get("athlete_label", ""), appearances, reels)
+    return reels
 
 # Set to True by main() when pipeline exits with no new videos to process.
 # run_tracked.py reads this flag to write no_input instead of succeeded.
@@ -488,17 +493,10 @@ def _compile_clusters(clusters: list[dict], activity: str,
         first_path     = cluster["appearances"][0]["path"] if cluster["appearances"] else None
         source_quality = _get_source_info(first_path) if first_path else {}
         all_events     = [ev for app in cluster["appearances"] for ev in app.get("events", [])]
-        _event_funnel.record(
-            "cluster_input", athlete=str(cluster.get("description", "")),
-            appearances=len(cluster["appearances"]), events_in=len(all_events),
-            sources=[Path(app["path"]).name for app in cluster["appearances"]],
-            windows=[[ev.get("start"), ev.get("end")] for ev in all_events])
         events_out: list[tuple[str, list[dict]]] = []
         reels = compile_multi_source_reel(cluster["appearances"], sport=activity,
                                           athlete_label=cluster["description"],
                                           _events_out=events_out)
-        _event_funnel.record("cluster_compiled", athlete=str(cluster.get("description", "")),
-                             events_in=len(all_events), reels_out=len(reels or []))
 
         def _recompile(evs: list[dict], out: list) -> list[str]:
             return compile_multi_source_reel(_group_appearances(evs), sport=activity,
@@ -507,8 +505,6 @@ def _compile_clusters(clusters: list[dict], activity: str,
 
         reels, events_by_reel, flagged = _qa_gate(
             reels, events_out, activity, cluster["description"], _recompile)
-        _event_funnel.record("cluster_after_qa", athlete=str(cluster.get("description", "")),
-                             reels_out=len(reels or []), flagged=len(flagged or []))
 
         sources = [{"id": fn_to_id.get(Path(app["path"]).name, ""),
                     "name": Path(app["path"]).name}
