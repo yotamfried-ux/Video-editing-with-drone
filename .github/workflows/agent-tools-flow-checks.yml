@@ -1,0 +1,46 @@
+name: Agent Tools and Flow Checks
+
+on:
+  pull_request:
+    paths:
+      - '.claude/**'
+      - 'scripts/check_mobile_flow_contracts.py'
+      - 'scripts/test_upl01_maestro_contract.py'
+      - 'web-api/tests/browser-smoke.mjs'
+      - '.github/workflows/agent-tools-flow-checks.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  mobile-flow-contracts:
+    name: Mobile Flow Contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+      - run: python scripts/check_mobile_flow_contracts.py
+      - run: python scripts/test_upl01_maestro_contract.py
+
+  web-browser-smoke:
+    name: Web Browser Smoke
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: web-api
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npx next build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+      - run: npm i --no-save playwright
+      - run: node tests/browser-smoke.mjs
