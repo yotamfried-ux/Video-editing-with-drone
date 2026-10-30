@@ -31,3 +31,14 @@ def record(stage: str, **meta: Any) -> None:
             handle.flush()
     except Exception as exc:
         logger.debug("event funnel append failed: %s", exc)
+
+
+def record_compile(athlete: str, appearances: Any, reels: Any) -> None:
+    """One row per compile call: how many events went in and how many reels came out for this athlete."""
+    try:
+        apps = [a for a in (appearances or []) if isinstance(a, dict)]
+        record("cluster_compiled", athlete=str(athlete or ""), appearances=len(apps),
+               events_in=sum(len(a.get("events") or []) for a in apps), reels_out=len(reels or []),
+               sources=[os.path.basename(str(a.get("path", ""))) for a in apps])
+    except Exception as exc:
+        logger.debug("event funnel compile record failed: %s", exc)

@@ -326,58 +326,62 @@ def analysis_failures(debug: Path) -> list[str]:
 def event_funnel(debug: Path) -> list[str]:
     """Where events and athletes are lost between analysis and upload, with the stage and reason for each.
 
-    Invariant printed at the end: every athlete cluster that entered compile with events must end with a reel or
-    a recorded reason. A violation means a silent drop that still needs instrumenting."""
+    One row per athlete compile (events in, reels out). Invariant printed at the end: every athlete that entered
+    compile with events must end with a reel or a recorded reason. A violation means a silent drop that still needs
+    instrumenting; with no compile rows at all the invariant is reported as not evaluated, never as OK."""
     rows = _jsonl(debug / "event_funnel.jsonl")
     if not rows:
         return ["(no event_funnel.jsonl)"]
-    inputs: dict[str, dict[str, Any]] = {}
-    compiled: dict[str, dict[str, Any]] = {}
-    after_qa: dict[str, dict[str, Any]] = {}
+    first: dict[str, dict[str, Any]] = {}
+    last: dict[str, dict[str, Any]] = {}
     no_reel: dict[str, list[str]] = defaultdict(list)
     sanitize: Counter = Counter()
-    sanitize_by_source: Counter = Counter()
+    drops: list[dict[str, Any]] = []
     people: Counter = Counter()
     for row in rows:
         stage, athlete = row.get("stage"), str(row.get("athlete") or "")
-        if stage == "cluster_input":
-            inputs[athlete] = row
-        elif stage == "cluster_compiled":
-            compiled[athlete] = row
-        elif stage == "cluster_after_qa":
-            after_qa[athlete] = row
+        if stage == "cluster_compiled":
+            first.setdefault(athlete, row)
+            last[athlete] = row
         elif stage == "compile_no_reel":
             no_reel[athlete].append(str(row.get("reason")))
         elif stage == "sanitize_drop":
             sanitize[str(row.get("reason"))] += 1
-            sanitize_by_source[(str(row.get("source")), str(row.get("reason")))] += 1
+            drops.append(row)
         elif stage == "person_without_usable_events":
             people[str(row.get("reason"))] += 1
-    out = [f"athlete clusters entering compile: {len(inputs)}",
+    out = [f"athletes that entered compile: {len(first)}",
            f"  {'athlete':<44} {'src':>3} {'events':>6} {'reels':>5}  verdict"]
     violated = 0
-    for athlete, entry in inputs.items():
-        reels = int((after_qa.get(athlete) or compiled.get(athlete) or {}).get("reels_out") or 0)
+    without = 0
+    for athlete, entry in first.items():
+        reels = int(last[athlete].get("reels_out") or 0)
         if reels:
             verdict = "ok"
-        elif no_reel.get(athlete):
-            verdict = "NO REEL: " + ", ".join(sorted(set(no_reel[athlete])))
-        elif not int(entry.get("events_in") or 0):
-            verdict = "NO REEL: cluster_has_no_events (not recorded by compile)"
         else:
-            verdict = "NO REEL: UNRECORDED (invariant violated)"
-            violated += 1
+            without += 1
+            if no_reel.get(athlete):
+                verdict = "NO REEL: " + ", ".join(sorted(set(no_reel[athlete])))
+            elif not int(entry.get("events_in") or 0):
+                verdict = "NO REEL: no events entered compile"
+            else:
+                verdict = "NO REEL: UNRECORDED (invariant violated)"
+                violated += 1
         out.append(f"  {_short(athlete, 44):<44} {entry.get('appearances', '-'):>3} {entry.get('events_in', '-'):>6} {reels:>5}  {verdict}")
-    without = [a for a in inputs if not int((after_qa.get(a) or compiled.get(a) or {}).get("reels_out") or 0)]
-    out.append(f"clusters without a reel: {len(without)}/{len(inputs)}; silent (no recorded reason): {violated}")
+    out.append(f"athletes without a reel: {without}/{len(first)}; silent (no recorded reason): {violated}")
     if sanitize:
         out.append("events dropped inside compile (sanitize): " + ", ".join(f"{k}={v}" for k, v in sanitize.most_common()))
-        for (source, reason), n in sanitize_by_source.most_common(10):
-            out.append(f"  {_short(source, 52):<52} {reason} x{n}")
+        out.append(f"  {'source':<52} {'window':>13} {'source_s':>8}  reason")
+        for row in drops[:MAX_ROWS]:
+            window = f"{float(row.get('start') or 0):.1f}-{float(row.get('end') or 0):.1f}"
+            out.append(f"  {_short(row.get('source'), 52):<52} {window:>13} {_short(row.get('source_duration'), 8):>8}  {row.get('reason')}")
     if people:
         out.append("persons dropped before clustering (no usable events): " + ", ".join(f"{k}={v}" for k, v in people.most_common()))
-    out.append("INVARIANT (every cluster with events ends with a reel or a recorded reason): "
-               + ("OK" if not violated else f"VIOLATED for {violated} cluster(s)"))
+    if not first:
+        out.append("INVARIANT (every athlete with events ends with a reel or a recorded reason): NOT EVALUATED (no compile rows)")
+    else:
+        out.append("INVARIANT (every athlete with events ends with a reel or a recorded reason): "
+                   + ("OK" if not violated else f"VIOLATED for {violated} athlete(s)"))
     return out
 
 

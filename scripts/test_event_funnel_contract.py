@@ -4,7 +4,7 @@
 Run 41043331384 (2cf03f76) lost 9 of 15 athlete clusters: `render_reels took 0.0s`, no reel, no log line, no reason.
 `compile_multi_source_reel` returned [] silently (empty cluster, every event dropped by `_sanitize_events`, or no
 partition) and `_compile_clusters` carried on. These checks pin the instrumentation that names the stage and reason:
-the editor records and prints why it returned no reel, the orchestrator records each cluster's events in and reels out,
+the editor records and prints why it returned no reel, the orchestrator's compile wrapper records each athlete's events in and reels out,
 and the digest turns the records into a per-cluster verdict plus an invariant that flags any remaining silent drop.
 """
 from __future__ import annotations
@@ -58,18 +58,31 @@ def check_editor_names_the_reason() -> None:
         assert "No reel for 'dropped athlete': all_events_dropped_by_sanitize (events_in=2" in printed, printed
 
 
-def check_orchestrator_records_every_cluster() -> None:
-    """The orchestrator cannot be imported in a bare sandbox (Drive client), so check its wiring in the source."""
+def check_compile_wrapper_records_every_athlete() -> None:
+    """The orchestrator cannot be imported in a bare sandbox (Drive client, langsmith), so check its wiring in the source.
+
+    Run 2cf03f76/e79da66e showed why the record must sit in the module-level compile wrapper: `_compile_clusters` is
+    replaced at runtime by the context-QA gate, so anything recorded inside it never ran."""
     tree = ast.parse((ROOT / "pipeline" / "orchestrator.py").read_text(encoding="utf-8"))
-    func = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_compile_clusters")
-    stages = {
-        call.args[0].value
-        for call in ast.walk(func)
-        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute) and call.func.attr == "record"
+    wrapper = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "compile_multi_source_reel")
+    calls = {
+        call.func.attr
+        for call in ast.walk(wrapper)
+        if isinstance(call, ast.Call) and isinstance(call.func, ast.Attribute)
         and isinstance(call.func.value, ast.Name) and call.func.value.id == "_event_funnel"
-        and call.args and isinstance(call.args[0], ast.Constant)
     }
-    assert {"cluster_input", "cluster_compiled", "cluster_after_qa"} <= stages, stages
+    assert "record_compile" in calls, calls
+
+    from integrations import event_funnel
+
+    with tempfile.TemporaryDirectory() as tmp:
+        os.environ["TMP_DIR"] = tmp
+        event_funnel.record_compile("athlete A", [{"path": "/x/a.mp4", "events": [{}, {}]}, {"path": "/x/b.mp4", "events": [{}]}], ["r.mp4"])
+        event_funnel.record_compile("athlete B", None, [])
+        rows = _rows(tmp)
+        assert [(r["athlete"], r["appearances"], r["events_in"], r["reels_out"]) for r in rows] == [
+            ("athlete A", 2, 3, 1), ("athlete B", 0, 0, 0)], rows
+        assert rows[0]["sources"] == ["a.mp4", "b.mp4"], rows[0]
 
 
 def _digest(rows: list[dict]) -> str:
@@ -80,33 +93,39 @@ def _digest(rows: list[dict]) -> str:
 
 
 def check_digest_verdicts() -> None:
-    # The shape of run 2cf03f76: 6 clusters compiled, 9 returned no reel; here 2 + 3 for brevity.
+    # The shape of the real runs: some athletes compile, some return no reel with a recorded reason, one silently.
     rows = [
-        {"stage": "cluster_input", "athlete": "ok athlete", "appearances": 2, "events_in": 3},
-        {"stage": "cluster_compiled", "athlete": "ok athlete", "events_in": 3, "reels_out": 1},
-        {"stage": "cluster_after_qa", "athlete": "ok athlete", "reels_out": 1, "flagged": 1},
-        {"stage": "cluster_input", "athlete": "explained athlete", "appearances": 1, "events_in": 1},
-        {"stage": "cluster_compiled", "athlete": "explained athlete", "events_in": 1, "reels_out": 0},
+        {"stage": "cluster_compiled", "athlete": "ok athlete", "appearances": 2, "events_in": 3, "reels_out": 1},
+        {"stage": "cluster_compiled", "athlete": "reedit athlete", "appearances": 1, "events_in": 2, "reels_out": 0},
+        {"stage": "cluster_compiled", "athlete": "reedit athlete", "appearances": 1, "events_in": 2, "reels_out": 1},
         {"stage": "compile_no_reel", "athlete": "explained athlete", "reason": "all_events_dropped_by_sanitize"},
-        {"stage": "sanitize_drop", "source": "a.mp4", "reason": "shorter_than_4s_inside_source"},
-        {"stage": "cluster_input", "athlete": "silent athlete", "appearances": 1, "events_in": 2},
-        {"stage": "cluster_compiled", "athlete": "silent athlete", "events_in": 2, "reels_out": 0},
+        {"stage": "cluster_compiled", "athlete": "explained athlete", "appearances": 1, "events_in": 1, "reels_out": 0},
+        {"stage": "sanitize_drop", "source": "a.mp4", "reason": "shorter_than_4s_inside_source",
+         "start": 26.5, "end": 29.0, "source_duration": 29.0},
+        {"stage": "cluster_compiled", "athlete": "silent athlete", "appearances": 1, "events_in": 2, "reels_out": 0},
         {"stage": "person_without_usable_events", "source": "b.mp4", "person_id": "person_B", "reason": "no_complete_action"},
     ]
     text = _digest(rows)
-    assert "clusters without a reel: 2/3; silent (no recorded reason): 1" in text, text
+    assert "athletes that entered compile: 4" in text, text
+    assert "athletes without a reel: 2/4; silent (no recorded reason): 1" in text, text
     assert "NO REEL: all_events_dropped_by_sanitize" in text, text
     assert "NO REEL: UNRECORDED (invariant violated)" in text, text
-    assert "shorter_than_4s_inside_source=1" in text and "no_complete_action=1" in text, text
-    assert "INVARIANT (every cluster with events ends with a reel or a recorded reason): VIOLATED for 1 cluster(s)" in text, text
-    clean = _digest(rows[:3] + rows[3:6])
-    assert "INVARIANT (every cluster with events ends with a reel or a recorded reason): OK" in clean, clean
+    reedit_line = next(line for line in text.splitlines() if line.strip().startswith("reedit athlete"))
+    assert reedit_line.rstrip().endswith("ok"), reedit_line  # the last compile decides, not the first
+    assert "a.mp4" in text and "26.5-29.0" in text and "29.0" in text and "shorter_than_4s_inside_source=1" in text, text
+    assert "no_complete_action=1" in text, text
+    assert "VIOLATED for 1 athlete(s)" in text, text
+    clean = _digest(rows[:6])
+    assert "(every athlete with events ends with a reel or a recorded reason): OK" in clean, clean
+    # No compile rows at all must never read as a pass (the first version of this check did exactly that).
+    empty = _digest([r for r in rows if r["stage"] != "cluster_compiled"])
+    assert "NOT EVALUATED" in empty and ": OK" not in empty.split("INVARIANT")[-1], empty
     assert diag.event_funnel(Path("/nonexistent")) == ["(no event_funnel.jsonl)"]
 
 
 def main() -> int:
     check_editor_names_the_reason()
-    check_orchestrator_records_every_cluster()
+    check_compile_wrapper_records_every_athlete()
     check_digest_verdicts()
     print("event funnel contract ok")
     return 0
