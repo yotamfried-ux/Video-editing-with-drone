@@ -13,6 +13,19 @@ from typing import Any
 SCHEMA_VERSION = "sportreel.publishable_reel_manifest.v1"
 
 
+class QaGap(str):
+    """A finding that is only about a Part/athlete that is NOT being published.
+
+    It is a plain ``str`` (strict validation and every existing consumer see no difference). The
+    partial-publish evaluator uses the type to tell "this reel did not pass QA, so it is withheld"
+    from an integrity failure that must still fail the run.
+    """
+
+
+def _gap(message: str, *, when: bool = True) -> str:
+    return QaGap(message) if when else message
+
+
 def _id_set(values: Any) -> set[str]:
     if not isinstance(values, list):
         return set()
@@ -127,7 +140,10 @@ def validate_athlete_coverage(
             elif len(matches) > 1:
                 errors.append(f"{cluster}: canonical athlete maps to multiple publishable manifest rows")
             elif not matches[0].get("primary_publishable_reel"):
-                errors.append(f"{cluster}: selected athlete has no primary publishable reel")
+                errors.append(_gap(
+                    f"{cluster}: selected athlete has no primary publishable reel",
+                    when=bool(matches[0].get("parts")),
+                ))
         elif candidate_count > 0 and not explicit:
             errors.append(f"{cluster}: no output exists without an explicit rejection reason")
 
@@ -218,7 +234,12 @@ def validate_manifest(
         primary = raw.get("primary_publishable_reel")
         hard_reject = raw.get("explicit_hard_reject_reason")
         if not primary and not hard_reject:
-            errors.append(f"{label}: eligible athlete has no primary publishable reel")
+            # With generated Parts, every one of them failed QA: withheld, not lost. With no Part
+            # at all the athlete vanished somewhere in the pipeline, which stays a blocking error.
+            errors.append(_gap(
+                f"{label}: eligible athlete has no primary publishable reel",
+                when=bool(raw.get("parts")),
+            ))
         if primary and len(athlete_ids) != 1:
             errors.append(
                 f"{label}: publishable row must contain exactly one featured canonical athlete_id"
@@ -259,8 +280,9 @@ def validate_manifest(
                 errors.append(f"{label}: Part {part_pos} was not uploaded to REVIEW")
             if part.get("upload_error"):
                 errors.append(f"{label}: Part {part_pos} upload failed: {part.get('upload_error')}")
-            if part.get("publishable") is not True:
-                errors.append(f"{label}: Part {part_pos} is not publishable")
+            withheld = part.get("publishable") is not True
+            if withheld:
+                errors.append(_gap(f"{label}: Part {part_pos} is not publishable"))
             else:
                 publishable_parts.append(part)
 
@@ -276,32 +298,40 @@ def validate_manifest(
             if part.get("qa_evidence_recorded") is not True:
                 errors.append(f"{label}: Part {part_pos} lacks explicit final QA evidence")
             if str(part.get("qa_verdict") or "").upper() != "PASS":
-                errors.append(f"{label}: Part {part_pos} final QA verdict is not PASS{_qa_findings(part)}")
+                errors.append(_gap(
+                    f"{label}: Part {part_pos} final QA verdict is not PASS{_qa_findings(part)}",
+                    when=withheld,
+                ))
             if part.get("qa_passed") is not True:
-                errors.append(f"{label}: Part {part_pos} did not pass final QA")
+                errors.append(_gap(f"{label}: Part {part_pos} did not pass final QA", when=withheld))
 
             audio_state = part.get("has_audio")
             if audio_state is True:
-                errors.append(f"{label}: Part {part_pos} contains unexpected audio")
+                errors.append(_gap(f"{label}: Part {part_pos} contains unexpected audio", when=withheld))
             elif audio_state is not False:
-                errors.append(f"{label}: Part {part_pos} does not prove a silent audio state")
+                errors.append(_gap(
+                    f"{label}: Part {part_pos} does not prove a silent audio state", when=withheld
+                ))
 
             issues = part.get("technical_issues")
             if not isinstance(issues, list):
                 errors.append(f"{label}: Part {part_pos} technical_issues must be an array")
                 issues = []
             if issues:
-                errors.append(f"{label}: Part {part_pos} technical issues: {issues}")
+                errors.append(_gap(f"{label}: Part {part_pos} technical issues: {issues}", when=withheld))
 
             duration = _finite_float(part.get("duration"))
             if duration is None or duration <= 0 or duration > 90.0:
-                errors.append(f"{label}: Part {part_pos} invalid finite duration {part.get('duration')}")
+                errors.append(_gap(
+                    f"{label}: Part {part_pos} invalid finite duration {part.get('duration')}",
+                    when=withheld,
+                ))
             aspect = _finite_float(part.get("aspect"))
             if aspect is None or aspect <= 0 or abs(aspect - 9 / 16) > 0.02:
-                errors.append(f"{label}: Part {part_pos} is not finite 9:16 media")
+                errors.append(_gap(f"{label}: Part {part_pos} is not finite 9:16 media", when=withheld))
             height = part.get("height")
             if isinstance(height, bool) or not isinstance(height, int) or height < 1280:
-                errors.append(f"{label}: Part {part_pos} resolution is below 720x1280")
+                errors.append(_gap(f"{label}: Part {part_pos} resolution is below 720x1280", when=withheld))
 
         publishable_names = [str(part.get("file_name")) for part in publishable_parts]
         if primary and (not publishable_names or primary != publishable_names[0]):
@@ -309,9 +339,9 @@ def validate_manifest(
         if supplemental != publishable_names[1:]:
             errors.append(f"{label}: supplemental reel list does not match ordered publishable Parts")
         if primary and len(publishable_parts) != len(parts):
-            errors.append(
+            errors.append(_gap(
                 f"{label}: every generated Part must be publishable before athlete coverage passes"
-            )
+            ))
 
     summary = payload.get("summary")
     if not isinstance(summary, dict):
@@ -337,3 +367,59 @@ def validate_manifest(
     if coverage is not None:
         errors.extend(validate_athlete_coverage(manifest_rows, coverage))
     return errors
+
+
+GATE_MODES = ("strict", "partial")
+
+
+def evaluate_gate(
+    payload: dict[str, Any],
+    coverage: dict[str, Any] | None = None,
+    *,
+    mode: str = "strict",
+) -> dict[str, Any]:
+    """Run the manifest contract and decide the run outcome.
+
+    ``strict``: any finding fails the run (the historical behaviour).
+    ``partial``: findings that only concern Parts/athletes withheld for failing QA do not fail the
+    run, provided that (1) nothing else is wrong (uploads, storage identity, duplicates, summary and
+    coverage accounting, an athlete with no Part at all, every *published* Part's own checks) and
+    (2) at least one athlete has a publishable reel. With eligible athletes but nothing
+    publishable the run still fails, so a run with no output is never reported as a success.
+    """
+    if mode not in GATE_MODES:
+        raise ValueError(f"unknown gate mode {mode!r}; expected one of {GATE_MODES}")
+    findings = validate_manifest(payload, coverage)
+    blocking = [str(item) for item in findings if not isinstance(item, QaGap)]
+    qa_gaps = [str(item) for item in findings if isinstance(item, QaGap)]
+
+    athletes = [row for row in payload.get("athletes", []) or [] if isinstance(row, dict)]
+    eligible = len(athletes)
+    publishable = sum(1 for row in athletes if row.get("primary_publishable_reel"))
+    published_parts = sum(
+        1
+        for row in athletes
+        for part in row.get("parts", []) or []
+        if isinstance(part, dict) and part.get("publishable") is True
+    )
+
+    errors = list(blocking)
+    if mode == "strict":
+        errors.extend(qa_gaps)
+    elif qa_gaps and not blocking and publishable == 0:
+        errors.extend(qa_gaps)
+        errors.append("no eligible athlete has a publishable reel; the run produced no output")
+
+    passed = not errors
+    outcome = "failed" if not passed else ("partial" if qa_gaps else "complete")
+    return {
+        "mode": mode,
+        "passed": passed,
+        "outcome": outcome,
+        "errors": errors,
+        "blocking_errors": blocking,
+        "qa_gaps": qa_gaps,
+        "eligible_athlete_count": eligible,
+        "publishable_athlete_count": publishable,
+        "published_part_count": published_parts,
+    }

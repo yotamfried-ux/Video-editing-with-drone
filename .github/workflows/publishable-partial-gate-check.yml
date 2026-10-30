@@ -1,0 +1,23 @@
+name: Publishable Partial Gate Check
+
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/publishable-partial-gate-check.yml'
+      - 'scripts/publishable_manifest_contract.py'
+      - 'scripts/check_publishable_reel_manifest.py'
+      - 'scripts/record_publishable_business_gate_status.py'
+      - 'scripts/run_pipeline_with_diagnostics.sh'
+      - 'scripts/print_run_diagnostics.py'
+      - 'scripts/test_publishable_partial_gate_contract.py'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Validate partial publish gate contract
+        run: PYTHONPATH=. python scripts/test_publishable_partial_gate_contract.py

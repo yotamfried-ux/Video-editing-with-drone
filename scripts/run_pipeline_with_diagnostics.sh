@@ -143,6 +143,11 @@ result.write_text(
 PY
 }
 
+# partial: reels that failed final QA are withheld and reported, and the run still succeeds while at
+# least one athlete has a publishable reel (a run with no output, or any integrity error, still fails).
+# Set PUBLISHABLE_GATE_MODE=strict to require every Part of every athlete to pass.
+export PUBLISHABLE_GATE_MODE="${PUBLISHABLE_GATE_MODE:-partial}"
+
 BUSINESS_GATE_STATUS=0
 if [ -f "$PUBLISHABLE_MANIFEST_FILE" ] && [ -f "$ATHLETE_COVERAGE_FILE" ]; then
   python scripts/check_publishable_reel_manifest.py \
@@ -190,6 +195,11 @@ if [ "$STATUS" -eq 0 ] && [ "$BUSINESS_GATE_STATUS" -ne 0 ]; then
   if ! python scripts/record_publishable_business_gate_status.py "$PUBLISHABLE_GATE_RESULT_FILE"; then
     echo "::error::could not verify publishable business-gate failure in durable/operator status; terminal_status_outbox.json was retained for retry"
   fi
+fi
+
+# A partial publish keeps the pipeline's success status; the recorder only annotates the run meta.
+if [ "$STATUS" -eq 0 ] && [ "$BUSINESS_GATE_STATUS" -eq 0 ] && [ -f "$PUBLISHABLE_GATE_RESULT_FILE" ]; then
+  python scripts/record_publishable_business_gate_status.py "$PUBLISHABLE_GATE_RESULT_FILE" || true
 fi
 
 # Preserve the original processing failure as the primary exit code. When the

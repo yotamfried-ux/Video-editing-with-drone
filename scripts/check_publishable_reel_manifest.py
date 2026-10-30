@@ -3,19 +3,24 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 from typing import Any
 
 try:
     from scripts.publishable_manifest_contract import (
+        GATE_MODES,
         SCHEMA_VERSION,
+        evaluate_gate,
         validate_athlete_coverage,
         validate_manifest,
     )
 except ModuleNotFoundError:
     from publishable_manifest_contract import (
+        GATE_MODES,
         SCHEMA_VERSION,
+        evaluate_gate,
         validate_athlete_coverage,
         validate_manifest,
     )
@@ -39,6 +44,7 @@ def _write_result(
     *,
     manifest_path: Path,
     coverage_path: Path | None,
+    evaluation: dict | None = None,
 ) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     payload = {
@@ -48,6 +54,18 @@ def _write_result(
         "athlete_coverage_path": str(coverage_path) if coverage_path else None,
         "errors": errors,
     }
+    if evaluation is not None:
+        # Additive fields; consumers that only read passed/errors are unaffected.
+        for key in (
+            "mode",
+            "outcome",
+            "qa_gaps",
+            "blocking_errors",
+            "eligible_athlete_count",
+            "publishable_athlete_count",
+            "published_part_count",
+        ):
+            payload[key] = evaluation[key]
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(path)
@@ -68,7 +86,13 @@ def main() -> int:
     try:
         payload = _load(manifest_path, "publishable manifest")
         coverage = _load(coverage_path, "athlete coverage report") if coverage_path else None
-        errors = validate_manifest(payload, coverage)
+        # strict (default): any finding fails. partial: reels withheld for failing QA are reported
+        # but do not fail the run while at least one athlete has a publishable reel.
+        mode = os.getenv("PUBLISHABLE_GATE_MODE", "strict").strip().lower() or "strict"
+        if mode not in GATE_MODES:
+            raise SystemExit(f"PUBLISHABLE_GATE_MODE must be one of {GATE_MODES}, got {mode!r}")
+        evaluation = evaluate_gate(payload, coverage, mode=mode)
+        errors = evaluation["errors"]
     except SystemExit as exc:
         errors = [str(exc)]
         if result_path:
@@ -88,6 +112,7 @@ def main() -> int:
             errors,
             manifest_path=manifest_path,
             coverage_path=coverage_path,
+            evaluation=evaluation,
         )
     if errors:
         print("publishable reel business gate failed:", file=sys.stderr)
@@ -101,6 +126,12 @@ def main() -> int:
         f"primary={summary.get('primary_publishable_reel_count', 0)} "
         f"supplemental={summary.get('supplemental_publishable_reel_count', 0)}"
     )
+    if evaluation["outcome"] == "partial":
+        print(
+            "publishable reel business gate PARTIAL: "
+            f"{evaluation['publishable_athlete_count']}/{evaluation['eligible_athlete_count']} athletes "
+            f"published, {len(evaluation['qa_gaps'])} QA finding(s) on withheld reels"
+        )
     return 0
 
 
