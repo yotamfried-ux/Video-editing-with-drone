@@ -40,7 +40,7 @@ function whiteCentroid(video, frame) {
 test('Phase B qualification: pipeline exports -> archive -> annotation -> evaluation of the real rendered reels', { skip, timeout: 600000 }, async () => {
   // 1. real pipeline render + exports (separate process, no Studio code, no GT)
   const out = tmp('qual-');
-  const gen = spawnSync('python3', [path.join(REPO, 'scripts', 'qualify_gt_export.py'), out], { encoding: 'utf8', cwd: REPO, timeout: 400000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1' } });
+  const gen = spawnSync('python3', [path.join(REPO, 'scripts', 'qualify_gt_export.py'), out], { encoding: 'utf8', cwd: REPO, timeout: 400000, env: { ...process.env, PYTHONDONTWRITEBYTECODE: '1', PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' } });
   assert.equal(gen.status, 0, gen.stderr.slice(-1500));
   const truth = JSON.parse(readFileSync(path.join(out, 'truth.json'), 'utf8'));
   const predictions = JSON.parse(readFileSync(path.join(out, 'predictions.v1.json'), 'utf8'));

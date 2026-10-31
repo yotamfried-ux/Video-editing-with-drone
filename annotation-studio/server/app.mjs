@@ -12,6 +12,7 @@ import * as E from './evaluate.mjs';
 import * as L from './edl.mjs';
 import * as S from './sports.mjs';
 import * as C from './cloud.mjs';
+import * as Catalog from './catalog_owner.mjs';
 import { reconcile, verifyArchives } from './ingest.mjs';
 import * as I from './imports.mjs';
 import { exportBackup, verifyIntegrity } from './backup.mjs';
@@ -51,10 +52,16 @@ export function createApp(ctx) {
     const cov = A.reviewedCoverage(content, s.frame_count || 0);
     const rev = A.latestRevision(db, s.id);
     const occ = db.prepare('select b.label, o.original_name from upload_occurrences o join upload_batches b on b.id=o.batch_id where o.source_id=? order by o.id').all(s.id);
+    const ownerAthlete = s.owner_athlete_id ? db.prepare('select id, label from athletes where id=?').get(s.owner_athlete_id) : null;
     return {
       id: s.id, display_name: s.display_name, sha256: s.sha256, byte_size: s.byte_size, width: s.width, height: s.height,
       fps_num: s.fps_num, fps_den: s.fps_den, frame_count: s.frame_count, duration_ms: s.duration_ms, rotation: s.rotation,
       codec: s.codec ?? null, primary_sport_id: s.primary_sport_id ?? null, provider: s.provider ?? 'local', verify_state: s.verify_state ?? null, proxy_state: s.proxy_state ?? (s.proxy_path ? 'ready' : null),
+      owner_athlete_id: s.owner_athlete_id ?? null,
+      owner_status: s.owner_status ?? 'unassigned',
+      owner_athlete_label: ownerAthlete?.label ?? null,
+      owner_assigned_at: s.owner_assigned_at ?? null,
+      owner_assigned_by: s.owner_assigned_by ?? null,
       ingest_state: s.ingest_state, archive_verified_at: s.archive_verified_at, archive_error: s.archive_error,
       annotation_status: A.annotationStatus(db, s.id), revision_seq: rev?.seq ?? 0, reviewed_ratio: cov.ratio,
       segment_count: content.segments.length, batches: [...new Set(occ.map(o => o.label))],
@@ -69,27 +76,61 @@ export function createApp(ctx) {
     if (m === 'GET' && p === '/api/sources') {
       const status = url.searchParams.get('status'), qs = (url.searchParams.get('q') ?? '').toLowerCase(), batch = url.searchParams.get('batch');
       const sport = url.searchParams.get('sport');
+      const owner = url.searchParams.get('owner');
       const limit = Math.min(200, Number(url.searchParams.get('limit') ?? 50)), cursor = url.searchParams.get('cursor') ?? '';
       let rows = db.prepare('select * from sources where created_at||id > ? order by created_at,id').all(cursor);
       let items = rows.map(sourceCard);
       if (qs) items = items.filter(s => s.display_name.toLowerCase().includes(qs) || s.sha256.startsWith(qs));
       if (batch) items = items.filter(s => s.batches.includes(batch));
       if (sport) items = items.filter(s => (s.primary_sport_id ?? 'unknown') === sport);
-      if (status) items = items.filter(s => s.annotation_status === status || s.ingest_state === status);
+      if (owner) items = items.filter(s => s.owner_athlete_id === owner);
+      if (status) items = items.filter(s => s.annotation_status === status || s.ingest_state === status || s.owner_status === status);
       const page = items.slice(0, limit);
       const last = page.at(-1);
       return send(res, 200, { items: page, next_cursor: items.length > limit && last ? last.created_at + last.id : null,
         totals: { all: rows.length, approved: rows.filter(s => A.annotationStatus(db, s.id) === 'approved').length,
           not_annotated: rows.filter(s => A.annotationStatus(db, s.id) === 'not_annotated').length,
+          assigned: rows.filter(s => s.owner_athlete_id != null).length,
+          unassigned: rows.filter(s => s.owner_athlete_id == null).length,
           by_sport: rows.reduce((o, s) => { const k = s.primary_sport_id ?? 'unknown'; o[k] = (o[k] ?? 0) + 1; return o; }, {}) } });
     }
+
+    // ---- Catalog Ownership (Precision Studio V2) ----
+    if ((r = /^\/api\/sources\/([\w-]+)\/catalog-owner$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, Catalog.getCatalogOwner(db, r[1]));
+      if (m === 'POST' || m === 'PUT') { const b = await body(req); return send(res, 200, Catalog.setCatalogOwner(db, r[1], b)); }
+    }
+    if (p === '/api/sources/catalog-owners/bulk' && m === 'POST') {
+      const b = await body(req); return send(res, 200, Catalog.bulkSetCatalogOwner(db, b));
+    }
+    if ((r = /^\/api\/athletes\/([\w-]+)\/sources$/.exec(p)) && m === 'GET') {
+      return send(res, 200, Catalog.listAthleteSources(db, r[1], { filter: url.searchParams.get('filter') ?? 'all' }));
+    }
+    if ((r = /^\/api\/cloud\/objects\/([\w-]+)\/catalog-owner$/.exec(p)) && m === 'POST') {
+      const b = await body(req); return send(res, 200, Catalog.setCloudObjectCatalogOwner(db, r[1], b));
+    }
+
     // ---- Cloud catalog (existing SportReel videos in R2, used in place; the bucket is only ever read) ----
     if (m === 'GET' && p === '/api/cloud/status') {
       const n = db.prepare('select count(*) total, sum(case when available=1 then 1 else 0 end) available, sum(case when source_id is not null then 1 else 0 end) opened from cloud_objects').get();
       return send(res, 200, { configured: !!ctx.cloud, bucket: ctx.cloud?.bucket ?? null, read_only: true, metadata_file: !!ctx.cloudMetadata,
         total: Number(n.total ?? 0), available: Number(n.available ?? 0), opened: Number(n.opened ?? 0) });
     }
-    if (m === 'GET' && p === '/api/cloud/objects') { if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED'); return send(res, 200, { items: C.listCloudObjects(db).map(o => ({ ...o, annotation_status: o.source_id ? A.annotationStatus(db, o.source_id) : 'not_annotated' })) }); }
+    if (m === 'GET' && p === '/api/cloud/objects') {
+      if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
+      return send(res, 200, {
+        items: C.listCloudObjects(db).map(o => {
+          const ownerAthlete = o.owner_athlete_id ? db.prepare('select id, label from athletes where id=?').get(o.owner_athlete_id) : null;
+          return {
+            ...o,
+            owner_athlete_id: o.owner_athlete_id ?? null,
+            owner_status: o.owner_status ?? 'unassigned',
+            owner_athlete_label: ownerAthlete?.label ?? null,
+            annotation_status: o.source_id ? A.annotationStatus(db, o.source_id) : 'not_annotated',
+          };
+        }),
+      });
+    }
     if (m === 'POST' && p === '/api/cloud/sync') {
       if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
       const id = randomUUID(); jobs.set(id, { state: 'running' });

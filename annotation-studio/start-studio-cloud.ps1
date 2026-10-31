@@ -24,6 +24,7 @@ $raw = (& node --version).Trim().TrimStart('v')
 $ver = [version]($raw -replace '[^0-9.].*$', '')
 if ($ver -lt [version]'22.13.0') { Stop-WithMessage "Node $raw is too old (need 22.13 or newer). Install Node 22 LTS from https://nodejs.org." }
 Ok "Node $raw"
+if (Test-Path 'C:\ffmpeg\ffmpeg.exe') { $env:PATH = "C:\ffmpeg;$env:PATH" }
 foreach ($tool in 'ffmpeg', 'ffprobe') {
   if (-not (Get-Command $tool -ErrorAction SilentlyContinue)) {
     Stop-WithMessage "$tool was not found on PATH. Install FFmpeg (for example: winget install Gyan.FFmpeg), open a NEW window and run this again."

@@ -102,7 +102,7 @@ function* files(dir) {
 test('production code and workflows never reference the Studio, its state, or its credentials', () => {
   const offenders = [];
   for (const f of files(REPO)) {
-    const rel = path.relative(REPO, f);
+    const rel = path.relative(REPO, f).replace(/\\/g, '/');
     if (rel.startsWith('docs/') || rel === '.github/workflows/annotation-studio-check.yml') continue;
     const t = readFileSync(f, 'utf8');
     if (/annotation-studio|STUDIO_HOME|STUDIO_TOKEN|studio\.sqlite/.test(t)) offenders.push(rel);

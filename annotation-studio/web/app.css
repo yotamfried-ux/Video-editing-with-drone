@@ -144,3 +144,29 @@ dialog h2{margin:0 0 10px;font-size:16px}
 .vbox .stage-wrap{min-height:0}
 .side{overflow:auto;display:flex;flex-direction:column;gap:10px;min-height:0}
 @media (max-width:1279px){.shell{grid-template-columns:56px 1fr}.nav .lbl{display:none}}
+
+/* Precision Studio V2 Additions */
+.insp-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
+.insp-tabs button{padding:8px 4px;border-radius:6px;font-size:12px;font-weight:600}
+.tag{border-radius:30px;font-size:11px;font-weight:700;padding:4px 9px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap;display:inline-flex;align-items:center}
+.tag.green{border-color:#277f61;color:#52e2aa;background:#12372e}
+.tag.blue{border-color:#3e77b5;color:#83c9ff;background:#143353}
+.tag.amber{border-color:#8c6a34;color:#ffd18c;background:#46331b}
+.tag.purple{border-color:#614caa;color:#c7bcff;background:#282143}
+.verifybar{border:1px solid #9b6e36;background:#443118;padding:10px 13px;border-radius:8px;color:#ffdd9b;font-size:12px;margin:8px 0}
+.verifybar.ok{border-color:#38886c;background:#123e31;color:#b0ffe0}
+.verifybar.bad{border-color:#ac454c;background:#44272f;color:#ffc6cd}
+.verifycards{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.verifycard{padding:10px 8px;background:var(--panel2);border:1px solid var(--line2);border-radius:8px;text-align:center}
+.verifycard strong{display:block;color:var(--text);font-size:18px}
+.verifycard small{display:block;color:var(--muted);font-size:11px;margin-top:4px}
+.choicegrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
+.choice{border:1px solid var(--line2);border-radius:8px;background:var(--panel2);padding:10px 6px;text-align:center;font-size:12px;font-weight:600}
+.choice[aria-pressed=true]{background:#1e4d38;border-color:var(--inc);color:#b8ffe1}
+.choice.bad[aria-pressed=true]{background:#542328;border-color:var(--exc);color:#ffdddd}
+.choice.warn[aria-pressed=true]{background:#583d1c;border-color:var(--unc);color:#ffedcd}
+.choice.review[aria-pressed=true]{background:#1e3c5a;border-color:var(--accent);color:#d6edff}
+.fieldrow{display:flex;flex-wrap:wrap;gap:6px}
+.chip{padding:6px 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);color:var(--text);font-size:12px}
+.chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:bold}
+.boxhover{background:rgba(18,34,60,.9);color:#e0f2ff;padding:8px 12px;border-radius:8px;font-size:11px;border:1px solid #45769d;z-index:10;pointer-events:none}

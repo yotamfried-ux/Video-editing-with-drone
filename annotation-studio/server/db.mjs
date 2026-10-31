@@ -147,11 +147,23 @@ create table if not exists audit_log(
   id integer primary key autoincrement, at text not null, actor text not null,
   action text not null, subject text, detail text
 );
+
+create table if not exists source_owner_history(
+  id integer primary key autoincrement,
+  source_id text not null references sources(id),
+  old_owner_id text references athletes(id),
+  new_owner_id text references athletes(id),
+  old_status text,
+  new_status text,
+  changed_by text not null,
+  reason text,
+  changed_at text not null
+);
 `;
 
 // Append-only guarantees are enforced in the database, not only in application code.
 const IMMUTABLE = ['annotation_revisions', 'dataset_versions', 'dataset_members',
-  'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log'];
+  'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log', 'source_owner_history'];
 const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences', 'sports', 'sport_event_types', 'cloud_objects'];
 
 /**
@@ -187,6 +199,9 @@ export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
   addColumn(db, 'annotation_revisions', 'taxonomy_versions', 'text');
   // Cloud sources (0003): provider NULL = local archive; they are used in place from R2, never copied.
   for (const c of ['provider', 'cloud_key', 'verify_state', 'proxy_state']) addColumn(db, 'sources', c, 'text');
+  // Catalog owner (0004_v2_owner_and_box_qa): default NULL/unassigned, never backfilled from segment performer
+  for (const c of ['owner_athlete_id', 'owner_status', 'owner_assigned_at', 'owner_assigned_by']) addColumn(db, 'sources', c, 'text');
+  for (const c of ['owner_athlete_id', 'owner_status']) addColumn(db, 'cloud_objects', c, 'text');
   seedSports(db);
   db.prepare('insert or ignore into meta(key,value) values(?,?)').run('schema_version', String(SCHEMA_VERSION));
   return db;

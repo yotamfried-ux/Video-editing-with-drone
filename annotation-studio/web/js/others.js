@@ -1,21 +1,174 @@
-import { h, api, ltr, pill, toast, fmtDate, EVENT_HE, STATUS_HE, STATUS_CLASS, dialog, closeDialog, loadSports, sportName } from './ui.js';
+import { h, api, ltr, pill, toast, fmtDate, fmtBytes, timecode, EVENT_HE, STATUS_HE, STATUS_CLASS, dialog, closeDialog, loadSports, sportName } from './ui.js';
 import { setTopbar } from './main.js';
 
-// ---------------- Athletes ----------------
+// ---------------- Athletes & Surfer Workspace (Precision Studio V2) ----------------
 export async function renderAthletes(root) {
-  setTopbar(h('strong', {}, 'ניהול גולשים'), pill('זהות פסבדונימית — ללא זיהוי פנים'));
+  setTopbar(h('strong', {}, 'ספריית גולשים (Surfer Workspace)'), pill('זהות פסבדונימית · ללא זיהוי פנים'));
+  let search = '', selectedAthleteId = null, activeFilter = 'owner';
+
   const draw = async () => {
-    const { items } = await api('/api/athletes');
-    root.replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'גולשים'), h('div', { class: 'sub' }, 'כל גולש הוא מזהה קבוע (UUID). קישור בין סרטונים נעשה רק באישור ידני של המפעיל. תיקון זהות מתבצע בגרסה מאושרת חדשה — גרסאות קיימות אינן משתנות.'),
-      h('div', { class: 'toolbar' }, h('input', { type: 'text', id: 'newath', placeholder: 'תווית לגולש חדש', style: { maxWidth: '260px' }, 'aria-label': 'תווית גולש חדש' }),
-        h('button', { class: 'btn primary', 'data-testid': 'add-athlete', onclick: async () => { const v = root.querySelector('#newath').value; try { await api('/api/athletes', { method: 'POST', body: { label: v } }); await draw(); } catch (e) { toast(e.message, true); } } }, 'הוסף גולש')),
-      items.length ? h('div', { class: 'grid' }, items.map(a => h('div', { class: 'card', 'data-testid': 'athlete-card' }, h('div', { class: 'body' },
-        h('div', { style: { display: 'flex', gap: '6px' } }, h('input', { type: 'text', value: a.label, 'aria-label': 'תווית', onchange: async e => { try { await api(`/api/athletes/${a.id}`, { method: 'PATCH', body: { label: e.target.value } }); toast('עודכן'); } catch (x) { toast(x.message, true); } } })),
-        h('div', { class: 'meta' }, ltr(a.id.slice(0, 8)), ` · ${a.appearances.length} הופעות`),
-        h('ul', { class: 'list' }, a.appearances.length ? a.appearances.map(ap => h('li', {}, h('a', { href: `#/annotate/${ap.source_id}`, class: 'ltr mono', style: { flex: 1, color: 'var(--accent)' } }, ap.display_name),
-          h('label', { class: 'meta', title: 'הופעה לא וודאית' }, h('input', { type: 'checkbox', checked: !!ap.uncertain, onchange: e => api(`/api/athletes/${a.id}/appearances/${ap.source_id}`, { method: 'PATCH', body: { uncertain: e.target.checked ? 1 : 0 } }).catch(x => toast(x.message, true)) }), ' לא בטוח'),
-          h('label', { class: 'meta', title: 'זהות אושרה ידנית' }, h('input', { type: 'checkbox', checked: !!ap.confirmed, onchange: e => api(`/api/athletes/${a.id}/appearances/${ap.source_id}`, { method: 'PATCH', body: { confirmed: e.target.checked ? 1 : 0 } }).catch(x => toast(x.message, true)) }), ' אושר'))) : [h('li', {}, 'אין הופעות עדיין')]))))) : h('div', { class: 'empty' }, 'אין גולשים עדיין')));
+    const { items: athletes } = await api('/api/athletes');
+    const filteredAthletes = search
+      ? athletes.filter(a => a.label.toLowerCase().includes(search.toLowerCase()) || a.id.toLowerCase().includes(search.toLowerCase()))
+      : athletes;
+
+    if (!selectedAthleteId && filteredAthletes.length) {
+      selectedAthleteId = filteredAthletes[0].id;
+    }
+
+    let athleteSourcesData = null;
+    if (selectedAthleteId) {
+      try {
+        athleteSourcesData = await api(`/api/athletes/${selectedAthleteId}/sources?filter=${activeFilter}`);
+      } catch (e) {
+        console.error('Failed to load athlete sources:', e);
+      }
+    }
+
+    const selAthlete = athletes.find(a => a.id === selectedAthleteId);
+
+    root.replaceChildren(h('div', { class: 'page', 'data-testid': 'surfer-workspace' },
+      h('h1', {}, 'ספריית גולשים (Surfer Workspace)'),
+      h('div', { class: 'sub' }, 'שיוך סרטונים לגולש מתבצע כחלק מהקטלוג העצמאי, ללא תלות בקיומם של אירועים או תיבות. סרטון יכול להיות שייך לגולש גם אם טרם סומן בו אירוע.'),
+      h('div', { class: 'toolbar' },
+        h('input', {
+          type: 'search',
+          id: 'search-athlete',
+          placeholder: 'חיפוש גולש...',
+          value: search,
+          'aria-label': 'חיפוש גולש',
+          style: { maxWidth: '240px' },
+          oninput: e => { search = e.target.value; draw(); }
+        }),
+        h('input', { type: 'text', id: 'newath', placeholder: 'תווית לגולש חדש (למשל: גולש 1)', style: { maxWidth: '260px' }, 'aria-label': 'תווית גולש חדש' }),
+        h('button', {
+          class: 'btn primary',
+          'data-testid': 'add-athlete',
+          onclick: async () => {
+            const v = root.querySelector('#newath').value;
+            if (!v || !v.trim()) return toast('חובה להזין שם או תווית לגולש', true);
+            try {
+              const created = await api('/api/athletes', { method: 'POST', body: { label: v.trim() } });
+              selectedAthleteId = created.id;
+              root.querySelector('#newath').value = '';
+              toast(`הגולש "${created.label}" נוצר בהצלחה`);
+              await draw();
+            } catch (e) { toast(e.message, true); }
+          }
+        }, '＋ הוסף גולש חדש')
+      ),
+
+      athletes.length ? h('div', { style: { display: 'grid', gridTemplateColumns: '320px 1fr', gap: '20px', alignItems: 'start' } },
+        // Left column: list of surfers
+        h('div', { class: 'panel', style: { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '14px' } },
+          h('h3', { style: { marginTop: 0, fontSize: '15px', color: 'var(--text)' } }, `גולשים (${athletes.length})`),
+          h('div', { class: 'list', style: { maxHeight: '65vh', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '8px' } },
+            filteredAthletes.map(a => h('div', {
+              class: 'card',
+              'data-testid': 'athlete-item',
+              style: {
+                padding: '10px',
+                cursor: 'pointer',
+                border: a.id === selectedAthleteId ? '2px solid var(--accent)' : '1px solid var(--line)',
+                background: a.id === selectedAthleteId ? 'var(--panel2)' : 'var(--panel)',
+              },
+              onclick: () => { selectedAthleteId = a.id; draw(); }
+            },
+              h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between' } },
+                h('strong', { style: { fontSize: '14px', color: 'var(--text)' } }, a.label),
+                a.id === selectedAthleteId ? pill('נבחר', 'ok') : null
+              ),
+              h('div', { class: 'meta', style: { marginTop: '6px', fontSize: '11px', display: 'flex', gap: '8px', flexWrap: 'wrap' } },
+                pill(`${a.assigned_sources_count ?? 0} סרטונים משויכים`, a.assigned_sources_count ? 'ok' : ''),
+                pill(`${a.appearances?.length ?? 0} הופעות`, '')
+              ),
+              h('div', { class: 'meta ltr mono', style: { fontSize: '10px', marginTop: '4px', color: 'var(--muted)' } }, a.id.slice(0, 8))
+            ))
+          )
+        ),
+
+        // Right column: Surfer detail workspace
+        selAthlete ? h('div', { class: 'panel', style: { background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: 'var(--radius)', padding: '16px' } },
+          h('div', { style: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', borderBottom: '1px solid var(--line)', paddingBottom: '12px', marginBottom: '14px' } },
+            h('div', {},
+              h('h2', { style: { margin: 0, fontSize: '18px', color: 'var(--text)' } }, `ספריית סרטונים: ${selAthlete.label}`),
+              h('div', { class: 'meta ltr mono', style: { marginTop: '4px', color: 'var(--muted)' } }, `UUID: ${selAthlete.id}`)
+            ),
+            h('div', { style: { display: 'flex', gap: '8px' } },
+              h('input', {
+                type: 'text',
+                value: selAthlete.label,
+                style: { maxWidth: '160px' },
+                'aria-label': 'עריכת שם גולש',
+                onchange: async e => {
+                  try {
+                    await api(`/api/athletes/${selAthlete.id}`, { method: 'PATCH', body: { label: e.target.value.trim() } });
+                    toast('שם הגולש עודכן');
+                    await draw();
+                  } catch (err) { toast(err.message, true); }
+                }
+              })
+            )
+          ),
+
+          // Surfer Stats Bar
+          h('div', { class: 'stats', style: { marginBottom: '16px' } },
+            h('div', { class: 'stat' }, h('b', {}, athleteSourcesData?.totals?.owned_sources ?? 0), h('span', {}, 'סרטונים משויכים (בעלים)')),
+            h('div', { class: 'stat' }, h('b', {}, athleteSourcesData?.totals?.appearance_sources ?? 0), h('span', {}, 'סרטונים שמופיע בהם')),
+            h('div', { class: 'stat' }, h('b', {}, (athleteSourcesData?.items || []).reduce((acc, s) => acc + (s.events_count || 0), 0)), h('span', {}, 'אירועים שבוצעו')),
+            h('div', { class: 'stat' }, h('b', {}, (athleteSourcesData?.items || []).reduce((acc, s) => acc + (s.track_qa_count || 0), 0)), h('span', {}, 'נקודות מעקב שאומתו'))
+          ),
+
+          // Filter tabs
+          h('div', { class: 'toolbar', style: { marginBottom: '16px' } },
+            h('button', {
+              class: `btn ${activeFilter === 'owner' ? 'primary' : ''}`,
+              'data-testid': 'tab-owner-sources',
+              onclick: () => { activeFilter = 'owner'; draw(); }
+            }, `סרטונים משויכים (${athleteSourcesData?.totals?.owned_sources ?? 0})`),
+            h('button', {
+              class: `btn ${activeFilter === 'appearance' ? 'primary' : ''}`,
+              'data-testid': 'tab-appearance-sources',
+              onclick: () => { activeFilter = 'appearance'; draw(); }
+            }, `סרטונים שבהם הגולש מופיע (${athleteSourcesData?.totals?.appearance_sources ?? 0})`),
+            h('button', {
+              class: `btn ${activeFilter === 'all' ? 'primary' : ''}`,
+              'data-testid': 'tab-all-sources',
+              onclick: () => { activeFilter = 'all'; draw(); }
+            }, `הכול (${athleteSourcesData?.totals?.total_unique_sources ?? 0})`)
+          ),
+
+          // Video list for this athlete
+          athleteSourcesData?.items?.length ? h('div', { class: 'grid', style: { gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: '14px' } },
+            athleteSourcesData.items.map(s => h('div', { class: 'card', 'data-testid': 'surfer-video-card' },
+              h('div', { class: 'thumb', style: s.thumb_path ? { backgroundImage: `url(/media/${s.id}/thumb)` } : {} },
+                s.thumb_path ? null : 'אין תמונה',
+                h('span', { class: 'tag' }, s.is_owner ? pill('בעלים', 'ok') : pill('מופיע בסרטון', 'warn'))
+              ),
+              h('div', { class: 'body' },
+                h('div', { class: 'name', title: s.display_name }, s.display_name),
+                h('div', { class: 'meta' },
+                  s.duration_ms ? ltr(timecode(Math.round(s.duration_ms / 1000 * 30), 30)) : '—',
+                  s.byte_size ? ltr(fmtBytes(s.byte_size)) : null,
+                  sportName(s.primary_sport_id)
+                ),
+                h('div', { class: 'meta', style: { gap: '6px' } },
+                  pill(`${s.events_count} אירועים`, s.events_count > 0 ? 'ok' : ''),
+                  pill(`${s.track_qa_count} אומתו`, s.track_qa_count > 0 ? 'ok' : '')
+                ),
+                h('a', { class: 'btn primary sm', href: `#/annotate/${s.id}`, 'data-testid': 'open-workbench-btn' }, 'פתח ב-Workbench ←')
+              )
+            ))
+          ) : h('div', { class: 'empty', 'data-testid': 'no-surfer-videos' },
+            activeFilter === 'owner'
+              ? 'טרם שויכו סרטונים לגולש זה. עבור לספרייה או לקטלוג הענן ולחץ על "שייך לגולש".'
+              : 'אין סרטונים להצגה בסינון זה.'
+          )
+        ) : h('div', { class: 'empty' }, 'בחר גולש מהרשימה')
+      ) : h('div', { class: 'empty' }, 'אין גולשים עדיין. הזן תווית ולחץ "הוסף גולש חדש".')
+    ));
   };
+
   await draw();
 }
 
@@ -58,45 +211,43 @@ function importPredictions() {
 }
 const ERR_HE = { missed_event: 'אירוע שהוחמץ', false_positive: 'תוצאה שגויה (FP)', duplicate: 'פלט כפול', wrong_athlete: 'גולש שגוי', predicted_excluded: 'חזה אירוע מוחרג' };
 async function renderEvalDetail(root, id) {
-  const { report: r, digest } = await api(`/api/evaluations/${id}`);
-  const m = r.metrics, t = r.totals;
-  root.replaceChildren(h('div', { class: 'page' }, h('a', { href: '#/evaluations', class: 'btn sm' }, '→ חזרה'),
-    h('h1', { style: { marginTop: '10px' } }, 'דוח הערכה'), h('div', { class: 'sub' }, ltr(`${r.pipeline_version} · ${r.run_id}`), ' · ', ltr(`evaluator ${r.evaluator_version}`), ' · digest ', ltr(digest.slice(0, 12))),
-    h('div', { class: 'stats' }, [['Recall', pct(m.event_recall)], ['Precision', pct(m.event_precision)], ['דיוק זהות', pct(m.identity_accuracy)], ['חסרים', t.missed], ['כפולים', t.duplicates], ['FP', t.false_positives], ['לא נבדק', t.unreviewed_predictions], ['שגיאת התחלה ממוצעת (פריימים)', m.mean_abs_start_error_frames == null ? '—' : m.mean_abs_start_error_frames.toFixed(1)]].map(([l, v]) => h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, l)))),
-    r.by_sport && Object.keys(r.by_sport).length ? h('div', {}, h('h3', { style: { fontSize: '14px' } }, 'לפי ענף ספורט (ללא התאמה בין ענפים)'),
-      h('table', { class: 't', 'data-testid': 'by-sport' }, h('thead', {}, h('tr', {}, ['ענף', 'GT', 'תחזיות', 'הותאמו', 'הוחמצו', 'FP', 'recall', 'precision'].map(x => h('th', {}, x)))),
-        h('tbody', {}, Object.entries(r.by_sport).map(([sp, c]) => h('tr', { 'data-sport': sp }, h('td', {}, sp === 'unknown' ? 'לא מסווג' : sp === 'unspecified' ? 'תחזית ללא ענף' : sportName(sp)), h('td', {}, c.gt_included), h('td', {}, c.predictions), h('td', {}, c.matched), h('td', {}, c.missed), h('td', {}, c.false_positives), h('td', {}, pct(c.event_recall)), h('td', {}, pct(c.event_precision))))))) : null,
-    h('div', { class: 'legend' }, `IoU ≥ ${r.params.iou_threshold} · פיצולים: ${r.params.splits.join(', ')} · שיוך גולשים לפי מיפוי התאמות דטרמיניסטי`),
-    r.per_source.map(p => h('div', { style: { marginBottom: '18px' } }, h('h3', { style: { fontSize: '14px' } }, ltr(p.sha256.slice(0, 12)), ' · ', p.split, p.has_prediction ? '' : ' · אין תחזית למקור זה'),
-      p.errors.length ? h('table', { class: 't' }, h('thead', {}, h('tr', {}, ['סוג', 'פריימים', 'מקטע/תחזית'].map(x => h('th', {}, x)))), h('tbody', {}, p.errors.map(e => h('tr', {}, h('td', {}, pill(ERR_HE[e.type] ?? e.type, e.type === 'missed_event' || e.type === 'wrong_athlete' ? 'bad' : 'warn')), h('td', {}, ltr(`${e.start_frame}–${e.end_frame}`)), h('td', {}, ltr(e.segment_id ?? `pred#${e.pred_index}`)))))) : h('div', { class: 'banner warn', style: { color: 'var(--inc)' } }, 'אין שגיאות לסרטון זה')))));
+  const e = await api(`/api/evaluations/${id}`);
+  const r = e.report;
+  root.replaceChildren(h('div', { class: 'page' }, h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('a', { class: 'btn sm', href: '#/evaluations' }, '→ חזרה לרשימה'), h('h1', { style: { margin: 0 } }, `דוח הערכה · ${r.pipeline_version}`)),
+    h('div', { class: 'sub' }, `ריצה ${ltr(r.run_id)} מול דאטהסט "${r.dataset_name}" (נוצר ${fmtDate(r.created_at)}) · דיג׳סט ${ltr(e.digest.slice(0, 12))}`),
+    h('div', { class: 'stats' },
+      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.event_recall)), h('span', {}, 'Event Recall')),
+      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.event_precision)), h('span', {}, 'Event Precision')),
+      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.identity_accuracy)), h('span', {}, 'Identity Accuracy')),
+      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.temporal_iou_mean)), h('span', {}, 'Mean IoU')),
+      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.box_iou_mean)), h('span', {}, 'Mean Box IoU'))),
+    h('h2', { style: { fontSize: '15px' } }, 'פירוט שגיאות ואי-התאמות'),
+    r.discrepancies?.length ? h('table', { class: 't' }, h('thead', {}, h('tr', {}, ['סרטון', 'סוג שגיאה', 'פריימים GT', 'פריימים חיזוי', 'IoU', 'הערות'].map(x => h('th', {}, x)))),
+      h('tbody', {}, r.discrepancies.map(d => h('tr', {}, h('td', {}, ltr(d.source_name || d.source_sha256.slice(0, 8))), h('td', {}, pill(ERR_HE[d.type] ?? d.type, d.type === 'missed_event' ? 'bad' : 'warn')), h('td', {}, d.gt_interval ? ltr(`${d.gt_interval.start_frame}–${d.gt_interval.end_frame}`) : '—'), h('td', {}, d.pred_interval ? ltr(`${d.pred_interval.start_frame}–${d.pred_interval.end_frame}`) : '—'), h('td', {}, d.iou != null ? pct(d.iou) : '—'), h('td', {}, d.details || '—'))))) : h('div', { class: 'empty' }, 'אין אי-התאמות שנמצאו')));
 }
 
-// ---------------- Settings: sport / event taxonomy (no-code additions, spec §18.2) ----------------
+// ---------------- Settings ----------------
 export async function renderSettings(root) {
-  setTopbar(h('strong', {}, 'הגדרות ענפי ספורט'), pill('טקסונומיה מגורסת · ללא מחיקה'));
-  const draw = async () => {
-    const sports = await loadSports();
-    const val = id => root.querySelector(`#${id}`).value.trim();
-    const act = async (fn, okMsg) => { try { await fn(); toast(okMsg); await draw(); } catch (e) { toast(e.message, true); } };
-    root.replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'ענפי ספורט וסוגי אירועים'),
-      h('div', { class: 'sub' }, 'ענפים וסוגי אירועים הם נתונים, לא קוד: הוספה נרשמת ביומן ומעלה את גרסת הטקסונומיה. הסרת סוג אירוע (השבתה) לא פוסלת תיוגים קיימים.'),
-      h('h2', { style: { fontSize: '15px' } }, 'ענף חדש'),
-      h('div', { class: 'toolbar' },
-        h('input', { id: 'ns-id', type: 'text', placeholder: 'מזהה (a-z, למשל volleyball)', 'aria-label': 'מזהה ענף', style: { direction: 'ltr', maxWidth: '200px' } }),
-        h('input', { id: 'ns-he', type: 'text', placeholder: 'שם בעברית', 'aria-label': 'שם ענף בעברית', style: { maxWidth: '160px' } }),
-        h('input', { id: 'ns-en', type: 'text', placeholder: 'English name', 'aria-label': 'שם ענף באנגלית', style: { direction: 'ltr', maxWidth: '160px' } }),
-        h('button', { class: 'btn primary', 'data-testid': 'add-sport', onclick: () => act(() => api('/api/sports', { method: 'POST', body: { id: val('ns-id'), name_he: val('ns-he'), name_en: val('ns-en') } }), 'הענף נוסף') }, 'הוסף ענף')),
-      sports.map(sp => h('div', { class: 'card', 'data-testid': 'sport-card', 'data-sport': sp.id, style: { marginBottom: '14px' } }, h('div', { class: 'body' },
-        h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('strong', {}, sp.name_he), ltr(sp.id), pill(`טקסונומיה v${sp.taxonomy_version}`),
-          h('label', { class: 'meta' }, h('input', { type: 'checkbox', checked: sp.enabled, onchange: e => act(() => api(`/api/sports/${sp.id}`, { method: 'PATCH', body: { enabled: e.target.checked } }), 'עודכן') }), ' פעיל')),
-        h('ul', { class: 'list' }, sp.event_types.map(t => h('li', { 'data-event': t.key }, ltr(t.key), h('span', { style: { flex: 1 } }, t.label_he, t.required_attrs.length ? ` · חובה: ${t.required_attrs.join(', ')}` : ''),
-          h('label', { class: 'meta' }, h('input', { type: 'checkbox', checked: t.enabled, 'aria-label': `פעיל ${t.key}`, onchange: e => act(() => api(`/api/sports/${sp.id}/event-types/${t.key}`, { method: 'PATCH', body: { enabled: e.target.checked } }), 'עודכן') }), ' פעיל')))),
-        h('div', { class: 'toolbar' },
-          h('input', { id: `et-key-${sp.id}`, type: 'text', placeholder: 'מפתח אירוע', 'aria-label': `מפתח אירוע חדש ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '150px' } }),
-          h('input', { id: `et-he-${sp.id}`, type: 'text', placeholder: 'תווית בעברית', 'aria-label': `תווית עברית ל-${sp.id}`, style: { maxWidth: '150px' } }),
-          h('input', { id: `et-en-${sp.id}`, type: 'text', placeholder: 'English label', 'aria-label': `תווית אנגלית ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '150px' } }),
-          h('input', { id: `et-req-${sp.id}`, type: 'text', placeholder: 'שדות חובה (פסיקים)', 'aria-label': `שדות חובה ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '170px' } }),
-          h('button', { class: 'btn', 'data-testid': `add-event-${sp.id}`, onclick: () => act(() => api(`/api/sports/${sp.id}/event-types`, { method: 'POST', body: { key: val(`et-key-${sp.id}`), label_he: val(`et-he-${sp.id}`), label_en: val(`et-en-${sp.id}`), required_attrs: val(`et-req-${sp.id}`).split(',').map(x => x.trim()).filter(Boolean) } }), 'סוג האירוע נוסף') }, 'הוסף סוג אירוע')))))));
-  };
-  await draw();
+  setTopbar(h('strong', {}, 'הגדרות ענפים וסוגי אירועים'), pill('קונפיגורציה בלבד'));
+  await loadSports();
+  const list = sportsList();
+  root.replaceChildren(h('div', { class: 'page' },
+    h('h1', {}, 'ענפי ספורט וסוגי אירועים'),
+    h('div', { class: 'sub' }, 'הענפים וסוגי האירועים מוגדרים במסד הנתונים ואינם נמחקים לעולם (פנסיה = השבתה). שינוי ענף לא דורס גרסאות ישנות.'),
+    h('div', { class: 'grid' }, list.map(s => h('div', { class: 'card' },
+      h('div', { class: 'body' },
+        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
+          h('strong', { style: { fontSize: '16px' } }, s.name_he),
+          pill(s.enabled ? 'פעיל' : 'מושבת', s.enabled ? 'ok' : 'muted')
+        ),
+        h('div', { class: 'meta' }, ltr(s.name_en), ` · גרסה ${s.taxonomy_version}`),
+        h('h4', { style: { margin: '8px 0 4px', fontSize: '12px', color: 'var(--muted)' } }, 'סוגי אירועים'),
+        h('ul', { class: 'list' }, s.event_types.map(t => h('li', {},
+          h('span', { style: { flex: 1 } }, t.label_he),
+          h('span', { class: 'meta ltr mono' }, t.key),
+          pill(t.enabled ? 'פעיל' : 'מושבת', t.enabled ? 'ok' : 'muted')
+        )))
+      )
+    )))
+  ));
 }
