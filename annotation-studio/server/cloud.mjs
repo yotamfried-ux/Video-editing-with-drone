@@ -31,7 +31,9 @@ export function cloudConfigFromEnv(env = process.env) {
 }
 
 const tag = (xml, name) => { const m = new RegExp(`<${name}>([^<]*)</${name}>`).exec(xml); return m ? m[1] : null; };
-const unXml = s => s.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+// One pass over the five predefined entities: decoding '&amp;' first and then the others would turn '&amp;lt;' into '<' (double unescaping).
+const XML_ENTITIES = { amp: '&', lt: '<', gt: '>', quot: '"', apos: "'" };
+export const unXml = s => s.replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => XML_ENTITIES[name]);
 
 export class CloudBucket {
   kind = 'cloud-r2-readonly';

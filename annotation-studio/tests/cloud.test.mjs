@@ -8,7 +8,7 @@ import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { newCtx, makeVideo, tmp, seg } from './helpers.mjs';
 import { startS3Stub } from './s3stub.mjs';
-import { CloudBucket, waitForProxies, parseCsv, loadMetadata } from '../server/cloud.mjs';
+import { CloudBucket, waitForProxies, parseCsv, loadMetadata, unXml } from '../server/cloud.mjs';
 import { createApp } from '../server/app.mjs';
 import { createContext } from '../server/context.mjs';
 import * as A from '../server/annotations.mjs';
@@ -225,4 +225,11 @@ test('metadata can be a JSON export or a Supabase CSV export (quotes, commas, CR
   const rows = loadMetadata(f);
   assert.deepEqual(rows.map(r => [r.key, r.status, r.size]), [['raw/a.mp4', 'verified', 100], ['raw/c.mp4', 'superseded', 7]]);
   assert.equal(rows[0].sha256, 'a'.repeat(64)); assert.equal(rows[0].name, 'my, "quoted" name.mp4');
+});
+
+test('XML entities in object keys are decoded exactly once (no double unescaping)', () => {
+  assert.equal(unXml('raw/a&amp;b.mp4'), 'raw/a&b.mp4');
+  assert.equal(unXml('raw/&amp;lt;tag&amp;gt;.mp4'), 'raw/&lt;tag&gt;.mp4', '&amp;lt; is the literal text &lt;, not "<"');
+  assert.equal(unXml('&lt;&gt;&quot;&apos;&amp;'), '<>"\'&');
+  assert.equal(unXml('&amp;amp;'), '&amp;');
 });
