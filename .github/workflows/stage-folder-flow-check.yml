@@ -1,8 +1,9 @@
-name: Stage Folder Flow Check
+name: Stage Folder Flow Check (RAW permanence)
 
-# End-to-end test of the folder-per-stage model against a real S3 protocol server (moto).
-# Runs the project's real boto3 storage code, the batchless admission/move hooks and the reset
-# script. Never touches production storage.
+# End-to-end proof that original source videos are PERMANENT in raw/: processing, re-runs, reset, dedup and
+# cleanup never move, replace or delete them. Runs the project's real boto3 storage code against a local S3
+# protocol server (moto), plus a static inventory of every deletion call site in the repository.
+# Never touches production storage.
 on:
   pull_request:
     paths:
@@ -11,7 +12,14 @@ on:
       - 'pipeline/r2_batch_scope.py'
       - 'pipeline/source_upload_dedup.py'
       - 'scripts/reset_and_rerun.py'
-      - 'scripts/test_stage_folder_flow_e2e.py'
+      - 'scripts/test_raw_permanence_e2e.py'
+      - 'scripts/test_raw_recovery.py'
+      - 'scripts/raw_recovery.py'
+      - '.github/workflows/raw-recovery.yml'
+      - 'scripts/test_raw_source_protection_contract.py'
+      - 'pipeline/r2_batch_restore.py'
+      - 'web-api/src/lib/r2-storage.ts'
+      - 'web-api/src/lib/video-storage-cleanup.ts'
       - 'scripts/test_batch_scope_contract.py'
       - '.github/workflows/stage-folder-flow-check.yml'
   workflow_dispatch:
@@ -32,7 +40,11 @@ jobs:
         run: |
           python -m pip install --disable-pip-version-check boto3 "moto[server]" pyyaml python-dotenv httplib2 \
             google-api-python-client google-auth google-auth-httplib2 google-auth-oauthlib
-      - name: Stage-folder flow (run -> move on -> reset -> rerun -> reuse)
-        run: python scripts/test_stage_folder_flow_e2e.py
+      - name: RAW permanence (run -> re-run -> reset -> dedup -> guard -> legacy copy-back)
+        run: python scripts/test_raw_permanence_e2e.py
+      - name: RAW recovery planner (read-only plan, copy-only apply)
+        run: python scripts/test_raw_recovery.py
+      - name: Deletion call-site inventory and guard contract
+        run: python scripts/test_raw_source_protection_contract.py
       - name: Batch scope contract
         run: PYTHONPATH=. python scripts/test_batch_scope_contract.py

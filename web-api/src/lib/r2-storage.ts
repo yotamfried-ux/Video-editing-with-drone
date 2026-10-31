@@ -278,6 +278,8 @@ export async function listR2Prefix(prefix: string): Promise<R2Object[]> {
 }
 
 export async function moveR2Object(sourceKey: string, destinationPrefix: string): Promise<string> {
+  // A move deletes its source, so original footage can never be moved (drafts under review/ and approved/ only).
+  if (sourceKey.startsWith('raw/') || sourceKey.startsWith('processed/')) throw new Error('Refusing to move an original source video (raw/ and processed/ are permanent)');
   const destKey = `${destinationPrefix.replace(/\/+$/, '')}/${r2Basename(sourceKey)}`;
   const copyRes = await signedFetch('PUT', destKey, new URLSearchParams(), { 'x-amz-copy-source': `/${bucket()}/${encodeKey(sourceKey)}` });
   const copyText = await copyRes.text();
@@ -334,6 +336,8 @@ export async function listR2MultipartUploads(): Promise<R2MultipartUpload[]> {
 /** Deletes one object. S3 semantics: deleting a missing key succeeds (idempotent). */
 export async function deleteR2Object(key: string): Promise<void> {
   if (!key || key.endsWith('/') || key.includes('..')) throw new Error('Refusing to delete an invalid R2 key');
+  // Original footage is permanent: nothing in the web API may delete raw/ (or processed/ videos), whoever asks.
+  if (key.startsWith('raw/') || key.startsWith('processed/')) throw new Error('Refusing to delete an original source video (raw/ and processed/ are permanent)');
   const res = await signedFetch('DELETE', key);
   if (!res.ok && res.status !== 404) throw await r2ResponseError('R2 delete failed', res);
 }

@@ -9,7 +9,7 @@ This module is the single authority that puts exactly those objects back:
 * every object is checked (existence + verified size, optionally SHA-256)
   *before* anything is copied, and nothing is changed unless the whole manifest
   is recoverable;
-* a copy is verified before the processed original is deleted;
+* restoring is a verified COPY: the processed original is kept, never deleted;
 * the operation is idempotent and never overwrites a RAW object;
 * it never lists or touches anything outside ``raw/<batch>/`` and
   ``processed/<batch>/``.
@@ -302,12 +302,12 @@ def reconcile_frozen_inputs(
         store.copy(str(item.source_key), entry.key)
         copied = store.head(entry.key)
         if _size(copied) != entry.size:
-            store.delete(entry.key)  # remove only the copy this call created
+            store.delete(entry.key)  # discard only the faulty copy this call just created (see R2Store.delete)
             raise FrozenInputError(f"restore of {entry.filename} produced size {_size(copied)} != {entry.size}")
         if entry.sha256 is not None and (verify_sha256 or item.legacy) and store.sha256(entry.key) != entry.sha256:
             store.delete(entry.key)
             raise FrozenInputError(f"restore of {entry.filename} failed sha256 verification")
-        store.delete(str(item.source_key))
+        # The processed/ original is KEPT: restoring is a verified COPY, nothing is moved or deleted.
         item.state, item.raw_size = "restored", entry.size
         report.restored += 1
         logger.info("restored frozen input %s from processed/", entry.key)
@@ -335,6 +335,7 @@ class R2Store:
         self._r2 = r2_storage
         self._client = r2_storage._client()
         self._bucket = r2_storage._bucket()
+        self._created: set[str] = set()  # destinations this instance created (they did not exist before)
 
     def head(self, key: str) -> dict[str, Any] | None:
         from botocore.exceptions import ClientError
@@ -352,12 +353,20 @@ class R2Store:
         return self._r2.list_objects(prefix)
 
     def copy(self, source_key: str, dest_key: str) -> None:
+        if self.head(dest_key) is not None:
+            raise FrozenInputError(f"refusing to overwrite existing object {dest_key}")
         self._client.copy(
             {"Bucket": self._bucket, "Key": source_key}, self._bucket, dest_key,
         )
+        self._created.add(dest_key)
 
     def delete(self, key: str) -> None:
+        """Only ever discards a faulty copy that THIS instance just created. Anything else is an original
+        source (or unknown) and is refused: source videos are never deleted."""
+        if key not in self._created:
+            raise self._r2.ProtectedSourceError(f"Refusing to delete {key!r}: not a copy created by this restore")
         self._client.delete_object(Bucket=self._bucket, Key=key)
+        self._created.discard(key)
 
     def sha256(self, key: str) -> str:
         digest = hashlib.sha256()

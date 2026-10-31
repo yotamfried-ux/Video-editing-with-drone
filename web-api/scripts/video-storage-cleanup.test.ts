@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  isInScopeR2VideoKey, runCleanupStep, summarize, takeInventory, verifyClean,
+  deleteStep, isInScopeR2VideoKey, runCleanupStep, summarize, takeInventory, verifyClean,
   type ActiveStateCounts, type CleanupDatabase, type CleanupStorage,
 } from '../src/lib/video-storage-cleanup';
 
@@ -45,20 +45,22 @@ function fake(opts: { failDeleteOn?: string; failReels?: boolean; leakKey?: stri
 }
 
 test('scope gate rejects protected, unknown-prefix, non-video and traversal keys', () => {
-  for (const k of ['metadata/keep.mp4', 'assets/logo.mp4', 'raw/x.txt', 'previews/h.jpg', 'raw/../x.mp4', 'rawx/a.mp4', '../raw/a.mp4']) {
+  // raw/ and processed/ hold the ORIGINAL source videos: permanently out of scope, whatever their extension or depth.
+  for (const k of ['metadata/keep.mp4', 'assets/logo.mp4', 'raw/x.txt', 'previews/h.jpg', 'raw/../x.mp4', 'rawx/a.mp4', '../raw/a.mp4',
+    'raw/b/a.MP4', 'raw/a.mp4', 'processed/a.mov', 'processed/b1/a.mp4']) {
     assert.equal(isInScopeR2VideoKey(k), false, k);
   }
-  for (const k of ['raw/b/a.MP4', 'processed/a.mov', 'review/a.mkv', 'previews/a.m4v']) assert.equal(isInScopeR2VideoKey(k), true, k);
+  for (const k of ['review/a.mkv', 'previews/a.m4v', 'approved/a.mp4', 'pending_payment/a.mp4']) assert.equal(isInScopeR2VideoKey(k), true, k);
 });
 
 test('populated -> clean deletes only in-scope videos and verifies', async () => {
   const f = fake();
   const before = summarize(await takeInventory(f.storage));
-  assert.equal(before.r2_video_objects, 8);
-  assert.equal(before.r2_unscoped_video_objects, 1);
+  assert.equal(before.r2_video_objects, 5, 'only derived outputs are in scope');
+  assert.equal(before.r2_unscoped_video_objects, 4, 'assets/logo.mp4 plus the 3 original sources are reported, not deletable');
   const r = await runCleanupStep({ storage: f.storage, db: f.db, runId: 'r', before });
   assert.equal(r.phase, 'succeeded');
-  assert.equal(r.totals.r2_deleted, 8);
+  assert.equal(r.totals.r2_deleted, 5);
   assert.equal(r.totals.multipart_aborted, 1);
   assert.equal(r.totals.reels_removed, 2);
   assert.ok(f.r2.has('assets/logo.mp4') && f.r2.has('metadata/keep.mp4') && f.r2.has('raw/readme.txt') && f.r2.has('previews/h.jpg'));
@@ -66,6 +68,19 @@ test('populated -> clean deletes only in-scope videos and verifies', async () =>
   assert.equal(f.photos.size, 1);
   assert.equal(f.state.neutralized, 1);
   assert.ok(f.deleted.every(isInScopeR2VideoKey));
+  // The originals survive a full clean.
+  for (const k of ['raw/b1/a.mp4', 'raw/b1/b.MOV', 'processed/x.mp4']) assert.ok(f.r2.has(k), `${k} must survive cleanup`);
+  assert.ok(f.deleted.every((k) => !k.startsWith('raw/') && !k.startsWith('processed/')));
+});
+
+test('the delete step refuses an original source key even if it is handed one', async () => {
+  const f = fake();
+  const inv = await takeInventory(f.storage);
+  for (const key of ['raw/b1/a.mp4', 'processed/x.mp4']) {
+    await assert.rejects(deleteStep(f.storage, { ...inv, r2_video_keys: [key], r2_multipart: [], reels_video_paths: [] }, 60_000), /original source video/);
+    assert.ok(f.r2.has(key));
+  }
+  assert.deepEqual(f.deleted, []);
 });
 
 test('clean -> clean is idempotent with zero deleted', async () => {
@@ -78,7 +93,7 @@ test('clean -> clean is idempotent with zero deleted', async () => {
 });
 
 test('storage failure throws and is never reported as clean; retry succeeds', async () => {
-  const f = fake({ failDeleteOn: 'processed/x.mp4' });
+  const f = fake({ failDeleteOn: 'review/d.mp4' });
   const before = summarize(await takeInventory(f.storage));
   await assert.rejects(runCleanupStep({ storage: f.storage, db: f.db, runId: 'r', before }), /boom/);
   assert.equal(f.state.neutralized, 0);

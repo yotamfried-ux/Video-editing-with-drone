@@ -77,7 +77,9 @@ def test_all_in_processed_restored_exactly():
     report = reconcile_frozen_inputs(store, manifest, BATCH)
     assert report.restored == 24 and report.verified == 24
     assert {k for k in store.objects if k.startswith("raw/")} == set(originals)
-    assert not [k for k in store.objects if k.startswith("processed/")]
+    # Restoring is a verified COPY: the processed/ originals are kept, nothing is deleted.
+    assert len([k for k in store.objects if k.startswith("processed/")]) == 24
+    assert not [c for c in store.calls if c[0] == "delete"]
     assert all(store.objects[k] == v for k, v in originals.items())
 
 
@@ -249,7 +251,9 @@ def test_legacy_flat_layout_recovered_only_with_sha_proof():
         raise AssertionError("flat layout must not be touched unless explicitly requested")
     report = reconcile_frozen_inputs(store, manifest, BATCH, recover_legacy_flat=True, expected_sha256=shas)
     assert report.restored == 24 and report.verified == 24
-    assert {k for k in store.objects if k.startswith("raw/")} == {m["storage_key"] for m in manifest}
+    # Every frozen input is back at its batch key; the legacy flat originals are KEPT (copy-only restore).
+    assert {m["storage_key"] for m in manifest} <= {k for k in store.objects if k.startswith("raw/")}
+    assert not [c for c in store.calls if c[0] == "delete"], "no original is ever deleted"
 
 
 def test_legacy_flat_without_identity_or_with_wrong_bytes_fails_closed():

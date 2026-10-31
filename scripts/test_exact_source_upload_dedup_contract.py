@@ -136,24 +136,24 @@ def run_duplicate_case(*, delete_fails: bool = False) -> tuple[list[dict], list[
         return result, deleted, removed, removal_errors
 
 
-def test_newest_verified_wins_and_old_is_deleted() -> None:
-    _, deleted, removed, errors = run_duplicate_case()
-    if deleted != ["raw/batch/z_old_name.mp4"]:
-        raise SystemExit(f"expected only old R2 key deletion, got {deleted}")
-    if removed != [("old-upload", "new-upload")]:
-        raise SystemExit(f"expected durable removal audit update, got {removed}")
-    if errors:
-        raise SystemExit(f"unexpected removal errors: {errors}")
+def test_newest_verified_wins_and_old_is_retained() -> None:
+    # RAW is permanent: the superseded duplicate is excluded from analysis but NEVER deleted.
+    result, deleted, removed, errors = run_duplicate_case()
+    if [item["id"] for item in result] != ["raw/batch/a_new_name.mp4"]:
+        raise SystemExit("only the newest verified source may be canonical")
+    if deleted:
+        raise SystemExit(f"deduplication must never delete an original source, deleted {deleted}")
+    if removed or errors:
+        raise SystemExit(f"nothing was removed, so nothing may be recorded as removed: {removed} {errors}")
 
 
-def test_delete_failure_never_restores_pipeline_eligibility() -> None:
+def test_duplicate_exclusion_never_depends_on_a_delete_succeeding() -> None:
+    # Even a delete callback that would fail is never invoked, and the older upload stays ineligible.
     result, deleted, removed, errors = run_duplicate_case(delete_fails=True)
     if [item["id"] for item in result] != ["raw/batch/a_new_name.mp4"]:
-        raise SystemExit("delete failure must not make the superseded source eligible")
-    if deleted or removed:
-        raise SystemExit("failed deletion must not be recorded as removed")
-    if len(errors) != 1 or errors[0][:2] != ("old-upload", "new-upload"):
-        raise SystemExit(f"delete failure must be durably recorded, got {errors}")
+        raise SystemExit("the superseded source must stay excluded from the run")
+    if deleted or removed or errors:
+        raise SystemExit(f"no deletion may be attempted: {deleted} {removed} {errors}")
 
 
 def test_stale_unverified_source_is_excluded_without_blocking_replacement() -> None:
@@ -299,15 +299,15 @@ def test_static_contract() -> None:
         raise SystemExit("global R2 run must not bypass exact upload dedup")
     require("authoritative audit", audit, [
         "Exact byte-identical verified sources are reconciled by SHA-256",
-        "Older exact duplicates remain pipeline-ineligible even if R2 deletion fails",
+        "Older exact duplicates remain pipeline-ineligible and are retained in storage (never deleted)",
         "Re-exported/recompressed/perceptually similar files are not auto-deleted",
     ])
 
 
 def main() -> int:
     test_streaming_sha256()
-    test_newest_verified_wins_and_old_is_deleted()
-    test_delete_failure_never_restores_pipeline_eligibility()
+    test_newest_verified_wins_and_old_is_retained()
+    test_duplicate_exclusion_never_depends_on_a_delete_succeeding()
     test_stale_unverified_source_is_excluded_without_blocking_replacement()
     test_static_contract()
     print("Exact source-upload dedup contract checks passed")

@@ -1,0 +1,93 @@
+name: RAW recovery (inventory / plan / apply)
+
+# READ-ONLY by default. Lists R2 and the durable source_uploads records and classifies every tracked source
+# video (raw_ok / processed_only / missing ...). `plan` additionally verifies SHA-256 and writes a dry-run copy
+# plan. `apply` is a separate, deliberately gated mode: it only COPIES processed/ -> raw/ (never moves, never
+# deletes, never overwrites) and only when you type RESTORE_RAW_COPIES. Run inventory/plan first, review the
+# uploaded report, and only then consider apply. Nothing here runs on push or pull_request.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'inventory (read-only) | plan (read-only, verifies SHA-256) | apply (COPY only; needs the confirmation below)'
+        required: true
+        default: 'inventory'
+        type: choice
+        options: [inventory, plan, apply]
+      plan_run_id:
+        description: 'apply only: run id of a previous `plan` run whose raw-recovery-report artifact to execute'
+        required: false
+        default: ''
+        type: string
+      confirm:
+        description: 'apply only: type RESTORE_RAW_COPIES'
+        required: false
+        default: ''
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: raw-recovery
+  cancel-in-progress: false
+
+jobs:
+  recovery:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check boto3 python-dotenv requests
+      - name: Refuse apply without the exact confirmation
+        if: ${{ inputs.mode == 'apply' && (inputs.confirm != 'RESTORE_RAW_COPIES' || inputs.plan_run_id == '') }}
+        run: |
+          echo "apply requires confirm=RESTORE_RAW_COPIES and plan_run_id; nothing was changed" >&2
+          exit 1
+      - name: Download the reviewed plan (apply only)
+        if: ${{ inputs.mode == 'apply' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+        run: gh run download "$PLAN_RUN_ID" -n raw-recovery-report -D plan-input
+      - name: Run
+        env:
+          SUPABASE_URL: https://bcndgmymnismbxvdeetc.supabase.co
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY || secrets.SUPABASE_SERVICE_KEY }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          STORAGE_BACKEND: r2
+          MODE: ${{ inputs.mode }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: |
+          mkdir -p out
+          if [ "$MODE" = "apply" ]; then
+            python scripts/raw_recovery.py apply --plan plan-input/raw-recovery-report.json --confirm "$CONFIRM" --out out/raw-recovery-apply-result.json
+          else
+            python scripts/raw_recovery.py "$MODE" --out out/raw-recovery-report.json
+          fi
+      - name: Summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, glob
+          for f in sorted(glob.glob('out/*.json')):
+              d = json.load(open(f))
+              line = {k: d.get(k) for k in ('tracked_sources', 'summary', 'r2_video_objects_by_prefix', 'aborted_or_removed_records', 'applied', 'deleted', 'moved') if k in d}
+              if 'actions' in d: line['planned_copies'] = len(d['actions'])
+              print(f, json.dumps(line, default=str))
+              with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as s: s.write(f"### {os.path.basename(f)}\n```json\n{json.dumps(line, indent=2, default=str)}\n```\n")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: raw-recovery-report
+          path: out/
+          if-no-files-found: ignore
