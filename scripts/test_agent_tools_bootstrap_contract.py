@@ -81,6 +81,10 @@ def test_qualification_mcps_are_project_scoped() -> None:
     assert devtools["command"] == "npx"
     assert devtools["args"] == ["-y", "chrome-devtools-mcp@latest"]
 
+    video = MCP["mcpServers"]["video-analyzer"]
+    assert video["command"] == "npx"
+    assert video["args"] == ["-y", "mcp-video-analyzer@latest"]
+
     assert "claude mcp add -s local" not in BOOT
 
 
