@@ -130,6 +130,13 @@ create table if not exists sport_event_types(
   primary key(sport_id, key)
 );
 
+create table if not exists cloud_objects(
+  id text primary key, key text not null unique, prefix text not null, size integer not null,
+  etag text, last_modified text, record_sha256 text, record_status text, record_upload_id text, batch_id text,
+  uploaded_at text, pipeline_state text not null default 'unknown', available integer not null default 1,
+  display_name text, source_id text references sources(id), seen_at text not null
+);
+
 create view if not exists frozen_revisions as
   select m.dataset_id, m.split, m.sha256, r.id as revision_id, r.digest, r.content
   from dataset_members m join annotation_revisions r on r.id = m.revision_id;
@@ -145,7 +152,7 @@ create table if not exists audit_log(
 // Append-only guarantees are enforced in the database, not only in application code.
 const IMMUTABLE = ['annotation_revisions', 'dataset_versions', 'dataset_members',
   'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log'];
-const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences', 'sports', 'sport_event_types'];
+const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences', 'sports', 'sport_event_types', 'cloud_objects'];
 
 /**
  * Backend selection: PostgreSQL when `url` (or STUDIO_DB_URL) is given — the schema/roles are applied by
@@ -178,6 +185,8 @@ export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
   // Additive columns (0002_sports): NULL primary_sport_id = unclassified, never backfilled to surfing.
   addColumn(db, 'sources', 'primary_sport_id', 'text');
   addColumn(db, 'annotation_revisions', 'taxonomy_versions', 'text');
+  // Cloud sources (0003): provider NULL = local archive; they are used in place from R2, never copied.
+  for (const c of ['provider', 'cloud_key', 'verify_state', 'proxy_state']) addColumn(db, 'sources', c, 'text');
   seedSports(db);
   db.prepare('insert or ignore into meta(key,value) values(?,?)').run('schema_version', String(SCHEMA_VERSION));
   return db;

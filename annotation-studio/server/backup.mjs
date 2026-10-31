@@ -10,11 +10,13 @@ export const TABLES = [
   ['athletes', 'id'], ['athlete_appearances', 'id'], ['annotation_drafts', 'source_id'], ['annotation_revisions', 'id'],
   ['dataset_versions', 'id'], ['dataset_members', 'dataset_id, source_id'], ['pipeline_predictions', 'id'], ['evaluation_runs', 'id'],
   ['edl_records', 'id'], ['editing_reports', 'id'], ['crop_proposals', 'id'], ['audit_log', 'id'],
-  ['sports', 'id'], ['sport_event_types', 'sport_id, key'],
+  ['sports', 'id'], ['sport_event_types', 'sport_id, key'], ['cloud_objects', 'id'],
 ];
 // Taxonomy is configuration that a fresh database already seeds: restore upserts it instead of requiring emptiness,
 // and backups made before the registry existed (no such tables) stay restorable.
 const CONFIG = { sports: 'id', sport_event_types: 'sport_id, key' };
+// Tables that older backup files do not have (still restorable). cloud_objects is catalog data, not configuration.
+const OPTIONAL = new Set([...Object.keys(CONFIG), 'cloud_objects']);
 const IDENTITY = new Set(['source_locations', 'upload_occurrences', 'ingestion_jobs', 'audit_log']);
 
 export function exportBackup(db) {
@@ -30,7 +32,7 @@ export function verifyBackupFile(backup) {
   const problems = [];
   if (backup.format !== BACKUP_FORMAT) problems.push('format');
   if (digestOf(body) !== digest) problems.push('digest_mismatch');
-  for (const [t] of TABLES) if (!(t in CONFIG && backup.counts?.[t] === undefined) && (backup.tables?.[t]?.length ?? -1) !== backup.counts?.[t]) problems.push(`count_mismatch:${t}`);
+  for (const [t] of TABLES) if (!(OPTIONAL.has(t) && backup.counts?.[t] === undefined) && (backup.tables?.[t]?.length ?? -1) !== backup.counts?.[t]) problems.push(`count_mismatch:${t}`);
   return problems;
 }
 

@@ -464,9 +464,10 @@ function paintHud() { const a = $('#hudfr'), b = $('#hudtool'); if (a) a.textCon
 function paintStatus() {
   const rev = S.revs[0];
   setTopbar(h('strong', {}, 'סימון'), h('span', { class: 'ltr mono', title: S.src.sha256, 'data-testid': 'srcname' }, S.src.display_name),
-    S.src.ingest_state === 'ready' ? pill('ארכיון מאומת', 'ok') : pill('ארכיון לא מאומת', 'bad'),
+    S.src.provider === 'cloud-r2' ? null : S.src.ingest_state === 'ready' ? pill('ארכיון מאומת', 'ok') : pill('ארכיון לא מאומת', 'bad'),
     pill(rev ? `גרסה מאושרת v${rev.seq}` : 'אין גרסה מאושרת', rev ? 'ok' : ''),
     sportPicker(),
+    ...cloudPills(),
     h('span', { class: 'spacer' }), h('span', { id: 'savepill', 'data-testid': 'savepill', 'aria-live': 'polite' }));
   paintSave($('#savepill'));
 }
@@ -538,3 +539,18 @@ async function changeSport(next, prev, opts = {}) {
       h('button', { class: 'btn', onclick: () => { closeDialog(); refresh(); } }, 'ביטול')]);
   }
 }
+
+// ---------------- cloud sources (used in place from R2, read-only) ----------------
+function cloudPills() {
+  if (S.src.provider !== 'cloud-r2') return [];
+  const v = S.src.verify_state;
+  return [pill('☁ ענן (קריאה בלבד)', ''),
+    v === 'verified' ? pill('זהות אומתה', 'ok') : v === 'mismatch' ? pill('אי-התאמת SHA-256!', 'bad')
+      : h('button', { class: 'btn sm', 'data-testid': 'verify-cloud', title: 'נדרש לפני אישור Ground Truth', onclick: async e => {
+        e.target.disabled = true;
+        try { const j = await pollJob((await api('/api/cloud/verify', { method: 'POST', body: { source_id: S.src.id } })).job_id); toast(j.state === 'done' && j.report.verified ? 'הזהות אומתה' : 'האימות נכשל', !(j.state === 'done' && j.report.verified)); const root = S.root, id = S.src.id; teardownAnnotate(); await renderAnnotate(root, id); }
+        catch (x) { toast(x.message, true); e.target.disabled = false; }
+      } }, 'אמת זהות (SHA-256)'),
+    S.src.proxy_state === 'building' ? pill('מכין עותק תיוג מדויק…', 'warn') : null].filter(Boolean);
+}
+async function pollJob(id) { for (;;) { const j = await api(`/api/jobs/${id}`); if (j.state !== 'running') return j; await new Promise(r => setTimeout(r, 400)); } }

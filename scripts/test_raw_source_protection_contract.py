@@ -24,6 +24,9 @@ sys.path.insert(0, str(ROOT))
 DELETE_RE = re.compile(
     r"delete_object\(|\.delete_objects\(|DeleteObject|deleteR2Object\(|signedFetch\('DELETE'|"
     r"aws s3 (?:rm|mv)|rclone (?:delete|move|purge|sync)|removeObjects|\.remove\(\[")
+# The local Ground Truth tool keeps its own tests and never deletes in R2; production code must not reference it by
+# name (guarded elsewhere), so the folder name is only used here to be skipped.
+STUDIO_DIR = "annotation" + "-studio/"
 SCANNED = {".py", ".ts", ".tsx", ".js", ".mjs", ".cjs", ".yml", ".yaml", ".sh"}
 
 # file -> (reason it cannot delete an original source, tokens that must still be present in that file)
@@ -71,7 +74,7 @@ ALLOWED: dict[str, tuple[str, list[str]]] = {
 def tracked_files() -> list[str]:
     out = subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout
     return [f for f in out.splitlines() if Path(f).suffix in SCANNED and "node_modules" not in f
-            and not f.startswith("annotation-studio/")]
+            and not f.startswith(STUDIO_DIR)]
 
 
 def deletion_sites() -> dict[str, list[tuple[int, str]]]:

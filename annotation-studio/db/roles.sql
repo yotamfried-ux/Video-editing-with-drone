@@ -38,7 +38,7 @@ revoke all on all functions in schema __SCHEMA__ from public;
 -- 3. Studio server
 grant usage on schema __SCHEMA__ to gt_studio;
 grant select, insert, update on sources, athletes, athlete_appearances, annotation_drafts, ingestion_jobs, meta to gt_studio;
-grant select, insert, update on source_locations, upload_batches, sports, sport_event_types to gt_studio;
+grant select, insert, update on source_locations, upload_batches, sports, sport_event_types, cloud_objects to gt_studio;
 grant select, insert on upload_occurrences to gt_studio;
 grant select, insert on annotation_revisions, dataset_versions, dataset_members, pipeline_predictions, evaluation_runs,
                         edl_records, editing_reports, crop_proposals, audit_log to gt_studio;

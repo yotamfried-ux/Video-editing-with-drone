@@ -14,8 +14,11 @@ function run(cmd, args) {
   });
 }
 
-export async function probe(file) {
-  const j = JSON.parse(await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', file]));
+// `headers` lets ffprobe/ffmpeg read an http(s) input through the authenticated local media route (cloud sources).
+const input = (src, headers) => headers ? ['-headers', headers, '-i', src] : ['-i', src];
+
+export async function probe(file, { headers } = {}) {
+  const j = JSON.parse(await run('ffprobe', ['-v', 'error', '-print_format', 'json', '-show_streams', '-show_format', ...(headers ? ['-headers', headers] : []), file]));
   const v = (j.streams || []).find(s => s.codec_type === 'video');
   if (!v) throw Object.assign(new Error('no video stream'), { code: 'NOT_VIDEO' });
   const [num, den] = String(v.r_frame_rate || v.avg_frame_rate).split('/').map(Number);
@@ -32,14 +35,14 @@ export async function probe(file) {
   };
 }
 
-export async function makeThumb(src, dest) {
+export async function makeThumb(src, dest, { headers } = {}) {
   mkdirSync(path.dirname(dest), { recursive: true });
-  await run('ffmpeg', ['-y', '-v', 'error', '-i', src, '-vf', 'scale=320:-2', '-frames:v', '1', dest]);
+  await run('ffmpeg', ['-y', '-v', 'error', ...input(src, headers), '-vf', 'scale=320:-2', '-frames:v', '1', dest]);
 }
 
 /** Frame-preserving proxy: constant frame rate equal to the source so frame N maps to frame N. */
-export async function makeProxy(src, dest, { fpsNum, fpsDen, width = 640 }) {
+export async function makeProxy(src, dest, { fpsNum, fpsDen, width = 640, headers }) {
   mkdirSync(path.dirname(dest), { recursive: true });
-  await run('ffmpeg', ['-y', '-v', 'error', '-i', src, '-an', '-vf', `scale=${width}:-2,fps=${fpsNum}/${fpsDen}`,
+  await run('ffmpeg', ['-y', '-v', 'error', ...input(src, headers), '-an', '-vf', `scale=${width}:-2,fps=${fpsNum}/${fpsDen}`,
     '-c:v', 'libvpx-vp9', '-deadline', 'realtime', '-cpu-used', '8', '-crf', '38', '-b:v', '0', '-g', '15', dest]);
 }

@@ -71,3 +71,7 @@ annotation-studio/.e2e-home/
 annotation-studio/tests/e2e/shots-tmp/
 annotation-studio/node_modules/
 annotation-studio/.e2e-workflow-*/
+
+# Local secrets for the Studio (never commit)
+annotation-studio/.studio-cloud.env
+annotation-studio/.e2e-cloud-*/

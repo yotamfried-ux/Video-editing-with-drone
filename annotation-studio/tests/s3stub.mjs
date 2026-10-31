@@ -13,6 +13,7 @@ function parseAuthorization(header = '') {
   return [null, parts.Credential.split('/')[0], parts.SignedHeaders, parts.Signature];
 }
 
+const etagOf = data => createHash('md5').update(data).digest('hex');
 export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey = 'test-secret-do-not-use', bucket = 'gt-archive', region = 'auto' } = {}) {
   const objects = new Map(), uploads = new Map(), log = [];
   const faults = { failPuts: 0, corruptNextPut: false, outage: false };
@@ -63,13 +64,13 @@ export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey
     if (req.method === 'GET' && key === '' && q.get('list-type') === '2') {
       const prefix = q.get('prefix') ?? '', all = [...objects].filter(([k]) => k.startsWith(prefix)).sort(([a], [b]) => a < b ? -1 : 1);
       const start = Number(q.get('continuation-token') ?? 0), page = all.slice(start, start + 2), more = start + 2 < all.length;
-      return send(200, `<ListBucketResult>${page.map(([k, o]) => `<Contents><Key>${k}</Key><Size>${o.data.length}</Size></Contents>`).join('')}${more ? `<NextContinuationToken>${start + 2}</NextContinuationToken>` : ''}</ListBucketResult>`);
+      return send(200, `<ListBucketResult>${page.map(([k, o]) => `<Contents><Key>${k}</Key><LastModified>2026-10-20T10:00:00.000Z</LastModified><ETag>&quot;${etagOf(o.data)}&quot;</ETag><Size>${o.data.length}</Size></Contents>`).join('')}${more ? `<NextContinuationToken>${start + 2}</NextContinuationToken>` : ''}</ListBucketResult>`);
     }
     if (req.method === 'GET' || req.method === 'HEAD') {
       const o = objects.get(key); if (!o) return send(404, 'NoSuchKey');
       const r = /bytes=(\d+)-(\d*)/.exec(req.headers.range ?? '');
       if (r && req.method === 'GET') { const a = Number(r[1]), b = r[2] === '' ? o.data.length - 1 : Number(r[2]); return send(206, o.data.subarray(a, b + 1), { 'content-range': `bytes ${a}-${b}/${o.data.length}` }); }
-      res.writeHead(200, { 'content-length': o.data.length }); return res.end(req.method === 'GET' ? o.data : undefined);
+      res.writeHead(200, { 'content-length': o.data.length, etag: `"${etagOf(o.data)}"`, 'last-modified': 'Tue, 20 Oct 2026 10:00:00 GMT', 'content-type': 'video/mp4', 'accept-ranges': 'bytes' }); return res.end(req.method === 'GET' ? o.data : undefined);
     }
     return send(400, 'unsupported');
   });

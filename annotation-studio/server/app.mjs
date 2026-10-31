@@ -11,6 +11,7 @@ import * as D from './datasets.mjs';
 import * as E from './evaluate.mjs';
 import * as L from './edl.mjs';
 import * as S from './sports.mjs';
+import * as C from './cloud.mjs';
 import { reconcile, verifyArchives } from './ingest.mjs';
 import * as I from './imports.mjs';
 import { exportBackup, verifyIntegrity } from './backup.mjs';
@@ -53,7 +54,7 @@ export function createApp(ctx) {
     return {
       id: s.id, display_name: s.display_name, sha256: s.sha256, byte_size: s.byte_size, width: s.width, height: s.height,
       fps_num: s.fps_num, fps_den: s.fps_den, frame_count: s.frame_count, duration_ms: s.duration_ms, rotation: s.rotation,
-      primary_sport_id: s.primary_sport_id ?? null,
+      primary_sport_id: s.primary_sport_id ?? null, provider: s.provider ?? 'local', verify_state: s.verify_state ?? null, proxy_state: s.proxy_state ?? (s.proxy_path ? 'ready' : null),
       ingest_state: s.ingest_state, archive_verified_at: s.archive_verified_at, archive_error: s.archive_error,
       annotation_status: A.annotationStatus(db, s.id), revision_seq: rev?.seq ?? 0, reviewed_ratio: cov.ratio,
       segment_count: content.segments.length, batches: [...new Set(occ.map(o => o.label))],
@@ -81,6 +82,31 @@ export function createApp(ctx) {
         totals: { all: rows.length, approved: rows.filter(s => A.annotationStatus(db, s.id) === 'approved').length,
           not_annotated: rows.filter(s => A.annotationStatus(db, s.id) === 'not_annotated').length,
           by_sport: rows.reduce((o, s) => { const k = s.primary_sport_id ?? 'unknown'; o[k] = (o[k] ?? 0) + 1; return o; }, {}) } });
+    }
+    // ---- Cloud catalog (existing SportReel videos in R2, used in place; the bucket is only ever read) ----
+    if (m === 'GET' && p === '/api/cloud/status') {
+      const n = db.prepare('select count(*) total, sum(case when available=1 then 1 else 0 end) available, sum(case when source_id is not null then 1 else 0 end) opened from cloud_objects').get();
+      return send(res, 200, { configured: !!ctx.cloud, bucket: ctx.cloud?.bucket ?? null, read_only: true, metadata_file: !!ctx.cloudMetadata,
+        total: Number(n.total ?? 0), available: Number(n.available ?? 0), opened: Number(n.opened ?? 0) });
+    }
+    if (m === 'GET' && p === '/api/cloud/objects') { if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED'); return send(res, 200, { items: C.listCloudObjects(db).map(o => ({ ...o, annotation_status: o.source_id ? A.annotationStatus(db, o.source_id) : 'not_annotated' })) }); }
+    if (m === 'POST' && p === '/api/cloud/sync') {
+      if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
+      const id = randomUUID(); jobs.set(id, { state: 'running' });
+      C.syncCloudCatalog(ctx, { metadata: C.loadMetadata(ctx.cloudMetadata) }).then(rep => jobs.set(id, { state: 'done', report: rep }), e => jobs.set(id, { state: 'failed', error: e.message }));
+      return send(res, 202, { job_id: id });
+    }
+    if ((r = /^\/api\/cloud\/objects\/([\w-]+)\/open$/.exec(p)) && m === 'POST') {
+      if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
+      const id = randomUUID(); jobs.set(id, { state: 'running' });
+      C.openCloudObject(ctx, r[1], { baseUrl: `http://${req.headers.host}` }).then(rep => jobs.set(id, { state: 'done', report: { source_id: rep.source_id, reused: rep.reused } }), e => jobs.set(id, { state: 'failed', error: e.message }));
+      return send(res, 202, { job_id: id });
+    }
+    if (m === 'POST' && p === '/api/cloud/verify') {
+      if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
+      const b = await body(req), id = randomUUID(); jobs.set(id, { state: 'running' });
+      C.verifyCloudSources(ctx, { onlyId: b.source_id }).then(rep => jobs.set(id, { state: 'done', report: rep }), e => jobs.set(id, { state: 'failed', error: e.message }));
+      return send(res, 202, { job_id: id });
     }
     if (m === 'POST' && p === '/api/sources/bulk-sport') { const b = await body(req); return send(res, 200, S.bulkSetSport(db, b.source_ids, b.sport_id ?? null, b.reason)); }
     if ((r = /^\/api\/sources\/([\w-]+)\/sport$/.exec(p)) && m === 'PATCH') {
@@ -195,21 +221,26 @@ export function createApp(ctx) {
   }
 
   async function media(req, res, id, kind) {
-    let file = null, archiveKey = null;
-    if (kind === 'out') {
+    let file = null, archiveKey = null, reader = ctx.archive;
+    if (kind === 'cloud-original') {                                   // /media/cloud/<object id>/original : a catalogued object (used while opening)
+      const o = db.prepare('select key from cloud_objects where id=?').get(id);
+      if (!o || !ctx.cloud) return send(res, 404, { code: 'NOT_FOUND' });
+      archiveKey = o.key; reader = ctx.cloud; kind = 'original';
+    } else if (kind === 'out') {
       const e = db.prepare('select payload from edl_records where id=?').get(id);
       const f = e && JSON.parse(e.payload).output_file;
       file = f && path.join(ctx.outputsDir, path.basename(f));
     } else {
       const s = db.prepare('select * from sources where id=?').get(id);
       if (!s) return send(res, 404, { code: 'NOT_FOUND' });
-      if (kind === 'original') archiveKey = s.archive_key; else file = kind === 'thumb' ? s.thumb_path : s.proxy_path;
+      if (kind === 'original' && s.provider === 'cloud-r2') { if (!ctx.cloud) return send(res, 503, { code: 'CLOUD_NOT_CONFIGURED' }); archiveKey = s.cloud_key; reader = ctx.cloud; }
+      else if (kind === 'original') archiveKey = s.archive_key; else file = kind === 'thumb' ? s.thumb_path : s.proxy_path;
     }
     const type = kind === 'thumb' ? 'image/jpeg' : kind === 'original' ? 'video/mp4' : (MIME[path.extname(file ?? '')] ?? 'application/octet-stream');
     let size, open;
     if (archiveKey) {
-      size = await ctx.archive.size(archiveKey);
-      open = o => ctx.archive.open(archiveKey, o);
+      size = await reader.size(archiveKey);
+      open = o => reader.open(archiveKey, o);
     } else if (file && existsSync(file)) { size = statSync(file).size; open = async o => createReadStream(file, o); }
     if (size == null) return send(res, 404, { code: 'SOURCE_UNAVAILABLE' });
     const range = /bytes=(\d*)-(\d*)/.exec(req.headers.range ?? '');
@@ -247,6 +278,8 @@ export function createApp(ctx) {
           const o = req.headers.origin;
           if (o && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(o)) return send(res, 403, { code: 'PERMISSION_DENIED' });
         }
+        const cm = /^\/media\/cloud\/([\w-]+)\/original$/.exec(url.pathname);
+        if (cm) return await media(req, res, cm[1], 'cloud-original');
         const mm = /^\/media\/([\w-]+)\/(proxy|thumb|original|out)$/.exec(url.pathname);
         if (mm) return await media(req, res, mm[1], mm[2]);
         return await api(req, res, url);

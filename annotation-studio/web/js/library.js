@@ -20,7 +20,7 @@ export async function renderLibrary(root) {
       : h('table', { class: 't' }, h('thead', {}, h('tr', {}, ['קובץ', 'ענף', 'משך', 'סטטוס', 'ארכיון', 'התקדמות', 'אצווה', ''].map(x => h('th', {}, x)))),
         h('tbody', {}, list.map(s => h('tr', {}, h('td', {}, ltr(s.display_name)), h('td', {}, sportName(s.primary_sport_id)), h('td', {}, ltr(timecode(s.frame_count, fpsOf(s)))), h('td', {}, pill(STATUS_HE[s.annotation_status], STATUS_CLASS[s.annotation_status])), h('td', {}, archBadge(s)), h('td', {}, `${Math.round(s.reviewed_ratio * 100)}%`), h('td', {}, s.batches.join(', ')), h('td', {}, h('a', { class: 'btn sm', href: `#/annotate/${s.id}` }, 'פתח')))))));
   };
-  const archBadge = s => s.ingest_state === 'ready' ? pill('ארכיון מאומת', 'ok') : pill(STATUS_HE[s.ingest_state], STATUS_CLASS[s.ingest_state]);
+  const archBadge = s => s.provider === 'cloud-r2' ? pill(s.verify_state === 'verified' ? '☁ ענן · אומת' : '☁ ענן · זהות לא אומתה', s.verify_state === 'verified' ? 'ok' : 'warn') : s.ingest_state === 'ready' ? pill('ארכיון מאומת', 'ok') : pill(STATUS_HE[s.ingest_state], STATUS_CLASS[s.ingest_state]);
   const card = s => h('div', { class: 'card', 'data-testid': 'source-card' },
     h('div', { class: 'thumb', style: s.has_thumb ? { backgroundImage: `url(/media/${s.id}/thumb)` } : {} }, s.has_thumb ? null : 'אין תמונה ממוזערת', h('span', { class: 'tag' }, pill(STATUS_HE[s.annotation_status], STATUS_CLASS[s.annotation_status]))),
     h('div', { class: 'meta', style: { padding: '0 12px' } }, h('span', { 'data-testid': 'sport-badge', class: `pill${s.primary_sport_id ? ' ok' : ' warn'}` }, h('span', { class: 'dot' }), sportName(s.primary_sport_id))),

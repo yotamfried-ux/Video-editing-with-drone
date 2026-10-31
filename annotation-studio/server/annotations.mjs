@@ -108,6 +108,8 @@ export function unresolved(content) {
 export function approve(db, sourceId, { expectedVersion, scope = 'source', reason = '', acknowledgeUnresolved = false, author = 'operator' }) {
   const source = getSource(db, sourceId);
   if (source.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
+  // Ground Truth on a cloud source is only approved once its identity was re-verified from the bucket's bytes.
+  if (source.provider === 'cloud-r2' && source.verify_state !== 'verified') throw new ApiError('SOURCE_UNVERIFIED');
   if (!['source', 'interval', 'segment'].includes(scope)) throw new ApiError('INVALID_INPUT');
   return tx(db, () => {
     const d = db.prepare('select * from annotation_drafts where source_id=?').get(sourceId);

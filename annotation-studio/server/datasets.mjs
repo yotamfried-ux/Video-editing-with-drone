@@ -26,6 +26,7 @@ export function freezeDataset(db, { name, sourceIds, policy = DEFAULT_POLICY }) 
       if (!s) throw new ApiError('NOT_FOUND', `מקור לא נמצא: ${id}`);
       if (!rev) throw new ApiError('INVALID_INPUT', `אין גרסה מאושרת עבור ${s.display_name}`);
       if (s.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
+      if (s.provider === 'cloud-r2' && s.verify_state !== 'verified') throw new ApiError('SOURCE_UNVERIFIED');
       const group = s.session_key ?? s.id;
       // Taxonomy versions in force when the revision was approved are pinned in the manifest (only when a sport was involved).
       const tax = rev.taxonomy_versions ? JSON.parse(rev.taxonomy_versions) : {};
