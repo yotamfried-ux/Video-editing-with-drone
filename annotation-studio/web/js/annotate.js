@@ -25,6 +25,7 @@ export async function renderAnnotate(root, id) {
     undo: [], redo: [], saveTimer: null, retryTimer: null, insp: true, overlay: true, banner: null, playing: false, root,
   };
   restorePending();
+  watchCloudProxy();
   root.replaceChildren(layout());
   mountVideo();
   bindKeys();
@@ -551,6 +552,22 @@ function cloudPills() {
         try { const j = await pollJob((await api('/api/cloud/verify', { method: 'POST', body: { source_id: S.src.id } })).job_id); toast(j.state === 'done' && j.report.verified ? 'הזהות אומתה' : 'האימות נכשל', !(j.state === 'done' && j.report.verified)); const root = S.root, id = S.src.id; teardownAnnotate(); await renderAnnotate(root, id); }
         catch (x) { toast(x.message, true); e.target.disabled = false; }
       } }, 'אמת זהות (SHA-256)'),
-    S.src.proxy_state === 'building' ? pill('מכין עותק תיוג מדויק…', 'warn') : null].filter(Boolean);
+    S.src.proxy_state === 'building' ? pill('מכין עותק תיוג מדויק…', 'warn') : S.src.proxy_state === 'failed' ? pill('בניית עותק התיוג נכשלה — מנגן את המקור', 'bad') : null].filter(Boolean);
 }
 async function pollJob(id) { for (;;) { const j = await api(`/api/jobs/${id}`); if (j.state !== 'running') return j; await new Promise(r => setTimeout(r, 400)); } }
+
+/** A cloud source is annotated on a local frame-exact proxy. While it is being built, poll and reload the view once it is ready. */
+function watchCloudProxy() {
+  if (S.src.provider !== 'cloud-r2' || S.src.proxy_state !== 'building') return;
+  if (S.src.codec && S.src.codec !== 'h264') toast('הסרטון בפורמט (' + S.src.codec + ') שאולי לא מתנגן בדפדפן עד שעותק התיוג יהיה מוכן — זה לוקח מעט זמן', false);
+  const id = S.src.id, root = S.root;
+  const t = setInterval(async () => {
+    try {
+      const cur = await api(`/api/sources/${id}`);
+      if (cur.proxy_state === 'building') return;
+      clearInterval(t);
+      if (S && S.src.id === id) { teardownAnnotate(); await renderAnnotate(root, id); toast(cur.proxy_state === 'ready' ? 'עותק התיוג מוכן' : 'בניית עותק התיוג נכשלה', cur.proxy_state !== 'ready'); }
+    } catch { /* transient: keep polling */ }
+  }, 4000);
+  cleanup.push(() => clearInterval(t));
+}

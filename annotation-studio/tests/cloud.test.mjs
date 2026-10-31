@@ -5,6 +5,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createHash } from 'node:crypto';
+import { spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { newCtx, makeVideo, tmp, seg } from './helpers.mjs';
 import { startS3Stub } from './s3stub.mjs';
@@ -16,10 +17,20 @@ import * as A from '../server/annotations.mjs';
 const sha = b => createHash('sha256').update(b).digest('hex');
 const md5 = b => createHash('md5').update(b).digest('hex');
 
-async function world({ record = true } = {}) {
+async function world({ record = true, realistic = false } = {}) {
   const stub = await startS3Stub({ bucket: 'sportreel' });
   const dir = tmp('cloudvid-');
-  const vid = n => readFileSync(makeVideo(path.join(dir, `${n}.mp4`), { seconds: 3, y: 20 + n.charCodeAt(0), tag: n }));
+  const vid = n => {
+    if (realistic && n === 'B') {
+      // Shaped like phone/drone footage: 4K, HEVC 10-bit, 29.97 fps, audio, `moov` at the END of the file (no faststart).
+      const f = path.join(dir, 'B_real.mp4');
+      const r = spawnSync('ffmpeg', ['-y', '-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=s=3840x2160:r=30000/1001:d=2', '-f', 'lavfi', '-i', 'sine=f=440:d=2',
+        '-c:v', 'libx265', '-preset', 'ultrafast', '-crf', '32', '-tag:v', 'hvc1', '-pix_fmt', 'yuv420p10le', '-c:a', 'aac', '-shortest', f], { encoding: 'utf8' });
+      if (r.status !== 0) throw new Error(r.stderr.slice(-300));
+      return readFileSync(f);
+    }
+    return readFileSync(makeVideo(path.join(dir, `${n}.mp4`), { seconds: 3, y: 20 + n.charCodeAt(0), tag: n }));
+  };
   const files = { A: vid('A'), B: vid('B'), L: vid('L') };
   stub.objects.set('raw/2026-10-06T17-37-55_A.mp4', { data: files.A });
   stub.objects.set('raw/2026-10-06T17-46-01_B.mp4', { data: files.B });
@@ -232,4 +243,30 @@ test('XML entities in object keys are decoded exactly once (no double unescaping
   assert.equal(unXml('raw/&amp;lt;tag&amp;gt;.mp4'), 'raw/&lt;tag&gt;.mp4', '&amp;lt; is the literal text &lt;, not "<"');
   assert.equal(unXml('&lt;&gt;&quot;&apos;&amp;'), '<>"\'&');
   assert.equal(unXml('&amp;amp;'), '&amp;');
+});
+
+test('real-world shaped footage: 4K HEVC 10-bit, 29.97 fps, moov at the end — opens from the cloud, probes, and the annotation proxy keeps frame N = frame N', { timeout: 240000 }, async () => {
+  const w = await world({ realistic: true });
+  try {
+    const raw = w.files.B;
+    assert.ok(raw.indexOf(Buffer.from('moov')) > raw.indexOf(Buffer.from('mdat')), 'fixture really has moov after mdat (needs a ranged seek to the end)');
+    const before = w.snapshot();
+    await w.job('/api/cloud/sync');
+    const B_ = (await w.api('/api/cloud/objects')).body.items.find(i => i.key.endsWith('_B.mp4'));
+    const opened = await w.job(`/api/cloud/objects/${B_.id}/open`);
+    assert.equal(opened.state, 'done', JSON.stringify(opened));
+    const sid = opened.report.source_id;
+    const row = w.ctx.db.prepare('select codec,width,height,fps_num,fps_den,frame_count,rotation from sources where id=?').get(sid);
+    assert.deepEqual({ codec: row.codec, w: row.width, h: row.height, fps: `${row.fps_num}/${row.fps_den}` }, { codec: 'hevc', w: 3840, h: 2160, fps: '30000/1001' });
+    assert.ok(w.ctx.db.prepare('select thumb_path t from sources where id=?').get(sid).t, 'thumbnail built from the 4K HEVC original');
+    await waitForProxies();
+    const src = (await w.api(`/api/sources/${sid}`)).body;
+    assert.equal(src.proxy_state, 'ready', 'a proxy is what makes HEVC watchable in a browser');
+    const p = spawnSync('ffprobe', ['-v', 'error', '-count_frames', '-select_streams', 'v:0', '-show_entries', 'stream=codec_name,width,r_frame_rate,nb_read_frames', '-of', 'json',
+      w.ctx.db.prepare('select proxy_path p from sources where id=?').get(sid).p], { encoding: 'utf8' });
+    const ps = JSON.parse(p.stdout).streams[0];
+    assert.equal(ps.width, 640); assert.equal(ps.codec_name, 'vp9');
+    assert.equal(Number(ps.nb_read_frames), row.frame_count, 'proxy frame count equals the source frame count, so frame N maps to frame N');
+    assert.deepEqual(w.snapshot(), before, 'bucket untouched');
+  } finally { w.close(); }
 });
