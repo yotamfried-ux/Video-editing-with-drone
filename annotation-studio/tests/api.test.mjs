@@ -110,12 +110,21 @@ test('production code and workflows never reference the Studio, its state, or it
   assert.deepEqual(offenders, []);
 });
 
+test('the inference pipeline workflow holds neither a Ground Truth credential nor the database-admin credential', () => {
+  const wf = readFileSync(path.join(REPO, '.github', 'workflows', 'pipeline-run.yml'), 'utf8');
+  // SUPABASE_DB_URL is the `postgres` role, which Supabase makes a member of pg_read_all_data: it can read every schema.
+  // It must stay confined to the manually dispatched migration/release workflows and never reach inference runs.
+  assert.ok(!/SUPABASE_DB_URL/.test(wf), 'pipeline-run.yml must not reference SUPABASE_DB_URL');
+  assert.ok(!/STUDIO_|ground_truth|gt_studio|gt_evaluator/.test(wf), 'pipeline-run.yml must not reference Ground Truth');
+});
+
 test('Studio code never imports from or reads pipeline/web-api secrets', () => {
   const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const bad = [];
   for (const d of ['server', 'web', 'scripts']) for (const f of files2(path.join(here, d))) {
     const t = readFileSync(f, 'utf8');
-    if (/OPERATOR_SECRET|SUPABASE_SERVICE_KEY|GOOGLE_SERVICE_ACCOUNT|R2_SECRET|from ['"]\.\.\/\.\.\//.test(t)) bad.push(path.relative(here, f));
+    // Studio has its own STUDIO_* credentials; the pipeline's production variable names must never appear unprefixed.
+    if (/OPERATOR_SECRET|SUPABASE_SERVICE_KEY|SUPABASE_URL|GOOGLE_SERVICE_ACCOUNT|(?<![A-Z_])R2_(SECRET_ACCESS_KEY|ACCESS_KEY_ID|BUCKET|ACCOUNT_ID)|SECRET_KEY_ID|from ['"]\.\.\/\.\.\//.test(t)) bad.push(path.relative(here, f));
   }
   assert.deepEqual(bad, []);
 });

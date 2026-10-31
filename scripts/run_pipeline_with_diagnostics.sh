@@ -34,6 +34,10 @@ if [ -f "$DRAFT_TRACE_FILE" ]; then
     python scripts/build_candidate_decision_ledger.py "$DRAFT_TRACE_FILE" "$CANDIDATE_LEDGER_FILE" || true
   fi
 fi
+# Opt-in Ground Truth evaluation evidence (EDL + predictions). Observational only: never alters or fails the run.
+if [ "${SPORTREEL_EXPORT_EDL:-}" = "1" ] && [ -f "$CANDIDATE_LEDGER_FILE" ]; then
+  python scripts/export_pipeline_predictions.py "$CANDIDATE_LEDGER_FILE" "$DEBUG_DIR/edl" "$DEBUG_DIR/predictions.v1.json" || true
+fi
 if [ -f "$SELECTION_FILTER_EVENTS_FILE" ]; then
   cp "$SELECTION_FILTER_EVENTS_FILE" "$DEBUG_DIR/selection_filter_events.json" || true
 fi

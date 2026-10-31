@@ -1,10 +1,12 @@
 // Precision Annotation Workbench: video + frame-accurate multitrack timeline + inspector.
-import { h, $, api, ltr, pill, toast, dialog, closeDialog, timecode, fpsOf, uid, fmtDate, EVENT_HE, DECISION_HE, STATUS_HE, STATUS_CLASS } from './ui.js';
+import { h, $, api, ltr, pill, toast, dialog, closeDialog, timecode, fpsOf, uid, fmtDate, eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS } from './ui.js';
 import { setTopbar, rememberSource } from './main.js';
 
 const SPEEDS = [0.25, 0.5, 1, 2];
 const COLORS = ['var(--ath1)', 'var(--ath2)', 'var(--ath3)', 'var(--ath4)'];
 let S = null, cleanup = [];
+const LEGACY = ['wave_ride', 'failed_takeoff', 'wipeout', 'paddle_out', 'other'];
+const effSport = x => x.sport_id ?? S.src.primary_sport_id ?? null;
 
 export function teardownAnnotate() { cleanup.forEach(f => f()); cleanup = []; S = null; }
 const on = (t, ev, fn, o) => { t.addEventListener(ev, fn, o); cleanup.push(() => t.removeEventListener(ev, fn, o)); };
@@ -167,7 +169,7 @@ function markOut() {
 function createSegment(s, e, athlete = null) {
   const id = uid();
   const a = athlete ?? (selSeg()?.athlete_id ?? null);
-  edit(c => c.segments.push({ id, start_frame: s, end_frame: e, athlete_id: a, event_type: 'wave_ride', decision: 'include', reason_code: null, notes: '', framing_mode: null, target: null }));
+  edit(c => c.segments.push({ id, start_frame: s, end_frame: e, athlete_id: a, event_type: eventOptions(S.src.primary_sport_id ?? null, null)[0]?.key ?? 'other', decision: 'include', reason_code: null, notes: '', framing_mode: null, target: null }));
   S.sel = id; refresh(); setTimeout(() => $('#f-athlete')?.focus(), 0);
 }
 function jumpSeg(dir) {
@@ -223,9 +225,9 @@ function paintTimeline() {
       const lane = t.laneOf.get(s.id);
       const cls = s.decision === 'include' ? 'inc' : s.decision === 'exclude' ? 'exc' : 'unc';
       const icon = s.decision === 'include' ? '✓' : s.decision === 'exclude' ? '✕' : '?';
-      const el = h('div', { class: `sg ${cls}${S.sel === s.id ? ' sel' : ''}`, 'data-id': s.id, 'data-testid': 'segment', role: 'button', tabindex: 0, 'aria-label': `${DECISION_HE[s.decision]} ${EVENT_HE[s.event_type]} פריימים ${s.start_frame} עד ${s.end_frame}`,
+      const el = h('div', { class: `sg ${cls}${S.sel === s.id ? ' sel' : ''}`, 'data-id': s.id, 'data-testid': 'segment', role: 'button', tabindex: 0, 'aria-label': `${DECISION_HE[s.decision]} ${eventHe(s.event_type, effSport(s))} פריימים ${s.start_frame} עד ${s.end_frame}`,
         style: { left: `${xOf(s.start_frame)}px`, width: `${Math.max(4, xOf(s.end_frame - s.start_frame))}px`, top: `${4 + lane * 28}px`, borderColor: s.athlete_id ? athColor(s.athlete_id) : undefined } },
-        h('span', { class: 'h l' }), `${icon} ${EVENT_HE[s.event_type]}`, h('span', { class: 'h r' }));
+        h('span', { class: 'h l' }), `${icon} ${eventHe(s.event_type, effSport(s))}`, h('span', { class: 'h r' }));
       for (const k of C().keyframes.filter(k => k.segment_id === s.id)) el.append(h('i', { class: `kfm${k.origin === 'manual' ? '' : ' i'}`, style: { left: `${xOf(k.frame - s.start_frame)}px` } }));
       bindSegment(el, s); row.append(el);
     }
@@ -384,7 +386,7 @@ function paintInspector() {
     h('h3', {}, 'מקטע נבחר'),
     !s ? h('div', { class: 'empty', style: { padding: '16px' } }, 'בחר מקטע בציר הזמן, או סמן I / O ליצירת מקטע חדש.') : segForm(s),
     h('h3', {}, 'מקטעים', h('span', { class: 'pill' }, C().segments.length)),
-    h('ul', { class: 'list', 'data-testid': 'seglist' }, C().segments.slice().sort((a, b) => a.start_frame - b.start_frame).map(x => h('li', { 'aria-selected': String(x.id === S.sel), style: { cursor: 'pointer' }, onclick: () => { S.sel = x.id; seekFrame(x.start_frame); refresh(); } }, h('span', { class: 'swatch', style: { background: athColor(x.athlete_id) } }), h('span', { class: 'mono ltr' }, `${x.start_frame}–${x.end_frame}`), h('span', { style: { flex: 1 } }, `${DECISION_HE[x.decision]} · ${EVENT_HE[x.event_type]}`)))),
+    h('ul', { class: 'list', 'data-testid': 'seglist' }, C().segments.slice().sort((a, b) => a.start_frame - b.start_frame).map(x => h('li', { 'aria-selected': String(x.id === S.sel), style: { cursor: 'pointer' }, onclick: () => { S.sel = x.id; seekFrame(x.start_frame); refresh(); } }, h('span', { class: 'swatch', style: { background: athColor(x.athlete_id) } }), h('span', { class: 'mono ltr' }, `${x.start_frame}–${x.end_frame}`), h('span', { style: { flex: 1 } }, `${DECISION_HE[x.decision]} · ${eventHe(x.event_type, effSport(x))}`)))),
     h('h3', {}, 'כיסוי בדיקה'),
     h('div', { class: 'meta' }, `נבדק ${Math.round(cov * 100)}% מהסרטון — אזור שלא נבדק איננו סימון שלילי.`),
     h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px' } },
@@ -410,7 +412,12 @@ function segForm(s) {
     field('גולש', h('div', { style: { display: 'flex', gap: '6px' } },
       h('select', { id: 'f-athlete', 'data-testid': 'athlete-select', onchange: e => upd('athlete_id', e.target.value || null) }, h('option', { value: '' }, 'לא ידוע'), S.athletes.map((a, i) => h('option', { value: a.id, selected: a.id === s.athlete_id }, `${i + 1}. ${a.label}`))),
       h('button', { class: 'btn sm', 'data-testid': 'new-athlete', onclick: newAthlete }, '＋ חדש')), 'f-athlete'),
-    field('סוג אירוע', h('select', { id: 'f-type', onchange: e => upd('event_type', e.target.value) }, Object.entries(EVENT_HE).map(([k, v]) => h('option', { value: k, selected: k === s.event_type }, v))), 'f-type'),
+    field('ענף למקטע', h('select', { id: 'f-sport', 'data-testid': 'seg-sport', onchange: e => upd('sport_id', e.target.value || null) },
+      h('option', { value: '' }, `כמו המקור (${sportName(S.src.primary_sport_id ?? null)})`), sportsList().filter(x => x.enabled || x.id === s.sport_id).map(x => h('option', { value: x.id, selected: x.id === s.sport_id }, x.name_he))), 'f-sport'),
+    field('סוג אירוע', h('select', { id: 'f-type', 'data-testid': 'event-type', onchange: e => upd('event_type', e.target.value) }, eventOptions(effSport(s), s.event_type).map(t => h('option', { value: t.key, selected: t.key === s.event_type }, t.label_he))), 'f-type'),
+    (effSport(s) != null || LEGACY.includes(s.event_type)) && !eventOptions(effSport(s), null).some(t => t.key === s.event_type)
+      ? h('div', { class: 'banner bad', role: 'alert', 'data-testid': 'event-mismatch' }, `סוג האירוע "${s.event_type}" אינו שייך לענף "${sportName(effSport(s))}" — בחר סוג תקין לפני השמירה.`) : null,
+    ...(eventInfo(effSport(s), s.event_type)?.required_attrs ?? []).map(a => field(`שדה חובה: ${a}`, h('input', { type: 'text', id: `f-attr-${a}`, 'data-testid': `attr-${a}`, value: s.attrs?.[a] ?? '', onchange: e => edit(c => { const x = c.segments.find(y => y.id === s.id); x.attrs = { ...(x.attrs ?? {}), [a]: e.target.value }; }) }), `f-attr-${a}`)),
     h('label', { class: 'f' }, 'החלטה'),
     h('div', { class: 'rad', role: 'group', 'aria-label': 'החלטה' }, [['include', 'inc', 'כלול', 'E'], ['exclude', 'exc', 'החרג', 'X'], ['uncertain', 'unc', 'לא בטוח', 'U']].map(([k, c, l, key]) => h('button', { class: c, 'aria-pressed': String(s.decision === k), 'data-testid': `dec-${k}`, onclick: () => upd('decision', k) }, `${l} `, h('kbd', {}, key)))),
     s.decision === 'exclude' ? field('סיבת החרגה', h('select', { id: 'f-reason', onchange: e => upd('reason_code', e.target.value || null) }, [['', '—'], ['failed_takeoff', 'עמידה כושלת'], ['no_readable_ride', 'אין רכיבה קריאה'], ['duplicate', 'כפילות'], ['wrong_athlete', 'גולש שגוי'], ['target_lost', 'אובדן המטרה']].map(([k, l]) => h('option', { value: k, selected: k === (s.reason_code ?? '') }, l))), 'f-reason') : null,
@@ -459,6 +466,7 @@ function paintStatus() {
   setTopbar(h('strong', {}, 'סימון'), h('span', { class: 'ltr mono', title: S.src.sha256, 'data-testid': 'srcname' }, S.src.display_name),
     S.src.ingest_state === 'ready' ? pill('ארכיון מאומת', 'ok') : pill('ארכיון לא מאומת', 'bad'),
     pill(rev ? `גרסה מאושרת v${rev.seq}` : 'אין גרסה מאושרת', rev ? 'ok' : ''),
+    sportPicker(),
     h('span', { class: 'spacer' }), h('span', { id: 'savepill', 'data-testid': 'savepill', 'aria-live': 'polite' }));
   paintSave($('#savepill'));
 }
@@ -497,4 +505,36 @@ function bindKeys() {
     if (act[k]) { e.preventDefault(); act[k](); }
   });
   on(window, 'beforeunload', e => { if (S && (S.save === 'dirty' || S.save === 'offline' || S.save === 'saving')) { persistPending(); e.preventDefault(); e.returnValue = ''; } });
+}
+
+// ---------------- sport classification (spec §18) ----------------
+function sportPicker() {
+  const cur = S.src.primary_sport_id ?? '';
+  return h('label', { class: 'pill', style: { gap: '6px' } }, 'ענף:',
+    h('select', { id: 'src-sport', 'data-testid': 'source-sport', 'aria-label': 'ענף הספורט של הסרטון', onchange: e => changeSport(e.target.value || null, cur) },
+      h('option', { value: '' }, 'לא מסווג'), sportsList().filter(x => x.enabled || x.id === cur).map(x => h('option', { value: x.id, selected: x.id === cur }, x.name_he))));
+}
+async function changeSport(next, prev, opts = {}) {
+  if (S.dirty || S.inflight) { toast('יש שינויים שטרם נשמרו — המתן לשמירה לפני שינוי ענף', true); return refresh(); }
+  if (!opts.confirmed && (S.revs.length || next == null)) {
+    return dialog('שינוי ענף ספורט', h('div', {}, h('p', {}, S.revs.length ? 'לסרטון יש גרסאות מאושרות. הן והדאטהסטים הקפואים לא ישתנו; רק הטיוטה והסיווג הנוכחי.' : 'לשנות את הסיווג?'), h('p', { class: 'meta' }, `${sportName(prev ?? null)} ← ${sportName(next)}`)), [
+      h('button', { class: 'btn primary', 'data-testid': 'confirm-sport', onclick: () => { closeDialog(); changeSport(next, prev, { confirmed: true }); } }, 'אשר שינוי'),
+      h('button', { class: 'btn', onclick: () => { closeDialog(); refresh(); } }, 'ביטול')]);
+  }
+  try {
+    await api(`/api/sources/${S.src.id}/sport`, { method: 'PATCH', body: { sport_id: next, reason: 'operator', ...opts.body } });
+    toast(`הענף עודכן: ${sportName(next)}`);
+    const root = S.root, id = S.src.id; teardownAnnotate(); await renderAnnotate(root, id);
+  } catch (e) {
+    if (e.code !== 'SPORT_INCOMPATIBLE') { toast(e.message, true); return refresh(); }
+    const bad = e.data.incompatible, keys = [...new Set(bad.map(b => b.event_type))];
+    const targets = (sportsList().find(x => x.id === next)?.event_types ?? []).filter(t => t.enabled);
+    const picks = new Map(keys.map(k => [k, h('select', { 'aria-label': `מיפוי ${k}`, 'data-testid': `remap-${k}` }, h('option', { value: '' }, 'השאר (ידרוש תיקון ידני)'), targets.map(t => h('option', { value: t.key }, t.label_he)))]));
+    dialog('סוגי אירוע לא תואמים לענף החדש', h('div', {}, h('p', {}, `${bad.length} מקטעים בטיוטה משתמשים בסוגי אירוע שאינם קיימים בענף "${sportName(next)}". שום מקטע לא יימחק.`),
+      h('ul', { class: 'list' }, keys.map(k => h('li', {}, ltr(k), ' → ', picks.get(k))))), [
+      h('button', { class: 'btn primary', 'data-testid': 'apply-remap', onclick: () => {
+        const remap = Object.fromEntries([...picks].filter(([, el]) => el.value).map(([k, el]) => [k, el.value]));
+        closeDialog(); changeSport(next, prev, { confirmed: true, body: { remap, acknowledge_incompatible: true } }); } }, 'החל מיפוי ושנה ענף'),
+      h('button', { class: 'btn', onclick: () => { closeDialog(); refresh(); } }, 'ביטול')]);
+  }
 }

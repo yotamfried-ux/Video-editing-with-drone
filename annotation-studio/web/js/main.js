@@ -1,10 +1,10 @@
-import { $, h, api, toast } from './ui.js';
+import { $, h, api, toast, loadSports } from './ui.js';
 import { renderLibrary } from './library.js';
 import { renderAnnotate, teardownAnnotate } from './annotate.js';
-import { renderAthletes, renderDatasets, renderEvaluations } from './others.js';
+import { renderAthletes, renderDatasets, renderEvaluations, renderSettings } from './others.js';
 import { renderEditing, teardownEditing } from './editing.js';
 
-const NAV = [['library', 'ספרייה', '▦'], ['annotate', 'סימון', '✎'], ['athletes', 'גולשים', '☺'], ['datasets', 'דאטהסטים', '❖'], ['evaluations', 'הערכות AI', '≋'], ['editing', 'בקרת עריכה', '▶']];
+const NAV = [['library', 'ספרייה', '▦'], ['annotate', 'סימון', '✎'], ['athletes', 'גולשים', '☺'], ['datasets', 'דאטהסטים', '❖'], ['evaluations', 'הערכות AI', '≋'], ['editing', 'בקרת עריכה', '▶'], ['settings', 'הגדרות ענפים', '⚙']];
 let lastSource = localStorage.getItem('studio.lastSource');
 
 function chrome(active) {
@@ -24,12 +24,14 @@ async function route() {
   const main = $('#main'); main.replaceChildren();
   setTopbar(h('strong', {}, 'SportReel Annotation Studio'));
   try {
+    await loadSports();
     if (view === 'library') await renderLibrary(main);
     else if (view === 'annotate') await renderAnnotate(main, arg);
     else if (view === 'athletes') await renderAthletes(main);
     else if (view === 'datasets') await renderDatasets(main);
     else if (view === 'evaluations') await renderEvaluations(main, arg);
     else if (view === 'editing') await renderEditing(main, arg);
+    else if (view === 'settings') await renderSettings(main);
     else main.append(h('div', { class: 'page' }, h('div', { class: 'empty' }, 'עמוד לא נמצא')));
   } catch (e) {
     if (e.status === 401) main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'banner bad' }, 'אין הרשאה — פתח את הסטודיו דרך הקישור שהודפס בעת ההפעלה (כולל ‎?t=…‎).')));

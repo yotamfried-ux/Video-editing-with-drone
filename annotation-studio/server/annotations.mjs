@@ -2,9 +2,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { now, tx, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
+import { validateSegmentTaxonomy, stampResolved, taxonomyVersionsFor } from './sports.mjs';
 
 export const SCHEMA = 1;
-export const EVENT_TYPES = ['wave_ride', 'failed_takeoff', 'wipeout', 'paddle_out', 'other'];
 export const DECISIONS = ['include', 'exclude', 'uncertain'];
 export const VISIBILITY = ['visible', 'partial', 'occluded', 'not_visible'];
 export const KEY_ORIGINS = ['manual', 'suggested', 'interpolated'];
@@ -32,13 +32,14 @@ export function validateContent(c, source, db) {
   }
   const total = source.frame_count;
   const inRange = (s, e) => isInt(s) && isInt(e) && s >= 0 && e > s && e <= total;
-  const ids = new Set(), segs = new Map();
+  const ids = new Set(), segs = new Map(), taxCache = new Map();
   for (const s of c.segments) {
     if (!s.id || ids.has(s.id)) throw new ApiError('INVALID_INPUT', 'מזהה מקטע כפול');
     ids.add(s.id);
     if (!inRange(s.start_frame, s.end_frame)) throw new ApiError('INVALID_INTERVAL');
     if (!DECISIONS.includes(s.decision)) throw new ApiError('INVALID_INPUT', 'החלטה לא תקינה');
-    if (!EVENT_TYPES.includes(s.event_type)) throw new ApiError('INVALID_INPUT', 'סוג אירוע לא תקין');
+    if (typeof s.event_type !== 'string' || !s.event_type) throw new ApiError('INVALID_INPUT', 'סוג אירוע לא תקין');
+    validateSegmentTaxonomy(db, source, s, taxCache);
     if (s.framing_mode != null && !FRAMING.includes(s.framing_mode)) throw new ApiError('INVALID_INPUT', 'מצב קומפוזיציה לא תקין');
     if (s.target != null && !(s.target.x >= 0 && s.target.x <= 1 && s.target.y >= 0 && s.target.y <= 1)) throw new ApiError('INVALID_INPUT', 'נקודת יעד לא תקינה');
     if (s.athlete_id != null && !db.prepare('select 1 from athletes where id=?').get(s.athlete_id)) throw new ApiError('INVALID_INPUT', 'גולש לא קיים');
@@ -76,6 +77,7 @@ export function getDraft(db, sourceId) {
 export function saveDraft(db, sourceId, expectedVersion, content) {
   const source = getSource(db, sourceId);
   validateContent(content, source, db);
+  stampResolved(content, source);
   return tx(db, () => {
     const cur = db.prepare('select version from annotation_drafts where source_id=?').get(sourceId);
     const curV = cur?.version ?? 0;
@@ -112,6 +114,7 @@ export function approve(db, sourceId, { expectedVersion, scope = 'source', reaso
     if (!d || d.version !== expectedVersion) throw new ApiError('VERSION_CONFLICT');
     const content = JSON.parse(d.content);
     validateContent(content, source, db);
+    stampResolved(content, source);
     const u = unresolved(content);
     if ((u.uncertain_segments || u.unknown_athlete_included) && !acknowledgeUnresolved) {
       throw Object.assign(new ApiError('UNRESOLVED_ITEMS'), { unresolved: u });
@@ -120,9 +123,11 @@ export function approve(db, sourceId, { expectedVersion, scope = 'source', reaso
     const digest = digestOf(content);
     if (parent && parent.digest === digest) return { revision: parent, unchanged: true };
     const id = randomUUID(), t = now();
-    db.prepare(`insert into annotation_revisions(id,source_id,seq,parent_revision_id,content,digest,author,reason,schema_version,scope,created_at,approved_at)
-      values(?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, sourceId, (parent?.seq ?? 0) + 1, parent?.id ?? null, JSON.stringify(content), digest, author, reason, SCHEMA, scope, t, t);
-    db.prepare('update annotation_drafts set base_revision_id=? where source_id=?').run(id, sourceId);
+    const tax = taxonomyVersionsFor(db, content);
+    db.prepare(`insert into annotation_revisions(id,source_id,seq,parent_revision_id,content,digest,author,reason,schema_version,scope,created_at,approved_at,taxonomy_versions)
+      values(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, sourceId, (parent?.seq ?? 0) + 1, parent?.id ?? null, JSON.stringify(content), digest, author, reason, SCHEMA, scope, t, t, JSON.stringify(tax));
+    // Source sport may have been reclassified since the draft was saved: keep the stored draft identical to what was approved.
+    db.prepare('update annotation_drafts set content=?, base_revision_id=? where source_id=?').run(JSON.stringify(content), id, sourceId);
     audit(db, author, 'approve_revision', sourceId, { revision: id, digest, unresolved: u });
     return { revision: db.prepare('select * from annotation_revisions where id=?').get(id), unchanged: false, unresolved: u };
   });

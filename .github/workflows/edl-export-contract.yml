@@ -1,0 +1,51 @@
+name: EDL and Prediction Export Contract
+
+# Observational Ground Truth evidence exporters. Proves, with the real renderer on synthetic footage, that the exported
+# EDL matches the rendered pixels, and that exporting does not change ffmpeg arguments. No secrets, storage or Supabase.
+on:
+  pull_request:
+    paths:
+      - 'pipeline/edl_export.py'
+      - 'pipeline/prediction_export.py'
+      - 'pipeline/quality_preserving_framing.py'
+      - 'pipeline/stages/editor.py'
+      - 'pipeline/candidate_ledger.py'
+      - 'scripts/build_candidate_decision_ledger.py'
+      - 'scripts/export_pipeline_predictions.py'
+      - 'scripts/test_edl_export_contract.py'
+      - 'scripts/test_prediction_export_contract.py'
+      - 'scripts/run_pipeline_with_diagnostics.sh'
+      - '.github/workflows/edl-export-contract.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  contract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      GEMINI_API_KEY: fixture-not-used
+      GOOGLE_SERVICE_ACCOUNT_JSON: fixture-not-used
+      RAW_FOLDER_ID: fixture-raw
+      PROCESSED_FOLDER_ID: fixture-processed
+      REVIEW_FOLDER_ID: fixture-review
+      APPROVED_FOLDER_ID: fixture-approved
+      OWNER_EMAIL: fixture@example.invalid
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check python-dotenv
+      - name: Install ffmpeg
+        run: |
+          command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg; }
+          ffmpeg -version | head -n 1
+      - run: python -m py_compile pipeline/edl_export.py pipeline/prediction_export.py pipeline/quality_preserving_framing.py scripts/export_pipeline_predictions.py
+      - run: bash -n scripts/run_pipeline_with_diagnostics.sh
+      - run: python scripts/test_prediction_export_contract.py
+      - run: python scripts/test_edl_export_contract.py
