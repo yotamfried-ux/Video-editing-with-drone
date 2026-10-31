@@ -10,7 +10,11 @@ export const TABLES = [
   ['athletes', 'id'], ['athlete_appearances', 'id'], ['annotation_drafts', 'source_id'], ['annotation_revisions', 'id'],
   ['dataset_versions', 'id'], ['dataset_members', 'dataset_id, source_id'], ['pipeline_predictions', 'id'], ['evaluation_runs', 'id'],
   ['edl_records', 'id'], ['editing_reports', 'id'], ['crop_proposals', 'id'], ['audit_log', 'id'],
+  ['sports', 'id'], ['sport_event_types', 'sport_id, key'],
 ];
+// Taxonomy is configuration that a fresh database already seeds: restore upserts it instead of requiring emptiness,
+// and backups made before the registry existed (no such tables) stay restorable.
+const CONFIG = { sports: 'id', sport_event_types: 'sport_id, key' };
 const IDENTITY = new Set(['source_locations', 'upload_occurrences', 'ingestion_jobs', 'audit_log']);
 
 export function exportBackup(db) {
@@ -26,7 +30,7 @@ export function verifyBackupFile(backup) {
   const problems = [];
   if (backup.format !== BACKUP_FORMAT) problems.push('format');
   if (digestOf(body) !== digest) problems.push('digest_mismatch');
-  for (const [t] of TABLES) if ((backup.tables?.[t]?.length ?? -1) !== backup.counts?.[t]) problems.push(`count_mismatch:${t}`);
+  for (const [t] of TABLES) if (!(t in CONFIG && backup.counts?.[t] === undefined) && (backup.tables?.[t]?.length ?? -1) !== backup.counts?.[t]) problems.push(`count_mismatch:${t}`);
   return problems;
 }
 
@@ -34,13 +38,14 @@ export function verifyBackupFile(backup) {
 export function restoreBackup(db, backup, { actor = 'operator' } = {}) {
   const problems = verifyBackupFile(backup);
   if (problems.length) throw new Error(`backup file failed verification: ${problems.join(', ')}`);
-  for (const [t] of TABLES) if (db.prepare(`select count(*) n from ${t}`).get().n > 0 && t !== 'audit_log') throw new Error(`refusing to restore into a non-empty database (${t})`);
+  for (const [t] of TABLES) if (!(t in CONFIG) && db.prepare(`select count(*) n from ${t}`).get().n > 0 && t !== 'audit_log') throw new Error(`refusing to restore into a non-empty database (${t})`);
   db.exec('begin immediate');
   try {
     for (const [t] of TABLES) {
-      for (const row of backup.tables[t]) {
+      for (const row of backup.tables[t] ?? []) {
         const cols = Object.keys(row);
-        db.prepare(`insert into ${t}(${cols.join(',')}) values(${cols.map(() => '?').join(',')})`).run(...cols.map(c => row[c]));
+        const upsert = t in CONFIG ? ` on conflict (${CONFIG[t]}) do update set ${cols.filter(c => !CONFIG[t].split(',').map(x => x.trim()).includes(c)).map(c => `${c}=excluded.${c}`).join(',')}` : '';
+        db.prepare(`insert into ${t}(${cols.join(',')}) values(${cols.map(() => '?').join(',')})${upsert}`).run(...cols.map(c => row[c]));
       }
     }
     db.exec('commit');
@@ -50,7 +55,7 @@ export function restoreBackup(db, backup, { actor = 'operator' } = {}) {
     try { db.prepare(`select setval(pg_get_serial_sequence('${t}','id'), greatest(coalesce((select max(id) from ${t}),1),1))`).get(); } catch { /* sqlite autoincrement */ }
   }
   const after = exportBackup(db);
-  const diffs = TABLES.filter(([t]) => t !== 'audit_log').filter(([t]) => digestOf(after.tables[t]) !== digestOf(backup.tables[t])).map(([t]) => t);
+  const diffs = TABLES.filter(([t]) => t !== 'audit_log' && backup.tables[t]).filter(([t]) => digestOf(after.tables[t]) !== digestOf(backup.tables[t])).map(([t]) => t);
   if (diffs.length) throw new Error(`restore verification failed for: ${diffs.join(', ')}`);
   audit(db, actor, 'restore_backup', null, { digest: backup.digest, counts: backup.counts });
   return { restored: backup.counts, digest: backup.digest };

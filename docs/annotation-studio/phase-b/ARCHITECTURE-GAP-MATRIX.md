@@ -33,7 +33,9 @@ It has **no** real R2, **no** Postgres/Supabase, and the pipeline emits **neithe
 | E | Studio consumes exports | file shapes | `import-edl`, `import-predictions`, mapping UI evidence | `edl.mjs`, `evaluate.mjs` | importers + `keyframes` in `edl/v1`, blend frames | importer validates hash against catalog; unknown sha → rejected | $0 | C, D | E2E: real render → EDL → evaluate |
 | F | Pipeline cannot reach GT | static scan only | DB-level denial proof, credential separation doc | — | role tests, CI scan | core requirement | $0 | B | `service_role`/`anon` denied on real PG (executed) |
 
-## 3a. Multi-sport requirement (spec §18, added by #311 after Phase B started) — **NOT IMPLEMENTED in this PR**
+## 3a. Multi-sport requirement (spec §18, added by #311 after Phase B started) — **IMPLEMENTED in this PR (see spec §20.1 for the exact scope and what is still future work)**
+
+> The table below is the original gap analysis (kept for traceability). Status now: registry, source/segment sport, validation, taxonomy pinning, sport-separated evaluation, UI and `0002_sports.sql` are built and tested; suggested-sport, `source_sports`, stratified splits and sport-specific metrics are NOT built.
 
 | Requirement (§18) | Current state | Gap | Plan |
 |---|---|---|---|

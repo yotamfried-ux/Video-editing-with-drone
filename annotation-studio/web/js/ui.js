@@ -7,7 +7,6 @@ export function h(tag, attrs = {}, ...kids) {
     if (k === 'class') el.className = v;
     else if (k === 'style' && typeof v === 'object') Object.assign(el.style, v);
     else if (k.startsWith('on')) el.addEventListener(k.slice(2).toLowerCase(), v);
-    else if (k === 'html') el.innerHTML = v;
     else if (v === true) el.setAttribute(k, '');
     else el.setAttribute(k, v);
   }
@@ -45,6 +44,22 @@ export const STATUS_HE = { not_annotated: 'לא סומן', in_progress: 'בעב�
   ready: 'מוכן', pending_archive: 'ממתין לארכיון', archive_error: 'שגיאת ארכיון', unavailable: 'לא זמין' };
 export const STATUS_CLASS = { approved: 'ok', ready: 'ok', in_progress: 'busy', needs_review: 'warn', not_annotated: '', pending_archive: 'warn', archive_error: 'bad', unavailable: 'bad' };
 export const pill = (text, cls = '') => h('span', { class: `pill ${cls}` }, h('span', { class: 'dot' }), text);
+// Sport registry (served by /api/sports). Labels come from the registry, never from hard-coded enums.
+let SPORTS = [];
+export async function loadSports() { SPORTS = (await api('/api/sports')).items; return SPORTS; }
+export const sportsList = () => SPORTS;
+export const sportName = id => id == null ? 'לא מסווג' : (SPORTS.find(s => s.id === id)?.name_he ?? id);
+/** Event types a picker may offer for a sport (retired ones only when already in use). Unclassified sources get the legacy keys only. */
+export function eventOptions(sportId, current) {
+  const base = sportId == null ? Object.entries(EVENT_HE).map(([key, label_he]) => ({ key, label_he, required_attrs: [] }))
+    : (SPORTS.find(s => s.id === sportId)?.event_types ?? []).filter(e => e.enabled || e.key === current);
+  return base;
+}
+export function eventHe(key, sportId) {
+  const t = sportId != null && SPORTS.find(s => s.id === sportId)?.event_types.find(e => e.key === key);
+  return t?.label_he ?? EVENT_HE[key] ?? key;
+}
+export const eventInfo = (sportId, key) => sportId != null ? SPORTS.find(s => s.id === sportId)?.event_types.find(e => e.key === key) ?? null : null;
 export const EVENT_HE = { wave_ride: 'רכיבה על גל', failed_takeoff: 'עמידה כושלת', wipeout: 'נפילה', paddle_out: 'חתירה החוצה', other: 'אחר' };
 export const DECISION_HE = { include: 'כלול', exclude: 'החרג', uncertain: 'לא בטוח' };
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());

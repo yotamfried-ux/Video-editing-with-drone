@@ -12,8 +12,10 @@ const HE = {
   INVALID_INPUT: 'קלט לא תקין',
   NOT_FOUND: 'לא נמצא',
   UNRESOLVED_ITEMS: 'יש פריטים לא פתורים — נדרש אישור מפורש',
+  SPORT_EVENT_MISMATCH: 'סוג האירוע אינו תואם לענף הספורט',
+  SPORT_INCOMPATIBLE: 'לשינוי הענף יש מקטעים עם סוגי אירוע לא תואמים — יש למפות מחדש או לאשר במפורש',
 };
-const STATUS = { VERSION_CONFLICT: 409, PERMISSION_DENIED: 401, NOT_FOUND: 404, SOURCE_UNAVAILABLE: 503, ARCHIVE_UNVERIFIED: 409, UNRESOLVED_ITEMS: 409 };
+const STATUS = { VERSION_CONFLICT: 409, PERMISSION_DENIED: 401, NOT_FOUND: 404, SOURCE_UNAVAILABLE: 503, ARCHIVE_UNVERIFIED: 409, UNRESOLVED_ITEMS: 409, SPORT_INCOMPATIBLE: 409 };
 
 export class ApiError extends Error {
   constructor(code, detail) {

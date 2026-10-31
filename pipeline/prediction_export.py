@@ -8,6 +8,7 @@ when the source frame rate is known).
 """
 from __future__ import annotations
 
+import os
 import hashlib
 import json
 import math
@@ -107,6 +108,10 @@ def build_predictions(
                          if cand.get(k) is not None},
             "outputs": _outputs_for(name, start, end, edls) if decision == "selected" else [],
         }
+        # Sport is declared, never inferred: per-candidate if the ledger carries it, else the operator-set SPORTREEL_SPORT.
+        sport = cand.get("sport_id") or os.environ.get("SPORTREEL_SPORT")
+        if sport:
+            event["sport_id"] = str(sport)
         entry["events"].append(event)
     # tracks come from the EDL's recorded subject tracks (existing perception evidence, thinned)
     for edl in edls:

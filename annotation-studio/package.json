@@ -11,7 +11,7 @@
     "start": "node server/main.mjs",
     "seed": "node scripts/seed-demo.mjs",
     "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.mjs",
-    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/run.mjs",
+    "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/run.mjs && node --disable-warning=ExperimentalWarning tests/e2e/workflow.mjs",
     "check": "node scripts/check-syntax.mjs",
     "migrate": "node scripts/gt-migrate.mjs",
     "test:pg": "node --disable-warning=ExperimentalWarning --test tests/pg/*.test.mjs"

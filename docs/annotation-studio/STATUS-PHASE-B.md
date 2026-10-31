@@ -11,6 +11,28 @@
 | 2 | Run the three read-only audits (`scripts/infra-audit/`) | **BLOCKED on the operator** — they need access to R2, the Hetzner server and the REST API that this environment does not have |
 | 3 | Storage architecture | **Local-first selected for development.** Implemented and tested: same-device-refusing independent backup, verification, restore drill, status warning. Offsite target (Hetzner / R2) awaits the audits and approval |
 
+## Final state for merge review (2026-10-31, Local First approved)
+Decision: **Local First** (SQLite + local write-once archive + independent-device backup). PostgreSQL/R2 remain implemented and tested but are **not** required or deployed. No cloud resource was created, no production setting changed, no cost incurred.
+
+| Area | Status | Evidence |
+|---|---|---|
+| Local run / readiness | **PASS** | `docs/annotation-studio/OPERATOR-GUIDE.md`; `npm start`; browser workflow runs against a real server |
+| Original footage ingested unchanged, never deleted | **PASS** | sha256 identity, write-once 0444 archive, delete triggers/no endpoint (`tests/catalog`, workflow scenario 12) |
+| Sport catalog / multi-sport | **PASS** (scope in spec §20.1) | `tests/sports.test.mjs` 7/7 on SQLite **and** PostgreSQL; workflow scenarios 2,3,5,6,7,10 |
+| Athlete + event + bbox annotation, GT with history | **PASS** | workflow scenarios 4,6 (immutable revisions, digest, audit) |
+| Close/reopen without losing work | **PASS** | workflow scenario 8 |
+| Pipeline predictions + EDL import → evaluation → report | **PASS** (synthetic) | workflow scenarios 9,10; qualification test through the real render path |
+| Editing quality / contain-first | **PASS** | workflow scenario 11 (contain never scored as a crop failure); pipeline export leaves ffmpeg args unchanged (python contract tests) |
+| Backup on a separate device + restore drill | **PASS** (copy simulated on one filesystem; refusal is the real `st_dev` check) | workflow scenario 13, `tests/offsite.test.mjs` 8/8 |
+| GT isolation from the pipeline | **PASS** | `tests/pg/isolation.test.mjs` 8/8 on real PostgreSQL 16; API guard test |
+| Local suites at head | SQLite **78/78**; PostgreSQL **77 pass, 1 skipped** (SQLite-only file-tamper test), 0 fail; PG isolation **8/8** | run in this session |
+| Browser | `run.mjs` **17/17**, `workflow.mjs` **14/14** | run in this session |
+| Infra audit scripts | **BLOCKED** (no access; not needed for Local First) | `phase-b/INFRA-AUDIT-STATUS.md` |
+| Real footage / live infra / production run | **NOT_TESTED** (by decision) | — |
+| Suggested sport, `source_sports`, stratified splits, sport-specific metrics | **NOT IMPLEMENTED** (future phase) | spec §20.1 |
+
+Real defects found and fixed while closing this out: backup/restore silently omitted the sport registry; `gt-migrate --dry-run` could not apply a second migration (each was rolled back separately); isolation proof depended on cluster-wide role state left by an interrupted run.
+
 Branch: `ccr-5ce1d535-e7mo2b`. **Phase B is PARTIALLY COMPLETE**: all code, schema and tests exist and pass locally; no live resource was created, no real footage processed, no production run triggered.
 Legend: IMPLEMENTED = code exists · VERIFIED = executed with the evidence shown · NOT TESTED / BLOCKED as stated.
 

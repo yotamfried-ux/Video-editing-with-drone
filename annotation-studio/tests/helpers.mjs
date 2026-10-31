@@ -13,7 +13,7 @@ function pgUrlForFreshSchema() {
   const admin = process.env.STUDIO_TEST_DB_URL;
   const schema = `gt_t_${Math.random().toString(36).slice(2, 10)}`;
   const a = new PgDb(admin);
-  a.script(loadSql(schema).migrations[0].sql);
+  for (const m of loadSql(schema).migrations) a.script(m.sql);
   a.close();
   return `${admin}${admin.includes('?') ? '&' : '?'}options=-c%20search_path%3D${schema}`;
 }

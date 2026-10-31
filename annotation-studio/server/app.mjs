@@ -10,6 +10,7 @@ import * as A from './annotations.mjs';
 import * as D from './datasets.mjs';
 import * as E from './evaluate.mjs';
 import * as L from './edl.mjs';
+import * as S from './sports.mjs';
 import { reconcile, verifyArchives } from './ingest.mjs';
 import * as I from './imports.mjs';
 import { exportBackup, verifyIntegrity } from './backup.mjs';
@@ -52,6 +53,7 @@ export function createApp(ctx) {
     return {
       id: s.id, display_name: s.display_name, sha256: s.sha256, byte_size: s.byte_size, width: s.width, height: s.height,
       fps_num: s.fps_num, fps_den: s.fps_den, frame_count: s.frame_count, duration_ms: s.duration_ms, rotation: s.rotation,
+      primary_sport_id: s.primary_sport_id ?? null,
       ingest_state: s.ingest_state, archive_verified_at: s.archive_verified_at, archive_error: s.archive_error,
       annotation_status: A.annotationStatus(db, s.id), revision_seq: rev?.seq ?? 0, reviewed_ratio: cov.ratio,
       segment_count: content.segments.length, batches: [...new Set(occ.map(o => o.label))],
@@ -65,18 +67,33 @@ export function createApp(ctx) {
     if (m === 'GET' && p === '/api/health') return send(res, 200, { ok: true, schema: 1 });
     if (m === 'GET' && p === '/api/sources') {
       const status = url.searchParams.get('status'), qs = (url.searchParams.get('q') ?? '').toLowerCase(), batch = url.searchParams.get('batch');
+      const sport = url.searchParams.get('sport');
       const limit = Math.min(200, Number(url.searchParams.get('limit') ?? 50)), cursor = url.searchParams.get('cursor') ?? '';
       let rows = db.prepare('select * from sources where created_at||id > ? order by created_at,id').all(cursor);
       let items = rows.map(sourceCard);
       if (qs) items = items.filter(s => s.display_name.toLowerCase().includes(qs) || s.sha256.startsWith(qs));
       if (batch) items = items.filter(s => s.batches.includes(batch));
+      if (sport) items = items.filter(s => (s.primary_sport_id ?? 'unknown') === sport);
       if (status) items = items.filter(s => s.annotation_status === status || s.ingest_state === status);
       const page = items.slice(0, limit);
       const last = page.at(-1);
       return send(res, 200, { items: page, next_cursor: items.length > limit && last ? last.created_at + last.id : null,
         totals: { all: rows.length, approved: rows.filter(s => A.annotationStatus(db, s.id) === 'approved').length,
-          not_annotated: rows.filter(s => A.annotationStatus(db, s.id) === 'not_annotated').length } });
+          not_annotated: rows.filter(s => A.annotationStatus(db, s.id) === 'not_annotated').length,
+          by_sport: rows.reduce((o, s) => { const k = s.primary_sport_id ?? 'unknown'; o[k] = (o[k] ?? 0) + 1; return o; }, {}) } });
     }
+    if (m === 'POST' && p === '/api/sources/bulk-sport') { const b = await body(req); return send(res, 200, S.bulkSetSport(db, b.source_ids, b.sport_id ?? null, b.reason)); }
+    if ((r = /^\/api\/sources\/([\w-]+)\/sport$/.exec(p)) && m === 'PATCH') {
+      const b = await body(req);
+      return send(res, 200, S.setSourceSport(db, r[1], b.sport_id ?? null, { reason: b.reason, acknowledgeIncompatible: !!b.acknowledge_incompatible, remap: b.remap }));
+    }
+    if (p === '/api/sports') {
+      if (m === 'GET') return send(res, 200, { items: S.listSports(db) });
+      if (m === 'POST') return send(res, 201, S.addSport(db, await body(req)));
+    }
+    if ((r = /^\/api\/sports\/([\w-]+)$/.exec(p)) && m === 'PATCH') { S.setSportEnabled(db, r[1], !!(await body(req)).enabled); return send(res, 200, { ok: true }); }
+    if ((r = /^\/api\/sports\/([\w-]+)\/event-types$/.exec(p)) && m === 'POST') return send(res, 201, S.addEventType(db, r[1], await body(req)));
+    if ((r = /^\/api\/sports\/([\w-]+)\/event-types\/([\w-]+)$/.exec(p)) && m === 'PATCH') return send(res, 200, S.setEventTypeEnabled(db, r[1], r[2], !!(await body(req)).enabled));
     if ((r = /^\/api\/sources\/([\w-]+)$/.exec(p)) && m === 'GET') {
       const s = db.prepare('select * from sources where id=?').get(r[1]); if (!s) throw new ApiError('NOT_FOUND');
       if (s.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
@@ -236,7 +253,7 @@ export function createApp(ctx) {
       }
       return serveStatic(res, url.pathname);
     } catch (e) {
-      if (e instanceof ApiError) return send(res, e.status, { code: e.code, message: e.he, detail: e.message, unresolved: e.unresolved });
+      if (e instanceof ApiError) return send(res, e.status, { code: e.code, message: e.he, detail: e.message, unresolved: e.unresolved, incompatible: e.incompatible });
       if (/IMMUTABLE|PROTECTED/.test(e?.message ?? '')) return send(res, 409, { code: 'IMMUTABLE', message: 'רשומה בלתי ניתנת לשינוי' });
       console.error('[studio] internal error:', e?.message);
       return send(res, 500, { code: 'INTERNAL', message: 'שגיאה פנימית' });

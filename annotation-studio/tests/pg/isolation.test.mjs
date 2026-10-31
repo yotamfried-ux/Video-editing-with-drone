@@ -54,7 +54,7 @@ test('pipeline-side roles (anon, authenticated, service_role) cannot touch Groun
     for (const role of ['anon', 'authenticated', 'service_role']) {
       const pool = w.mk(role);
       assert.equal(await denied(pool, 'select 1 from public.reels'), 'allowed', `${role} keeps normal production access`);
-      for (const t of ['sources', 'annotation_drafts', 'annotation_revisions', 'athletes', 'dataset_versions', 'frozen_revisions', 'audit_log']) {
+      for (const t of ['sources', 'annotation_drafts', 'annotation_revisions', 'athletes', 'dataset_versions', 'frozen_revisions', 'audit_log', 'sports', 'sport_event_types']) {
         assert.equal(await denied(pool, `select * from ground_truth.${t}`), '42501', `${role} must not read ${t}`);
       }
       assert.equal(await denied(pool, `insert into ground_truth.audit_log(at,actor,action) values ('x','y','z')`), '42501');
@@ -131,7 +131,7 @@ test('migrations are idempotent, versioned, and a dry run changes nothing', { sk
   try {
     await migrate(withDb(ADMIN)(w.db), { schema: 'ground_truth', roles: true });  // second apply
     const v = (await w.a.query('select version from ground_truth.schema_migrations')).rows.map(r => r.version);
-    assert.deepEqual(v, ['0001_ground_truth']);
+    assert.deepEqual(v.sort(), ['0001_ground_truth', '0002_sports'], 'both migrations recorded exactly once after a second apply');
     const r = await migrate(withDb(ADMIN)(w.db), { schema: 'gt_dry', dryRun: true });
     assert.equal(r.dryRun, true);
     assert.equal((await w.a.query("select count(*) n from information_schema.schemata where schema_name='gt_dry'")).rows[0].n, '0');

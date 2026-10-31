@@ -24,19 +24,23 @@ export async function migrate(url, { schema = 'ground_truth', roles = false, dry
   await client.connect();
   const applied = [];
   try {
+    // A dry run is ONE transaction that is rolled back at the end, so later migrations see earlier ones (0002 needs 0001's schema).
+    // A real run commits each migration separately, so a failure leaves the earlier, versioned migrations applied.
+    if (dryRun) await client.query('begin');
     for (const m of migrations) {
-      await client.query('begin');
+      if (!dryRun) await client.query('begin');
       try {
         await client.query(m.sql);
-        if (dryRun) await client.query('rollback'); else await client.query('commit');
+        if (!dryRun) await client.query('commit');
         applied.push(m.name);
       } catch (e) { await client.query('rollback'); throw new Error(`${m.name}: ${e.message}`); }
     }
     if (roles) {
-      await client.query('begin');
-      try { await client.query(rolesSql); await client.query(dryRun ? 'rollback' : 'commit'); }
+      if (!dryRun) await client.query('begin');
+      try { await client.query(rolesSql); if (!dryRun) await client.query('commit'); }
       catch (e) { await client.query('rollback'); throw new Error(`roles.sql: ${e.message}`); }
     }
+    if (dryRun) await client.query('rollback');
   } finally { await client.end(); }
   return { applied, dryRun, roles };
 }

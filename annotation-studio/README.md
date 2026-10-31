@@ -7,6 +7,8 @@ Spec: [`docs/specs/ground-truth-annotation-studio.md`](../docs/specs/ground-trut
 M0 analysis: [`docs/annotation-studio/M0-gap-analysis.md`](../docs/annotation-studio/M0-gap-analysis.md) ·
 Milestone report: [`docs/annotation-studio/STATUS.md`](../docs/annotation-studio/STATUS.md)
 
+> **Operator guide (Hebrew, Local First, backup & restore drill):** [`docs/annotation-studio/OPERATOR-GUIDE.md`](../docs/annotation-studio/OPERATOR-GUIDE.md)
+
 ## Run it
 
 Requires Node >= 22.13 and `ffmpeg`/`ffprobe`. **No npm install** — zero dependencies.
@@ -32,8 +34,8 @@ npm start      # prints a one-time launch URL containing a random token
 
 ```bash
 npm run check      # syntax check of every file
-npm test           # 48+ node:test unit/integration/security tests (needs ffmpeg)
-npm run test:e2e   # Playwright browser scenarios + screenshots (needs `playwright` + chromium)
+npm test           # 78 node:test unit/integration/security tests (needs ffmpeg + python3)
+npm run test:e2e   # Playwright: 17 screen scenarios + 14 full-workflow scenarios (needs `playwright` + chromium)
 ```
 
 ## Layout
@@ -66,6 +68,10 @@ npm run test:e2e   # Playwright browser scenarios + screenshots (needs `playwrig
 * **Local-first backup:** `node scripts/gt-offsite-backup.mjs run|verify|restore --to <dir on another device>` (refuses the same device; see `phase-b/BACKUP-RECOVERY.md`).
 * **Logical export:** `node scripts/gt-backup.mjs export|verify|restore|audit` — `docs/annotation-studio/phase-b/BACKUP-RECOVERY.md`.
 * **Tests:** `npm test` (includes the pipeline-render qualification; needs python3 + ffmpeg), `STUDIO_TEST_DB_URL=postgres://… npm test && npm run test:pg` for PostgreSQL and role-isolation tests.
+
+## Multi-sport
+
+Sports and sport-scoped event types are registry data (`הגדרות ענפים`), seeded with surfing, football, basketball and tennis. New footage is **unclassified** until you confirm a sport (no filename/AI guess is ever applied silently). See spec §20.1 for exactly what is and is not implemented.
 
 ## Not production integration
 

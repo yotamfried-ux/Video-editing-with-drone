@@ -61,7 +61,7 @@ export function importPipelinePredictions(db, v1) {
     for (const e of s.events) {
       const [start_frame, end_frame] = frames(e);
       if (!(end_frame > start_frame)) throw new ApiError('INVALID_INTERVAL');
-      if (e.decision === 'selected') events.push({ start_frame, end_frame, athlete_key: e.athlete_key ?? null, candidate_id: e.candidate_id, event_type: e.event_type, score: e.score, outputs: e.outputs });
+      if (e.decision === 'selected') events.push({ start_frame, end_frame, ...((e.sport_id ?? s.sport_id) != null ? { sport_id: e.sport_id ?? s.sport_id } : {}), athlete_key: e.athlete_key ?? null, candidate_id: e.candidate_id, event_type: e.event_type, score: e.score, outputs: e.outputs });
       else rejected.push({ start_frame, end_frame, reason: e.reason ?? 'unspecified', candidate_id: e.candidate_id });
     }
     sources.push({ source_sha256: s.source_sha256, source_video: s.source_video, events, rejected, tracks: s.tracks ?? [] });

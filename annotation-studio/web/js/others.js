@@ -1,4 +1,4 @@
-import { h, api, ltr, pill, toast, fmtDate, EVENT_HE, STATUS_HE, STATUS_CLASS, dialog, closeDialog } from './ui.js';
+import { h, api, ltr, pill, toast, fmtDate, EVENT_HE, STATUS_HE, STATUS_CLASS, dialog, closeDialog, loadSports, sportName } from './ui.js';
 import { setTopbar } from './main.js';
 
 // ---------------- Athletes ----------------
@@ -63,7 +63,40 @@ async function renderEvalDetail(root, id) {
   root.replaceChildren(h('div', { class: 'page' }, h('a', { href: '#/evaluations', class: 'btn sm' }, '→ חזרה'),
     h('h1', { style: { marginTop: '10px' } }, 'דוח הערכה'), h('div', { class: 'sub' }, ltr(`${r.pipeline_version} · ${r.run_id}`), ' · ', ltr(`evaluator ${r.evaluator_version}`), ' · digest ', ltr(digest.slice(0, 12))),
     h('div', { class: 'stats' }, [['Recall', pct(m.event_recall)], ['Precision', pct(m.event_precision)], ['דיוק זהות', pct(m.identity_accuracy)], ['חסרים', t.missed], ['כפולים', t.duplicates], ['FP', t.false_positives], ['לא נבדק', t.unreviewed_predictions], ['שגיאת התחלה ממוצעת (פריימים)', m.mean_abs_start_error_frames == null ? '—' : m.mean_abs_start_error_frames.toFixed(1)]].map(([l, v]) => h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, l)))),
+    r.by_sport && Object.keys(r.by_sport).length ? h('div', {}, h('h3', { style: { fontSize: '14px' } }, 'לפי ענף ספורט (ללא התאמה בין ענפים)'),
+      h('table', { class: 't', 'data-testid': 'by-sport' }, h('thead', {}, h('tr', {}, ['ענף', 'GT', 'תחזיות', 'הותאמו', 'הוחמצו', 'FP', 'recall', 'precision'].map(x => h('th', {}, x)))),
+        h('tbody', {}, Object.entries(r.by_sport).map(([sp, c]) => h('tr', { 'data-sport': sp }, h('td', {}, sp === 'unknown' ? 'לא מסווג' : sp === 'unspecified' ? 'תחזית ללא ענף' : sportName(sp)), h('td', {}, c.gt_included), h('td', {}, c.predictions), h('td', {}, c.matched), h('td', {}, c.missed), h('td', {}, c.false_positives), h('td', {}, pct(c.event_recall)), h('td', {}, pct(c.event_precision))))))) : null,
     h('div', { class: 'legend' }, `IoU ≥ ${r.params.iou_threshold} · פיצולים: ${r.params.splits.join(', ')} · שיוך גולשים לפי מיפוי התאמות דטרמיניסטי`),
     r.per_source.map(p => h('div', { style: { marginBottom: '18px' } }, h('h3', { style: { fontSize: '14px' } }, ltr(p.sha256.slice(0, 12)), ' · ', p.split, p.has_prediction ? '' : ' · אין תחזית למקור זה'),
       p.errors.length ? h('table', { class: 't' }, h('thead', {}, h('tr', {}, ['סוג', 'פריימים', 'מקטע/תחזית'].map(x => h('th', {}, x)))), h('tbody', {}, p.errors.map(e => h('tr', {}, h('td', {}, pill(ERR_HE[e.type] ?? e.type, e.type === 'missed_event' || e.type === 'wrong_athlete' ? 'bad' : 'warn')), h('td', {}, ltr(`${e.start_frame}–${e.end_frame}`)), h('td', {}, ltr(e.segment_id ?? `pred#${e.pred_index}`)))))) : h('div', { class: 'banner warn', style: { color: 'var(--inc)' } }, 'אין שגיאות לסרטון זה')))));
+}
+
+// ---------------- Settings: sport / event taxonomy (no-code additions, spec §18.2) ----------------
+export async function renderSettings(root) {
+  setTopbar(h('strong', {}, 'הגדרות ענפי ספורט'), pill('טקסונומיה מגורסת · ללא מחיקה'));
+  const draw = async () => {
+    const sports = await loadSports();
+    const val = id => root.querySelector(`#${id}`).value.trim();
+    const act = async (fn, okMsg) => { try { await fn(); toast(okMsg); await draw(); } catch (e) { toast(e.message, true); } };
+    root.replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'ענפי ספורט וסוגי אירועים'),
+      h('div', { class: 'sub' }, 'ענפים וסוגי אירועים הם נתונים, לא קוד: הוספה נרשמת ביומן ומעלה את גרסת הטקסונומיה. הסרת סוג אירוע (השבתה) לא פוסלת תיוגים קיימים.'),
+      h('h2', { style: { fontSize: '15px' } }, 'ענף חדש'),
+      h('div', { class: 'toolbar' },
+        h('input', { id: 'ns-id', type: 'text', placeholder: 'מזהה (a-z, למשל volleyball)', 'aria-label': 'מזהה ענף', style: { direction: 'ltr', maxWidth: '200px' } }),
+        h('input', { id: 'ns-he', type: 'text', placeholder: 'שם בעברית', 'aria-label': 'שם ענף בעברית', style: { maxWidth: '160px' } }),
+        h('input', { id: 'ns-en', type: 'text', placeholder: 'English name', 'aria-label': 'שם ענף באנגלית', style: { direction: 'ltr', maxWidth: '160px' } }),
+        h('button', { class: 'btn primary', 'data-testid': 'add-sport', onclick: () => act(() => api('/api/sports', { method: 'POST', body: { id: val('ns-id'), name_he: val('ns-he'), name_en: val('ns-en') } }), 'הענף נוסף') }, 'הוסף ענף')),
+      sports.map(sp => h('div', { class: 'card', 'data-testid': 'sport-card', 'data-sport': sp.id, style: { marginBottom: '14px' } }, h('div', { class: 'body' },
+        h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('strong', {}, sp.name_he), ltr(sp.id), pill(`טקסונומיה v${sp.taxonomy_version}`),
+          h('label', { class: 'meta' }, h('input', { type: 'checkbox', checked: sp.enabled, onchange: e => act(() => api(`/api/sports/${sp.id}`, { method: 'PATCH', body: { enabled: e.target.checked } }), 'עודכן') }), ' פעיל')),
+        h('ul', { class: 'list' }, sp.event_types.map(t => h('li', { 'data-event': t.key }, ltr(t.key), h('span', { style: { flex: 1 } }, t.label_he, t.required_attrs.length ? ` · חובה: ${t.required_attrs.join(', ')}` : ''),
+          h('label', { class: 'meta' }, h('input', { type: 'checkbox', checked: t.enabled, 'aria-label': `פעיל ${t.key}`, onchange: e => act(() => api(`/api/sports/${sp.id}/event-types/${t.key}`, { method: 'PATCH', body: { enabled: e.target.checked } }), 'עודכן') }), ' פעיל')))),
+        h('div', { class: 'toolbar' },
+          h('input', { id: `et-key-${sp.id}`, type: 'text', placeholder: 'מפתח אירוע', 'aria-label': `מפתח אירוע חדש ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '150px' } }),
+          h('input', { id: `et-he-${sp.id}`, type: 'text', placeholder: 'תווית בעברית', 'aria-label': `תווית עברית ל-${sp.id}`, style: { maxWidth: '150px' } }),
+          h('input', { id: `et-en-${sp.id}`, type: 'text', placeholder: 'English label', 'aria-label': `תווית אנגלית ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '150px' } }),
+          h('input', { id: `et-req-${sp.id}`, type: 'text', placeholder: 'שדות חובה (פסיקים)', 'aria-label': `שדות חובה ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '170px' } }),
+          h('button', { class: 'btn', 'data-testid': `add-event-${sp.id}`, onclick: () => act(() => api(`/api/sports/${sp.id}/event-types`, { method: 'POST', body: { key: val(`et-key-${sp.id}`), label_he: val(`et-he-${sp.id}`), label_en: val(`et-en-${sp.id}`), required_attrs: val(`et-req-${sp.id}`).split(',').map(x => x.trim()).filter(Boolean) } }), 'סוג האירוע נוסף') }, 'הוסף סוג אירוע')))))));
+  };
+  await draw();
 }

@@ -27,7 +27,10 @@ export function freezeDataset(db, { name, sourceIds, policy = DEFAULT_POLICY }) 
       if (!rev) throw new ApiError('INVALID_INPUT', `אין גרסה מאושרת עבור ${s.display_name}`);
       if (s.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
       const group = s.session_key ?? s.id;
+      // Taxonomy versions in force when the revision was approved are pinned in the manifest (only when a sport was involved).
+      const tax = rev.taxonomy_versions ? JSON.parse(rev.taxonomy_versions) : {};
       members.push({ source_id: id, sha256: s.sha256, revision_id: rev.id, revision_digest: rev.digest, group,
+        ...(Object.keys(tax).length ? { taxonomy_versions: tax } : {}),
         split: heldOut.has(id) ? 'test' : splitFor(group, policy) });
     }
     // Group consistency: every member of a group takes the same split (test wins).
