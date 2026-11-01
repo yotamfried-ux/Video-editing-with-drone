@@ -672,10 +672,24 @@ function renderAssociateTab() {
               S.src.owner_athlete_id = res.owner_athlete_id;
               S.src.owner_status = res.owner_status;
               S.src.owner_athlete_label = res.athlete?.label || null;
+              S.src.owner_version = res.owner_version;
               toast(res.owner_athlete_id ? `הסרטון שויך ל-${res.athlete?.label}` : 'השיוך הוסר');
               paintStatus();
               refresh();
-            } catch (err) { toast(err.message, true); }
+            } catch (err) {
+              if (err.code === 'VERSION_CONFLICT' || err.status === 409) {
+                toast(err.message || 'השיוך שונה במקביל — מרענן נתוני שיוך...', true);
+                const fresh = await api(`/api/sources/${S.src.id}/catalog-owner`);
+                S.src.owner_athlete_id = fresh.owner_athlete_id;
+                S.src.owner_status = fresh.owner_status;
+                S.src.owner_athlete_label = fresh.athlete?.label || null;
+                S.src.owner_version = fresh.owner_version;
+                paintStatus();
+                refresh();
+              } else {
+                toast(err.message, true);
+              }
+            }
           }
         },
           h('option', { value: '' }, '— לא משויך (Unassigned) —'),
@@ -694,14 +708,29 @@ function renderAssociateTab() {
               S.athletes.push(created);
               const res = await api(`/api/sources/${S.src.id}/catalog-owner`, {
                 method: 'POST',
-                body: { owner_athlete_id: created.id, reason: 'גולש חדש שנוצר במפקח' }
+                body: { owner_athlete_id: created.id, reason: 'גולש חדש שנוצר במפקח', expected_version: S.src.owner_version ?? 0 }
               });
               S.src.owner_athlete_id = res.owner_athlete_id;
+              S.src.owner_status = res.owner_status;
               S.src.owner_athlete_label = created.label;
+              S.src.owner_version = res.owner_version;
               toast(`הגולש "${created.label}" נוצר ושויך לסרטון`);
               paintStatus();
               refresh();
-            } catch (err) { toast(err.message, true); }
+            } catch (err) {
+              if (err.code === 'VERSION_CONFLICT' || err.status === 409) {
+                toast(err.message || 'השיוך שונה במקביל — מרענן נתוני שיוך...', true);
+                const fresh = await api(`/api/sources/${S.src.id}/catalog-owner`);
+                S.src.owner_athlete_id = fresh.owner_athlete_id;
+                S.src.owner_status = fresh.owner_status;
+                S.src.owner_athlete_label = fresh.athlete?.label || null;
+                S.src.owner_version = fresh.owner_version;
+                paintStatus();
+                refresh();
+              } else {
+                toast(err.message, true);
+              }
+            }
           }
         }, '＋ צור ושייך')
       )

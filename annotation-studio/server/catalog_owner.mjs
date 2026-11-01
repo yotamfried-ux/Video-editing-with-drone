@@ -54,10 +54,11 @@ export function setCatalogOwner(db, sourceId, {
   }
 
   const currentVersion = Number(s.owner_version ?? 0);
-  if (expected_version !== undefined && expected_version !== null) {
-    if (Number(expected_version) !== currentVersion) {
-      throw new ApiError('VERSION_CONFLICT', `שיוך הסרטון עודכן במקביל (גרסה נוכחית: ${currentVersion}, נשלח: ${expected_version}) — יש לרענן ולנסות שוב`);
-    }
+  if (expected_version === undefined || expected_version === null || typeof expected_version !== 'number' || !Number.isInteger(expected_version) || expected_version < 0) {
+    throw new ApiError('INVALID_INPUT', 'חובה לספק expected_version כמספר שלם אי-שלילי');
+  }
+  if (expected_version !== currentVersion) {
+    throw new ApiError('VERSION_CONFLICT', `שיוך הסרטון עודכן במקביל (גרסה נוכחית: ${currentVersion}, נשלח: ${expected_version}) — יש לרענן ולנסות שוב`);
   }
 
   const oldOwner = s.owner_athlete_id ?? null;
@@ -158,16 +159,22 @@ export function bulkSetCatalogOwner(db, {
     };
   }
 
-  // If expected_versions is specified, validate optimism for each source before mutating
-  if (expected_versions != null) {
-    const expMap = Array.isArray(expected_versions)
-      ? new Map(expected_versions.map(x => [x.source_id, x.expected_version]))
-      : new Map(Object.entries(expected_versions));
-    for (const s of sources) {
-      const exp = expMap.get(s.id);
-      if (exp !== undefined && Number(exp) !== Number(s.owner_version ?? 0)) {
-        throw new ApiError('VERSION_CONFLICT', `הסרטון "${s.display_name}" עודכן במקביל (גרסה: ${s.owner_version ?? 0}, צפוי: ${exp}) — פעולת השיוך המרוכז בוטלה`);
-      }
+  // When not preview, expected_versions is strictly mandatory for every source
+  if (!expected_versions || typeof expected_versions !== 'object') {
+    throw new ApiError('INVALID_INPUT', 'חובה לספק expected_versions עבור כל הסרטונים בשיוך מרוכז');
+  }
+
+  const expMap = Array.isArray(expected_versions)
+    ? new Map(expected_versions.map(x => [x.source_id, x.expected_version]))
+    : new Map(Object.entries(expected_versions).map(([k, v]) => [k, typeof v === 'object' && v !== null ? v.expected_version : v]));
+
+  for (const s of sources) {
+    const exp = expMap.get(s.id);
+    if (exp === undefined || exp === null || typeof exp !== 'number' || !Number.isInteger(exp) || exp < 0) {
+      throw new ApiError('INVALID_INPUT', `חסרה גרסה צפויה תקינה (expected_version) עבור הסרטון "${s.display_name}"`);
+    }
+    if (exp !== Number(s.owner_version ?? 0)) {
+      throw new ApiError('VERSION_CONFLICT', `הסרטון "${s.display_name}" עודכן במקביל (גרסה נוכחית: ${s.owner_version ?? 0}, נשלח: ${exp}) — פעולת השיוך המרוכז בוטלה`);
     }
   }
 
@@ -315,11 +322,13 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
   const obj = db.prepare('select * from cloud_objects where id=?').get(cloudObjectId);
   if (!obj) throw new ApiError('NOT_FOUND', 'אובייקט ענן לא נמצא');
 
-  if (expected_version !== undefined && expected_version !== null) {
-    const currentVersion = Number(obj.owner_version ?? 0);
-    if (Number(expected_version) !== currentVersion) {
-      throw new ApiError('VERSION_CONFLICT', `אובייקט הענן עודכן במקביל (גרסה: ${currentVersion}, נשלח: ${expected_version}) — יש לרענן ולנסות שוב`);
-    }
+  if (expected_version === undefined || expected_version === null || typeof expected_version !== 'number' || !Number.isInteger(expected_version) || expected_version < 0) {
+    throw new ApiError('INVALID_INPUT', 'חובה לספק expected_version כמספר שלם אי-שלילי');
+  }
+
+  const currentVersion = Number(obj.owner_version ?? 0);
+  if (expected_version !== currentVersion) {
+    throw new ApiError('VERSION_CONFLICT', `אובייקט הענן עודכן במקביל (גרסה נוכחית: ${currentVersion}, נשלח: ${expected_version}) — יש לרענן ולנסות שוב`);
   }
 
   if (owner_athlete_id != null) {
@@ -331,18 +340,45 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
     throw new ApiError('INVALID_INPUT', `סטטוס שיוך לא תקין: ${effectiveStatus}`);
   }
 
+  const newCloudVersion = currentVersion + 1;
+  const ts = now();
+
   tx(db, () => {
-    db.prepare('update cloud_objects set owner_athlete_id = ?, owner_status = ?, owner_version = coalesce(owner_version, 0) + 1 where id = ?')
-      .run(owner_athlete_id, effectiveStatus, cloudObjectId);
+    const upd = db.prepare('update cloud_objects set owner_athlete_id = ?, owner_status = ?, owner_version = ? where id = ? and (owner_version = ? or (owner_version is null and ? = 0))')
+      .run(owner_athlete_id, effectiveStatus, newCloudVersion, cloudObjectId, currentVersion, currentVersion);
+
+    if (upd.changes === 0) {
+      throw new ApiError('VERSION_CONFLICT', 'אובייקט הענן עודכן במקביל על ידי משתמש אחר');
+    }
 
     if (obj.source_id) {
-      setCatalogOwner(db, obj.source_id, {
-        owner_athlete_id,
-        status: effectiveStatus,
-        reason,
-        changed_by,
-        expected_version,
-      });
+      const src = db.prepare('select * from sources where id=?').get(obj.source_id);
+      if (src) {
+        const srcOldOwner = src.owner_athlete_id ?? null;
+        const srcOldStatus = src.owner_status ?? 'unassigned';
+        const srcCurrentVer = Number(src.owner_version ?? 0);
+        const srcNewVer = srcCurrentVer + 1;
+
+        db.prepare(`
+          update sources
+          set owner_athlete_id = ?, owner_status = ?, owner_assigned_at = ?, owner_assigned_by = ?, owner_version = ?
+          where id = ?
+        `).run(owner_athlete_id, effectiveStatus, ts, changed_by, srcNewVer, obj.source_id);
+
+        db.prepare(`
+          insert into source_owner_history(source_id, old_owner_id, new_owner_id, old_status, new_status, changed_by, reason, changed_at, version)
+          values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(obj.source_id, srcOldOwner, owner_athlete_id, srcOldStatus, effectiveStatus, changed_by, reason ?? 'שיוך מתוך קטלוג ענן', ts, srcNewVer);
+
+        audit(db, changed_by, 'catalog_owner_set', obj.source_id, {
+          old_owner_id: srcOldOwner,
+          new_owner_id: owner_athlete_id,
+          old_status: srcOldStatus,
+          new_status: effectiveStatus,
+          version: srcNewVer,
+          reason,
+        });
+      }
     }
   });
 
@@ -350,7 +386,7 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
     id: cloudObjectId,
     owner_athlete_id,
     owner_status: effectiveStatus,
-    owner_version: Number(obj.owner_version ?? 0) + 1,
+    owner_version: newCloudVersion,
     source_id: obj.source_id ?? null,
   };
 }

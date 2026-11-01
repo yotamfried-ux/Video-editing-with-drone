@@ -151,22 +151,37 @@ export async function renderCloud(root) {
         'data-testid': 'cloud-dlg-save',
         onclick: async () => {
           try {
-            await api(`/api/cloud/objects/${o.id}/catalog-owner`, {
+            const res = await api(`/api/cloud/objects/${o.id}/catalog-owner`, {
               method: 'POST',
               body: {
                 owner_athlete_id: selectedAth || null,
                 status,
                 reason: reason || null,
+                expected_version: o.owner_version ?? 0,
               }
             });
             o.owner_athlete_id = selectedAth || null;
             o.owner_status = status;
+            o.owner_version = res.owner_version;
             const found = athletes.find(a => a.id === selectedAth);
             o.owner_athlete_label = found ? found.label : null;
             closeDialog();
             toast(selectedAth ? `הקובץ בענן שויך ל-${o.owner_athlete_label}` : 'השיוך הוסר');
             render();
-          } catch (err) { toast(err.message, true); }
+          } catch (err) {
+            if (err.code === 'VERSION_CONFLICT' || err.status === 409) {
+              closeDialog();
+              dialog('התנגשות שיוך בענן', h('div', {},
+                h('div', { class: 'banner bad' }, err.message || 'קובץ הענן עודכן במקביל.'),
+                h('p', {}, 'יש לרענן את רשימת הענן כדי לקבל את הגרסה העדכנית.')
+              ), [
+                h('button', { class: 'btn primary', onclick: async () => { closeDialog(); await reload(); } }, 'רענן ענן'),
+                h('button', { class: 'btn', onclick: closeDialog }, 'סגור')
+              ]);
+            } else {
+              toast(err.message, true);
+            }
+          }
         }
       }, 'שמור שיוך'),
       h('button', { class: 'btn', onclick: closeDialog }, 'ביטול')

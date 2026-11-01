@@ -111,6 +111,14 @@ export function validateContent(c, source, db) {
         if (s.athlete_id && v.athlete_id && s.athlete_id !== v.athlete_id) {
           throw new ApiError('INVALID_INPUT', 'אימות תיבה אינו תואם לגולש המבצע את המקטע');
         }
+        const hasKeyframe = (c.keyframes || []).some(k => k.segment_id === s.id && k.frame === v.frame && k.bbox);
+        const hasExplicitBox = hasKeyframe || v.corrected_bbox != null || v.original_bbox != null;
+        if (!hasExplicitBox) {
+          const segKeyframes = (c.keyframes || []).filter(k => k.segment_id === s.id && k.bbox);
+          if (segKeyframes.length === 0) {
+            throw new ApiError('INVALID_INPUT', 'לא ניתן לאשר תיבת תיחום שאינה קיימת בפריים הנוכחי');
+          }
+        }
       }
       if (v.original_bbox != null) validateBbox(v.original_bbox);
       if (v.corrected_bbox != null) validateBbox(v.corrected_bbox);
