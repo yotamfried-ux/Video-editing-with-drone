@@ -2,22 +2,40 @@
   "mcpServers": {
     "graphify": {
       "command": "${HOME}/.local/bin/graphify-mcp",
-      "args": ["${PWD}/graphify-out/graph.json"],
+      "args": [
+        "${PWD}/graphify-out/graph.json"
+      ],
       "env": {}
     },
     "maestro": {
       "command": "maestro",
-      "args": ["mcp"],
+      "args": [
+        "mcp"
+      ],
       "env": {}
     },
     "playwright": {
       "command": "npx",
-      "args": ["-y", "@playwright/mcp@latest"],
+      "args": [
+        "-y",
+        "@playwright/mcp@latest"
+      ],
       "env": {}
     },
     "chrome-devtools": {
       "command": "npx",
-      "args": ["-y", "chrome-devtools-mcp@latest"],
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@latest"
+      ],
+      "env": {}
+    },
+    "video-analyzer": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-video-analyzer@latest"
+      ],
       "env": {}
     }
   }
