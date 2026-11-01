@@ -99,6 +99,44 @@ function* files(dir) {
     else if (/\.(py|ts|tsx|mjs|js|sh|yml|yaml|json|sql)$/.test(n) && st.size < 2e6) yield p;
   }
 }
+
+test('catalog owner over HTTP: missing expected_version returns 400, stale returns 409, valid increments version', async () => {
+  const b = await boot();
+  const athRes = await b.call('/api/athletes', { method: 'POST', body: JSON.stringify({ label: 'HTTP Surfer' }) });
+  const ath = await athRes.json();
+
+  // 1. Missing expected_version -> 400 INVALID_INPUT
+  const noVer = await b.call(`/api/sources/${b.id}/catalog-owner`, {
+    method: 'POST',
+    body: JSON.stringify({ owner_athlete_id: ath.id }),
+  });
+  assert.equal(noVer.status, 400);
+  const noVerJson = await noVer.json();
+  assert.equal(noVerJson.code, 'INVALID_INPUT');
+
+  // 2. Stale expected_version (say 99) -> 409 VERSION_CONFLICT
+  const stale = await b.call(`/api/sources/${b.id}/catalog-owner`, {
+    method: 'POST',
+    body: JSON.stringify({ owner_athlete_id: ath.id, expected_version: 99 }),
+  });
+  assert.equal(stale.status, 409);
+  const staleJson = await stale.json();
+  assert.equal(staleJson.code, 'VERSION_CONFLICT');
+  assert.match(staleJson.message, /עודכנ/);
+
+  // 3. Correct expected_version 0 -> 200 with owner_version 1
+  const ok = await b.call(`/api/sources/${b.id}/catalog-owner`, {
+    method: 'POST',
+    body: JSON.stringify({ owner_athlete_id: ath.id, expected_version: 0 }),
+  });
+  assert.equal(ok.status, 200);
+  const okJson = await ok.json();
+  assert.equal(okJson.owner_version, 1);
+  assert.equal(okJson.owner_athlete_id, ath.id);
+
+  b.close();
+});
+
 test('production code and workflows never reference the Studio, its state, or its credentials', () => {
   const offenders = [];
   for (const f of files(REPO)) {

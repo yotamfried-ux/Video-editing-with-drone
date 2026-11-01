@@ -200,15 +200,30 @@ export async function renderLibrary(root) {
                 owner_athlete_id: selectedAth || null,
                 status,
                 reason: reason || null,
+                expected_version: s.owner_version ?? 0,
               }
             });
             s.owner_athlete_id = res.owner_athlete_id;
             s.owner_status = res.owner_status;
             s.owner_athlete_label = res.athlete ? res.athlete.label : null;
+            s.owner_version = res.owner_version;
             closeDialog();
             toast(res.owner_athlete_id ? `הסרטון שויך בהצלחה ל-${res.athlete?.label}` : 'השיוך בוטל');
             render();
-          } catch (err) { toast(err.message, true); }
+          } catch (err) {
+            if (err.code === 'VERSION_CONFLICT' || err.status === 409) {
+              closeDialog();
+              dialog('התנגשות שיוך (גרסה לא עדכנית)', h('div', {},
+                h('div', { class: 'banner bad' }, err.message || 'הסרטון עודכן במקביל על ידי משתמש אחר.'),
+                h('p', {}, 'יש לטעון מחדש את נתוני הספרייה כדי לראות את השיוך העדכני לפני ניסיון נוסף.')
+              ), [
+                h('button', { class: 'btn primary', onclick: async () => { closeDialog(); items = (await api('/api/sources?limit=200')).items; render(); } }, 'רענן ספרייה'),
+                h('button', { class: 'btn', onclick: closeDialog }, 'סגור')
+              ]);
+            } else {
+              toast(err.message, true);
+            }
+          }
         }
       }, 'שמור שיוך'),
       h('button', { class: 'btn', onclick: closeDialog }, 'ביטול')
@@ -266,12 +281,14 @@ export async function renderLibrary(root) {
           onclick: async () => {
             closeDialog();
             try {
+              const expected_versions = Object.fromEntries((preview.items || []).map(it => [it.source_id, it.owner_version]));
               const applied = await api('/api/sources/catalog-owners/bulk', {
                 method: 'POST',
                 body: {
                   source_ids: list.map(s => s.id),
                   owner_athlete_id: ownerId,
                   preview: false,
+                  expected_versions,
                   reason: 'שיוך מרוכז בספרייה'
                 }
               });
@@ -281,11 +298,25 @@ export async function renderLibrary(root) {
                   s.owner_athlete_id = ownerId;
                   s.owner_status = 'assigned';
                   s.owner_athlete_label = targetLabel;
+                  const updatedItem = (applied.items || []).find(it => it.source_id === s.id);
+                  if (updatedItem) s.owner_version = updatedItem.owner_version;
                 }
               }
               toast(`שויכו ${applied.updated_count} סרטונים ל-${targetLabel}`);
               render();
-            } catch (err) { toast(err.message, true); }
+            } catch (err) {
+              if (err.code === 'VERSION_CONFLICT' || err.status === 409) {
+                dialog('התנגשות שיוך קבוצתי', h('div', {},
+                  h('div', { class: 'banner bad' }, err.message || 'אחד או יותר מהסרטונים עודכנו במקביל. כל הפעולה בוטלה למניעת דריסה שקטה.'),
+                  h('p', {}, 'יש לרענן את הספרייה כדי לקבל את הגרסאות העדכניות ולנסות שוב.')
+                ), [
+                  h('button', { class: 'btn primary', onclick: async () => { closeDialog(); items = (await api('/api/sources?limit=200')).items; render(); } }, 'רענן ספרייה'),
+                  h('button', { class: 'btn', onclick: closeDialog }, 'סגור')
+                ]);
+              } else {
+                toast(err.message, true);
+              }
+            }
           }
         }, 'אשר שיוך מרוכז'),
         h('button', { class: 'btn', onclick: closeDialog }, 'ביטול')

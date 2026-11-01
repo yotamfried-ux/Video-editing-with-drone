@@ -33,6 +33,7 @@ test('video assigned to athlete without segments; Surfer Workspace displays vide
     status: 'assigned',
     reason: 'Initial assignment by coach',
     changed_by: 'coach_yotam',
+    expected_version: 0,
   });
 
   assert.equal(updated.owner_athlete_id, surferA.id);
@@ -58,13 +59,14 @@ test('reassignment records audit history in source_owner_history; history is imm
   const surferB = A.createAthlete(db, 'Surfer Beta');
 
   // 1. Assign to Surfer Alpha
-  Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id });
+  Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id, expected_version: 0 });
 
   // 2. Reassign to Surfer Beta with explicit reason
   Catalog.setCatalogOwner(db, src1.id, {
     owner_athlete_id: surferB.id,
     reason: 'Camera was tracking Beta during second heat',
     changed_by: 'annotator_1',
+    expected_version: 1,
   });
 
   const ownerInfo = Catalog.getCatalogOwner(db, src1.id);
@@ -92,7 +94,7 @@ test('bulk assignment with preview and conflict warnings', async () => {
   const surferB = A.createAthlete(db, 'Surfer Beta');
 
   // Pre-assign src1 to Alpha
-  Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id });
+  Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id, expected_version: 0 });
 
   // Dry preview assigning both src1 and src2 to Beta
   const preview = Catalog.bulkSetCatalogOwner(db, {
@@ -107,12 +109,15 @@ test('bulk assignment with preview and conflict warnings', async () => {
   assert.equal(preview.conflicts[0].source_id, src1.id);
   assert.equal(preview.conflicts[0].current_owner_id, surferA.id);
 
-  // Apply bulk assignment
+  const expVersions = Object.fromEntries(preview.items.map(it => [it.source_id, it.owner_version]));
+
+  // Apply bulk assignment with explicit expected_versions
   const applied = Catalog.bulkSetCatalogOwner(db, {
     source_ids: [src1.id, src2.id],
     owner_athlete_id: surferB.id,
     reason: 'Bulk heat assignment',
     preview: false,
+    expected_versions: expVersions,
   });
 
   assert.equal(applied.success, true);
@@ -130,7 +135,7 @@ test('three-way athlete independence: catalog owner != visible appearance != eve
   const surferPerformer = A.createAthlete(db, 'Action Performer (C)');
 
   // 1. Assign video ownership to Surfer A
-  Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferOwner.id });
+  Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferOwner.id, expected_version: 0 });
 
   // 2. Mark Surfer B as visible in the video
   db.prepare('insert into athlete_appearances(id, athlete_id, source_id, created_at) values (?, ?, ?, ?)')
@@ -257,4 +262,156 @@ test('bulk assignment optimistic concurrency: concurrent modification of single 
   // ATOMICITY: src1 must NOT have been changed either! Entire batch rolled back!
   assert.equal(Catalog.getCatalogOwner(db, src1.id).owner_athlete_id, null);
   assert.equal(Catalog.getCatalogOwner(db, src2.id).owner_athlete_id, surferB.id);
+});
+
+test('OCC validation: missing, null, negative, or non-integer expected_version is rejected without modifying data', async () => {
+  const { db, src1 } = await withSource();
+  const surferA = A.createAthlete(db, 'Surfer Alpha');
+
+  // 1. Missing expected_version throws INVALID_INPUT (400)
+  assert.throws(
+    () => Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id }),
+    (err) => {
+      assert.equal(err.code, 'INVALID_INPUT');
+      assert.match(err.message, /expected_version/);
+      return true;
+    }
+  );
+
+  // 2. null expected_version
+  assert.throws(
+    () => Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id, expected_version: null }),
+    (err) => err.code === 'INVALID_INPUT'
+  );
+
+  // 3. string expected_version
+  assert.throws(
+    () => Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id, expected_version: '0' }),
+    (err) => err.code === 'INVALID_INPUT'
+  );
+
+  // 4. negative expected_version
+  assert.throws(
+    () => Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id, expected_version: -1 }),
+    (err) => err.code === 'INVALID_INPUT'
+  );
+
+  // 5. float expected_version
+  assert.throws(
+    () => Catalog.setCatalogOwner(db, src1.id, { owner_athlete_id: surferA.id, expected_version: 1.5 }),
+    (err) => err.code === 'INVALID_INPUT'
+  );
+
+  // Verify state is completely unchanged
+  const owner = Catalog.getCatalogOwner(db, src1.id);
+  assert.equal(owner.owner_athlete_id, null);
+  assert.equal(owner.owner_version, 0);
+  assert.equal(owner.history.length, 0);
+});
+
+test('bulkSetCatalogOwner validation: non-preview requires expected_versions map covering all sources', async () => {
+  const { db, src1, src2 } = await withSource();
+  const surferA = A.createAthlete(db, 'Surfer Alpha');
+
+  // 1. Omitted expected_versions throws INVALID_INPUT
+  assert.throws(
+    () => Catalog.bulkSetCatalogOwner(db, {
+      source_ids: [src1.id, src2.id],
+      owner_athlete_id: surferA.id,
+      preview: false,
+    }),
+    (err) => {
+      assert.equal(err.code, 'INVALID_INPUT');
+      assert.match(err.message, /expected_versions/);
+      return true;
+    }
+  );
+
+  // 2. Incomplete expected_versions (only covers src1, missing src2)
+  assert.throws(
+    () => Catalog.bulkSetCatalogOwner(db, {
+      source_ids: [src1.id, src2.id],
+      owner_athlete_id: surferA.id,
+      preview: false,
+      expected_versions: { [src1.id]: 0 },
+    }),
+    (err) => {
+      assert.equal(err.code, 'INVALID_INPUT');
+      assert.match(err.message, /חסרה גרסה צפויה תקינה/);
+      return true;
+    }
+  );
+
+  // 3. Invalid version in map (negative or non-integer)
+  assert.throws(
+    () => Catalog.bulkSetCatalogOwner(db, {
+      source_ids: [src1.id, src2.id],
+      owner_athlete_id: surferA.id,
+      preview: false,
+      expected_versions: { [src1.id]: 0, [src2.id]: -1 },
+    }),
+    (err) => err.code === 'INVALID_INPUT'
+  );
+
+  // Zero updates made
+  assert.equal(Catalog.getCatalogOwner(db, src1.id).owner_athlete_id, null);
+  assert.equal(Catalog.getCatalogOwner(db, src2.id).owner_athlete_id, null);
+});
+
+test('setCloudObjectCatalogOwner enforces OCC and synchronizes linked source atomically without version clash', async () => {
+  const { db, src1 } = await withSource();
+  const surferA = A.createAthlete(db, 'Surfer Cloud');
+  const surferB = A.createAthlete(db, 'Surfer Two');
+
+  // Insert cloud object linked to src1
+  db.prepare(`
+    insert into cloud_objects(id, key, prefix, size, available, source_id, owner_athlete_id, owner_status, owner_version, seen_at)
+    values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run('co-1', 'raw/dji-video.mp4', 'raw/', 1000, 1, src1.id, null, 'unassigned', 0, new Date().toISOString());
+
+  // 1. Missing expected_version throws INVALID_INPUT
+  assert.throws(
+    () => Catalog.setCloudObjectCatalogOwner(db, 'co-1', { owner_athlete_id: surferA.id }),
+    (err) => err.code === 'INVALID_INPUT'
+  );
+
+  // 2. Stale expected_version throws VERSION_CONFLICT (409)
+  assert.throws(
+    () => Catalog.setCloudObjectCatalogOwner(db, 'co-1', { owner_athlete_id: surferA.id, expected_version: 5 }),
+    (err) => {
+      assert.equal(err.code, 'VERSION_CONFLICT');
+      assert.equal(err.status, 409);
+      return true;
+    }
+  );
+
+  // 3. Correct expected_version = 0 -> updates cloud object to v1 AND updates linked source to v1 atomically
+  const res = Catalog.setCloudObjectCatalogOwner(db, 'co-1', {
+    owner_athlete_id: surferA.id,
+    expected_version: 0,
+    reason: 'Initial cloud sync',
+  });
+  assert.equal(res.owner_version, 1);
+  assert.equal(res.owner_athlete_id, surferA.id);
+
+  // Check cloud object in DB
+  const coRow = db.prepare('select * from cloud_objects where id=?').get('co-1');
+  assert.equal(coRow.owner_athlete_id, surferA.id);
+  assert.equal(coRow.owner_version, 1);
+
+  // Check linked source in DB
+  const srcOwner = Catalog.getCatalogOwner(db, src1.id);
+  assert.equal(srcOwner.owner_athlete_id, surferA.id);
+  assert.equal(srcOwner.owner_version, 1);
+  assert.equal(srcOwner.history.length, 1);
+  assert.equal(srcOwner.history[0].new_owner_id, surferA.id);
+
+  // 4. Stale update after v1 throws 409
+  assert.throws(
+    () => Catalog.setCloudObjectCatalogOwner(db, 'co-1', {
+      owner_athlete_id: surferB.id,
+      expected_version: 0,
+    }),
+    (err) => err.code === 'VERSION_CONFLICT'
+  );
 });

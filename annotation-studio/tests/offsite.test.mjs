@@ -130,3 +130,35 @@ test('status: never -> ok -> stale, exposed read-only over the authenticated API
     assert.equal((await fetch(`${base}/api/backup/run`, { method: 'POST', headers: { authorization: 'Bearer test-token' } })).status, 404, 'no HTTP endpoint writes to arbitrary paths');
   } finally { server.closeAllConnections(); server.close(); }
 });
+
+
+test('AES-256-GCM encrypted offsite backup: requires key to verify/restore, recreates state byte-exact', async () => {
+  const { ctx, a, raw } = await world();
+  const dest = tmp('ext-enc-');
+  const secretKey = 'test-passphrase-super-secret-key-1234';
+
+  const res = await runOffsiteBackup(ctx, dest, { ...diffDev(ctx), encryption_key: secretKey });
+  assert.equal(res.ok, true);
+  assert.equal(res.encrypted, true);
+  assert.match(res.db_file, /\.enc$/);
+
+  // Without key: verify notes missing key
+  const noKeyVerify = await verifyOffsite(dest);
+  assert.equal(noKeyVerify.ok, false);
+  assert.ok(noKeyVerify.problems.includes('encryption_key_required'));
+
+  // With key: verify succeeds
+  const keyVerify = await verifyOffsite(dest, { encryption_key: secretKey });
+  assert.equal(keyVerify.ok, true);
+  assert.deepEqual(keyVerify.problems, []);
+
+  // Restore into a fresh isolated context
+  const fresh = newCtx();
+  const restored = await restoreFromOffsite(fresh, dest, { encryption_key: secretKey });
+  assert.equal(restored.restored_objects, 1);
+
+  // Verify DB content in fresh context
+  const s = fresh.db.prepare('select * from sources where id=?').get(a.id);
+  assert.equal(s.sha256, a.sha256);
+  assert.equal(fresh.db.prepare("select count(*) n from annotation_revisions").get().n, 1);
+});

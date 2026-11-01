@@ -221,3 +221,59 @@ test('box drawing and modification requires explicit human verification; cannot 
   assert.equal(loaded.content.keyframes[0].verification_status, 'unreviewed');
   assert.equal(loaded.content.box_verifications[0].status, 'unreviewed');
 });
+
+test('box QA invariants: cannot verify non-existent box; geometry change resets verification; athlete separation', async () => {
+  const { db, src } = await withSource();
+  const ath = A.createAthlete(db, 'Surfer Ace');
+
+  const c = A.emptyContent();
+  c.segments.push(seg('s1', 10, 80, { athlete_id: ath.id, event_type: 'wave_ride', decision: 'include' }));
+  c.reviewed_ranges.push({ start_frame: 0, end_frame: 100 });
+
+  // 1. Attempting to verify_correct a box when segment has NO keyframe and no bbox throws INVALID_INPUT
+  c.box_verifications = [{
+    segment_id: 's1',
+    frame: 25,
+    athlete_id: ath.id,
+    status: 'verified_correct',
+    verified_by: 'coach',
+    verified_at: new Date().toISOString(),
+  }];
+
+  assert.throws(
+    () => A.saveDraft(db, src.id, 0, c),
+    /לא ניתן לאשר תיבת תיחום שאינה קיימת בפריים/
+  );
+
+  // 2. Add keyframe and verify
+  c.keyframes.push({
+    id: 'k1',
+    segment_id: 's1',
+    frame: 25,
+    bbox: { x: 0.2, y: 0.2, w: 0.1, h: 0.1 },
+    visibility: 'visible',
+    origin: 'manual',
+    verification_status: 'verified_correct',
+    verified_at: new Date().toISOString(),
+    verified_by: 'coach',
+  });
+
+  const res = A.saveDraft(db, src.id, 0, c);
+  assert.equal(res.version, 1);
+
+  // 3. Modifying geometry in keyframe requires resetting verification_status to unreviewed
+  c.keyframes[0].bbox = { x: 0.25, y: 0.25, w: 0.12, h: 0.12 }; // geometry modified!
+  c.keyframes[0].verification_status = 'unreviewed';
+  c.keyframes[0].verified_at = null;
+  c.keyframes[0].verified_by = null;
+  c.box_verifications[0].status = 'unreviewed';
+  c.box_verifications[0].verified_at = null;
+
+  const res2 = A.saveDraft(db, src.id, 1, c);
+  assert.equal(res2.version, 2);
+
+  const loaded = A.getDraft(db, src.id);
+  assert.equal(loaded.content.keyframes[0].verification_status, 'unreviewed');
+  assert.equal(loaded.content.keyframes[0].verified_at, null);
+  assert.equal(loaded.content.box_verifications[0].status, 'unreviewed');
+});
