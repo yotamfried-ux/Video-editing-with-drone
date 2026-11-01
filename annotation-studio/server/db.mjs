@@ -157,7 +157,8 @@ create table if not exists source_owner_history(
   new_status text,
   changed_by text not null,
   reason text,
-  changed_at text not null
+  changed_at text not null,
+  version integer not null default 1
 );
 `;
 
@@ -202,6 +203,9 @@ export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
   // Catalog owner (0004_v2_owner_and_box_qa): default NULL/unassigned, never backfilled from segment performer
   for (const c of ['owner_athlete_id', 'owner_status', 'owner_assigned_at', 'owner_assigned_by']) addColumn(db, 'sources', c, 'text');
   for (const c of ['owner_athlete_id', 'owner_status']) addColumn(db, 'cloud_objects', c, 'text');
+  addColumn(db, 'sources', 'owner_version', 'integer not null default 0');
+  addColumn(db, 'cloud_objects', 'owner_version', 'integer not null default 0');
+  addColumn(db, 'source_owner_history', 'version', 'integer not null default 1');
   seedSports(db);
   db.prepare('insert or ignore into meta(key,value) values(?,?)').run('schema_version', String(SCHEMA_VERSION));
   return db;

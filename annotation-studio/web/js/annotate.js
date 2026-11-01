@@ -493,9 +493,9 @@ function putKeyframe(s, bbox, provenance = 'manual') {
       ex.original_bbox = ex.bbox;
       ex.bbox = bb;
       ex.origin = provenance;
-      ex.verification_status = 'corrected';
-      ex.verified_at = new Date().toISOString();
-      ex.verified_by = 'operator';
+      ex.verification_status = 'unreviewed';
+      ex.verified_at = null;
+      ex.verified_by = null;
     } else {
       c.keyframes.push({
         id: uid(),
@@ -504,13 +504,15 @@ function putKeyframe(s, bbox, provenance = 'manual') {
         bbox: bb,
         visibility: 'visible',
         origin: provenance,
-        verification_status: 'verified_correct',
-        verified_at: new Date().toISOString(),
-        verified_by: 'operator'
+        verification_status: 'unreviewed',
+        verified_at: null,
+        verified_by: null
       });
     }
-    // Also record in box_verifications
-    recordBoxVerification(s.id, S.frame, s.athlete_id, 'verified_correct', 'Box drawn/verified');
+    if (c.box_verifications) {
+      const idx = c.box_verifications.findIndex(v => v.segment_id === s.id && v.frame === S.frame);
+      if (idx !== -1) c.box_verifications.splice(idx, 1);
+    }
   });
 }
 
@@ -665,7 +667,7 @@ function renderAssociateTab() {
             try {
               const res = await api(`/api/sources/${S.src.id}/catalog-owner`, {
                 method: 'POST',
-                body: { owner_athlete_id: newOwner, reason: 'שינוי במפקח' }
+                body: { owner_athlete_id: newOwner, reason: 'שינוי במפקח', expected_version: S.src.owner_version ?? 0 }
               });
               S.src.owner_athlete_id = res.owner_athlete_id;
               S.src.owner_status = res.owner_status;
@@ -739,10 +741,16 @@ function renderBoxQATab() {
     );
   }
 
+  // Ensure current playhead is within segment bounds when checking box QA
+  if (S.frame < s.start_frame || S.frame >= s.end_frame) {
+    seekFrame(s.start_frame);
+  }
+
   const athlete = S.athletes.find(a => a.id === s.athlete_id);
   const curBox = boxAt(s.id, S.frame);
   const verifications = C().box_verifications || [];
   const curVer = verifications.find(v => v.segment_id === s.id && v.frame === S.frame);
+  const kf = (C().keyframes || []).find(k => k.segment_id === s.id && k.frame === S.frame);
 
   const checkpoints = [
     { label: 'תחילה', frame: s.start_frame },
@@ -761,8 +769,8 @@ function renderBoxQATab() {
     ? '✓ מיקום BOX אומת ידנית כנכון על הגולש בפריים הנוכחי'
     : curVer?.status === 'wrong_performer'
       ? '✕ סומן גולש שגוי / BOX מחוץ לגולש — דורש תיקון'
-      : curVer?.status === 'corrected'
-        ? '✎ מיקום ה-BOX תוקן ידנית בפריים הנוכחי'
+      : (kf && kf.origin === 'manual' && (!curVer || curVer.status === 'unreviewed'))
+        ? 'לא נבדק — תיבה צוירה ידנית וממתינה לאישור'
         : '⚠ מיקום משוער (אינטרפולציה) — דורש אימות ידני';
 
   return h('div', { 'data-testid': 'insp-panel-box', style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
@@ -798,9 +806,28 @@ function renderBoxQATab() {
         h('button', {
           class: 'btn primary sm',
           'data-testid': 'verify-box-confirm',
+          disabled: S.frame < s.start_frame || S.frame >= s.end_frame,
           onclick: () => {
             edit(c => {
-              if (curBox?.bbox) putKeyframe(s, curBox.bbox, 'manual');
+              const now = new Date().toISOString();
+              const existingKf = c.keyframes.find(k => k.segment_id === s.id && k.frame === S.frame);
+              if (existingKf) {
+                existingKf.verification_status = 'verified_correct';
+                existingKf.verified_at = now;
+                existingKf.verified_by = 'operator';
+              } else if (curBox?.bbox) {
+                c.keyframes.push({
+                  id: uid(),
+                  segment_id: s.id,
+                  frame: S.frame,
+                  bbox: curBox.bbox,
+                  visibility: 'visible',
+                  origin: 'manual',
+                  verification_status: 'verified_correct',
+                  verified_at: now,
+                  verified_by: 'operator'
+                });
+              }
               recordBoxVerification(s.id, S.frame, s.athlete_id, 'verified_correct', 'אושר על הגולש הנכון');
             });
             toast(`פריים ${S.frame} אומת ידנית על הגולש`);
@@ -810,8 +837,16 @@ function renderBoxQATab() {
         h('button', {
           class: 'btn danger sm',
           'data-testid': 'verify-box-wrong',
+          disabled: S.frame < s.start_frame || S.frame >= s.end_frame,
           onclick: () => {
             edit(c => {
+              const now = new Date().toISOString();
+              const existingKf = c.keyframes.find(k => k.segment_id === s.id && k.frame === S.frame);
+              if (existingKf) {
+                existingKf.verification_status = 'wrong_performer';
+                existingKf.verified_at = now;
+                existingKf.verified_by = 'operator';
+              }
               recordBoxVerification(s.id, S.frame, s.athlete_id, 'wrong_performer', 'גולש שגוי / סטייה');
             });
             toast(`פריים ${S.frame} סומן כגולש שגוי`);
@@ -871,7 +906,7 @@ function segForm(s) {
     h('div', { class: 'section', style: { background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', padding: '12px' } },
       h('strong', { style: { fontSize: '13px', display: 'block', marginBottom: '8px' } }, '1. מה קרה? (סוג ומבצע)'),
       field('מי ביצע את הפעולה?', h('div', { style: { display: 'flex', gap: '6px' } },
-        h('select', { id: 'f-athlete', 'data-testid': 'athlete-select', onchange: e => upd('athlete_id', e.target.value || null) },
+        h('select', { id: 'f-athlete', 'data-testid': 'athlete-select', onchange: e => { setSegmentAthlete(s.id, e.target.value || null); refresh(); } },
           h('option', { value: '' }, 'לא ידוע'),
           S.athletes.map((a, i) => h('option', { value: a.id, selected: a.id === s.athlete_id }, `${i + 1}. ${a.label}`))
         ),
@@ -985,7 +1020,7 @@ function deleteSel() { const s = selSeg(); if (!s) return; edit(c => { c.segment
 async function newAthlete() {
   const inp = h('input', { type: 'text', id: 'na-label', placeholder: 'שם / מזהה פסבדונימי' });
   const d = dialog('גולש חדש', h('div', {}, h('label', { class: 'f', for: 'na-label' }, 'תווית'), inp), [
-    h('button', { class: 'btn primary', 'data-testid': 'na-ok', onclick: async () => { try { const a = await api('/api/athletes', { method: 'POST', body: { label: inp.value } }); S.athletes.push({ ...a, appearances: [] }); closeDialog(); const s = selSeg(); if (s) edit(c => { c.segments.find(x => x.id === s.id).athlete_id = a.id; }); refresh(); } catch (e) { toast(e.message, true); } } }, 'צור'),
+    h('button', { class: 'btn primary', 'data-testid': 'na-ok', onclick: async () => { try { const a = await api('/api/athletes', { method: 'POST', body: { label: inp.value } }); S.athletes.push({ ...a, appearances: [] }); closeDialog(); const s = selSeg(); if (s) edit(c => { setSegmentAthlete(s.id, a.id); }); refresh(); } catch (e) { toast(e.message, true); } } }, 'צור'),
     h('button', { class: 'btn', onclick: closeDialog }, 'ביטול')]);
   inp.focus(); inp.addEventListener('keydown', e => { if (e.key === 'Enter') $('[data-testid=na-ok]').click(); });
 }

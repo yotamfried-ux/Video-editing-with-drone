@@ -28,6 +28,7 @@ export function getCatalogOwner(db, sourceId) {
     display_name: s.display_name,
     owner_athlete_id: s.owner_athlete_id ?? null,
     owner_status: s.owner_status ?? 'unassigned',
+    owner_version: Number(s.owner_version ?? 0),
     owner_assigned_at: s.owner_assigned_at ?? null,
     owner_assigned_by: s.owner_assigned_by ?? null,
     athlete,
@@ -52,6 +53,13 @@ export function setCatalogOwner(db, sourceId, {
     throw new ApiError('INVALID_INPUT', `סטטוס שיוך לא תקין: ${effectiveStatus}`);
   }
 
+  const currentVersion = Number(s.owner_version ?? 0);
+  if (expected_version !== undefined && expected_version !== null) {
+    if (Number(expected_version) !== currentVersion) {
+      throw new ApiError('VERSION_CONFLICT', `שיוך הסרטון עודכן במקביל (גרסה נוכחית: ${currentVersion}, נשלח: ${expected_version}) — יש לרענן ולנסות שוב`);
+    }
+  }
+
   const oldOwner = s.owner_athlete_id ?? null;
   const oldStatus = s.owner_status ?? 'unassigned';
 
@@ -61,22 +69,28 @@ export function setCatalogOwner(db, sourceId, {
   }
 
   const ts = now();
+  const newVersion = currentVersion + 1;
+
   tx(db, () => {
-    db.prepare(`
-      insert into source_owner_history(source_id, old_owner_id, new_owner_id, old_status, new_status, changed_by, reason, changed_at)
-      values (?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(sourceId, oldOwner, owner_athlete_id, oldStatus, effectiveStatus, changed_by, reason ?? null, ts);
+    const upd = db.prepare(`
+      update sources
+      set owner_athlete_id = ?, owner_status = ?, owner_assigned_at = ?, owner_assigned_by = ?, owner_version = ?
+      where id = ? and (owner_version = ? or (owner_version is null and ? = 0))
+    `).run(owner_athlete_id, effectiveStatus, ts, changed_by, newVersion, sourceId, currentVersion, currentVersion);
+
+    if (upd.changes === 0) {
+      throw new ApiError('VERSION_CONFLICT', 'שיוך הסרטון עודכן במקביל על ידי משתמש אחר');
+    }
 
     db.prepare(`
-      update sources
-      set owner_athlete_id = ?, owner_status = ?, owner_assigned_at = ?, owner_assigned_by = ?
-      where id = ?
-    `).run(owner_athlete_id, effectiveStatus, ts, changed_by, sourceId);
+      insert into source_owner_history(source_id, old_owner_id, new_owner_id, old_status, new_status, changed_by, reason, changed_at, version)
+      values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(sourceId, oldOwner, owner_athlete_id, oldStatus, effectiveStatus, changed_by, reason ?? null, ts, newVersion);
 
     // Sync cloud_objects if this source is linked to one
     db.prepare(`
       update cloud_objects
-      set owner_athlete_id = ?, owner_status = ?
+      set owner_athlete_id = ?, owner_status = ?, owner_version = coalesce(owner_version, 0) + 1
       where source_id = ?
     `).run(owner_athlete_id, effectiveStatus, sourceId);
 
@@ -85,6 +99,7 @@ export function setCatalogOwner(db, sourceId, {
       new_owner_id: owner_athlete_id,
       old_status: oldStatus,
       new_status: effectiveStatus,
+      version: newVersion,
       reason,
     });
   });
@@ -99,6 +114,7 @@ export function bulkSetCatalogOwner(db, {
   reason = null,
   preview = false,
   changed_by = 'operator',
+  expected_versions = undefined,
 } = {}) {
   if (!Array.isArray(source_ids) || source_ids.length === 0) {
     throw new ApiError('INVALID_INPUT', 'חובה לספק רשימת מזהי סרטונים');
@@ -121,6 +137,7 @@ export function bulkSetCatalogOwner(db, {
     display_name: s.display_name,
     current_owner_id: s.owner_athlete_id,
     current_status: s.owner_status,
+    owner_version: Number(s.owner_version ?? 0),
   }));
 
   if (preview) {
@@ -135,32 +152,52 @@ export function bulkSetCatalogOwner(db, {
         source_id: s.id,
         display_name: s.display_name,
         current_owner_id: s.owner_athlete_id ?? null,
+        owner_version: Number(s.owner_version ?? 0),
         will_change: s.owner_athlete_id !== owner_athlete_id || (s.owner_status ?? 'unassigned') !== effectiveStatus,
       })),
     };
   }
 
+  // If expected_versions is specified, validate optimism for each source before mutating
+  if (expected_versions != null) {
+    const expMap = Array.isArray(expected_versions)
+      ? new Map(expected_versions.map(x => [x.source_id, x.expected_version]))
+      : new Map(Object.entries(expected_versions));
+    for (const s of sources) {
+      const exp = expMap.get(s.id);
+      if (exp !== undefined && Number(exp) !== Number(s.owner_version ?? 0)) {
+        throw new ApiError('VERSION_CONFLICT', `הסרטון "${s.display_name}" עודכן במקביל (גרסה: ${s.owner_version ?? 0}, צפוי: ${exp}) — פעולת השיוך המרוכז בוטלה`);
+      }
+    }
+  }
+
   const ts = now();
   tx(db, () => {
     for (const s of sources) {
+      const currentVersion = Number(s.owner_version ?? 0);
       const oldOwner = s.owner_athlete_id ?? null;
       const oldStatus = s.owner_status ?? 'unassigned';
       if (oldOwner === owner_athlete_id && oldStatus === effectiveStatus) continue;
 
-      db.prepare(`
-        insert into source_owner_history(source_id, old_owner_id, new_owner_id, old_status, new_status, changed_by, reason, changed_at)
-        values (?, ?, ?, ?, ?, ?, ?, ?)
-      `).run(s.id, oldOwner, owner_athlete_id, oldStatus, effectiveStatus, changed_by, reason ?? null, ts);
+      const newVersion = currentVersion + 1;
+      const upd = db.prepare(`
+        update sources
+        set owner_athlete_id = ?, owner_status = ?, owner_assigned_at = ?, owner_assigned_by = ?, owner_version = ?
+        where id = ? and (owner_version = ? or (owner_version is null and ? = 0))
+      `).run(owner_athlete_id, effectiveStatus, ts, changed_by, newVersion, s.id, currentVersion, currentVersion);
+
+      if (upd.changes === 0) {
+        throw new ApiError('VERSION_CONFLICT', `הסרטון "${s.display_name}" עודכן במקביל — פעולת השיוך המרוכז בוטלה`);
+      }
 
       db.prepare(`
-        update sources
-        set owner_athlete_id = ?, owner_status = ?, owner_assigned_at = ?, owner_assigned_by = ?
-        where id = ?
-      `).run(owner_athlete_id, effectiveStatus, ts, changed_by, s.id);
+        insert into source_owner_history(source_id, old_owner_id, new_owner_id, old_status, new_status, changed_by, reason, changed_at, version)
+        values (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(s.id, oldOwner, owner_athlete_id, oldStatus, effectiveStatus, changed_by, reason ?? null, ts, newVersion);
 
       db.prepare(`
         update cloud_objects
-        set owner_athlete_id = ?, owner_status = ?
+        set owner_athlete_id = ?, owner_status = ?, owner_version = coalesce(owner_version, 0) + 1
         where source_id = ?
       `).run(owner_athlete_id, effectiveStatus, s.id);
 
@@ -168,6 +205,7 @@ export function bulkSetCatalogOwner(db, {
         old_owner_id: oldOwner,
         new_owner_id: owner_athlete_id,
         status: effectiveStatus,
+        version: newVersion,
         reason,
       });
     }
@@ -186,57 +224,68 @@ export function listAthleteSources(db, athleteId, { filter = 'all' } = {}) {
   const athlete = db.prepare('select * from athletes where id=?').get(athleteId);
   if (!athlete) throw new ApiError('NOT_FOUND', 'גולש לא קיים');
 
-  // Owned sources
-  const ownedRows = db.prepare('select * from sources where owner_athlete_id = ? order by created_at desc').all(athleteId);
-  const ownedIds = new Set(ownedRows.map(s => s.id));
-
-  // Appearance sources
-  const appearanceRows = db.prepare(`
-    select distinct s.*
-    from sources s
-    join athlete_appearances a on a.source_id = s.id
-    where a.athlete_id = ?
+  // 1. Sources where this athlete is the catalog owner
+  const ownedRows = db.prepare(`
+    select * from sources
+    where owner_athlete_id = ?
+    order by created_at desc
   `).all(athleteId);
 
-  let combined = [];
+  // 2. Sources where this athlete appears or has events (distinct source_id)
+  const appearanceRows = db.prepare(`
+    select s.*
+    from sources s
+    where s.id in (
+      select source_id from athlete_appearances where athlete_id = ?
+    ) or s.id in (
+      select distinct d.source_id
+      from annotation_drafts d
+      where json_extract(d.content, '$.segments') like ?
+    )
+    order by s.created_at desc
+  `).all(athleteId, `%"athlete_id":"${athleteId}"%`);
+
+  let candidateMap = new Map();
+
   if (filter === 'owner') {
-    combined = ownedRows;
+    for (const r of ownedRows) candidateMap.set(r.id, { ...r, is_owner: true, is_appearance: false });
   } else if (filter === 'appearance') {
-    combined = appearanceRows;
+    for (const r of appearanceRows) candidateMap.set(r.id, { ...r, is_owner: r.owner_athlete_id === athleteId, is_appearance: true });
   } else {
-    // all: union
-    const map = new Map();
-    for (const s of ownedRows) map.set(s.id, s);
-    for (const s of appearanceRows) if (!map.has(s.id)) map.set(s.id, s);
-    combined = Array.from(map.values());
+    // all
+    for (const r of ownedRows) candidateMap.set(r.id, { ...r, is_owner: true, is_appearance: false });
+    for (const r of appearanceRows) {
+      if (candidateMap.has(r.id)) {
+        candidateMap.get(r.id).is_appearance = true;
+      } else {
+        candidateMap.set(r.id, { ...r, is_owner: r.owner_athlete_id === athleteId, is_appearance: true });
+      }
+    }
   }
 
-  // Also query draft segment events for each source to count how many events this athlete performed
-  const items = combined.map(s => {
+  const items = Array.from(candidateMap.values()).map(s => {
+    const draft = db.prepare('select content from annotation_drafts where source_id=?').get(s.id);
     let eventsCount = 0;
     let trackQACount = 0;
-    const draft = db.prepare('select content from annotation_drafts where source_id=?').get(s.id);
-    if (draft) {
+    if (draft?.content) {
       try {
         const c = JSON.parse(draft.content);
-        const athleteSegs = (c.segments || []).filter(seg => seg.athlete_id === athleteId);
-        eventsCount = athleteSegs.length;
-        const segIds = new Set(athleteSegs.map(seg => seg.id));
-        const keyframes = (c.keyframes || []).filter(k => segIds.has(k.segment_id));
+        const segs = (c.segments || []).filter(seg => seg.athlete_id === athleteId);
+        eventsCount = segs.length;
+        const keyframes = (c.keyframes || []).filter(k => segs.some(seg => seg.id === k.segment_id));
         trackQACount = keyframes.filter(k => k.verification_status === 'verified_correct').length;
       } catch {}
     }
-
     return {
       id: s.id,
       display_name: s.display_name,
-      byte_size: s.byte_size,
       duration_ms: s.duration_ms,
-      frame_count: s.frame_count,
+      byte_size: s.byte_size,
       primary_sport_id: s.primary_sport_id,
-      is_owner: s.owner_athlete_id === athleteId,
-      owner_status: s.owner_athlete_id === athleteId ? s.owner_status : 'unassigned',
-      has_appearance: db.prepare('select 1 from athlete_appearances where source_id=? and athlete_id=?').get(s.id, athleteId) != null,
+      owner_status: s.owner_status,
+      owner_version: Number(s.owner_version ?? 0),
+      is_owner: s.is_owner,
+      is_appearance: s.is_appearance,
       events_count: eventsCount,
       track_qa_count: trackQACount,
       thumb_path: s.thumb_path,
@@ -261,9 +310,17 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
   status = undefined,
   reason = null,
   changed_by = 'operator',
+  expected_version = undefined,
 } = {}) {
   const obj = db.prepare('select * from cloud_objects where id=?').get(cloudObjectId);
   if (!obj) throw new ApiError('NOT_FOUND', 'אובייקט ענן לא נמצא');
+
+  if (expected_version !== undefined && expected_version !== null) {
+    const currentVersion = Number(obj.owner_version ?? 0);
+    if (Number(expected_version) !== currentVersion) {
+      throw new ApiError('VERSION_CONFLICT', `אובייקט הענן עודכן במקביל (גרסה: ${currentVersion}, נשלח: ${expected_version}) — יש לרענן ולנסות שוב`);
+    }
+  }
 
   if (owner_athlete_id != null) {
     const a = db.prepare('select id, label from athletes where id=?').get(owner_athlete_id);
@@ -275,7 +332,7 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
   }
 
   tx(db, () => {
-    db.prepare('update cloud_objects set owner_athlete_id = ?, owner_status = ? where id = ?')
+    db.prepare('update cloud_objects set owner_athlete_id = ?, owner_status = ?, owner_version = coalesce(owner_version, 0) + 1 where id = ?')
       .run(owner_athlete_id, effectiveStatus, cloudObjectId);
 
     if (obj.source_id) {
@@ -284,6 +341,7 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
         status: effectiveStatus,
         reason,
         changed_by,
+        expected_version,
       });
     }
   });
@@ -292,6 +350,7 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
     id: cloudObjectId,
     owner_athlete_id,
     owner_status: effectiveStatus,
+    owner_version: Number(obj.owner_version ?? 0) + 1,
     source_id: obj.source_id ?? null,
   };
 }

@@ -144,3 +144,80 @@ test('box verification provenance: interpolated frames cannot be marked verified
   assert.equal(loaded.content.box_verifications[2].status, 'wrong_performer');
   assert.deepEqual(loaded.content.box_verifications[1].corrected_bbox, { x: 0.27, y: 0.23, w: 0.09, h: 0.12 });
 });
+
+test('box drawing and modification requires explicit human verification; cannot auto-verify', async () => {
+  const { db, src } = await withSource();
+  const ath1 = A.createAthlete(db, 'Surfer One');
+  const ath2 = A.createAthlete(db, 'Surfer Two');
+
+  const c = A.emptyContent();
+  c.segments.push(seg('s1', 0, 100, { athlete_id: ath1.id, event_type: 'wave_ride', decision: 'include' }));
+  c.reviewed_ranges.push({ start_frame: 0, end_frame: 100 });
+
+  // 1. Newly created box starts strictly unreviewed
+  c.keyframes.push({
+    id: 'k1',
+    segment_id: 's1',
+    frame: 20,
+    bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
+    visibility: 'visible',
+    origin: 'manual',
+    verification_status: 'unreviewed',
+    verified_at: null,
+    verified_by: null,
+  });
+
+  A.saveDraft(db, src.id, 0, c);
+  let loaded = A.getDraft(db, src.id);
+  assert.equal(loaded.content.keyframes[0].verification_status, 'unreviewed');
+  assert.equal(loaded.content.keyframes[0].verified_at, null);
+
+  // 2. Cannot save keyframe with verified_correct without verified_at
+  c.keyframes[0].verification_status = 'verified_correct';
+  c.keyframes[0].verified_at = null;
+  assert.throws(
+    () => A.saveDraft(db, src.id, 1, c),
+    /אימות תיבה מחייב חותמת זמן ומפעיל מאמת/
+  );
+
+  // 3. Explicit verification sets verified_correct + timestamp
+  const ts = new Date().toISOString();
+  c.keyframes[0].verification_status = 'verified_correct';
+  c.keyframes[0].verified_at = ts;
+  c.keyframes[0].verified_by = 'coach';
+  c.box_verifications = [{
+    segment_id: 's1',
+    frame: 20,
+    athlete_id: ath1.id,
+    status: 'verified_correct',
+    verified_by: 'coach',
+    verified_at: ts,
+    notes: 'Confirmed on Surfer One',
+  }];
+  A.saveDraft(db, src.id, 1, c);
+
+  loaded = A.getDraft(db, src.id);
+  assert.equal(loaded.content.keyframes[0].verification_status, 'verified_correct');
+  assert.equal(loaded.content.box_verifications[0].status, 'verified_correct');
+
+  // 4. Changing athlete on segment invalidates verifications made for previous athlete
+  c.segments[0].athlete_id = ath2.id;
+  // If box_verifications still claims verified_correct for ath1 when segment performer is ath2:
+  assert.throws(
+    () => A.saveDraft(db, src.id, 2, c),
+    /אימות תיבה אינו תואם לגולש המבצע את המקטע/
+  );
+
+  // After invalidating, saving succeeds
+  c.keyframes[0].verification_status = 'unreviewed';
+  c.keyframes[0].verified_at = null;
+  c.keyframes[0].verified_by = null;
+  c.box_verifications[0].status = 'unreviewed';
+  c.box_verifications[0].verified_at = null;
+  c.box_verifications[0].notes = 'Reset on athlete change';
+  A.saveDraft(db, src.id, 2, c);
+
+  loaded = A.getDraft(db, src.id);
+  assert.equal(loaded.content.keyframes[0].verification_status, 'unreviewed');
+  assert.equal(loaded.content.box_verifications[0].status, 'unreviewed');
+});

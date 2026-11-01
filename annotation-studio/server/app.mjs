@@ -62,6 +62,7 @@ export function createApp(ctx) {
       owner_athlete_label: ownerAthlete?.label ?? null,
       owner_assigned_at: s.owner_assigned_at ?? null,
       owner_assigned_by: s.owner_assigned_by ?? null,
+      owner_version: Number(s.owner_version ?? 0),
       ingest_state: s.ingest_state, archive_verified_at: s.archive_verified_at, archive_error: s.archive_error,
       annotation_status: A.annotationStatus(db, s.id), revision_seq: rev?.seq ?? 0, reviewed_ratio: cov.ratio,
       segment_count: content.segments.length, batches: [...new Set(occ.map(o => o.label))],
@@ -125,6 +126,7 @@ export function createApp(ctx) {
             ...o,
             owner_athlete_id: o.owner_athlete_id ?? null,
             owner_status: o.owner_status ?? 'unassigned',
+            owner_version: Number(o.owner_version ?? 0),
             owner_athlete_label: ownerAthlete?.label ?? null,
             annotation_status: o.source_id ? A.annotationStatus(db, o.source_id) : 'not_annotated',
           };

@@ -171,3 +171,90 @@ test('three-way athlete independence: catalog owner != visible appearance != eve
   // Ensure visible athlete was NOT marked as owner
   assert.notEqual(catalogState.owner_athlete_id, surferVisible.id);
 });
+
+test('optimistic concurrency control: valid expected_version increments version; stale expected_version throws VERSION_CONFLICT', async () => {
+  const { db, src1 } = await withSource();
+  const surferA = A.createAthlete(db, 'Surfer Alpha');
+  const surferB = A.createAthlete(db, 'Surfer Beta');
+
+  // Initial version is 0
+  const initial = Catalog.getCatalogOwner(db, src1.id);
+  assert.equal(initial.owner_version, 0);
+
+  // Update with expected_version = 0 -> succeeds, bumps version to 1
+  const v1 = Catalog.setCatalogOwner(db, src1.id, {
+    owner_athlete_id: surferA.id,
+    expected_version: 0,
+    changed_by: 'user_1',
+  });
+  assert.equal(v1.owner_version, 1);
+  assert.equal(v1.owner_athlete_id, surferA.id);
+
+  // Stale update: attempting to update with expected_version = 0 again MUST fail with 409 VERSION_CONFLICT!
+  assert.throws(
+    () => Catalog.setCatalogOwner(db, src1.id, {
+      owner_athlete_id: surferB.id,
+      expected_version: 0,
+      changed_by: 'user_stale',
+    }),
+    (err) => {
+      assert.equal(err.code, 'VERSION_CONFLICT');
+      assert.equal(err.status, 409);
+      return true;
+    }
+  );
+
+  // Video was NOT modified by the rejected stale request
+  const afterFailed = Catalog.getCatalogOwner(db, src1.id);
+  assert.equal(afterFailed.owner_version, 1);
+  assert.equal(afterFailed.owner_athlete_id, surferA.id);
+
+  // Update with correct expected_version = 1 -> succeeds, bumps version to 2
+  const v2 = Catalog.setCatalogOwner(db, src1.id, {
+    owner_athlete_id: surferB.id,
+    expected_version: 1,
+    changed_by: 'user_2',
+  });
+  assert.equal(v2.owner_version, 2);
+  assert.equal(v2.owner_athlete_id, surferB.id);
+  assert.equal(v2.history[0].version, 2);
+});
+
+test('bulk assignment optimistic concurrency: concurrent modification of single video aborts entire transaction with rollback', async () => {
+  const { db, src1, src2 } = await withSource();
+  const surferA = A.createAthlete(db, 'Surfer Alpha');
+  const surferB = A.createAthlete(db, 'Surfer Beta');
+
+  // Get preview
+  const preview = Catalog.bulkSetCatalogOwner(db, {
+    source_ids: [src1.id, src2.id],
+    owner_athlete_id: surferA.id,
+    preview: true,
+  });
+  const expectedVersions = preview.items.map(it => ({ source_id: it.source_id, expected_version: it.owner_version }));
+
+  // Simulate concurrent modification to src2 before bulk apply
+  Catalog.setCatalogOwner(db, src2.id, {
+    owner_athlete_id: surferB.id,
+    expected_version: 0,
+    changed_by: 'concurrent_user',
+  });
+
+  // Attempt to apply bulk assignment using stale expectedVersions
+  assert.throws(
+    () => Catalog.bulkSetCatalogOwner(db, {
+      source_ids: [src1.id, src2.id],
+      owner_athlete_id: surferA.id,
+      preview: false,
+      expected_versions: expectedVersions,
+    }),
+    (err) => {
+      assert.equal(err.code, 'VERSION_CONFLICT');
+      return true;
+    }
+  );
+
+  // ATOMICITY: src1 must NOT have been changed either! Entire batch rolled back!
+  assert.equal(Catalog.getCatalogOwner(db, src1.id).owner_athlete_id, null);
+  assert.equal(Catalog.getCatalogOwner(db, src2.id).owner_athlete_id, surferB.id);
+});

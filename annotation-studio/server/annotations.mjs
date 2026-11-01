@@ -91,6 +91,9 @@ export function validateContent(c, source, db) {
     if (k.origin === 'interpolated' && k.verification_status === 'verified_correct' && !k.verified_at) {
       throw new ApiError('INVALID_INPUT', 'פריים אינטרפולציה לא יכול להיחשב מאומת ללא אימות מפורש');
     }
+    if (k.verification_status === 'verified_correct' && !k.verified_at) {
+      throw new ApiError('INVALID_INPUT', 'אימות תיבה מחייב חותמת זמן ומפעיל מאמת');
+    }
     if (k.original_bbox != null) validateBbox(k.original_bbox);
     validateBbox(k.bbox);
   }
@@ -103,6 +106,12 @@ export function validateContent(c, source, db) {
       if (!s) throw new ApiError('INVALID_INPUT', 'אימות תיבה ללא מקטע');
       if (!isInt(v.frame) || v.frame < s.start_frame || v.frame >= s.end_frame) throw new ApiError('INVALID_INTERVAL');
       if (v.status != null && !VERIFICATION_STATUSES.includes(v.status)) throw new ApiError('INVALID_INPUT', 'סטטוס אימות לא תקין');
+      if (v.status === 'verified_correct') {
+        if (!v.verified_at) throw new ApiError('INVALID_INPUT', 'אימות תיבה מחייב חותמת זמן');
+        if (s.athlete_id && v.athlete_id && s.athlete_id !== v.athlete_id) {
+          throw new ApiError('INVALID_INPUT', 'אימות תיבה אינו תואם לגולש המבצע את המקטע');
+        }
+      }
       if (v.original_bbox != null) validateBbox(v.original_bbox);
       if (v.corrected_bbox != null) validateBbox(v.corrected_bbox);
     }
