@@ -1,5 +1,8 @@
 # Phase B status — evidence-based
 
+> **Historical snapshot (2026-10-30/31; not current qualification).** This file preserves the Phase B CI and infrastructure decisions as documented then. Since that snapshot, V2 UI/catalog/Box QA, owner OCC and offsite backup code were merged. For **current implementation, P0/P1 gaps, evidence limitations and CATAlOG_GO/FULL_SPEC_GO gates**, see [Product Spec §22](../specs/ground-truth-annotation-studio.md#22-current-implementation-and-qualification-ledger--2026-11-02-living-status-not-a-release-claim). Older `NOT_TESTED` live-R2 statements remain historical, not proof or denial of the later operator-reported local tests.
+
+
 > **Plan change 2026-10-30 (zero extra cost):** see [`phase-b/INFRASTRUCTURE-DECISION.md`](phase-b/INFRASTRUCTURE-DECISION.md). Rows 2–4 below now read: archive = local write-once + independent encrypted backups
 > (R2 lock prefix and/or Hetzner append-only, subject to the read-only audits); database = local SQLite by default, Supabase `ground_truth` schema prepared and tested but **not deployed**.
 > New evidence: 8 PostgreSQL isolation tests incl. a Supabase-faithful replay (non-superuser migration, live role/ACL configuration read from the catalog), `db/verify-isolation.sql`, a guard that the inference workflow holds no database-admin credential.
