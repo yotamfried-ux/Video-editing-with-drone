@@ -176,8 +176,10 @@ export function createApp(ctx) {
     if ((r = /^\/api\/sources\/([\w-]+)\/approve$/.exec(p)) && m === 'POST') {
       const b = await body(req);
       const out = A.approve(db, r[1], { expectedVersion: b.expected_version, scope: b.scope, reason: b.reason, acknowledgeUnresolved: !!b.acknowledge_unresolved });
-      return send(res, 200, { revision: { id: out.revision.id, seq: out.revision.seq, digest: out.revision.digest, approved_at: out.revision.approved_at }, unchanged: out.unchanged, unresolved: out.unresolved });
+      return send(res, 200, { revision: { id: out.revision.id, seq: out.revision.seq, digest: out.revision.digest, approved_at: out.revision.approved_at }, unchanged: out.unchanged, unresolved: out.unresolved, approval_caveats: out.approval_caveats });
     }
+    if ((r = /^\/api\/sources\/([\w-]+)\/states$/.exec(p)) && m === 'GET') return send(res, 200, A.sourceStates(db, r[1]));
+    if ((r = /^\/api\/sources\/([\w-]+)\/states$/.exec(p)) && m === 'GET') return send(res, 200, A.sourceStates(db, r[1]));
     if ((r = /^\/api\/sources\/([\w-]+)\/revisions$/.exec(p)) && m === 'GET') return send(res, 200, { items: A.listRevisions(db, r[1]) });
     if ((r = /^\/api\/revisions\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, A.getRevision(db, r[1]));
     if (m === 'GET' && p === '/api/batches') return send(res, 200, { items: db.prepare(`select b.id,b.label,b.created_at,count(distinct o.source_id) sources from upload_batches b left join upload_occurrences o on o.batch_id=b.id group by b.id order by b.created_at desc`).all() });
@@ -329,7 +331,7 @@ export function createApp(ctx) {
       }
       return serveStatic(res, url.pathname);
     } catch (e) {
-      if (e instanceof ApiError) return send(res, e.status, { code: e.code, message: e.he, detail: e.message, unresolved: e.unresolved, incompatible: e.incompatible });
+      if (e instanceof ApiError) return send(res, e.status, { code: e.code, message: e.he, detail: e.message, unresolved: e.unresolved, incompatible: e.incompatible, conflicts: e.conflicts });
       if (/IMMUTABLE|PROTECTED/.test(e?.message ?? '')) return send(res, 409, { code: 'IMMUTABLE', message: 'רשומה בלתי ניתנת לשינוי' });
       console.error('[studio] internal error:', e?.message);
       return send(res, 500, { code: 'INTERNAL', message: 'שגיאה פנימית' });

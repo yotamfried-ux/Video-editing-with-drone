@@ -23,6 +23,6 @@ export function newCtx(opts) {
   const dbUrl = process.env.STUDIO_TEST_DB_URL ? pgUrlForFreshSchema() : undefined;
   return createContext(home, { token: 'test-token', dbUrl, ...opts });
 }
-export const seg = (id, s, e, o = {}) => ({ id, start_frame: s, end_frame: e, athlete_id: null, event_type: 'wave_ride', decision: 'include', reason_code: null, notes: '', framing_mode: null, target: null, ...o });
+export const seg = (id, s, e, o = {}) => ({ id, start_frame: s, end_frame: e, athlete_id: null, event_type: 'wave_ride', decision: 'include', usability: 'usable', reason_code: null, notes: '', framing_mode: null, target: null, ...o });
 export const kf = (id, segment_id, frame, bbox, o = {}) => ({ id, segment_id, frame, bbox, visibility: 'visible', origin: 'manual', ...o });
 export { writeFileSync };

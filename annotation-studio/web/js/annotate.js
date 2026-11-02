@@ -40,13 +40,21 @@ export async function renderAnnotate(root, id) {
     boxTargetAthlete: null,
   };
 
+  // Spec §21.4: a video with events opens with a clearly selected event, not a blank inspector.
+  const firstSeg = [...draft.content.segments].sort((a, b) => a.start_frame - b.start_frame)[0];
+  if (firstSeg) S.sel = firstSeg.id;
   restorePending();
   watchCloudProxy();
   root.replaceChildren(layout());
   mountVideo();
   bindKeys();
   fit();
+  if (draft.legacy_box_qa_upgraded) {
+    S.banner = { kind: 'warn', text: 'אימותי BOX ישנים שלא היו קשורים ל-BOX בפריים המדויק סומנו "נדרשת בדיקה מחדש". ההיסטוריה נשמרה; גרסאות מאושרות לא שונו.' };
+    changed();
+  }
   refresh();
+  refreshStates();
   cleanup.push(() => { clearTimeout(S?.saveTimer); clearTimeout(S?.retryTimer); });
 }
 
@@ -93,8 +101,10 @@ async function save() {
   if (!S || S.inflight || S.save === 'conflict') return;
   const mySeq = S.dirty; S.inflight = true; setSave('saving');
   try {
+    reconcileVerifications(C());
     const r = await api(`/api/sources/${S.src.id}/draft`, { method: 'PUT', body: { expected_version: S.draft.version, content: C() } });
     S.draft.version = r.version; S.inflight = false;
+    refreshStates();
     if (S.dirty !== mySeq) { setSave('dirty'); S.saveTimer = setTimeout(save, 200); } else { setSave('saved'); clearPending(); }
     paintStatus();
   } catch (e) {
@@ -237,7 +247,7 @@ function createSegment(s, e, athlete = null) {
     athlete_id: a,
     event_type: eventOptions(S.src.primary_sport_id ?? null, null)[0]?.key ?? 'wave_ride',
     decision: 'uncertain', // Spec: NEVER default to include!
-    usability: 'usable',
+    usability: 'uncertain', // Spec §21.3/§22.2: usability is an active human decision, never a default positive
     reason_codes: [],
     reason_detail: '',
     key_moments: {},
@@ -463,19 +473,15 @@ function paintOverlay() {
       const statusText = isVerified ? ' ✓ פריים נבדק' : isWrong ? ' ✕ גולש שגוי' : isCorrected ? ' ✎ תוקן' : ' · משוער / לבדיקה';
       const athLabel = s.athlete_id ? athName(s.athlete_id) : 'לא ידוע';
 
-      const tagBg = svgEl('rect', {
-        x: b.bbox.x * W, y: Math.max(0, b.bbox.y * H - 22),
-        width: Math.max(80, (athLabel.length + statusText.length) * 8), height: 20,
-        rx: 4, fill: strokeCol
-      });
-      svg.append(tagBg);
-
-      const lbl = svgEl('text', {
-        x: b.bbox.x * W + 6, y: Math.max(14, b.bbox.y * H - 7),
-        fill: '#06222c', 'font-size': 11, 'font-weight': 'bold', direction: 'rtl'
-      });
+      // Measure the label so the tag fits it exactly; with direction=rtl the text anchor is its RIGHT edge.
+      const lbl = svgEl('text', { y: Math.max(14, b.bbox.y * H - 7), fill: '#06222c', 'font-size': 12, 'font-weight': 'bold', direction: 'rtl', 'data-testid': 'bbox-label' });
       lbl.textContent = `${athLabel}${statusText}`;
       svg.append(lbl);
+      const tw = (() => { try { return lbl.getComputedTextLength(); } catch { return lbl.textContent.length * 7; } })() || lbl.textContent.length * 7;
+      const tx = clamp(b.bbox.x * W, 0, Math.max(0, W - tw - 12));
+      lbl.setAttribute('x', tx + tw + 6);
+      const tagBg = svgEl('rect', { x: tx, y: Math.max(0, b.bbox.y * H - 22), width: tw + 12, height: 20, rx: 4, fill: strokeCol });
+      svg.insertBefore(tagBg, lbl);
     }
   }
   if (S.tool === 'box') ov.onpointerdown = drawBox; else ov.onpointerdown = null;
@@ -509,32 +515,67 @@ function putKeyframe(s, bbox, provenance = 'manual') {
         verified_by: null
       });
     }
-    if (c.box_verifications) {
-      const idx = c.box_verifications.findIndex(v => v.segment_id === s.id && v.frame === S.frame);
-      if (idx !== -1) c.box_verifications.splice(idx, 1);
-    }
+    // Geometry changed: any earlier human decision at this frame no longer applies (kept as history, not deleted).
+    const last = latestVerification(c, s.id, S.frame);
+    if (last && last.status !== 'unreviewed') appendVerification(c, s, S.frame, 'unreviewed', { invalidation: 'geometry_changed', original_bbox: last.bbox ?? undefined });
   });
 }
 
-function recordBoxVerification(segId, frame, athleteId, status, notes = '') {
-  if (!C().box_verifications) C().box_verifications = [];
-  const existing = C().box_verifications.find(v => v.segment_id === segId && v.frame === frame);
-  if (existing) {
-    existing.status = status;
-    existing.notes = notes;
-    existing.verified_at = new Date().toISOString();
-    existing.verified_by = 'operator';
-  } else {
-    C().box_verifications.push({
-      segment_id: segId,
-      frame,
-      athlete_id: athleteId,
-      status,
-      verified_by: 'operator',
-      verified_at: new Date().toISOString(),
-      notes,
-    });
+// Append-only per-frame decision log (spec §21.2.4). Each entry is bound to the exact geometry and performer it attests.
+function latestVerification(c, segId, frame) {
+  let best = null;
+  for (const v of c.box_verifications || []) if (v.segment_id === segId && v.frame === frame && (!best || !(Date.parse(v.verified_at) < Date.parse(best.verified_at)))) best = v;
+  return best;
+}
+function appendVerification(c, s, frame, status, extra = {}) {
+  if (!c.box_verifications) c.box_verifications = [];
+  const kf = c.keyframes.find(k => k.segment_id === s.id && k.frame === frame);
+  const prev = latestVerification(c, s.id, frame);
+  // Strictly increasing timestamps per frame so "latest" is unambiguous even within one millisecond.
+  const at = new Date(Math.max(Date.now(), prev ? Date.parse(prev.verified_at) + 1 : 0)).toISOString();
+  const entry = { segment_id: s.id, frame, status, athlete_id: s.athlete_id ?? null, verified_by: 'operator', verified_at: at, ...extra };
+  if (!entry.bbox && kf?.bbox) entry.bbox = { ...kf.bbox };
+  for (const k of Object.keys(entry)) if (entry[k] === undefined) delete entry[k];
+  c.box_verifications.push(entry);
+  if (kf) kf.verification_status = status;
+  return entry;
+}
+const boxSame = (a, b) => !!a && !!b && ['x', 'y', 'w', 'h'].every(k => Math.abs(a[k] - b[k]) <= 1e-6);
+/** Before every save: any positive decision no longer backed by the exact box/performer gets an explicit invalidation. */
+function reconcileVerifications(c) {
+  if (!c.box_verifications) c.box_verifications = [];
+  const segs = new Map(c.segments.map(x => [x.id, x]));
+  // Decisions about deleted segments or frames now outside a trimmed segment are moved to history, never silently dropped.
+  const keep = [], gone = [];
+  for (const v of c.box_verifications) { const s = segs.get(v.segment_id); (s && v.frame >= s.start_frame && v.frame < s.end_frame ? keep : gone).push(v); }
+  if (gone.length) { c.box_verification_history = [...(c.box_verification_history || []), ...gone]; c.box_verifications = keep; }
+  const seen = new Set();
+  for (const v of [...c.box_verifications]) {
+    const key = `${v.segment_id}:${v.frame}`; if (seen.has(key)) continue; seen.add(key);
+    const last = latestVerification(c, v.segment_id, v.frame); if (!last) continue;
+    if (last.status !== 'verified_correct' && last.status !== 'corrected') continue;
+    const s = segs.get(v.segment_id), kf = c.keyframes.find(k => k.segment_id === v.segment_id && k.frame === v.frame);
+    const why = !kf ? 'keyframe_removed' : !boxSame(kf.bbox, last.bbox) ? 'geometry_changed' : (s.athlete_id ?? null) !== (last.athlete_id ?? null) ? 'performer_changed' : (kf.visibility === 'occluded' || kf.visibility === 'not_visible') ? 'segment_changed' : null;
+    if (why) appendVerification(c, s, v.frame, 'unreviewed', { invalidation: why, bbox: kf?.bbox ? { ...kf.bbox } : undefined });
   }
+  for (const k of c.keyframes) {
+    const last = latestVerification(c, k.segment_id, k.frame);
+    const eff = last ? last.status : 'unreviewed';
+    if ((k.verification_status ?? 'unreviewed') !== eff) k.verification_status = eff;
+  }
+}
+/** Performer change: identity verifications made for the previous performer stop counting (spec §22.2 P0-1, item 5). */
+function setSegmentAthlete(segId, athleteId) {
+  edit(c => {
+    const s = c.segments.find(x => x.id === segId); if (!s) return;
+    if ((s.athlete_id ?? null) === (athleteId ?? null)) return;
+    s.athlete_id = athleteId ?? null;
+    reconcileVerifications(c);
+  });
+}
+async function refreshStates() {
+  if (!S) return;
+  try { S.states = await api(`/api/sources/${S.src.id}/states`); if (S.inspTab === 'box' || S.inspTab === 'event') paintInspector(); } catch { /* informational panel only */ }
 }
 
 function drawBox(e) {
@@ -613,7 +654,6 @@ function paintInspector() {
 // Inspector Tab 1: Event Annotation
 function renderEventTab() {
   const s = selSeg();
-  const unresolved = { unc: C().segments.filter(x => x.decision === 'uncertain').length, unk: C().segments.filter(x => x.decision === 'include' && !x.athlete_id).length };
   const cov = (() => { const m = new Uint8Array(S.total); for (const r of C().reviewed_ranges) m.fill(1, r.start_frame, r.end_frame); return m.reduce((a, b) => a + b, 0) / S.total; })();
 
   return h('div', { 'data-testid': 'insp-panel-event' },
@@ -640,8 +680,8 @@ function renderEventTab() {
     ),
 
     h('h3', {}, 'אישור Ground Truth'),
-    h('div', { class: 'meta', 'data-testid': 'unresolved' }, `לא בטוח: ${unresolved.unc} · כלול ללא גולש: ${unresolved.unk}`),
-    approvalForm(unresolved),
+    statesPanel(),
+    approvalForm(),
 
     h('h3', {}, 'היסטוריית גרסאות מאושרות', h('span', { class: 'pill' }, S.revs.length)),
     h('ul', { class: 'list', 'data-testid': 'revlist' }, S.revs.length ? S.revs.map(r => h('li', {}, h('b', {}, `v${r.seq}`), h('span', { style: { flex: 1 }, class: 'meta' }, fmtDate(r.approved_at), r.reason ? ` · ${r.reason}` : ''), h('span', { class: 'mono ltr meta' }, r.digest.slice(0, 8)), h('button', { class: 'btn sm', title: 'טען כטיוטה', onclick: () => restoreRevision(r) }, 'שחזר'))) : [h('li', {}, 'אין גרסאות מאושרות')])
@@ -664,10 +704,12 @@ function renderAssociateTab() {
           style: { width: '100%', marginBottom: '8px' },
           onchange: async e => {
             const newOwner = e.target.value || null;
+            const reassign = !!S.src.owner_athlete_id && S.src.owner_athlete_id !== newOwner;
+            if (reassign && !confirm(`הסרטון משויך כרגע ל-${athName(S.src.owner_athlete_id)}. לשנות את השיוך? (השינוי יתועד בהיסטוריה)`)) { e.target.value = S.src.owner_athlete_id; return; }
             try {
               const res = await api(`/api/sources/${S.src.id}/catalog-owner`, {
                 method: 'POST',
-                body: { owner_athlete_id: newOwner, reason: 'שינוי במפקח', expected_version: S.src.owner_version ?? 0 }
+                body: { owner_athlete_id: newOwner, reason: 'שינוי במפקח', expected_version: S.src.owner_version ?? 0, confirm_reassign: reassign }
               });
               S.src.owner_athlete_id = res.owner_athlete_id;
               S.src.owner_status = res.owner_status;
@@ -703,12 +745,13 @@ function renderAssociateTab() {
           onclick: async () => {
             const v = $('#new-owner-name').value.trim();
             if (!v) return toast('הזן שם גולש', true);
+            if (S.src.owner_athlete_id && !confirm(`הסרטון משויך כרגע ל-${athName(S.src.owner_athlete_id)}. ליצור גולש חדש ולשייך אליו?`)) return;
             try {
               const created = await api('/api/athletes', { method: 'POST', body: { label: v } });
               S.athletes.push(created);
               const res = await api(`/api/sources/${S.src.id}/catalog-owner`, {
                 method: 'POST',
-                body: { owner_athlete_id: created.id, reason: 'גולש חדש שנוצר במפקח', expected_version: S.src.owner_version ?? 0 }
+                body: { owner_athlete_id: created.id, reason: 'גולש חדש שנוצר במפקח', expected_version: S.src.owner_version ?? 0, confirm_reassign: !!S.src.owner_athlete_id }
               });
               S.src.owner_athlete_id = res.owner_athlete_id;
               S.src.owner_status = res.owner_status;
@@ -777,55 +820,57 @@ function renderBoxQATab() {
 
   const athlete = S.athletes.find(a => a.id === s.athlete_id);
   const curBox = boxAt(s.id, S.frame);
-  const verifications = C().box_verifications || [];
-  const curVer = verifications.find(v => v.segment_id === s.id && v.frame === S.frame);
+  const curVer = latestVerification(C(), s.id, S.frame);
   const kf = (C().keyframes || []).find(k => k.segment_id === s.id && k.frame === S.frame);
-
-  const checkpoints = [
-    { label: 'תחילה', frame: s.start_frame },
-    { label: 'אמצע', frame: Math.round((s.start_frame + s.end_frame) / 2) },
-    { label: 'סוף', frame: Math.max(s.start_frame, s.end_frame - 1) },
-    ...(s.key_moments?.inflection_frames || []).map(f => ({ label: 'שינוי', frame: f }))
-  ];
-
-  const verifiedCheckpointsCount = checkpoints.filter(cp => {
-    const v = verifications.find(x => x.segment_id === s.id && x.frame === cp.frame);
-    return v && v.status === 'verified_correct';
-  }).length;
-
-  const statusCls = curVer?.status === 'verified_correct' ? 'ok' : curVer?.status === 'wrong_performer' ? 'bad' : 'warn';
-  const statusMsg = curVer?.status === 'verified_correct'
-    ? '✓ מיקום BOX אומת ידנית כנכון על הגולש בפריים הנוכחי'
-    : curVer?.status === 'wrong_performer'
-      ? '✕ סומן גולש שגוי / BOX מחוץ לגולש — דורש תיקון'
-      : (kf && kf.origin === 'manual' && (!curVer || curVer.status === 'unreviewed'))
-        ? 'לא נבדק — תיבה צוירה ידנית וממתינה לאישור'
-        : '⚠ מיקום משוער (אינטרפולציה) — דורש אימות ידני';
+  // Required checkpoints and track status are computed by the server from the saved draft (single source of truth).
+  const qa = S.states?.box_qa?.per_segment?.find(q => q.segment_id === s.id) ?? null;
+  const stale = S.save !== 'saved';
+  const REASON_HE = { start: 'תחילה', middle: 'אמצע', end: 'סוף', movement: 'שינוי תנועה', large_jump: 'קפיצה חדה', crossing: 'הצטלבות', crossing_exit: 'יציאה מהצטלבות', visibility_partial: 'נראות חלקית', visibility_occluded: 'הסתרה', visibility_not_visible: 'יצא מהפריים' };
+  const TRACK_HE = { not_checked: ['טרם נבדק', 'warn'], partially_checked: ['נבדק חלקית', 'warn'], verified_in_checked_range: ['אומת בטווח שנבדק', 'ok'], needs_correction: ['דורש תיקון', 'bad'], cannot_determine: ['לא ניתן לקבוע', 'warn'] };
+  const DEC_HE = { verified_correct: '✓', corrected: '✎', wrong_performer: '✕', occluded: '◌', indeterminate: '?', unreviewed: '·', stale: '⟳' };
+  const st = curVer?.status ?? 'unreviewed';
+  const statusCls = st === 'verified_correct' || st === 'corrected' ? 'ok' : st === 'wrong_performer' ? 'bad' : 'warn';
+  const statusMsg = !curBox
+    ? 'אין BOX בפריים זה — צייר BOX על הגולש (כלי B) כדי לבדוק אותו'
+    : st === 'verified_correct' || st === 'corrected'
+      ? '✓ פריים זה נבדק: ה-BOX על הגולש הנכון (חל על פריים זה בלבד)'
+      : st === 'wrong_performer'
+        ? '✕ דורש תיקון: ה-BOX אינו על הגולש — גרור/צייר מחדש ואז אמת'
+        : st === 'occluded' ? '◌ סומן: הגולש מוסתר / לא נראה בפריים זה'
+          : st === 'indeterminate' ? '? סומן: לא ניתן לקבוע בפריים זה'
+            : curVer?.invalidation ? '⟳ ה-BOX או הגולש השתנו אחרי הבדיקה — נדרשת בדיקה מחדש'
+              : kf && kf.origin === 'manual' ? 'טרם נבדק — BOX שצויר ידנית ממתין לבדיקה (ציור ≠ אימות)'
+                : '⚠ מיקום משוער (אינטרפולציה) — אינו מאומת עד שתבדוק אותו';
+  const [trackText, trackCls] = TRACK_HE[qa?.status] ?? ['—', 'warn'];
+  const cps = qa?.required_checkpoints ?? [];
 
   return h('div', { 'data-testid': 'insp-panel-box', style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
       h('strong', {}, 'אימות BOX על הגולש'),
-      pill(athlete?.label || 'גולש לא משויך', 'ok')
+      pill(athlete?.label || 'לא נבחר גולש מבצע', athlete ? 'ok' : 'warn')
     ),
+    !s.athlete_id ? h('div', { class: 'banner warn' }, 'כדי לאמת BOX יש לבחור קודם מי ביצע את הפעולה (לשונית "תיוג אירוע").') : null,
 
-    // Status Banner
     h('div', { class: `banner ${statusCls}`, 'data-testid': 'box-verify-banner' }, statusMsg),
 
-    // Stats & Checkpoint Count
     h('div', { class: 'stats', style: { margin: '4px 0' } },
-      h('div', { class: 'stat' }, h('b', {}, `${verifiedCheckpointsCount}/${checkpoints.length}`), h('span', {}, 'נקודות בדיקה שאושרו')),
+      h('div', { class: 'stat', 'data-testid': 'track-qa-status', 'data-status': qa?.status ?? '' }, h('b', {}, h('span', { class: `pill ${trackCls}` }, trackText)), h('span', {}, stale ? 'מצב המעקב (יתעדכן אחרי שמירה)' : 'מצב מעקב ה-BOX במקטע')),
+      h('div', { class: 'stat' }, h('b', { class: 'ltr' }, qa ? `${qa.checked_frames}/${qa.box_frames}` : '—'), h('span', {}, 'פריימים שנבדקו / פריימי BOX')),
+      h('div', { class: 'stat' }, h('b', { class: 'ltr' }, qa?.checked_range ? `f${qa.checked_range[0]}–f${qa.checked_range[1]}` : '—'), h('span', {}, 'טווח שנבדק')),
+      h('div', { class: 'stat' }, h('b', { class: 'ltr' }, qa ? `${Math.round((qa.event_span_checked_ratio ?? 0) * 100)}%` : '—'), h('span', {}, 'מאורך האירוע בין פריימים שנבדקו')),
       h('div', { class: 'stat' }, h('b', {}, `f${S.frame}`), h('span', {}, 'פריים נוכחי'))
     ),
+    qa?.crossings ? h('div', { class: 'banner warn' }, `זוהו ${qa.crossings} הצטלבויות עם גולשים אחרים — חובה לבדוק את הפריימים המסומנים.`) : null,
 
-    // Checkpoint jump buttons
     h('div', {},
-      h('label', { class: 'f' }, 'מעבר בין נקודות ביקורת:'),
-      h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
-        checkpoints.map(cp => h('button', {
+      h('label', { class: 'f' }, 'נקודות בדיקה נדרשות (כולל נקודות סיכון):'),
+      cps.length ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' }, 'data-testid': 'checkpoints' },
+        cps.map(cp => h('button', {
           class: `btn sm ${S.frame === cp.frame ? 'primary' : ''}`,
+          title: cp.reasons.map(r => REASON_HE[r] ?? r).join(', '),
           onclick: () => seekFrame(cp.frame)
-        }, `${cp.label} (f${cp.frame})`))
-      )
+        }, `${DEC_HE[cp.decision] ?? '·'} ${cp.reasons.map(r => REASON_HE[r] ?? r).join('/')} (f${cp.frame})`))
+      ) : h('div', { class: 'meta' }, 'אין עדיין BOX במקטע זה. BOX הוא אופציונלי; אם תצייר — יש לבדוק בתחילה, באמצע, בסוף ובנקודות סיכון.')
     ),
 
     // Verification Action Controls
@@ -835,53 +880,54 @@ function renderBoxQATab() {
         h('button', {
           class: 'btn primary sm',
           'data-testid': 'verify-box-confirm',
-          disabled: S.frame < s.start_frame || S.frame >= s.end_frame,
+          disabled: !curBox?.bbox || !s.athlete_id || S.frame < s.start_frame || S.frame >= s.end_frame,
+          title: !s.athlete_id ? 'יש לבחור גולש מבצע לפני אימות' : !curBox?.bbox ? 'אין BOX בפריים זה — צייר BOX קודם' : '',
           onclick: () => {
+            if (!s.athlete_id) return toast('לא ניתן לאמת BOX ללא גולש מבצע ידוע', true);
+            if (!curBox?.bbox) return toast('אין BOX בפריים זה — אין מה לאמת', true);
             edit(c => {
-              const now = new Date().toISOString();
-              const existingKf = c.keyframes.find(k => k.segment_id === s.id && k.frame === S.frame);
-              if (existingKf) {
-                existingKf.verification_status = 'verified_correct';
-                existingKf.verified_at = now;
-                existingKf.verified_by = 'operator';
-              } else if (curBox?.bbox) {
-                c.keyframes.push({
-                  id: uid(),
-                  segment_id: s.id,
-                  frame: S.frame,
-                  bbox: curBox.bbox,
-                  visibility: 'visible',
-                  origin: 'manual',
-                  verification_status: 'verified_correct',
-                  verified_at: now,
-                  verified_by: 'operator'
-                });
+              let kf = c.keyframes.find(k => k.segment_id === s.id && k.frame === S.frame);
+              if (!kf) {
+                // The operator checked the interpolated position at this exact frame: materialize it, keeping its origin.
+                kf = { id: uid(), segment_id: s.id, frame: S.frame, bbox: { ...curBox.bbox }, visibility: 'visible', origin: 'interpolated', verification_status: 'unreviewed' };
+                c.keyframes.push(kf);
               }
-              recordBoxVerification(s.id, S.frame, s.athlete_id, 'verified_correct', 'אושר על הגולש הנכון');
+              appendVerification(c, s, S.frame, 'verified_correct', { bbox: { ...kf.bbox }, notes: 'אושר על הגולש הנכון' });
             });
-            toast(`פריים ${S.frame} אומת ידנית על הגולש`);
-            refresh();
+            toast(`פריים ${S.frame} אומת ידנית על הגולש (פריים זה בלבד)`);
           }
         }, '✓ נכון — על הגולש'),
         h('button', {
           class: 'btn danger sm',
           'data-testid': 'verify-box-wrong',
+          disabled: !curBox?.bbox || S.frame < s.start_frame || S.frame >= s.end_frame,
+          onclick: () => {
+            edit(c => appendVerification(c, s, S.frame, 'wrong_performer', { bbox: { ...curBox.bbox }, notes: 'גולש שגוי / סטייה' }));
+            toast(`פריים ${S.frame} סומן "דורש תיקון" — תקן את ה-BOX ואמת מחדש`, true);
+          }
+        }, '✕ גולש שגוי / לא על הגולש'),
+        h('button', {
+          class: 'btn sm',
+          'data-testid': 'verify-box-occluded',
           disabled: S.frame < s.start_frame || S.frame >= s.end_frame,
           onclick: () => {
             edit(c => {
-              const now = new Date().toISOString();
-              const existingKf = c.keyframes.find(k => k.segment_id === s.id && k.frame === S.frame);
-              if (existingKf) {
-                existingKf.verification_status = 'wrong_performer';
-                existingKf.verified_at = now;
-                existingKf.verified_by = 'operator';
-              }
-              recordBoxVerification(s.id, S.frame, s.athlete_id, 'wrong_performer', 'גולש שגוי / סטייה');
+              const kf = c.keyframes.find(k => k.segment_id === s.id && k.frame === S.frame);
+              if (kf) kf.visibility = 'occluded';
+              appendVerification(c, s, S.frame, 'occluded', { bbox: curBox?.bbox ? { ...curBox.bbox } : undefined, notes: 'הגולש מוסתר / לא נראה' });
             });
-            toast(`פריים ${S.frame} סומן כגולש שגוי`);
-            refresh();
+            toast(`פריים ${S.frame}: הגולש מוסתר / לא נראה`);
           }
-        }, '✕ גולש שגוי / לא על הגולש')
+        }, '◌ מוסתר / לא נראה'),
+        h('button', {
+          class: 'btn sm',
+          'data-testid': 'verify-box-indeterminate',
+          disabled: S.frame < s.start_frame || S.frame >= s.end_frame,
+          onclick: () => {
+            edit(c => appendVerification(c, s, S.frame, 'indeterminate', { bbox: curBox?.bbox ? { ...curBox.bbox } : undefined, notes: 'לא ניתן לקבוע' }));
+            toast(`פריים ${S.frame}: לא ניתן לקבוע`);
+          }
+        }, '? לא ניתן לקבוע')
       ),
       h('button', {
         class: 'btn sm',
@@ -941,9 +987,16 @@ function segForm(s) {
         ),
         h('button', { class: 'btn sm', 'data-testid': 'new-athlete', onclick: newAthlete }, '＋ חדש')
       ), 'f-athlete'),
+      // Spec §18: an event may belong to a different sport than its source (restored after the V2 rewrite dropped it).
+      field('ענף למקטע', h('select', { id: 'f-sport', 'data-testid': 'seg-sport', onchange: e => upd('sport_id', e.target.value || null) },
+        h('option', { value: '' }, `כמו המקור (${sportName(S.src.primary_sport_id ?? null)})`),
+        sportsList().filter(x => x.enabled || x.id === s.sport_id).map(x => h('option', { value: x.id, selected: x.id === s.sport_id }, x.name_he))), 'f-sport'),
       field('סוג אירוע', h('select', { id: 'f-type', 'data-testid': 'event-type', onchange: e => upd('event_type', e.target.value) },
         eventOptions(effSport(s), s.event_type).map(t => h('option', { value: t.key, selected: t.key === s.event_type }, t.label_he))
       ), 'f-type'),
+      (effSport(s) != null || LEGACY.includes(s.event_type)) && !eventOptions(effSport(s), null).some(t => t.key === s.event_type)
+        ? h('div', { class: 'banner bad', role: 'alert', 'data-testid': 'event-mismatch' }, `סוג האירוע "${s.event_type}" אינו שייך לענף "${sportName(effSport(s))}" — בחר סוג תקין לפני השמירה.`) : null,
+      ...(eventInfo(effSport(s), s.event_type)?.required_attrs ?? []).map(a => field(`שדה חובה: ${a}`, h('input', { type: 'text', id: `f-attr-${a}`, 'data-testid': `attr-${a}`, value: s.attrs?.[a] ?? '', onchange: e => edit(c => { const x = c.segments.find(y => y.id === s.id); x.attrs = { ...(x.attrs ?? {}), [a]: e.target.value }; }) }), `f-attr-${a}`)),
 
       // Key Moments
       h('label', { class: 'f' }, 'רגעי מפתח (סמן בפריים הנוכחי):'),
@@ -984,7 +1037,7 @@ function segForm(s) {
       h('div', { class: 'rad', role: 'group', 'aria-label': 'שימושיות', style: { gridTemplateColumns: 'repeat(2, 1fr)', gap: '6px' } },
         usabilityChoices.map(([k, label]) => h('button', {
           class: 'btn sm',
-          'aria-pressed': String((s.usability ?? 'usable') === k),
+          'aria-pressed': String((s.usability ?? 'uncertain') === k), // undecided legacy events never display as usable
           'data-testid': `usability-${k}`,
           onclick: () => upd('usability', k)
         }, label))
@@ -1037,6 +1090,14 @@ function segForm(s) {
       h('button', { class: 'btn sm', onclick: () => fillInterpolated(s) }, 'מלא ביניים (משוער)'),
       h('button', { class: 'btn sm', onclick: () => { S.inspTab = 'box'; refresh(); } }, 'אמת BOX ←')
     ),
+    kfs.length ? h('ul', { class: 'list', 'data-testid': 'kflist', style: { maxHeight: '160px', overflowY: 'auto' } }, kfs.map(k => {
+      const v = latestVerification(C(), s.id, k.frame);
+      const st = v?.status ?? 'unreviewed';
+      const ORIGIN = { manual: 'ידני', interpolated: 'אינטרפולציה', suggested: 'הצעה' };
+      const ST = { verified_correct: ['✓ נבדק', 'ok'], corrected: ['✎ תוקן', 'ok'], wrong_performer: ['✕ דורש תיקון', 'bad'], occluded: ['◌ מוסתר', 'warn'], indeterminate: ['? לא ניתן לקבוע', 'warn'], unreviewed: [v?.invalidation ? '⟳ לבדיקה מחדש' : '· טרם נבדק', 'warn'] };
+      return h('li', { style: { cursor: 'pointer' }, onclick: () => { seekFrame(k.frame); S.inspTab = 'box'; refresh(); } },
+        h('span', { class: 'mono ltr' }, `f${k.frame}`), h('span', { class: 'meta', style: { flex: 1 } }, ORIGIN[k.origin] ?? k.origin), pill(ST[st][0], ST[st][1]));
+    })) : null,
 
     h('div', { style: { marginTop: '10px' } },
       h('button', { class: 'btn danger sm', 'data-testid': 'delete-seg', onclick: deleteSel }, 'מחק מקטע ', h('kbd', {}, 'Del'))
@@ -1049,27 +1110,69 @@ function deleteSel() { const s = selSeg(); if (!s) return; edit(c => { c.segment
 async function newAthlete() {
   const inp = h('input', { type: 'text', id: 'na-label', placeholder: 'שם / מזהה פסבדונימי' });
   const d = dialog('גולש חדש', h('div', {}, h('label', { class: 'f', for: 'na-label' }, 'תווית'), inp), [
-    h('button', { class: 'btn primary', 'data-testid': 'na-ok', onclick: async () => { try { const a = await api('/api/athletes', { method: 'POST', body: { label: inp.value } }); S.athletes.push({ ...a, appearances: [] }); closeDialog(); const s = selSeg(); if (s) edit(c => { setSegmentAthlete(s.id, a.id); }); refresh(); } catch (e) { toast(e.message, true); } } }, 'צור'),
+    h('button', { class: 'btn primary', 'data-testid': 'na-ok', onclick: async () => { try { const a = await api('/api/athletes', { method: 'POST', body: { label: inp.value } }); S.athletes.push({ ...a, appearances: [] }); closeDialog(); const s = selSeg(); if (s) setSegmentAthlete(s.id, a.id); refresh(); } catch (e) { toast(e.message, true); } } }, 'צור'),
     h('button', { class: 'btn', onclick: closeDialog }, 'ביטול')]);
   inp.focus(); inp.addEventListener('keydown', e => { if (e.key === 'Enter') $('[data-testid=na-ok]').click(); });
 }
 
-function approvalForm(u) {
+const WF_HE = { not_started: ['טרם התחיל', 'warn'], in_progress: ['בעבודה', 'warn'], needs_review: ['דורש בדיקה', 'bad'], ready_for_approval: ['מוכן לאישור', 'ok'], approved: ['מאושר', 'ok'] };
+function statesPanel() {
+  const st = S.states;
+  if (!st) return h('div', { class: 'meta' }, 'טוען מצב…');
+  const [wf, wfc] = WF_HE[st.workflow] ?? [st.workflow, 'warn'];
+  const owner = st.catalog_owner.athlete_id ? `שויך ל־${athName(st.catalog_owner.athlete_id)}${st.catalog_owner.status === 'uncertain' ? ' (לא ודאי)' : ''}` : 'לא שויך לגולש';
+  const u = st.segments.usability, d = st.segments.decision;
+  const row = (k, v, testid) => h('li', { 'data-testid': testid }, h('span', { style: { flex: 1 } }, k), h('b', {}, v));
+  return h('div', { 'data-testid': 'states-panel' },
+    h('ul', { class: 'list' },
+      row('מצב עבודה', h('span', { class: `pill ${wfc}`, 'data-testid': 'wf-state', 'data-state': st.workflow }, wf), 'st-wf'),
+      row('בעל הסרטון בקטלוג', owner, 'st-owner'),
+      row('טיוטה', S.save === 'saved' ? `נשמרה (v${S.draft.version}) — אינה אישור` : SAVE_UI[S.save][0], 'st-draft'),
+      row('שימושיות (שימושי / חלקי / לא / לא בטוח)', h('span', { class: 'ltr' }, `${u.usable} / ${u.partially_usable} / ${u.unusable} / ${u.uncertain}`), 'st-usability'),
+      row('החלטת דאטהסט (כלול / מוחרג / לא בטוח)', h('span', { class: 'ltr' }, `${d.include} / ${d.exclude} / ${d.uncertain}`), 'st-decision'),
+      row('פריימי BOX שאומתו ידנית', String(st.box_qa.frames_verified), 'st-boxes'),
+      row('כיסוי צפייה שסומן', `${Math.round(st.reviewed_coverage.ratio * 100)}% מהפריימים (לא אחוז השלמה)`, 'st-coverage'),
+      row('Ground Truth מאושר', st.ground_truth.approved ? `v${st.ground_truth.latest_seq}${st.ground_truth.draft_matches_approved ? '' : ' · יש שינויים שלא אושרו'}` : 'לא אושר', 'st-gt'),
+      row('בדאטהסט מוקפא', st.datasets.frozen_in.length ? st.datasets.frozen_in.map(x => x.name).join(', ') : 'לא', 'st-frozen'),
+    ),
+    h('label', { style: { display: 'flex', gap: '6px', marginTop: '6px' } },
+      h('input', { type: 'checkbox', 'data-testid': 'request-review', checked: !!C().review_request?.requested, onchange: e => edit(c => { c.review_request = e.target.checked ? { requested: true, at: new Date().toISOString() } : { requested: false }; }) }),
+      'סמן את הסרטון "דורש בדיקה" (גם ללא מקטעים)')
+  );
+}
+const UNRES_HE = {
+  uncertain_segments: 'מקטעים עם החלטת דאטהסט "לא בטוח"',
+  unknown_athlete_included: 'מקטעים שנכללו ללא גולש מבצע',
+  usability_undecided: 'מקטעים ששימושיותם טרם נקבעה',
+  included_not_usable: 'מקטעים שנכללו אך סומנו לא שמישים',
+  missing_reason_codes: 'מקטעים חלקיים/לא שמישים ללא סיבה',
+  needs_review_flags: 'מקטעים שסומנו לבדיקה',
+  boxes_needing_correction: 'מקטעים עם BOX שסומן כשגוי (חוסם אישור)',
+  included_boxes_unverified: 'מקטעים שנכללו עם BOX שלא אומת במלואו (יירשם כהסתייגות)',
+};
+function approvalForm() {
   let scope = 'source', reason = '', ack = false;
-  const btn = h('button', { class: 'btn primary', 'data-testid': 'approve', onclick: async () => {
+  const st = S.states, open = st?.workflow_computed_reasons?.open ?? {}, blocking = st?.workflow_computed_reasons?.blocking ?? {};
+  const openItems = Object.entries(open).filter(([, n]) => n), blockItems = Object.entries(blocking).filter(([, n]) => n);
+  const btn = h('button', { class: 'btn primary', 'data-testid': 'approve', disabled: blockItems.length > 0, onclick: async () => {
     btn.disabled = true;
     try {
       clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
       if (S.save !== 'saved') await save();
       if (S.save !== 'saved') throw new Error('יש לשמור את הטיוטה לפני אישור');
       const r = await api(`/api/sources/${S.src.id}/approve`, { method: 'POST', body: { expected_version: S.draft.version, scope, reason, acknowledge_unresolved: ack } });
-      toast(r.unchanged ? 'אין שינוי מאז הגרסה המאושרת' : `גרסה ${r.revision.seq} אושרה ונשמרה כבלתי ניתנת לשינוי`);
-      S.revs = (await api(`/api/sources/${S.src.id}/revisions`)).items; paintStatus(); refresh();
-    } catch (e) { toast(e.message + (e.data?.unresolved ? ' — סמן אישור מפורש' : ''), true); btn.disabled = false; }
-  } }, 'אשר גרסה');
-  return h('div', {},
-    h('div', { class: 'cols2' }, field('היקף אישור', h('select', { id: 'ap-scope', onchange: e => { scope = e.target.value; } }, [['source', 'כל הסרטון'], ['interval', 'טווח'], ['segment', 'מקטע']].map(([k, l]) => h('option', { value: k }, l))), 'ap-scope'), field('סיבה / הערה', h('input', { type: 'text', id: 'ap-reason', oninput: e => { reason = e.target.value; } }), 'ap-reason')),
-    (u.unc || u.unk) ? h('label', { style: { display: 'flex', gap: '6px', margin: '8px 0', color: 'var(--unc)' } }, h('input', { type: 'checkbox', 'data-testid': 'ack', onchange: e => { ack = e.target.checked; } }), `אני מאשר במפורש ${u.unc + u.unk} פריטים לא פתורים`) : null, btn);
+      toast(r.unchanged ? 'אין שינוי מאז הגרסה המאושרת' : `גרסה ${r.revision.seq} אושרה ונשמרה כבלתי ניתנת לשינוי${ack ? ' (עם הסתייגויות מתועדות)' : ''}`);
+      S.revs = (await api(`/api/sources/${S.src.id}/revisions`)).items; paintStatus(); refreshStates(); refresh();
+    } catch (e) { toast(e.message + (e.data?.code === 'UNRESOLVED_ITEMS' ? ' — סמן אישור מפורש של ההסתייגויות' : ''), true); btn.disabled = false; }
+  } }, 'אשר גרסת Ground Truth');
+  return h('div', { 'data-testid': 'approval-panel' },
+    h('div', { class: 'meta' }, 'אישור יוצר גרסה בלתי ניתנת לשינוי של הטיוטה. "נשמר" אינו "מאושר", ואישור אינו הופך פריימים שלא נבדקו למאומתים.'),
+    blockItems.length ? h('div', { class: 'banner bad', 'data-testid': 'approval-blocking' }, h('b', {}, 'חוסם אישור: '), blockItems.map(([k, n]) => `${UNRES_HE[k] ?? k}: ${n}`).join(' · ')) : null,
+    openItems.length ? h('ul', { class: 'list', 'data-testid': 'unresolved' }, openItems.map(([k, n]) => h('li', {}, h('span', { style: { flex: 1 } }, UNRES_HE[k] ?? k), h('b', {}, n)))) : h('div', { class: 'meta', 'data-testid': 'unresolved' }, 'אין פריטים פתוחים'),
+    (st?.box_qa?.per_segment ?? []).some(q => q.box_frames && q.status !== 'verified_in_checked_range') ? h('div', { class: 'meta' }, UNRES_HE.included_boxes_unverified) : null,
+    h('div', { class: 'cols2' }, field('היקף אישור', h('select', { id: 'ap-scope', onchange: e => { scope = e.target.value; } }, [['source', 'כל הסרטון (מסמך מלא)'], ['interval', 'טווח (נרשם כהערה — הגרסה כוללת את כל המסמך)'], ['segment', 'מקטע (נרשם כהערה — הגרסה כוללת את כל המסמך)']].map(([k, l]) => h('option', { value: k }, l))), 'ap-scope'), field('סיבה / הערה', h('input', { type: 'text', id: 'ap-reason', oninput: e => { reason = e.target.value; } }), 'ap-reason')),
+    openItems.length ? h('label', { style: { display: 'flex', gap: '6px', margin: '8px 0', color: 'var(--unc)' } }, h('input', { type: 'checkbox', 'data-testid': 'ack', onchange: e => { ack = e.target.checked; } }), `אני מאשר במפורש לאשר עם ${openItems.reduce((a, [, n]) => a + n, 0)} פריטים פתוחים — הם יירשמו כהסתייגויות ולא כאימות`) : null,
+    btn);
 }
 
 // ---------------- chrome / refresh ----------------
@@ -1144,7 +1247,7 @@ function bindKeys() {
       '+': () => zoom(1.4), '=': () => zoom(1.4), '-': () => zoom(0.7), '?': helpDialog, Delete: deleteSel, Backspace: deleteSel,
       Escape: () => { S.tool = 'select'; S.sel = null; refresh(); },
     };
-    if (/^[1-9]$/.test(k) && s) { const a = S.athletes[+k - 1]; if (a) { e.preventDefault(); edit(c => { c.segments.find(x => x.id === s.id).athlete_id = a.id; }); } return; }
+    if (/^[1-9]$/.test(k) && s) { const a = S.athletes[+k - 1]; if (a) { e.preventDefault(); setSegmentAthlete(s.id, a.id); } return; }
     if (act[k]) { e.preventDefault(); act[k](); }
   });
   on(window, 'beforeunload', e => { if (S && (S.save === 'dirty' || S.save === 'offline' || S.save === 'saving')) { persistPending(); e.preventDefault(); e.returnValue = ''; } });
@@ -1158,7 +1261,7 @@ function sportPicker() {
       h('option', { value: '' }, 'לא מסווג'), sportsList().filter(x => x.enabled || x.id === cur).map(x => h('option', { value: x.id, selected: x.id === cur }, x.name_he))));
 }
 async function changeSport(next, prev, opts = {}) {
-  if (S.dirty || S.inflight) { toast('יש שינויים שטרם נשמרו — המתן לשמירה לפני שינוי ענף', true); return refresh(); }
+  if (S.save !== 'saved' || S.inflight) { toast('יש שינויים שטרם נשמרו — המתן לשמירה לפני שינוי ענף', true); return refresh(); }
   if (!opts.confirmed && (S.revs.length || next == null)) {
     return dialog('שינוי ענף ספורט', h('div', {}, h('p', {}, S.revs.length ? 'לסרטון יש גרסאות מאושרות. הן והדאטהסטים הקפואים לא ישתנו; רק הטיוטה והסיווג הנוכחי.' : 'לשנות את הסיווג?'), h('p', { class: 'meta' }, `${sportName(prev ?? null)} ← ${sportName(next)}`)), [
       h('button', { class: 'btn primary', 'data-testid': 'confirm-sport', onclick: () => { closeDialog(); changeSport(next, prev, { confirmed: true }); } }, 'אשר שינוי'),

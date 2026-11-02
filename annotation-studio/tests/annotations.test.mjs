@@ -77,7 +77,9 @@ test('approval blocks on stale version and on unresolved items without explicit 
   assert.equal(A.annotationStatus(db, src.id), 'needs_review');
   assert.equal(code(() => A.approve(db, src.id, { expectedVersion: 0 })), 'VERSION_CONFLICT');
   let err; try { A.approve(db, src.id, { expectedVersion: 1 }); } catch (e) { err = e; }
-  assert.equal(err.code, 'UNRESOLVED_ITEMS'); assert.deepEqual(err.unresolved, { uncertain_segments: 1, unknown_athlete_included: 1 });
+  assert.equal(err.code, 'UNRESOLVED_ITEMS');
+  assert.equal(err.unresolved.uncertain_segments, 1); assert.equal(err.unresolved.unknown_athlete_included, 1);
+  assert.equal(err.unresolved.has_blocking, false); assert.equal(err.unresolved.has_acknowledgeable, true);
   const ok = A.approve(db, src.id, { expectedVersion: 1, acknowledgeUnresolved: true });
   assert.equal(ok.revision.seq, 1);
 });
