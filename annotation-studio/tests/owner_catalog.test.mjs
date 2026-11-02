@@ -67,6 +67,7 @@ test('reassignment records audit history in source_owner_history; history is imm
     reason: 'Camera was tracking Beta during second heat',
     changed_by: 'annotator_1',
     expected_version: 1,
+    confirm_reassign: true,
   });
 
   const ownerInfo = Catalog.getCatalogOwner(db, src1.id);
@@ -118,6 +119,7 @@ test('bulk assignment with preview and conflict warnings', async () => {
     reason: 'Bulk heat assignment',
     preview: false,
     expected_versions: expVersions,
+    confirm_overwrite: true,
   });
 
   assert.equal(applied.success, true);
@@ -219,6 +221,7 @@ test('optimistic concurrency control: valid expected_version increments version;
     owner_athlete_id: surferB.id,
     expected_version: 1,
     changed_by: 'user_2',
+    confirm_reassign: true,
   });
   assert.equal(v2.owner_version, 2);
   assert.equal(v2.owner_athlete_id, surferB.id);

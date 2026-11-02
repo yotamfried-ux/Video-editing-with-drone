@@ -201,6 +201,8 @@ export async function renderLibrary(root) {
                 status,
                 reason: reason || null,
                 expected_version: s.owner_version ?? 0,
+                // The dialog shows the current owner in a warning banner; pressing Save is the explicit confirmation.
+                confirm_reassign: !!s.owner_athlete_id,
               }
             });
             s.owner_athlete_id = res.owner_athlete_id;
@@ -289,6 +291,7 @@ export async function renderLibrary(root) {
                   owner_athlete_id: ownerId,
                   preview: false,
                   expected_versions,
+                  confirm_overwrite: preview.conflicts_count > 0, // conflicts were listed in this dialog before confirming
                   reason: 'שיוך מרוכז בספרייה'
                 }
               });

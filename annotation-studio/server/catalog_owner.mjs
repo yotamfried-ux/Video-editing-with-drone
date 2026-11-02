@@ -42,6 +42,7 @@ export function setCatalogOwner(db, sourceId, {
   reason = null,
   changed_by = 'operator',
   expected_version = undefined,
+  confirm_reassign = false,
 } = {}) {
   const s = getSource(db, sourceId);
   if (owner_athlete_id != null) {
@@ -63,6 +64,10 @@ export function setCatalogOwner(db, sourceId, {
 
   const oldOwner = s.owner_athlete_id ?? null;
   const oldStatus = s.owner_status ?? 'unassigned';
+  // Spec §21.1.2: an existing owner is only replaced/removed after an explicit confirmation (never silently).
+  if (oldOwner != null && oldOwner !== owner_athlete_id && confirm_reassign !== true) {
+    throw new ApiError('REASSIGN_CONFIRMATION_REQUIRED');
+  }
 
   // No change needed
   if (oldOwner === owner_athlete_id && oldStatus === effectiveStatus) {
@@ -116,6 +121,7 @@ export function bulkSetCatalogOwner(db, {
   preview = false,
   changed_by = 'operator',
   expected_versions = undefined,
+  confirm_overwrite = false,
 } = {}) {
   if (!Array.isArray(source_ids) || source_ids.length === 0) {
     throw new ApiError('INVALID_INPUT', 'חובה לספק רשימת מזהי סרטונים');
@@ -178,6 +184,10 @@ export function bulkSetCatalogOwner(db, {
     }
   }
 
+  // Stale views are reported first (VERSION_CONFLICT); only a current view may confirm overwriting owners.
+  if (conflicts.length && confirm_overwrite !== true) {
+    throw Object.assign(new ApiError('REASSIGN_CONFIRMATION_REQUIRED', `${conflicts.length} סרטונים כבר משויכים לגולש אחר — נדרש אישור מפורש לדריסת השיוך`), { conflicts });
+  }
   const ts = now();
   tx(db, () => {
     for (const s of sources) {
@@ -318,6 +328,7 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
   reason = null,
   changed_by = 'operator',
   expected_version = undefined,
+  confirm_reassign = false,
 } = {}) {
   const obj = db.prepare('select * from cloud_objects where id=?').get(cloudObjectId);
   if (!obj) throw new ApiError('NOT_FOUND', 'אובייקט ענן לא נמצא');
@@ -340,6 +351,9 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
     throw new ApiError('INVALID_INPUT', `סטטוס שיוך לא תקין: ${effectiveStatus}`);
   }
 
+  if (obj.owner_athlete_id != null && obj.owner_athlete_id !== owner_athlete_id && confirm_reassign !== true) {
+    throw new ApiError('REASSIGN_CONFIRMATION_REQUIRED');
+  }
   const newCloudVersion = currentVersion + 1;
   const ts = now();
 
