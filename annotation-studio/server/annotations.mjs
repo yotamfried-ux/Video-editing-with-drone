@@ -310,6 +310,18 @@ export function setAppearanceFlags(db, athleteId, sourceId, { uncertain, confirm
     .run(uncertain ?? a.uncertain, confirmed ?? a.confirmed, track_label ?? a.track_label, a.id);
   audit(db, 'operator', 'appearance_updated', a.id, { uncertain, confirmed });
 }
+/** Record that a surfer is VISIBLE in a source (spec §21.1.4) — independent of catalog owner and of any event. */
+export function addAppearance(db, athleteId, sourceId, { uncertain = false } = {}) {
+  if (!db.prepare('select 1 from athletes where id=?').get(athleteId)) throw new ApiError('NOT_FOUND', 'גולש לא קיים');
+  getSource(db, sourceId);
+  db.prepare('insert or ignore into athlete_appearances(id,athlete_id,source_id,created_at,uncertain,confirmed) values(?,?,?,?,?,?)')
+    .run(randomUUID(), athleteId, sourceId, now(), uncertain ? 1 : 0, uncertain ? 0 : 1);
+  audit(db, 'operator', 'appearance_recorded', sourceId, { athlete_id: athleteId, uncertain: !!uncertain });
+  return db.prepare('select athlete_id, source_id, uncertain, confirmed from athlete_appearances where athlete_id=? and source_id=?').get(athleteId, sourceId);
+}
+export function listSourceAppearances(db, sourceId) {
+  return db.prepare('select athlete_id, uncertain, confirmed, track_label from athlete_appearances where source_id=? order by created_at').all(sourceId);
+}
 export function listAthletes(db) {
   return db.prepare('select * from athletes order by created_at').all().map(a => ({
     ...a,

@@ -21,18 +21,19 @@ export async function renderAnnotate(root, id) {
     root.append(h('div', { class: 'page' }, h('div', { class: 'empty' }, 'בחר סרטון מהספרייה כדי להתחיל', h('p', {}, h('a', { class: 'btn primary', href: '#/library' }, 'לספרייה'))))); return;
   }
   rememberSource(id);
-  const [src, draft, athletes, revs, ownerInfo] = await Promise.all([
+  const [src, draft, athletes, revs, ownerInfo, appearances] = await Promise.all([
     api(`/api/sources/${id}`),
     api(`/api/sources/${id}/draft`),
     api('/api/athletes'),
     api(`/api/sources/${id}/revisions`),
-    api(`/api/sources/${id}/catalog-owner`).catch(() => ({ owner_athlete_id: null, owner_status: 'unassigned' }))
+    api(`/api/sources/${id}/catalog-owner`).catch(() => ({ owner_athlete_id: null, owner_status: 'unassigned' })),
+    api(`/api/sources/${id}/appearances`).catch(() => ({ items: [] }))
   ]);
 
   if (!draft.content.box_verifications) draft.content.box_verifications = [];
 
   S = {
-    src, fps: fpsOf(src), total: src.frame_count, draft, athletes: athletes.items, revs: revs.items, ownerInfo,
+    src, fps: fpsOf(src), total: src.frame_count, draft, athletes: athletes.items, revs: revs.items, ownerInfo, appearances: appearances.items,
     sel: null, frame: 0, ppf: 6, mark: { in: null, out: null }, tool: 'select', speed: 1, save: 'saved', dirty: 0, inflight: false,
     undo: [], redo: [], saveTimer: null, retryTimer: null, insp: true, overlay: true, banner: null, playing: false, root,
     inspTab: 'event', // 'event' | 'associate' | 'box'
@@ -781,22 +782,24 @@ function renderAssociateTab() {
 
     h('div', { class: 'section', style: { background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', padding: '12px' } },
       h('strong', { style: { fontSize: '14px', display: 'block', marginBottom: '6px' } }, 'אנשים המופיעים בסרטון'),
-      h('p', { class: 'meta', style: { marginTop: 0 } }, 'גולשים נוספים שניתן לראות בפריים, גם אם אינם בעלי הסרטון ואינם מבצעים אירוע.'),
-      h('div', { class: 'fieldrow', style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' } },
-        S.athletes.map(a => {
-          const isPerformer = C().segments.some(seg => seg.athlete_id === a.id);
-          const isOwner = S.src.owner_athlete_id === a.id;
-          return h('div', {
-            class: 'card',
-            style: { padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '8px' }
-          },
-            h('span', { class: 'swatch', style: { background: athColor(a.id) } }),
-            h('span', {}, a.label),
-            isOwner ? pill('בעלים', 'ok') : null,
-            isPerformer ? pill('מבצע אירוע', 'warn') : null
-          );
-        })
-      )
+      h('p', { class: 'meta', style: { marginTop: 0 } }, 'גולשים שנראים בסרטון — גם אם אינם בעלי הסרטון ואינם מבצעים אירוע. הוספה כאן אינה יוצרת אירוע ואינה משנה את הבעלות.'),
+      h('div', { class: 'fieldrow', 'data-testid': 'visible-people', style: { display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px' } },
+        (S.appearances ?? []).length ? (S.appearances ?? []).map(ap => {
+          const isPerformer = C().segments.some(seg => seg.athlete_id === ap.athlete_id);
+          const isOwner = S.src.owner_athlete_id === ap.athlete_id;
+          return h('div', { class: 'card', 'data-testid': 'visible-person', style: { padding: '6px 10px', display: 'flex', alignItems: 'center', gap: '8px' } },
+            h('span', { class: 'swatch', style: { background: athColor(ap.athlete_id) } }), h('span', {}, athName(ap.athlete_id)),
+            ap.uncertain ? pill('נראה — לא ודאי', 'warn') : pill('נראה', 'ok'),
+            isOwner ? pill('בעלים', 'ok') : null, isPerformer ? pill('מבצע אירוע', 'warn') : null);
+        }) : h('div', { class: 'meta' }, 'לא סומנו גולשים נראים.')),
+      h('div', { style: { display: 'flex', gap: '6px', marginTop: '8px' } },
+        h('select', { id: 'add-visible', 'data-testid': 'add-visible-select', style: { flex: 1 } }, h('option', { value: '' }, '— הוסף גולש שנראה בסרטון —'),
+          S.athletes.filter(a => !(S.appearances ?? []).some(x => x.athlete_id === a.id)).map(a => h('option', { value: a.id }, a.label))),
+        h('label', { class: 'meta', style: { display: 'flex', gap: '4px', alignItems: 'center' } }, h('input', { type: 'checkbox', id: 'add-visible-unc' }), 'לא ודאי'),
+        h('button', { class: 'btn sm', 'data-testid': 'add-visible', onclick: async () => {
+          const id = $('#add-visible').value; if (!id) return toast('בחר גולש', true);
+          try { await api(`/api/sources/${S.src.id}/appearances`, { method: 'POST', body: { athlete_id: id, uncertain: $('#add-visible-unc').checked } }); S.appearances = (await api(`/api/sources/${S.src.id}/appearances`)).items; toast(`${athName(id)} סומן כנראה בסרטון`); refresh(); } catch (e) { toast(e.message, true); }
+        } }, '＋ נראה בסרטון'))
     ),
 
     h('button', { class: 'btn primary', onclick: () => { S.inspTab = 'event'; refresh(); } }, '← חזרה לתיוג אירוע')

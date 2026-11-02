@@ -134,7 +134,7 @@ await scenario('3. Sport change on a source (football), with the confirmation st
 let surfStart;
 await scenario('4. Athlete + event annotation (surfing): create athlete, mark event, bbox, type from the sport taxonomy, autosave', async () => {
   await page.goto(`${base}/#/athletes`); await page.waitForSelector('[data-testid=add-athlete]');
-  await page.fill('#newath', 'דנה (סינתטי)'); await page.click('[data-testid=add-athlete]'); await page.waitForSelector('[data-testid=athlete-card]');
+  await page.fill('#newath', 'דנה (סינתטי)'); await page.click('[data-testid=add-athlete]'); await page.waitForSelector('[data-testid=athlete-item]');
   await goAnnotate('surf_session_a.mp4');
   surfStart = await markSegment(30);
   await page.keyboard.press('1');
@@ -181,6 +181,8 @@ await scenario('6. Reclassifying a draft warns, never deletes, remaps explicitly
   // approve the surfing source first so history exists, then reclassify it as basketball through the UI
   await goAnnotate('surf_session_a.mp4');
   await page.click('[data-testid=segment]'); await page.waitForSelector('[data-testid=segform]');
+  // usability is an active human decision (new events start 'uncertain'); the operator sets it before approving
+  await page.click('[data-testid=usability-usable]'); await waitSaved();
   await page.fill('#ap-reason', 'GT v1'); await page.click('[data-testid=approve]');
   await page.waitForSelector('[data-testid=revlist] li b');
   const rev1 = ctx.db.prepare('select digest from annotation_revisions where source_id=?').get(src('surf_session_a.mp4').id).digest;
@@ -206,7 +208,8 @@ await scenario('6. Reclassifying a draft warns, never deletes, remaps explicitly
   await until(() => document.querySelectorAll('[data-testid=revlist] li').length === 2);
   assert.equal(Number(ctx.db.prepare('select count(*) n from annotation_revisions where source_id=?').get(src('surf_session_a.mp4').id).n), 2);
   // the football/tennis source gets approved too (mixed sport)
-  await goAnnotate('football_match_b.mp4'); await page.click('[data-testid=segment]'); await page.fill('#ap-reason', 'GT football');
+  await goAnnotate('football_match_b.mp4'); await page.click('[data-testid=segment]');
+  await page.click('[data-testid=usability-usable]'); await waitSaved(); await page.fill('#ap-reason', 'GT football');
   await page.check('[data-testid=ack]');      // no athlete assigned to the included event => explicit acknowledgement is required
   await page.click('[data-testid=approve]');
   await page.waitForSelector('[data-testid=revlist] li b');
@@ -325,16 +328,17 @@ await scenario('12. Errors and accidental-deletion protection', async () => {
 });
 
 await scenario('13. Backup & restore drill: independent copy, integrity verified, same-device refused, restored library is complete', async () => {
-  await assert.rejects(runOffsiteBackup(ctx, BACKUP), e => e instanceof BackupError && e.code === 'BACKUP_SAME_DEVICE', 'real st_dev check: a folder next to the live data is NOT a backup');
+  const KEY = 'e2e backup passphrase 2026';
+  await assert.rejects(runOffsiteBackup(ctx, BACKUP, { encryption_key: KEY }), e => e instanceof BackupError && e.code === 'BACKUP_SAME_DEVICE', 'real st_dev check: a folder next to the live data is NOT a backup');
   // The sandbox has a single filesystem, so the "other disk" is simulated for the copy only (the refusal above is the real check).
-  const otherDisk = { deviceOf: p => (String(p).startsWith(HOME) ? 1 : 2) };
+  const otherDisk = { deviceOf: p => (String(p).startsWith(HOME) ? 1 : 2), diskOf: () => null, encryption_key: KEY };
   const r = await runOffsiteBackup(ctx, BACKUP, { ...otherDisk, scope: 'all' });
   assert.equal(r.ok, true); assert.equal(r.copied, 3);
-  const v = await verifyOffsite(BACKUP); assert.equal(v.ok, true, JSON.stringify(v));
+  const v = await verifyOffsite(BACKUP, { encryption_key: KEY }); assert.equal(v.ok, true, JSON.stringify(v)); assert.equal(v.encrypted, true);
   assert.equal(backupStatus(ctx.db).state, 'ok');
   // restore into a brand-new home and compare ground truth
   const fresh = createContext(RESTORED, { token: 'r-token' });
-  const rr = await restoreFromOffsite(fresh, BACKUP);
+  const rr = await restoreFromOffsite(fresh, BACKUP, { encryption_key: KEY });
   assert.ok(rr.ok !== false, JSON.stringify(rr));
   assert.equal(Number(fresh.db.prepare('select count(*) n from annotation_revisions').get().n), Number(ctx.db.prepare('select count(*) n from annotation_revisions').get().n));
   assert.equal(Number(fresh.db.prepare('select count(*) n from sources').get().n), 3);

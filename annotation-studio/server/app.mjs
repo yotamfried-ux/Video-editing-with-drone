@@ -196,6 +196,10 @@ export function createApp(ctx) {
       if (m === 'POST') { const b = await body(req); return send(res, 201, A.createAthlete(db, b.label, b.notes)); }
     }
     if ((r = /^\/api\/athletes\/([\w-]+)$/.exec(p)) && m === 'PATCH') { const b = await body(req); A.renameAthlete(db, r[1], b.label, b.notes); return send(res, 200, { ok: true }); }
+    if ((r = /^\/api\/sources\/([\w-]+)\/appearances$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, { items: A.listSourceAppearances(db, r[1]) });
+      if (m === 'POST') { const b = await body(req); return send(res, 201, A.addAppearance(db, b.athlete_id, r[1], { uncertain: !!b.uncertain })); }
+    }
     if ((r = /^\/api\/athletes\/([\w-]+)\/appearances\/([\w-]+)$/.exec(p)) && m === 'PATCH') { A.setAppearanceFlags(db, r[1], r[2], await body(req)); return send(res, 200, { ok: true }); }
     if (p === '/api/datasets') {
       if (m === 'GET') return send(res, 200, { items: D.listDatasets(db) });

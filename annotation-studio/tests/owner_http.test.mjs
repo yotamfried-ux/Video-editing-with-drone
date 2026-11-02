@@ -139,3 +139,20 @@ test('assignment without events appears in the Surfer Workspace immediately and 
     assert.equal(src.sha256.length, 64);
   } finally { b2.close(); }
 });
+
+test('three independent roles over HTTP: owner A, performer B, visible-only C — none propagates to another', async () => {
+  const b = await boot();
+  try {
+    const [A, B, C] = await Promise.all(['A', 'B', 'C'].map(async l => (await b.call('/api/athletes', { label: l })).json));
+    assert.equal((await owner(b, b.ids[0], { owner_athlete_id: A.id, expected_version: 0 })).status, 200);
+    const vis = await b.call(`/api/sources/${b.ids[0]}/appearances`, { athlete_id: C.id, uncertain: true });
+    assert.equal(vis.status, 201); assert.equal(vis.json.uncertain, 1);
+    const content = { schema: 1, segments: [{ id: 's1', start_frame: 0, end_frame: 30, athlete_id: B.id, event_type: 'wave_ride', decision: 'include', usability: 'usable' }], keyframes: [], reviewed_ranges: [], box_verifications: [] };
+    assert.equal((await b.call(`/api/sources/${b.ids[0]}/draft`, { expected_version: 0, content }, 'PUT')).status, 200);
+    const apps = (await b.call(`/api/sources/${b.ids[0]}/appearances`)).json.items;
+    assert.deepEqual(apps.map(a => a.athlete_id).sort(), [B.id, C.id].sort(), 'performer recorded as visible; C visible without an event; owner A not implied');
+    const own = (await owner(b, b.ids[0])).json; assert.equal(own.owner_athlete_id, A.id, 'owner unchanged by performer/appearance');
+    const d = (await b.call(`/api/sources/${b.ids[0]}/draft`)).json; assert.equal(d.content.segments[0].athlete_id, B.id, 'performer unchanged by owner');
+    assert.equal((await b.call(`/api/sources/${b.ids[0]}/appearances`, { athlete_id: 'nope' })).status, 404);
+  } finally { b.close(); }
+});
