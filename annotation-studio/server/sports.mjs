@@ -178,3 +178,38 @@ export function bulkSetSport(db, ids, sportId, reason = '') {
   }
   return { updated: done.length, skipped };
 }
+
+// ---------------- §18 suggestions and mixed-sport membership ----------------
+const sportExists = (db, id) => { if (!db.prepare('select 1 from sports where id=?').get(id)) throw new ApiError('INVALID_INPUT', `ענף לא קיים: ${id}`); };
+/** A suggestion from upload metadata or a model. Clearly labeled; never changes primary_sport_id. */
+export function suggestSourceSport(db, sourceId, { sport_id, source = 'metadata', actor = 'system' } = {}) {
+  if (!['metadata', 'model'].includes(source)) throw new ApiError('INVALID_INPUT', 'מקור הצעה לא תקין');
+  sportExists(db, sport_id);
+  const s = db.prepare('select * from sources where id=?').get(sourceId); if (!s) throw new ApiError('NOT_FOUND');
+  db.prepare('update sources set suggested_sport_id=?, sport_suggestion_source=? where id=?').run(sport_id, source, sourceId);
+  audit(db, actor, 'sport_suggested', sourceId, { sport_id, source });
+  return { suggested_sport_id: sport_id, sport_suggestion_source: source, primary_sport_id: s.primary_sport_id ?? null };
+}
+/** Only an explicit operator confirmation turns a suggestion into the source's sport. */
+export function confirmSuggestedSport(db, sourceId, { actor = 'operator', ...opts } = {}) {
+  const s = db.prepare('select * from sources where id=?').get(sourceId); if (!s) throw new ApiError('NOT_FOUND');
+  if (!s.suggested_sport_id) throw new ApiError('INVALID_INPUT', 'אין הצעת ענף לסרטון');
+  const out = setSourceSport(db, sourceId, s.suggested_sport_id, { reason: `confirmed ${s.sport_suggestion_source} suggestion`, actor, ...opts });
+  db.prepare('update sources set suggested_sport_id=null, sport_suggestion_source=null where id=?').run(sourceId);
+  return out;
+}
+export function addSourceSport(db, sourceId, sportId, actor = 'operator') {
+  sportExists(db, sportId);
+  if (!db.prepare('select 1 from sources where id=?').get(sourceId)) throw new ApiError('NOT_FOUND');
+  db.prepare('insert or ignore into source_sports(source_id,sport_id,actor,created_at) values(?,?,?,?)').run(sourceId, sportId, actor, now());
+  audit(db, actor, 'source_sport_added', sourceId, { sport_id: sportId });
+  return listSourceSports(db, sourceId);
+}
+/** Sports present in a source: explicit membership + primary + per-segment overrides (authoritative when different). */
+export function listSourceSports(db, sourceId) {
+  const s = db.prepare('select primary_sport_id from sources where id=?').get(sourceId); if (!s) throw new ApiError('NOT_FOUND');
+  const explicit = db.prepare('select sport_id from source_sports where source_id=? order by sport_id').all(sourceId).map(r => r.sport_id);
+  const d = db.prepare('select content from annotation_drafts where source_id=?').get(sourceId);
+  const fromSegments = d ? [...new Set(JSON.parse(d.content).segments.map(x => x.sport_id).filter(Boolean))] : [];
+  return { primary_sport_id: s.primary_sport_id ?? null, explicit, from_segments: fromSegments, all: [...new Set([s.primary_sport_id, ...explicit, ...fromSegments].filter(Boolean))].sort() };
+}

@@ -87,6 +87,21 @@ export function evaluateSource(gt, preds, params, rejected = []) {
   const bySport = {};
   const bs = k => bySport[k] ??= { gt_included: 0, predictions: 0, matched: 0, missed: 0, false_positives: 0, duplicates: 0, predicted_excluded: 0 };
   for (const g of G) { const b = bs(gSport(g)); b.gt_included++; if (usedG.has(g.id)) b.matched++; else b.missed++; }
+  // Sport-specific context — ONLY from what humans annotated (never inferred from pixels; spec §18):
+  //   surfing: a 'complete' wave has annotated takeoff AND landing and no missing_takeoff/missing_landing reason;
+  //   other sports: events whose required context attributes (attrs) were annotated.
+  for (const g of G) {
+    const b = bs(gSport(g)), sport = gSport(g);
+    if (sport === 'surfing') {
+      const complete = g.key_moments?.takeoff_frame != null && g.key_moments?.landing_frame != null && !(g.reason_codes ?? []).some(r => r === 'missing_takeoff' || r === 'missing_landing');
+      b.complete_wave_annotated = (b.complete_wave_annotated ?? 0) + (complete ? 1 : 0);
+      b.complete_wave_matched = (b.complete_wave_matched ?? 0) + (complete && usedG.has(g.id) ? 1 : 0);
+    } else if (sport !== 'unknown') {
+      const ctx = g.attrs && Object.values(g.attrs).some(v => v != null && v !== '');
+      b.context_annotated = (b.context_annotated ?? 0) + (ctx ? 1 : 0);
+      b.context_matched = (b.context_matched ?? 0) + (ctx && usedG.has(g.id) ? 1 : 0);
+    }
+  }
   const matchedSportOf = new Map(matches.map(m => [m.p.idx, gSport(m.g)]));
   const typeOf = new Map(errors.filter(e => e.pred_index != null).map(e => [e.pred_index, e.type]));
   for (const p of P) {
@@ -159,7 +174,9 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
       unreviewed_prediction_share: ratio(tot.unreviewed_predictions, tot.predictions),
     },
     by_sport: Object.fromEntries(Object.keys(bySportTot).sort().map(sp => { const t = bySportTot[sp]; return [sp, { ...t, event_recall: ratio(t.matched, t.gt_included),
-      event_precision: ratio(t.matched, t.matched + t.false_positives + t.duplicates + t.predicted_excluded) }]; })),
+      event_precision: ratio(t.matched, t.matched + t.false_positives + t.duplicates + t.predicted_excluded),
+      ...(t.complete_wave_annotated != null ? { complete_wave_recall: ratio(t.complete_wave_matched, t.complete_wave_annotated) } : {}),
+      ...(t.context_annotated != null ? { annotated_context_recall: ratio(t.context_matched, t.context_annotated) } : {}) }]; })),
     sport_policy: 'no cross-sport matching; totals/metrics above are pooled counts — use by_sport for per-sport denominators',
     per_source: per,
   };

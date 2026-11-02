@@ -54,6 +54,13 @@ create table if not exists action_occurrences(
 create table if not exists action_occurrence_retirements(
   id serial primary key, occurrence_id text not null references action_occurrences(id), reason text not null, actor text not null, at text not null
 );
+-- §18: suggested sport (never authoritative until the operator confirms) and optional mixed-sport membership.
+alter table sources add column if not exists suggested_sport_id text;
+alter table sources add column if not exists sport_suggestion_source text;
+create table if not exists source_sports(
+  source_id text not null references sources(id), sport_id text not null references sports(id),
+  actor text not null, created_at text not null, primary key(source_id, sport_id)
+);
 alter table evaluation_runs add column if not exists identity_key text;
 alter table evaluation_runs add column if not exists matching_version text;
 create unique index if not exists evaluation_runs_identity on evaluation_runs(identity_key) where identity_key is not null;

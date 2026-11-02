@@ -205,6 +205,10 @@ create table if not exists action_occurrences(
   occurrence_role text not null check(occurrence_role in ('canonical_view','duplicate_view','supplementary_view','uncertain')),
   created_at text not null
 );
+create table if not exists source_sports(
+  source_id text not null references sources(id), sport_id text not null references sports(id),
+  actor text not null, created_at text not null, primary key(source_id, sport_id)
+);
 create table if not exists action_occurrence_retirements(
   id integer primary key autoincrement, occurrence_id text not null references action_occurrences(id), reason text not null, actor text not null, at text not null
 );
@@ -214,7 +218,7 @@ create table if not exists action_occurrence_retirements(
 const IMMUTABLE = ['annotation_revisions', 'dataset_versions', 'dataset_members',
   'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log', 'source_owner_history',
   'annotation_set_status', 'set_revisions', 'person_lineage_relations', 'physical_actions', 'physical_action_states', 'action_occurrences', 'action_occurrence_retirements'];
-const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences', 'sports', 'sport_event_types', 'cloud_objects'];
+const NO_DELETE = ['source_sports', 'sources', 'athletes', 'source_locations', 'upload_occurrences', 'sports', 'sport_event_types', 'cloud_objects'];
 
 /**
  * Backend selection: PostgreSQL when `url` (or STUDIO_DB_URL) is given — the schema/roles are applied by
@@ -256,6 +260,7 @@ export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
   addColumn(db, 'cloud_objects', 'owner_version', 'integer not null default 0');
   addColumn(db, 'source_owner_history', 'version', 'integer not null default 1');
   // 0006 (FULL_SPEC): evaluation identity tuple (addendum §10) and the 'primary' set = existing source-keyed drafts/revisions.
+  for (const c of ['suggested_sport_id', 'sport_suggestion_source']) addColumn(db, 'sources', c, 'text');
   addColumn(db, 'evaluation_runs', 'identity_key', 'text');
   addColumn(db, 'evaluation_runs', 'matching_version', 'text');
   db.exec('create unique index if not exists evaluation_runs_identity on evaluation_runs(identity_key) where identity_key is not null');

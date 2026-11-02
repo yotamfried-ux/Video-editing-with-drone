@@ -14,14 +14,14 @@ export const TABLES = [
   // 0006 (FULL_SPEC): independent annotation sets and lineage — part of Ground Truth, so part of every backup.
   ['annotation_sets', 'id'], ['annotation_set_status', 'id'], ['set_assignments', 'id'], ['set_revisions', 'id'],
   ['person_lineage_relations', 'id'], ['physical_actions', 'id'], ['physical_action_states', 'id'], ['action_occurrences', 'id'],
-  ['action_occurrence_retirements', 'id'],
+  ['action_occurrence_retirements', 'id'], ['source_sports', 'source_id, sport_id'],
 ];
 // Taxonomy is configuration that a fresh database already seeds: restore upserts it instead of requiring emptiness,
 // and backups made before the registry existed (no such tables) stay restorable.
 const CONFIG = { sports: 'id', sport_event_types: 'sport_id, key', annotation_sets: 'id' };   // 'primary' set is seeded
 // Tables that older backup files do not have (still restorable). cloud_objects is catalog data, not configuration.
 const OPTIONAL = new Set([...Object.keys(CONFIG), 'cloud_objects', 'source_owner_history', 'annotation_set_status', 'set_assignments', 'set_revisions',
-  'person_lineage_relations', 'physical_actions', 'physical_action_states', 'action_occurrences', 'action_occurrence_retirements']);
+  'person_lineage_relations', 'physical_actions', 'physical_action_states', 'action_occurrences', 'action_occurrence_retirements', 'source_sports']);
 const IDENTITY = new Set(['source_locations', 'upload_occurrences', 'ingestion_jobs', 'audit_log', 'source_owner_history', 'annotation_set_status', 'physical_action_states', 'action_occurrence_retirements']);
 
 export function exportBackup(db) {

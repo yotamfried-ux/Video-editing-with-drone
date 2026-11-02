@@ -91,6 +91,9 @@ export async function renderLibrary(root) {
       h('span', { 'data-testid': 'sport-badge', class: `pill${s.primary_sport_id ? ' ok' : ' warn'}` },
         h('span', { class: 'dot' }), sportName(s.primary_sport_id)
       ),
+      // Spec §18: a suggestion (metadata/model) is labeled as such and only becomes the sport after confirmation.
+      s.suggested_sport_id ? h('span', { 'data-testid': 'sport-suggestion', class: 'pill warn', style: { gap: '4px' } }, `הצעה (${s.sport_suggestion_source === 'model' ? 'מודל' : 'מטא-דאטה'}): ${sportName(s.suggested_sport_id)}`,
+        h('button', { class: 'btn sm', 'data-testid': 'sport-suggestion-confirm', onclick: async e => { e.stopPropagation(); try { await api(`/api/sources/${s.id}/sport-suggestion/confirm`, { method: 'POST', body: {} }); s.primary_sport_id = s.suggested_sport_id; s.suggested_sport_id = null; toast('הענף אושר'); render(); } catch (x) { toast(x.message, true); } } }, 'אשר')) : null,
       h('span', { 'data-testid': 'owner-badge' }, ownerPill(s))
     ),
     h('div', { class: 'body' },

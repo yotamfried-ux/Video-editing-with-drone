@@ -58,7 +58,7 @@ export function createApp(ctx) {
     return {
       id: s.id, display_name: s.display_name, sha256: s.sha256, byte_size: s.byte_size, width: s.width, height: s.height,
       fps_num: s.fps_num, fps_den: s.fps_den, frame_count: s.frame_count, duration_ms: s.duration_ms, rotation: s.rotation,
-      codec: s.codec ?? null, primary_sport_id: s.primary_sport_id ?? null, provider: s.provider ?? 'local', verify_state: s.verify_state ?? null, proxy_state: s.proxy_state ?? (s.proxy_path ? 'ready' : null),
+      codec: s.codec ?? null, primary_sport_id: s.primary_sport_id ?? null, suggested_sport_id: s.suggested_sport_id ?? null, sport_suggestion_source: s.sport_suggestion_source ?? null, provider: s.provider ?? 'local', verify_state: s.verify_state ?? null, proxy_state: s.proxy_state ?? (s.proxy_path ? 'ready' : null),
       owner_athlete_id: s.owner_athlete_id ?? null,
       owner_status: s.owner_status ?? 'unassigned',
       owner_athlete_label: ownerAthlete?.label ?? null,
@@ -212,6 +212,12 @@ export function createApp(ctx) {
     if ((r = /^\/api\/physical-actions\/([\w-]+)\/occurrences$/.exec(p)) && m === 'POST') return send(res, 201, Lin.linkOccurrence(db, r[1], await body(req)));
     if ((r = /^\/api\/physical-actions\/([\w-]+)\/split$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 201, Lin.splitAction(db, r[1], b.groups, b)); }
     if ((r = /^\/api\/action-occurrences\/([\w-]+)\/retire$/.exec(p)) && m === 'POST') return send(res, 200, Lin.retireOccurrence(db, r[1], await body(req)));
+    if ((r = /^\/api\/sources\/([\w-]+)\/sport-suggestion$/.exec(p)) && m === 'POST') return send(res, 200, S.suggestSourceSport(db, r[1], await body(req)));
+    if ((r = /^\/api\/sources\/([\w-]+)\/sport-suggestion\/confirm$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, S.confirmSuggestedSport(db, r[1], { acknowledgeIncompatible: !!b.acknowledge_incompatible, remap: b.remap ?? null })); }
+    if ((r = /^\/api\/sources\/([\w-]+)\/sports$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, S.listSourceSports(db, r[1]));
+      if (m === 'POST') return send(res, 200, S.addSourceSport(db, r[1], (await body(req)).sport_id));
+    }
     if ((r = /^\/api\/sources\/([\w-]+)\/states$/.exec(p)) && m === 'GET') return send(res, 200, A.sourceStates(db, r[1]));
     if ((r = /^\/api\/sources\/([\w-]+)\/revisions$/.exec(p)) && m === 'GET') return send(res, 200, { items: A.listRevisions(db, r[1]) });
     if ((r = /^\/api\/revisions\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, A.getRevision(db, r[1]));

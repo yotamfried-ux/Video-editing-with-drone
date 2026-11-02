@@ -216,3 +216,36 @@ test('backup/restore carries annotation sets and lineage; integrity audit covers
   assert.deepEqual(Lin.resolvePerson(fresh.db, b2).successors, [ath]);
   assert.equal(verifyIntegrity(fresh.db).ok, true);
 });
+
+test('§18 suggested sport needs confirmation; mixed-sport membership; stratified splits per sport; annotated-context metrics', async () => {
+  const { db, srcs } = await world(4);
+  const Sp = await import('../server/sports.mjs');
+  Sp.suggestSourceSport(db, srcs[0].id, { sport_id: 'surfing', source: 'metadata' });
+  assert.equal(db.prepare('select primary_sport_id from sources where id=?').get(srcs[0].id).primary_sport_id, null, 'a suggestion never classifies');
+  Sp.confirmSuggestedSport(db, srcs[0].id);
+  assert.equal(db.prepare('select primary_sport_id, suggested_sport_id from sources where id=?').get(srcs[0].id).primary_sport_id, 'surfing');
+  assert.throws(() => Sp.confirmSuggestedSport(db, srcs[0].id), code('INVALID_INPUT'));
+  assert.deepEqual(Sp.addSourceSport(db, srcs[0].id, 'football').all, ['football', 'surfing']);
+  for (const s of srcs.slice(1)) Sp.setSourceSport(db, s.id, s === srcs[3] ? 'football' : 'surfing', { reason: 't' });
+  const ath = A.createAthlete(db, 'P').id;
+  for (const s of srcs) approvePrimary(db, s, [seg(`e-${s.id.slice(0, 4)}`, 10, 60, { athlete_id: ath, event_type: s === srcs[3] ? 'goal' : 'wave_ride', key_moments: s === srcs[3] ? {} : { takeoff_frame: 12, landing_frame: 58 } })]);
+  const ds = D.freezeDataset(db, { name: 'strat', sourceIds: srcs.map(s => s.id), policy: { seed: 's', ratios: { train: 0.5, validation: 0, test: 0.5 }, stratify_by_sport: true } });
+  assert.deepEqual(Object.keys(ds.manifest.sport_strata).sort(), ['football', 'surfing']);
+  assert.ok(ds.manifest.sport_strata.surfing.train >= 1 && ds.manifest.sport_strata.surfing.test >= 1, JSON.stringify(ds.manifest.sport_strata));
+  const ds2 = D.freezeDataset(db, { name: 'all-test', sourceIds: srcs.map(s => s.id), policy: { seed: 's', ratios: { train: 0, validation: 0, test: 1 } } });
+  const pred = E.importPredictions(db, { run_id: 'r', pipeline_version: 'p', sources: srcs.map(s => ({ source_sha256: s.sha256, events: [{ start_frame: 10, end_frame: 60, athlete_key: 'T' }] })) });
+  const r = E.runEvaluation(db, { dataset_id: ds2.id, prediction_id: pred.id, params: { splits: ['train', 'validation', 'test'] } });
+  assert.equal(r.report.by_sport.surfing.complete_wave_recall, 1);
+  assert.equal(r.report.by_sport.surfing.complete_wave_annotated, 3);
+});
+
+test('§7 raw-only boundary and §5 canonical binding: the workbench never loads pipeline outputs; media is resolved from server ids', async () => {
+  const { readFileSync } = await import('node:fs');
+  const ann = readFileSync(new URL('../web/js/annotate.js', import.meta.url), 'utf8');
+  for (const forbidden of ['/api/predictions', '/api/outputs', '/api/evaluations', '/api/editing', '/api/imports', 'edl']) {
+    assert.ok(!ann.includes(forbidden), `annotation workbench must not consult ${forbidden}`);
+  }
+  const app = readFileSync(new URL('../server/app.mjs', import.meta.url), 'utf8');
+  // media/cloud routes take only opaque server-issued ids; no client-supplied storage key is ever accepted
+  assert.ok(!/searchParams\.get\(['"](key|raw_key|storage_key|path)['"]\)/.test(app));
+});
