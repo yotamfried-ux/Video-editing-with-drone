@@ -1,6 +1,6 @@
 # SportReel Precision Studio V2 — approved UX implementation contract
 
-**Approved by operator:** 2026-10-31. **Status:** design target, NOT implemented. This document supplements product spec §21; implementation must also comply with §§1–20 and the Ground Truth original design, v1 annotation guidelines and normative design review addendum.
+**Approved by operator:** 2026-10-31. **Status as of 2026-11-02:** V2 is **implemented in merged code, but not yet fully independently qualified for real-world labeling**. This remains the normative UX/behavior contract; check [Product Spec §22](../../specs/ground-truth-annotation-studio.md#22-current-implementation-and-qualification-ledger--2026-11-02-living-status-not-a-release-claim) for a requirement-by-requirement implementation/evidence ledger and documented P0/P1 gaps. Documentation and demonstration are not substitute for a passing operator acceptance test. This document supplements product spec §§1–22 and the Ground Truth original design, v1 annotation guidelines and normative design review addendum.
 
 **Approved clickable prototype:** [Precision Studio V2](precision-studio-v2-approved.html). The prototype is self-contained, disconnected from real APIs and uses a **synthetic wave illustration** in place of real source footage. It is a design and interaction reference, never production code or a quality test.
 
