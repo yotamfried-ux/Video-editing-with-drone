@@ -248,19 +248,13 @@ export function listAthleteSources(db, athleteId, { filter = 'all' } = {}) {
     order by created_at desc
   `).all(athleteId);
 
-  // 2. Sources where this athlete appears or has events (distinct source_id)
+  // 2. Sources where this athlete is visible or performs an event. Every saved performer is recorded in
+  //    athlete_appearances by saveDraft, so this is portable SQL (the former SQLite-only json_extract broke PostgreSQL).
   const appearanceRows = db.prepare(`
-    select s.*
-    from sources s
-    where s.id in (
-      select source_id from athlete_appearances where athlete_id = ?
-    ) or s.id in (
-      select distinct d.source_id
-      from annotation_drafts d
-      where json_extract(d.content, '$.segments') like ?
-    )
+    select s.* from sources s
+    where s.id in (select source_id from athlete_appearances where athlete_id = ?)
     order by s.created_at desc
-  `).all(athleteId, `%"athlete_id":"${athleteId}"%`);
+  `).all(athleteId);
 
   let candidateMap = new Map();
 

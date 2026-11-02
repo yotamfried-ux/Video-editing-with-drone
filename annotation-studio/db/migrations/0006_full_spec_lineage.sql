@@ -68,7 +68,7 @@ create unique index if not exists evaluation_runs_identity on evaluation_runs(id
 do $$ declare t text; begin
   foreach t in array array['annotation_set_status','set_revisions','person_lineage_relations','physical_actions','physical_action_states','action_occurrences','action_occurrence_retirements'] loop
     execute format('drop trigger if exists %I_append_only on %I', t, t);
-    execute format('create trigger %I_append_only before update or delete on %I for each row execute function reject_immutable()', t, t);
+    execute format('create trigger %I_append_only before update or delete on %I for each row execute function reject_append_only()', t, t);
   end loop;
 end $$;
 

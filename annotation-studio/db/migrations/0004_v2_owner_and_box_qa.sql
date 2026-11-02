@@ -23,6 +23,6 @@ create table if not exists source_owner_history(
 );
 
 drop trigger if exists source_owner_history_append_only on source_owner_history;
-create trigger source_owner_history_append_only before update or delete on source_owner_history for each row execute function reject_immutable();
+create trigger source_owner_history_append_only before update or delete on source_owner_history for each row execute function reject_append_only();
 
 insert into schema_migrations(version) values ('0004_v2_owner_and_box_qa') on conflict (version) do nothing;
