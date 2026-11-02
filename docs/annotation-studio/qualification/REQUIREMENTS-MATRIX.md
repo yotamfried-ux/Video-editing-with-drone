@@ -100,18 +100,22 @@ Test files live under `annotation-studio/tests/`. Browser suites are `tests/e2e/
 
 ## H. Advanced normative Ground Truth (addendum v1, system design) — FULL_SPEC
 
-| ID | Requirement | Status | Note | Sev |
-|---|---|---|---|---|
-| ADV-1 | `AnnotationSet` / `AnnotationAssignment` independent annotation streams | NOT_IMPLEMENTED | Drafts are keyed by source only | P2 |
-| ADV-2 | Review / adjudication workflow between streams | NOT_IMPLEMENTED | depends on ADV-1 | P2 |
-| ADV-3 | Set-scoped identities | NOT_IMPLEMENTED | | P2 |
-| ADV-4 | `PhysicalActionEntity` / `ActionOccurrence`: same physical action across videos | NOT_IMPLEMENTED | | P2 |
-| ADV-5 | `PersonLineageRelation`: revisioned merge/split of identities | NOT_IMPLEMENTED | | P2 |
-| ADV-6 | Raw-only boundary adjustment | NOT_TESTED | not traced | P2 |
-| ADV-7 | Deterministic one-to-one event matching with a versioned config | PARTIAL | `server/evaluate.mjs` is deterministic and tested (`evaluation.test`); not checked against addendum §8 ranking/inconclusive rules | P2 |
-| ADV-8 | Jaccard multi-label agreement | NOT_IMPLEMENTED | needs ADV-1 | P2 |
-| ADV-9 | Unique evaluation identity / idempotency | PARTIAL | digest-identical reruns tested (`e2e/workflow` #10); addendum §10 not fully traced | P2 |
-| ADV-10 | Reproducible frozen datasets | PASS | `datasets.test` / `e2e/run` datasets | — |
-| ADV-11 | Blind evaluation (no label leakage) | PASS | `evaluation.test` "blind manifest…" | — |
-| ADV-12 | Editing output: source vs proxy vs final reel quality | NOT_TESTED | needs a real rendered reel; the pipeline is not run without approval | P1 |
-| ADV-13 | Sport suggestion with confirmation, `source_sports`, sport-stratified datasets/metrics | PARTIAL | sport-separated evaluation PASS (`e2e/workflow` #10); suggestion/stratified datasets not implemented | P2 |
+Implemented after the first audit pass. Tests: `tests/full_spec.test.mjs` (12) and `tests/e2e/fullspec.mjs` (6).
+
+| ID | Requirement | Code | Proof | Status | Remaining gap | Sev |
+|---|---|---|---|---|---|---|
+| ADV-1 | `AnnotationSet` / `AnnotationAssignment`: assignment-scoped draft, OCC, queue, resume position, revision head; new streams start empty; submitted sets immutable | `server/sets.mjs`, migration 0006, `annotate.js` set mode | full_spec "§2 sets…", e2e/fullspec blind workbench | PASS (syn) | On a single-operator install the person can still open the primary screen in another tab. Isolation is enforced in the set APIs and UI, not physically. | P2 |
+| ADV-2 | Adjudication in a separate set; never mutates contributors; freeze blocked until adjudicated | `sets.mjs`, `datasets.mjs` | full_spec "§2/§11 adjudication…" | PASS (syn) | Accepted adjudication does not create the primary revision automatically; the operator approves it through the primary flow | P2 |
+| ADV-3 | Set-scoped identities; agreement compares partitions | `compareContents` | full_spec "§2.3 identities…" | PASS | — | — |
+| ADV-4 | `PhysicalActionEntity` / `ActionOccurrence`, append-only merge/split/retire, one event in at most one active action, coverage, pinned in manifests | `server/lineage.mjs` | full_spec "§4 physical actions…", e2e/fullspec | PASS (syn) | No source_upload_id/raw key columns (sources are content-addressed by id+sha256) | P2 |
+| ADV-5 | `PersonLineageRelation` merge/split/equivalent/retire, no cycles, frozen graph from relation ids | `lineage.mjs` | full_spec "§6 person lineage…", e2e/fullspec | PASS | Evaluation does not yet apply the lineage mapping to attribution | P2 |
+| ADV-6 | Raw-only boundary (§7) | workbench never loads outputs | full_spec "§7 raw-only boundary…" (static) | PASS (static) | — | — |
+| ADV-7 | Deterministic one-to-one matching per §8 (boundary-error tie-break; invalid config inconclusive) | `evaluate.mjs` match-2, `sets.matchEvents` | full_spec "§8 matching…", "§10 …" | PASS | — | — |
+| ADV-8 | Jaccard multi-label agreement (§9) | `sets.jaccard`, agreement report | full_spec "§9 Jaccard…", "§2.3…" | PASS | — | — |
+| ADV-9 | Evaluation identity tuple, idempotent replays (§10) | `evaluate.mjs` identity_key | full_spec "§10 evaluation identity…" | PASS | Failed-attempt history is not modelled (runs are synchronous) | P2 |
+| ADV-10 | Reproducible frozen datasets | `datasets.mjs` | existing dataset tests | PASS | — | — |
+| ADV-11 | Blind evaluation (no label leakage) | `evaluate.mjs` | `evaluation.test` | PASS | — | — |
+| ADV-12 | Editing output: source vs proxy vs final reel quality | — | — | NOT_TESTED | Needs a real rendered reel; the pipeline is not run without approval | P1 |
+| ADV-13 | §18: suggested sport with confirmation, `source_sports`, sport-stratified datasets, sport-specific metrics from annotations only | `sports.mjs`, `datasets.mjs`, `evaluate.mjs` | full_spec "§18…", e2e/workflow #10 | PASS (syn) | No AI/metadata suggestion source exists yet; only the confirm mechanism. Ball/hoop/court context is reported only where annotated. | P2 |
+| ADV-14 | Event-scoped primary (§3): person / no_primary_action / uncertain_primary; derived item primary | `annotations.mjs` | full_spec "§3…" | PASS | — | — |
+| ADV-15 | Backups and integrity audit include all new tables | `backup.mjs` | full_spec "backup/restore carries…" | PASS | — | — |
