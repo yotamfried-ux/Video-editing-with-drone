@@ -32,16 +32,14 @@ function validBox(b) {
 }
 const ts = v => (typeof v === 'string' && !Number.isNaN(Date.parse(v)) ? Date.parse(v) : NaN);
 
-/** Latest entry per `${segment_id}:${frame}` (stable: later array position wins ties). */
+/**
+ * Latest entry per `${segment_id}:${frame}`. The log is append-only, so ARRAY POSITION decides which decision is in force;
+ * client-supplied timestamps never do (a future-dated entry cannot shadow a later wrong-performer flag).
+ */
 export function latestByFrame(verifications) {
   const m = new Map();
-  (verifications || []).forEach((v, i) => {
-    const k = `${v.segment_id}:${v.frame}`;
-    const cur = m.get(k);
-    const t = ts(v.verified_at);
-    if (!cur || !(t < cur.t)) m.set(k, { v, t, i });
-  });
-  return new Map([...m].map(([k, x]) => [k, x.v]));
+  for (const v of Array.isArray(verifications) ? verifications : []) if (v && typeof v === 'object') m.set(`${v.segment_id}:${v.frame}`, v);
+  return m;
 }
 
 /**
@@ -54,6 +52,8 @@ export function validateBoxEvidence(c, segs) {
   const vs = c.box_verifications ?? [];
   if (!Array.isArray(vs)) throw new ApiError('INVALID_INPUT', 'מבנה אימותי תיבה לא תקין');
   for (const v of vs) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) throw new ApiError('INVALID_INPUT', 'רשומת אימות תיבה לא תקינה');
+    if (ts(v.verified_at) > Date.now() + 5 * 60 * 1000) throw new ApiError('INVALID_INPUT', 'חותמת זמן של החלטת בדיקה אינה יכולה להיות בעתיד');
     const s = segs.get(v?.segment_id);
     if (!s) throw new ApiError('INVALID_INPUT', 'אימות תיבה ללא מקטע');
     if (!isInt(v.frame) || v.frame < s.start_frame || v.frame >= s.end_frame) throw new ApiError('INVALID_INTERVAL', 'אימות תיבה מחוץ לטווח המקטע');
@@ -152,10 +152,11 @@ export function upgradeLegacyBoxQA(content) {
 
 // ---------------- derived track QA ----------------
 function interpAt(kfs, f) {
-  const exact = kfs.find(k => k.frame === f);
-  if (exact) return exact.bbox;
-  let a = null, b = null;
-  for (const k of kfs) { if (k.frame < f) a = k; else if (k.frame > f) { b = k; break; } }
+  // kfs sorted by frame; binary search (track QA must stay fast on long 4K events)
+  let lo = 0, hi = kfs.length - 1;
+  if (hi < 0 || f < kfs[0].frame || f > kfs[hi].frame) return null;
+  while (lo <= hi) { const mid = (lo + hi) >> 1; const fm = kfs[mid].frame; if (fm === f) return kfs[mid].bbox; if (fm < f) lo = mid + 1; else hi = mid - 1; }
+  const a = kfs[hi], b = kfs[lo];
   if (!a || !b) return null;
   const t = (f - a.frame) / (b.frame - a.frame), L = (p, q) => p + (q - p) * t;
   return { x: L(a.bbox.x, b.bbox.x), y: L(a.bbox.y, b.bbox.y), w: L(a.bbox.w, b.bbox.w), h: L(a.bbox.h, b.bbox.h) };
@@ -204,7 +205,8 @@ export function requiredCheckpoints(content, seg, policy) {
     if (!okfs.length) continue;
     const lo = Math.max(kfs[0].frame, okfs[0].frame), hi = Math.min(kfs[kfs.length - 1].frame, okfs[okfs.length - 1].frame);
     let inRun = false;
-    for (let f = lo; f <= hi; f++) {
+    const stepF = Math.max(1, Math.ceil((hi - lo + 1) / 2000));          // bounded work per pair: exact for spans <= 2000 frames, otherwise sampled every stepF frames
+    for (let f = lo; f <= hi; f += stepF) {
       const hit = iou(interpAt(kfs, f), interpAt(okfs, f)) > policy.crossing_iou;
       if (hit && !inRun) { add(f, 'crossing'); crossings.push({ frame: f, other_segment_id: o.id }); }
       if (!hit && inRun) add(f, 'crossing_exit');
@@ -234,7 +236,12 @@ export function segmentTrackQa(content, seg, fps) {
   const wrong = decisions.filter(d => d.status === 'wrong_performer');
   const decidedFrames = new Set(resolved.map(d => d.frame));
   const cp = checkpoints.map(c => ({ ...c, decision: decisions.find(d => d.frame === c.frame)?.status ?? 'unreviewed' }));
-  const missing = cp.filter(c => !decidedFrames.has(c.frame));
+  // A checkpoint is satisfied only by a decision that answers its question: identity risk points (crossing, jump,
+  // movement, start/middle/end) need a POSITIVE decision; visibility checkpoints may also be answered 'occluded'.
+  // 'Cannot determine' never satisfies a checkpoint of a track claimed as verified.
+  const satisfies = c => { const d = decisions.find(x => x.frame === c.frame)?.status; return POSITIVE.has(d) || (d === 'occluded' && c.reasons.every(r => r.startsWith('visibility_'))); };
+  const missing = cp.filter(c => !satisfies(c));
+  const unresolvedCheckpoints = cp.filter(c => !decidedFrames.has(c.frame));
   let maxGap = null;
   if (keyframes.length) {
     const fs = [...decidedFrames].sort((a, b) => a - b);
@@ -243,10 +250,10 @@ export function segmentTrackQa(content, seg, fps) {
     maxGap = 0; for (let i = 1; i < pts.length; i++) maxGap = Math.max(maxGap, pts[i] - pts[i - 1] - 1);
   }
   let status;
-  if (!keyframes.length) status = 'not_checked';
-  else if (wrong.length) status = 'needs_correction';
+  if (wrong.length) status = 'needs_correction';
+  else if (!keyframes.length) status = 'not_checked';
   else if (!decisions.some(d => DECIDED.has(d.status))) status = 'not_checked';
-  else if (!positive.length && resolved.length && !missing.length) status = 'cannot_determine';
+  else if (!positive.length && resolved.length && !unresolvedCheckpoints.length) status = 'cannot_determine';
   // A track needs at least two distinct human-checked positive frames; a single checked frame never verifies a track.
   else if (new Set(positive.map(d => d.frame)).size >= 2 && keyframes.length >= 2 && !missing.length && maxGap <= policy.max_gap_frames && !decisions.some(d => d.status === 'stale')) status = 'verified_in_checked_range';
   else status = 'partially_checked';

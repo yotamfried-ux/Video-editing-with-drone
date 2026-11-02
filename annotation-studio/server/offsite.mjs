@@ -8,7 +8,7 @@ import { mkdirSync, mkdtempSync, writeFileSync, readFileSync, existsSync, readdi
 import { spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import os from 'node:os';
-import { encryptFile, encryptBuffer, decryptStream, decryptFile, decryptToBuffer, sha256File, keyCheck, blindName, requireStrongKey } from './backupcrypto.mjs';
+import { encryptFile, encryptBuffer, decryptStream, decryptFile, decryptToBuffer, sha256File, keyCheck, blindName, requireStrongKey, manifestMac } from './backupcrypto.mjs';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
 import { LocalArchive } from './archive.mjs';
@@ -123,6 +123,7 @@ export async function runOffsiteBackup(ctx, destDir, { scope = 'labelled', allow
 }
 
 async function runPlaintext(ctx, destDir, { scope, label, deviceCheck }) {
+  if (existsSync(path.join(destDir, 'KEYINFO.json'))) throw new BackupError('BACKUP_MODE_MISMATCH', 'היעד מכיל גיבוי מוצפן — אין לכתוב אליו גיבוי לא מוצפן');
   mkdirSync(path.join(destDir, 'db'), { recursive: true });
   const dst = new LocalArchive(path.join(destDir, 'archive'));
   const result = { scope, db_file: null, db_digest: null, copied: 0, skipped: 0, repaired: 0, failed: [], objects: [], encrypted: false, device_check: deviceCheck, plaintext_attestation: 'device-encrypted' };
@@ -238,7 +239,9 @@ async function runEncrypted(ctx, destDir, { scope, label, encKey, deviceCheck })
       sqlite_file: result.sqlite_file ?? null, sqlite_sha256: result.sqlite_sha256 ?? null, sqlite_cipher_sha256: result.sqlite_cipher_sha256 ?? null,
       index_file: path.basename(idxFile), index_cipher_sha256: await sha256File(idxFile),
       objects: result.objects.sort((a, b) => (a.name < b.name ? -1 : 1)) };
-    atomicWrite(path.join(destDir, 'MANIFEST.json'), JSON.stringify({ ...manifest, digest: digestOf(manifest) }));
+    const dg = digestOf(manifest);
+    // Keyed MAC: without the passphrase nobody can re-point the manifest at an older (still decryptable) DB/index file.
+    atomicWrite(path.join(destDir, 'MANIFEST.json'), JSON.stringify({ ...manifest, digest: dg, mac: manifestMac(encKey, keyInfo.salt, dg) }));
   } finally { rmSync(work, { recursive: true, force: true }); }
   return finish(ctx, label, result);
 }
@@ -257,12 +260,12 @@ export async function verifyOffsite(destDir, { encryption_key = undefined, deep 
   if (!existsSync(mf)) return { ok: false, problems: ['manifest_missing'] };
   const m = JSON.parse(readFileSync(mf, 'utf8'));
   if (m.format !== OFFSITE_FORMAT_V2) return verifyOffsiteV1(destDir, { encryption_key });
-  const { digest, ...body } = m;
+  const { digest, mac, ...body } = m;
   const problems = [], warnings = [];
   if (digestOf(body) !== digest) problems.push('manifest_digest_mismatch');
   const encKey = encryption_key ?? process.env.STUDIO_BACKUP_KEY;
   const leaks = plaintextArtifacts(destDir);
-  if (leaks.length) warnings.push(`plaintext_artifacts_present:${leaks.length}`);
+  if (leaks.length) problems.push(`plaintext_artifacts_present:${leaks.length}`);   // unencrypted sensitive files on the medium
   const file = (dir, n) => path.join(destDir, dir, n ?? '');
   const cipherOk = async (f, h, tag) => { if (!existsSync(f)) { problems.push(`${tag}_missing`); return false; } if (h && (await sha256File(f)) !== h) { problems.push(`${tag}_cipher_mismatch`); return false; } return true; };
   // Without a key we can still prove the ciphertext is intact; with the key we prove it decrypts to the right content.
@@ -273,6 +276,7 @@ export async function verifyOffsite(destDir, { encryption_key = undefined, deep 
   let key_verified = false;
   if (!encKey) problems.push('encryption_key_required');
   else if (keyCheck(encKey, body.key_salt) !== body.key_check) problems.push('encryption_key_wrong');
+  else if (manifestMac(encKey, body.key_salt, digest) !== mac) problems.push('manifest_mac_mismatch');
   else if (deep) {
     key_verified = true;
     try {
@@ -315,9 +319,11 @@ export async function restoreFromOffsite(ctx, destDir, { encryption_key = undefi
   if (!encKey) throw new BackupError('KEY_REQUIRED', 'קובץ הגיבוי מוצפן — נדרש מפתח הצפנה לשחזור');
   const v = await verifyOffsite(destDir, { encryption_key: encKey });
   if (!v.ok) throw new BackupError(v.problems.includes('encryption_key_wrong') ? 'BACKUP_KEY_WRONG' : 'BACKUP_UNVERIFIED', `backup failed verification: ${v.problems.slice(0, 3).join(', ')}`);
-  const { digest, ...body } = m;
+  const { digest, mac, ...body } = m;
   const dbj = JSON.parse((await decryptToBuffer(path.join(destDir, 'db', body.db_file), encKey)).toString('utf8'));
-  restoreBackup(ctx.db, dbj);                                            // refuses to merge into a non-empty database
+  if (ctx.db.prepare('select count(*) n from sources').get().n > 0) throw new BackupError('RESTORE_TARGET_NOT_EMPTY', 'restore only into an EMPTY Studio home/database');
+  // Footage FIRST (content-addressed, hash-verified, idempotent), database LAST: a failure part-way leaves an empty
+  // database, so the restore can simply be retried — never a restored database pointing at a partial archive.
   const index = JSON.parse((await decryptToBuffer(path.join(destDir, body.index_file), encKey)).toString('utf8'));
   let objects = 0;
   for (const ix of index) {
@@ -325,6 +331,7 @@ export async function restoreFromOffsite(ctx, destDir, { encryption_key = undefi
     try { await decryptFile(path.join(destDir, 'objects', `${ix.name}.enc`), t, encKey); await ctx.archive.put(t, ix.sha256, ix.size); objects++; }
     finally { rmSync(t, { force: true }); }
   }
+  restoreBackup(ctx.db, dbj);                                            // refuses to merge into a non-empty database
   return finishRestore(ctx, objects);
 }
 

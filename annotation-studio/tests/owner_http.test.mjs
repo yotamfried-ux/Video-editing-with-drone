@@ -156,3 +156,17 @@ test('three independent roles over HTTP: owner A, performer B, visible-only C â€
     assert.equal((await b.call(`/api/sources/${b.ids[0]}/appearances`, { athlete_id: 'nope' })).status, 404);
   } finally { b.close(); }
 });
+
+test('review#4: assigning through a cloud row cannot silently replace the linked source owner', async () => {
+  const b = await boot();
+  try {
+    const Catalog = await import('../server/catalog_owner.mjs');
+    const [O1, O2] = await Promise.all(['O1', 'O2'].map(async l => (await b.call('/api/athletes', { label: l })).json));
+    await owner(b, b.ids[0], { owner_athlete_id: O1.id, expected_version: 0 });
+    b.ctx.db.prepare("insert into cloud_objects(id,key,prefix,size,pipeline_state,available,source_id,seen_at) values('co1','raw/x.mp4','raw/',1,'new',1,?,?)").run(b.ids[0], new Date().toISOString());
+    assert.throws(() => Catalog.setCloudObjectCatalogOwner(b.ctx.db, 'co1', { owner_athlete_id: O2.id, expected_version: 0 }), e => e.code === 'REASSIGN_CONFIRMATION_REQUIRED');
+    assert.equal((await owner(b, b.ids[0])).json.owner_athlete_id, O1.id);
+    Catalog.setCloudObjectCatalogOwner(b.ctx.db, 'co1', { owner_athlete_id: O2.id, expected_version: 0, confirm_reassign: true });
+    assert.equal((await owner(b, b.ids[0])).json.owner_athlete_id, O2.id);
+  } finally { b.close(); }
+});

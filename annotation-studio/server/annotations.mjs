@@ -80,11 +80,14 @@ export function validateContent(c, source, db) {
     if (s.athlete_id != null && !db.prepare('select 1 from athletes where id=?').get(s.athlete_id)) throw new ApiError('INVALID_INPUT', 'גולש לא קיים');
     segs.set(s.id, s);
   }
-  const kids = new Set();
+  const kids = new Set(), kfFrames = new Set();
   const latestLog = latestByFrame(Array.isArray(c.box_verifications) ? c.box_verifications : []);
   for (const k of c.keyframes) {
     if (!k.id || kids.has(k.id)) throw new ApiError('INVALID_INPUT', 'מזהה קיפריים כפול');
     kids.add(k.id);
+    const fk = `${k.segment_id}:${k.frame}`;
+    if (kfFrames.has(fk)) throw new ApiError('INVALID_INPUT', `שני BOX באותו פריים (${k.frame}) של אותו מקטע`);
+    kfFrames.add(fk);
     const s = segs.get(k.segment_id);
     if (!s) throw new ApiError('INVALID_INPUT', 'קיפריים ללא מקטע');
     if (!isInt(k.frame) || k.frame < s.start_frame || k.frame >= s.end_frame) throw new ApiError('INVALID_INTERVAL');
@@ -171,7 +174,7 @@ export function unresolved(content, source = null) {
     included_not_usable: inc.filter(s => s.usability === 'unusable').length,
     missing_reason_codes: segs.filter(needsReason).length,
     needs_review_flags: segs.filter(s => s.needs_review).length,
-    boxes_needing_correction: segs.filter(s => qaById.get(s.id)?.status === 'needs_correction').length,
+    boxes_needing_correction: segs.filter(s => s.decision !== 'exclude' && qaById.get(s.id)?.status === 'needs_correction').length,
     included_boxes_unverified: inc.filter(s => { const q = qaById.get(s.id); return q?.has_boxes && q.status !== 'verified_in_checked_range'; }).length,
   };
   out.blocking = {
@@ -187,6 +190,7 @@ export function unresolved(content, source = null) {
   };
   // Informational caveat recorded on the revision; never blocks, never reported as verified.
   out.caveats = { included_boxes_unverified: out.included_boxes_unverified };
+  Object.defineProperty(out, '_qa', { value: qa, enumerable: false });
   out.has_blocking = Object.values(out.blocking).some(Boolean);
   out.has_acknowledgeable = Object.values(out.acknowledgeable).some(Boolean);
   out.track_qa = qa.map(q => ({ segment_id: q.segment_id, status: q.status, checked_frames: q.checked_frames, verified_frames: q.verified_frames, box_frames: q.box_frames, checked_range: q.checked_range, event_span_checked_ratio: q.event_span_checked_ratio, missing_checkpoints: q.missing_checkpoints }));
@@ -258,10 +262,10 @@ export function sourceStates(db, sourceId) {
   const content = d ? upgradeLegacyBoxQA(JSON.parse(d.content)).content : rev ? JSON.parse(rev.content) : emptyContent();
   const segs = content.segments || [];
   const count = (k, vals) => Object.fromEntries(vals.map(v => [v, segs.filter(x => (x[k] ?? 'uncertain') === v).length]));
-  const qa = trackQaSummary(content, fpsOfSource(src));
+  const u = unresolved(content, src);
+  const qa = u._qa;
   const frozen = db.prepare(`select m.dataset_id, v.name, m.revision_id, m.split from dataset_members m join dataset_versions v on v.id=m.dataset_id where m.source_id=?`).all(sourceId);
   const draftEqualsApproved = !!(rev && d && digestOf(JSON.parse(d.content)) === rev.digest);
-  const u = unresolved(content, src);
   const operatorRequestedReview = !!content.review_request?.requested;
   let workflow;
   if (!d && !rev) workflow = operatorRequestedReview ? 'needs_review' : 'not_started';

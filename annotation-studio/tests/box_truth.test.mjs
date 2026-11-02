@@ -292,3 +292,67 @@ test('4K source shown through a low-resolution proxy: boxes and frames are store
   c.keyframes.push(K('k2', 's1', src.frame_count, nb));
   assert.throws(() => A.saveDraft(ctx.db, src.id, 1, c), /./);
 });
+
+// ---- regressions from the independent review ----
+test('review#2: a future-dated decision cannot shadow a later wrong-performer flag; future timestamps refused', async () => {
+  const { db, src } = await withSource();
+  const a = A.createAthlete(db, 'A').id;
+  const c = base(a);
+  c.box_verifications = [V('s1', 0, 'verified_correct', B(0.1), a, { verified_at: '9999-01-01T00:00:00.000Z' })];
+  assert.throws(() => A.saveDraft(db, src.id, 0, c), /בעתיד/);
+  c.box_verifications = [V('s1', 0, 'verified_correct', B(0.1), a, { verified_at: '2026-01-01T00:00:00.000Z' }), V('s1', 30, 'verified_correct', B(0.3), a), V('s1', 59, 'verified_correct', B(0.5), a),
+    V('s1', 0, 'wrong_performer', B(0.1), a, { verified_at: '2020-01-01T00:00:00.000Z' })];      // appended later, OLDER timestamp
+  A.saveDraft(db, src.id, 0, c);
+  assert.equal(A.sourceStates(db, src.id).box_qa.per_segment[0].status, 'needs_correction', 'array order, not client time, decides');
+  assert.throws(() => A.approve(db, src.id, { expectedVersion: 1, acknowledgeUnresolved: true }), code('BLOCKING_ITEMS'));
+});
+
+test('review#3: "cannot determine" at a crossing never satisfies the checkpoint of a verified track', async () => {
+  const { db, src } = await withSource();
+  const a = A.createAthlete(db, 'A').id, b = A.createAthlete(db, 'B').id;
+  const c = A.emptyContent();
+  c.segments.push(seg('s1', 0, 60, { athlete_id: a, usability: 'usable' }), seg('s2', 0, 60, { athlete_id: b, usability: 'usable', decision: 'exclude', reason_codes: ['other'] }));
+  c.keyframes.push(K('a0', 's1', 0, B(0.1)), K('a59', 's1', 59, B(0.7)), K('b0', 's2', 0, B(0.7)), K('b59', 's2', 59, B(0.1)));
+  c.box_verifications = [V('s1', 0, 'verified_correct', B(0.1), a), V('s1', 59, 'verified_correct', B(0.7), a)];
+  for (let f = 1; f < 59; f++) c.box_verifications.push(V('s1', f, 'indeterminate', undefined, a));
+  c.track_qa_policy = { max_gap_frames: 100 };
+  A.saveDraft(db, src.id, 0, c);
+  const q = A.sourceStates(db, src.id).box_qa.per_segment.find(x => x.segment_id === 's1');
+  assert.ok(q.crossings >= 1);
+  assert.notEqual(q.status, 'verified_in_checked_range');
+  assert.ok(q.missing_checkpoints.length >= 1);
+});
+
+test('review#5/#6: wrong flag blocks even with no keyframes; excluding the segment clears the block', async () => {
+  const { db, src } = await withSource();
+  const a = A.createAthlete(db, 'A').id;
+  const c = A.emptyContent();
+  c.segments.push(seg('s1', 0, 60, { athlete_id: a, usability: 'usable' }));
+  c.box_verifications = [V('s1', 10, 'wrong_performer', B(0.1), a)];
+  A.saveDraft(db, src.id, 0, c);
+  assert.throws(() => A.approve(db, src.id, { expectedVersion: 1, acknowledgeUnresolved: true }), code('BLOCKING_ITEMS'));
+  c.segments[0] = { ...c.segments[0], decision: 'exclude', usability: 'unusable', reason_codes: ['unclear_identity'] };
+  A.saveDraft(db, src.id, 1, c);
+  assert.equal(A.approve(db, src.id, { expectedVersion: 2 }).unchanged, false);
+});
+
+test('review#7/#8: duplicate (segment, frame) keyframes and null log entries are 400s', async () => {
+  const { db, src } = await withSource();
+  const a = A.createAthlete(db, 'A').id;
+  let c = base(a); c.keyframes.push(K('dup', 's1', 30, B(0.35)));
+  assert.throws(() => A.saveDraft(db, src.id, 0, c), code('INVALID_INPUT'));
+  c = base(a); c.box_verifications = [null];
+  assert.throws(() => A.saveDraft(db, src.id, 0, c), code('INVALID_INPUT'));
+});
+
+test('review#9: track QA on long 4K events stays fast (20 segments x 18,000 frames)', async () => {
+  const c = A.emptyContent();
+  const ids = [];
+  for (let i = 0; i < 20; i++) {
+    c.segments.push(seg(`s${i}`, 0, 18000, { athlete_id: `ath${i}` })); ids.push(`s${i}`);
+    for (let f = 0; f < 18000; f += 5) c.keyframes.push(K(`k${i}-${f}`, `s${i}`, f, B(0.02 + (i * 0.04 + f / 18000 * 0.5) % 0.8)));
+  }
+  const t = Date.now();
+  for (const s of c.segments) segmentTrackQa(c, s, 60);
+  assert.ok(Date.now() - t < 20000, `took ${Date.now() - t} ms`);
+});

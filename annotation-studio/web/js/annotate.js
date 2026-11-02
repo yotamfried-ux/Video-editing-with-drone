@@ -404,7 +404,7 @@ function bindCreate(row, aid) {
 function boxAt(segId, f) {
   const ks = C().keyframes.filter(k => k.segment_id === segId).sort((a, b) => a.frame - b.frame);
   const exact = ks.find(k => k.frame === f);
-  const ver = (C().box_verifications || []).find(v => v.segment_id === segId && v.frame === f);
+  const ver = latestVerification(C(), segId, f);   // the log is append-only: the LATEST decision is in force
 
   if (exact) {
     return {
@@ -421,7 +421,8 @@ function boxAt(segId, f) {
     bbox: { x: L(a.bbox.x, b.bbox.x), y: L(a.bbox.y, b.bbox.y), w: L(a.bbox.w, b.bbox.w), h: L(a.bbox.h, b.bbox.h) },
     kf: null,
     interp: true,
-    verification_status: ver?.status || 'unreviewed' // Interpolated is NEVER verified by default!
+    // No keyframe at this frame => nothing here can be a verified box (a positive decision needs an exact-frame box).
+    verification_status: ver && !['verified_correct', 'corrected'].includes(ver.status) ? ver.status : 'unreviewed'
   };
 }
 
@@ -524,8 +525,8 @@ function putKeyframe(s, bbox, provenance = 'manual') {
 
 // Append-only per-frame decision log (spec §21.2.4). Each entry is bound to the exact geometry and performer it attests.
 function latestVerification(c, segId, frame) {
-  let best = null;
-  for (const v of c.box_verifications || []) if (v.segment_id === segId && v.frame === frame && (!best || !(Date.parse(v.verified_at) < Date.parse(best.verified_at)))) best = v;
+  let best = null;   // array position decides (append-only log), exactly like the server
+  for (const v of c.box_verifications || []) if (v && v.segment_id === segId && v.frame === frame) best = v;
   return best;
 }
 function appendVerification(c, s, frame, status, extra = {}) {

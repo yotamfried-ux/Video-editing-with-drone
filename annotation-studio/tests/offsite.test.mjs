@@ -227,3 +227,21 @@ test('ENCRYPTED RESTORE DRILL after "restart": every surfer, video, owner assign
   // prompts for a fresh backup of the rebuilt machine (it never inherits a claim about a different machine's state).
   assert.equal(backupStatus(fresh.db).state, 'never');
 });
+
+test('review#10: manifest re-pointing is detected (keyed MAC); plaintext run into an encrypted destination refused; plaintext leftovers fail verify', async () => {
+  const { ctx } = await world();
+  const dest = tmp('ext-enc-');
+  await runOffsiteBackup(ctx, dest, encDev(ctx));
+  const mf = path.join(dest, 'MANIFEST.json');
+  const m = JSON.parse(readFileSync(mf, 'utf8'));
+  // attacker without the key recomputes the plain digest after re-pointing
+  const { digest, mac, ...body } = m; body.db_file = 'gt-older.json.enc';
+  const { digestOf } = await import('../server/annotations.mjs');
+  writeFileSync(mf, JSON.stringify({ ...body, digest: digestOf(body), mac }));
+  assert.ok((await verifyOffsite(dest, { encryption_key: KEY })).problems.includes('manifest_mac_mismatch'));
+  await assert.rejects(runOffsiteBackup(ctx, dest, diffDev(ctx)), e => e.code === 'BACKUP_MODE_MISMATCH');
+  const dest2 = tmp('ext-enc-'); await runOffsiteBackup(ctx, dest2, encDev(ctx));
+  writeFileSync(path.join(dest2, 'db', 'leftover.json'), '{}');
+  const v = await verifyOffsite(dest2, { encryption_key: KEY });
+  assert.equal(v.ok, false); assert.match(v.problems.join(), /plaintext_artifacts_present/);
+});

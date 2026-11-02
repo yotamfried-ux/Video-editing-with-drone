@@ -133,3 +133,9 @@ export function blindName(passphrase, saltHex, sha256) {
   const k = deriveKey(passphrase, Buffer.from(saltHex, 'hex'));
   return crypto.createHmac('sha256', k).update(`object:${sha256}`).digest('hex');
 }
+
+/** Keyed MAC over the manifest digest (prevents rollback/re-pointing by someone without the passphrase). */
+export function manifestMac(passphrase, saltHex, digest) {
+  const k = deriveKey(passphrase, Buffer.from(saltHex, 'hex'));
+  return crypto.createHmac('sha256', k).update(`manifest:${digest}`).digest('hex');
+}
