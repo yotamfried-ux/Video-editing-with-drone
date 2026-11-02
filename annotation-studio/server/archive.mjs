@@ -1,7 +1,7 @@
 // Protected source archive. Interface = {put, path, verify}. The local implementation is
 // content-addressed and write-once; an R2 implementation (separate bucket + credentials)
 // is a drop-in once the operator approves creating that resource.
-import { createReadStream, createWriteStream, mkdirSync, existsSync, renameSync, chmodSync, rmSync, statSync } from 'node:fs';
+import { createReadStream, createWriteStream, mkdirSync, existsSync, renameSync, chmodSync, rmSync, statSync, readdirSync } from 'node:fs';
 import { createHash, randomUUID } from 'node:crypto';
 import { pipeline } from 'node:stream/promises';
 import path from 'node:path';
@@ -13,6 +13,7 @@ export async function sha256File(file) {
 }
 
 export class LocalArchive {
+  kind = 'local';
   constructor(root) { this.root = root; mkdirSync(root, { recursive: true }); }
   keyFor(sha) { return `${sha.slice(0, 2)}/${sha}`; }
   pathFor(key) { return path.join(this.root, key); }
@@ -36,6 +37,17 @@ export class LocalArchive {
       chmodSync(dest, 0o444);
       return key;
     } finally { rmSync(tmp, { force: true }); }
+  }
+
+  async size(key) { const p = this.pathFor(key); return existsSync(p) ? statSync(p).size : null; }
+  async open(key, { start, end } = {}) { return createReadStream(this.pathFor(key), start != null ? { start, end } : undefined); }
+  async list() {
+    const out = [];
+    for (const d of existsSync(this.root) ? readdirSync(this.root, { withFileTypes: true }) : []) {
+      if (!d.isDirectory()) continue;
+      for (const f of readdirSync(path.join(this.root, d.name))) out.push({ key: `${d.name}/${f}`, size: statSync(path.join(this.root, d.name, f)).size });
+    }
+    return out;
   }
 
   async verify(key, expectedSha, expectedSize) {

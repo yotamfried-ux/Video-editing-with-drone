@@ -1,9 +1,12 @@
 """Runtime R2 batch scoping for RAW pipeline inputs.
 
-When RAW_BATCH_ID is set, R2 processing is restricted to raw/<batch_id>/ and
-processed footage is moved to processed/<batch_id>/ so unrelated uploads stay out
-of the current run. Before returning the scoped list, verified uploads are
-SHA-256 reconciled so byte-identical sources cannot both reach analysis.
+RAW is permanent: a source video under raw/ is read, never moved, replaced or deleted. "Already
+processed" is a tiny marker object under metadata/source_state/ (see integrations.r2_storage), so a
+re-run skips finished sources and Reset simply forgets the markers.
+
+When RAW_BATCH_ID is set, R2 processing is restricted to raw/<batch_id>/. Before returning the scoped
+list, verified uploads are SHA-256 reconciled so byte-identical sources cannot both reach analysis
+(excluded from the run, never deleted).
 """
 from __future__ import annotations
 
@@ -110,9 +113,8 @@ def install() -> None:
             # Restore exactly those objects (idempotent) before admitting anything.
             ensure_frozen_inputs()
         objects = r2.list_objects(scoped_prefix(r2.RAW_PREFIX))
-        # Batchless (operator "Run pipeline") mode processes everything in the first folder.
-        # The app uploads into raw/<batch>/, so that means raw/ at any depth. Sources that
-        # were already processed have been moved on to processed/ and are not listed here.
+        # The app uploads into raw/<batch>/, so batchless mode means raw/ at any depth. Sources that
+        # were already processed carry a marker (the video itself stays in raw/) and are not listed here.
         if allowed:
             present = {str(obj.get("Key") or "") for obj in objects}
             missing = sorted(allowed - present)
@@ -123,6 +125,8 @@ def install() -> None:
                 raise RuntimeError(
                     f"Frozen input manifest expected {len(allowed)} objects but admitted {len(objects)}"
                 )
+        else:
+            objects = r2.unprocessed_sources(objects)
         videos = [r2._object_to_video(obj) for obj in objects if r2._is_video_key(obj["Key"])]
         if not videos:
             return []
@@ -133,11 +137,10 @@ def install() -> None:
             videos,
             download_for_dedup,
             storage_backend="r2",
-            # Never delete original RAW objects in the batchless operator flow.
-            # Duplicate candidates can be excluded from this run without
-            # mutating the uploaded footage.
+            # Original RAW objects are never deleted, in any mode: duplicate candidates are only excluded
+            # from this run. delete_source is kept for API compatibility and is never called.
             delete_source=r2.delete_object,
-            preserve_sources=not bool(safe_batch_id()),
+            preserve_sources=True,
         )
         for video in canonical:
             key = str(video.get("id") or "")
@@ -153,37 +156,17 @@ def install() -> None:
         return original_download_video(file_id_or_key, filename)
 
     def mark_as_processed(file_id_or_key: str) -> None:
-        if safe_batch_id():
-            # Batch-scoped runs retain their existing frozen-manifest semantics.
-            dest_key = move_between_prefixes(file_id_or_key, r2.RAW_PREFIX, r2.PROCESSED_PREFIX)
-            r2.move_object(file_id_or_key, dest_key)
-            return
-        # Batchless operator runs move the source one stage on (raw/ -> processed/) so the
-        # first folder only ever holds what still has to be processed. Stage folders are flat:
-        # a source lands at processed/<file>, whatever sub-folder it was uploaded into. The
-        # original is deleted only after the processed copy is proven byte-identical.
+        # Record the state, leave the footage exactly where it is (raw/ is permanent).
         if not str(file_id_or_key).startswith(r2.RAW_PREFIX):
             raise RuntimeError("Cannot mark a non-RAW object as processed")
-        name = Path(file_id_or_key).name
-        flat_raw = f"{r2.RAW_PREFIX}{name}"
-        if flat_raw != file_id_or_key:
-            # Legacy nested upload (raw/<batch>/file): its provenance row follows it to the
-            # flat key so a later Reset can still recognise it as a tracked source.
-            from integrations.source_uploads import rekey_source_upload
-
-            rekey_source_upload(file_id_or_key, flat_raw)
-        r2.move_object_verified(file_id_or_key, f"{r2.PROCESSED_PREFIX}{name}")
+        r2.mark_source_processed(file_id_or_key)
 
     def requeue_video(file_id_or_key: str) -> bool:
-        try:
-            dest_key = move_between_prefixes(file_id_or_key, r2.PROCESSED_PREFIX, r2.RAW_PREFIX)
-            r2.move_object(file_id_or_key, dest_key)
-            return True
-        except Exception:
-            return False
+        # Reprocess = forget the marker (a legacy source only in processed/ is COPIED back first).
+        return r2.requeue_video_impl(file_id_or_key)
 
     def restore_processed_to_raw() -> int:
-        # Manifest-driven and batch-scoped only; never a global processed/ -> raw/ sweep.
+        # Manifest-driven and batch-scoped only; never a global sweep.
         return ensure_frozen_inputs().restored
 
     r2.get_new_videos = get_new_videos

@@ -99,10 +99,48 @@ function* files(dir) {
     else if (/\.(py|ts|tsx|mjs|js|sh|yml|yaml|json|sql)$/.test(n) && st.size < 2e6) yield p;
   }
 }
+
+test('catalog owner over HTTP: missing expected_version returns 400, stale returns 409, valid increments version', async () => {
+  const b = await boot();
+  const athRes = await b.call('/api/athletes', { method: 'POST', body: JSON.stringify({ label: 'HTTP Surfer' }) });
+  const ath = await athRes.json();
+
+  // 1. Missing expected_version -> 400 INVALID_INPUT
+  const noVer = await b.call(`/api/sources/${b.id}/catalog-owner`, {
+    method: 'POST',
+    body: JSON.stringify({ owner_athlete_id: ath.id }),
+  });
+  assert.equal(noVer.status, 400);
+  const noVerJson = await noVer.json();
+  assert.equal(noVerJson.code, 'INVALID_INPUT');
+
+  // 2. Stale expected_version (say 99) -> 409 VERSION_CONFLICT
+  const stale = await b.call(`/api/sources/${b.id}/catalog-owner`, {
+    method: 'POST',
+    body: JSON.stringify({ owner_athlete_id: ath.id, expected_version: 99 }),
+  });
+  assert.equal(stale.status, 409);
+  const staleJson = await stale.json();
+  assert.equal(staleJson.code, 'VERSION_CONFLICT');
+  assert.match(staleJson.message, /עודכנ/);
+
+  // 3. Correct expected_version 0 -> 200 with owner_version 1
+  const ok = await b.call(`/api/sources/${b.id}/catalog-owner`, {
+    method: 'POST',
+    body: JSON.stringify({ owner_athlete_id: ath.id, expected_version: 0 }),
+  });
+  assert.equal(ok.status, 200);
+  const okJson = await ok.json();
+  assert.equal(okJson.owner_version, 1);
+  assert.equal(okJson.owner_athlete_id, ath.id);
+
+  b.close();
+});
+
 test('production code and workflows never reference the Studio, its state, or its credentials', () => {
   const offenders = [];
   for (const f of files(REPO)) {
-    const rel = path.relative(REPO, f);
+    const rel = path.relative(REPO, f).replace(/\\/g, '/');
     if (rel.startsWith('docs/') || rel === '.github/workflows/annotation-studio-check.yml') continue;
     const t = readFileSync(f, 'utf8');
     if (/annotation-studio|STUDIO_HOME|STUDIO_TOKEN|studio\.sqlite/.test(t)) offenders.push(rel);
@@ -110,12 +148,21 @@ test('production code and workflows never reference the Studio, its state, or it
   assert.deepEqual(offenders, []);
 });
 
+test('the inference pipeline workflow holds neither a Ground Truth credential nor the database-admin credential', () => {
+  const wf = readFileSync(path.join(REPO, '.github', 'workflows', 'pipeline-run.yml'), 'utf8');
+  // SUPABASE_DB_URL is the `postgres` role, which Supabase makes a member of pg_read_all_data: it can read every schema.
+  // It must stay confined to the manually dispatched migration/release workflows and never reach inference runs.
+  assert.ok(!/SUPABASE_DB_URL/.test(wf), 'pipeline-run.yml must not reference SUPABASE_DB_URL');
+  assert.ok(!/STUDIO_|ground_truth|gt_studio|gt_evaluator/.test(wf), 'pipeline-run.yml must not reference Ground Truth');
+});
+
 test('Studio code never imports from or reads pipeline/web-api secrets', () => {
   const here = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
   const bad = [];
   for (const d of ['server', 'web', 'scripts']) for (const f of files2(path.join(here, d))) {
     const t = readFileSync(f, 'utf8');
-    if (/OPERATOR_SECRET|SUPABASE_SERVICE_KEY|GOOGLE_SERVICE_ACCOUNT|R2_SECRET|from ['"]\.\.\/\.\.\//.test(t)) bad.push(path.relative(here, f));
+    // Studio has its own STUDIO_* credentials; the pipeline's production variable names must never appear unprefixed.
+    if (/OPERATOR_SECRET|SUPABASE_SERVICE_KEY|SUPABASE_URL|GOOGLE_SERVICE_ACCOUNT|(?<![A-Z_])R2_(SECRET_ACCESS_KEY|ACCESS_KEY_ID|BUCKET|ACCOUNT_ID)|SECRET_KEY_ID|from ['"]\.\.\/\.\.\//.test(t)) bad.push(path.relative(here, f));
   }
   assert.deepEqual(bad, []);
 });

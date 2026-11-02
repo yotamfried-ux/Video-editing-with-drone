@@ -11,7 +11,8 @@
  *    never SQL on storage.objects).
  *  - DB: active references are neutralized by one atomic RPC; history is kept.
  * Never touched: users/auth/profiles, athlete photos, non-video R2 objects,
- * metadata/, videos under unknown prefixes (reported, not deleted), config.
+ * metadata/, original source videos under raw/ and processed/ (permanent, reported not deleted),
+ * videos under unknown prefixes (reported, not deleted), config.
  *
  * The run is resumable and idempotent: every step recomputes the remaining work
  * from live storage state, deletes what it can inside a time budget, and only
@@ -21,9 +22,12 @@ import type { R2MultipartUpload, R2Object } from './r2-storage';
 
 export const CLEANUP_CONFIRMATION = 'DELETE_OLD_VIDEOS';
 
+// Derived outputs only. raw/ and processed/ hold the ORIGINAL source videos and are never cleaned:
+// they are reported (as unscoped videos) but cannot be deleted by this service.
 export const R2_VIDEO_PREFIXES = [
-  'raw/', 'processed/', 'review/', 'approved/', 'pending_payment/', 'pending_uploads/', 'previews/',
+  'review/', 'approved/', 'pending_payment/', 'pending_uploads/', 'previews/',
 ] as const;
+export const R2_SOURCE_PREFIXES = ['raw/', 'processed/'] as const;
 export const R2_PROTECTED_PREFIXES = ['metadata/'] as const;
 export const SUPABASE_VIDEO_BUCKET = 'reels';
 export const SUPABASE_PROTECTED_BUCKETS = ['athlete_photos'] as const;
@@ -86,9 +90,10 @@ export type InventorySummary = {
 const lower = (s: string) => s.toLowerCase();
 export const isVideoName = (name: string) => VIDEO_EXTENSIONS.some((ext) => lower(name).endsWith(ext));
 export const isProtectedR2Key = (key: string) => R2_PROTECTED_PREFIXES.some((p) => key.startsWith(p));
+export const isSourceR2Key = (key: string) => R2_SOURCE_PREFIXES.some((p) => key.startsWith(p));
 /** The single gate that decides whether an R2 key may ever be deleted. */
 export const isInScopeR2VideoKey = (key: string) =>
-  !isProtectedR2Key(key) && R2_VIDEO_PREFIXES.some((p) => key.startsWith(p)) && isVideoName(key) && !key.includes('..');
+  !isProtectedR2Key(key) && !isSourceR2Key(key) && R2_VIDEO_PREFIXES.some((p) => key.startsWith(p)) && isVideoName(key) && !key.includes('..');
 
 export async function takeInventory(storage: CleanupStorage): Promise<Inventory> {
   const [objects, multipart, reels, ...protectedFiles] = await Promise.all([
@@ -172,6 +177,7 @@ export async function deleteStep(
   const totals = emptyTotals();
 
   await mapLimit(inv.r2_video_keys, DELETE_CONCURRENCY, async (key) => {
+    if (isSourceR2Key(key)) throw new Error('Refusing to delete an original source video (raw/ and processed/ are permanent)');
     if (!isInScopeR2VideoKey(key)) throw new Error('Refusing to delete an out-of-scope R2 key');
     await storage.deleteR2Object(key);
     totals.r2_deleted += 1;

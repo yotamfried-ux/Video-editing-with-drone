@@ -2,7 +2,7 @@
 scripts/reset_and_rerun.py
 ---------------------------
 1. Delete all MP4 files from the REVIEW folder (draft reels from prior run).
-2. Move files back from PROCESSED folder → RAW folder (so they can be re-processed).
+2. Make sure every source is in RAW (legacy processed/ sources are COPIED, never moved) and forget processed state.
 3. Clear processed.json (local state cache).
 4. Invoke the pipeline.
 """
@@ -267,13 +267,12 @@ def _r2_delete_prefix(prefix: str, label: str, dry_run: bool = False) -> int:
 
 
 def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
-    """Return every processed source video to the first folder (raw/), then clear processed/.
+    """Make every source available in raw/ and forget all processed markers, so the next run admits them all.
 
-    Stage-folder model: a source lives in exactly one stage folder and stage folders are flat.
-    Reset moves each source back to raw/<file> (legacy sources uploaded under raw/<batch>/ are
-    flattened and their provenance row re-pointed), so the next run admits it again. The processed/ copy is deleted only after every restored copy
-    has been verified byte-for-byte. Objects in processed/ that are not source uploads (for
-    example delivered reels) have no provenance row and are left untouched.
+    RAW is permanent: nothing is moved or deleted. A legacy source that only exists under processed/ is COPIED
+    to raw/<file> (never overwriting; verified byte-for-byte) and its processed/ copy is kept. Objects in
+    processed/ that are not source uploads (for example delivered reels) have no provenance row and are left
+    untouched. Resetting then only deletes the small processed-state markers under metadata/.
     """
     from integrations import r2_storage as r2
     from integrations.source_uploads import get_source_upload, rekey_source_upload
@@ -308,7 +307,8 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
 
     if dry_run:
         for source, dest in plan.items():
-            print(f"  [dry-run] Would move {source} -> {dest} (and delete the processed copy)")
+            print(f"  [dry-run] Would COPY {source} -> {dest} if absent (the processed copy is kept)")
+        print("  [dry-run] Would clear processed markers under metadata/source_state/")
         return len(plan)
 
     # Phase 1: restore and verify every source. Phase 2: only then clear processed/.
@@ -333,12 +333,12 @@ def _restore_r2_sources_to_raw(*, dry_run: bool = False) -> int:
         except BaseException as exc:  # noqa: BLE001 - report after every copy attempt finished
             errors.append(exc)
     if errors:
-        raise RuntimeError(f"RAW restore failed for {len(errors)} source(s); processed/ was not touched: {errors[0]}")
+        raise RuntimeError(f"RAW restore failed for {len(errors)} source(s); nothing was moved or deleted: {errors[0]}")
     for source, dest in plan.items():
         legacy_key = f"{r2.RAW_PREFIX}{source.removeprefix(r2.PROCESSED_PREFIX)}"
         rekey_source_upload(legacy_key, dest)  # no-op when the row already uses the flat key
-    for source in plan:
-        r2.delete_object(source)
+    cleared = r2.clear_source_processed()
+    print(f"  Cleared {cleared} processed marker(s); no source video was moved or deleted.")
     return len(plan)
 
 

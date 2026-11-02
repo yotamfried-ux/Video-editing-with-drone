@@ -101,7 +101,7 @@ test('revisions survive a restart (fresh connection to the same home)', async ()
   const c = A.emptyContent(); c.segments.push(seg('s', 7, 77)); A.saveDraft(db, src.id, 0, c);
   const rev = A.approve(db, src.id, { expectedVersion: 1, acknowledgeUnresolved: true }).revision;
   const { createContext } = await import('../server/context.mjs');
-  const again = createContext(ctx.home);
+  const again = createContext(ctx.home, { dbUrl: ctx.dbUrl });
   const r = A.getRevision(again.db, rev.id);
   assert.equal(r.content.segments[0].start_frame, 7); assert.equal(r.content.segments[0].end_frame, 77);
 });

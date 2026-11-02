@@ -10,10 +10,10 @@
     },
     {
       "package": "node-forge",
-      "version": "1.4.0",
+      "version": "1.4.2",
       "cve": "CVE-2026-85393",
       "scope": "Expo CLI/mobile build tooling",
-      "reason": "No patched upstream release; exception valid only while absent from web-api runtime graph."
+      "reason": "No patched upstream release; exception valid only while absent from web-api runtime graph. Re-reviewed 2026-10-31 when moving 1.4.0 -> 1.4.2 to fix five HIGH advisories fixed in 1.4.1: 1.4.2 is the latest upstream release and `npm audit` reports no advisory against it, but that does not confirm CVE-2026-85393 is fixed, so the exception is kept (same expiry)."
     }
   ]
 }

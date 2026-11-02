@@ -6,8 +6,8 @@ The operator "Send to re-edit" flow calls requeue_video() with the source id
 recorded in the `drafts` table at draft-creation time — the object's raw/
 key, captured *before* the original run's mark_as_processed moved it to
 processed/. requeue_video must always move it back from processed/ to raw/
-regardless of which prefix the caller's id happens to carry, mirroring how
-the Drive adapter hardcodes PROCESSED_FOLDER_ID -> RAW_FOLDER_ID. Before the
+regardless of which prefix the caller's id happens to carry. Since RAW became permanent this is a verified
+COPY (processed/ is kept, nothing is deleted) plus forgetting the processed marker. Before the
 fix, requeue_video treated the passed-in (stale, raw/-prefixed) key as the
 current location, tried to copy from a key that no longer existed, and
 silently returned False -- surfacing as "source videos not found" and a
@@ -49,14 +49,16 @@ class _FakeR2Client:
 
 def main() -> int:
     basename = "2026-07-04T18-34-54_1000270686.mp4"
-    # The video was already moved to processed/ by mark_as_processed during
-    # the original run -- it no longer lives at raw/<basename>.
+    # Legacy state: the video was MOVED to processed/ by an old run -- it no longer lives at raw/<basename>.
     objects = {f"processed/{basename}": b"video-bytes"}
     fake_client = _FakeR2Client(objects)
     r2_storage._client = lambda: fake_client
+    r2_storage._head = lambda key: {"ContentLength": len(objects[key]), "ETag": "e"} if key in objects else None
+    r2_storage.same_object_bytes = lambda a, b: a in objects and b in objects and objects[a] == objects[b]
+    cleared: list[str | None] = []
+    r2_storage.clear_source_processed = lambda key=None: cleared.append(key) or 0
 
-    # The caller passes back the *stale* raw/-prefixed id recorded in the
-    # drafts table at draft-creation time, not the current processed/ key.
+    # The caller passes back the *stale* raw/-prefixed id recorded in the drafts table.
     stale_raw_prefixed_id = f"raw/{basename}"
     ok = r2_storage.requeue_video(stale_raw_prefixed_id)
 
@@ -67,10 +69,20 @@ def main() -> int:
         )
     if f"raw/{basename}" not in fake_client.objects:
         raise SystemExit(f"expected raw/{basename} to exist after requeue, got {list(fake_client.objects)}")
-    if f"processed/{basename}" in fake_client.objects:
-        raise SystemExit(f"expected processed/{basename} to be removed after requeue, got {list(fake_client.objects)}")
+    # RAW is permanent and nothing is moved: the processed/ original is KEPT and nothing is deleted.
+    if f"processed/{basename}" not in fake_client.objects:
+        raise SystemExit("requeue must not remove the processed/ original")
+    if fake_client.deleted:
+        raise SystemExit(f"requeue must delete nothing, deleted {fake_client.deleted}")
     if fake_client.copy_calls != [(f"processed/{basename}", f"raw/{basename}")]:
         raise SystemExit(f"expected a single copy from processed/ to raw/, got {fake_client.copy_calls}")
+    if cleared != [f"raw/{basename}"]:
+        raise SystemExit(f"requeue must forget the processed marker of the raw key, got {cleared}")
+
+    # A source that is already in raw/ is simply un-marked, with no copy at all.
+    fake_client.copy_calls.clear()
+    if not r2_storage.requeue_video(stale_raw_prefixed_id) or fake_client.copy_calls:
+        raise SystemExit("an existing raw/ source must only be un-marked")
 
     print("R2 requeue_video contract ok")
     return 0

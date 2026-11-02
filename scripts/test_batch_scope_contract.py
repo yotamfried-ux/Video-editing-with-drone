@@ -70,7 +70,14 @@ def fake_r2() -> types.SimpleNamespace:
     def move_object(source: str, dest: str) -> None:
         moves.append((source, dest))
 
+    marked: list[str] = []
+    requeued: list[str] = []
+
     module = types.SimpleNamespace(
+        mark_source_processed=lambda key, run_id=None: marked.append(key),
+        unprocessed_sources=lambda objs: [o for o in objs if o["Key"] not in marked],
+        requeue_video_impl=lambda key: (requeued.append(key), True)[1],
+        marked=marked, requeued=requeued,
         RAW_PREFIX="raw/",
         PROCESSED_PREFIX="processed/",
         list_objects=list_objects,
@@ -97,8 +104,8 @@ def run_scope_probe() -> None:
         dedup_calls.append([video["id"] for video in videos])
         if kwargs.get("storage_backend") != "r2":
             raise SystemExit("batch scope must explicitly activate R2 exact dedup")
-        if kwargs.get("delete_source") is not module.delete_object:
-            raise SystemExit("batch scope must pass the active R2 delete implementation")
+        if kwargs.get("preserve_sources") is not True:
+            raise SystemExit("batch scope must never allow deduplication to delete a source")
         return videos
 
     sys.modules["pipeline.source_upload_dedup"] = types.SimpleNamespace(
@@ -114,8 +121,8 @@ def run_scope_probe() -> None:
     batch_scope.install()
     # fake_r2 lists a static raw view; real listing is exercised by the store above.
     videos = module.get_new_videos()
-    if store.objects != {"raw/session_one/clip.mp4": 10, "processed/other_batch/x.mp4": 5}:
-        raise SystemExit(f"expected exact restore and untouched foreign object, got {store.objects}")
+    if store.objects != {"raw/session_one/clip.mp4": 10, "processed/session_one/clip.mp4": 10, "processed/other_batch/x.mp4": 5}:
+        raise SystemExit(f"expected a copy-only restore and untouched foreign object, got {store.objects}")
     if module.listed != ["raw/session_one/"]:
         raise SystemExit(f"expected scoped listing, got {module.listed}")
     if [video["key"] for video in videos] != ["raw/session_one/clip.mp4"]:
@@ -124,18 +131,17 @@ def run_scope_probe() -> None:
         raise SystemExit(f"expected exact dedup admission gate, got {dedup_calls}")
 
     module.mark_as_processed("raw/session_one/clip.mp4")
-    module.requeue_video("processed/session_one/clip.mp4")
-    expected = {
-        ("raw/session_one/clip.mp4", "processed/session_one/clip.mp4"),
-        ("processed/session_one/clip.mp4", "raw/session_one/clip.mp4"),
-    }
-    if not expected.issubset(set(module.moves)):
-        raise SystemExit(f"expected scoped moves, got {module.moves}")
+    module.requeue_video("raw/session_one/clip.mp4")
+    # RAW is permanent: processing records a marker and requeue forgets it; no object is ever moved.
+    if module.moves:
+        raise SystemExit(f"no source may be moved by mark_as_processed/requeue_video, got {module.moves}")
+    if module.marked != ["raw/session_one/clip.mp4"] or module.requeued != ["raw/session_one/clip.mp4"]:
+        raise SystemExit(f"expected marker write and requeue delegation, got {module.marked} {module.requeued}")
     store.objects = {"processed/session_one/clip.mp4": 10, "processed/other_batch/x.mp4": 5}
     if module.restore_processed_to_raw() != 1 or "raw/session_one/clip.mp4" not in store.objects:
         raise SystemExit("batch restore must be manifest-driven and restore exactly the frozen input")
-    if "processed/other_batch/x.mp4" not in store.objects:
-        raise SystemExit("batch restore must never touch another batch")
+    if "processed/other_batch/x.mp4" not in store.objects or "processed/session_one/clip.mp4" not in store.objects:
+        raise SystemExit("batch restore is copy-only: every processed original is kept, other batches untouched")
 
 
 
@@ -225,10 +231,10 @@ def run_manifest_allowlist_probe() -> None:
 def run_simple_raw_reset_probe() -> None:
     """Exercise the real reset recovery logic against an isolated in-memory R2.
 
-    Stage-folder model: reset returns each tracked source to raw/ at the same relative path,
-    and clears it from processed/ only after every restored copy is verified. Objects in
+    RAW is permanent: reset COPIES each tracked source to raw/ (flat, never overwriting) and keeps the
+    processed/ original; it deletes nothing and only clears the processed markers. Objects in
     processed/ that are not tracked source uploads are never touched. The full flow against a
-    real S3 protocol server is covered by test_stage_folder_flow_e2e.py.
+    real S3 protocol server is covered by test_raw_permanence_e2e.py.
     """
     source = read("scripts/reset_and_rerun.py")
     parsed = ast.parse(source)
@@ -265,6 +271,7 @@ def run_simple_raw_reset_probe() -> None:
         same_object_bytes=lambda a, b: a in objects and b in objects and objects[a] == objects[b],
         copy_object_verified=copy_verified,
         delete_object=lambda key: (events.append(("delete", key)), objects.pop(key)),
+        clear_source_processed=lambda key=None: (events.append(("clear_markers",)), 0)[1],
     )
     import integrations
     previous_uploads = sys.modules.get("integrations.source_uploads")
@@ -296,17 +303,17 @@ def run_simple_raw_reset_probe() -> None:
         assert objects == {
             "raw/existing.mp4": b"e" * 10,
             "raw/one.mp4": b"1" * 11, "raw/two.mp4": b"2" * 12,
+            "processed/batch_a/one.mp4": b"1" * 11, "processed/batch_b/two.mp4": b"2" * 12,
             "processed/delivered_reel.mp4": b"d" * 13,
-        }, "sources must return flat to raw/ (no batch folder); non-source outputs stay put"
+        }, "sources are COPIED flat to raw/ (no batch folder); every processed original and non-source output stays put"
         assert sorted(rekeyed) == [("raw/batch_a/one.mp4", "raw/one.mp4"), ("raw/batch_b/two.mp4", "raw/two.mp4")], rekeyed
-        # Every verified copy happens before any deletion from processed/.
+        # Copy-only: the reset never deletes anything; it only forgets the processed markers afterwards.
         kinds = [event[0] for event in events]
-        assert kinds == ["copy", "copy", "delete", "delete"], kinds
-        # Nothing left to do on a second reset.
+        assert kinds == ["copy", "copy", "clear_markers"], kinds
+        # A second reset is idempotent (copies already present) and still changes no object.
         before = dict(objects)
-        assert recover() == 0 and objects == before
+        assert recover() == 2 and objects == before
         # A different-content file already at the destination fails closed, changing nothing.
-        objects["processed/batch_a/one.mp4"] = b"1" * 11
         tracked.add("raw/batch_a/one.mp4")
         objects["raw/one.mp4"] = b"X" * 11
         before = dict(objects)
@@ -318,10 +325,8 @@ def run_simple_raw_reset_probe() -> None:
             raise AssertionError("different content at the destination must block reset")
         assert objects == before
         # An outage while restoring must not delete anything from processed/.
-        objects["raw/one.mp4"] = b"1" * 11
         objects.pop("raw/one.mp4")
         tracked.add("raw/batch_b/two.mp4")
-        objects["processed/batch_b/two.mp4"] = b"2" * 12
         objects.pop("raw/two.mp4")
         fail_copy_for.add("processed/batch_b/two.mp4")
         before = dict(objects)

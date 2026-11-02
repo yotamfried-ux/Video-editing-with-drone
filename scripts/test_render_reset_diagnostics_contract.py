@@ -79,6 +79,10 @@ class FakeR2:
     def delete_object(self, key: str) -> None:
         self.deleted.append(key)
 
+    def clear_source_processed(self, source_key=None) -> int:
+        self.cleared = True
+        return 0
+
 
 def _run_restore(fake: FakeR2):
     sys.modules["integrations.r2_storage"] = fake  # type: ignore[assignment]
@@ -89,13 +93,14 @@ def _run_restore(fake: FakeR2):
         return reset_and_rerun._restore_r2_sources_to_raw()
 
 
-def test_reset_copies_in_parallel_and_deletes_only_after_every_copy_verified() -> None:
+def test_reset_copies_in_parallel_and_never_deletes_a_source() -> None:
     fake = FakeR2([f"s{i}.mp4" for i in range(12)])
     start = time.monotonic()
     assert _run_restore(fake) == 12
     elapsed = time.monotonic() - start
     assert fake.peak > 1 and elapsed < 12 * 0.15 * 0.6, (fake.peak, elapsed)
-    assert sorted(fake.deleted) == sorted(fake.copied) and len(fake.deleted) == 12
+    assert len(fake.copied) == 12 and fake.deleted == [], 'restoring is copy-only: no source is deleted'
+    assert getattr(fake, 'cleared', False), 'processed markers are forgotten so the next run admits every source'
 
 
 def test_one_failed_verification_deletes_nothing() -> None:
@@ -103,10 +108,11 @@ def test_one_failed_verification_deletes_nothing() -> None:
     try:
         _run_restore(fake)
     except RuntimeError as exc:
-        assert "processed/ was not touched" in str(exc), exc
+        assert "nothing was moved or deleted" in str(exc), exc
     else:
         raise AssertionError("a failed verification must abort the reset")
     assert fake.deleted == [], fake.deleted
+    assert not getattr(fake, 'cleared', False), 'markers are not cleared when a copy failed'
 
 
 def test_run_diagnostics_digest_is_readable_bounded_and_never_fails() -> None:

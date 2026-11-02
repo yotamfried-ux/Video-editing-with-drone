@@ -17,6 +17,8 @@ PENDING_PAYMENT_PREFIX = "pending_payment/"
 PENDING_UPLOADS_PREFIX = "pending_uploads/"
 PREVIEWS_PREFIX = "previews/"
 METADATA_PREFIX = "metadata/"
+# "Already processed" state lives in tiny marker objects, never in a moved or copied video. RAW is permanent.
+SOURCE_STATE_PREFIX = f"{METADATA_PREFIX}source_state/"
 
 _VIDEO_EXTS = {".mp4", ".mov", ".avi", ".mkv", ".m4v", ".mts", ".mxf"}
 
@@ -286,17 +288,43 @@ def copy_object_verified(source_key: str, dest_key: str) -> str:
 
 
 def move_object_verified(source_key: str, dest_key: str) -> str:
-    """Move a source video one stage on: verified copy first, delete the original only after."""
+    """Move a DERIVED object (e.g. a draft one stage on): verified copy first, delete the source only after.
+
+    Original source videos can never be moved; use copy_object_verified for them.
+    """
+    assert_not_protected_source(source_key, "move")
     outcome = copy_object_verified(source_key, dest_key)
     delete_object(source_key)
     return outcome
 
 
+class ProtectedSourceError(RuntimeError):
+    """An operation would delete or move away an original source video. Always refused, no override."""
+
+
+def is_protected_source_key(key: str) -> bool:
+    """Original footage: anything under raw/, and any video under processed/ (legacy stage folder that may
+    hold the only copy of a source)."""
+    k = str(key or "")
+    return k.startswith(RAW_PREFIX) or (k.startswith(PROCESSED_PREFIX) and _is_video_key(k))
+
+
+def assert_not_protected_source(key: str, action: str) -> None:
+    if is_protected_source_key(key):
+        raise ProtectedSourceError(
+            f"Refusing to {action} original source object {key!r}: source videos are never deleted or moved"
+        )
+
+
 def delete_object(key: str) -> None:
+    """Delete a derived object (review/, approved/, previews/, markers...). Never an original source."""
+    assert_not_protected_source(key, "delete")
     _client().delete_object(Bucket=_bucket(), Key=key)
 
 
 def move_object(source_key: str, dest_key: str) -> None:
+    """Move = copy + delete of the source, so the source must not be an original video."""
+    assert_not_protected_source(source_key, "move")
     client = _client()
     client.copy_object(
         Bucket=_bucket(),
@@ -308,7 +336,7 @@ def move_object(source_key: str, dest_key: str) -> None:
 
 
 def get_new_videos() -> list[dict]:
-    objects = _list_objects(RAW_PREFIX)
+    objects = unprocessed_sources(_list_objects(RAW_PREFIX))
     return [_object_to_video(obj) for obj in objects if _is_video_key(obj["Key"])]
 
 
@@ -329,30 +357,93 @@ def upload_preview(preview_path: str, preview_name: str) -> str:
     return upload_object(preview_path, key, "video/mp4")
 
 
+def _state_key(source_key: str) -> str:
+    import hashlib
+    return f"{SOURCE_STATE_PREFIX}{hashlib.sha256(str(source_key).encode('utf-8')).hexdigest()}.json"
+
+
+def mark_source_processed(source_key: str, run_id: str | None = None) -> None:
+    """Record that this raw object was processed, WITHOUT touching the video. The marker pins the object's
+    size and ETag so a re-uploaded/changed file is not mistaken for an already processed one."""
+    head = _head(source_key)
+    if head is None:
+        raise RuntimeError(f"Cannot mark a missing source as processed: {source_key}")
+    from datetime import datetime
+    body = json.dumps({
+        "source_key": source_key, "size": head["ContentLength"], "etag": head.get("ETag"),
+        "run_id": run_id or os.getenv("GITHUB_RUN_ID") or None,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }, sort_keys=True).encode("utf-8")
+    _client().put_object(Bucket=_bucket(), Key=_state_key(source_key), Body=body, ContentType="application/json")
+
+
+def processed_markers() -> dict[str, dict]:
+    """source_key -> marker for every recorded processed source (small JSON reads, no video bytes)."""
+    out: dict[str, dict] = {}
+    client = _client()
+    for item in _list_objects(SOURCE_STATE_PREFIX):
+        try:
+            marker = json.loads(client.get_object(Bucket=_bucket(), Key=item["Key"])["Body"].read())
+        except Exception:
+            continue
+        if isinstance(marker, dict) and marker.get("source_key"):
+            out[str(marker["source_key"])] = marker
+    return out
+
+
+def is_marker_current(marker: dict | None, obj: dict) -> bool:
+    """The marker applies only to the exact bytes that were processed (same size and ETag)."""
+    return bool(marker) and marker.get("size") == obj.get("Size") and marker.get("etag") == obj.get("ETag")
+
+
+def unprocessed_sources(objects: list[dict]) -> list[dict]:
+    """Filter a raw/ listing down to sources that still need processing."""
+    markers = processed_markers()
+    return [o for o in objects if not is_marker_current(markers.get(o["Key"]), o)]
+
+
+def clear_source_processed(source_key: str | None = None) -> int:
+    """Forget processed state (one source, or all). Deletes marker objects only, never a video."""
+    removed = 0
+    if source_key is not None:
+        keys = [_state_key(source_key)] if _head(_state_key(source_key)) else []
+    else:
+        keys = [item["Key"] for item in _list_objects(SOURCE_STATE_PREFIX)]
+    for key in keys:
+        delete_object(key)  # a marker under metadata/, which the guard allows
+        removed += 1
+    return removed
+
+
 def mark_as_processed(file_id_or_key: str) -> None:
-    dest_key = _join(PROCESSED_PREFIX, _basename(file_id_or_key))
-    move_object(file_id_or_key, dest_key)
+    mark_source_processed(file_id_or_key)
+
+
+def ensure_raw_copy(source_key: str, raw_key: str) -> str:
+    """Make sure raw_key holds this source: verified server-side COPY, never overwrite, never delete the source."""
+    return copy_object_verified(source_key, raw_key)
+
+
+def requeue_video_impl(file_id_or_key: str) -> bool:
+    """Reprocess a source: forget its processed marker. A legacy source that only exists under processed/ is
+    COPIED back to raw/ first (the processed/ copy is kept). Nothing is deleted or moved."""
+    try:
+        raw_key = file_id_or_key if str(file_id_or_key).startswith(RAW_PREFIX) else _join(RAW_PREFIX, _basename(file_id_or_key))
+        if _head(raw_key) is None:
+            legacy = _join(PROCESSED_PREFIX, _basename(file_id_or_key))
+            if _head(legacy) is None:
+                return False
+            ensure_raw_copy(legacy, raw_key)
+        clear_source_processed(raw_key)
+        return True
+    except ProtectedSourceError:
+        raise
+    except Exception:
+        return False
 
 
 def requeue_video(file_id_or_key: str) -> bool:
-    """Reverse of mark_as_processed: move a video processed/ -> raw/.
-
-    The caller (operator "reprocess this reel" flow) passes back the source
-    id recorded in the `drafts` table at draft-creation time, which reflects
-    the object's raw/ key *before* the original run's mark_as_processed moved
-    it to processed/. Unlike Drive file ids, R2 keys encode location, so this
-    must always source from processed/ (mirroring the Drive adapter, which
-    hardcodes PROCESSED_FOLDER_ID -> RAW_FOLDER_ID) rather than trusting
-    whatever prefix happens to be on the passed-in id.
-    """
-    try:
-        basename = _basename(file_id_or_key)
-        source_key = _join(PROCESSED_PREFIX, basename)
-        dest_key = _join(RAW_PREFIX, basename)
-        move_object(source_key, dest_key)
-        return True
-    except Exception:
-        return False
+    return requeue_video_impl(file_id_or_key)
 
 
 def get_approved_drafts() -> list[dict]:
@@ -383,25 +474,25 @@ def delete_review_drafts() -> int:
 
 
 def restore_processed_to_raw() -> int:
-    """Global processed/ -> raw/ sweep (legacy, batch-less runs only).
+    """Global processed/ -> raw/ sweep (legacy, batch-less runs only), by verified COPY.
 
-    A batch-scoped run must restore from its frozen manifest instead
-    (pipeline.r2_batch_restore); a global sweep would flatten batch keys and
-    could touch unrelated batches.
+    Sources are never moved or deleted: processed/ keeps its copy. A batch-scoped run must restore
+    from its frozen manifest instead (pipeline.r2_batch_restore).
     """
     if os.getenv("RAW_BATCH_ID", "").strip() or os.getenv("BATCH_ID", "").strip():
         raise RuntimeError(
             "global processed/ restore is forbidden when a batch id is set; "
             "use the manifest-driven batch restore"
         )
-    objects = _list_objects(PROCESSED_PREFIX)
     restored = 0
-    for obj in objects:
+    for obj in _list_objects(PROCESSED_PREFIX):
         key = obj["Key"]
+        if not _is_video_key(key):
+            continue
         # Preserve the relative path: flattening processed/<batch>/x to raw/x is what
         # once stranded a verified batch outside its raw/<batch>/ namespace.
         dest_key = RAW_PREFIX + key[len(PROCESSED_PREFIX):]
-        move_object(key, dest_key)
+        ensure_raw_copy(key, dest_key)
         restored += 1
     return restored
 

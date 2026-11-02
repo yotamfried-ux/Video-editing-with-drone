@@ -56,6 +56,9 @@ await scenario('library: cards, dedup, archive badge, filters, next-unannotated'
   assert.equal(await page.locator('[data-testid=source-card]').count(), 1);
   await page.selectOption('select[aria-label=status]', '');
   assert.ok(await page.locator('[data-testid=next-unannotated]').isVisible());
+  // Local First depends on a real external backup: the seeded demo has none, so the warning must be visible
+  assert.ok(await page.locator('[data-testid=backup-banner]').isVisible());
+  assert.match(await page.textContent('[data-testid=backup-banner]'), /אינם גיבוי/);
   await shot('01-library');
 });
 

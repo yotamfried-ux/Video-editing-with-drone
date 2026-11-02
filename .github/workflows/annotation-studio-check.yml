@@ -7,6 +7,9 @@ on:
     paths:
       - 'annotation-studio/**'
       - 'docs/annotation-studio/**'
+      - 'scripts/qualify_gt_export.py'
+      - 'pipeline/edl_export.py'
+      - 'pipeline/prediction_export.py'
       - '.github/workflows/annotation-studio-check.yml'
 
 permissions:
@@ -15,7 +18,24 @@ permissions:
 jobs:
   check:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      STUDIO_TEST_DB_URL: postgres://postgres:postgres@localhost:5432/postgres
+      GEMINI_API_KEY: fixture-not-used
+      GOOGLE_SERVICE_ACCOUNT_JSON: fixture-not-used
+      RAW_FOLDER_ID: fixture-raw
+      PROCESSED_FOLDER_ID: fixture-processed
+      REVIEW_FOLDER_ID: fixture-review
+      APPROVED_FOLDER_ID: fixture-approved
+      OWNER_EMAIL: fixture@example.invalid
     defaults:
       run:
         working-directory: annotation-studio
@@ -24,12 +44,20 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check python-dotenv
+      - name: Install dependencies (pg is an optional dependency, only used for the PostgreSQL backend)
+        run: npm ci --no-audit --no-fund
       - name: Install ffmpeg (synthetic fixtures + proxies)
         run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
       - name: Syntax check
         run: npm run check
-      - name: Unit + integration + security tests
-        run: npm test
+      - name: Unit + integration + security + qualification tests (SQLite backend)
+        run: STUDIO_TEST_DB_URL= npm test
+      - name: Same suite on real PostgreSQL + role-isolation / authorization-denial tests
+        run: npm test && npm run test:pg
       - name: Browser E2E (Playwright)
         run: |
           npm install --no-save --no-audit --no-fund playwright@1.49.1

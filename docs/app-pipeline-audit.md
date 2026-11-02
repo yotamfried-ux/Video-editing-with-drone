@@ -179,7 +179,7 @@ The first large upload is itself an evidence-producing test for GAP-013/GAP-014.
 - [x] Dispatch carries authoritative batch and pipeline run IDs, and R2 processing remains scoped to `raw/<batch_id>/`.
 - [x] Filename reuse cannot overwrite another source; generated R2 keys remain immutable.
 - [x] Exact byte-identical verified sources are reconciled by SHA-256, first-successful verification time, and deterministic canonical selection.
-- [x] Older exact duplicates remain pipeline-ineligible even if R2 deletion fails; the failure remains auditable.
+- [x] Older exact duplicates remain pipeline-ineligible and are retained in storage (never deleted): RAW is permanent.
 - [x] Re-exported/recompressed/perceptually similar files are not auto-deleted by the exact-byte rule.
 - [x] Gallery source size is client-declared when available; the weaker legacy fallback is explicitly labeled `r2_head_adopted`.
 

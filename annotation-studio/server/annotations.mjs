@@ -2,10 +2,29 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { now, tx, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
+import { validateSegmentTaxonomy, stampResolved, taxonomyVersionsFor } from './sports.mjs';
 
 export const SCHEMA = 1;
-export const EVENT_TYPES = ['wave_ride', 'failed_takeoff', 'wipeout', 'paddle_out', 'other'];
 export const DECISIONS = ['include', 'exclude', 'uncertain'];
+export const USABILITY = ['usable', 'partially_usable', 'unusable', 'uncertain'];
+export const REASON_CODES = [
+  'missing_takeoff',
+  'missing_landing',
+  'occlusion',
+  'unclear_identity',
+  'capture_issues',
+  'no_meaningful_action',
+  'duplicate_action',
+  'other',
+];
+export const VERIFICATION_STATUSES = [
+  'unreviewed',
+  'verified_correct',
+  'corrected',
+  'wrong_performer',
+  'occluded',
+  'indeterminate',
+];
 export const VISIBILITY = ['visible', 'partial', 'occluded', 'not_visible'];
 export const KEY_ORIGINS = ['manual', 'suggested', 'interpolated'];
 export const FRAMING = ['contain', 'geometric_center', 'directional_lead_room'];
@@ -17,7 +36,7 @@ export function canonical(v) {
   return JSON.stringify(v);
 }
 export const digestOf = v => createHash('sha256').update(canonical(v)).digest('hex');
-export const emptyContent = () => ({ schema: SCHEMA, segments: [], keyframes: [], reviewed_ranges: [] });
+export const emptyContent = () => ({ schema: SCHEMA, segments: [], keyframes: [], reviewed_ranges: [], box_verifications: [] });
 
 const isInt = n => Number.isInteger(n);
 
@@ -32,13 +51,29 @@ export function validateContent(c, source, db) {
   }
   const total = source.frame_count;
   const inRange = (s, e) => isInt(s) && isInt(e) && s >= 0 && e > s && e <= total;
-  const ids = new Set(), segs = new Map();
+  const ids = new Set(), segs = new Map(), taxCache = new Map();
   for (const s of c.segments) {
     if (!s.id || ids.has(s.id)) throw new ApiError('INVALID_INPUT', 'מזהה מקטע כפול');
     ids.add(s.id);
     if (!inRange(s.start_frame, s.end_frame)) throw new ApiError('INVALID_INTERVAL');
     if (!DECISIONS.includes(s.decision)) throw new ApiError('INVALID_INPUT', 'החלטה לא תקינה');
-    if (!EVENT_TYPES.includes(s.event_type)) throw new ApiError('INVALID_INPUT', 'סוג אירוע לא תקין');
+    if (typeof s.event_type !== 'string' || !s.event_type) throw new ApiError('INVALID_INPUT', 'סוג אירוע לא תקין');
+    validateSegmentTaxonomy(db, source, s, taxCache);
+    if (s.usability != null && !USABILITY.includes(s.usability)) throw new ApiError('INVALID_INPUT', 'שימושיות לא תקינה');
+    if (s.reason_codes != null) {
+      if (!Array.isArray(s.reason_codes) || !s.reason_codes.every(r => typeof r === 'string')) {
+        throw new ApiError('INVALID_INPUT', 'קודי סיבה לא תקינים');
+      }
+    }
+    if (s.key_moments != null && typeof s.key_moments === 'object') {
+      const { takeoff_frame, peak_frame, landing_frame, inflection_frames } = s.key_moments;
+      for (const f of [takeoff_frame, peak_frame, landing_frame].filter(x => x != null)) {
+        if (!isInt(f) || f < s.start_frame || f > s.end_frame) throw new ApiError('INVALID_INTERVAL', 'פריים רגע מפתח מחוץ לטווח');
+      }
+      if (inflection_frames != null && (!Array.isArray(inflection_frames) || !inflection_frames.every(f => isInt(f) && f >= s.start_frame && f <= s.end_frame))) {
+        throw new ApiError('INVALID_INTERVAL', 'פריימי שינוי מחוץ לטווח');
+      }
+    }
     if (s.framing_mode != null && !FRAMING.includes(s.framing_mode)) throw new ApiError('INVALID_INPUT', 'מצב קומפוזיציה לא תקין');
     if (s.target != null && !(s.target.x >= 0 && s.target.x <= 1 && s.target.y >= 0 && s.target.y <= 1)) throw new ApiError('INVALID_INPUT', 'נקודת יעד לא תקינה');
     if (s.athlete_id != null && !db.prepare('select 1 from athletes where id=?').get(s.athlete_id)) throw new ApiError('INVALID_INPUT', 'גולש לא קיים');
@@ -52,9 +87,43 @@ export function validateContent(c, source, db) {
     if (!s) throw new ApiError('INVALID_INPUT', 'קיפריים ללא מקטע');
     if (!isInt(k.frame) || k.frame < s.start_frame || k.frame >= s.end_frame) throw new ApiError('INVALID_INTERVAL');
     if (!VISIBILITY.includes(k.visibility) || !KEY_ORIGINS.includes(k.origin)) throw new ApiError('INVALID_INPUT', 'מאפיין קיפריים לא תקין');
+    if (k.verification_status != null && !VERIFICATION_STATUSES.includes(k.verification_status)) throw new ApiError('INVALID_INPUT', 'סטטוס אימות לא תקין');
+    if (k.origin === 'interpolated' && k.verification_status === 'verified_correct' && !k.verified_at) {
+      throw new ApiError('INVALID_INPUT', 'פריים אינטרפולציה לא יכול להיחשב מאומת ללא אימות מפורש');
+    }
+    if (k.verification_status === 'verified_correct' && !k.verified_at) {
+      throw new ApiError('INVALID_INPUT', 'אימות תיבה מחייב חותמת זמן ומפעיל מאמת');
+    }
+    if (k.original_bbox != null) validateBbox(k.original_bbox);
     validateBbox(k.bbox);
   }
   for (const r of c.reviewed_ranges) if (!inRange(r.start_frame, r.end_frame)) throw new ApiError('INVALID_INTERVAL');
+
+  if (c.box_verifications != null) {
+    if (!Array.isArray(c.box_verifications)) throw new ApiError('INVALID_INPUT', 'מבנה אימותי תיבה לא תקין');
+    for (const v of c.box_verifications) {
+      const s = segs.get(v.segment_id);
+      if (!s) throw new ApiError('INVALID_INPUT', 'אימות תיבה ללא מקטע');
+      if (!isInt(v.frame) || v.frame < s.start_frame || v.frame >= s.end_frame) throw new ApiError('INVALID_INTERVAL');
+      if (v.status != null && !VERIFICATION_STATUSES.includes(v.status)) throw new ApiError('INVALID_INPUT', 'סטטוס אימות לא תקין');
+      if (v.status === 'verified_correct') {
+        if (!v.verified_at) throw new ApiError('INVALID_INPUT', 'אימות תיבה מחייב חותמת זמן');
+        if (s.athlete_id && v.athlete_id && s.athlete_id !== v.athlete_id) {
+          throw new ApiError('INVALID_INPUT', 'אימות תיבה אינו תואם לגולש המבצע את המקטע');
+        }
+        const hasKeyframe = (c.keyframes || []).some(k => k.segment_id === s.id && k.frame === v.frame && k.bbox);
+        const hasExplicitBox = hasKeyframe || v.corrected_bbox != null || v.original_bbox != null;
+        if (!hasExplicitBox) {
+          const segKeyframes = (c.keyframes || []).filter(k => k.segment_id === s.id && k.bbox);
+          if (segKeyframes.length === 0) {
+            throw new ApiError('INVALID_INPUT', 'לא ניתן לאשר תיבת תיחום שאינה קיימת בפריים הנוכחי');
+          }
+        }
+      }
+      if (v.original_bbox != null) validateBbox(v.original_bbox);
+      if (v.corrected_bbox != null) validateBbox(v.corrected_bbox);
+    }
+  }
 }
 
 function getSource(db, id) {
@@ -76,6 +145,7 @@ export function getDraft(db, sourceId) {
 export function saveDraft(db, sourceId, expectedVersion, content) {
   const source = getSource(db, sourceId);
   validateContent(content, source, db);
+  stampResolved(content, source);
   return tx(db, () => {
     const cur = db.prepare('select version from annotation_drafts where source_id=?').get(sourceId);
     const curV = cur?.version ?? 0;
@@ -106,12 +176,15 @@ export function unresolved(content) {
 export function approve(db, sourceId, { expectedVersion, scope = 'source', reason = '', acknowledgeUnresolved = false, author = 'operator' }) {
   const source = getSource(db, sourceId);
   if (source.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
+  // Ground Truth on a cloud source is only approved once its identity was re-verified from the bucket's bytes.
+  if (source.provider === 'cloud-r2' && source.verify_state !== 'verified') throw new ApiError('SOURCE_UNVERIFIED');
   if (!['source', 'interval', 'segment'].includes(scope)) throw new ApiError('INVALID_INPUT');
   return tx(db, () => {
     const d = db.prepare('select * from annotation_drafts where source_id=?').get(sourceId);
     if (!d || d.version !== expectedVersion) throw new ApiError('VERSION_CONFLICT');
     const content = JSON.parse(d.content);
     validateContent(content, source, db);
+    stampResolved(content, source);
     const u = unresolved(content);
     if ((u.uncertain_segments || u.unknown_athlete_included) && !acknowledgeUnresolved) {
       throw Object.assign(new ApiError('UNRESOLVED_ITEMS'), { unresolved: u });
@@ -120,9 +193,11 @@ export function approve(db, sourceId, { expectedVersion, scope = 'source', reaso
     const digest = digestOf(content);
     if (parent && parent.digest === digest) return { revision: parent, unchanged: true };
     const id = randomUUID(), t = now();
-    db.prepare(`insert into annotation_revisions(id,source_id,seq,parent_revision_id,content,digest,author,reason,schema_version,scope,created_at,approved_at)
-      values(?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, sourceId, (parent?.seq ?? 0) + 1, parent?.id ?? null, JSON.stringify(content), digest, author, reason, SCHEMA, scope, t, t);
-    db.prepare('update annotation_drafts set base_revision_id=? where source_id=?').run(id, sourceId);
+    const tax = taxonomyVersionsFor(db, content);
+    db.prepare(`insert into annotation_revisions(id,source_id,seq,parent_revision_id,content,digest,author,reason,schema_version,scope,created_at,approved_at,taxonomy_versions)
+      values(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, sourceId, (parent?.seq ?? 0) + 1, parent?.id ?? null, JSON.stringify(content), digest, author, reason, SCHEMA, scope, t, t, JSON.stringify(tax));
+    // Source sport may have been reclassified since the draft was saved: keep the stored draft identical to what was approved.
+    db.prepare('update annotation_drafts set content=?, base_revision_id=? where source_id=?').run(JSON.stringify(content), id, sourceId);
     audit(db, author, 'approve_revision', sourceId, { revision: id, digest, unresolved: u });
     return { revision: db.prepare('select * from annotation_revisions where id=?').get(id), unchanged: false, unresolved: u };
   });
@@ -145,7 +220,7 @@ export function annotationStatus(db, sourceId) {
   if (!d && !rev) return 'not_annotated';
   const content = d ? JSON.parse(d.content) : JSON.parse(rev.content);
   if (rev && (!d || digestOf(content) === rev.digest)) return 'approved';
-  if (content.segments.some(s => s.decision === 'uncertain')) return 'needs_review';
+  if (content.segments.some(s => s.decision === 'uncertain' || s.needs_review)) return 'needs_review';
   return 'in_progress';
 }
 
@@ -179,6 +254,7 @@ export function setAppearanceFlags(db, athleteId, sourceId, { uncertain, confirm
 export function listAthletes(db) {
   return db.prepare('select * from athletes order by created_at').all().map(a => ({
     ...a,
+    assigned_sources_count: db.prepare('select count(*) as c from sources where owner_athlete_id=?').get(a.id)?.c ?? 0,
     appearances: db.prepare(`select ap.source_id, ap.uncertain, ap.confirmed, ap.track_label, s.display_name from athlete_appearances ap
       join sources s on s.id=ap.source_id where ap.athlete_id=? order by ap.created_at`).all(a.id),
   }));

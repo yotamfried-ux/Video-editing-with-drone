@@ -47,6 +47,9 @@ def fake_r2() -> types.SimpleNamespace:
         moves.append((source, dest))
 
     module = types.SimpleNamespace(
+        unprocessed_sources=lambda objs: list(objs),
+        mark_source_processed=lambda key, run_id=None: None,
+        requeue_video_impl=lambda key: True,
         RAW_PREFIX="raw/",
         PROCESSED_PREFIX="processed/",
         list_objects=list_objects,

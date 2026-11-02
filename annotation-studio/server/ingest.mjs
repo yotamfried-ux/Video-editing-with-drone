@@ -55,8 +55,9 @@ async function archiveAndDerive(ctx, src, filePath) {
     audit(ctx.db, 'system', 'archive_failed', src.id, { error: e.message });
     return { ok: false, error: e.message };
   }
-  // Derivatives are best-effort: a missing thumbnail must never block annotation.
-  const archived = ctx.archive.pathFor(ctx.db.prepare('select archive_key k from sources where id=?').get(src.id).k);
+  // Derivatives are best-effort: a missing thumbnail must never block annotation. They are built from the file whose
+  // bytes were just verified into the archive (works for any archive backend, local or remote).
+  const archived = filePath;
   const m = ctx.db.prepare('select fps_num,fps_den from sources where id=?').get(src.id);
   const dir = path.join(ctx.cacheDir, src.id);
   try {
@@ -160,7 +161,7 @@ export async function reconcile(ctx, { roots, batchLabel = `reconcile-${now().sl
 function upsertJob(ctx, key, batchId) {
   const t = now();
   ctx.db.prepare(`insert into ingestion_jobs(origin_key,batch_id,state,attempts,created_at,updated_at) values(?,?,'running',1,?,?)
-    on conflict(origin_key,batch_id) do update set state='running', attempts=attempts+1, updated_at=excluded.updated_at`).run(key, batchId, t, t);
+    on conflict(origin_key,batch_id) do update set state='running', attempts=ingestion_jobs.attempts+1, updated_at=excluded.updated_at`).run(key, batchId, t, t);
   return ctx.db.prepare('select id from ingestion_jobs where origin_key=? and batch_id=?').get(key, batchId).id;
 }
 function finishJob(ctx, id, state, error, sourceId) {
@@ -181,5 +182,22 @@ export async function verifyArchives(ctx) {
     }
   }
   audit(ctx.db, 'operator', 'verify_archives', null, out);
+  return out;
+}
+
+/** Regenerate thumbnails/proxies from the archived original (e.g. after restoring onto a machine with an empty cache). */
+export async function rebuildDerivatives(ctx) {
+  const out = { rebuilt: 0, failed: [] };
+  for (const src of ctx.db.prepare("select id,archive_key,fps_num,fps_den,thumb_path,proxy_path from sources where ingest_state='ready' and archive_key is not null").all()) {
+    const missing = f => !f || !existsSync(f);
+    if (!missing(src.thumb_path) && !missing(src.proxy_path)) continue;
+    if (ctx.archive.kind !== 'local') { out.failed.push({ id: src.id, reason: 'archive_not_local' }); continue; }
+    const file = ctx.archive.pathFor(src.archive_key), dir = path.join(ctx.cacheDir, src.id);
+    try {
+      const t = path.join(dir, 'thumb.jpg'), p = path.join(dir, 'proxy.webm');
+      await makeThumb(file, t); await makeProxy(file, p, { fpsNum: src.fps_num, fpsDen: src.fps_den });
+      ctx.db.prepare('update sources set thumb_path=?, proxy_path=? where id=?').run(t, p, src.id); out.rebuilt++;
+    } catch (e) { out.failed.push({ id: src.id, reason: String(e.message).slice(0, 120) }); }
+  }
   return out;
 }

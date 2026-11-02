@@ -2,8 +2,8 @@
 
 The upload API records and HEAD-verifies each new source. Immediately before any
 expensive analysis, this module hashes the downloaded bytes with SHA-256, asks
-Postgres to choose the newest verified upload atomically, removes superseded raw
-objects, and returns only canonical inputs. Perceptually similar re-exports are
+Postgres to choose the newest verified upload atomically, EXCLUDES superseded raw
+objects from the run (they are retained, never deleted), and returns only canonical inputs. Perceptually similar re-exports are
 intentionally outside this gate.
 """
 from __future__ import annotations
@@ -49,8 +49,8 @@ def prepare_canonical_sources(
     storage_backend: str | None = None,
     get_upload: Callable[[str], dict[str, Any] | None] | None = None,
     resolve_duplicate: Callable[[str, str], dict[str, Any]] | None = None,
-    delete_source: Callable[[str], None] | None = None,
-    preserve_sources: bool = False,
+    delete_source: Callable[[str], None] | None = None,  # accepted for compatibility; never called
+    preserve_sources: bool = True,                         # accepted for compatibility; deletion is gone
     mark_removed: Callable[[str, str], None] | None = None,
     mark_removal_error: Callable[[str, str, str], None] | None = None,
 ) -> list[dict[str, Any]]:
@@ -79,16 +79,10 @@ def prepare_canonical_sources(
         mark_removed = mark_removed or mark_source_removed
         mark_removal_error = mark_removal_error or mark_source_removal_error
 
-    if delete_source is None:
-        from integrations.r2_storage import delete_object
-
-        delete_source = delete_object
-
     assert get_upload is not None
     assert resolve_duplicate is not None
     assert mark_removed is not None
     assert mark_removal_error is not None
-    assert delete_source is not None
 
     prepared_by_key: dict[str, dict[str, Any]] = {}
     order: list[str] = []
@@ -120,13 +114,8 @@ def prepare_canonical_sources(
         canonical_upload_id = str(upload.get("canonical_upload_id") or upload_id)
 
         if status == "superseded":
-            try:
-                if not preserve_sources:
-                    delete_source(key)
-                    mark_removed(upload_id, canonical_upload_id)
-            except Exception as exc:
-                mark_removal_error(upload_id, canonical_upload_id, str(exc))
-                logger.error("Superseded R2 source %s could not be deleted; it remains ineligible", key)
+            # Excluded from analysis only. The original object is RETAINED: duplicates are never deleted.
+            logger.info("Superseded R2 source %s excluded from this run and retained in storage", key)
             _remove_local(path)
             prepared_by_key.pop(key, None)
             continue
@@ -165,16 +154,8 @@ def prepare_canonical_sources(
                 continue
             old_meta = prepared_by_key.pop(old_key, None)
             _remove_local(str(old_meta.get("_local_path")) if old_meta else None)
-            try:
-                if not preserve_sources:
-                    delete_source(old_key)
-                    mark_removed(old_id, canonical_id)
-            except Exception as exc:
-                mark_removal_error(old_id, canonical_id, str(exc))
-                logger.error(
-                    "Superseded R2 source %s could not be deleted; DB eligibility still blocks it",
-                    old_key,
-                )
+            # Retained, not deleted: the older upload stays in storage, excluded from this run by the DB decision.
+            logger.info("Superseded R2 source %s excluded from this run and retained in storage", old_key)
 
         if key == canonical_key:
             meta["_local_path"] = path

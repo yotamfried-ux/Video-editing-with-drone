@@ -5,7 +5,7 @@ import { now, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { digestOf } from './annotations.mjs';
 
-export const EVALUATOR_VERSION = 'eval-1.0.0';
+export const EVALUATOR_VERSION = 'eval-1.1.0';
 export const DEFAULT_PARAMS = { iou_threshold: 0.5, splits: ['test'] };
 
 const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -20,14 +20,17 @@ const overlaps = (a, b) => Math.min(a.end_frame, b.end_frame) > Math.max(a.start
 const inRanges = (frame, ranges) => ranges.some(r => frame >= r.start_frame && frame < r.end_frame);
 
 /** @returns per-source result with every decision traceable to a reason code. */
-export function evaluateSource(gt, preds, params) {
+export function evaluateSource(gt, preds, params, rejected = []) {
   const thr = params.iou_threshold;
   const G = gt.segments.filter(s => s.decision === 'include').map(s => ({ ...s }))
     .sort((a, b) => a.start_frame - b.start_frame || a.end_frame - b.end_frame || cmp(a.id, b.id));
   const P = preds.map((p, i) => ({ ...p, idx: i }))
     .sort((a, b) => a.start_frame - b.start_frame || a.end_frame - b.end_frame || a.idx - b.idx);
   const pairs = [];
-  for (const g of G) for (const p of P) { const v = iou1d(g, p); if (v >= thr) pairs.push({ g, p, iou: v }); }
+  // No cross-sport matching: a prediction that declares a sport only pairs with GT of that same sport.
+  // (Predictions that declare none — legacy exports — pair by time/IoU alone and are counted under the sport of what they matched.)
+  const gSport = g => g.resolved_sport_id ?? 'unknown';
+  for (const g of G) for (const p of P) { if (p.sport_id != null && p.sport_id !== gSport(g)) continue; const v = iou1d(g, p); if (v >= thr) pairs.push({ g, p, iou: v }); }
   pairs.sort((x, y) => y.iou - x.iou || x.g.start_frame - y.g.start_frame || cmp(x.g.id, y.g.id) || x.p.idx - y.p.idx);
   const usedG = new Set(), usedP = new Set(), matches = [];
   for (const m of pairs) {
@@ -68,24 +71,41 @@ export function evaluateSource(gt, preds, params) {
     if (!inRanges(mid, gt.reviewed_ranges)) { counts.unreviewed_predictions++; continue; }
     counts.false_positives++; errors.push({ type: 'false_positive', pred_index: p.idx, start_frame: p.start_frame, end_frame: p.end_frame });
   }
-  for (const g of G) if (!usedG.has(g.id)) errors.push({ type: 'missed_event', segment_id: g.id, start_frame: g.start_frame, end_frame: g.end_frame });
+  let missedButRejected = 0;
+  for (const g of G) if (!usedG.has(g.id)) {
+    // Diagnosis only: was the event found by the pipeline and then rejected (selection problem) or never found (detection problem)?
+    const rj = rejected.find(r => overlaps(g, r));
+    if (rj) missedButRejected++;
+    errors.push({ type: 'missed_event', segment_id: g.id, start_frame: g.start_frame, end_frame: g.end_frame, ...(rj ? { pipeline_rejected: rj.reason } : {}) });
+  }
   errors.sort((a, b) => a.start_frame - b.start_frame || cmp(a.type, b.type));
+  // Per-sport denominators (a prediction is attributed to its declared sport, else to the sport of the GT it matched, else 'unspecified').
+  const bySport = {};
+  const bs = k => bySport[k] ??= { gt_included: 0, predictions: 0, matched: 0, missed: 0, false_positives: 0, duplicates: 0, predicted_excluded: 0 };
+  for (const g of G) { const b = bs(gSport(g)); b.gt_included++; if (usedG.has(g.id)) b.matched++; else b.missed++; }
+  const matchedSportOf = new Map(matches.map(m => [m.p.idx, gSport(m.g)]));
+  const typeOf = new Map(errors.filter(e => e.pred_index != null).map(e => [e.pred_index, e.type]));
+  for (const p of P) {
+    const b = bs(p.sport_id ?? matchedSportOf.get(p.idx) ?? 'unspecified'); b.predictions++;
+    const t = typeOf.get(p.idx);
+    if (t === 'false_positive') b.false_positives++; else if (t === 'duplicate') b.duplicates++; else if (t === 'predicted_excluded') b.predicted_excluded++;
+  }
   return {
     gt_included: G.length, predictions: P.length, matched: matches.length, missed: G.length - matches.length,
-    ...counts, attributable, correct_attribution: correctAttr,
-    sum_abs_start_error: startErr, sum_abs_end_error: endErr, uncertain_gt: uncertain.length, errors,
+    ...counts, missed_but_rejected: missedButRejected, attributable, correct_attribution: correctAttr,
+    sum_abs_start_error: startErr, sum_abs_end_error: endErr, uncertain_gt: uncertain.length, by_sport: bySport, errors,
   };
 }
 
 const ratio = (n, d) => d > 0 ? Math.round(n / d * 1e6) / 1e6 : null;
 
-export function importPredictions(db, { run_id, pipeline_version, sources }) {
+export function importPredictions(db, { run_id, pipeline_version, sources, extra = {} }) {
   if (!run_id || !pipeline_version || !Array.isArray(sources)) throw new ApiError('INVALID_INPUT');
   for (const s of sources) {
     if (!/^[0-9a-f]{64}$/.test(s.source_sha256 ?? '') || !Array.isArray(s.events)) throw new ApiError('INVALID_INPUT');
     for (const e of s.events) if (!Number.isInteger(e.start_frame) || !Number.isInteger(e.end_frame) || e.end_frame <= e.start_frame) throw new ApiError('INVALID_INTERVAL');
   }
-  const payload = { run_id, pipeline_version, sources };
+  const payload = { run_id, pipeline_version, sources, ...extra };
   const id = randomUUID();
   db.prepare('insert into pipeline_predictions(id,run_id,pipeline_version,payload,digest,created_at) values(?,?,?,?,?,?)')
     .run(id, run_id, pipeline_version, JSON.stringify(payload), digestOf(payload), now());
@@ -94,21 +114,24 @@ export function importPredictions(db, { run_id, pipeline_version, sources }) {
 
 export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
   const p = { ...DEFAULT_PARAMS, ...params };
-  const ds = db.prepare('select * from dataset_versions where id=?').get(dataset_id);
+  // The evaluator reads frozen ground truth ONLY through these views (its DB role has no other access).
+  const ds = db.prepare('select * from frozen_datasets where id=?').get(dataset_id);
   const pr = db.prepare('select * from pipeline_predictions where id=?').get(prediction_id);
   if (!ds || !pr) throw new ApiError('NOT_FOUND');
-  const preds = new Map(JSON.parse(pr.payload).sources.map(s => [s.source_sha256, s.events]));
-  const per = [];
+  const predSources = JSON.parse(pr.payload).sources;
+  const preds = new Map(predSources.map(s => [s.source_sha256, s.events]));
+  const rejects = new Map(predSources.map(s => [s.source_sha256, s.rejected ?? []]));
+  const per = [], bySportTot = {};
   const tot = { gt_included: 0, predictions: 0, matched: 0, missed: 0, duplicates: 0, predicted_excluded: 0, false_positives: 0,
-    unreviewed_predictions: 0, uncertain_overlap: 0, attributable: 0, correct_attribution: 0, sum_abs_start_error: 0, sum_abs_end_error: 0 };
-  const members = db.prepare('select * from dataset_members where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
+    unreviewed_predictions: 0, uncertain_overlap: 0, missed_but_rejected: 0, attributable: 0, correct_attribution: 0, sum_abs_start_error: 0, sum_abs_end_error: 0 };
+  const members = db.prepare('select * from frozen_revisions where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
   for (const m of members) {
-    const rev = db.prepare('select content from annotation_revisions where id=?').get(m.revision_id);
-    const gt = JSON.parse(rev.content);
+    const gt = JSON.parse(m.content);
     const events = preds.get(m.sha256);
-    const r = evaluateSource(gt, events ?? [], p);
+    const r = evaluateSource(gt, events ?? [], p, rejects.get(m.sha256) ?? []);
     per.push({ sha256: m.sha256, split: m.split, revision_id: m.revision_id, has_prediction: !!events, ...r });
     for (const k of Object.keys(tot)) tot[k] += r[k];
+    for (const [sp, c] of Object.entries(r.by_sport)) { const t = bySportTot[sp] ??= {}; for (const [k, v] of Object.entries(c)) t[k] = (t[k] ?? 0) + v; }
   }
   const report = {
     evaluator_version: EVALUATOR_VERSION, params: p, dataset_digest: ds.digest, prediction_digest: pr.digest,
@@ -121,6 +144,9 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
       mean_abs_end_error_frames: ratio(tot.sum_abs_end_error, tot.matched),
       unreviewed_prediction_share: ratio(tot.unreviewed_predictions, tot.predictions),
     },
+    by_sport: Object.fromEntries(Object.keys(bySportTot).sort().map(sp => { const t = bySportTot[sp]; return [sp, { ...t, event_recall: ratio(t.matched, t.gt_included),
+      event_precision: ratio(t.matched, t.matched + t.false_positives + t.duplicates + t.predicted_excluded) }]; })),
+    sport_policy: 'no cross-sport matching; totals/metrics above are pooled counts — use by_sport for per-sport denominators',
     per_source: per,
   };
   const digest = digestOf(report);
@@ -132,7 +158,7 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
 }
 
 export function listEvaluations(db) {
-  return db.prepare('select e.id,e.created_at,e.digest,e.report,d.name dataset_name from evaluation_runs e join dataset_versions d on d.id=e.dataset_id order by e.created_at desc').all()
+  return db.prepare('select e.id,e.created_at,e.digest,e.report,d.name dataset_name from evaluation_runs e join frozen_datasets d on d.id=e.dataset_id order by e.created_at desc').all()
     .map(e => { const r = JSON.parse(e.report); return { id: e.id, created_at: e.created_at, digest: e.digest, dataset_name: e.dataset_name,
       pipeline_version: r.pipeline_version, run_id: r.run_id, metrics: r.metrics, totals: r.totals }; });
 }

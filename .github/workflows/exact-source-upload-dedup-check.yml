@@ -35,14 +35,14 @@ jobs:
       - name: Validate newest verified canonical selection
         run: |
           PYTHONPATH=scripts:. python - <<'PY'
-          from scripts.test_exact_source_upload_dedup_contract import test_newest_verified_wins_and_old_is_deleted
-          test_newest_verified_wins_and_old_is_deleted()
+          from scripts.test_exact_source_upload_dedup_contract import test_newest_verified_wins_and_old_is_retained
+          test_newest_verified_wins_and_old_is_retained()
           PY
       - name: Validate deletion failure isolation
         run: |
           PYTHONPATH=scripts:. python - <<'PY'
-          from scripts.test_exact_source_upload_dedup_contract import test_delete_failure_never_restores_pipeline_eligibility
-          test_delete_failure_never_restores_pipeline_eligibility()
+          from scripts.test_exact_source_upload_dedup_contract import test_duplicate_exclusion_never_depends_on_a_delete_succeeding
+          test_duplicate_exclusion_never_depends_on_a_delete_succeeding()
           PY
       - name: Validate stale upload replacement isolation
         run: |

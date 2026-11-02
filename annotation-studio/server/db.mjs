@@ -1,8 +1,10 @@
 // Isolated Ground Truth database. Every access to SQLite lives behind this module
 // so a Postgres adapter can replace it without touching callers.
 import { DatabaseSync } from 'node:sqlite';
+import { PgDb } from './pgdb.mjs';
 import { mkdirSync } from 'node:fs';
 import path from 'node:path';
+import { seedSports } from './sports.mjs';
 
 export const SCHEMA_VERSION = 1;
 
@@ -116,18 +118,66 @@ create table if not exists crop_proposals(
     check(status in ('proposal','approved')), payload text not null, created_at text not null
 );
 
+create table if not exists sports(
+  id text primary key, name_he text not null, name_en text not null,
+  enabled integer not null default 1, taxonomy_version integer not null default 1, created_at text not null
+);
+create table if not exists sport_event_types(
+  sport_id text not null references sports(id), key text not null,
+  label_he text not null, label_en text not null, parent_key text,
+  required_attrs text not null default '[]', enabled integer not null default 1,
+  since_version integer not null default 1, created_at text not null,
+  primary key(sport_id, key)
+);
+
+create table if not exists cloud_objects(
+  id text primary key, key text not null unique, prefix text not null, size integer not null,
+  etag text, last_modified text, record_sha256 text, record_status text, record_upload_id text, batch_id text,
+  uploaded_at text, pipeline_state text not null default 'unknown', available integer not null default 1,
+  display_name text, source_id text references sources(id), seen_at text not null
+);
+
+create view if not exists frozen_revisions as
+  select m.dataset_id, m.split, m.sha256, r.id as revision_id, r.digest, r.content
+  from dataset_members m join annotation_revisions r on r.id = m.revision_id;
+create view if not exists frozen_datasets as
+  select id, name, created_at, digest, manifest from dataset_versions;
+
 create table if not exists audit_log(
   id integer primary key autoincrement, at text not null, actor text not null,
   action text not null, subject text, detail text
+);
+
+create table if not exists source_owner_history(
+  id integer primary key autoincrement,
+  source_id text not null references sources(id),
+  old_owner_id text references athletes(id),
+  new_owner_id text references athletes(id),
+  old_status text,
+  new_status text,
+  changed_by text not null,
+  reason text,
+  changed_at text not null,
+  version integer not null default 1
 );
 `;
 
 // Append-only guarantees are enforced in the database, not only in application code.
 const IMMUTABLE = ['annotation_revisions', 'dataset_versions', 'dataset_members',
-  'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log'];
-const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences'];
+  'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log', 'source_owner_history'];
+const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences', 'sports', 'sport_event_types', 'cloud_objects'];
 
-export function openDb(home) {
+/**
+ * Backend selection: PostgreSQL when `url` (or STUDIO_DB_URL) is given — the schema/roles are applied by
+ * scripts/gt-migrate.mjs with an admin connection, never by the running app — otherwise local SQLite under `home`.
+ */
+export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
+  if (url) {
+    const db = new PgDb(url, { ssl });
+    const v = db.prepare("select value from meta where key='schema_version'").get();
+    if (!v) throw new Error('Ground Truth schema not found: run scripts/gt-migrate.mjs first');
+    return db;
+  }
   mkdirSync(home, { recursive: true });
   const db = new DatabaseSync(path.join(home, 'studio.sqlite'));
   db.exec('pragma journal_mode=WAL; pragma foreign_keys=on; pragma busy_timeout=5000;');
@@ -145,8 +195,24 @@ export function openDb(home) {
   // Source identity can never be rewritten.
   db.exec(`create trigger if not exists sources_identity_frozen before update of id, sha256, byte_size on sources
     begin select raise(abort,'IMMUTABLE: source identity'); end;`);
+  // Additive columns (0002_sports): NULL primary_sport_id = unclassified, never backfilled to surfing.
+  addColumn(db, 'sources', 'primary_sport_id', 'text');
+  addColumn(db, 'annotation_revisions', 'taxonomy_versions', 'text');
+  // Cloud sources (0003): provider NULL = local archive; they are used in place from R2, never copied.
+  for (const c of ['provider', 'cloud_key', 'verify_state', 'proxy_state']) addColumn(db, 'sources', c, 'text');
+  // Catalog owner (0004_v2_owner_and_box_qa): default NULL/unassigned, never backfilled from segment performer
+  for (const c of ['owner_athlete_id', 'owner_status', 'owner_assigned_at', 'owner_assigned_by']) addColumn(db, 'sources', c, 'text');
+  for (const c of ['owner_athlete_id', 'owner_status']) addColumn(db, 'cloud_objects', c, 'text');
+  addColumn(db, 'sources', 'owner_version', 'integer not null default 0');
+  addColumn(db, 'cloud_objects', 'owner_version', 'integer not null default 0');
+  addColumn(db, 'source_owner_history', 'version', 'integer not null default 1');
+  seedSports(db);
   db.prepare('insert or ignore into meta(key,value) values(?,?)').run('schema_version', String(SCHEMA_VERSION));
   return db;
+}
+
+function addColumn(db, table, col, type) {
+  if (!db.prepare(`pragma table_info(${table})`).all().some(c => c.name === col)) db.exec(`alter table ${table} add column ${col} ${type}`);
 }
 
 export const now = () => new Date().toISOString();
