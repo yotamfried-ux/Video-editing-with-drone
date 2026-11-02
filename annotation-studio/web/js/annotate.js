@@ -20,10 +20,15 @@ export async function renderAnnotate(root, id) {
     if (r.items[0]) { location.hash = `#/annotate/${r.items[0].id}`; return; }
     root.append(h('div', { class: 'page' }, h('div', { class: 'empty' }, 'בחר סרטון מהספרייה כדי להתחיל', h('p', {}, h('a', { class: 'btn primary', href: '#/library' }, 'לספרייה'))))); return;
   }
-  rememberSource(id);
+  // Independent annotation stream (addendum §2): #/annotate/<source>?set=<setId> works on that set's own assignment.
+  const [rawId, qs] = String(id).split('?');
+  const setId = new URLSearchParams(qs ?? '').get('set') || 'primary';
+  id = rawId;
+  if (setId === 'primary') rememberSource(id);
+  const draftUrl = setId === 'primary' ? `/api/sources/${id}/draft` : `/api/sets/${setId}/assignments/${id}`;
   const [src, draft, athletes, revs, ownerInfo, appearances] = await Promise.all([
     api(`/api/sources/${id}`),
-    api(`/api/sources/${id}/draft`),
+    api(draftUrl),
     api('/api/athletes'),
     api(`/api/sources/${id}/revisions`),
     api(`/api/sources/${id}/catalog-owner`).catch(() => ({ owner_athlete_id: null, owner_status: 'unassigned' })),
@@ -33,7 +38,7 @@ export async function renderAnnotate(root, id) {
   if (!draft.content.box_verifications) draft.content.box_verifications = [];
 
   S = {
-    src, fps: fpsOf(src), total: src.frame_count, draft, athletes: athletes.items, revs: revs.items, ownerInfo, appearances: appearances.items,
+    setId, draftUrl, src, fps: fpsOf(src), total: src.frame_count, draft, athletes: athletes.items, revs: revs.items, ownerInfo, appearances: appearances.items,
     sel: null, frame: 0, ppf: 6, mark: { in: null, out: null }, tool: 'select', speed: 1, save: 'saved', dirty: 0, inflight: false,
     undo: [], redo: [], saveTimer: null, retryTimer: null, insp: true, overlay: true, banner: null, playing: false, root,
     inspTab: 'event', // 'event' | 'associate' | 'box'
@@ -56,6 +61,7 @@ export async function renderAnnotate(root, id) {
   }
   refresh();
   refreshStates();
+  if (S.setId === 'primary') Promise.all([api(`/api/physical-actions?source=${id}`), api('/api/physical-actions')]).then(([m, all]) => { if (!S) return; S.actions = m.items; S.allActions = all.items; refresh(); }).catch(() => {});
   cleanup.push(() => { clearTimeout(S?.saveTimer); clearTimeout(S?.retryTimer); });
 }
 
@@ -82,7 +88,7 @@ function undo(redo = false) {
 }
 
 // ---------------- durable draft queue + autosave ----------------
-const pendKey = () => `studio.pending.${S.src.id}`;
+const pendKey = () => `studio.pending.${S.src.id}${S.setId && S.setId !== 'primary' ? `.${S.setId}` : ''}`;
 function persistPending() { try { localStorage.setItem(pendKey(), JSON.stringify({ base: S.draft.version, content: C(), at: Date.now() })); } catch {} }
 function clearPending() { try { localStorage.removeItem(pendKey()); } catch {} }
 function restorePending() {
@@ -103,19 +109,19 @@ async function save() {
   const mySeq = S.dirty; S.inflight = true; setSave('saving');
   try {
     reconcileVerifications(C());
-    const r = await api(`/api/sources/${S.src.id}/draft`, { method: 'PUT', body: { expected_version: S.draft.version, content: C() } });
+    const r = await api(S.draftUrl, { method: 'PUT', body: { expected_version: S.draft.version, content: C() } });
     S.draft.version = r.version; S.inflight = false;
     refreshStates();
     if (S.dirty !== mySeq) { setSave('dirty'); S.saveTimer = setTimeout(save, 200); } else { setSave('saved'); clearPending(); }
     paintStatus();
   } catch (e) {
     S.inflight = false;
-    if (e.code === 'VERSION_CONFLICT') { setSave('conflict'); S.banner = { kind: 'bad', text: e.message, action: ['טען גרסת שרת', reloadServer], action2: ['דרוס עם הגרסה שלי', async () => { const d = await api(`/api/sources/${S.src.id}/draft`); S.draft.version = d.version; S.save = 'dirty'; S.banner = null; save(); refresh(); }] }; refresh(); }
+    if (e.code === 'VERSION_CONFLICT') { setSave('conflict'); S.banner = { kind: 'bad', text: e.message, action: ['טען גרסת שרת', reloadServer], action2: ['דרוס עם הגרסה שלי', async () => { const d = await api(S.draftUrl); S.draft.version = d.version; S.save = 'dirty'; S.banner = null; save(); refresh(); }] }; refresh(); }
     else if (e.status && e.status < 500 && e.status !== 0) { setSave('failed'); toast(e.message, true); }
     else { setSave('offline'); clearTimeout(S.retryTimer); S.retryTimer = setTimeout(save, 3000); }
   }
 }
-async function reloadServer() { const d = await api(`/api/sources/${S.src.id}/draft`); S.draft = d; clearPending(); S.banner = null; S.save = 'saved'; S.sel = null; refresh(); }
+async function reloadServer() { const d = await api(S.draftUrl); S.draft = d; clearPending(); S.banner = null; S.save = 'saved'; S.sel = null; refresh(); }
 
 // ---------------- layout ----------------
 function layout() {
@@ -576,7 +582,7 @@ function setSegmentAthlete(segId, athleteId) {
   });
 }
 async function refreshStates() {
-  if (!S) return;
+  if (!S || S.setId !== 'primary') return;   // states/track QA describe the primary Ground Truth stream
   try { S.states = await api(`/api/sources/${S.src.id}/states`); if (S.inspTab === 'box' || S.inspTab === 'event') paintInspector(); } catch { /* informational panel only */ }
 }
 
@@ -682,11 +688,11 @@ function renderEventTab() {
     ),
 
     h('h3', {}, 'אישור Ground Truth'),
-    statesPanel(),
-    approvalForm(),
+    S.setId !== 'primary' ? setPanel() : statesPanel(),
+    S.setId !== 'primary' ? null : approvalForm(),
 
-    h('h3', {}, 'היסטוריית גרסאות מאושרות', h('span', { class: 'pill' }, S.revs.length)),
-    h('ul', { class: 'list', 'data-testid': 'revlist' }, S.revs.length ? S.revs.map(r => h('li', {}, h('b', {}, `v${r.seq}`), h('span', { style: { flex: 1 }, class: 'meta' }, fmtDate(r.approved_at), r.reason ? ` · ${r.reason}` : ''), h('span', { class: 'mono ltr meta' }, r.digest.slice(0, 8)), h('button', { class: 'btn sm', title: 'טען כטיוטה', onclick: () => restoreRevision(r) }, 'שחזר'))) : [h('li', {}, 'אין גרסאות מאושרות')])
+    S.setId !== 'primary' ? null : h('h3', {}, 'היסטוריית גרסאות מאושרות', h('span', { class: 'pill' }, S.revs.length)),
+    S.setId !== 'primary' ? null : h('ul', { class: 'list', 'data-testid': 'revlist' }, S.revs.length ? S.revs.map(r => h('li', {}, h('b', {}, `v${r.seq}`), h('span', { style: { flex: 1 }, class: 'meta' }, fmtDate(r.approved_at), r.reason ? ` · ${r.reason}` : ''), h('span', { class: 'mono ltr meta' }, r.digest.slice(0, 8)), h('button', { class: 'btn sm', title: 'טען כטיוטה', onclick: () => restoreRevision(r) }, 'שחזר'))) : [h('li', {}, 'אין גרסאות מאושרות')])
   );
 }
 
@@ -991,6 +997,10 @@ function segForm(s) {
         ),
         h('button', { class: 'btn sm', 'data-testid': 'new-athlete', onclick: newAthlete }, '＋ חדש')
       ), 'f-athlete'),
+      // Addendum §3: a usable event names its primary person, or says explicitly that there is none / it is uncertain.
+      !s.athlete_id ? field('אם אין גולש מבצע ידוע:', h('select', { id: 'f-primary', 'data-testid': 'primary-status', onchange: e => upd('primary_status', e.target.value || null) },
+        h('option', { value: '' }, '— לא נקבע —'),
+        [['uncertain_primary', 'לא ברור מי ביצע'], ['no_primary_action', 'אין מבצע ראשי לאירוע']].map(([k, l]) => h('option', { value: k, selected: s.primary_status === k }, l))), 'f-primary') : null,
       // Spec §18: an event may belong to a different sport than its source (restored after the V2 rewrite dropped it).
       field('ענף למקטע', h('select', { id: 'f-sport', 'data-testid': 'seg-sport', onchange: e => upd('sport_id', e.target.value || null) },
         h('option', { value: '' }, `כמו המקור (${sportName(S.src.primary_sport_id ?? null)})`),
@@ -1094,6 +1104,7 @@ function segForm(s) {
       h('button', { class: 'btn sm', onclick: () => fillInterpolated(s) }, 'מלא ביניים (משוער)'),
       h('button', { class: 'btn sm', onclick: () => { S.inspTab = 'box'; refresh(); } }, 'אמת BOX ←')
     ),
+    S.setId === 'primary' ? actionPanel(s) : null,
     kfs.length ? h('ul', { class: 'list', 'data-testid': 'kflist', style: { maxHeight: '160px', overflowY: 'auto' } }, kfs.map(k => {
       const v = latestVerification(C(), s.id, k.frame);
       const st = v?.status ?? 'unreviewed';
@@ -1119,6 +1130,37 @@ async function newAthlete() {
   inp.focus(); inp.addEventListener('keydown', e => { if (e.key === 'Enter') $('[data-testid=na-ok]').click(); });
 }
 
+// Addendum §4: the same real-world action seen in several videos is ONE physical action with several occurrences.
+function actionPanel(s) {
+  const mine = (S.actions ?? []).filter(a => a.occurrences.some(o => o.source_id === S.src.id && o.segment_id === s.id));
+  const others = (S.allActions ?? []).filter(a => !mine.includes(a) && a.action_type === s.event_type);
+  const reload = async () => { const [m, all] = await Promise.all([api(`/api/physical-actions?source=${S.src.id}`), api('/api/physical-actions')]); S.actions = m.items; S.allActions = all.items; refresh(); };
+  return h('div', { class: 'section', 'data-testid': 'action-panel', style: { background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', padding: '12px' } },
+    h('strong', { style: { fontSize: '13px', display: 'block', marginBottom: '6px' } }, 'אותה פעולה בסרטון אחר (פעולה פיזית)'),
+    mine.length ? mine.map(a => h('div', { class: 'meta', 'data-testid': 'action-linked' }, `מקושר לפעולה ${a.id.slice(0, 8)} · ${a.lineage_state} · ${a.occurrences.length} מופעים`))
+      : h('div', { class: 'meta' }, 'האירוע לא מקושר לפעולה פיזית. קשר רק אם זו בדיוק אותה פעולה שצולמה בסרטון נוסף.'),
+    !mine.length ? h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', marginTop: '6px' } },
+      h('button', { class: 'btn sm', 'data-testid': 'action-create', onclick: async () => {
+        try { if (S.save !== 'saved') await save(); const a = await api('/api/physical-actions', { method: 'POST', body: { action_type: s.event_type, sport_id: s.sport_id ?? S.src.primary_sport_id ?? null, primary_person_id: s.athlete_id ?? null } });
+          await api(`/api/physical-actions/${a.id}/occurrences`, { method: 'POST', body: { source_id: S.src.id, segment_id: s.id, occurrence_role: 'canonical_view' } }); toast('נוצרה פעולה פיזית'); await reload(); } catch (e) { toast(e.message, true); }
+      } }, '＋ פעולה פיזית חדשה מהאירוע'),
+      others.length ? h('select', { id: 'link-action', 'data-testid': 'action-select' }, others.map(a => h('option', { value: a.id }, `${a.id.slice(0, 8)} · ${a.occurrences.length} מופעים`))) : null,
+      others.length ? h('button', { class: 'btn sm', 'data-testid': 'action-link', onclick: async () => {
+        try { if (S.save !== 'saved') await save(); await api(`/api/physical-actions/${$('#link-action').value}/occurrences`, { method: 'POST', body: { source_id: S.src.id, segment_id: s.id, occurrence_role: 'duplicate_view' } }); toast('האירוע קושר לפעולה'); await reload(); } catch (e) { toast(e.message, true); }
+      } }, 'קשר כמבט נוסף') : null) : null);
+}
+function setPanel() {
+  const done = S.draft.queue_status === 'completed';
+  return h('div', { class: 'section', 'data-testid': 'set-panel', style: { background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', padding: '12px' } },
+    h('div', { class: 'banner warn' }, 'זרם תיוג עצמאי: אינך רואה את עבודת הסטים האחרים עד שהסט שלך יוגש. התחלת מטיוטה ריקה.'),
+    h('div', { class: 'meta' }, `סט: `, h('span', { class: 'mono ltr' }, S.setId.slice(0, 8)), ` · מצב בתור: ${S.draft.queue_status}`),
+    done ? h('div', { class: 'banner ok', 'data-testid': 'set-done' }, 'המקור הוגש בסט זה ואינו ניתן לעריכה.')
+      : h('button', { class: 'btn primary', 'data-testid': 'set-complete', onclick: async () => {
+        clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
+        if (S.save !== 'saved') await save();
+        try { await api(`/api/sets/${S.setId}/assignments/${S.src.id}/complete`, { method: 'POST', body: { expected_version: S.draft.version } }); S.draft.queue_status = 'completed'; toast('המקור הוגש בסט'); refresh(); } catch (e) { toast(e.message, true); }
+      } }, 'סיים והגש מקור זה בסט'));
+}
 const WF_HE = { not_started: ['טרם התחיל', 'warn'], in_progress: ['בעבודה', 'warn'], needs_review: ['דורש בדיקה', 'bad'], ready_for_approval: ['מוכן לאישור', 'ok'], approved: ['מאושר', 'ok'] };
 function statesPanel() {
   const st = S.states;
