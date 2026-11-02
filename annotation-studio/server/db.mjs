@@ -160,11 +160,60 @@ create table if not exists source_owner_history(
   changed_at text not null,
   version integer not null default 1
 );
+create table if not exists annotation_sets(
+  id text primary key,
+  purpose text not null check(purpose in ('primary','delayed_blind_reannotation','independent_qa','adjudication')),
+  taxonomy_version text, instruction_version text not null default 'guidelines-v1',
+  annotator_id text not null, contributing_set_ids text not null default '[]', created_at text not null
+);
+create table if not exists annotation_set_status(
+  id integer primary key autoincrement, set_id text not null references annotation_sets(id),
+  status text not null check(status in ('draft','active','submitted','adjudicating','accepted','archived')),
+  actor text not null, at text not null
+);
+create table if not exists set_assignments(
+  id text primary key, set_id text not null references annotation_sets(id), source_id text not null references sources(id),
+  queue_status text not null default 'unlabeled' check(queue_status in ('unlabeled','in_progress','needs_review','completed','excluded')),
+  current_revision_id text, operator_id text, playback_position_ms integer not null default 0,
+  draft_version integer not null default 0, draft_content text, started_at text, completed_at text, updated_at text not null,
+  unique(set_id, source_id)
+);
+create table if not exists set_revisions(
+  id text primary key, set_id text not null references annotation_sets(id), source_id text not null references sources(id),
+  seq integer not null, content text not null, digest text not null, author text not null, created_at text not null,
+  unique(set_id, source_id, seq)
+);
+create table if not exists person_lineage_relations(
+  id text primary key, set_id text not null,
+  relation_type text not null check(relation_type in ('merge','split','equivalent','retire')),
+  from_person_id text not null references athletes(id), to_person_id text references athletes(id),
+  contributing_revision_id text, reason_code text not null, created_by text not null, created_at text not null
+);
+create table if not exists physical_actions(
+  id text primary key, sport_id text, action_type text not null, primary_person_id text references athletes(id),
+  created_revision_id text, created_at text not null
+);
+create table if not exists physical_action_states(
+  id integer primary key autoincrement, physical_action_id text not null references physical_actions(id),
+  lineage_state text not null check(lineage_state in ('provisional','accepted','split','merged','retired')),
+  related_action_ids text not null default '[]', reason text, actor text not null, at text not null
+);
+create table if not exists action_occurrences(
+  id text primary key, physical_action_id text not null references physical_actions(id),
+  source_id text not null references sources(id), segment_id text not null, evidence_revision_id text,
+  start_frame integer not null, end_frame integer not null,
+  occurrence_role text not null check(occurrence_role in ('canonical_view','duplicate_view','supplementary_view','uncertain')),
+  created_at text not null
+);
+create table if not exists action_occurrence_retirements(
+  id integer primary key autoincrement, occurrence_id text not null references action_occurrences(id), reason text not null, actor text not null, at text not null
+);
 `;
 
 // Append-only guarantees are enforced in the database, not only in application code.
 const IMMUTABLE = ['annotation_revisions', 'dataset_versions', 'dataset_members',
-  'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log', 'source_owner_history'];
+  'pipeline_predictions', 'evaluation_runs', 'edl_records', 'editing_reports', 'crop_proposals', 'audit_log', 'source_owner_history',
+  'annotation_set_status', 'set_revisions', 'person_lineage_relations', 'physical_actions', 'physical_action_states', 'action_occurrences', 'action_occurrence_retirements'];
 const NO_DELETE = ['sources', 'athletes', 'source_locations', 'upload_occurrences', 'sports', 'sport_event_types', 'cloud_objects'];
 
 /**
@@ -206,6 +255,11 @@ export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
   addColumn(db, 'sources', 'owner_version', 'integer not null default 0');
   addColumn(db, 'cloud_objects', 'owner_version', 'integer not null default 0');
   addColumn(db, 'source_owner_history', 'version', 'integer not null default 1');
+  // 0006 (FULL_SPEC): evaluation identity tuple (addendum §10) and the 'primary' set = existing source-keyed drafts/revisions.
+  addColumn(db, 'evaluation_runs', 'identity_key', 'text');
+  addColumn(db, 'evaluation_runs', 'matching_version', 'text');
+  db.exec('create unique index if not exists evaluation_runs_identity on evaluation_runs(identity_key) where identity_key is not null');
+  db.prepare("insert or ignore into annotation_sets(id,purpose,annotator_id,created_at) values('primary','primary','operator','1970-01-01T00:00:00.000Z')").run();
   seedSports(db);
   db.prepare('insert or ignore into meta(key,value) values(?,?)').run('schema_version', String(SCHEMA_VERSION));
   return db;

@@ -17,6 +17,8 @@ import { reconcile, verifyArchives } from './ingest.mjs';
 import * as I from './imports.mjs';
 import { exportBackup, verifyIntegrity } from './backup.mjs';
 import { backupStatus } from './offsite.mjs';
+import * as Sets from './sets.mjs';
+import * as Lin from './lineage.mjs';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -178,6 +180,38 @@ export function createApp(ctx) {
       const out = A.approve(db, r[1], { expectedVersion: b.expected_version, scope: b.scope, reason: b.reason, acknowledgeUnresolved: !!b.acknowledge_unresolved });
       return send(res, 200, { revision: { id: out.revision.id, seq: out.revision.seq, digest: out.revision.digest, approved_at: out.revision.approved_at }, unchanged: out.unchanged, unresolved: out.unresolved, approval_caveats: out.approval_caveats });
     }
+    // ---- Independent annotation sets, agreement, adjudication (addendum §2, §8, §9) ----
+    if (p === '/api/sets') {
+      if (m === 'GET') return send(res, 200, { items: Sets.listSets(db) });
+      if (m === 'POST') return send(res, 201, Sets.createSet(db, await body(req)));
+    }
+    if ((r = /^\/api\/sets\/([\w-]+)\/assignments$/.exec(p)) && m === 'POST') return send(res, 200, Sets.addAssignments(db, r[1], (await body(req)).source_ids));
+    if ((r = /^\/api\/sets\/([\w-]+)\/assignments\/([\w-]+)$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, Sets.getSetDraft(db, r[1], r[2]));
+      if (m === 'PUT') return send(res, 200, Sets.saveSetDraft(db, r[1], r[2], await body(req)));
+      if (m === 'PATCH') return send(res, 200, Sets.setQueueStatus(db, r[1], r[2], (await body(req)).queue_status));
+    }
+    if ((r = /^\/api\/sets\/([\w-]+)\/assignments\/([\w-]+)\/complete$/.exec(p)) && m === 'POST') return send(res, 200, Sets.completeAssignment(db, r[1], r[2], await body(req)));
+    if ((r = /^\/api\/sets\/([\w-]+)\/submit$/.exec(p)) && m === 'POST') return send(res, 200, Sets.submitSet(db, r[1]));
+    if ((r = /^\/api\/sets\/([\w-]+)\/revisions\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, Sets.readForComparison(db, r[1], r[2], { viewerSetId: url.searchParams.get('viewer_set') ?? undefined }) ?? {});
+    if (p === '/api/agreement' && m === 'GET') return send(res, 200, Sets.agreementReport(db, url.searchParams.get('a'), url.searchParams.get('b'), { viewerSetId: url.searchParams.get('viewer_set') ?? undefined }));
+    // ---- Identity lineage (§6) and physical actions (§4) ----
+    if (p === '/api/person-lineage') {
+      if (m === 'GET') return send(res, 200, Lin.personLineage(db, { setId: url.searchParams.get('set') ?? 'primary' }));
+      if (m === 'POST') return send(res, 201, Lin.addPersonRelation(db, await body(req)));
+    }
+    if (p === '/api/physical-actions') {
+      if (m === 'GET') return send(res, 200, { items: Lin.listPhysicalActions(db, { source_id: url.searchParams.get('source') ?? null, include_inactive: url.searchParams.get('all') === '1' }), coverage: Lin.actionCoverage(db) });
+      if (m === 'POST') return send(res, 201, Lin.createPhysicalAction(db, await body(req)));
+    }
+    if (p === '/api/physical-actions/merge' && m === 'POST') { const b = await body(req); return send(res, 201, Lin.mergeActions(db, b.action_ids, b)); }
+    if ((r = /^\/api\/physical-actions\/([\w-]+)$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, Lin.getPhysicalAction(db, r[1]));
+      if (m === 'PATCH') { const b = await body(req); return send(res, 200, Lin.setActionState(db, r[1], b.lineage_state, b)); }
+    }
+    if ((r = /^\/api\/physical-actions\/([\w-]+)\/occurrences$/.exec(p)) && m === 'POST') return send(res, 201, Lin.linkOccurrence(db, r[1], await body(req)));
+    if ((r = /^\/api\/physical-actions\/([\w-]+)\/split$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 201, Lin.splitAction(db, r[1], b.groups, b)); }
+    if ((r = /^\/api\/action-occurrences\/([\w-]+)\/retire$/.exec(p)) && m === 'POST') return send(res, 200, Lin.retireOccurrence(db, r[1], await body(req)));
     if ((r = /^\/api\/sources\/([\w-]+)\/states$/.exec(p)) && m === 'GET') return send(res, 200, A.sourceStates(db, r[1]));
     if ((r = /^\/api\/sources\/([\w-]+)\/revisions$/.exec(p)) && m === 'GET') return send(res, 200, { items: A.listRevisions(db, r[1]) });
     if ((r = /^\/api\/revisions\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, A.getRevision(db, r[1]));

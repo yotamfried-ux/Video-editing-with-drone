@@ -43,6 +43,9 @@ grant select, insert on upload_occurrences to gt_studio;
 grant select, insert on annotation_revisions, dataset_versions, dataset_members, pipeline_predictions, evaluation_runs,
                         edl_records, editing_reports, crop_proposals, audit_log to gt_studio;
 grant select on schema_migrations to gt_studio;
+grant select, insert, update on annotation_sets, set_assignments to gt_studio;
+grant select, insert on annotation_set_status, set_revisions, person_lineage_relations, physical_actions, physical_action_states,
+                        action_occurrences, action_occurrence_retirements to gt_studio;
 grant select on frozen_revisions, frozen_datasets to gt_studio;
 grant usage, select on all sequences in schema __SCHEMA__ to gt_studio;
 -- gt_studio holds NO delete privilege on any table: deletion is not an application operation.

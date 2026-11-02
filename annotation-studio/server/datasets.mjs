@@ -3,6 +3,8 @@ import { createHash, randomUUID } from 'node:crypto';
 import { now, tx, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { digestOf, latestRevision } from './annotations.mjs';
+import { lineageSnapshot } from './lineage.mjs';
+import { unadjudicatedDisagreements } from './sets.mjs';
 
 export const DEFAULT_POLICY = { seed: 'sportreel-v1', ratios: { train: 0.7, validation: 0.15, test: 0.15 } };
 
@@ -38,7 +40,16 @@ export function freezeDataset(db, { name, sourceIds, policy = DEFAULT_POLICY }) 
     const byGroup = new Map();
     for (const m of members) byGroup.set(m.group, (byGroup.get(m.group) ?? new Set()).add(m.split));
     for (const m of members) { const sp = byGroup.get(m.group); if (sp.has('test')) m.split = 'test'; }
+    // Addendum §11: no freeze while an independent comparison has blocking disagreements without an accepted adjudication.
+    const open = unadjudicatedDisagreements(db, members.map(m => m.source_id));
+    if (open.length) throw Object.assign(new ApiError('BLOCKING_DISAGREEMENT', `${open.length} מקורות עם אי-הסכמות חוסמות שלא הוכרעו`), { unresolved: open });
     const manifest = { name, policy, members: members.map(({ group, ...m }) => m) };
+    // Pin the exact identity-lineage relations and physical-action lineage used by this version (only when any exist,
+    // so manifests of datasets without lineage are byte-identical to before).
+    const lin = lineageSnapshot(db, members.map(m => m.source_id));
+    if (lin.person_lineage_relation_ids.length || lin.physical_actions.length) manifest.lineage = lin;
+    const indep = db.prepare("select id, purpose from annotation_sets where id != 'primary' order by created_at").all();
+    if (indep.length) manifest.annotation_sets = { ground_truth_set: 'primary', independent_sets: indep.map(x => x.id) };
     const digest = digestOf(manifest);
     const id = randomUUID();
     db.prepare('insert into dataset_versions(id,name,created_at,policy,manifest,digest) values(?,?,?,?,?,?)')

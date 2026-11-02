@@ -29,6 +29,8 @@ export const VERIFICATION_STATUSES = [
 export const VISIBILITY = ['visible', 'partial', 'occluded', 'not_visible'];
 export const KEY_ORIGINS = ['manual', 'suggested', 'interpolated'];
 export const FRAMING = ['contain', 'geometric_center', 'directional_lead_room'];
+// Addendum §3: every usable event names a primary person, or says explicitly that there is none / it is uncertain.
+export const PRIMARY_STATUS = ['person', 'no_primary_action', 'uncertain_primary'];
 const EPS = 1e-9;
 
 export function canonical(v) {
@@ -78,6 +80,9 @@ export function validateContent(c, source, db) {
     if (s.framing_mode != null && !FRAMING.includes(s.framing_mode)) throw new ApiError('INVALID_INPUT', 'מצב קומפוזיציה לא תקין');
     if (s.target != null && !(s.target.x >= 0 && s.target.x <= 1 && s.target.y >= 0 && s.target.y <= 1)) throw new ApiError('INVALID_INPUT', 'נקודת יעד לא תקינה');
     if (s.athlete_id != null && !db.prepare('select 1 from athletes where id=?').get(s.athlete_id)) throw new ApiError('INVALID_INPUT', 'גולש לא קיים');
+    if (s.primary_status != null && !PRIMARY_STATUS.includes(s.primary_status)) throw new ApiError('INVALID_INPUT', 'סטטוס מבצע ראשי לא תקין');
+    if (s.primary_status === 'person' && !s.athlete_id) throw new ApiError('INVALID_INPUT', 'סטטוס "גולש" מחייב גולש מבצע');
+    if (s.athlete_id && s.primary_status && s.primary_status !== 'person') throw new ApiError('INVALID_INPUT', 'אירוע עם גולש מבצע אינו יכול להיות מסומן "אין מבצע"');
     segs.set(s.id, s);
   }
   const kids = new Set(), kfFrames = new Set();
@@ -174,6 +179,7 @@ export function unresolved(content, source = null) {
     included_not_usable: inc.filter(s => s.usability === 'unusable').length,
     missing_reason_codes: segs.filter(needsReason).length,
     needs_review_flags: segs.filter(s => s.needs_review).length,
+    usable_without_primary: segs.filter(s => (s.usability === 'usable' || s.usability === 'partially_usable') && !s.athlete_id && !['no_primary_action', 'uncertain_primary'].includes(s.primary_status)).length,
     boxes_needing_correction: segs.filter(s => s.decision !== 'exclude' && qaById.get(s.id)?.status === 'needs_correction').length,
     included_boxes_unverified: inc.filter(s => { const q = qaById.get(s.id); return q?.has_boxes && q.status !== 'verified_in_checked_range'; }).length,
   };
@@ -187,6 +193,7 @@ export function unresolved(content, source = null) {
     included_not_usable: out.included_not_usable,
     missing_reason_codes: out.missing_reason_codes,
     needs_review_flags: out.needs_review_flags,
+    usable_without_primary: out.usable_without_primary,
   };
   // Informational caveat recorded on the revision; never blocks, never reported as verified.
   out.caveats = { included_boxes_unverified: out.included_boxes_unverified };
@@ -277,6 +284,11 @@ export function sourceStates(db, sourceId) {
     source_id: sourceId,
     workflow, workflow_computed_reasons: { blocking: u.blocking, open: u.acknowledgeable }, operator_requested_review: operatorRequestedReview,
     draft: d ? { saved: true, version: d.version, updated_at: d.updated_at } : { saved: false, version: 0 },
+    // §3: item-level primary is DERIVED only when every included meaningful event has the same primary person.
+    item_primary: (() => { const inc = segs.filter(x => x.decision === 'include' && x.primary_status !== 'no_primary_action');
+      if (!inc.length) return { state: 'none' };
+      const ids = new Set(inc.map(x => x.athlete_id ?? null));
+      return ids.size === 1 && !ids.has(null) ? { state: 'single', athlete_id: [...ids][0] } : ids.size > 1 ? { state: 'multiple_event_owners' } : { state: 'unknown' }; })(),
     catalog_owner: { athlete_id: src.owner_athlete_id ?? null, status: src.owner_status || 'unassigned', version: src.owner_version ?? 0 },
     segments: { total: segs.length, usability: count('usability', USABILITY), decision: count('decision', DECISIONS) },
     box_qa: { frames_verified: qa.reduce((a, q) => a + q.verified_frames, 0), per_segment: qa.map(q => ({ segment_id: q.segment_id, status: q.status, checked_frames: q.checked_frames, verified_frames: q.verified_frames, box_frames: q.box_frames, interpolated_frames: q.interpolated_frames, checked_range: q.checked_range, event_span_checked_ratio: q.event_span_checked_ratio, missing_checkpoints: q.missing_checkpoints, needs_correction_frames: q.needs_correction_frames, crossings: q.crossings.length })) },
