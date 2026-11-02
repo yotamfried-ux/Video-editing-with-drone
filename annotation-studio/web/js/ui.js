@@ -67,11 +67,18 @@ export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.
 /** External-backup status: Local First only works if the independent copy really exists and is fresh. */
 export async function backupStatus() { try { return await api('/api/backup/status'); } catch { return null; } }
 export function backupBanner(b) {
-  if (!b || b.state === 'ok') return null;
+  if (!b) return null;
+  const cmd = h('code', { class: 'ltr' }, 'node scripts/gt-offsite-backup.mjs run --to <דיסק אחר>');
+  if (b.state === 'ok' && !b.last_failed) {
+    if (b.encrypted === false) return h('div', { class: 'banner warn', role: 'status', 'data-testid': 'backup-banner-plain' }, 'הגיבוי האחרון אינו מוצפן (הוצהר שהדיסק מוצפן). מומלץ לעבור לגיבוי מוצפן עם מפתח.');
+    return null;
+  }
   const msg = b.state === 'never'
     ? 'לא בוצע גיבוי חיצוני. סרטונים וגיבוי שלהם על אותו דיסק אינם גיבוי.'
-    : `הגיבוי החיצוני האחרון בוצע לפני ${Math.floor(b.age_days)} ימים (הסף: ${b.stale_after_days}).`;
-  return h('div', { class: 'banner bad', role: 'alert', 'data-testid': 'backup-banner' }, msg, ' ', h('code', { class: 'ltr' }, 'node scripts/gt-offsite-backup.mjs run --to <דיסק אחר>'));
+    : b.state === 'stale'
+      ? `הגיבוי החיצוני האחרון בוצע לפני ${Math.floor(b.age_days)} ימים (הסף: ${b.stale_after_days}).`
+      : `הגיבוי החיצוני האחרון נכשל (הגיבוי התקין האחרון: לפני ${Math.floor(b.age_days)} ימים). בדוק את יומן הגיבוי והרץ שוב.`;
+  return h('div', { class: 'banner bad', role: 'alert', 'data-testid': 'backup-banner' }, msg, ' ', cmd);
 }
 export function backupPill(b) {
   if (!b) return null;
