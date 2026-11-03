@@ -16,7 +16,7 @@ This is not a judgment that the software is unfit. **No code P0 gap is open.** E
 | R2 sources protected from unauthorized read/write | **PASS (code/stub)**, **BLOCKED (real token)** | Connector refuses non-GET/HEAD; stub request log shows GET/HEAD only. Real token permission probe pending (step 1, `--probe-delete-permission`). |
 | Secure backup + proven restore | **PASS (syn)**, **BLOCKED (real disk)** | All artifacts encrypted; wrong key/tamper refused; isolated table-by-table restore drill. Real separate disk + Windows schedule + restore from it pending (step 2). |
 | Interface usable for real work | **PASS (syn E2E)**, **NOT_TESTED (operator walkthrough)** | Mouse/keyboard journeys at 1440×900 and 1920×1080; screenshots reviewed. A real operator session on 4K footage is still needed (step 3). |
-| Mandatory tests pass | **PASS locally**. CI: see [CI-AND-SECURITY](CI-AND-SECURITY.md). | Fresh runs, real counts, not prior reports. |
+| Mandatory tests pass | **PASS**: CI green on `a9a1fed` (SQLite, PostgreSQL 144/0/3-skipped, role isolation 8/8, all browser suites); see [CI-AND-SECURITY](CI-AND-SECURITY.md) | Fresh runs, real counts, not prior reports. |
 | No open P0 gap | **Code: none open.** Evidence P0s: BLOCKED (below). | |
 
 ## Fixed in this branch (were P0/P1 in the §22 audit or found during this work)
