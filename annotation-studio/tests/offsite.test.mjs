@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
-import { newCtx, makeVideo, tmp, seg } from './helpers.mjs';
+import { newCtx, makeVideo, tmp, seg, BACKEND } from './helpers.mjs';
 import { reconcile } from '../server/ingest.mjs';
 import * as A from '../server/annotations.mjs';
 import { runOffsiteBackup, verifyOffsite, restoreFromOffsite, backupStatus, BackupError, plaintextArtifacts } from '../server/offsite.mjs';
@@ -158,7 +158,8 @@ test('ENCRYPTED backup: nothing readable on the medium — DB export, SQLite sna
   const dest = tmp('ext-enc-');
   const r = await runOffsiteBackup(ctx, dest, { ...encDev(ctx), scope: 'all' });
   assert.equal(r.ok, true); assert.equal(r.encrypted, true); assert.equal(r.copied, 2);
-  assert.ok(r.sqlite_file.endsWith('.sqlite.enc'));
+  // SQLite backend: the physical snapshot is encrypted; PostgreSQL has no file snapshot (logical export only).
+  if (BACKEND === 'sqlite') assert.ok(r.sqlite_file.endsWith('.sqlite.enc')); else assert.equal(r.sqlite_file, undefined);
   assert.deepEqual(plaintextArtifacts(dest), [], 'no plaintext artifact on the backup medium');
   const original = readFileSync(ctx.archive.pathFor(a.archive_key));
   const needle = original.subarray(original.length >> 1, (original.length >> 1) + 64);

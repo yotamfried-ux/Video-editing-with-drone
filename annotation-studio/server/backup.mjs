@@ -6,8 +6,9 @@ import { now, audit } from './db.mjs';
 export const BACKUP_FORMAT = 'gt-backup/v1';
 // Dependency order (parents first) and a deterministic order column per table.
 export const TABLES = [
-  ['sources', 'id'], ['source_locations', 'id'], ['upload_batches', 'id'], ['upload_occurrences', 'id'], ['ingestion_jobs', 'id'],
-  ['athletes', 'id'], ['athlete_appearances', 'id'], ['annotation_drafts', 'source_id'], ['annotation_revisions', 'id'],
+  // athletes BEFORE sources: sources.owner_athlete_id references athletes (restoring sources first violated the FK on PostgreSQL)
+  ['athletes', 'id'], ['sources', 'id'], ['source_locations', 'id'], ['upload_batches', 'id'], ['upload_occurrences', 'id'], ['ingestion_jobs', 'id'],
+  ['athlete_appearances', 'id'], ['annotation_drafts', 'source_id'], ['annotation_revisions', 'id'],
   ['dataset_versions', 'id'], ['dataset_members', 'dataset_id, source_id'], ['pipeline_predictions', 'id'], ['evaluation_runs', 'id'],
   ['edl_records', 'id'], ['editing_reports', 'id'], ['crop_proposals', 'id'], ['audit_log', 'id'],
   ['sports', 'id'], ['sport_event_types', 'sport_id, key'], ['cloud_objects', 'id'], ['source_owner_history', 'id'],
