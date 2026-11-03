@@ -1,8 +1,11 @@
 # CATALOG_GO readiness — decision record
 
-**Decision (2026-11-02): `NO-GO` (BLOCKED).** The code-side P0 gaps found in the §22 audit are fixed and tested. The decision is still NO-GO because the gate in [spec §22.3](../../specs/ground-truth-annotation-studio.md) requires **direct evidence on real DJI sources and on the operator's own machine and backup disk**. None of that could be produced from the cloud development container: it has no R2 credentials and no access to the operator's computer.
+**Decision (2026-11-03): `NO-GO`.** The operator ran the qualification on the Windows workstation against 7 real DJI 4K/59.94 sources (report `qualification-2026-11-03T09-25-03-974Z.json`, 60 PASS / 0 FAIL / 11 NOT_TESTED, plus a manual UI pass on all 7). That evidence closes most of the gate. Four items keep it NO-GO:
 
-This is not a judgment that the software is unfit. **No code P0 gap is open.** Every remaining item is an evidence step that only the operator's environment can supply. The operator converts this to `CATALOG_GO` by running the three steps in "How to close the gate" below and recording the results here.
+1. **P0 found in real use: saving failed in a loop (fixed in code, needs re-verification on the workstation).** A key moment could be set at a frame outside the selected event (playhead at f0, event `[20,100)`). The server then refused every save of that draft. The UI showed only a short toast, and after a reload the local draft was restored and failed again. Fixed: key moments can only be set inside the event, moving or trimming an event removes values that fall outside it, a draft already stuck this way is repaired automatically on the next save (with a visible note), and a refused save now shows a persistent banner with the reason and "retry" / "load server version". Regression: `e2e/v2` scenario "key moment outside the event…" at both viewports.
+2. **R2 token permission not probed.** The run omitted `--probe-delete-permission`, so "token cannot delete" is NOT_TESTED.
+3. **Backup is on the same physical disk** (`D:` shares a disk with Windows; run with the same-disk override). Encryption, the key check and the scheduled run are proven. Protection against disk failure is not, and no restore drill was reported.
+4. **Operator walkthrough: cataloguing is too hard to follow (P1, open).** The operator reports that the instructions are hard to understand and the catalog flow is too complicated in practice.
 
 ## Gate checklist (spec §22.3)
 
@@ -43,19 +46,24 @@ This is not a judgment that the software is unfit. **No code P0 gap is open.** E
 2. **Backup:** create the key file, run `scripts\install-backup-schedule.ps1` to an external disk, run `schtasks /Run …`, confirm the log, then restore into `%TEMP%\restore-drill` and open it. Record the disk number, run time, `verify` result and restore result below. Do not record the key.
 3. **Operator walkthrough:** catalog 3 real videos in your live Studio: assign owner, events, usability, boxes. **Do not approve.** Note anything slow or unclear.
 
-| Case | Source key | Automated (script) | Human box check | Result |
-|---|---|---|---|---|
-| single surfer | | | | NOT_TESTED |
-| ≥2 surfers | | | | NOT_TESTED |
-| crossing | | | | NOT_TESTED |
-| occlusion | | | | NOT_TESTED |
-| 4K fast motion | | | | NOT_TESTED |
-| quality issue / uncertainty | | | | NOT_TESTED |
-| no events | | | | NOT_TESTED |
-| backup to separate disk + restore | | | | NOT_TESTED |
-| scheduled backup ran | | | | NOT_TESTED |
+Operator run of 2026-11-03 (Windows 11 22631, Node 22.18.0; catalog sync 116 objects: 93 `raw/`, 23 `processed/`, 0 missing). All 7 sources are 3840×2160, 60000/1001 fps, rotation 0, from the legacy `processed/` location (original bytes; SHA-256 recomputed from R2). Proxy↔original mapping: frame N is closer to original N than to N±1 at all 21 sampled frames. The proxy is lossy (≈22–31 dB), and the smallest margin was 0.7 dB (single, f73).
 
-When every row is PASS and CI is green on the final head, change the decision above to `CATALOG_GO` with the date. Re-read this record before converting the first real label from draft to approved.
+| Case | Source key | Automated (script) | Human box check (operator notes) | Result |
+|---|---|---|---|---|
+| single surfer | `…DJI_20260724103751_0165_D.MP4` (368 f) | PASS 10/10 | PASS. Checkpoints are crowded on a 6 s clip. | **PASS** |
+| ≥2 surfers | `…DJI_20260724103701_0163_D.MP4` (864 f) | PASS 10/10 | PASS. Slow scrubbing needed where the second surfer enters the foam. | **PASS** |
+| crossing | `…DJI_20260724103552_0162_D.MP4` (638 f) | PASS 10/10 | PASS. "Wrong surfer" blocked approval; the fix released it (needed an extra save, see P0 1). | **PASS** |
+| occlusion | `…DJI_20260724103255_0160_D.MP4` (679 f) | PASS 10/10 | PASS. Occluded recorded. Finding the exit frame needs frame-by-frame stepping. | **PASS** |
+| 4K fast motion | `…DJI_20260720164037_0142_D.MP4` (1372 f) | PASS 10/10 | PASS. First proxy ≈15 s, then instant. | **PASS** |
+| quality issue / uncertainty | `…DJI_20260720164734_0151_D.MP4` (456 f) | PASS 10/10 | PASS. Glare; `uncertain` defaults were appropriate. | **PASS** |
+| no events | `…DJI_20260720165153_0155_D.MP4` (476 f) | PASS 4/4 | PASS. Owner persisted across restart, 0 events. | **PASS** |
+| R2 token cannot delete | — | NOT_TESTED (flag not passed) | — | **NOT_TESTED** |
+| backup to separate disk + restore | `D:\sportreel-gt` | `verify` ok, encrypted, key verified, 0 objects (no labelled footage yet) | same physical disk as Windows; no restore drill reported | **FAIL (same disk)** |
+| scheduled backup ran | `backup.log` 03/11/2026 21:00 | run + verify ok, exit 0 | — | **PASS** |
+| save/close/reopen in real use | — | — | save failed in a loop (P0 1, fixed in code) | **FAIL → re-verify** |
+| catalog flow understandable | — | — | "too complicated; instructions hard to understand" | **FAIL (P1 open)** |
+
+To close: (a) re-run the save scenario on the workstation after pulling the fix; (b) re-run the script with `--probe-delete-permission` (one case is enough); (c) back up to a disk that is physically separate from Windows (USB disk or NAS) and run the restore drill; (d) simplify the catalog flow and repeat the walkthrough. When every row is PASS and CI is green on the final head, change the decision above to `CATALOG_GO` with the date. Re-read this record before converting the first real label from draft to approved.
 
 ## Not covered by CATALOG_GO
 

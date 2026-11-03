@@ -94,6 +94,14 @@ test('catalog: lists the source prefixes only, with availability, pipeline state
     const st = (await w.api('/api/cloud/status')).body;
     assert.deepEqual({ configured: st.configured, read_only: st.read_only, total: st.total }, { configured: true, read_only: true, total: 4 });
     assert.ok(!JSON.stringify(st).includes(w.stub.secretAccessKey));
+    // optional operator filter (STUDIO_CLOUD_INCLUDE, e.g. DJI): only matching keys/names are listed and counted
+    w.ctx.cloudInclude = '_A';
+    const f = (await w.api('/api/cloud/objects')).body.items;
+    assert.deepEqual(f.map(i => i.key), ['raw/2026-10-06T17-37-55_A.mp4']);
+    const fs = (await w.api('/api/cloud/status')).body;
+    assert.equal(fs.total, 1); assert.equal(fs.include_filter, '_A');
+    w.ctx.cloudInclude = '';
+    assert.equal((await w.api('/api/cloud/objects')).body.items.length, 4, 'empty filter = everything');
   } finally { w.close(); }
 });
 

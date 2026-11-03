@@ -491,3 +491,12 @@ The following changes the system's **behaviour** to meet §§21–22 as written.
 - **Real-footage qualification:** `scripts/qualify-real-footage.mjs` is operator-run, read-only on R2, works on an isolated home and writes private evidence outside the repository.
 
 **Gate status at this update:** `CATALOG_GO` = **NO-GO (BLOCKED on operator-environment evidence; no open code P0)**; `FULL_SPEC_GO` = **NO-GO**. See [CATALOG-READINESS](../annotation-studio/qualification/CATALOG-READINESS.md) and [FULL-SPEC-READINESS](../annotation-studio/qualification/FULL-SPEC-READINESS.md).
+
+### 22.6 Update — operator qualification run, 2026-11-03 (behaviour changes; requirements unchanged)
+
+- **Key moments stay inside their event.** A key moment (takeoff, peak, landing) can only be set while the playhead is inside the selected event, and clicking it again clears it. Moving or trimming an event removes key moments and boxes that fall outside it, and says so. A draft that already holds such a value is repaired before its next save, with a visible note. Found in real use: one out-of-range key moment made the server refuse every save of the draft.
+- **A refused save is never silent.** It shows a persistent banner with the server's reason. The changes stay in the local queue, and the operator chooses "retry" or "load server version". The server's range errors name the frame and the event range.
+- **Cloud catalog filter (optional).** `STUDIO_CLOUD_INCLUDE=<text>` lists and counts only objects whose key or name contains the text (e.g. `DJI`). With the filter on, known synthetic test uploads are also left out at sync. Without it, the bucket is catalogued exactly as stored.
+- **Backup on a single-disk machine (operator override).** `--allow-same-disk` (`-AllowSameDisk` in the scheduled task) allows a destination on the same physical disk. The run is recorded as `same_*_operator_override`, the Studio shows a warning, and such a backup does not satisfy the CATALOG_GO separate-disk condition.
+
+**Gate status at this update:** `CATALOG_GO` = **NO-GO**: the save P0 needs re-verification on the workstation, the token probe was not run, the backup is on the same disk, and the catalog flow is hard to follow (P1). `FULL_SPEC_GO` = **NO-GO**. See [CATALOG-READINESS](../annotation-studio/qualification/CATALOG-READINESS.md).

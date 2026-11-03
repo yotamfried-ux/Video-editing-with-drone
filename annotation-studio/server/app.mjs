@@ -115,14 +115,15 @@ export function createApp(ctx) {
 
     // ---- Cloud catalog (existing SportReel videos in R2, used in place; the bucket is only ever read) ----
     if (m === 'GET' && p === '/api/cloud/status') {
-      const n = db.prepare("select count(*) total, sum(case when available=1 then 1 else 0 end) available, sum(case when source_id is not null then 1 else 0 end) opened from cloud_objects where (key like '%DJI%' or display_name like '%DJI%')").get();
-      return send(res, 200, { configured: !!ctx.cloud, bucket: ctx.cloud?.bucket ?? null, read_only: true, metadata_file: !!ctx.cloudMetadata,
+      const inc = ctx.cloudInclude ?? '', like = C.likeContains(inc);
+      const n = db.prepare("select count(*) total, sum(case when available=1 then 1 else 0 end) available, sum(case when source_id is not null then 1 else 0 end) opened from cloud_objects where (? = '' or key like ? escape '\\' or display_name like ? escape '\\')").get(inc, like, like);
+      return send(res, 200, { configured: !!ctx.cloud, bucket: ctx.cloud?.bucket ?? null, read_only: true, metadata_file: !!ctx.cloudMetadata, include_filter: ctx.cloudInclude || null,
         total: Number(n.total ?? 0), available: Number(n.available ?? 0), opened: Number(n.opened ?? 0) });
     }
     if (m === 'GET' && p === '/api/cloud/objects') {
       if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
       return send(res, 200, {
-        items: C.listCloudObjects(db).map(o => {
+        items: C.listCloudObjects(db, ctx.cloudInclude).map(o => {
           const ownerAthlete = o.owner_athlete_id ? db.prepare('select id, label from athletes where id=?').get(o.owner_athlete_id) : null;
           return {
             ...o,

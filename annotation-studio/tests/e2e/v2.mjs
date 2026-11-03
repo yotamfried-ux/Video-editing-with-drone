@@ -201,6 +201,27 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) 
     assert.ok(vid.width >= vp.width * 0.45, `central player is large (${Math.round(vid.width)}px)`);
     assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1));
   });
+  await scenario(`${tag} key moment outside the event is refused; a stuck local draft (old bug) is repaired and saves`, async () => {
+    await page.reload();
+    await page.waitForSelector('[data-testid=segform]');
+    for (let i = 0; i < 12 && await frameNum() > 0; i++) await page.keyboard.press('Shift+ArrowLeft');   // playhead to frame 0, outside [20,80)
+    assert.equal(await frameNum(), 0);
+    await page.locator('[data-testid=segform] button', { hasText: 'תחילת רכיבה' }).first().click();
+    await page.waitForTimeout(900);
+    assert.equal(draft(src.id).segments[0].key_moments?.takeoff_frame, undefined, 'out-of-range key moment never enters the draft');
+    // The exact state from the operator report: a pending local draft holding takeoff_frame=0 for an event [20,80).
+    const row = db.prepare('select version, content from annotation_drafts where source_id=?').get(src.id);
+    const bad = JSON.parse(row.content); bad.segments[0].key_moments = { takeoff_frame: 0 };
+    await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`studio.pending.${src.id}`, JSON.stringify({ base: row.version, content: bad, at: Date.now() })]);
+    await page.reload();
+    await page.waitForSelector('[data-testid=segform]');
+    await until(() => /תוקן אוטומטית/.test(document.querySelector('[data-testid=inspector-banner]')?.textContent ?? ''));
+    await saved();
+    const d = draft(src.id);
+    assert.equal(d.segments[0].key_moments?.takeoff_frame, undefined, 'repaired before save');
+    assert.match(await page.textContent('[data-testid=inspector-banner]'), /תוקן אוטומטית/);
+    assert.equal(await page.evaluate(k => localStorage.getItem(k), `studio.pending.${src.id}`), null, 'local queue drained');
+  });
   await page.close();
 }
 

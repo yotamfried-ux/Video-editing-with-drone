@@ -21,6 +21,13 @@ cd annotation-studio
 npm ci
 ```
 
+### הצגת סרטוני הרחפן בלבד (רשות)
+כדי שבלשונית **ענן** יופיעו רק סרטוני DJI, בלי קבצי הבדיקה הישנים שב־bucket, הוסף לקובץ `annotation-studio\.studio-cloud.env` את השורה:
+```
+STUDIO_CLOUD_INCLUDE=DJI
+```
+אחרי הוספת השורה, הפעל מחדש את הסטודיו ולחץ **סנכרון**. בלי השורה הזו מוצגים כל הסרטונים שב־bucket.
+
 ## 3. הסמכה אוטומטית מול 7 סרטונים אמיתיים
 הסקריפט רץ על **עותק חדש ומבודד**. הוא לא פותח את הסטודיו האמיתי שלך, קורא מ־R2 בלבד, ושומר תמונות פרטיות **מחוץ לריפו**.
 
@@ -73,7 +80,8 @@ node --env-file=.studio-cloud.env server\main.mjs
    ```powershell
    node --env-file=.studio-cloud.env scripts\gt-offsite-backup.mjs verify --to E:\sportreel-gt --key-file "$env:USERPROFILE\.sportreel-backup-key.txt"
    ```
-   התוצאה הצפויה היא `"ok":true` ו־`device_check: distinct_physical_disk`. אם מתקבל `BACKUP_SAME_DISK`, הדיסק שבחרת הוא מחיצה על אותו כונן פיזי. בחר דיסק אחר.
+   התוצאה הצפויה היא `"ok":true` ו־`device_check: distinct_physical_disk`. אם מתקבל `BACKUP_SAME_DISK`, הדיסק שבחרת הוא מחיצה על אותו כונן פיזי. בחר דיסק אחר (דיסק USB או NAS).
+   אם אין במחשב דיסק נוסף, אפשר להוסיף `--allow-same-disk` (ובמשימה המתוזמנת `-AllowSameDisk`). הגיבוי ירשם אז כ־`same_disk_operator_override`, והסטודיו יציג אזהרה. גיבוי כזה מגן מפני מחיקה בטעות, **לא** מפני תקלת דיסק, ולא עומד בתנאי של `CATALOG_GO`.
 3. תזמון יומי, והרצה אחת מיד:
    ```powershell
    powershell -ExecutionPolicy Bypass -File scripts\install-backup-schedule.ps1 -To "E:\sportreel-gt" -KeyFile "$env:USERPROFILE\.sportreel-backup-key.txt" -At 21:00

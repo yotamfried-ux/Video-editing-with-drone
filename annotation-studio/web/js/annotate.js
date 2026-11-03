@@ -96,7 +96,7 @@ function restorePending() {
     const p = JSON.parse(localStorage.getItem(pendKey()) ?? 'null');
     if (!p) return;
     if (JSON.stringify(p.content) === JSON.stringify(C())) return clearPending();
-    if (p.base === S.draft.version) { S.draft.content = p.content; S.dirty++; S.banner = { kind: 'warn', text: 'שוחזרה טיוטה מקומית שלא נשמרה בשרת — נשמרת כעת.' }; setTimeout(save, 300); }
+    if (p.base === S.draft.version) { S.draft.content = p.content; S.dirty++; S.banner = { kind: 'warn', restored: true, text: 'שוחזרה טיוטה מקומית שלא נשמרה בשרת — נשמרת כעת.' }; setTimeout(save, 300); }
     else S.banner = { kind: 'bad', text: 'קיימת טיוטה מקומית ישנה שמתנגשת עם גרסת השרת.', action: ['השתמש בטיוטה המקומית', () => { S.draft.content = p.content; S.banner = null; changed(); refresh(); }], action2: ['השלך', () => { clearPending(); S.banner = null; refresh(); }] };
   } catch {}
 }
@@ -108,16 +108,25 @@ async function save() {
   if (!S || S.inflight || S.save === 'conflict') return;
   const mySeq = S.dirty; S.inflight = true; setSave('saving');
   try {
+    const fixed = repairOutOfRange(C());
+    const fixBanner = fixed.length ? { kind: 'warn', text: `תוקן אוטומטית לפני שמירה (ערכים מחוץ לטווח האירוע): ${fixed.join(' · ')}` } : null;
     reconcileVerifications(C());
     const r = await api(S.draftUrl, { method: 'PUT', body: { expected_version: S.draft.version, content: C() } });
     S.draft.version = r.version; S.inflight = false;
+    if (fixBanner || S.banner?.restored || S.banner?.testid === 'save-failed') { S.banner = fixBanner; paintInspector(); }
     refreshStates();
     if (S.dirty !== mySeq) { setSave('dirty'); S.saveTimer = setTimeout(save, 200); } else { setSave('saved'); clearPending(); }
     paintStatus();
   } catch (e) {
     S.inflight = false;
     if (e.code === 'VERSION_CONFLICT') { setSave('conflict'); S.banner = { kind: 'bad', text: e.message, action: ['טען גרסת שרת', reloadServer], action2: ['דרוס עם הגרסה שלי', async () => { const d = await api(S.draftUrl); S.draft.version = d.version; S.save = 'dirty'; S.banner = null; save(); refresh(); }] }; refresh(); }
-    else if (e.status && e.status < 500 && e.status !== 0) { setSave('failed'); toast(e.message, true); }
+    else if (e.status && e.status < 500 && e.status !== 0) {
+      setSave('failed');
+      // Persistent, explained and recoverable: the draft stays saved locally until the operator chooses.
+      S.banner = { kind: 'bad', testid: 'save-failed', text: `השמירה נדחתה על ידי השרת: ${e.message}. השינויים שמורים מקומית בדפדפן. תקן את הנקודה ונסה שוב, או טען את הגרסה השמורה בשרת (השינויים המקומיים יימחקו).`,
+        action: ['נסה שוב', () => { S.banner = null; save(); refresh(); }], action2: ['טען גרסת שרת', reloadServer] };
+      refresh();
+    }
     else { setSave('offline'); clearTimeout(S.retryTimer); S.retryTimer = setTimeout(save, 3000); }
   }
 }
@@ -387,6 +396,8 @@ function bindSegment(el, s) {
       el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
       if (moved) {
         C().keyframes = C().keyframes.filter(k => k.segment_id !== s.id || (k.frame >= s.start_frame && k.frame < s.end_frame));
+        const removed = repairOutOfRange(C());
+        if (removed.length) toast(`הוסר אחרי שינוי האירוע: ${removed.join(' · ')}`);
         changed();
       } else seekFrame(S.frame);
       refresh();
@@ -665,7 +676,7 @@ function renderEventTab() {
   const cov = (() => { const m = new Uint8Array(S.total); for (const r of C().reviewed_ranges) m.fill(1, r.start_frame, r.end_frame); return m.reduce((a, b) => a + b, 0) / S.total; })();
 
   return h('div', { 'data-testid': 'insp-panel-event' },
-    S.banner ? h('div', { class: `banner ${S.banner.kind}`, role: 'alert' }, S.banner.text, h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px' } }, S.banner.action ? h('button', { class: 'btn sm', onclick: S.banner.action[1] }, S.banner.action[0]) : null, S.banner.action2 ? h('button', { class: 'btn sm', onclick: S.banner.action2[1] }, S.banner.action2[0]) : null)) : null,
+    S.banner ? h('div', { class: `banner ${S.banner.kind}`, role: 'alert', 'data-testid': S.banner.testid ?? 'inspector-banner' }, S.banner.text, h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px' } }, S.banner.action ? h('button', { class: 'btn sm', onclick: S.banner.action[1] }, S.banner.action[0]) : null, S.banner.action2 ? h('button', { class: 'btn sm', onclick: S.banner.action2[1] }, S.banner.action2[0]) : null)) : null,
 
     // Mini association bar
     h('div', { style: { background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: '6px', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' } },
@@ -1017,30 +1028,15 @@ function segForm(s) {
       h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
         h('button', {
           class: `btn sm ${s.key_moments?.takeoff_frame === S.frame ? 'primary' : ''}`,
-          onclick: () => {
-            const km = { ...(s.key_moments || {}) };
-            km.takeoff_frame = S.frame;
-            upd('key_moments', km);
-            toast(`תחילת רכיבה סומנה בפריים ${S.frame}`);
-          }
+          onclick: () => setKeyMoment(s, 'takeoff_frame', 'תחילת רכיבה')
         }, `תחילת רכיבה ${s.key_moments?.takeoff_frame ? `(f${s.key_moments.takeoff_frame})` : ''}`),
         h('button', {
           class: `btn sm ${s.key_moments?.peak_frame === S.frame ? 'primary' : ''}`,
-          onclick: () => {
-            const km = { ...(s.key_moments || {}) };
-            km.peak_frame = S.frame;
-            upd('key_moments', km);
-            toast(`תמרון שיא סומן בפריים ${S.frame}`);
-          }
+          onclick: () => setKeyMoment(s, 'peak_frame', 'תמרון שיא')
         }, `תמרון שיא ${s.key_moments?.peak_frame ? `(f${s.key_moments.peak_frame})` : ''}`),
         h('button', {
           class: `btn sm ${s.key_moments?.landing_frame === S.frame ? 'primary' : ''}`,
-          onclick: () => {
-            const km = { ...(s.key_moments || {}) };
-            km.landing_frame = S.frame;
-            upd('key_moments', km);
-            toast(`סיום/נפילה סומנה בפריים ${S.frame}`);
-          }
+          onclick: () => setKeyMoment(s, 'landing_frame', 'סיום/נפילה')
         }, `סיום/נפילה ${s.key_moments?.landing_frame ? `(f${s.key_moments.landing_frame})` : ''}`)
       )
     ),
@@ -1196,6 +1192,32 @@ const UNRES_HE = {
   boxes_needing_correction: 'מקטעים עם BOX שסומן כשגוי (חוסם אישור)',
   included_boxes_unverified: 'מקטעים שנכללו עם BOX שלא אומת במלואו (יירשם כהסתייגות)',
 };
+/** Key moments must lie inside their event (the server refuses the whole draft otherwise). Clicking again clears it. */
+function setKeyMoment(s, key, label) {
+  const cur = s.key_moments?.[key];
+  if (cur === S.frame) { edit(c => { const x = c.segments.find(y => y.id === s.id); const km = { ...(x.key_moments || {}) }; delete km[key]; x.key_moments = km; }); return toast(`${label} הוסר`); }
+  if (S.frame < s.start_frame || S.frame > s.end_frame) return toast(`הסמן (פריים ${S.frame}) מחוץ לאירוע שנבחר (${s.start_frame}–${s.end_frame}). הזז את הסמן לתוך האירוע ואז סמן ${label}.`, true);
+  edit(c => { const x = c.segments.find(y => y.id === s.id); x.key_moments = { ...(x.key_moments || {}), [key]: S.frame }; });
+  toast(`${label} סומן בפריים ${S.frame}`);
+}
+/**
+ * Repairs a draft the server would refuse as a whole because of a value outside its event (e.g. a key moment left
+ * behind after the event was moved/trimmed, or a box outside the event). Returns human-readable notes of what was removed.
+ */
+function repairOutOfRange(c) {
+  const notes = [], segs = new Map(c.segments.map(x => [x.id, x]));
+  for (const x of c.segments) {
+    const km = x.key_moments; if (!km || typeof km !== 'object') continue;
+    for (const k of ['takeoff_frame', 'peak_frame', 'landing_frame']) {
+      if (km[k] != null && (km[k] < x.start_frame || km[k] > x.end_frame)) { notes.push(`רגע מפתח בפריים ${km[k]} מחוץ לאירוע ${x.start_frame}–${x.end_frame}`); delete km[k]; }
+    }
+    if (Array.isArray(km.inflection_frames)) km.inflection_frames = km.inflection_frames.filter(f => f >= x.start_frame && f <= x.end_frame);
+  }
+  const before = c.keyframes.length;
+  c.keyframes = c.keyframes.filter(k => { const x = segs.get(k.segment_id); return x && k.frame >= x.start_frame && k.frame < x.end_frame; });
+  if (c.keyframes.length < before) notes.push(`${before - c.keyframes.length} תיבות מחוץ לטווח האירוע שלהן`);
+  return notes;
+}
 function approvalForm() {
   let scope = 'source', reason = '', ack = false;
   const st = S.states, open = st?.workflow_computed_reasons?.open ?? {}, blocking = st?.workflow_computed_reasons?.blocking ?? {};
@@ -1213,6 +1235,7 @@ function approvalForm() {
   } }, 'אשר גרסת Ground Truth');
   return h('div', { 'data-testid': 'approval-panel' },
     h('div', { class: 'meta' }, 'אישור יוצר גרסה בלתי ניתנת לשינוי של הטיוטה. "נשמר" אינו "מאושר", ואישור אינו הופך פריימים שלא נבדקו למאומתים.'),
+    S.save !== 'saved' ? h('div', { class: 'meta', 'data-testid': 'approval-pending-save', style: { color: 'var(--unc)' } }, S.save === 'failed' ? 'השמירה האחרונה נכשלה — המצב כאן הוא של הגרסה השמורה בשרת.' : 'המצב כאן יתעדכן מיד אחרי השמירה האוטומטית.') : null,
     blockItems.length ? h('div', { class: 'banner bad', 'data-testid': 'approval-blocking' }, h('b', {}, 'חוסם אישור: '), blockItems.map(([k, n]) => `${UNRES_HE[k] ?? k}: ${n}`).join(' · ')) : null,
     openItems.length ? h('ul', { class: 'list', 'data-testid': 'unresolved' }, openItems.map(([k, n]) => h('li', {}, h('span', { style: { flex: 1 } }, UNRES_HE[k] ?? k), h('b', {}, n)))) : h('div', { class: 'meta', 'data-testid': 'unresolved' }, 'אין פריטים פתוחים'),
     (st?.box_qa?.per_segment ?? []).some(q => q.box_frames && q.status !== 'verified_in_checked_range') ? h('div', { class: 'meta' }, UNRES_HE.included_boxes_unverified) : null,

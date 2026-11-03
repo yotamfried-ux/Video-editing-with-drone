@@ -97,7 +97,9 @@ function atomicWrite(file, data) {
  * @param encryption_key  passphrase (>= 12 chars). REQUIRED unless `plaintext: 'device-encrypted'` attests that the
  *                     destination device itself is fully encrypted (BitLocker/FileVault/LUKS); that attestation is
  *                     recorded in the manifest and audit log.
- * @param allowSameDevice  tests only; the CLI never sets it
+ * @param allowSameDevice  operator override (CLI --allow-same-disk) for a machine with a single physical disk. The run is
+ *                     still recorded honestly as `same_*_operator_override`: it protects against accidental deletion,
+ *                     NOT against disk failure, and does not satisfy the CATALOG_GO separate-disk condition.
  */
 export async function runOffsiteBackup(ctx, destDir, { scope = 'labelled', allowSameDevice = false, deviceOf: devFn = deviceOf, diskOf = physicalDiskOf, label = 'offsite', encryption_key = undefined, plaintext = undefined } = {}) {
   if (!['labelled', 'all'].includes(scope)) throw new BackupError('INVALID_SCOPE', 'scope must be labelled or all');
@@ -108,14 +110,15 @@ export async function runOffsiteBackup(ctx, destDir, { scope = 'labelled', allow
   if (encKey) requireStrongKey(encKey);
   mkdirSync(destDir, { recursive: true });
   const live = liveRoots(ctx);
-  if (!allowSameDevice && new Set(live.map(devFn)).has(devFn(destDir))) {
+  const sameVolume = new Set(live.map(devFn)).has(devFn(destDir));
+  if (!allowSameDevice && sameVolume) {
     throw new BackupError('BACKUP_SAME_DEVICE', 'destination is on the same device as the live data; a backup on the same disk does not protect against disk failure');
   }
-  let deviceCheck = 'volume_only';
+  let deviceCheck = sameVolume ? 'same_volume_operator_override' : 'volume_only';
   const destDisk = diskOf(destDir), liveDisks = live.map(diskOf);
   if (destDisk && liveDisks.every(Boolean)) {
     if (!allowSameDevice && liveDisks.includes(destDisk)) throw new BackupError('BACKUP_SAME_DISK', 'destination is a different volume but on the SAME physical disk as the live data');
-    deviceCheck = liveDisks.includes(destDisk) ? 'same_disk_allowed_in_tests' : 'distinct_physical_disk';
+    if (!sameVolume) deviceCheck = liveDisks.includes(destDisk) ? 'same_disk_operator_override' : 'distinct_physical_disk';
   }
   return encKey
     ? runEncrypted(ctx, destDir, { scope, label, encKey, deviceCheck })

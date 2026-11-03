@@ -71,7 +71,7 @@ export function validateContent(c, source, db) {
     if (s.key_moments != null && typeof s.key_moments === 'object') {
       const { takeoff_frame, peak_frame, landing_frame, inflection_frames } = s.key_moments;
       for (const f of [takeoff_frame, peak_frame, landing_frame].filter(x => x != null)) {
-        if (!isInt(f) || f < s.start_frame || f > s.end_frame) throw new ApiError('INVALID_INTERVAL', 'פריים רגע מפתח מחוץ לטווח');
+        if (!isInt(f) || f < s.start_frame || f > s.end_frame) throw new ApiError('INVALID_INTERVAL', `רגע מפתח בפריים ${f} מחוץ לטווח האירוע ${s.start_frame}–${s.end_frame}`);
       }
       if (inflection_frames != null && (!Array.isArray(inflection_frames) || !inflection_frames.every(f => isInt(f) && f >= s.start_frame && f <= s.end_frame))) {
         throw new ApiError('INVALID_INTERVAL', 'פריימי שינוי מחוץ לטווח');
@@ -95,7 +95,7 @@ export function validateContent(c, source, db) {
     kfFrames.add(fk);
     const s = segs.get(k.segment_id);
     if (!s) throw new ApiError('INVALID_INPUT', 'קיפריים ללא מקטע');
-    if (!isInt(k.frame) || k.frame < s.start_frame || k.frame >= s.end_frame) throw new ApiError('INVALID_INTERVAL');
+    if (!isInt(k.frame) || k.frame < s.start_frame || k.frame >= s.end_frame) throw new ApiError('INVALID_INTERVAL', `תיבה בפריים ${k.frame} מחוץ לטווח האירוע ${s.start_frame}–${s.end_frame}`);
     if (!VISIBILITY.includes(k.visibility) || !KEY_ORIGINS.includes(k.origin)) throw new ApiError('INVALID_INPUT', 'מאפיין קיפריים לא תקין');
     if (k.verification_status != null && !VERIFICATION_STATUSES.includes(k.verification_status)) throw new ApiError('INVALID_INPUT', 'סטטוס אימות לא תקין');
     // A keyframe flag is only a mirror; it is backed either by its own legacy stamp or by a bound decision in the log

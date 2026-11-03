@@ -151,6 +151,12 @@ test('a different volume on the SAME physical disk is refused; distinct disks ar
   assert.equal(r.device_check, 'distinct_physical_disk');
   const r2 = await runOffsiteBackup(ctx, tmp('ext-'), encDev(ctx));
   assert.equal(r2.device_check, 'volume_only', 'unknown disk identity is reported honestly, never as a separate disk');
+  // operator override (--allow-same-disk on a single-disk machine): allowed, but recorded as such, never as a separate disk
+  const r3 = await runOffsiteBackup(ctx, tmp('ext-'), { ...encDev(ctx), diskOf: () => 'disk0', allowSameDevice: true });
+  assert.equal(r3.ok, true); assert.equal(r3.device_check, 'same_disk_operator_override');
+  assert.equal(backupStatus(ctx.db).device_check, 'same_disk_operator_override');
+  const r4 = await runOffsiteBackup(ctx, tmp('ext-'), { encryption_key: KEY, diskOf: () => null, allowSameDevice: true });
+  assert.equal(r4.device_check, 'same_volume_operator_override');
 });
 
 test('ENCRYPTED backup: nothing readable on the medium — DB export, SQLite snapshot and footage are all ciphertext', async () => {

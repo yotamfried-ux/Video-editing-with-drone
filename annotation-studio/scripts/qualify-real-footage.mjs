@@ -74,8 +74,12 @@ function run(cmd, args) {
 const ffFrame = (url, n, out, extra = []) => run('ffmpeg', ['-nostdin', '-v', 'error', '-y', '-headers', `Authorization: Bearer ${TOKEN}\r\n`, '-i', url, '-vf', `select=eq(n\\,${n})${extra.length ? ',' + extra.join(',') : ''}`, '-vsync', '0', '-frames:v', '1', out]);
 async function psnr(a, b) {
   if (!existsSync(a) || !existsSync(b)) return null;
-  const r = await run('ffmpeg', ['-nostdin', '-v', 'info', '-i', a, '-i', b, '-lavfi', '[0:v][1:v]scale=rw:rh[x];[x][1:v]psnr', '-f', 'null', '-']);
-  const m = /average:([\d.]+|inf)/.exec(r.stderr); return m ? (m[1] === 'inf' ? 99 : Number(m[1])) : null;
+  // FFmpeg >= 7.1 scales to a reference with scale=rw:rh (scale2ref is deprecated there); older FFmpeg only has scale2ref.
+  for (const graph of ['[0:v][1:v]scale=rw:rh[x];[x][1:v]psnr', '[0:v][1:v]scale2ref[x][y];[x][y]psnr']) {
+    const r = await run('ffmpeg', ['-nostdin', '-v', 'info', '-i', a, '-i', b, '-lavfi', graph, '-f', 'null', '-']);
+    const m = /average:([\d.]+|inf)/.exec(r.stderr); if (m) return m[1] === 'inf' ? 99 : Number(m[1]);
+  }
+  return null;
 }
 
 await start();

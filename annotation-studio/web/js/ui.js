@@ -71,6 +71,7 @@ export function backupBanner(b) {
   const cmd = h('code', { class: 'ltr' }, 'node scripts/gt-offsite-backup.mjs run --to <דיסק אחר>');
   if (b.state === 'ok' && !b.last_failed) {
     if (b.encrypted === false) return h('div', { class: 'banner warn', role: 'status', 'data-testid': 'backup-banner-plain' }, 'הגיבוי האחרון אינו מוצפן (הוצהר שהדיסק מוצפן). מומלץ לעבור לגיבוי מוצפן עם מפתח.');
+    if (String(b.device_check ?? '').endsWith('_operator_override')) return h('div', { class: 'banner warn', role: 'status', 'data-testid': 'backup-banner-same-disk' }, 'הגיבוי האחרון נשמר על אותו דיסק פיזי כמו הנתונים. הוא מגן מפני מחיקה בטעות, לא מפני תקלת דיסק. מומלץ דיסק חיצוני.');
     return null;
   }
   const msg = b.state === 'never'
