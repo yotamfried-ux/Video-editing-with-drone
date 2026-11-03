@@ -4,6 +4,7 @@
 //   node --env-file=.studio-cloud.env scripts/qualify-real-footage.mjs --evidence "C:\Users\you\sportreel-qualification" \
 //        --case single=raw/<key>.mp4 --case multi=raw/<key>.mp4 --case crossing=raw/<key>.mp4 --case occlusion=raw/<key>.mp4 \
 //        --case 4k_fast=raw/<key>.mp4 --case quality_issue=raw/<key>.mp4 --case no_events=raw/<key>.mp4
+//   (a case may also name the video exactly as the Studio's Cloud screen shows it, e.g. --case single=DJI_0412.MP4)
 //
 // Safety, by construction:
 //   * R2 is used READ-ONLY through the Studio's CloudBucket, which refuses any method except GET/HEAD in code.
@@ -97,8 +98,11 @@ try {
 
   for (const c of cases) {
     const R = report.cases[c.name] = { key: c.key };
-    const obj = objs.find(o => o.key === c.key);
-    if (!obj) { step(c.name, 'object present in catalog', 'FAIL', { note: c.key }); continue; }
+    // Accept the full R2 key or the file name exactly as the Studio's Cloud screen shows it (must be unique).
+    const byName = objs.filter(o => o.name === c.key || o.key.endsWith(`/${c.key}`));
+    const obj = objs.find(o => o.key === c.key) ?? (byName.length === 1 ? byName[0] : null);
+    if (!obj) { step(c.name, 'object present in catalog', 'FAIL', { note: byName.length > 1 ? `ambiguous name ${c.key}: use the full key (${byName.map(o => o.key).join(', ')})` : `not found: ${c.key}` }); continue; }
+    R.key = obj.key;
     const opened = await job(`/api/cloud/objects/${obj.id}/open`, {});
     if (opened.state !== 'done') { step(c.name, 'open source', 'FAIL', { note: opened.error }); continue; }
     const sid = R.source_id = opened.report.source_id;

@@ -29,7 +29,7 @@ test('qualify-real-footage.mjs: automated CATALOG_GO checks pass on real media; 
     const bad = await run(['--evidence', path.resolve(here, '..', 'qual-evidence'), '--case', 'single=raw/single.mp4']);
     assert.equal(bad.code, 2); assert.match(bad.out, /OUTSIDE the Git repository/);
     const ev = tmp('qual-evidence-');
-    const r = await run(['--evidence', ev, '--case', 'single=raw/single.mp4', '--case', 'no_events=raw/empty.mp4']);
+    const r = await run(['--evidence', ev, '--case', 'single=raw/single.mp4', '--case', 'no_events=empty.mp4']);   // no_events given by file name, as shown on the Cloud screen
     const reportFile = readdirSync(ev).find(n => n.startsWith('qualification-') && n.endsWith('.json'));
     assert.ok(reportFile, r.out);
     const rep = JSON.parse(readFileSync(path.join(ev, reportFile), 'utf8'));
