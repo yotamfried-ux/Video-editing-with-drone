@@ -1,3 +1,4 @@
+const isSyntheticTestClip = k => /100000001[68]\.mp4/i.test(k) || /(?:^|\/)batch_[\w-]+/i.test(k) || (!k.includes("DJI") && /test|dummy|batch/i.test(k));
 // Cloud source catalog: SportReel's EXISTING source videos in Cloudflare R2, used in place (no re-upload, no copy).
 //
 // Safety model
@@ -160,7 +161,7 @@ export function loadMetadata(file) {
 export async function syncCloudCatalog(ctx, { metadata = [] } = {}) {
   if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
   const objects = [];
-  for (const prefix of SOURCE_PREFIXES) for (const o of await ctx.cloud.list(prefix)) if (isVideo(o.key)) objects.push({ ...o, prefix });
+  for (const prefix of SOURCE_PREFIXES) for (const o of await ctx.cloud.list(prefix)) if (isVideo(o.key) && !isSyntheticTestClip(o.key)) objects.push({ ...o, prefix });
   const markers = new Map();
   for (const m of await ctx.cloud.list(STATE_PREFIX)) {
     try { const j = JSON.parse(await ctx.cloud.getText(m.key, 64 * 1024)); if (j.source_key) markers.set(j.source_key, j); } catch { /* unreadable marker: treated as not processed */ }
@@ -185,7 +186,7 @@ export async function syncCloudCatalog(ctx, { metadata = [] } = {}) {
       seen.add(o.key);
     }
     for (const r of metadata) {
-      if (r.status === 'superseded' || seen.has(r.key) || objects.some(o => baseName(o.key) === baseName(r.key) && (r.size == null || o.size === r.size))) continue;
+      if (r.status === 'superseded' || isSyntheticTestClip(r.key) || isSyntheticTestClip(r.name ?? '') || seen.has(r.key) || objects.some(o => baseName(o.key) === baseName(r.key) && (r.size == null || o.size === r.size))) continue;
       upsert.run(randomUUID(), r.key, 'raw/', r.size ?? 0, null, null, r.sha256, r.status, r.uploadId, r.batchId, r.uploadedAt, 'unknown', 0, r.name ?? baseName(r.key), t);
       seen.add(r.key);
     }
@@ -200,7 +201,7 @@ export async function syncCloudCatalog(ctx, { metadata = [] } = {}) {
 export function listCloudObjects(db) {
   return db.prepare(`select c.id, c.key, c.prefix, c.size, c.uploaded_at, c.display_name, c.pipeline_state, c.available, c.record_sha256, c.record_status, c.batch_id, c.source_id,
       s.primary_sport_id, s.duration_ms, s.verify_state, s.proxy_path, s.thumb_path, s.frame_count
-    from cloud_objects c left join sources s on s.id=c.source_id order by c.uploaded_at desc, c.key`).all().map(r => ({
+    from cloud_objects c left join sources s on s.id=c.source_id where (c.key like '%DJI%' or c.display_name like '%DJI%') order by c.uploaded_at desc, c.key`).all().map(r => ({
     id: r.id, key: r.key, name: r.display_name, size: r.size, uploaded_at: r.uploaded_at, batch_id: r.batch_id, location: r.prefix,
     availability: r.available ? (r.prefix === 'processed/' ? 'legacy_processed' : 'available') : 'missing',
     pipeline_state: r.pipeline_state, sport_id: r.primary_sport_id ?? null, duration_ms: r.duration_ms ?? null,

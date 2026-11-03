@@ -23,8 +23,9 @@ import { readFileSync } from 'node:fs';
 const keyFile = arg('--key-file');
 const key = arg('--key') ?? (keyFile ? readFileSync(keyFile, 'utf8').trim() : undefined) ?? process.env.STUDIO_BACKUP_KEY;
 const plaintext = rest.includes('--plaintext-device-encrypted') ? 'device-encrypted' : undefined;
+const allowSameDevice = rest.includes('--allow-same-disk') || rest.includes('--allow-same-device');
 if (!['run', 'verify', 'restore', 'status'].includes(cmd) || (cmd !== 'status' && !to)) {
-  console.error('usage: gt-offsite-backup.mjs run|verify|restore --to DIR [--scope labelled|all] [--key-file FILE | env STUDIO_BACKUP_KEY] [--plaintext-device-encrypted]  |  status');
+  console.error('usage: gt-offsite-backup.mjs run|verify|restore --to DIR [--scope labelled|all] [--key-file FILE | env STUDIO_BACKUP_KEY] [--plaintext-device-encrypted] [--allow-same-disk]  |  status');
   process.exit(2);
 }
 try {
@@ -37,7 +38,7 @@ try {
   if (cmd === 'status') {
     console.log(JSON.stringify(backupStatus(ctx.db)));
   } else if (cmd === 'run') {
-    const r = await runOffsiteBackup(ctx, to, { scope: arg('--scope') ?? 'labelled', encryption_key: key, plaintext });
+    const r = await runOffsiteBackup(ctx, to, { scope: arg('--scope') ?? 'labelled', encryption_key: key, plaintext, allowSameDevice });
     console.log(JSON.stringify({ ok: r.ok, scope: r.scope, copied: r.copied, skipped: r.skipped, repaired: r.repaired, failed: r.failed, db_file: r.db_file, encrypted: r.encrypted, sqlite_file: r.sqlite_file, device_check: r.device_check }));
     process.exitCode = r.ok ? 0 : 1;
   } else {

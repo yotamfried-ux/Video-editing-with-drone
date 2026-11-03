@@ -13,7 +13,8 @@ param(
   [Parameter(Mandatory = $true)][string]$To,
   [Parameter(Mandatory = $true)][string]$KeyFile,
   [string]$At = "21:00",
-  [string]$Scope = "labelled"
+  [string]$Scope = "labelled",
+  [switch]$AllowSameDisk
 )
 $ErrorActionPreference = "Stop"
 $studio = Split-Path -Parent $PSScriptRoot
@@ -24,15 +25,16 @@ $sysDrive = $env:SystemDrive.TrimEnd(':')
 if ($destDrive -eq $sysDrive) { throw "Destination $To is on the system drive. Use an external/NAS disk." }
 $destDisk = (Get-Partition -DriveLetter $destDrive).DiskNumber
 $sysDisk = (Get-Partition -DriveLetter $sysDrive).DiskNumber
-if ($destDisk -eq $sysDisk) { throw "Destination $To is on the SAME physical disk ($destDisk) as Windows. Use a separate disk." }
+if (-not $AllowSameDisk -and ($destDisk -eq $sysDisk)) { throw "Destination $To is on the SAME physical disk ($destDisk) as Windows. Use a separate disk, or pass -AllowSameDisk." }
 $logDir = Join-Path $env:LOCALAPPDATA "SportReel"; New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir "backup.log"
 $runner = Join-Path $logDir "run-backup.cmd"
+$sameDiskArg = if ($AllowSameDisk) { " --allow-same-disk" } else { "" }
 @"
 @echo off
 cd /d "$studio"
 echo [%DATE% %TIME%] backup start>> "$log"
-node scripts\gt-offsite-backup.mjs run --to "$To" --scope $Scope --key-file "$KeyFile" >> "$log" 2>&1
+node scripts\gt-offsite-backup.mjs run --to "$To" --scope $Scope --key-file "$KeyFile"$sameDiskArg >> "$log" 2>&1
 node scripts\gt-offsite-backup.mjs verify --to "$To" --key-file "$KeyFile" >> "$log" 2>&1
 echo [%DATE% %TIME%] backup end (exit %ERRORLEVEL%)>> "$log"
 "@ | Set-Content -Encoding ASCII $runner
