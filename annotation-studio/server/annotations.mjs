@@ -53,6 +53,7 @@ export function validateContent(c, source, db) {
     throw new ApiError('INVALID_INPUT', 'מבנה מסמך לא תקין');
   }
   const total = source.frame_count;
+  if (c.catalog_triage != null && !(typeof c.catalog_triage === 'object' && ['no_events', 'unsure'].includes(c.catalog_triage.result))) throw new ApiError('INVALID_INPUT', 'סימון קטלוג לא תקין');
   const inRange = (s, e) => isInt(s) && isInt(e) && s >= 0 && e > s && e <= total;
   const ids = new Set(), segs = new Map(), taxCache = new Map();
   for (const s of c.segments) {
@@ -115,7 +116,7 @@ export function validateContent(c, source, db) {
   validateBoxEvidence(c, segs);
 }
 
-function getSource(db, id) {
+export function getSource(db, id) {
   const s = db.prepare('select * from sources where id=?').get(id);
   if (!s) throw new ApiError('NOT_FOUND');
   return s;

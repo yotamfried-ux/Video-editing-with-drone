@@ -4,8 +4,9 @@ import { renderAnnotate, teardownAnnotate } from './annotate.js';
 import { renderAthletes, renderDatasets, renderEvaluations, renderSettings, renderSets } from './others.js';
 import { renderEditing, teardownEditing } from './editing.js';
 import { renderCloud } from './cloud.js';
+import { renderCatalog } from './catalog.js';
 
-const NAV = [['library', 'ספרייה', '▦'], ['cloud', 'ענן', '☁'], ['annotate', 'סימון', '✎'], ['athletes', 'גולשים', '☺'], ['sets', 'סטים והכרעה', '⇄'], ['datasets', 'דאטהסטים', '❖'], ['evaluations', 'הערכות AI', '≋'], ['editing', 'בקרת עריכה', '▶'], ['settings', 'הגדרות ענפים', '⚙']];
+const NAV = [['catalog', 'קטלוג מהיר', '☰'], ['library', 'ספרייה', '▦'], ['cloud', 'ענן', '☁'], ['annotate', 'סימון', '✎'], ['athletes', 'גולשים', '☺'], ['sets', 'סטים והכרעה', '⇄'], ['datasets', 'דאטהסטים', '❖'], ['evaluations', 'הערכות AI', '≋'], ['editing', 'בקרת עריכה', '▶'], ['settings', 'הגדרות ענפים', '⚙']];
 let lastSource = localStorage.getItem('studio.lastSource');
 
 function chrome(active) {
@@ -28,6 +29,7 @@ async function route() {
     await loadSports();
     if (view === 'library') await renderLibrary(main);
     else if (view === 'cloud') await renderCloud(main);
+    else if (view === 'catalog') await renderCatalog(main, arg);
     else if (view === 'annotate') await renderAnnotate(main, arg);
     else if (view === 'athletes') await renderAthletes(main);
     else if (view === 'sets') await renderSets(main);

@@ -28,7 +28,10 @@ export async function api(path, opts = {}) {
   const res = await fetch(path, { method: opts.method ?? 'GET', headers: opts.body ? { 'content-type': 'application/json' } : {}, body: opts.body ? JSON.stringify(opts.body) : undefined, credentials: 'same-origin' });
   const ct = res.headers.get('content-type') ?? '';
   const data = ct.includes('json') ? await res.json() : await res.text();
-  if (!res.ok) throw Object.assign(new Error(data.message ?? 'שגיאה'), { code: data.code, status: res.status, data });
+  // The server's `detail` names the exact cause (which frame, which event); the generic `message` alone does not help
+  // the operator recover, so the specific explanation is shown whenever it exists.
+  const msg = data.detail && data.detail !== data.code ? data.detail : (data.message ?? 'שגיאה');
+  if (!res.ok) throw Object.assign(new Error(msg), { code: data.code, status: res.status, data });
   return data;
 }
 export function toast(msg, bad = false) {

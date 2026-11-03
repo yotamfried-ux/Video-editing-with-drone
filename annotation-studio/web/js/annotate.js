@@ -49,6 +49,11 @@ export async function renderAnnotate(root, id) {
   // Spec §21.4: a video with events opens with a clearly selected event, not a blank inspector.
   const firstSeg = [...draft.content.segments].sort((a, b) => a.start_frame - b.start_frame)[0];
   if (firstSeg) S.sel = firstSeg.id;
+  // Opened from the quick catalog at a specific event/tab ("what is missing" chip).
+  let focus = null;
+  try { focus = JSON.parse(sessionStorage.getItem('studio.focus') ?? 'null'); sessionStorage.removeItem('studio.focus'); } catch {}
+  if (focus?.source === id) { if (focus.seg && seg(focus.seg)) S.sel = focus.seg; if (focus.tab) S.inspTab = focus.tab; }
+  try { S.fromCatalog = sessionStorage.getItem('studio.fromCatalog') === id; } catch {}
   restorePending();
   watchCloudProxy();
   root.replaceChildren(layout());
@@ -61,6 +66,7 @@ export async function renderAnnotate(root, id) {
   }
   refresh();
   refreshStates();
+  if (focus?.source === id && selSeg()) setTimeout(() => S && seekFrame(selSeg().start_frame), 0);
   if (S.setId === 'primary') Promise.all([api(`/api/physical-actions?source=${id}`), api('/api/physical-actions')]).then(([m, all]) => { if (!S) return; S.actions = m.items; S.allActions = all.items; refresh(); }).catch(() => {});
   cleanup.push(() => { clearTimeout(S?.saveTimer); clearTimeout(S?.retryTimer); });
 }
@@ -825,6 +831,86 @@ function renderAssociateTab() {
 }
 
 // Inspector Tab 3: Box QA & Temporal Verification
+/** One human decision about the box at `frame` (bound to that exact box and the current performer). */
+function decideAt(s, frame, status) {
+  const cur = boxAt(s.id, frame);
+  if (frame < s.start_frame || frame >= s.end_frame) return toast('הפריים מחוץ לאירוע', true);
+  if (status === 'verified_correct') {
+    if (!s.athlete_id) return toast('לא ניתן לאשר BOX לפני שבוחרים מי ביצע את האירוע', true);
+    if (!cur?.bbox) return toast(`אין BOX בפריים ${frame} — אין מה לאשר`, true);
+  }
+  if (status === 'wrong_performer' && !cur?.bbox) return toast(`אין BOX בפריים ${frame}`, true);
+  edit(c => {
+    let kf = c.keyframes.find(k => k.segment_id === s.id && k.frame === frame);
+    if (status === 'verified_correct' && !kf) {
+      // The operator checked the estimated position at this exact frame: materialize it, keeping its origin.
+      kf = { id: uid(), segment_id: s.id, frame, bbox: { ...cur.bbox }, visibility: 'visible', origin: 'interpolated', verification_status: 'unreviewed' };
+      c.keyframes.push(kf);
+    }
+    if (status === 'occluded' && kf) kf.visibility = 'occluded';
+    const NOTE = { verified_correct: 'אושר על הגולש הנכון', wrong_performer: 'גולש שגוי / סטייה', occluded: 'הגולש מוסתר / לא נראה', indeterminate: 'לא ניתן לקבוע' };
+    appendVerification(c, s, frame, status, { bbox: (kf?.bbox ?? cur?.bbox) ? { ...(kf?.bbox ?? cur.bbox) } : undefined, notes: NOTE[status] });
+  });
+}
+
+// ---- BOX track strip: zoomed thumbnails of the box along the whole event, each decided with one click ----
+const thumbs = new Map();   // `${src}|${frame}|${bbox}` -> canvas
+let thumbVid = null, thumbQueue = Promise.resolve();
+function stripFrames(s, cps) {
+  const out = new Set(cps.map(c => c.frame));
+  for (const k of C().keyframes) if (k.segment_id === s.id) out.add(k.frame);
+  const span = s.end_frame - s.start_frame, n = Math.min(12, span);
+  for (let i = 0; i < n; i++) out.add(s.start_frame + Math.floor((i + 0.5) * span / n));
+  return [...out].filter(f => f >= s.start_frame && f < s.end_frame && boxAt(s.id, f)?.bbox).sort((a, b) => a - b).slice(0, 36);
+}
+function grabThumb(frame, bbox, color) {
+  const key = `${S.src.id}|${frame}|${[bbox.x, bbox.y, bbox.w, bbox.h].map(v => v.toFixed(4)).join(',')}`;
+  if (thumbs.has(key)) return Promise.resolve(thumbs.get(key));
+  const srcId = S.src.id, url = S.src.playback_url, fps = S.fps;
+  const job = thumbQueue.then(async () => {
+    if (!thumbVid || thumbVid.dataset.src !== url) {
+      thumbVid = document.createElement('video'); thumbVid.muted = true; thumbVid.preload = 'auto'; thumbVid.dataset.src = url; thumbVid.src = url;
+      await new Promise((res, rej) => { thumbVid.onloadeddata = res; thumbVid.onerror = () => rej(new Error('video')); });
+    }
+    await new Promise(res => { thumbVid.onseeked = res; thumbVid.currentTime = (frame + 0.5) / fps; });
+    const vw = thumbVid.videoWidth, vh = thumbVid.videoHeight;
+    const bx = bbox.x * vw, by = bbox.y * vh, bw = bbox.w * vw, bh = bbox.h * vh;
+    let cw = Math.max(bw * 2.4, bh * 2.4 * 4 / 3, vh * 0.2), ch = cw * 3 / 4;
+    cw = Math.min(cw, vw); ch = Math.min(ch, vh);
+    const cx = Math.min(Math.max(bx + bw / 2 - cw / 2, 0), vw - cw), cy = Math.min(Math.max(by + bh / 2 - ch / 2, 0), vh - ch);
+    const cv = document.createElement('canvas'); cv.width = 240; cv.height = 180;
+    const g = cv.getContext('2d'); g.drawImage(thumbVid, cx, cy, cw, ch, 0, 0, 240, 180);
+    const k = 240 / cw; g.strokeStyle = color; g.lineWidth = 2; g.strokeRect((bx - cx) * k, (by - cy) * k, bw * k, bh * k);
+    thumbs.set(key, cv); return srcId === S?.src.id ? cv : null;
+  });
+  thumbQueue = job.catch(() => {});
+  return job;
+}
+function trackStrip(s, cps) {
+  const frames = stripFrames(s, cps);
+  if (!frames.length) return null;
+  const cpSet = new Set(cps.map(c => c.frame)), color = s.athlete_id ? athColor(s.athlete_id) : '#ffffff';
+  const MARK = { verified_correct: '✓ נכון', corrected: '✓ תוקן', wrong_performer: '✕ שגוי', occluded: '◌ מוסתר', indeterminate: '? לא ידוע', unreviewed: 'לא נבדק' };
+  const done = frames.filter(f => (latestVerification(C(), s.id, f)?.status ?? 'unreviewed') !== 'unreviewed').length;
+  return h('div', { 'data-testid': 'track-strip' },
+    h('label', { class: 'f' }, `מסלול ה-BOX לאורך האירוע — ${done}/${frames.length} נבדקו. בכל תמונה: האם המסגרת על ${athName(s.athlete_id) ?? 'הגולש'}?`),
+    h('div', { class: 'strip' }, frames.map(f => {
+      const b = boxAt(s.id, f), st = latestVerification(C(), s.id, f)?.status ?? 'unreviewed';
+      const cv = h('canvas', { width: 240, height: 180, title: `מעבר לפריים ${f}`, onclick: () => seekFrame(f) });
+      grabThumb(f, b.bbox, color).then(t => { if (t) cv.getContext('2d').drawImage(t, 0, 0); }).catch(() => {});
+      const btn = (label, status, title, testid) => h('button', { class: 'btn sm', title, 'data-testid': testid, onclick: () => decideAt(s, f, status) }, label);
+      return h('div', { class: `tile${S.frame === f ? ' cur' : ''}`, 'data-testid': 'strip-tile', 'data-frame': f, 'data-status': st },
+        cv,
+        h('div', { class: 'tlab' }, h('span', { class: 'ltr' }, `f${f}${cpSet.has(f) ? ' •' : ''}${b.kf ? '' : ' משוער'}`), h('span', {}, MARK[st] ?? st)),
+        h('div', { class: 'tb' },
+          btn('✓', 'verified_correct', 'המסגרת על הגולש הנכון', 'tile-ok'),
+          btn('✕', 'wrong_performer', 'לא על הגולש / גולש אחר', 'tile-wrong'),
+          btn('◌', 'occluded', 'הגולש מוסתר', 'tile-occluded'),
+          btn('?', 'indeterminate', 'לא ניתן לקבוע', 'tile-unknown')));
+    })),
+    h('div', { class: 'meta' }, '• = נקודת בדיקה נדרשת. "משוער" = מיקום שחושב בין תיבות שציירת; ✓ עליו קובע אותו כתיבה מאומתת בפריים הזה. ✕ — לחץ על התמונה כדי לעבור לפריים, ותקן את התיבה בנגן.'));
+}
+
 function renderBoxQATab() {
   const s = selSeg();
   if (!s) {
@@ -873,6 +959,7 @@ function renderBoxQATab() {
     !s.athlete_id ? h('div', { class: 'banner warn' }, 'כדי לאמת BOX יש לבחור קודם מי ביצע את הפעולה (לשונית "תיוג אירוע").') : null,
 
     h('div', { class: `banner ${statusCls}`, 'data-testid': 'box-verify-banner' }, statusMsg),
+    trackStrip(s, cps),
 
     h('div', { class: 'stats', style: { margin: '4px 0' } },
       h('div', { class: 'stat', 'data-testid': 'track-qa-status', 'data-status': qa?.status ?? '' }, h('b', {}, h('span', { class: `pill ${trackCls}` }, trackText)), h('span', {}, stale ? 'מצב המעקב (יתעדכן אחרי שמירה)' : 'מצב מעקב ה-BOX במקטע')),
@@ -1252,6 +1339,13 @@ function paintStatus() {
   const ownerCls = S.src.owner_status === 'needs_review' ? 'warn' : S.src.owner_athlete_id ? 'ok' : '';
 
   setTopbar(
+    S.fromCatalog ? h('a', { class: 'btn sm', href: `#/catalog/${S.src.id}`, 'data-testid': 'back-to-catalog', onclick: async e => {
+      e.preventDefault();
+      clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
+      if (S.save === 'dirty') await save();
+      if (S.save !== 'saved') return toast('השינויים לא נשמרו עדיין — פתור את הודעת השמירה לפני החזרה לקטלוג', true);
+      location.hash = `#/catalog/${S.src.id}`;
+    } }, '→ חזרה לקטלוג המהיר') : null,
     h('strong', {}, 'סימון'),
     h('span', { class: 'ltr mono', title: S.src.sha256, 'data-testid': 'srcname' }, S.src.display_name),
     pill(ownerLabel, ownerCls),

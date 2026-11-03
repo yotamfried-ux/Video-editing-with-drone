@@ -170,3 +170,34 @@ dialog h2{margin:0 0 10px;font-size:16px}
 .chip{padding:6px 10px;border:1px solid var(--line2);border-radius:6px;background:var(--panel2);color:var(--text);font-size:12px}
 .chip[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:bold}
 .boxhover{background:rgba(18,34,60,.9);color:#e0f2ff;padding:8px 12px;border-radius:8px;font-size:11px;border:1px solid #45769d;z-index:10;pointer-events:none}
+/* ---------- quick catalog ---------- */
+.qc{display:flex;flex-direction:column;gap:12px}
+.qc-head{display:flex;gap:16px;align-items:center;flex-wrap:wrap}
+.qc-body{display:grid;grid-template-columns:300px minmax(0,1fr);gap:16px;align-items:start}
+.qc-queue{max-height:calc(100vh - 170px);overflow:auto}
+.qc-queue li{cursor:pointer;justify-content:space-between}
+.qc-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;flex:1}
+.qc-main{display:flex;flex-direction:column;gap:12px;min-width:0}
+.qc-title{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.qc-title h2{margin:0;font-size:16px}
+.qc-split{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);gap:14px;align-items:start}
+.qc-steps{display:flex;flex-direction:column;gap:10px;min-width:0}
+.qc-video{width:100%;max-height:60vh;background:#000;border-radius:var(--radius);position:sticky;top:0}
+@media (max-width:1300px){.qc-split{grid-template-columns:1fr}.qc-video{position:static;max-height:40vh}}
+.qc-step{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px}
+.qc-step.done{border-color:#2f5d3a}
+.qc-step h3{margin:0 0 8px;font-size:14px;display:flex;gap:8px;align-items:center}
+.qc-num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--panel2);border:1px solid var(--line2);font-size:12px}
+.qc-step.done .qc-num{background:#1f4a2b;border-color:#2f5d3a}
+.qc-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}.qc-row select,.qc-row input{width:auto;min-width:200px}
+.qc-checks{display:flex;gap:6px;flex-wrap:wrap}
+.ck{padding:4px 8px;border-radius:6px;border:1px solid var(--line2);background:var(--panel2);color:var(--text);font-size:12px;cursor:pointer}
+.ck.ok{border-color:#2f5d3a;color:#8fd19e}.ck.miss{border-color:#6b2a2a;color:var(--exc)}.ck.opt{color:var(--muted)}
+.qc-foot{display:flex;gap:8px;align-items:center}
+@media (max-width:1100px){.qc-body{grid-template-columns:1fr}.qc-queue{max-height:220px}}
+/* ---------- BOX track strip ---------- */
+.strip{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:8px}
+.tile{background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:4px;display:flex;flex-direction:column;gap:4px}
+.tile.cur{border-color:var(--accent)}.tile[data-status=verified_correct],.tile[data-status=corrected]{border-color:#2f5d3a}.tile[data-status=wrong_performer]{border-color:#6b2a2a}
+.tile canvas{width:100%;aspect-ratio:4/3;background:#000;border-radius:4px;cursor:pointer}
+.tile .tb{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}.tile .tb button{padding:2px 0;font-size:12px}
+.tile .tlab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}

@@ -19,6 +19,7 @@ import { exportBackup, verifyIntegrity } from './backup.mjs';
 import { backupStatus } from './offsite.mjs';
 import * as Sets from './sets.mjs';
 import * as Lin from './lineage.mjs';
+import * as QC from './quickcatalog.mjs';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -97,6 +98,11 @@ export function createApp(ctx) {
           unassigned: rows.filter(s => s.owner_athlete_id == null).length,
           by_sport: rows.reduce((o, s) => { const k = s.primary_sport_id ?? 'unknown'; o[k] = (o[k] ?? 0) + 1; return o; }, {}) } });
     }
+
+    // ---- Quick catalog: one queue with every catalog field per video and per event (reads/writes the same stores) ----
+    if (m === 'GET' && p === '/api/catalog/queue') return send(res, 200, QC.catalogQueue(db, { include: ctx.cloudInclude ?? '', likeContains: C.likeContains }));
+    if ((r = /^\/api\/catalog\/sources\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, QC.sourceCatalogState(db, A.getSource(db, r[1])));
+    if ((r = /^\/api\/catalog\/sources\/([\w-]+)\/triage$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, QC.setTriage(db, r[1], b)); }
 
     // ---- Catalog Ownership (Precision Studio V2) ----
     if ((r = /^\/api\/sources\/([\w-]+)\/catalog-owner$/.exec(p))) {
