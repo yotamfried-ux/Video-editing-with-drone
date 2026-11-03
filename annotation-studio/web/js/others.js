@@ -26,7 +26,26 @@ export async function renderAthletes(root) {
     }
 
     const selAthlete = athletes.find(a => a.id === selectedAthleteId);
+    const lineage = await api('/api/person-lineage').catch(() => ({ relations: [], mapping: [] }));
 
+    // Addendum §6: identity merge/split is a revisioned, append-only relation — never an edit of history.
+    const nameOf = id => athletes.find(a => a.id === id)?.label ?? id.slice(0, 8);
+    const REL_HE = { merge: 'מיזוג (אותו אדם)', split: 'פיצול (שני אנשים)', equivalent: 'שקילות', retire: 'הוצאה משימוש' };
+    const lineagePanel = h('details', { class: 'section', 'data-testid': 'person-lineage', style: { marginTop: '18px' } },
+      h('summary', {}, `מיזוג / פיצול זהויות (${lineage.relations.length} קשרים)`),
+      h('div', { class: 'meta' }, 'מיזוג: כמה תוויות → גולש אחד. פיצול: תווית אחת → כמה גולשים (קשר לכל יורש). ההיסטוריה נשמרת ודאטהסטים קפואים ממשיכים להשתמש במיפוי שהיה בזמן ההקפאה.'),
+      h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap', alignItems: 'center', margin: '8px 0' } },
+        h('select', { id: 'lin-type', 'data-testid': 'lin-type' }, Object.entries(REL_HE).map(([k, l]) => h('option', { value: k }, l))),
+        h('select', { id: 'lin-from', 'data-testid': 'lin-from' }, athletes.map(a => h('option', { value: a.id }, a.label))), '→',
+        h('select', { id: 'lin-to', 'data-testid': 'lin-to' }, h('option', { value: '' }, '—'), athletes.map(a => h('option', { value: a.id }, a.label))),
+        h('input', { type: 'text', id: 'lin-reason', 'data-testid': 'lin-reason', placeholder: 'סיבה (חובה)' }),
+        h('button', { class: 'btn sm', 'data-testid': 'lin-add', onclick: async () => {
+          const v = n => root.querySelector(`#${n}`).value;
+          if (v('lin-type') !== 'retire' && !v('lin-to')) return toast('בחר יורש', true);
+          if (!confirm('קשר זהויות נרשם לצמיתות (אפשר רק להוסיף קשרים חדשים). להמשיך?')) return;
+          try { await api('/api/person-lineage', { method: 'POST', body: { relation_type: v('lin-type'), from_person_id: v('lin-from'), to_person_id: v('lin-to') || null, reason_code: v('lin-reason') } }); toast('נרשם'); draw(); } catch (e) { toast(e.message, true); }
+        } }, 'רשום קשר')),
+      h('ul', { class: 'list' }, lineage.relations.map(r => h('li', {}, pill(REL_HE[r.relation_type], 'warn'), h('span', { style: { flex: 1 } }, `${nameOf(r.from_person_id)}${r.to_person_id ? ` → ${nameOf(r.to_person_id)}` : ''} · ${r.reason_code}`), h('span', { class: 'meta ltr' }, fmtDate(r.created_at))))));
     root.replaceChildren(h('div', { class: 'page', 'data-testid': 'surfer-workspace' },
       h('h1', {}, 'ספריית גולשים (Surfer Workspace)'),
       h('div', { class: 'sub' }, 'שיוך סרטונים לגולש מתבצע כחלק מהקטלוג העצמאי, ללא תלות בקיומם של אירועים או תיבות. סרטון יכול להיות שייך לגולש גם אם טרם סומן בו אירוע.'),
@@ -167,6 +186,7 @@ export async function renderAthletes(root) {
         ) : h('div', { class: 'empty' }, 'בחר גולש מהרשימה')
       ) : h('div', { class: 'empty' }, 'אין גולשים עדיין. הזן תווית ולחץ "הוסף גולש חדש".')
     ));
+    root.firstChild?.append(lineagePanel);
   };
 
   await draw();
@@ -209,45 +229,100 @@ function importPredictions() {
   dialog('ייבוא תחזיות פייפליין', h('div', {}, h('label', { class: 'f', for: 'predjson' }, 'JSON (קריאה בלבד — מפלט הפייפליין)'), ta), [
     h('button', { class: 'btn primary', onclick: async () => { try { await api('/api/predictions', { method: 'POST', body: JSON.parse(ta.value) }); closeDialog(); toast('יובא'); location.reload(); } catch (e) { toast(e.message, true); } } }, 'ייבא'), h('button', { class: 'btn', onclick: closeDialog }, 'ביטול')]);
 }
-const ERR_HE = { missed_event: 'אירוע שהוחמץ', false_positive: 'תוצאה שגויה (FP)', duplicate: 'פלט כפול', wrong_athlete: 'גולש שגוי', predicted_excluded: 'חזה אירוע מוחרג' };
+const ERR_HE = { missed: 'אירוע שהוחמץ', missed_event: 'אירוע שהוחמץ', wrong_attribution: 'גולש שגוי', unreviewed_prediction: 'חיזוי באזור שלא נבדק', uncertain_overlap: 'חפיפה עם אירוע לא בטוח', false_positive: 'תוצאה שגויה (FP)', duplicate: 'פלט כפול', wrong_athlete: 'גולש שגוי', predicted_excluded: 'חזה אירוע מוחרג' };
+// Restored pre-V2 report (reads the evaluator's real per_source/by_sport output; the V2 rewrite read a non-existent field).
 async function renderEvalDetail(root, id) {
-  const e = await api(`/api/evaluations/${id}`);
-  const r = e.report;
-  root.replaceChildren(h('div', { class: 'page' }, h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('a', { class: 'btn sm', href: '#/evaluations' }, '→ חזרה לרשימה'), h('h1', { style: { margin: 0 } }, `דוח הערכה · ${r.pipeline_version}`)),
-    h('div', { class: 'sub' }, `ריצה ${ltr(r.run_id)} מול דאטהסט "${r.dataset_name}" (נוצר ${fmtDate(r.created_at)}) · דיג׳סט ${ltr(e.digest.slice(0, 12))}`),
-    h('div', { class: 'stats' },
-      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.event_recall)), h('span', {}, 'Event Recall')),
-      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.event_precision)), h('span', {}, 'Event Precision')),
-      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.identity_accuracy)), h('span', {}, 'Identity Accuracy')),
-      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.temporal_iou_mean)), h('span', {}, 'Mean IoU')),
-      h('div', { class: 'stat' }, h('b', {}, pct(r.metrics.box_iou_mean)), h('span', {}, 'Mean Box IoU'))),
-    h('h2', { style: { fontSize: '15px' } }, 'פירוט שגיאות ואי-התאמות'),
-    r.discrepancies?.length ? h('table', { class: 't' }, h('thead', {}, h('tr', {}, ['סרטון', 'סוג שגיאה', 'פריימים GT', 'פריימים חיזוי', 'IoU', 'הערות'].map(x => h('th', {}, x)))),
-      h('tbody', {}, r.discrepancies.map(d => h('tr', {}, h('td', {}, ltr(d.source_name || d.source_sha256.slice(0, 8))), h('td', {}, pill(ERR_HE[d.type] ?? d.type, d.type === 'missed_event' ? 'bad' : 'warn')), h('td', {}, d.gt_interval ? ltr(`${d.gt_interval.start_frame}–${d.gt_interval.end_frame}`) : '—'), h('td', {}, d.pred_interval ? ltr(`${d.pred_interval.start_frame}–${d.pred_interval.end_frame}`) : '—'), h('td', {}, d.iou != null ? pct(d.iou) : '—'), h('td', {}, d.details || '—'))))) : h('div', { class: 'empty' }, 'אין אי-התאמות שנמצאו')));
+  const { report: r, digest } = await api(`/api/evaluations/${id}`);
+  const m = r.metrics, t = r.totals;
+  root.replaceChildren(h('div', { class: 'page' }, h('a', { href: '#/evaluations', class: 'btn sm' }, '→ חזרה'),
+    h('h1', { style: { marginTop: '10px' } }, 'דוח הערכה'), h('div', { class: 'sub' }, ltr(`${r.pipeline_version} · ${r.run_id}`), ' · ', ltr(`evaluator ${r.evaluator_version}`), ' · digest ', ltr(digest.slice(0, 12))),
+    h('div', { class: 'stats' }, [['Recall', pct(m.event_recall)], ['Precision', pct(m.event_precision)], ['דיוק זהות', pct(m.identity_accuracy)], ['חסרים', t.missed], ['כפולים', t.duplicates], ['FP', t.false_positives], ['לא נבדק', t.unreviewed_predictions], ['שגיאת התחלה ממוצעת (פריימים)', m.mean_abs_start_error_frames == null ? '—' : m.mean_abs_start_error_frames.toFixed(1)]].map(([l, v]) => h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, l)))),
+    r.by_sport && Object.keys(r.by_sport).length ? h('div', {}, h('h3', { style: { fontSize: '14px' } }, 'לפי ענף ספורט (ללא התאמה בין ענפים)'),
+      h('table', { class: 't', 'data-testid': 'by-sport' }, h('thead', {}, h('tr', {}, ['ענף', 'GT', 'תחזיות', 'הותאמו', 'הוחמצו', 'FP', 'recall', 'precision'].map(x => h('th', {}, x)))),
+        h('tbody', {}, Object.entries(r.by_sport).map(([sp, c]) => h('tr', { 'data-sport': sp }, h('td', {}, sp === 'unknown' ? 'לא מסווג' : sp === 'unspecified' ? 'תחזית ללא ענף' : sportName(sp)), h('td', {}, c.gt_included), h('td', {}, c.predictions), h('td', {}, c.matched), h('td', {}, c.missed), h('td', {}, c.false_positives), h('td', {}, pct(c.event_recall)), h('td', {}, pct(c.event_precision))))))) : null,
+    h('div', { class: 'legend' }, `IoU ≥ ${r.params.iou_threshold} · פיצולים: ${r.params.splits.join(', ')} · שיוך גולשים לפי מיפוי התאמות דטרמיניסטי`),
+    r.per_source.map(p => h('div', { style: { marginBottom: '18px' } }, h('h3', { style: { fontSize: '14px' } }, ltr(p.sha256.slice(0, 12)), ' · ', p.split, p.has_prediction ? '' : ' · אין תחזית למקור זה'),
+      p.errors.length ? h('table', { class: 't', 'data-testid': 'eval-errors' }, h('thead', {}, h('tr', {}, ['סוג', 'פריימים', 'מקטע/תחזית'].map(x => h('th', {}, x)))), h('tbody', {}, p.errors.map(e => h('tr', {}, h('td', {}, pill(ERR_HE[e.type] ?? e.type, e.type === 'missed_event' || e.type === 'wrong_athlete' ? 'bad' : 'warn')), h('td', {}, ltr(`${e.start_frame}–${e.end_frame}`)), h('td', {}, ltr(e.segment_id ?? `pred#${e.pred_index}`)))))) : h('div', { class: 'banner warn', style: { color: 'var(--inc)' } }, 'אין שגיאות לסרטון זה')))));
 }
 
 // ---------------- Settings ----------------
+// Restored from the pre-V2 Studio (spec §18): adding sports/event types and enabling/disabling them needs no code change.
 export async function renderSettings(root) {
-  setTopbar(h('strong', {}, 'הגדרות ענפים וסוגי אירועים'), pill('קונפיגורציה בלבד'));
-  await loadSports();
-  const list = sportsList();
+  setTopbar(h('strong', {}, 'הגדרות ענפי ספורט'), pill('טקסונומיה מגורסת · ללא מחיקה'));
+  const draw = async () => {
+    const sports = await loadSports();
+    const val = id => root.querySelector(`#${id}`).value.trim();
+    const act = async (fn, okMsg) => { try { await fn(); toast(okMsg); await draw(); } catch (e) { toast(e.message, true); } };
+    root.replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'ענפי ספורט וסוגי אירועים'),
+      h('div', { class: 'sub' }, 'ענפים וסוגי אירועים הם נתונים, לא קוד: הוספה נרשמת ביומן ומעלה את גרסת הטקסונומיה. הסרת סוג אירוע (השבתה) לא פוסלת תיוגים קיימים.'),
+      h('h2', { style: { fontSize: '15px' } }, 'ענף חדש'),
+      h('div', { class: 'toolbar' },
+        h('input', { id: 'ns-id', type: 'text', placeholder: 'מזהה (a-z, למשל volleyball)', 'aria-label': 'מזהה ענף', style: { direction: 'ltr', maxWidth: '200px' } }),
+        h('input', { id: 'ns-he', type: 'text', placeholder: 'שם בעברית', 'aria-label': 'שם ענף בעברית', style: { maxWidth: '160px' } }),
+        h('input', { id: 'ns-en', type: 'text', placeholder: 'English name', 'aria-label': 'שם ענף באנגלית', style: { direction: 'ltr', maxWidth: '160px' } }),
+        h('button', { class: 'btn primary', 'data-testid': 'add-sport', onclick: () => act(() => api('/api/sports', { method: 'POST', body: { id: val('ns-id'), name_he: val('ns-he'), name_en: val('ns-en') } }), 'הענף נוסף') }, 'הוסף ענף')),
+      sports.map(sp => h('div', { class: 'card', 'data-testid': 'sport-card', 'data-sport': sp.id, style: { marginBottom: '14px' } }, h('div', { class: 'body' },
+        h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, h('strong', {}, sp.name_he), ltr(sp.id), pill(`טקסונומיה v${sp.taxonomy_version}`),
+          h('label', { class: 'meta' }, h('input', { type: 'checkbox', checked: sp.enabled, onchange: e => act(() => api(`/api/sports/${sp.id}`, { method: 'PATCH', body: { enabled: e.target.checked } }), 'עודכן') }), ' פעיל')),
+        h('ul', { class: 'list' }, sp.event_types.map(t => h('li', { 'data-event': t.key }, ltr(t.key), h('span', { style: { flex: 1 } }, t.label_he, t.required_attrs.length ? ` · חובה: ${t.required_attrs.join(', ')}` : ''),
+          h('label', { class: 'meta' }, h('input', { type: 'checkbox', checked: t.enabled, 'aria-label': `פעיל ${t.key}`, onchange: e => act(() => api(`/api/sports/${sp.id}/event-types/${t.key}`, { method: 'PATCH', body: { enabled: e.target.checked } }), 'עודכן') }), ' פעיל')))),
+        h('div', { class: 'toolbar' },
+          h('input', { id: `et-key-${sp.id}`, type: 'text', placeholder: 'מפתח אירוע', 'aria-label': `מפתח אירוע חדש ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '150px' } }),
+          h('input', { id: `et-he-${sp.id}`, type: 'text', placeholder: 'תווית בעברית', 'aria-label': `תווית עברית ל-${sp.id}`, style: { maxWidth: '150px' } }),
+          h('input', { id: `et-en-${sp.id}`, type: 'text', placeholder: 'English label', 'aria-label': `תווית אנגלית ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '150px' } }),
+          h('input', { id: `et-req-${sp.id}`, type: 'text', placeholder: 'שדות חובה (פסיקים)', 'aria-label': `שדות חובה ל-${sp.id}`, style: { direction: 'ltr', maxWidth: '170px' } }),
+          h('button', { class: 'btn', 'data-testid': `add-event-${sp.id}`, onclick: () => act(() => api(`/api/sports/${sp.id}/event-types`, { method: 'POST', body: { key: val(`et-key-${sp.id}`), label_he: val(`et-he-${sp.id}`), label_en: val(`et-en-${sp.id}`), required_attrs: val(`et-req-${sp.id}`).split(',').map(x => x.trim()).filter(Boolean) } }), 'סוג האירוע נוסף') }, 'הוסף סוג אירוע')))))));
+  };
+  await draw();
+}
+
+// ---------------- Independent annotation sets, agreement and adjudication (addendum §2, §8, §9) ----------------
+const PURPOSE_HE = { primary: 'ראשי (Ground Truth)', delayed_blind_reannotation: 'תיוג חוזר עיוור', independent_qa: 'בקרת איכות עצמאית', adjudication: 'הכרעה' };
+const SET_STATUS_HE = { draft: 'טיוטה', active: 'פעיל', submitted: 'הוגש (נעול)', adjudicating: 'בהכרעה', accepted: 'הכרעה התקבלה', archived: 'בארכיון' };
+export async function renderSets(root) {
+  setTopbar(h('strong', {}, 'סטים עצמאיים, הסכמה והכרעה'));
+  const [sets, sources] = await Promise.all([api('/api/sets'), api('/api/sources?limit=500')]);
+  const closed = sets.items.filter(s => s.id === 'primary' || ['submitted', 'accepted', 'archived'].includes(s.status));
+  const purpose = h('select', { id: 'set-purpose', 'data-testid': 'set-purpose' }, ['delayed_blind_reannotation', 'independent_qa', 'adjudication'].map(p => h('option', { value: p }, PURPOSE_HE[p])));
+  const annot = h('input', { type: 'text', id: 'set-annotator', 'data-testid': 'set-annotator', placeholder: 'מזהה מתייג פסאודונימי (למשל ann-2)' });
+  const contrib = h('select', { id: 'set-contrib', multiple: true, 'aria-label': 'סטים תורמים להכרעה', style: { minHeight: '60px' } }, closed.map(s => h('option', { value: s.id }, `${PURPOSE_HE[s.purpose]} · ${s.id.slice(0, 8)}`)));
+  const report = h('div', { 'data-testid': 'agreement-report' });
+  const pickA = h('select', { id: 'agree-a' }, closed.map(s => h('option', { value: s.id }, `${PURPOSE_HE[s.purpose]} · ${s.id.slice(0, 8)}`)));
+  const pickB = h('select', { id: 'agree-b' }, closed.map((s, i) => h('option', { value: s.id, selected: i === 1 }, `${PURPOSE_HE[s.purpose]} · ${s.id.slice(0, 8)}`)));
+  const pct = v => (v == null ? '—' : `${Math.round(v * 100)}%`);
   root.replaceChildren(h('div', { class: 'page' },
-    h('h1', {}, 'ענפי ספורט וסוגי אירועים'),
-    h('div', { class: 'sub' }, 'הענפים וסוגי האירועים מוגדרים במסד הנתונים ואינם נמחקים לעולם (פנסיה = השבתה). שינוי ענף לא דורס גרסאות ישנות.'),
-    h('div', { class: 'grid' }, list.map(s => h('div', { class: 'card' },
-      h('div', { class: 'body' },
-        h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
-          h('strong', { style: { fontSize: '16px' } }, s.name_he),
-          pill(s.enabled ? 'פעיל' : 'מושבת', s.enabled ? 'ok' : 'muted')
-        ),
-        h('div', { class: 'meta' }, ltr(s.name_en), ` · גרסה ${s.taxonomy_version}`),
-        h('h4', { style: { margin: '8px 0 4px', fontSize: '12px', color: 'var(--muted)' } }, 'סוגי אירועים'),
-        h('ul', { class: 'list' }, s.event_types.map(t => h('li', {},
-          h('span', { style: { flex: 1 } }, t.label_he),
-          h('span', { class: 'meta ltr mono' }, t.key),
-          pill(t.enabled ? 'פעיל' : 'מושבת', t.enabled ? 'ok' : 'muted')
-        )))
-      )
-    )))
-  ));
+    h('h1', {}, 'סטים עצמאיים'),
+    h('div', { class: 'sub' }, 'כל סט הוא זרם תיוג נפרד: טיוטה, מיקום וגרסאות משלו. סט חדש מתחיל ריק ואינו רואה עבודה של סטים אחרים עד שהוא מוגש. הכרעה נעשית בסט נפרד ואינה משנה את הסטים התורמים.'),
+    h('table', { class: 't', 'data-testid': 'sets-table' }, h('thead', {}, h('tr', {}, ['מטרה', 'מזהה', 'מתייג', 'מצב', 'שיוכים', ''].map(x => h('th', {}, x)))),
+      h('tbody', {}, sets.items.map(s => h('tr', { 'data-set': s.id }, h('td', {}, PURPOSE_HE[s.purpose]), h('td', {}, ltr(s.id.slice(0, 8))), h('td', {}, s.annotator_id), h('td', {}, pill(SET_STATUS_HE[s.status] ?? s.status, ['submitted', 'accepted'].includes(s.status) ? 'ok' : 'warn')),
+        h('td', {}, s.assignments ? s.assignments.map(a => `${a.queue_status}: ${a.n}`).join(' · ') || '0' : '—'),
+        h('td', {}, s.id === 'primary' ? '' : h('div', { style: { display: 'flex', gap: '6px' } },
+          ['active', 'adjudicating'].includes(s.status) ? h('button', { class: 'btn sm', 'data-testid': 'set-open', onclick: () => openSet(s) }, 'פתח') : null,
+          ['active', 'adjudicating'].includes(s.status) ? h('button', { class: 'btn sm', 'data-testid': 'set-submit', onclick: async () => { try { await api(`/api/sets/${s.id}/submit`, { method: 'POST', body: {} }); toast('הסט הוגש וננעל'); renderSets(root); } catch (e) { toast(e.message, true); } } }, 'הגש סט') : null)))))),
+    h('h2', { style: { fontSize: '15px' } }, 'סט חדש'),
+    h('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' } }, purpose, annot, contrib,
+      h('button', { class: 'btn primary', 'data-testid': 'set-create', onclick: async () => {
+        try { await api('/api/sets', { method: 'POST', body: { purpose: purpose.value, annotator_id: annot.value, contributing_set_ids: purpose.value === 'adjudication' ? [...contrib.selectedOptions].map(o => o.value) : [] } }); toast('נוצר סט'); renderSets(root); } catch (e) { toast(e.message, true); }
+      } }, 'צור סט')),
+    h('h2', { style: { fontSize: '15px' } }, 'דוח הסכמה (רק בין סטים שהוגשו)'),
+    h('div', { style: { display: 'flex', gap: '8px', alignItems: 'center' } }, pickA, 'מול', pickB,
+      h('button', { class: 'btn', 'data-testid': 'agreement-run', onclick: async () => {
+        try {
+          const r = await api(`/api/agreement?a=${pickA.value}&b=${pickB.value}`);
+          report.replaceChildren(h('div', { class: 'meta' }, `${r.sources} מקורות משותפים · אי-הסכמות חוסמות: ${r.blocking_total} · התאמה ${r.matching_version} · דיג׳סט `, ltr(r.digest.slice(0, 12))),
+            h('table', { class: 't' }, h('thead', {}, h('tr', {}, ['מקור', 'הותאמו', 'רק A', 'רק B', 'החלטה', 'שימושיות', 'Jaccard סיבות', 'זהות (זוגות)', 'חוסם'].map(x => h('th', {}, x)))),
+              h('tbody', {}, r.per_source.map(p => h('tr', {}, h('td', {}, ltr(p.source_id.slice(0, 8))), h('td', {}, p.matched), h('td', {}, p.only_a?.length ?? 0), h('td', {}, p.only_b?.length ?? 0),
+                h('td', {}, pct(p.decision_agreement)), h('td', {}, pct(p.usability_agreement)), h('td', {}, pct(p.reason_jaccard_mean)), h('td', {}, pct(p.identity_pair_agreement)),
+                h('td', {}, p.blocking_disagreements?.length ? pill(String(p.blocking_disagreements.length), 'bad') : pill('0', 'ok')))))));
+        } catch (e) { toast(e.message, true); }
+      } }, 'הפק דוח')),
+    report));
+  function openSet(s) {
+    const pick = h('select', { multiple: true, 'aria-label': 'מקורות לשיוך', style: { minHeight: '120px', width: '100%' } }, sources.items.map(x => h('option', { value: x.id }, x.display_name)));
+    dialog(`סט ${PURPOSE_HE[s.purpose]}`, h('div', {},
+      h('label', { class: 'f' }, 'הוסף מקורות לסט (יתחילו ריקים):'), pick,
+      h('div', { style: { marginTop: '8px' } }, h('button', { class: 'btn sm', 'data-testid': 'set-add-sources', onclick: async () => { try { await api(`/api/sets/${s.id}/assignments`, { method: 'POST', body: { source_ids: [...pick.selectedOptions].map(o => o.value) } }); toast('נוספו'); closeDialog(); renderSets(root); } catch (e) { toast(e.message, true); } } }, 'הוסף')),
+      h('p', { class: 'meta' }, 'לעבודה על מקור בסט: '), h('ul', { class: 'list' }, sources.items.map(x => h('li', {}, h('a', { href: `#/annotate/${x.id}?set=${s.id}` }, x.display_name))))),
+    [h('button', { class: 'btn', onclick: closeDialog }, 'סגור')]);
+  }
 }

@@ -6,18 +6,24 @@ import { now, audit } from './db.mjs';
 export const BACKUP_FORMAT = 'gt-backup/v1';
 // Dependency order (parents first) and a deterministic order column per table.
 export const TABLES = [
-  ['sources', 'id'], ['source_locations', 'id'], ['upload_batches', 'id'], ['upload_occurrences', 'id'], ['ingestion_jobs', 'id'],
-  ['athletes', 'id'], ['athlete_appearances', 'id'], ['annotation_drafts', 'source_id'], ['annotation_revisions', 'id'],
+  // athletes BEFORE sources: sources.owner_athlete_id references athletes (restoring sources first violated the FK on PostgreSQL)
+  ['athletes', 'id'], ['sources', 'id'], ['source_locations', 'id'], ['upload_batches', 'id'], ['upload_occurrences', 'id'], ['ingestion_jobs', 'id'],
+  ['athlete_appearances', 'id'], ['annotation_drafts', 'source_id'], ['annotation_revisions', 'id'],
   ['dataset_versions', 'id'], ['dataset_members', 'dataset_id, source_id'], ['pipeline_predictions', 'id'], ['evaluation_runs', 'id'],
   ['edl_records', 'id'], ['editing_reports', 'id'], ['crop_proposals', 'id'], ['audit_log', 'id'],
   ['sports', 'id'], ['sport_event_types', 'sport_id, key'], ['cloud_objects', 'id'], ['source_owner_history', 'id'],
+  // 0006 (FULL_SPEC): independent annotation sets and lineage — part of Ground Truth, so part of every backup.
+  ['annotation_sets', 'id'], ['annotation_set_status', 'id'], ['set_assignments', 'id'], ['set_revisions', 'id'],
+  ['person_lineage_relations', 'id'], ['physical_actions', 'id'], ['physical_action_states', 'id'], ['action_occurrences', 'id'],
+  ['action_occurrence_retirements', 'id'], ['source_sports', 'source_id, sport_id'],
 ];
 // Taxonomy is configuration that a fresh database already seeds: restore upserts it instead of requiring emptiness,
 // and backups made before the registry existed (no such tables) stay restorable.
-const CONFIG = { sports: 'id', sport_event_types: 'sport_id, key' };
+const CONFIG = { sports: 'id', sport_event_types: 'sport_id, key', annotation_sets: 'id' };   // 'primary' set is seeded
 // Tables that older backup files do not have (still restorable). cloud_objects is catalog data, not configuration.
-const OPTIONAL = new Set([...Object.keys(CONFIG), 'cloud_objects', 'source_owner_history']);
-const IDENTITY = new Set(['source_locations', 'upload_occurrences', 'ingestion_jobs', 'audit_log', 'source_owner_history']);
+const OPTIONAL = new Set([...Object.keys(CONFIG), 'cloud_objects', 'source_owner_history', 'annotation_set_status', 'set_assignments', 'set_revisions',
+  'person_lineage_relations', 'physical_actions', 'physical_action_states', 'action_occurrences', 'action_occurrence_retirements', 'source_sports']);
+const IDENTITY = new Set(['source_locations', 'upload_occurrences', 'ingestion_jobs', 'audit_log', 'source_owner_history', 'annotation_set_status', 'physical_action_states', 'action_occurrence_retirements']);
 
 export function exportBackup(db) {
   const tables = {};
@@ -70,6 +76,7 @@ export function verifyIntegrity(db) {
   for (const d of db.prepare('select id,manifest,digest from dataset_versions').all()) if (digestOf(JSON.parse(d.manifest)) !== d.digest) bad.push({ table: 'dataset_versions', id: d.id });
   for (const e of db.prepare('select id,report,digest from evaluation_runs').all()) if (digestOf(JSON.parse(e.report)) !== e.digest) bad.push({ table: 'evaluation_runs', id: e.id });
   for (const e of db.prepare('select id,payload,digest from pipeline_predictions').all()) if (digestOf(JSON.parse(e.payload)) !== e.digest) bad.push({ table: 'pipeline_predictions', id: e.id });
+  for (const r of db.prepare('select id,content,digest from set_revisions').all()) if (digestOf(JSON.parse(r.content)) !== r.digest) bad.push({ table: 'set_revisions', id: r.id });
   for (const e of db.prepare('select id,payload,digest from edl_records').all()) if (digestOf(JSON.parse(e.payload)) !== e.digest) bad.push({ table: 'edl_records', id: e.id });
   // every dataset member must still point at an existing revision with the pinned digest
   for (const m of db.prepare('select m.dataset_id,m.source_id,m.revision_id from dataset_members m left join annotation_revisions r on r.id=m.revision_id where r.id is null').all()) bad.push({ table: 'dataset_members', id: `${m.dataset_id}/${m.source_id}`, reason: 'missing_revision' });

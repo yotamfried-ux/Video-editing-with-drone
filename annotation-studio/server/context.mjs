@@ -21,6 +21,8 @@ export function createContext(home, { roots = [], token, dbUrl, archive, cloud }
     // Optional read-only view of SportReel's existing source videos in R2 (STUDIO_CLOUD_R2_*); null when not configured.
     cloud: cloud ?? (() => { const c = cloudConfigFromEnv(); return c ? new CloudBucket(c) : null; })(),
     cloudMetadata: process.env.STUDIO_CLOUD_METADATA || null,
+    // Optional catalog filter: list only objects whose key or name contains this text (e.g. DJI for drone footage). Empty = all.
+    cloudInclude: (process.env.STUDIO_CLOUD_INCLUDE ?? '').trim(),
     cacheDir: path.join(home, 'cache'),
     outputsDir: path.join(home, 'outputs'),
   };

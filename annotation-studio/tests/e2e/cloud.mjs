@@ -92,14 +92,14 @@ async function waitForProxy() { await waitForProxies(); await page.reload(); awa
 
 await scenario('3. label an athlete + event; autosave; Ground Truth approval is blocked until identity is verified', async () => {
   await page.goto(`${base}/#/athletes`); await page.waitForSelector('[data-testid=add-athlete]');
-  await page.fill('#newath', 'סינתטי'); await page.click('[data-testid=add-athlete]'); await page.waitForSelector('[data-testid=athlete-card]');
+  await page.fill('#newath', 'סינתטי'); await page.click('[data-testid=add-athlete]'); await page.waitForSelector('[data-testid=athlete-item]');
   const sid = ctx.db.prepare("select id from sources where provider='cloud-r2'").get().id;
   await page.goto(`${base}/#/annotate/${sid}`); await page.waitForSelector('[data-testid=workbench]'); await videoReady();
   await page.evaluate(() => document.querySelector('#vid').pause());
   await page.click('#ruler', { position: { x: 60, y: 10 } });
   await page.keyboard.press('i'); for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowRight'); await page.keyboard.press('o');
   await page.waitForSelector('[data-testid=segment].sel');
-  await page.keyboard.press('1'); await page.keyboard.press('e'); await waitSaved();
+  await page.keyboard.press('1'); await page.keyboard.press('e'); await page.click('[data-testid=usability-usable]'); await waitSaved();
   await page.fill('#ap-reason', 'GT cloud'); await page.click('[data-testid=approve]');
   await page.waitForSelector('.toast.bad');
   assert.match(await page.textContent('.toast.bad'), /לא אומתה|SHA-256|אומתה/);

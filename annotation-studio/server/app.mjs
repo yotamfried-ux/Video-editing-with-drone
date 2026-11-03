@@ -17,6 +17,9 @@ import { reconcile, verifyArchives } from './ingest.mjs';
 import * as I from './imports.mjs';
 import { exportBackup, verifyIntegrity } from './backup.mjs';
 import { backupStatus } from './offsite.mjs';
+import * as Sets from './sets.mjs';
+import * as Lin from './lineage.mjs';
+import * as QC from './quickcatalog.mjs';
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -56,7 +59,7 @@ export function createApp(ctx) {
     return {
       id: s.id, display_name: s.display_name, sha256: s.sha256, byte_size: s.byte_size, width: s.width, height: s.height,
       fps_num: s.fps_num, fps_den: s.fps_den, frame_count: s.frame_count, duration_ms: s.duration_ms, rotation: s.rotation,
-      codec: s.codec ?? null, primary_sport_id: s.primary_sport_id ?? null, provider: s.provider ?? 'local', verify_state: s.verify_state ?? null, proxy_state: s.proxy_state ?? (s.proxy_path ? 'ready' : null),
+      codec: s.codec ?? null, primary_sport_id: s.primary_sport_id ?? null, suggested_sport_id: s.suggested_sport_id ?? null, sport_suggestion_source: s.sport_suggestion_source ?? null, provider: s.provider ?? 'local', verify_state: s.verify_state ?? null, proxy_state: s.proxy_state ?? (s.proxy_path ? 'ready' : null),
       owner_athlete_id: s.owner_athlete_id ?? null,
       owner_status: s.owner_status ?? 'unassigned',
       owner_athlete_label: ownerAthlete?.label ?? null,
@@ -96,6 +99,11 @@ export function createApp(ctx) {
           by_sport: rows.reduce((o, s) => { const k = s.primary_sport_id ?? 'unknown'; o[k] = (o[k] ?? 0) + 1; return o; }, {}) } });
     }
 
+    // ---- Quick catalog: one queue with every catalog field per video and per event (reads/writes the same stores) ----
+    if (m === 'GET' && p === '/api/catalog/queue') return send(res, 200, QC.catalogQueue(db, { include: ctx.cloudInclude ?? '', likeContains: C.likeContains }));
+    if ((r = /^\/api\/catalog\/sources\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, QC.sourceCatalogState(db, A.getSource(db, r[1])));
+    if ((r = /^\/api\/catalog\/sources\/([\w-]+)\/triage$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, QC.setTriage(db, r[1], b)); }
+
     // ---- Catalog Ownership (Precision Studio V2) ----
     if ((r = /^\/api\/sources\/([\w-]+)\/catalog-owner$/.exec(p))) {
       if (m === 'GET') return send(res, 200, Catalog.getCatalogOwner(db, r[1]));
@@ -113,14 +121,15 @@ export function createApp(ctx) {
 
     // ---- Cloud catalog (existing SportReel videos in R2, used in place; the bucket is only ever read) ----
     if (m === 'GET' && p === '/api/cloud/status') {
-      const n = db.prepare('select count(*) total, sum(case when available=1 then 1 else 0 end) available, sum(case when source_id is not null then 1 else 0 end) opened from cloud_objects').get();
-      return send(res, 200, { configured: !!ctx.cloud, bucket: ctx.cloud?.bucket ?? null, read_only: true, metadata_file: !!ctx.cloudMetadata,
+      const inc = ctx.cloudInclude ?? '', like = C.likeContains(inc);
+      const n = db.prepare("select count(*) total, sum(case when available=1 then 1 else 0 end) available, sum(case when source_id is not null then 1 else 0 end) opened from cloud_objects where (? = '' or key like ? escape '\\' or display_name like ? escape '\\')").get(inc, like, like);
+      return send(res, 200, { configured: !!ctx.cloud, bucket: ctx.cloud?.bucket ?? null, read_only: true, metadata_file: !!ctx.cloudMetadata, include_filter: ctx.cloudInclude || null,
         total: Number(n.total ?? 0), available: Number(n.available ?? 0), opened: Number(n.opened ?? 0) });
     }
     if (m === 'GET' && p === '/api/cloud/objects') {
       if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
       return send(res, 200, {
-        items: C.listCloudObjects(db).map(o => {
+        items: C.listCloudObjects(db, ctx.cloudInclude).map(o => {
           const ownerAthlete = o.owner_athlete_id ? db.prepare('select id, label from athletes where id=?').get(o.owner_athlete_id) : null;
           return {
             ...o,
@@ -176,8 +185,47 @@ export function createApp(ctx) {
     if ((r = /^\/api\/sources\/([\w-]+)\/approve$/.exec(p)) && m === 'POST') {
       const b = await body(req);
       const out = A.approve(db, r[1], { expectedVersion: b.expected_version, scope: b.scope, reason: b.reason, acknowledgeUnresolved: !!b.acknowledge_unresolved });
-      return send(res, 200, { revision: { id: out.revision.id, seq: out.revision.seq, digest: out.revision.digest, approved_at: out.revision.approved_at }, unchanged: out.unchanged, unresolved: out.unresolved });
+      return send(res, 200, { revision: { id: out.revision.id, seq: out.revision.seq, digest: out.revision.digest, approved_at: out.revision.approved_at }, unchanged: out.unchanged, unresolved: out.unresolved, approval_caveats: out.approval_caveats });
     }
+    // ---- Independent annotation sets, agreement, adjudication (addendum §2, §8, §9) ----
+    if (p === '/api/sets') {
+      if (m === 'GET') return send(res, 200, { items: Sets.listSets(db) });
+      if (m === 'POST') return send(res, 201, Sets.createSet(db, await body(req)));
+    }
+    if ((r = /^\/api\/sets\/([\w-]+)\/assignments$/.exec(p)) && m === 'POST') return send(res, 200, Sets.addAssignments(db, r[1], (await body(req)).source_ids));
+    if ((r = /^\/api\/sets\/([\w-]+)\/assignments\/([\w-]+)$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, Sets.getSetDraft(db, r[1], r[2]));
+      if (m === 'PUT') return send(res, 200, Sets.saveSetDraft(db, r[1], r[2], await body(req)));
+      if (m === 'PATCH') return send(res, 200, Sets.setQueueStatus(db, r[1], r[2], (await body(req)).queue_status));
+    }
+    if ((r = /^\/api\/sets\/([\w-]+)\/assignments\/([\w-]+)\/complete$/.exec(p)) && m === 'POST') return send(res, 200, Sets.completeAssignment(db, r[1], r[2], await body(req)));
+    if ((r = /^\/api\/sets\/([\w-]+)\/submit$/.exec(p)) && m === 'POST') return send(res, 200, Sets.submitSet(db, r[1]));
+    if ((r = /^\/api\/sets\/([\w-]+)\/revisions\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, Sets.readForComparison(db, r[1], r[2], { viewerSetId: url.searchParams.get('viewer_set') ?? undefined }) ?? {});
+    if (p === '/api/agreement' && m === 'GET') return send(res, 200, Sets.agreementReport(db, url.searchParams.get('a'), url.searchParams.get('b'), { viewerSetId: url.searchParams.get('viewer_set') ?? undefined }));
+    // ---- Identity lineage (§6) and physical actions (§4) ----
+    if (p === '/api/person-lineage') {
+      if (m === 'GET') return send(res, 200, Lin.personLineage(db, { setId: url.searchParams.get('set') ?? 'primary' }));
+      if (m === 'POST') return send(res, 201, Lin.addPersonRelation(db, await body(req)));
+    }
+    if (p === '/api/physical-actions') {
+      if (m === 'GET') return send(res, 200, { items: Lin.listPhysicalActions(db, { source_id: url.searchParams.get('source') ?? null, include_inactive: url.searchParams.get('all') === '1' }), coverage: Lin.actionCoverage(db) });
+      if (m === 'POST') return send(res, 201, Lin.createPhysicalAction(db, await body(req)));
+    }
+    if (p === '/api/physical-actions/merge' && m === 'POST') { const b = await body(req); return send(res, 201, Lin.mergeActions(db, b.action_ids, b)); }
+    if ((r = /^\/api\/physical-actions\/([\w-]+)$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, Lin.getPhysicalAction(db, r[1]));
+      if (m === 'PATCH') { const b = await body(req); return send(res, 200, Lin.setActionState(db, r[1], b.lineage_state, b)); }
+    }
+    if ((r = /^\/api\/physical-actions\/([\w-]+)\/occurrences$/.exec(p)) && m === 'POST') return send(res, 201, Lin.linkOccurrence(db, r[1], await body(req)));
+    if ((r = /^\/api\/physical-actions\/([\w-]+)\/split$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 201, Lin.splitAction(db, r[1], b.groups, b)); }
+    if ((r = /^\/api\/action-occurrences\/([\w-]+)\/retire$/.exec(p)) && m === 'POST') return send(res, 200, Lin.retireOccurrence(db, r[1], await body(req)));
+    if ((r = /^\/api\/sources\/([\w-]+)\/sport-suggestion$/.exec(p)) && m === 'POST') return send(res, 200, S.suggestSourceSport(db, r[1], await body(req)));
+    if ((r = /^\/api\/sources\/([\w-]+)\/sport-suggestion\/confirm$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, S.confirmSuggestedSport(db, r[1], { acknowledgeIncompatible: !!b.acknowledge_incompatible, remap: b.remap ?? null })); }
+    if ((r = /^\/api\/sources\/([\w-]+)\/sports$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, S.listSourceSports(db, r[1]));
+      if (m === 'POST') return send(res, 200, S.addSourceSport(db, r[1], (await body(req)).sport_id));
+    }
+    if ((r = /^\/api\/sources\/([\w-]+)\/states$/.exec(p)) && m === 'GET') return send(res, 200, A.sourceStates(db, r[1]));
     if ((r = /^\/api\/sources\/([\w-]+)\/revisions$/.exec(p)) && m === 'GET') return send(res, 200, { items: A.listRevisions(db, r[1]) });
     if ((r = /^\/api\/revisions\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, A.getRevision(db, r[1]));
     if (m === 'GET' && p === '/api/batches') return send(res, 200, { items: db.prepare(`select b.id,b.label,b.created_at,count(distinct o.source_id) sources from upload_batches b left join upload_occurrences o on o.batch_id=b.id group by b.id order by b.created_at desc`).all() });
@@ -194,6 +242,10 @@ export function createApp(ctx) {
       if (m === 'POST') { const b = await body(req); return send(res, 201, A.createAthlete(db, b.label, b.notes)); }
     }
     if ((r = /^\/api\/athletes\/([\w-]+)$/.exec(p)) && m === 'PATCH') { const b = await body(req); A.renameAthlete(db, r[1], b.label, b.notes); return send(res, 200, { ok: true }); }
+    if ((r = /^\/api\/sources\/([\w-]+)\/appearances$/.exec(p))) {
+      if (m === 'GET') return send(res, 200, { items: A.listSourceAppearances(db, r[1]) });
+      if (m === 'POST') { const b = await body(req); return send(res, 201, A.addAppearance(db, b.athlete_id, r[1], { uncertain: !!b.uncertain })); }
+    }
     if ((r = /^\/api\/athletes\/([\w-]+)\/appearances\/([\w-]+)$/.exec(p)) && m === 'PATCH') { A.setAppearanceFlags(db, r[1], r[2], await body(req)); return send(res, 200, { ok: true }); }
     if (p === '/api/datasets') {
       if (m === 'GET') return send(res, 200, { items: D.listDatasets(db) });
@@ -329,7 +381,7 @@ export function createApp(ctx) {
       }
       return serveStatic(res, url.pathname);
     } catch (e) {
-      if (e instanceof ApiError) return send(res, e.status, { code: e.code, message: e.he, detail: e.message, unresolved: e.unresolved, incompatible: e.incompatible });
+      if (e instanceof ApiError) return send(res, e.status, { code: e.code, message: e.he, detail: e.message, unresolved: e.unresolved, incompatible: e.incompatible, conflicts: e.conflicts });
       if (/IMMUTABLE|PROTECTED/.test(e?.message ?? '')) return send(res, 409, { code: 'IMMUTABLE', message: 'רשומה בלתי ניתנת לשינוי' });
       console.error('[studio] internal error:', e?.message);
       return send(res, 500, { code: 'INTERNAL', message: 'שגיאה פנימית' });

@@ -191,10 +191,10 @@ await scenario('approved source reloads with revision history from a different r
 });
 
 await scenario('athletes screen: persistent ids and appearance history', async () => {
-  await page.goto(`${base}/#/athletes`); await page.waitForSelector('[data-testid=athlete-card]');
-  assert.ok(await page.locator('[data-testid=athlete-card]').count() >= 2);
+  await page.goto(`${base}/#/athletes`); await page.waitForSelector('[data-testid=athlete-item]');
+  assert.ok(await page.locator('[data-testid=athlete-item]').count() >= 2);
   await page.fill('#newath', 'גולש חדש מ-E2E'); await page.click('[data-testid=add-athlete]');
-  await page.locator('[data-testid=athlete-card]').nth(2).waitFor();
+  await page.locator('[data-testid=athlete-item]').nth(2).waitFor();
   await shot('07-athletes');
 });
 
@@ -209,7 +209,8 @@ await scenario('evaluations: history table and detailed error report', async () 
   await page.click('[data-testid=eval-table] a:has-text("פירוט")');
   await page.waitForSelector('text=דוח הערכה');
   const txt = await page.textContent('#main');
-  assert.ok(txt.includes('פלט כפול') && txt.includes('Recall'));
+  assert.ok(txt.includes('פלט כפול') && txt.includes('Recall'), 'duplicate output listed with metrics');
+  assert.ok(await page.locator('[data-testid=eval-errors] tr').count() >= 3, 'every evaluator error is listed');
   await shot('09-evaluation');
 });
 

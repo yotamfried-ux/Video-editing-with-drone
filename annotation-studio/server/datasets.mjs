@@ -3,10 +3,13 @@ import { createHash, randomUUID } from 'node:crypto';
 import { now, tx, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { digestOf, latestRevision } from './annotations.mjs';
+import { lineageSnapshot } from './lineage.mjs';
+import { unadjudicatedDisagreements } from './sets.mjs';
 
 export const DEFAULT_POLICY = { seed: 'sportreel-v1', ratios: { train: 0.7, validation: 0.15, test: 0.15 } };
 
 /** Deterministic split by *group* (recording session) so near-duplicates never straddle splits. */
+const cmpHash = (a, b) => { const x = createHash('sha256').update(a).digest('hex'), y = createHash('sha256').update(b).digest('hex'); return x < y ? -1 : x > y ? 1 : 0; };
 export function splitFor(groupKey, policy) {
   const h = createHash('sha256').update(`${policy.seed}|${groupKey}`).digest();
   const u = h.readUInt32BE(0) / 0x100000000;
@@ -34,11 +37,35 @@ export function freezeDataset(db, { name, sourceIds, policy = DEFAULT_POLICY }) 
         ...(Object.keys(tax).length ? { taxonomy_versions: tax } : {}),
         split: heldOut.has(id) ? 'test' : splitFor(group, policy) });
     }
+    // Optional stratification by sport (spec §18): within each sport, groups are ordered by their deterministic hash and
+    // assigned by cumulative ratio, so every sport gets its share of train/validation/test. The permanent held-out test
+    // set still wins. Default policy is unchanged (no stratification), so existing manifests reproduce exactly.
+    if (policy.stratify_by_sport) {
+      const sportOf = id => db.prepare('select primary_sport_id from sources where id=?').get(id)?.primary_sport_id ?? 'unknown';
+      const bySport = new Map();
+      for (const m of members) { m.sport = sportOf(m.source_id); (bySport.get(m.sport) ?? bySport.set(m.sport, new Set()).get(m.sport)).add(m.group); }
+      for (const [sport, groups] of bySport) {
+        const ordered = [...groups].sort((a, b) => cmpHash(`${policy.seed}|${sport}|${a}`, `${policy.seed}|${sport}|${b}`));
+        const { train, validation } = policy.ratios, n = ordered.length;
+        ordered.forEach((g, i) => { const u = (i + 0.5) / n; const sp = u < train ? 'train' : u < train + validation ? 'validation' : 'test';
+          for (const m of members) if (m.sport === sport && m.group === g && !heldOut.has(m.source_id)) m.split = sp; });
+      }
+    }
     // Group consistency: every member of a group takes the same split (test wins).
     const byGroup = new Map();
     for (const m of members) byGroup.set(m.group, (byGroup.get(m.group) ?? new Set()).add(m.split));
     for (const m of members) { const sp = byGroup.get(m.group); if (sp.has('test')) m.split = 'test'; }
-    const manifest = { name, policy, members: members.map(({ group, ...m }) => m) };
+    // Addendum §11: no freeze while an independent comparison has blocking disagreements without an accepted adjudication.
+    const open = unadjudicatedDisagreements(db, members.map(m => m.source_id));
+    if (open.length) throw Object.assign(new ApiError('BLOCKING_DISAGREEMENT', `${open.length} מקורות עם אי-הסכמות חוסמות שלא הוכרעו`), { unresolved: open });
+    const manifest = { name, policy, members: members.map(({ group, sport, ...m }) => m) };
+    if (policy.stratify_by_sport) manifest.sport_strata = Object.fromEntries([...new Set(members.map(m => m.sport))].sort().map(sp => [sp, ['train', 'validation', 'test'].reduce((o, k) => ({ ...o, [k]: members.filter(m => m.sport === sp && m.split === k).length }), {})]));
+    // Pin the exact identity-lineage relations and physical-action lineage used by this version (only when any exist,
+    // so manifests of datasets without lineage are byte-identical to before).
+    const lin = lineageSnapshot(db, members.map(m => m.source_id));
+    if (lin.person_lineage_relation_ids.length || lin.physical_actions.length) manifest.lineage = lin;
+    const indep = db.prepare("select id, purpose from annotation_sets where id != 'primary' order by created_at").all();
+    if (indep.length) manifest.annotation_sets = { ground_truth_set: 'primary', independent_sets: indep.map(x => x.id) };
     const digest = digestOf(manifest);
     const id = randomUUID();
     db.prepare('insert into dataset_versions(id,name,created_at,policy,manifest,digest) values(?,?,?,?,?,?)')

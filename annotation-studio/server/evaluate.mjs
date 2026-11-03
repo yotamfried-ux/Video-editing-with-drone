@@ -5,7 +5,10 @@ import { now, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { digestOf } from './annotations.mjs';
 
-export const EVALUATOR_VERSION = 'eval-1.1.0';
+export const EVALUATOR_VERSION = 'eval-1.2.0';
+// Addendum §8: ranking = IoU desc, then combined |Δstart|+|Δend| asc, then truth id, then prediction index.
+export const MATCHING_VERSION = 'match-2';
+export const METRIC_TOLERANCE_VERSION = 'tol-1';
 export const DEFAULT_PARAMS = { iou_threshold: 0.5, splits: ['test'] };
 
 const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -31,7 +34,8 @@ export function evaluateSource(gt, preds, params, rejected = []) {
   // (Predictions that declare none — legacy exports — pair by time/IoU alone and are counted under the sport of what they matched.)
   const gSport = g => g.resolved_sport_id ?? 'unknown';
   for (const g of G) for (const p of P) { if (p.sport_id != null && p.sport_id !== gSport(g)) continue; const v = iou1d(g, p); if (v >= thr) pairs.push({ g, p, iou: v }); }
-  pairs.sort((x, y) => y.iou - x.iou || x.g.start_frame - y.g.start_frame || cmp(x.g.id, y.g.id) || x.p.idx - y.p.idx);
+  const bErr = q => Math.abs(q.g.start_frame - q.p.start_frame) + Math.abs(q.g.end_frame - q.p.end_frame);
+  pairs.sort((x, y) => y.iou - x.iou || bErr(x) - bErr(y) || cmp(x.g.id, y.g.id) || x.p.idx - y.p.idx);
   const usedG = new Set(), usedP = new Set(), matches = [];
   for (const m of pairs) {
     if (usedG.has(m.g.id) || usedP.has(m.p.idx)) continue;
@@ -83,6 +87,21 @@ export function evaluateSource(gt, preds, params, rejected = []) {
   const bySport = {};
   const bs = k => bySport[k] ??= { gt_included: 0, predictions: 0, matched: 0, missed: 0, false_positives: 0, duplicates: 0, predicted_excluded: 0 };
   for (const g of G) { const b = bs(gSport(g)); b.gt_included++; if (usedG.has(g.id)) b.matched++; else b.missed++; }
+  // Sport-specific context — ONLY from what humans annotated (never inferred from pixels; spec §18):
+  //   surfing: a 'complete' wave has annotated takeoff AND landing and no missing_takeoff/missing_landing reason;
+  //   other sports: events whose required context attributes (attrs) were annotated.
+  for (const g of G) {
+    const b = bs(gSport(g)), sport = gSport(g);
+    if (sport === 'surfing') {
+      const complete = g.key_moments?.takeoff_frame != null && g.key_moments?.landing_frame != null && !(g.reason_codes ?? []).some(r => r === 'missing_takeoff' || r === 'missing_landing');
+      b.complete_wave_annotated = (b.complete_wave_annotated ?? 0) + (complete ? 1 : 0);
+      b.complete_wave_matched = (b.complete_wave_matched ?? 0) + (complete && usedG.has(g.id) ? 1 : 0);
+    } else if (sport !== 'unknown') {
+      const ctx = g.attrs && Object.values(g.attrs).some(v => v != null && v !== '');
+      b.context_annotated = (b.context_annotated ?? 0) + (ctx ? 1 : 0);
+      b.context_matched = (b.context_matched ?? 0) + (ctx && usedG.has(g.id) ? 1 : 0);
+    }
+  }
   const matchedSportOf = new Map(matches.map(m => [m.p.idx, gSport(m.g)]));
   const typeOf = new Map(errors.filter(e => e.pred_index != null).map(e => [e.pred_index, e.type]));
   for (const p of P) {
@@ -118,6 +137,16 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
   const ds = db.prepare('select * from frozen_datasets where id=?').get(dataset_id);
   const pr = db.prepare('select * from pipeline_predictions where id=?').get(prediction_id);
   if (!ds || !pr) throw new ApiError('NOT_FOUND');
+  // §8.3: a missing/invalid matching configuration is INCONCLUSIVE, never a success.
+  if (!(typeof p.iou_threshold === 'number' && p.iou_threshold > 0 && p.iou_threshold <= 1) || !Array.isArray(p.splits) || !p.splits.length) {
+    throw new ApiError('INVALID_INPUT', 'inconclusive: invalid event matching configuration');
+  }
+  // §10: the complete comparison identity; retries with the same tuple resolve to the same evaluation run.
+  const identity = { dataset_version_id: dataset_id, dataset_manifest_sha256: ds.digest, pipeline_run_id: pr.run_id, prediction_manifest_sha256: pr.digest,
+    evaluator_version: EVALUATOR_VERSION, evaluator_config_sha256: digestOf(p), event_matching_config_version: MATCHING_VERSION, metric_tolerance_version: METRIC_TOLERANCE_VERSION };
+  const identityKey = digestOf(identity);
+  const prior = db.prepare('select * from evaluation_runs where identity_key=?').get(identityKey);
+  if (prior) return { id: prior.id, digest: prior.digest, report: JSON.parse(prior.report), idempotent_replay: true };
   const predSources = JSON.parse(pr.payload).sources;
   const preds = new Map(predSources.map(s => [s.source_sha256, s.events]));
   const rejects = new Map(predSources.map(s => [s.source_sha256, s.rejected ?? []]));
@@ -134,7 +163,7 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
     for (const [sp, c] of Object.entries(r.by_sport)) { const t = bySportTot[sp] ??= {}; for (const [k, v] of Object.entries(c)) t[k] = (t[k] ?? 0) + v; }
   }
   const report = {
-    evaluator_version: EVALUATOR_VERSION, params: p, dataset_digest: ds.digest, prediction_digest: pr.digest,
+    evaluator_version: EVALUATOR_VERSION, matching_version: MATCHING_VERSION, comparison_identity: identity, params: p, dataset_digest: ds.digest, prediction_digest: pr.digest,
     pipeline_version: pr.pipeline_version, run_id: pr.run_id, totals: tot,
     metrics: {
       event_recall: ratio(tot.matched, tot.gt_included),
@@ -145,14 +174,16 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
       unreviewed_prediction_share: ratio(tot.unreviewed_predictions, tot.predictions),
     },
     by_sport: Object.fromEntries(Object.keys(bySportTot).sort().map(sp => { const t = bySportTot[sp]; return [sp, { ...t, event_recall: ratio(t.matched, t.gt_included),
-      event_precision: ratio(t.matched, t.matched + t.false_positives + t.duplicates + t.predicted_excluded) }]; })),
+      event_precision: ratio(t.matched, t.matched + t.false_positives + t.duplicates + t.predicted_excluded),
+      ...(t.complete_wave_annotated != null ? { complete_wave_recall: ratio(t.complete_wave_matched, t.complete_wave_annotated) } : {}),
+      ...(t.context_annotated != null ? { annotated_context_recall: ratio(t.context_matched, t.context_annotated) } : {}) }]; })),
     sport_policy: 'no cross-sport matching; totals/metrics above are pooled counts — use by_sport for per-sport denominators',
     per_source: per,
   };
   const digest = digestOf(report);
   const id = randomUUID();
-  db.prepare('insert into evaluation_runs(id,dataset_id,prediction_id,evaluator_version,params,report,digest,created_at) values(?,?,?,?,?,?,?,?)')
-    .run(id, dataset_id, prediction_id, EVALUATOR_VERSION, JSON.stringify(p), JSON.stringify(report), digest, now());
+  db.prepare('insert into evaluation_runs(id,dataset_id,prediction_id,evaluator_version,params,report,digest,created_at,identity_key,matching_version) values(?,?,?,?,?,?,?,?,?,?)')
+    .run(id, dataset_id, prediction_id, EVALUATOR_VERSION, JSON.stringify(p), JSON.stringify(report), digest, now(), identityKey, MATCHING_VERSION);
   audit(db, 'operator', 'evaluation_run', id, { digest });
   return { id, digest, report };
 }

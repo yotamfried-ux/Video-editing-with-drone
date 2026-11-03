@@ -42,6 +42,7 @@ export function setCatalogOwner(db, sourceId, {
   reason = null,
   changed_by = 'operator',
   expected_version = undefined,
+  confirm_reassign = false,
 } = {}) {
   const s = getSource(db, sourceId);
   if (owner_athlete_id != null) {
@@ -63,6 +64,10 @@ export function setCatalogOwner(db, sourceId, {
 
   const oldOwner = s.owner_athlete_id ?? null;
   const oldStatus = s.owner_status ?? 'unassigned';
+  // Spec §21.1.2: an existing owner is only replaced/removed after an explicit confirmation (never silently).
+  if (oldOwner != null && oldOwner !== owner_athlete_id && confirm_reassign !== true) {
+    throw new ApiError('REASSIGN_CONFIRMATION_REQUIRED');
+  }
 
   // No change needed
   if (oldOwner === owner_athlete_id && oldStatus === effectiveStatus) {
@@ -116,6 +121,7 @@ export function bulkSetCatalogOwner(db, {
   preview = false,
   changed_by = 'operator',
   expected_versions = undefined,
+  confirm_overwrite = false,
 } = {}) {
   if (!Array.isArray(source_ids) || source_ids.length === 0) {
     throw new ApiError('INVALID_INPUT', 'חובה לספק רשימת מזהי סרטונים');
@@ -178,6 +184,10 @@ export function bulkSetCatalogOwner(db, {
     }
   }
 
+  // Stale views are reported first (VERSION_CONFLICT); only a current view may confirm overwriting owners.
+  if (conflicts.length && confirm_overwrite !== true) {
+    throw Object.assign(new ApiError('REASSIGN_CONFIRMATION_REQUIRED', `${conflicts.length} סרטונים כבר משויכים לגולש אחר — נדרש אישור מפורש לדריסת השיוך`), { conflicts });
+  }
   const ts = now();
   tx(db, () => {
     for (const s of sources) {
@@ -238,19 +248,13 @@ export function listAthleteSources(db, athleteId, { filter = 'all' } = {}) {
     order by created_at desc
   `).all(athleteId);
 
-  // 2. Sources where this athlete appears or has events (distinct source_id)
+  // 2. Sources where this athlete is visible or performs an event. Every saved performer is recorded in
+  //    athlete_appearances by saveDraft, so this is portable SQL (the former SQLite-only json_extract broke PostgreSQL).
   const appearanceRows = db.prepare(`
-    select s.*
-    from sources s
-    where s.id in (
-      select source_id from athlete_appearances where athlete_id = ?
-    ) or s.id in (
-      select distinct d.source_id
-      from annotation_drafts d
-      where json_extract(d.content, '$.segments') like ?
-    )
+    select s.* from sources s
+    where s.id in (select source_id from athlete_appearances where athlete_id = ?)
     order by s.created_at desc
-  `).all(athleteId, `%"athlete_id":"${athleteId}"%`);
+  `).all(athleteId);
 
   let candidateMap = new Map();
 
@@ -318,6 +322,7 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
   reason = null,
   changed_by = 'operator',
   expected_version = undefined,
+  confirm_reassign = false,
 } = {}) {
   const obj = db.prepare('select * from cloud_objects where id=?').get(cloudObjectId);
   if (!obj) throw new ApiError('NOT_FOUND', 'אובייקט ענן לא נמצא');
@@ -340,6 +345,12 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
     throw new ApiError('INVALID_INPUT', `סטטוס שיוך לא תקין: ${effectiveStatus}`);
   }
 
+  // The linked SOURCE is the owner of record: a cloud row with a null owner must not silently replace it.
+  const linked = obj.source_id ? db.prepare('select owner_athlete_id, owner_version from sources where id=?').get(obj.source_id) : null;
+  const currentOwner = linked?.owner_athlete_id ?? obj.owner_athlete_id ?? null;
+  if (currentOwner != null && currentOwner !== owner_athlete_id && confirm_reassign !== true) {
+    throw new ApiError('REASSIGN_CONFIRMATION_REQUIRED');
+  }
   const newCloudVersion = currentVersion + 1;
   const ts = now();
 
@@ -359,11 +370,13 @@ export function setCloudObjectCatalogOwner(db, cloudObjectId, {
         const srcCurrentVer = Number(src.owner_version ?? 0);
         const srcNewVer = srcCurrentVer + 1;
 
-        db.prepare(`
+        if (linked && Number(linked.owner_version ?? 0) !== srcCurrentVer) throw new ApiError('VERSION_CONFLICT', 'שיוך הסרטון עודכן במקביל');
+        const su = db.prepare(`
           update sources
           set owner_athlete_id = ?, owner_status = ?, owner_assigned_at = ?, owner_assigned_by = ?, owner_version = ?
-          where id = ?
-        `).run(owner_athlete_id, effectiveStatus, ts, changed_by, srcNewVer, obj.source_id);
+          where id = ? and owner_version = ?
+        `).run(owner_athlete_id, effectiveStatus, ts, changed_by, srcNewVer, obj.source_id, srcCurrentVer);
+        if (su.changes === 0) throw new ApiError('VERSION_CONFLICT', 'שיוך הסרטון עודכן במקביל');
 
         db.prepare(`
           insert into source_owner_history(source_id, old_owner_id, new_owner_id, old_status, new_status, changed_by, reason, changed_at, version)

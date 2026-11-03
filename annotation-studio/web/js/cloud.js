@@ -158,6 +158,7 @@ export async function renderCloud(root) {
                 status,
                 reason: reason || null,
                 expected_version: o.owner_version ?? 0,
+                confirm_reassign: !!o.owner_athlete_id,
               }
             });
             o.owner_athlete_id = selectedAth || null;

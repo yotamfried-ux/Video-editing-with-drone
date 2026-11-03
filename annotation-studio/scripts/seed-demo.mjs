@@ -33,13 +33,13 @@ export async function seed(home, { quiet = false } = {}) {
   const bb = n => ({ x: 2 * n / 1280, y: 70 / 720, w: 40 / 1280, h: 40 / 720 });
   const c = A.emptyContent();
   c.segments.push(
-    { id: 'seg-wave1', start_frame: 20, end_frame: 160, athlete_id: dana.id, event_type: 'wave_ride', decision: 'include', reason_code: null, notes: 'גל מלא', framing_mode: 'geometric_center', target: null },
-    { id: 'seg-fail', start_frame: 170, end_frame: 200, athlete_id: omer.id, event_type: 'failed_takeoff', decision: 'exclude', reason_code: 'failed_takeoff', notes: 'עמידה נכשלה', framing_mode: null, target: null });
+    { id: 'seg-wave1', start_frame: 20, end_frame: 160, athlete_id: dana.id, event_type: 'wave_ride', decision: 'include', usability: 'usable', reason_code: null, notes: 'גל מלא', framing_mode: 'geometric_center', target: null },
+    { id: 'seg-fail', start_frame: 170, end_frame: 200, athlete_id: omer.id, event_type: 'failed_takeoff', decision: 'exclude', usability: 'unusable', reason_codes: ['no_meaningful_action'], reason_code: 'failed_takeoff', notes: 'עמידה נכשלה', framing_mode: null, target: null });
   c.keyframes.push(...[20, 90, 159].map((n, i) => ({ id: `kf-${i}`, segment_id: 'seg-wave1', frame: n, bbox: bb(n), visibility: 'visible', origin: 'manual' })));
   c.reviewed_ranges.push({ start_frame: 0, end_frame: 200 });
   A.saveDraft(db, s1.id, 0, c);
   A.approve(db, s1.id, { expectedVersion: 1, reason: 'סימון ראשוני' });
-  c.segments.push({ id: 'seg-wave2', start_frame: 205, end_frame: 235, athlete_id: omer.id, event_type: 'wave_ride', decision: 'uncertain', reason_code: null, notes: 'לא ברור אם הגל הושלם', framing_mode: null, target: null });
+  c.segments.push({ id: 'seg-wave2', start_frame: 205, end_frame: 235, athlete_id: omer.id, event_type: 'wave_ride', decision: 'uncertain', usability: 'uncertain', reason_code: null, notes: 'לא ברור אם הגל הושלם', framing_mode: null, target: null });
   A.saveDraft(db, s1.id, 1, c);
   A.approve(db, s1.id, { expectedVersion: 2, reason: 'נוסף אירוע לא בטוח', acknowledgeUnresolved: true });
   // s2: draft in progress only

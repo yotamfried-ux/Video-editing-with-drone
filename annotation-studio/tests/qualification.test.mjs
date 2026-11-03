@@ -25,7 +25,7 @@ const REPO = path.resolve(here, '..', '..');
 const have = c => spawnSync(c, ['-version'], { encoding: 'utf8' }).status === 0 || spawnSync(c, ['--version'], { encoding: 'utf8' }).status === 0;
 const skip = process.env.GT_SKIP_QUALIFICATION === '1' || !have('ffmpeg') || !have('python3');
 
-const seg = (id, s, e, o = {}) => ({ id, start_frame: s, end_frame: e, athlete_id: null, event_type: 'wave_ride', decision: 'include', reason_code: null, notes: '', framing_mode: null, target: null, ...o });
+const seg = (id, s, e, o = {}) => ({ id, start_frame: s, end_frame: e, athlete_id: null, event_type: 'wave_ride', decision: 'include', usability: 'usable', reason_code: null, notes: '', framing_mode: null, target: null, ...o });
 
 function bboxAt(sq, n) { const t = n / 30; return { x: (sq.x0 + sq.vx * t) / 3840, y: sq.y / 2160, w: sq.size / 3840, h: sq.size / 2160 }; }
 const kfs = (segId, sq, frames) => frames.map(n => ({ id: `${segId}-k${n}`, segment_id: segId, frame: n, bbox: bboxAt(sq, n), visibility: 'visible', origin: 'manual' }));

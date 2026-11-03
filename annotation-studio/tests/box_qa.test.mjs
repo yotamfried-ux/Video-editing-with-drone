@@ -56,224 +56,85 @@ test('usability taxonomy, structured reasons, and explicit GT decision round-tri
 test('box verification provenance: interpolated frames cannot be marked verified_correct without explicit verification', async () => {
   const { db, src } = await withSource();
   const ath = A.createAthlete(db, 'Surfer Pro');
+  const T = i => new Date(Date.UTC(2026, 0, 1, 0, 0, i)).toISOString();
 
-  // Attempting to save an interpolated keyframe marked as 'verified_correct' without explicit verification metadata
   const badContent = A.emptyContent();
   badContent.segments.push(seg('s1', 10, 80, { athlete_id: ath.id, event_type: 'wave_ride', decision: 'include' }));
-  badContent.keyframes.push({
-    id: 'k-interp-fake-verified',
-    segment_id: 's1',
-    frame: 35,
-    bbox: { x: 0.2, y: 0.2, w: 0.1, h: 0.1 },
-    visibility: 'visible',
-    origin: 'interpolated',
-    verification_status: 'verified_correct', // Rule violation: cannot claim verified without verification evidence
-  });
+  badContent.keyframes.push({ id: 'k-interp-fake-verified', segment_id: 's1', frame: 35, bbox: { x: 0.2, y: 0.2, w: 0.1, h: 0.1 },
+    visibility: 'visible', origin: 'interpolated', verification_status: 'verified_correct' });
+  assert.throws(() => A.saveDraft(db, src.id, 0, badContent), /פריים אינטרפולציה לא יכול להיחשב מאומת ללא אימות מפורש/);
 
-  assert.throws(
-    () => A.saveDraft(db, src.id, 0, badContent),
-    /פריים אינטרפולציה לא יכול להיחשב מאומת ללא אימות מפורש/
-  );
-
-  // Correct workflow: manual keyframe with verified provenance
-  const goodContent = A.emptyContent();
-  goodContent.segments.push(seg('s1', 10, 80, { athlete_id: ath.id, event_type: 'wave_ride', decision: 'include' }));
-  goodContent.keyframes.push({
-    id: 'k-manual',
-    segment_id: 's1',
-    frame: 10,
-    bbox: { x: 0.2, y: 0.2, w: 0.1, h: 0.1 },
-    visibility: 'visible',
-    origin: 'manual',
-    verification_status: 'verified_correct',
-    verified_at: new Date().toISOString(),
-    verified_by: 'annotator_1',
-  });
-  // Interpolated keyframe correctly left unreviewed
-  goodContent.keyframes.push({
-    id: 'k-interpolated',
-    segment_id: 's1',
-    frame: 45,
-    bbox: { x: 0.25, y: 0.25, w: 0.1, h: 0.1 },
-    visibility: 'visible',
-    origin: 'interpolated',
-    verification_status: 'unreviewed',
-  });
-  // Box verification records for sampled frames (start, mid, end, inflection)
-  goodContent.box_verifications = [
-    {
-      segment_id: 's1',
-      frame: 10,
-      athlete_id: ath.id,
-      status: 'verified_correct',
-      verified_by: 'annotator_1',
-      verified_at: new Date().toISOString(),
-      notes: 'Clean takeoff, box centered on athlete',
-    },
-    {
-      segment_id: 's1',
-      frame: 45,
-      athlete_id: ath.id,
-      status: 'corrected',
-      verified_by: 'annotator_1',
-      verified_at: new Date().toISOString(),
-      original_bbox: { x: 0.25, y: 0.25, w: 0.1, h: 0.1 },
-      corrected_bbox: { x: 0.27, y: 0.23, w: 0.09, h: 0.12 },
-      notes: 'Surfer ducked below wave crest; corrected vertical bounds',
-    },
-    {
-      segment_id: 's1',
-      frame: 70,
-      athlete_id: ath.id,
-      status: 'wrong_performer',
-      verified_by: 'annotator_1',
-      verified_at: new Date().toISOString(),
-      notes: 'Another surfer crossed in front; tracking jumped to bystander',
-    },
+  // Correct workflow: each human decision is bound to the exact frame, geometry and performer it attests.
+  const b10 = { x: 0.2, y: 0.2, w: 0.1, h: 0.1 }, b45 = { x: 0.27, y: 0.23, w: 0.09, h: 0.12 }, b70 = { x: 0.3, y: 0.3, w: 0.1, h: 0.1 };
+  const good = A.emptyContent();
+  good.segments.push(seg('s1', 10, 80, { athlete_id: ath.id, event_type: 'wave_ride', decision: 'include' }));
+  good.keyframes.push({ id: 'k-manual', segment_id: 's1', frame: 10, bbox: b10, visibility: 'visible', origin: 'manual', verification_status: 'verified_correct' });
+  // Interpolated position checked by a human and corrected: origin stays 'interpolated'; provenance is in the log.
+  good.keyframes.push({ id: 'k-interpolated', segment_id: 's1', frame: 45, bbox: b45, visibility: 'visible', origin: 'interpolated', verification_status: 'corrected' });
+  good.keyframes.push({ id: 'k-70', segment_id: 's1', frame: 70, bbox: b70, visibility: 'visible', origin: 'interpolated', verification_status: 'wrong_performer' });
+  good.box_verifications = [
+    { segment_id: 's1', frame: 10, athlete_id: ath.id, status: 'verified_correct', bbox: b10, verified_by: 'annotator_1', verified_at: T(1), notes: 'Clean takeoff' },
+    { segment_id: 's1', frame: 45, athlete_id: ath.id, status: 'corrected', bbox: b45, original_bbox: { x: 0.25, y: 0.25, w: 0.1, h: 0.1 }, corrected_bbox: b45, verified_by: 'annotator_1', verified_at: T(2) },
+    { segment_id: 's1', frame: 70, athlete_id: ath.id, status: 'wrong_performer', bbox: b70, verified_by: 'annotator_1', verified_at: T(3), notes: 'tracking jumped to bystander' },
   ];
-  goodContent.reviewed_ranges.push({ start_frame: 0, end_frame: 100 });
-
-  const saveRes = A.saveDraft(db, src.id, 0, goodContent);
-  assert.equal(saveRes.version, 1);
-
-  // Reload and confirm all verification records preserved
+  assert.equal(A.saveDraft(db, src.id, 0, good).version, 1);
   const loaded = A.getDraft(db, src.id);
   assert.equal(loaded.content.box_verifications.length, 3);
-  assert.equal(loaded.content.box_verifications[0].status, 'verified_correct');
-  assert.equal(loaded.content.box_verifications[1].status, 'corrected');
-  assert.equal(loaded.content.box_verifications[2].status, 'wrong_performer');
-  assert.deepEqual(loaded.content.box_verifications[1].corrected_bbox, { x: 0.27, y: 0.23, w: 0.09, h: 0.12 });
+  assert.deepEqual(loaded.content.box_verifications.map(v => v.status), ['verified_correct', 'corrected', 'wrong_performer']);
+  assert.deepEqual(loaded.content.box_verifications[1].corrected_bbox, b45);
+  assert.equal(loaded.legacy_box_qa_upgraded, false);
 });
 
 test('box drawing and modification requires explicit human verification; cannot auto-verify', async () => {
   const { db, src } = await withSource();
   const ath1 = A.createAthlete(db, 'Surfer One');
   const ath2 = A.createAthlete(db, 'Surfer Two');
-
+  const box = { x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
   const c = A.emptyContent();
   c.segments.push(seg('s1', 0, 100, { athlete_id: ath1.id, event_type: 'wave_ride', decision: 'include' }));
-  c.reviewed_ranges.push({ start_frame: 0, end_frame: 100 });
-
-  // 1. Newly created box starts strictly unreviewed
-  c.keyframes.push({
-    id: 'k1',
-    segment_id: 's1',
-    frame: 20,
-    bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 },
-    visibility: 'visible',
-    origin: 'manual',
-    verification_status: 'unreviewed',
-    verified_at: null,
-    verified_by: null,
-  });
-
+  // 1. Drawing is not verifying: a new box is saved unreviewed.
+  c.keyframes.push({ id: 'k1', segment_id: 's1', frame: 20, bbox: box, visibility: 'visible', origin: 'manual', verification_status: 'unreviewed', verified_at: null, verified_by: null });
   A.saveDraft(db, src.id, 0, c);
-  let loaded = A.getDraft(db, src.id);
-  assert.equal(loaded.content.keyframes[0].verification_status, 'unreviewed');
-  assert.equal(loaded.content.keyframes[0].verified_at, null);
-
-  // 2. Cannot save keyframe with verified_correct without verified_at
-  c.keyframes[0].verification_status = 'verified_correct';
-  c.keyframes[0].verified_at = null;
-  assert.throws(
-    () => A.saveDraft(db, src.id, 1, c),
-    /אימות תיבה מחייב חותמת זמן ומפעיל מאמת/
-  );
-
-  // 3. Explicit verification sets verified_correct + timestamp
-  const ts = new Date().toISOString();
-  c.keyframes[0].verification_status = 'verified_correct';
-  c.keyframes[0].verified_at = ts;
-  c.keyframes[0].verified_by = 'coach';
-  c.box_verifications = [{
-    segment_id: 's1',
-    frame: 20,
-    athlete_id: ath1.id,
-    status: 'verified_correct',
-    verified_by: 'coach',
-    verified_at: ts,
-    notes: 'Confirmed on Surfer One',
-  }];
+  assert.equal(A.getDraft(db, src.id).content.keyframes[0].verification_status, 'unreviewed');
+  // 2. A keyframe flag alone can never claim verification.
+  c.keyframes[0].verification_status = 'verified_correct'; c.keyframes[0].verified_at = '2026-01-01T00:00:00.000Z';
+  assert.throws(() => A.saveDraft(db, src.id, 1, c), e => e.code === 'STALE_BOX_VERIFICATION');
+  // 3. Explicit bound decision.
+  c.box_verifications = [{ segment_id: 's1', frame: 20, athlete_id: ath1.id, status: 'verified_correct', bbox: { ...box }, verified_by: 'coach', verified_at: '2026-01-01T00:00:01.000Z' }];
   A.saveDraft(db, src.id, 1, c);
-
-  loaded = A.getDraft(db, src.id);
-  assert.equal(loaded.content.keyframes[0].verification_status, 'verified_correct');
-  assert.equal(loaded.content.box_verifications[0].status, 'verified_correct');
-
-  // 4. Changing athlete on segment invalidates verifications made for previous athlete
+  assert.equal(A.getDraft(db, src.id).content.box_verifications[0].status, 'verified_correct');
+  // 4. Changing the performer while the old identity decision is still in force is refused...
   c.segments[0].athlete_id = ath2.id;
-  // If box_verifications still claims verified_correct for ath1 when segment performer is ath2:
-  assert.throws(
-    () => A.saveDraft(db, src.id, 2, c),
-    /אימות תיבה אינו תואם לגולש המבצע את המקטע/
-  );
-
-  // After invalidating, saving succeeds
+  assert.throws(() => A.saveDraft(db, src.id, 2, c), e => e.code === 'BOX_IDENTITY_MISMATCH');
+  // ...until an explicit invalidation is appended (history is kept, not rewritten).
   c.keyframes[0].verification_status = 'unreviewed';
-  c.keyframes[0].verified_at = null;
-  c.keyframes[0].verified_by = null;
-  c.box_verifications[0].status = 'unreviewed';
-  c.box_verifications[0].verified_at = null;
-  c.box_verifications[0].notes = 'Reset on athlete change';
+  c.box_verifications.push({ segment_id: 's1', frame: 20, athlete_id: ath2.id, status: 'unreviewed', invalidation: 'performer_changed', bbox: { ...box }, verified_by: 'operator', verified_at: '2026-01-01T00:00:02.000Z' });
   A.saveDraft(db, src.id, 2, c);
-
-  loaded = A.getDraft(db, src.id);
-  assert.equal(loaded.content.keyframes[0].verification_status, 'unreviewed');
-  assert.equal(loaded.content.box_verifications[0].status, 'unreviewed');
+  const loaded = A.getDraft(db, src.id).content;
+  assert.equal(loaded.box_verifications.length, 2);
+  assert.equal(loaded.box_verifications[0].status, 'verified_correct', 'the earlier decision remains as history');
+  assert.equal(loaded.keyframes[0].verification_status, 'unreviewed');
 });
 
 test('box QA invariants: cannot verify non-existent box; geometry change resets verification; athlete separation', async () => {
   const { db, src } = await withSource();
   const ath = A.createAthlete(db, 'Surfer Ace');
-
+  const b = { x: 0.2, y: 0.2, w: 0.1, h: 0.1 };
   const c = A.emptyContent();
   c.segments.push(seg('s1', 10, 80, { athlete_id: ath.id, event_type: 'wave_ride', decision: 'include' }));
-  c.reviewed_ranges.push({ start_frame: 0, end_frame: 100 });
-
-  // 1. Attempting to verify_correct a box when segment has NO keyframe and no bbox throws INVALID_INPUT
-  c.box_verifications = [{
-    segment_id: 's1',
-    frame: 25,
-    athlete_id: ath.id,
-    status: 'verified_correct',
-    verified_by: 'coach',
-    verified_at: new Date().toISOString(),
-  }];
-
-  assert.throws(
-    () => A.saveDraft(db, src.id, 0, c),
-    /לא ניתן לאשר תיבת תיחום שאינה קיימת בפריים/
-  );
-
-  // 2. Add keyframe and verify
-  c.keyframes.push({
-    id: 'k1',
-    segment_id: 's1',
-    frame: 25,
-    bbox: { x: 0.2, y: 0.2, w: 0.1, h: 0.1 },
-    visibility: 'visible',
-    origin: 'manual',
-    verification_status: 'verified_correct',
-    verified_at: new Date().toISOString(),
-    verified_by: 'coach',
-  });
-
-  const res = A.saveDraft(db, src.id, 0, c);
-  assert.equal(res.version, 1);
-
-  // 3. Modifying geometry in keyframe requires resetting verification_status to unreviewed
-  c.keyframes[0].bbox = { x: 0.25, y: 0.25, w: 0.12, h: 0.12 }; // geometry modified!
+  c.box_verifications = [{ segment_id: 's1', frame: 25, athlete_id: ath.id, status: 'verified_correct', bbox: b, verified_by: 'coach', verified_at: '2026-01-01T00:00:00.000Z' }];
+  // 1. No box at frame 25 -> refused, even though the claim carries a bbox.
+  assert.throws(() => A.saveDraft(db, src.id, 0, c), e => e.code === 'BOX_NOT_AT_FRAME');
+  // 2. Box exists at that exact frame with that geometry -> accepted.
+  c.keyframes.push({ id: 'k1', segment_id: 's1', frame: 25, bbox: { ...b }, visibility: 'visible', origin: 'manual', verification_status: 'verified_correct' });
+  assert.equal(A.saveDraft(db, src.id, 0, c).version, 1);
+  // 3. Geometry modified without a new decision -> stale, refused.
+  c.keyframes[0].bbox = { x: 0.25, y: 0.25, w: 0.12, h: 0.12 };
+  assert.throws(() => A.saveDraft(db, src.id, 1, c), e => e.code === 'STALE_BOX_VERIFICATION');
   c.keyframes[0].verification_status = 'unreviewed';
-  c.keyframes[0].verified_at = null;
-  c.keyframes[0].verified_by = null;
-  c.box_verifications[0].status = 'unreviewed';
-  c.box_verifications[0].verified_at = null;
-
-  const res2 = A.saveDraft(db, src.id, 1, c);
-  assert.equal(res2.version, 2);
-
-  const loaded = A.getDraft(db, src.id);
-  assert.equal(loaded.content.keyframes[0].verification_status, 'unreviewed');
-  assert.equal(loaded.content.keyframes[0].verified_at, null);
-  assert.equal(loaded.content.box_verifications[0].status, 'unreviewed');
+  c.box_verifications.push({ segment_id: 's1', frame: 25, athlete_id: ath.id, status: 'unreviewed', invalidation: 'geometry_changed', bbox: { ...c.keyframes[0].bbox }, original_bbox: b, verified_by: 'operator', verified_at: '2026-01-01T00:00:01.000Z' });
+  assert.equal(A.saveDraft(db, src.id, 1, c).version, 2);
+  const loaded = A.getDraft(db, src.id).content;
+  assert.equal(loaded.keyframes[0].verification_status, 'unreviewed');
+  assert.equal(loaded.box_verifications.at(-1).invalidation, 'geometry_changed');
 });

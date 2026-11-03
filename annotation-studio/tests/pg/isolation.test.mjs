@@ -131,7 +131,7 @@ test('migrations are idempotent, versioned, and a dry run changes nothing', { sk
   try {
     await migrate(withDb(ADMIN)(w.db), { schema: 'ground_truth', roles: true });  // second apply
     const v = (await w.a.query('select version from ground_truth.schema_migrations')).rows.map(r => r.version);
-    assert.deepEqual(v.sort(), ['0001_ground_truth', '0002_sports', '0003_cloud_catalog'], 'both migrations recorded exactly once after a second apply');
+    assert.deepEqual(v.sort(), ['0001_ground_truth', '0002_sports', '0003_cloud_catalog', '0004_v2_owner_and_box_qa', '0005_v2_owner_version', '0006_full_spec_lineage'], 'every migration recorded exactly once after a second apply');
     const r = await migrate(withDb(ADMIN)(w.db), { schema: 'gt_dry', dryRun: true });
     assert.equal(r.dryRun, true);
     assert.equal((await w.a.query("select count(*) n from information_schema.schemata where schema_name='gt_dry'")).rows[0].n, '0');

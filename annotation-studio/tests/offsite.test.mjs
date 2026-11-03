@@ -3,10 +3,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { chmodSync, existsSync, readdirSync, readFileSync, writeFileSync, appendFileSync, statSync } from 'node:fs';
-import { newCtx, makeVideo, tmp, seg } from './helpers.mjs';
+import { newCtx, makeVideo, tmp, seg, BACKEND } from './helpers.mjs';
 import { reconcile } from '../server/ingest.mjs';
 import * as A from '../server/annotations.mjs';
-import { runOffsiteBackup, verifyOffsite, restoreFromOffsite, backupStatus, BackupError } from '../server/offsite.mjs';
+import { runOffsiteBackup, verifyOffsite, restoreFromOffsite, backupStatus, BackupError, plaintextArtifacts } from '../server/offsite.mjs';
 import { exportBackup } from '../server/backup.mjs';
 import { createApp } from '../server/app.mjs';
 
@@ -23,12 +23,15 @@ async function world() {
   return { ctx, a, b, raw };
 }
 const otherDevice = (live) => p => (String(p).startsWith(live) ? 1 : 2);
-const diffDev = ctx => ({ deviceOf: otherDevice(ctx.home) });
+// Legacy plaintext layout is only allowed with an explicit "the destination disk is fully encrypted" attestation.
+const diffDev = ctx => ({ deviceOf: otherDevice(ctx.home), diskOf: () => null, plaintext: 'device-encrypted' });
+const KEY = 'correct horse battery staple 2026';
+const encDev = ctx => ({ deviceOf: otherDevice(ctx.home), diskOf: () => null, encryption_key: KEY });
 
 test('refuses a destination on the same physical device as the live data', async () => {
   const { ctx } = await world();
   const dest = tmp('same-disk-');                                     // /tmp and the Studio home share one filesystem here
-  await assert.rejects(runOffsiteBackup(ctx, dest), e => e instanceof BackupError && e.code === 'BACKUP_SAME_DEVICE');
+  await assert.rejects(runOffsiteBackup(ctx, dest, { encryption_key: KEY }), e => e instanceof BackupError && e.code === 'BACKUP_SAME_DEVICE');
   assert.deepEqual(readdirSync(dest), [], 'nothing was written');
   assert.equal(backupStatus(ctx.db).state, 'never', 'a refused run is not a backup');
 });
@@ -132,33 +135,120 @@ test('status: never -> ok -> stale, exposed read-only over the authenticated API
 });
 
 
-test('AES-256-GCM encrypted offsite backup: requires key to verify/restore, recreates state byte-exact', async () => {
-  const { ctx, a, raw } = await world();
+test('encryption is mandatory: no key and no device-encryption attestation -> refused before anything is written; weak keys refused', async () => {
+  const { ctx } = await world();
+  const dest = tmp('ext-');
+  await assert.rejects(runOffsiteBackup(ctx, dest, { deviceOf: otherDevice(ctx.home), diskOf: () => null }), e => e.code === 'BACKUP_ENCRYPTION_REQUIRED');
+  await assert.rejects(runOffsiteBackup(ctx, dest, { deviceOf: otherDevice(ctx.home), diskOf: () => null, encryption_key: 'short' }), e => e.code === 'BACKUP_KEY_WEAK');
+  assert.deepEqual(readdirSync(dest), []);
+});
+
+test('a different volume on the SAME physical disk is refused; distinct disks are recorded as such', async () => {
+  const { ctx } = await world();
+  const dest = tmp('ext-');
+  await assert.rejects(runOffsiteBackup(ctx, dest, { ...encDev(ctx), diskOf: () => 'disk0' }), e => e.code === 'BACKUP_SAME_DISK');
+  const r = await runOffsiteBackup(ctx, dest, { ...encDev(ctx), diskOf: p => (String(p).startsWith(dest) ? 'disk1' : 'disk0') });
+  assert.equal(r.device_check, 'distinct_physical_disk');
+  const r2 = await runOffsiteBackup(ctx, tmp('ext-'), encDev(ctx));
+  assert.equal(r2.device_check, 'volume_only', 'unknown disk identity is reported honestly, never as a separate disk');
+  // operator override (--allow-same-disk on a single-disk machine): allowed, but recorded as such, never as a separate disk
+  const r3 = await runOffsiteBackup(ctx, tmp('ext-'), { ...encDev(ctx), diskOf: () => 'disk0', allowSameDevice: true });
+  assert.equal(r3.ok, true); assert.equal(r3.device_check, 'same_disk_operator_override');
+  assert.equal(backupStatus(ctx.db).device_check, 'same_disk_operator_override');
+  const r4 = await runOffsiteBackup(ctx, tmp('ext-'), { encryption_key: KEY, diskOf: () => null, allowSameDevice: true });
+  assert.equal(r4.device_check, 'same_volume_operator_override');
+});
+
+test('ENCRYPTED backup: nothing readable on the medium — DB export, SQLite snapshot and footage are all ciphertext', async () => {
+  const { ctx, a } = await world();
   const dest = tmp('ext-enc-');
-  const secretKey = 'test-passphrase-super-secret-key-1234';
+  const r = await runOffsiteBackup(ctx, dest, { ...encDev(ctx), scope: 'all' });
+  assert.equal(r.ok, true); assert.equal(r.encrypted, true); assert.equal(r.copied, 2);
+  // SQLite backend: the physical snapshot is encrypted; PostgreSQL has no file snapshot (logical export only).
+  if (BACKEND === 'sqlite') assert.ok(r.sqlite_file.endsWith('.sqlite.enc')); else assert.equal(r.sqlite_file, undefined);
+  assert.deepEqual(plaintextArtifacts(dest), [], 'no plaintext artifact on the backup medium');
+  const original = readFileSync(ctx.archive.pathFor(a.archive_key));
+  const needle = original.subarray(original.length >> 1, (original.length >> 1) + 64);
+  const walk = d => readdirSync(d).flatMap(n => { const p = path.join(d, n); return statSync(p).isDirectory() ? walk(p) : [p]; });
+  for (const f of walk(dest)) {
+    const buf = readFileSync(f);
+    assert.equal(buf.includes(needle), false, `footage bytes leaked into ${path.basename(f)}`);
+    assert.equal(buf.includes(Buffer.from('SQLite format 3')), false, `plaintext SQLite in ${path.basename(f)}`);
+    assert.equal(buf.includes(Buffer.from(a.sha256)), false, `footage hash leaked in ${path.basename(f)}`);
+    assert.equal(buf.includes(Buffer.from(KEY)), false, 'key never written');
+  }
+  // no plaintext snapshot left behind in the live home either
+  assert.deepEqual(readdirSync(ctx.home).filter(n => n.startsWith('.backup-work-')), []);
+});
 
-  const res = await runOffsiteBackup(ctx, dest, { ...diffDev(ctx), encryption_key: secretKey });
-  assert.equal(res.ok, true);
-  assert.equal(res.encrypted, true);
-  assert.match(res.db_file, /\.enc$/);
-
-  // Without key: verify notes missing key
-  const noKeyVerify = await verifyOffsite(dest);
-  assert.equal(noKeyVerify.ok, false);
-  assert.ok(noKeyVerify.problems.includes('encryption_key_required'));
-
-  // With key: verify succeeds
-  const keyVerify = await verifyOffsite(dest, { encryption_key: secretKey });
-  assert.equal(keyVerify.ok, true);
-  assert.deepEqual(keyVerify.problems, []);
-
-  // Restore into a fresh isolated context
+test('ENCRYPTED backup: wrong key, missing key and tampering are clear failures; a rerun with another key is refused', async () => {
+  const { ctx } = await world();
+  const dest = tmp('ext-enc-');
+  await runOffsiteBackup(ctx, dest, encDev(ctx));
+  const noKey = await verifyOffsite(dest);
+  assert.equal(noKey.ok, false); assert.ok(noKey.problems.includes('encryption_key_required'));
+  const wrong = await verifyOffsite(dest, { encryption_key: 'definitely the wrong key' });
+  assert.ok(wrong.problems.includes('encryption_key_wrong'));
+  await assert.rejects(restoreFromOffsite(newCtx(), dest, { encryption_key: 'definitely the wrong key' }), e => e.code === 'BACKUP_KEY_WRONG');
+  await assert.rejects(runOffsiteBackup(ctx, dest, { ...encDev(ctx), encryption_key: 'another sufficiently long key' }), e => e.code === 'BACKUP_KEY_MISMATCH');
+  assert.equal((await verifyOffsite(dest, { encryption_key: KEY })).ok, true);
+  // flip one ciphertext byte inside a footage object
+  const obj = readdirSync(path.join(dest, 'objects')).find(n => n.endsWith('.enc'));
+  const f = path.join(dest, 'objects', obj); chmodSync(f, 0o644);
+  const buf = readFileSync(f); buf[buf.length >> 1] ^= 0xff; writeFileSync(f, buf);
+  const v = await verifyOffsite(dest, { encryption_key: KEY });
+  assert.equal(v.ok, false); assert.match(v.problems.join(), /cipher_mismatch|BACKUP_KEY_OR_DATA_INVALID/);
   const fresh = newCtx();
-  const restored = await restoreFromOffsite(fresh, dest, { encryption_key: secretKey });
-  assert.equal(restored.restored_objects, 1);
+  await assert.rejects(restoreFromOffsite(fresh, dest, { encryption_key: KEY }), e => e.code === 'BACKUP_UNVERIFIED');
+  assert.equal(fresh.db.prepare('select count(*) n from sources').get().n, 0, 'never half-restored');
+  // the next run detects the damaged copy and repairs it from the verified original
+  const r = await runOffsiteBackup(ctx, dest, encDev(ctx));
+  assert.equal(r.repaired, 1); assert.equal((await verifyOffsite(dest, { encryption_key: KEY })).ok, true);
+});
 
-  // Verify DB content in fresh context
-  const s = fresh.db.prepare('select * from sources where id=?').get(a.id);
-  assert.equal(s.sha256, a.sha256);
-  assert.equal(fresh.db.prepare("select count(*) n from annotation_revisions").get().n, 1);
+test('ENCRYPTED RESTORE DRILL after "restart": every surfer, video, owner assignment, history, event, box and revision is back', async () => {
+  const { ctx, a, b } = await world();
+  // richer state: owner assignment with history, a bound box verification, a second draft
+  const Catalog = await import('../server/catalog_owner.mjs');
+  const ath = A.createAthlete(ctx.db, 'Owner');
+  Catalog.setCatalogOwner(ctx.db, b.id, { owner_athlete_id: ath.id, expected_version: 0 });
+  const c = A.getDraft(ctx.db, a.id).content;
+  c.keyframes.push({ id: 'k', segment_id: 's', frame: 10, bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, visibility: 'visible', origin: 'manual', verification_status: 'verified_correct' });
+  c.box_verifications = [{ segment_id: 's', frame: 10, status: 'verified_correct', bbox: { x: 0.1, y: 0.1, w: 0.2, h: 0.2 }, athlete_id: c.segments[0].athlete_id, verified_by: 'op', verified_at: '2026-11-01T00:00:00.000Z' }];
+  A.saveDraft(ctx.db, a.id, A.getDraft(ctx.db, a.id).version, c);
+  const dest = tmp('ext-enc-');
+  assert.equal((await runOffsiteBackup(ctx, dest, { ...encDev(ctx), scope: 'all' })).ok, true);
+  const before = exportBackup(ctx.db);
+  ctx.db.close?.();                                                     // the live machine is gone
+  const fresh = newCtx();
+  const out = await restoreFromOffsite(fresh, dest, { encryption_key: KEY });
+  assert.equal(out.restored_objects, 2); assert.equal(out.unavailable_sources, 0);
+  const after = exportBackup(fresh.db);
+  for (const t of ['sources', 'athletes', 'athlete_appearances', 'annotation_drafts', 'annotation_revisions', 'source_owner_history', 'sports', 'sport_event_types']) {
+    assert.equal(JSON.stringify(after.tables[t]?.map(r => ({ ...r, thumb_path: undefined, proxy_path: undefined }))), JSON.stringify(before.tables[t]?.map(r => ({ ...r, thumb_path: undefined, proxy_path: undefined }))), t);
+  }
+  assert.equal(fresh.db.prepare('select owner_athlete_id from sources where id=?').get(b.id).owner_athlete_id, ath.id);
+  assert.equal(A.sourceStates(fresh.db, a.id).box_qa.frames_verified, 1);
+  for (const s of fresh.db.prepare('select * from sources').all()) assert.equal((await fresh.archive.verify(s.archive_key, s.sha256, s.byte_size)).ok, true);
+  // The export is taken before the run is logged, so a restored machine honestly reports "no backup yet" and the UI
+  // prompts for a fresh backup of the rebuilt machine (it never inherits a claim about a different machine's state).
+  assert.equal(backupStatus(fresh.db).state, 'never');
+});
+
+test('review#10: manifest re-pointing is detected (keyed MAC); plaintext run into an encrypted destination refused; plaintext leftovers fail verify', async () => {
+  const { ctx } = await world();
+  const dest = tmp('ext-enc-');
+  await runOffsiteBackup(ctx, dest, encDev(ctx));
+  const mf = path.join(dest, 'MANIFEST.json');
+  const m = JSON.parse(readFileSync(mf, 'utf8'));
+  // attacker without the key recomputes the plain digest after re-pointing
+  const { digest, mac, ...body } = m; body.db_file = 'gt-older.json.enc';
+  const { digestOf } = await import('../server/annotations.mjs');
+  writeFileSync(mf, JSON.stringify({ ...body, digest: digestOf(body), mac }));
+  assert.ok((await verifyOffsite(dest, { encryption_key: KEY })).problems.includes('manifest_mac_mismatch'));
+  await assert.rejects(runOffsiteBackup(ctx, dest, diffDev(ctx)), e => e.code === 'BACKUP_MODE_MISMATCH');
+  const dest2 = tmp('ext-enc-'); await runOffsiteBackup(ctx, dest2, encDev(ctx));
+  writeFileSync(path.join(dest2, 'db', 'leftover.json'), '{}');
+  const v = await verifyOffsite(dest2, { encryption_key: KEY });
+  assert.equal(v.ok, false); assert.match(v.problems.join(), /plaintext_artifacts_present/);
 });

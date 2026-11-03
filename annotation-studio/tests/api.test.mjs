@@ -5,6 +5,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
 import { newCtx, makeVideo, tmp, seg } from './helpers.mjs';
 import { reconcile } from '../server/ingest.mjs';
 import { createApp } from '../server/app.mjs';
@@ -92,8 +93,24 @@ test('reconcile endpoint is async and idempotent', async () => {
 // ---- isolation from the production pipeline (spec §3, acceptance #6) ----
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 function* files(dir) {
+  // Use git's view (tracked + untracked-but-not-ignored) so local gitignored caches such as graphify-out/ cannot
+  // produce false offenders; fall back to a directory walk when git is unavailable.
+  let listed = null;
+  try {
+    listed = execFileSync('git', ['-C', dir, 'ls-files', '-co', '--exclude-standard', '-z'], { encoding: 'utf8', maxBuffer: 64e6 })
+      .split('\0').filter(Boolean);
+  } catch { listed = null; }
+  if (listed) {
+    for (const rel of listed) {
+      if (rel.split('/').some((seg) => ['node_modules', '.git', '__pycache__', '.next', 'annotation-studio'].includes(seg))) continue;
+      const p = path.join(dir, rel);
+      let st; try { st = statSync(p); } catch { continue; }
+      if (st.isFile() && /\.(py|ts|tsx|mjs|js|sh|yml|yaml|json|sql)$/.test(rel) && st.size < 2e6) yield p;
+    }
+    return;
+  }
   for (const n of readdirSync(dir)) {
-    if (['node_modules', '.git', '__pycache__', '.next', 'annotation-studio'].includes(n)) continue;
+    if (['node_modules', '.git', '__pycache__', '.next', 'annotation-studio', 'graphify-out'].includes(n)) continue;
     const p = path.join(dir, n), st = statSync(p);
     if (st.isDirectory()) yield* files(p);
     else if (/\.(py|ts|tsx|mjs|js|sh|yml|yaml|json|sql)$/.test(n) && st.size < 2e6) yield p;
