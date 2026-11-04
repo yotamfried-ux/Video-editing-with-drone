@@ -318,6 +318,17 @@ await scenario('an event length is changed by dragging its edges on the timeline
   assert.equal(await frameAtHead(), d2.start_frame, 'the video shows the frame at the dragged edge');
 });
 
+await scenario('playback stall says why (file bitrate) instead of a silent frozen picture', async () => {
+  await page.evaluate(() => { const v = document.querySelector('#vid'); v.play(); });
+  await until(() => !document.querySelector('#vid').paused);
+  await page.evaluate(() => document.querySelector('#vid').dispatchEvent(new Event('waiting')));
+  await page.waitForSelector('[data-testid=stall]', { state: 'visible' });
+  assert.match(await page.textContent('[data-testid=stall]'), /טוען את הווידאו.*Mb\/s/);
+  await page.evaluate(() => document.querySelector('#vid').dispatchEvent(new Event('playing')));
+  await page.waitForSelector('[data-testid=stall]', { state: 'hidden' });
+  await page.evaluate(() => document.querySelector('#vid').pause());
+});
+
 await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
   const s = src('DJI_0415.mp4');
   await page.goto(`${base}/#/annotate/${s.id}`);

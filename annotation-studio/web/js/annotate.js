@@ -168,6 +168,7 @@ function layout() {
             h('span', { class: 'pill mono', id: 'hudfr' }, ''),
             h('span', { class: 'pill', id: 'hudtool' }, ''),
             h('span', { class: 'pill mark-live', id: 'hudmark', 'data-testid': 'mark-live', style: { display: 'none' } }, ''),
+            h('span', { class: 'pill stall-live', id: 'hudstall', 'data-testid': 'stall', style: { display: 'none' } }, ''),
             h('span', { class: 'pill track-live', id: 'hudtrack', 'data-testid': 'track-progress', style: { display: 'none' } }, '')
           ),
           h('div', { class: 'boxhover', id: 'boxHover', style: { position: 'absolute', bottom: '12px', right: '12px', display: 'none' } }, '')
@@ -188,8 +189,12 @@ function mountVideo() {
   v.src = S.quality === 'original' ? `/media/${S.src.id}/original` : S.src.playback_url;
   v.addEventListener('loadedmetadata', () => { placeOverlay(); refresh(); });
   v.addEventListener('seeked', () => { syncFrameFromVideo(); });
-  v.addEventListener('play', () => { S.playing = true; S.watchFrom = S.frame; loop(); paintControls(); });
-  v.addEventListener('pause', () => { S.playing = false; syncFrameFromVideo(); commitWatched(); paintControls(); });
+  v.addEventListener('play', () => { if (!S) return; S.playing = true; S.watchFrom = S.frame; loop(); paintControls(); });
+  v.addEventListener('pause', () => { if (!S) return; S.playing = false; syncFrameFromVideo(); commitWatched(); paintControls(); });
+  // The originals are 4K/60 at ~100-170 Mb/s; most connections cannot stream that in real time. Say so instead of
+  // leaving the operator with a frozen picture, and suggest what helps.
+  v.addEventListener('waiting', () => { if (!S?.playing) return; S.stalls = (S.stalls ?? 0) + 1; paintStall(true); });
+  v.addEventListener('playing', () => paintStall(false));
   new ResizeObserver(() => { placeOverlay(); fit(false); }).observe($('#stage'));
   on(document, 'visibilitychange', () => { if (document.hidden) v.pause(); });
 }
@@ -632,8 +637,8 @@ async function autoTrack(s, f0) {
   const prog = (done) => p => { me.pct = (done + p * (done === 0 ? hi - f0 : f0 - lo)) / span; paintTrackHud(); };
   let fwd = { boxes: [], lost: null }, back = { boxes: [], lost: null };
   try {
-    if (hi > f0) fwd = await trackBox({ src, fps: S.fps, from: f0, to: hi, bbox: anchor.bbox, step, signal: ctl.signal, onProgress: prog(0) });
-    if (lo < f0 && !ctl.signal.aborted) back = await trackBox({ src, fps: S.fps, from: f0, to: lo, bbox: anchor.bbox, step, signal: ctl.signal, onProgress: prog(hi - f0) });
+    if (hi > f0) fwd = await trackBox({ src, fps: S.fps, from: f0, to: hi, bbox: anchor.bbox, step, signal: ctl.signal, onProgress: prog(0), hold: () => !!S?.playing });
+    if (lo < f0 && !ctl.signal.aborted) back = await trackBox({ src, fps: S.fps, from: f0, to: lo, bbox: anchor.bbox, step, signal: ctl.signal, onProgress: prog(hi - f0), hold: () => !!S?.playing });
   } catch (e) {
     if (S?.tracking === me) S.tracking = null;
     paintTrackHud();
@@ -664,6 +669,13 @@ async function autoTrack(s, f0) {
   paintTrackHud();
   if (lost.length) toast(`המעקב איבד את הגולש ב-${lost.map(f => timecode(f, S.fps)).join(', ')}. עבור לשם וצייר תיבה חדשה, והמעקב ימשיך ממנה.`, true);
   else toast('ה-BOX עוקב אחרי הגולש לאורך כל האירוע (משוער: בדוק ברצועת ה-BOX)');
+}
+function paintStall(on) {
+  const el = $('#hudstall'); if (!el) return;
+  el.style.display = on ? '' : 'none';
+  if (!on) return;
+  const r = S.src.byte_size && S.total ? S.src.byte_size * 8 / (S.total / S.fps) / 1e6 : null, mbps = r == null ? null : r < 10 ? r.toFixed(1) : Math.round(r);
+  el.textContent = `טוען את הווידאו…${mbps != null ? ` (קובץ מקורי ${mbps} Mb/s)` : ''}${S.stalls > 1 ? ' · מהירות 0.5× או מעבר פריים־פריים (חיצים) חלקים יותר' : ''}`;
 }
 function paintTrackHud() {
   const el = $('#hudtrack'); if (!el) return;
@@ -1009,9 +1021,10 @@ function grabThumb(frame, bbox, color) {
   if (thumbs.has(key)) return Promise.resolve(thumbs.get(key));
   const srcId = S.src.id, url = S.src.playback_url, fps = S.fps;
   const job = thumbQueue.then(async () => {
+    while (S?.playing) await new Promise(r => setTimeout(r, 250));   // thumbnails wait while the video plays
     if (!thumbVid || thumbVid.dataset.src !== url) {
-      thumbVid = document.createElement('video'); thumbVid.muted = true; thumbVid.preload = 'auto'; thumbVid.dataset.src = url; thumbVid.src = url;
-      await new Promise((res, rej) => { thumbVid.onloadeddata = res; thumbVid.onerror = () => rej(new Error('video')); });
+      thumbVid = document.createElement('video'); thumbVid.muted = true; thumbVid.preload = 'metadata'; thumbVid.dataset.src = url; thumbVid.src = url;
+      await new Promise((res, rej) => { thumbVid.onloadedmetadata = res; thumbVid.onerror = () => rej(new Error('video')); });
     }
     await new Promise(res => { thumbVid.onseeked = res; thumbVid.currentTime = (frame + 0.5) / fps; });
     const vw = thumbVid.videoWidth, vh = thumbVid.videoHeight;

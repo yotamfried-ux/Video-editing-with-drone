@@ -11,10 +11,10 @@ export class TrackError extends Error { constructor(code, msg) { super(msg); thi
 function loadVideo(src, cors = true) {
   return new Promise((resolve, reject) => {
     const v = document.createElement('video');
-    v.muted = true; v.preload = 'auto'; v.playsInline = true; if (cors) v.crossOrigin = 'anonymous';
-    const done = ok => { v.onloadeddata = v.onerror = null; ok ? resolve(v) : reject(new TrackError('MEDIA', 'לא ניתן לטעון את הווידאו למעקב')); };
-    v.onloadeddata = () => { clearTimeout(t); done(true); }; v.onerror = () => { clearTimeout(t); done(false); };
-    const t = setTimeout(() => { v.onloadeddata = v.onerror = null; v.removeAttribute('src'); v.load(); reject(new TrackError('SLOW', 'הווידאו לא נטען למעקב תוך דקה. בדוק את החיבור ונסה "↻ עקוב שוב".')); }, 60000);
+    v.muted = true; v.preload = 'metadata'; v.playsInline = true; if (cors) v.crossOrigin = 'anonymous';   // metadata only: frames are fetched per seek, the whole 4K file is never pulled in the background
+    const done = ok => { v.onloadedmetadata = v.onerror = null; ok ? resolve(v) : reject(new TrackError('MEDIA', 'לא ניתן לטעון את הווידאו למעקב')); };
+    v.onloadedmetadata = () => { clearTimeout(t); done(true); }; v.onerror = () => { clearTimeout(t); done(false); };
+    const t = setTimeout(() => { v.onloadedmetadata = v.onerror = null; v.removeAttribute('src'); v.load(); reject(new TrackError('SLOW', 'הווידאו לא נטען למעקב תוך דקה. בדוק את החיבור ונסה "↻ עקוב שוב".')); }, 60000);
     v.src = src;
   });
 }
@@ -31,6 +31,7 @@ async function loadReadable(src) {
 function seek(v, t) {
   return new Promise((resolve, reject) => {
     if (Math.abs(v.currentTime - t) < 1e-4 && v.readyState >= 2) return resolve();
+    if (Math.abs(v.currentTime - t) < 1e-4) t += 1e-4;   // force a real seek so the frame is decoded
     const fin = () => { clearTimeout(to); v.removeEventListener('seeked', fin); resolve(); };
     const to = setTimeout(() => { v.removeEventListener('seeked', fin); reject(new TrackError('SLOW', 'הווידאו נטען לאט מדי מהענן והמעקב נעצר. נסה "↻ עקוב שוב".')); }, 20000);
     v.addEventListener('seeked', fin); v.currentTime = t;
@@ -83,7 +84,7 @@ function search(g, W, H, T, w, h, cx, cy, r) {
  * Track a box from frame `from` (where the operator drew it) to frame `to` (inclusive, either direction).
  * @returns {Promise<{boxes: {frame:number,bbox:object,score:number}[], lost: number|null}>}
  */
-export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress, signal, minScore = 0.5 }) {
+export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress, signal, minScore = 0.5, hold }) {
   const v = await loadReadable(src);
   try {
     const vw = v.videoWidth, vh = v.videoHeight;
@@ -112,6 +113,8 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     return { boxes: out, lost };
 
     async function step1(f) {
+      // Yield the network to the player: while the operator is watching, tracking waits (no competing 4K download).
+      while (hold?.() && !signal?.aborted) await new Promise(r => setTimeout(r, 250));
       await seek(v, at(f));
       g = grayFrame(ctx, v, W, H);
       const r = Math.round(Math.max(bw, bh) * 0.9 + 4 * step);
