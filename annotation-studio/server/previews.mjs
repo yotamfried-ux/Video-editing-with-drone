@@ -1,27 +1,25 @@
 // Lightweight playback copies ("previews") of the cloud originals.
 // The DJI originals are 4K/59.94 at ~100-170 Mb/s: too heavy to stream for marking. A preview is the same video,
-// FRAME FOR FRAME (same frame count and timestamps: annotations use frame numbers and normalised boxes, so they apply
+// FRAME FOR FRAME (same frame count and rate: annotations use frame numbers and normalised boxes, so they apply
 // unchanged), scaled to 720p H.264 (~3-6 Mb/s) with a keyframe every 0.5 s for fast seeking.
-// Previews live in their OWN bucket (never the pipeline's bucket); the Studio only reads them.
+//
+// Storage (operator decision): the EXISTING bucket, under studio/previews/ only. Isolation is enforced by R2 itself,
+// not just by this code: uploads use a short-lived R2 temporary credential, signed locally from a parent key, whose
+// JWT allows exactly one operation (PutObject) under exactly one prefix (studio/previews/). With it, R2 refuses any
+// read, overwrite or delete of an original. Every upload is also create-once (If-None-Match: *), so an existing
+// preview is never overwritten. The Studio itself only reads.
 import { spawn } from 'node:child_process';
 import { readFileSync, statSync, openSync, readSync, closeSync } from 'node:fs';
-import { CloudBucket, CloudError } from './cloud.mjs';
+import { createHmac } from 'node:crypto';
 import { signRequest, sha256hex } from './sigv4.mjs';
 import { probeMp4 } from './mp4probe.mjs';
 
-/** processed/2026-..._DJI_0165_D.MP4 -> processed/2026-..._DJI_0165_D.preview.mp4 */
-export const previewKey = originalKey => `${originalKey.replace(/\.[^./]+$/, '')}.preview.mp4`;
+export const PREVIEW_PREFIX = 'studio/previews/';
+/** processed/2026-..._DJI_0165_D.MP4 -> studio/previews/processed/2026-..._DJI_0165_D.mp4 */
+export const previewKey = originalKey => `${PREVIEW_PREFIX}${originalKey.replace(/\.[^./]+$/, '')}.mp4`;
+export const isPreviewKey = key => typeof key === 'string' && key.startsWith(PREVIEW_PREFIX) && !key.includes('..');
 
-/** Read side (Studio): STUDIO_PREVIEW_R2_BUCKET, credentials default to the Studio's read-only cloud token. */
-export function previewBucketFromEnv(env = process.env) {
-  if (!env.STUDIO_PREVIEW_R2_BUCKET) return null;
-  const pick = n => env[`STUDIO_PREVIEW_R2_${n}`] || env[`STUDIO_CLOUD_R2_${n}`];
-  const account = pick('ACCOUNT_ID'), endpoint = env.STUDIO_PREVIEW_R2_ENDPOINT || env.STUDIO_CLOUD_R2_ENDPOINT || (account && `https://${account}.r2.cloudflarestorage.com`);
-  if (!endpoint || !pick('ACCESS_KEY_ID') || !pick('SECRET_ACCESS_KEY')) throw new CloudError('CLOUD_CONFIG', 'STUDIO_PREVIEW_R2_BUCKET needs an account id and credentials');
-  return new CloudBucket({ endpoint, bucket: env.STUDIO_PREVIEW_R2_BUCKET, accessKeyId: pick('ACCESS_KEY_ID'), secretAccessKey: pick('SECRET_ACCESS_KEY') });
-}
-
-/** Cached existence check (a HEAD per playback would add latency). */
+/** Cached existence check through the Studio's read-only bucket client (a HEAD per playback would add latency). */
 export function previewLookup(bucket, { ttlMs = 10 * 60 * 1000 } = {}) {
   const cache = new Map();
   return async originalKey => {
@@ -31,6 +29,23 @@ export function previewLookup(bucket, { ttlMs = 10 * 60 * 1000 } = {}) {
     cache.set(k, { ok, at: Date.now() }); return ok ? k : null;
   };
 }
+
+const b64u = x => Buffer.from(typeof x === 'string' ? x : JSON.stringify(x)).toString('base64url');
+/**
+ * R2 temporary credential, signed locally (Cloudflare "local signing"): HS256 JWT signed with the parent secret,
+ * iss = parent access key id, sub = account id, aud = endpoint host. The temporary secret is sha256(jwt); the session
+ * token is base64("jwt/" + jwt) and travels as X-Amz-Security-Token. It can never exceed the parent's permissions.
+ */
+export function r2TempCredentials({ endpoint, accountId, parentAccessKeyId, parentSecretAccessKey, bucket, actions, prefixPaths = [], objectPaths = [], ttlSeconds = 3600, now = Date.now() }) {
+  if (!actions?.length) throw new Error('a temporary credential needs an explicit list of actions');
+  const iat = Math.floor(now / 1000);
+  const claims = { bucket, actions, paths: { prefixPaths, objectPaths }, sub: accountId, iss: parentAccessKeyId, aud: new URL(endpoint).host, iat, exp: iat + ttlSeconds };
+  const head = b64u({ alg: 'HS256', typ: 'JWT' }), body = b64u(claims);
+  const jwt = `${head}.${body}.${createHmac('sha256', parentSecretAccessKey).update(`${head}.${body}`).digest('base64url')}`;
+  return { accessKeyId: parentAccessKeyId, secretAccessKey: sha256hex(jwt), sessionToken: Buffer.from(`jwt/${jwt}`).toString('base64'), expiresAt: claims.exp * 1000 };
+}
+/** The only credential the preview uploader ever uses: PutObject under studio/previews/, nothing else. */
+export const previewWriteCredentials = (o) => r2TempCredentials({ ...o, actions: ['PutObject'], prefixPaths: [PREVIEW_PREFIX] });
 
 const run = (cmd, args) => new Promise((res, rej) => {
   const p = spawn(cmd, args, { stdio: ['ignore', 'ignore', 'pipe'] }); let err = '';
@@ -55,11 +70,18 @@ export async function makePreview(input, dest, expect, { height = 720, crf = 24 
   return got;
 }
 
-/** Write side (operator's computer only): a single signed PUT of a new object into the PREVIEW bucket. */
-export async function putObject({ endpoint, bucket, accessKeyId, secretAccessKey, key, file, contentType = 'video/mp4', fetchImpl = fetch }) {
+/**
+ * Create-once upload of one preview. Refuses (before any request) keys outside studio/previews/; sends
+ * If-None-Match: * so R2 itself refuses to replace an existing object (412 -> { created: false }).
+ */
+export async function putPreview({ endpoint, bucket, creds, key, file, fetchImpl = fetch }) {
+  if (!isPreviewKey(key)) throw new Error(`refusing to write outside ${PREVIEW_PREFIX}: ${key}`);
   const body = readFileSync(file);
   const url = `${endpoint.replace(/\/+$/, '')}/${bucket}/${key.split('/').map(encodeURIComponent).join('/')}`;
-  const { _canonical, ...headers } = signRequest({ method: 'PUT', url, headers: { 'content-type': contentType }, payloadHash: sha256hex(body), region: 'auto', service: 's3', accessKeyId, secretAccessKey });
+  const extra = { 'content-type': 'video/mp4', 'if-none-match': '*', ...(creds.sessionToken ? { 'x-amz-security-token': creds.sessionToken } : {}) };
+  const { _canonical, ...headers } = signRequest({ method: 'PUT', url, headers: extra, payloadHash: sha256hex(body), region: 'auto', service: 's3', accessKeyId: creds.accessKeyId, secretAccessKey: creds.secretAccessKey });
   const r = await fetchImpl(url, { method: 'PUT', headers, body });
-  if (r.status !== 200) throw new Error(`upload of ${key} returned ${r.status}`);
+  if (r.status === 412) return { created: false };
+  if (r.status !== 200) throw new Error(`upload of ${key} returned ${r.status}: ${(await r.text().catch(() => '')).slice(0, 200)}`);
+  return { created: true };
 }

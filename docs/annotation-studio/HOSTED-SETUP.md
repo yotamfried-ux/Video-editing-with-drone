@@ -103,39 +103,48 @@ node --env-file=.studio-cloud.env scripts\migrate-to-cloud.mjs --url https://stu
 3. שמור, ורענן את הסטודיו.
 
 ## עותקי צפייה קלים (720p) במקום 4K
-המקוריים הם 4K ב־60 פריימים בשנייה, בערך 167 Mb/s, ולכן כבדים מדי לצפייה רציפה. הסטודיו מנגן עותק 720p, בערך 4 Mb/s, כשהעותק קיים. כל סימון נשאר זהה: העותק כולל אותם פריימים בדיוק ובאותו קצב, והסקריפט בודק זאת לפני ההעלאה. המקוריים לא משתנים.
+המקוריים הם 4K ב־60 פריימים לשנייה, בערך 167 Mb/s, ולכן כבדים מדי לצפייה רציפה. הסטודיו מנגן עותק 720p (בערך 4 Mb/s) כשהוא קיים. כל סימון נשאר זהה, כי לעותק יש בדיוק אותם פריימים ואותו קצב. הסקריפט בודק זאת לפני ההעלאה.
 
-### שלב א: דלי נפרד ומפתח לכתיבה רק אליו (Cloudflare)
-1. **R2** ← **Create bucket** ← שם: `sportreel-studio-previews`.
-2. בדלי החדש ← **Settings** ← **CORS Policy**: הדבק את אותה מדיניות CORS שמופיעה למעלה עבור הדלי `sportreel`.
-3. **R2** ← **Manage API tokens** ← **Create API token**:
-   - **Object Read & Write**, מוגבל לדלי `sportreel-studio-previews` בלבד.
-   - שמור את ה־Access Key ID וה־Secret.
-4. בטוקן לקריאה בלבד של הסטודיו (`sportreel-studio-readonly`) הוסף גם את הדלי `sportreel-studio-previews`, עם הרשאת **Object Read only**.
+**איפה נשמרים העותקים:** בדלי הקיים `sportreel`, בתיקייה `studio/previews/` בלבד. לא נוצר דלי חדש.
+
+**איך המקוריים מוגנים** (הבידוד נאכף על ידי R2 עצמו, לא רק על ידי הקוד):
+- כל העלאה נעשית עם **הרשאה זמנית** (שעה) שנחתמת במחשב שלך. ההרשאה מתירה **פעולה אחת בלבד**, `PutObject`, ו**רק** תחת `studio/previews/`. עם ההרשאה הזו R2 מסרב לכתוב, לדרוס, למחוק או אפילו לקרוא קובץ מקור.
+- כל העלאה היא "יצירה בלבד" (`If-None-Match: *`): R2 מסרב לדרוס עותק שכבר קיים.
+- הקוד מסרב לשלוח בכלל בקשה לנתיב מחוץ ל־`studio/previews/`.
+- הסטודיו עצמו (באתר) רק קורא, עם הטוקן לקריאה בלבד.
+- קטלוג הסטודיו סורק רק את `raw/` ו־`processed/`, ולכן העותקים לא מופיעים כ"סרטונים".
+
+### שלב א: מפתח־אב לחתימה (Cloudflare)
+1. **R2** ← **Manage API tokens** ← **Create API token**.
+2. **Permissions**: **Object Read & Write**. **Specify bucket**: `sportreel` בלבד.
+3. **TTL**: קבע תאריך תפוגה קרוב, למשל שבוע. אפשר ליצור מפתח חדש בכל פעם שצריך.
+4. שמור את ה־Access Key ID וה־Secret.
+5. **חשוב:** למפתח הזה יש הרשאת כתיבה לכל הדלי. הוא משמש **רק לחתימה מקומית** של ההרשאה הזמנית ואף פעם לא נשלח ל־R2. לכן:
+   - הוא לא נכנס ל־Vercel.
+   - הוא לא נכנס ל־`.studio-cloud.env`.
+   - הוא נשמר בקובץ נפרד `.studio-previews.env`. אחרי ההרצה מוחקים את הקובץ, ובסוף מבטלים את הטוקן ב־Cloudflare.
 
 ### שלב ב: יצירת העותקים במחשב שלך
-1. הוסף לקובץ `.studio-cloud.env`:
+1. צור בתיקייה `annotation-studio` את הקובץ `.studio-previews.env`:
    ```
-   STUDIO_PREVIEW_R2_BUCKET=sportreel-studio-previews
-   STUDIO_PREVIEW_R2_WRITE_ACCESS_KEY_ID=...
-   STUDIO_PREVIEW_R2_WRITE_SECRET_ACCESS_KEY=...
+   STUDIO_PREVIEW_PARENT_ACCESS_KEY_ID=...
+   STUDIO_PREVIEW_PARENT_SECRET_ACCESS_KEY=...
    ```
-2. מתוך התיקייה `annotation-studio` הרץ קודם בדיקה יבשה, שלא כותבת כלום:
+2. בדיקה יבשה, שלא כותבת כלום:
    ```powershell
-   node --env-file=.studio-cloud.env scripts\make-previews.mjs --dry-run
+   node --env-file=.studio-cloud.env --env-file=.studio-previews.env scripts\make-previews.mjs --dry-run
    ```
-3. ואז את היצירה עצמה. היא לוקחת בערך דקה לכל סרטון:
+3. יצירה (בערך דקה לכל סרטון). הרצה חוזרת מדלגת על מה שכבר נוצר:
    ```powershell
-   node --env-file=.studio-cloud.env scripts\make-previews.mjs
+   node --env-file=.studio-cloud.env --env-file=.studio-previews.env scripts\make-previews.mjs
    ```
-   - הסקריפט כותב **רק** לדלי העותקים, ומסרב לכתוב לדלי `sportreel`.
-   - הוא לא מוחק ולא דורס עותק קיים.
-   - הרצה חוזרת מדלגת על מה שכבר נוצר.
+4. מחק את `.studio-previews.env` ובטל את הטוקן ב־Cloudflare.
 
-### שלב ג: Vercel
-- ב־**Settings** ← **Environment Variables** הוסף `STUDIO_PREVIEW_R2_BUCKET` = `sportreel-studio-previews`, ואז **Redeploy**.
-- לא צריך מפתח נוסף, כי הסטודיו קורא עם הטוקן לקריאה בלבד שהרחבת בשלב א.
-- סרטון שאין לו עותק עדיין ינוגן מהמקור.
+### שלב ג: האתר
+- אין צורך בשום הגדרה. הסטודיו באתר מוצא את העותקים לבד, עם הטוקן לקריאה בלבד הקיים.
+- כל עוד לסרטון אין עותק, הוא מנוגן מהמקור.
+- `STUDIO_CLOUD_PREVIEWS=0` מכבה את השימוש בעותקים.
+- הרשאת ה־CORS של הדלי `sportreel` כבר מכסה גם את העותקים (נדרשת למעקב ה־BOX).
 
 ## אבטחה: שדרוג מומלץ
 - **אימות מלא של החיבור למסד הנתונים:**
