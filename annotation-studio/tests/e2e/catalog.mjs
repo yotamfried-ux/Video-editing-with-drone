@@ -114,19 +114,25 @@ await scenario('every catalogued field is shown with its VALUE; people, owner ce
   assert.match(await second.locator('[data-testid=qc-ck-decision]').textContent(), /החרג/);
   // video level: who else appears, owner certainty, extra sport
   const omer = db.prepare("select id from athletes where label like '%עומר%'").get().id;
-  await page.locator('[data-testid=qc-detail] input[type=checkbox]').last().check();   // "לא ודאי" next to the people picker
+  await page.click('[data-testid=qc-person-unsure]');   // explicit "not sure" choice next to the people picker
   await page.selectOption('[data-testid=qc-add-person]', omer).catch(() => {});
   const dana = db.prepare("select id from athletes where label like '%דנה%'").get().id;
   await until(() => !!document.querySelector('[data-testid=qc-people]'));
+  await until((args) => true, null);
+  await page.waitForTimeout(500);
   const ap = db.prepare('select uncertain from athlete_appearances where source_id=? and athlete_id=?').get(s.id, omer);
   assert.ok(ap, 'appearance saved (performers are also listed automatically)');
   await page.selectOption('[data-testid=qc-owner]', dana);
   await until(id => document.querySelector('[data-step="1"]')?.dataset.done === 'true', s.id);
+  assert.equal(await page.inputValue('[data-testid=qc-owner]'), dana, 'the chosen owner stays selected in the form');
+  await page.evaluate(() => { window.__qcVideo = document.querySelector('[data-testid=qc-video]'); });
   await page.check('[data-testid=qc-owner-unsure]');
   await until(() => document.querySelector('[data-testid=qc-owner-unsure]')?.checked === true);
   await page.waitForTimeout(500);
   assert.equal(db.prepare('select owner_status from sources where id=?').get(s.id).owner_status, 'needs_review');
   await page.selectOption('[data-testid=qc-extra-sport]', 'football');
+  await page.waitForTimeout(600);
+  assert.ok(await page.evaluate(() => window.__qcVideo === document.querySelector('[data-testid=qc-video]') && window.__qcVideo.isConnected), 'answering questions does not replace or reload the video');
   await page.waitForTimeout(600);
   assert.ok(db.prepare('select 1 from source_sports where source_id=? and sport_id=?').get(s.id, 'football'), 'extra sport saved');
   assert.match(await page.textContent('[data-testid=qc-status]'), /נצפה \d+% מהסרטון/);
