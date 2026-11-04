@@ -75,7 +75,7 @@ test('make-previews: 720p, frame for frame, into studio/previews/ of the same bu
     assert.equal(dry.code, 0, dry.out); assert.match(dry.out, /dry run, nothing written/);
     assert.equal(s3.log.filter(e => e.method === 'PUT').length, 0, 'dry run wrote nothing');
     const r1 = await run();
-    assert.equal(r1.code, 0, r1.out); assert.match(r1.out, /OK studio\/previews\/processed\/DJI_0001\.mp4/);
+    assert.equal(r1.code, 0, r1.out); assert.match(r1.out, /OK studio\/previews\/processed\/DJI_0001\.mp4/); assert.match(r1.out, /original unchanged \(etag [0-9a-f]+\)/);
     const copy = s3.objects.get('studio/previews/processed/DJI_0001.mp4');
     assert.ok(copy, 'stored under studio/previews/ in the same bucket');
     const puts = s3.log.filter(e => e.method === 'PUT');

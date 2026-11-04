@@ -134,11 +134,17 @@ node --env-file=.studio-cloud.env scripts\migrate-to-cloud.mjs --url https://stu
    ```powershell
    node --env-file=.studio-cloud.env --env-file=.studio-previews.env scripts\make-previews.mjs --dry-run
    ```
-3. יצירה (בערך דקה לכל סרטון). הרצה חוזרת מדלגת על מה שכבר נוצר:
+3. **קודם סרטון אחד (פיילוט):**
+   ```powershell
+   node --env-file=.studio-cloud.env --env-file=.studio-previews.env scripts\make-previews.mjs --only DJI_20260724103751_0165_D
+   ```
+   - בשורה `OK` מופיע "original unchanged (etag …)". הסקריפט קורא את הגודל ואת ה־ETag של המקור לפני ההעלאה ואחריה. אם משהו השתנה, הוא עוצר מיד (`STOP`) ולא ממשיך.
+   - בסטודיו: פתח את הסרטון. הניגון אמור להיות חלק. הסימונים הקיימים אמורים לשבת על אותם רגעים ואותו גולש, כי לעותק אותם פריימים בדיוק.
+4. **אחרי שהפיילוט תקין, כל הסרטונים** (בערך דקה לכל סרטון). הרצה חוזרת מדלגת על מה שכבר נוצר:
    ```powershell
    node --env-file=.studio-cloud.env --env-file=.studio-previews.env scripts\make-previews.mjs
    ```
-4. מחק את `.studio-previews.env` ובטל את הטוקן ב־Cloudflare.
+5. מחק את `.studio-previews.env` ובטל את הטוקן ב־Cloudflare.
 
 ### שלב ג: האתר
 - אין צורך בשום הגדרה. הסטודיו באתר מוצא את העותקים לבד, עם הטוקן לקריאה בלבד הקיים.

@@ -37,10 +37,19 @@ for (const o of all) {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'preview-')), out = path.join(dir, 'p.mp4');
     try {
       const t0 = Date.now();
+      // live proof for every video: the original's size and ETag are read before and re-checked after the upload
+      const before = await originals.head(o.key);
       await makePreview(originals.presignGet(o.key, 6 * 3600), out, meta);
       const r = await putPreview({ endpoint: src.endpoint, bucket: src.bucket, creds: writeCreds(), key, file: out });
+      const after = await originals.head(o.key);
+      if (!before || !after || before.size !== after.size || before.etag !== after.etag || before.lastModified !== after.lastModified) {
+        console.log(`X  STOP: the original ${o.key} looks different after the upload (before ${JSON.stringify(before)}, after ${JSON.stringify(after)}). Nothing more is done.`);
+        process.exit(2);
+      }
+      const check = await originals.head(key);
       if (!r.created) { skipped++; console.log(`=  ${key} (created meanwhile, kept)`); continue; }
-      made++; console.log(`OK ${key}  ${(o.size / 1e6).toFixed(0)} MB -> ${(statSync(out).size / 1e6).toFixed(1)} MB, ${meta.frame_count} frames, ${((Date.now() - t0) / 1000).toFixed(0)} s`);
+      if (!check || check.size !== statSync(out).size) throw new Error(`the uploaded copy cannot be read back with the read-only key (${JSON.stringify(check)})`);
+      made++; console.log(`OK ${key}  ${(o.size / 1e6).toFixed(0)} MB -> ${(statSync(out).size / 1e6).toFixed(1)} MB, ${meta.frame_count} frames, ${((Date.now() - t0) / 1000).toFixed(0)} s · original unchanged (etag ${before.etag})`);
     } finally { rmSync(dir, { recursive: true, force: true }); }
   } catch (e) { failed++; console.log(`X  ${o.key}: ${e.message}`); }
 }
