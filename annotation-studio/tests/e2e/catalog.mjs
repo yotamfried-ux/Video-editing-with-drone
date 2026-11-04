@@ -237,7 +237,8 @@ await scenario('save button saves immediately and says so; watched ranges fill i
   assert.match(await page.textContent('[data-testid=save-now]'), /הכל נשמר/);
   assert.equal(await page.isDisabled('[data-testid=save-now]'), true);
   // watched: clear, then play ~1.5 s from frame 120 -> one watched range starting there
-  await page.click('[data-testid=reviewed-clear]').catch(async () => { await page.click('[data-testid=insp-panel-event] details.more summary >> nth=-1'); await page.click('[data-testid=reviewed-clear]'); });
+  if (!await page.locator('[data-testid=watched-fix]').evaluate(d => d.open)) await page.click('[data-testid=watched-fix] summary');
+  await page.click('[data-testid=reviewed-clear]');
   await saved();
   assert.deepEqual(draft(s.id).reviewed_ranges, []);
   await page.evaluate(() => document.activeElement?.blur());
@@ -319,6 +320,11 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
     await page.reload(); await page.waitForSelector('[data-testid=workbench]');
     for (let i = 0; i < 240 && !(draft(s.id).tracks[0].points.length > 30); i++) await page.waitForTimeout(500);
     assert.ok(draft(s.id).tracks[0].points.length > 30, 'unfinished track completed on open'); }
+  // an event created AFTER tracking gets its boxes from the track on the next save
+  await go(150); await page.click('[data-testid=mark-in]'); await go(190); await page.click('[data-testid=mark-out]');
+  await page.waitForSelector('[data-testid=segform]'); await saved();
+  { const d = draft(s.id), ev = d.segments.find(x => x.start_frame === 150);
+    assert.ok(ev, 'new event'); assert.ok(d.keyframes.filter(k => k.segment_id === ev.id).length >= 3, 'the new event has boxes from the track'); }
   await shot('07-auto-track');
   // Boxes drawn before whole-video tracking existed (event box only, no track) are adopted and tracked when opened.
   const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
@@ -365,6 +371,25 @@ await scenario('playback stall says why (file bitrate) instead of a silent froze
   await page.evaluate(() => document.querySelector('#vid').dispatchEvent(new Event('playing')));
   await page.waitForSelector('[data-testid=stall]', { state: 'hidden' });
   await page.evaluate(() => document.querySelector('#vid').pause());
+});
+
+await scenario('"קטלג מחדש": confirm -> empty draft (copy kept) -> "בטל איפוס" brings everything back', async () => {
+  const s = src('DJI_0413.mp4');
+  await page.goto(`${base}/#/annotate/${s.id}`);
+  await page.waitForSelector('[data-testid=workbench]');
+  const before = draft(s.id);
+  assert.ok(before.segments.length >= 1, 'has events to reset');
+  await page.click('[data-testid=reset-zone] summary');
+  await page.click('[data-testid=reset-catalog]');
+  await page.click('[data-testid=reset-confirm]');
+  await page.waitForSelector('[data-testid=reset-done]');
+  const after = draft(s.id);
+  assert.deepEqual([after.segments.length, after.keyframes.length, after.reviewed_ranges.length], [0, 0, 0]);
+  assert.equal(await page.locator('[data-testid=segment]').count(), 0, 'timeline is empty');
+  assert.ok(db.prepare("select 1 from audit_log where action='draft_reset' and subject=?").get(s.id), 'copy kept in the log');
+  await page.click('[data-testid=reset-done] button:has-text("בטל איפוס")');
+  await page.waitForSelector('[data-testid=segment]');
+  assert.deepEqual(draft(s.id).segments.map(x => x.id), before.segments.map(x => x.id), 'events back');
 });
 
 await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {

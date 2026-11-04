@@ -204,6 +204,8 @@ export function createApp(ctx) {
       if (m === 'GET') return send(res, 200, A.getDraft(db, r[1]));
       if (m === 'PUT') { const b = await body(req); return send(res, 200, A.saveDraft(db, r[1], b.expected_version, b.content)); }
     }
+    if ((r = /^\/api\/sources\/([\w-]+)\/draft\/reset$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, A.resetDraft(db, r[1], b.expected_version)); }
+    if ((r = /^\/api\/sources\/([\w-]+)\/draft\/restore$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, A.restoreReset(db, r[1], b.expected_version)); }
     if ((r = /^\/api\/sources\/([\w-]+)\/approve$/.exec(p)) && m === 'POST') {
       const b = await body(req);
       const out = A.approve(db, r[1], { expectedVersion: b.expected_version, scope: b.scope, reason: b.reason, acknowledgeUnresolved: !!b.acknowledge_unresolved });
