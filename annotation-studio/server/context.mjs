@@ -1,3 +1,4 @@
+import { remoteConfig } from './remoteaccess.mjs';
 import path from 'node:path';
 import { mkdirSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
@@ -23,6 +24,8 @@ export function createContext(home, { roots = [], token, dbUrl, archive, cloud }
     cloudMetadata: process.env.STUDIO_CLOUD_METADATA || null,
     // Optional catalog filter: list only objects whose key or name contains this text (e.g. DJI for drone footage). Empty = all.
     cloudInclude: (process.env.STUDIO_CLOUD_INCLUDE ?? '').trim(),
+    // Optional permanent address through a Cloudflare Tunnel (see docs/annotation-studio/PERMANENT-ADDRESS.md).
+    remote: remoteConfig(),
     cacheDir: path.join(home, 'cache'),
     outputsDir: path.join(home, 'outputs'),
   };

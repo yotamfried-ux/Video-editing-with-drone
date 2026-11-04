@@ -20,6 +20,7 @@ import { backupStatus } from './offsite.mjs';
 import * as Sets from './sets.mjs';
 import * as Lin from './lineage.mjs';
 import * as QC from './quickcatalog.mjs';
+import { verifyAccessJwt } from './remoteaccess.mjs';
 import { spawnSync } from 'node:child_process';
 
 /** The running code's git commit (or package version), shown in the UI so the operator can tell which version is open. */
@@ -50,7 +51,9 @@ export function createApp(ctx) {
     const m = /(?:^|;\s*)studio_token=([^;]+)/.exec(req.headers.cookie ?? '');
     return !!m && safeEq(decodeURIComponent(m[1]), token);
   }
-  const hostOk = req => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host ?? '');
+  const isLocalHost = req => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host ?? '');
+  const isPublicHost = req => !!ctx.remote && (req.headers.host ?? '').toLowerCase() === ctx.remote.host;
+  const hostOk = req => isLocalHost(req) || isPublicHost(req);   // anything else (DNS rebinding, stray hosts) is refused
 
   async function body(req) {
     let n = 0; const chunks = [];
@@ -376,18 +379,24 @@ export function createApp(ctx) {
   return http.createServer(async (req, res) => {
     try {
       if (!hostOk(req)) return send(res, 403, { code: 'PERMISSION_DENIED' });
+      if (isPublicHost(req)) {
+        // Public address: a valid Cloudflare Access login is mandatory, in addition to the Studio's own token.
+        if (!ctx.remote.ready) return send(res, 403, { code: 'PERMISSION_DENIED', message: 'הכתובת הקבועה עוד לא מוגנת בכניסה (Cloudflare Access) — השלם את ההגדרה במדריך PERMANENT-ADDRESS' });
+        try { await verifyAccessJwt(req.headers['cf-access-jwt-assertion'], ctx.remote, { fetchImpl: ctx.accessFetch ?? fetch }); }
+        catch { return send(res, 403, { code: 'PERMISSION_DENIED', message: 'נדרשת כניסה דרך Cloudflare Access' }); }
+      }
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/' && url.searchParams.get('t') && safeEq(url.searchParams.get('t'), token)) {
         res.writeHead(302, { location: '/', // Persistent (1 year) so the fixed address http://127.0.0.1:<port>/ keeps working after the browser is closed;
         // still HttpOnly + SameSite=Strict, and the server only listens on 127.0.0.1.
-        'set-cookie': `studio_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` });
+        'set-cookie': `studio_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${isPublicHost(req) ? '; Secure' : ''}` });
         return res.end();
       }
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
         if (!authed(req)) return send(res, 401, { code: 'PERMISSION_DENIED', message: new ApiError('PERMISSION_DENIED').he });
         if (req.method !== 'GET') {
           const o = req.headers.origin;
-          if (o && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(o)) return send(res, 403, { code: 'PERMISSION_DENIED' });
+          if (o && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(o) && !(ctx.remote && o.toLowerCase() === `https://${ctx.remote.host}`)) return send(res, 403, { code: 'PERMISSION_DENIED' });
         }
         const cm = /^\/media\/cloud\/([\w-]+)\/original$/.exec(url.pathname);
         if (cm) return await media(req, res, cm[1], 'cloud-original');

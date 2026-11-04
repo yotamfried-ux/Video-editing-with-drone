@@ -512,6 +512,12 @@ The following changes the system's **behaviour** to meet §§21–22 as written.
 - **Fixed address.** The login cookie is now persistent (1 year, HttpOnly, SameSite=Strict, server bound to 127.0.0.1), so `http://127.0.0.1:4173/#/catalog` keeps working after a browser restart.
   - The launcher stops an older Studio still listening on the port, so the updated code is what serves. It also prints the code version and creates a desktop shortcut.
   - `GET /api/version` reports the running commit, shown under the menu.
+- **Optional permanent address (Cloudflare Tunnel + Access).** `STUDIO_PUBLIC_HOST`, `STUDIO_ACCESS_TEAM` and `STUDIO_ACCESS_AUD` let `https://studio.<domain>` reach the Studio running on the operator's computer. The server still listens on 127.0.0.1 only. Requests under the public host need both a valid Cloudflare Access JWT and the Studio token:
+  - JWT checks: RS256 against the team keys, audience, expiry, issuer.
+  - It fails closed if Access is not configured.
+  - Any other Host is refused.
+  - On the public host the cookie is `Secure` and only the public https origin may make state-changing requests.
+  - Guide: `docs/annotation-studio/PERMANENT-ADDRESS.md`. Nothing is deployed and the data stays local.
 - **Repair of events beyond the video end.** An event whose range runs past the last frame (previously shown only as the generic "טווח פריימים לא תקין") is clamped before saving, with a visible note; it is never dropped.
 - **Error detail reaches the operator.** The client shows the server's specific `detail` (which frame, which event) instead of only the generic message.
 

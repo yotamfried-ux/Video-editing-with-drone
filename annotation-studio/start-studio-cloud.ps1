@@ -102,6 +102,13 @@ Ok "Studio is running"
 $fixed = "http://127.0.0.1:$port/#/catalog"
 Write-Host ''
 Write-Host "   Fixed address (bookmark it): $fixed" -ForegroundColor Cyan
+if ($settings.ContainsKey('STUDIO_PUBLIC_HOST') -and $settings['STUDIO_PUBLIC_HOST'] -ne '') {
+  if ($settings.ContainsKey('STUDIO_ACCESS_TEAM') -and $settings['STUDIO_ACCESS_TEAM'] -ne '' -and $settings.ContainsKey('STUDIO_ACCESS_AUD') -and $settings['STUDIO_ACCESS_AUD'] -ne '') {
+    Write-Host ("   Permanent address (from anywhere): https://" + $settings['STUDIO_PUBLIC_HOST'] + "/#/catalog") -ForegroundColor Cyan
+  } else {
+    Write-Host '!  STUDIO_PUBLIC_HOST is set but STUDIO_ACCESS_TEAM / STUDIO_ACCESS_AUD are empty: the permanent address stays locked until they are filled in.' -ForegroundColor Yellow
+  }
+}
 Write-Host ''
 # One desktop shortcut that always starts the Studio and opens the fixed address.
 try {
