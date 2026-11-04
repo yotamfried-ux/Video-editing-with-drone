@@ -280,6 +280,18 @@ await scenario('a drawn BOX follows the athlete through the whole event (auto-tr
   while (await fr() < 85) await page.keyboard.press('ArrowRight');
   assert.ok(await page.locator('[data-testid=bbox]').count() >= 1, 'box shown at a frame far from the drawn one');
   await shot('07-auto-track');
+  // A box drawn BEFORE tracking existed (only a hand-drawn box, no tracked ones) starts tracking when the event is opened.
+  const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
+  const old = structuredClone(cur.content); old.keyframes = old.keyframes.filter(k => k.origin !== 'suggested');
+  const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: { authorization: 'Bearer demo-token', 'content-type': 'application/json' }, body: JSON.stringify({ expected_version: cur.version, content: old }) });
+  assert.equal(put.status, 200);
+  await page.reload();
+  await page.waitForSelector('[data-testid=workbench]');
+  if (!await page.locator('[data-testid=segform]').count()) await page.locator('[data-testid=segment]').first().click();
+  await until(id => true, null);
+  await until(() => /מעקב אוטומטי: \d+ נקודות/.test(document.querySelector('[data-testid=segform]')?.textContent ?? ''), undefined, 60000);
+  await saved();
+  assert.ok(draft(s.id).keyframes.filter(k => k.origin === 'suggested').length >= 10, 'existing box tracked on open');
 });
 
 await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
