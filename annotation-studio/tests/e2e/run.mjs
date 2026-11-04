@@ -110,19 +110,18 @@ await scenario('I/O creates a segment; athlete via shortcut; decision shortcuts;
 
 await scenario('bounding box: draw keyframes, interpolated boxes are visually distinct', async () => {
   const seg = await page.$eval('[data-testid=segform] .meta .mono', e => e.textContent); const [s, e] = seg.match(/\d+/g).map(Number);
-  await page.keyboard.press('b');
   const draw = async (frame, dx) => {
     await page.click('#ruler', { position: { x: 10, y: 10 } }); // anywhere; then step exactly
     const cur = await frameNum();
     // use keyboard to land on target frame
     const delta = frame - cur; const key = delta > 0 ? 'ArrowRight' : 'ArrowLeft';
     for (let i = 0; i < Math.abs(delta); i++) await page.keyboard.press(key);
+    await page.keyboard.press('b');                         // the box tool turns itself off after each box (tracking takes over)
     const ov = await page.locator('#ov').boundingBox();
     await page.mouse.move(ov.x + ov.width * dx, ov.y + ov.height * 0.2); await page.mouse.down();
     await page.mouse.move(ov.x + ov.width * (dx + 0.06), ov.y + ov.height * 0.34, { steps: 4 }); await page.mouse.up();
   };
   await draw(s, 0.1); await draw(e - 1, 0.5);
-  await page.keyboard.press('b');
   await waitSaved();
   assert.equal(await page.locator('[data-testid=kflist] li').count(), 2);
   // step to the middle: box should be interpolated (dashed)

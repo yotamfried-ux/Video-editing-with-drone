@@ -15,7 +15,8 @@
     "test:e2e": "node --disable-warning=ExperimentalWarning tests/e2e/run.mjs && node --disable-warning=ExperimentalWarning tests/e2e/workflow.mjs && node --disable-warning=ExperimentalWarning tests/e2e/cloud.mjs && node --disable-warning=ExperimentalWarning tests/e2e/v2.mjs && node --disable-warning=ExperimentalWarning tests/e2e/fullspec.mjs && node --disable-warning=ExperimentalWarning tests/e2e/catalog.mjs",
     "check": "node scripts/check-syntax.mjs",
     "migrate": "node scripts/gt-migrate.mjs",
-    "test:pg": "node --disable-warning=ExperimentalWarning --test tests/pg/*.test.mjs"
+    "test:pg": "node --disable-warning=ExperimentalWarning --test tests/pg/*.test.mjs",
+    "test:sim": "python3 scripts/sim-surf.py .sim-clip/surf && node --disable-warning=ExperimentalWarning tests/sim/surf-ui.mjs .sim-clip/surf 30 && node --disable-warning=ExperimentalWarning tests/sim/surf-ui.mjs .sim-clip/surf 200"
   },
   "optionalDependencies": {
     "pg": "8.13.1"

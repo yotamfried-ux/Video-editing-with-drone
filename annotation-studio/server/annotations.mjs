@@ -114,6 +114,34 @@ export function validateContent(c, source, db) {
   for (const r of c.reviewed_ranges) if (!inRange(r.start_frame, r.end_frame)) throw new ApiError('INVALID_INTERVAL');
 
   validateBoxEvidence(c, segs);
+  validateTracks(c, total, db);
+}
+
+/**
+ * Video-level athlete tracks: one box per athlete across the WHOLE video (not limited to an event). Points the
+ * operator drew are 'manual'; everything the tracker produced is 'suggested'. Wrong points are flagged (an exception),
+ * never "approved" one by one.
+ */
+export function validateTracks(c, total, db) {
+  if (c.tracks == null) return;
+  if (!Array.isArray(c.tracks)) throw new ApiError('INVALID_INPUT', 'מעקב לא תקין');
+  const ids = new Set();
+  for (const t of c.tracks) {
+    if (!t || typeof t.id !== 'string' || !t.id || ids.has(t.id)) throw new ApiError('INVALID_INPUT', 'מזהה מעקב כפול או חסר');
+    ids.add(t.id);
+    if (t.athlete_id != null && !db.prepare('select 1 from athletes where id=?').get(t.athlete_id)) throw new ApiError('INVALID_INPUT', 'גולש לא קיים');
+    if (!Array.isArray(t.points)) throw new ApiError('INVALID_INPUT', 'נקודות מעקב לא תקינות');
+    if (t.points.length > 20000) throw new ApiError('INVALID_INPUT', 'יותר מדי נקודות מעקב');
+    const frames = new Set();
+    for (const p of t.points) {
+      if (!isInt(p.frame) || p.frame < 0 || p.frame >= total) throw new ApiError('INVALID_INTERVAL', `נקודת מעקב בפריים ${p.frame} מחוץ לסרטון`);
+      if (frames.has(p.frame)) throw new ApiError('INVALID_INPUT', `שתי נקודות מעקב באותו פריים (${p.frame})`);
+      frames.add(p.frame);
+      if (!['manual', 'suggested'].includes(p.origin)) throw new ApiError('INVALID_INPUT', 'מקור נקודת מעקב לא תקין');
+      if (p.flag != null && p.flag !== 'wrong') throw new ApiError('INVALID_INPUT', 'סימון נקודת מעקב לא תקין');
+      validateBbox(p.bbox);
+    }
+  }
 }
 
 export function getSource(db, id) {
