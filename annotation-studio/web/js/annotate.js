@@ -108,7 +108,24 @@ function restorePending() {
 }
 function setSave(state) { S.save = state; const el = $('#savepill'); if (el) paintSave(el); }
 const SAVE_UI = { saved: ['נשמר', 'ok'], dirty: ['שינויים לא שמורים', 'warn'], saving: ['שומר…', 'busy'], offline: ['לא מקוון — ממתין לשליחה', 'warn'], conflict: ['התנגשות גרסאות', 'bad'], failed: ['שמירה נכשלה', 'bad'] };
-function paintSave(el) { const [t, c] = SAVE_UI[S.save]; el.className = `pill ${c}`; el.replaceChildren(h('span', { class: 'dot' }), t); el.dataset.state = S.save; }
+function paintSave(el) {
+  const [t, c] = SAVE_UI[S.save]; el.className = `pill ${c}`;
+  if (S.save === 'saved') S.savedAt = S.savedAt ?? new Date();
+  el.replaceChildren(h('span', { class: 'dot' }), S.save === 'saved' && S.savedAt ? `${t} · ${S.savedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : t);
+  el.dataset.state = S.save;
+  const b = $('#savebtn'); if (!b) return;
+  // One obvious save button. Autosave keeps running; the button saves NOW and says clearly what happened.
+  const label = { saved: '✓ הכל נשמר', dirty: '💾 שמור עכשיו', saving: 'שומר…', offline: '💾 נסה לשמור שוב', failed: '💾 נסה לשמור שוב', conflict: 'התנגשות: ראה הודעה' }[S.save];
+  b.textContent = label; b.className = `btn ${S.save === 'saved' || S.save === 'saving' ? '' : 'primary'} save-btn`;
+  b.disabled = S.save === 'saved' || S.save === 'saving' || S.save === 'conflict';
+}
+async function saveNow() {
+  clearTimeout(S.saveTimer); clearTimeout(S.retryTimer);
+  commitWatched();
+  while (S.inflight) await new Promise(r => setTimeout(r, 50));
+  if (S.save !== 'saved') await save();
+  if (S.save === 'saved') toast('נשמר ✓'); else if (S.save !== 'conflict') toast('השמירה לא הצליחה. השינויים שמורים בדפדפן ויישלחו שוב.', true);
+}
 
 async function save() {
   if (!S || S.inflight || S.save === 'conflict') return;
@@ -118,7 +135,7 @@ async function save() {
     const fixBanner = fixed.length ? { kind: 'warn', text: `תוקן אוטומטית לפני שמירה (ערכים מחוץ לטווח האירוע): ${fixed.join(' · ')}` } : null;
     reconcileVerifications(C());
     const r = await api(S.draftUrl, { method: 'PUT', body: { expected_version: S.draft.version, content: C() } });
-    S.draft.version = r.version; S.inflight = false;
+    S.draft.version = r.version; S.inflight = false; S.savedAt = new Date();
     if (fixBanner || S.banner?.restored || S.banner?.testid === 'save-failed') { S.banner = fixBanner; paintInspector(); }
     refreshStates();
     if (S.dirty !== mySeq) { setSave('dirty'); S.saveTimer = setTimeout(save, 200); } else { setSave('saved'); clearPending(); }
@@ -148,7 +165,8 @@ function layout() {
           h('div', { class: 'ov', id: 'ov' }, h('svg', { id: 'ovsvg', viewBox: '0 0 100 100' })),
           h('div', { class: 'hud' },
             h('span', { class: 'pill mono', id: 'hudfr' }, ''),
-            h('span', { class: 'pill', id: 'hudtool' }, '')
+            h('span', { class: 'pill', id: 'hudtool' }, ''),
+            h('span', { class: 'pill mark-live', id: 'hudmark', 'data-testid': 'mark-live', style: { display: 'none' } }, '')
           ),
           h('div', { class: 'boxhover', id: 'boxHover', style: { position: 'absolute', bottom: '12px', right: '12px', display: 'none' } }, '')
         )
@@ -168,8 +186,8 @@ function mountVideo() {
   v.src = S.quality === 'original' ? `/media/${S.src.id}/original` : S.src.playback_url;
   v.addEventListener('loadedmetadata', () => { placeOverlay(); refresh(); });
   v.addEventListener('seeked', () => { syncFrameFromVideo(); });
-  v.addEventListener('play', () => { S.playing = true; loop(); paintControls(); });
-  v.addEventListener('pause', () => { S.playing = false; syncFrameFromVideo(); paintControls(); });
+  v.addEventListener('play', () => { S.playing = true; S.watchFrom = S.frame; loop(); paintControls(); });
+  v.addEventListener('pause', () => { S.playing = false; syncFrameFromVideo(); commitWatched(); paintControls(); });
   new ResizeObserver(() => { placeOverlay(); fit(false); }).observe($('#stage'));
   on(document, 'visibilitychange', () => { if (document.hidden) v.pause(); });
 }
@@ -183,8 +201,31 @@ function syncFrameFromVideo(light) {
   const f = clamp(Math.floor(v.currentTime * S.fps + 1e-3), 0, S.total - 1);
   if (f !== S.frame) { S.frame = f; light ? paintPlayhead() : refresh(); }
 }
+// What the operator actually played is recorded as "watched" automatically (no extra button). A jump ends the
+// current watched stretch at the frame before the jump; a stretch shorter than half a second is ignored.
+export function mergeRanges(rs) {
+  const out = [];
+  for (const r of [...rs].sort((a, b) => a.start_frame - b.start_frame)) {
+    const last = out.at(-1);
+    if (last && r.start_frame <= last.end_frame) last.end_frame = Math.max(last.end_frame, r.end_frame);
+    else out.push({ start_frame: r.start_frame, end_frame: r.end_frame });
+  }
+  return out;
+}
+function commitWatched() {
+  if (!S || S.watchFrom == null) return;
+  const a = S.watchFrom, b = Math.min(S.total, S.frame + 1);
+  S.watchFrom = S.playing ? S.frame : null;
+  if (b - a < Math.max(2, Math.round(S.fps / 2))) return;
+  const before = JSON.stringify(C().reviewed_ranges);
+  const next = mergeRanges([...C().reviewed_ranges, { start_frame: a, end_frame: b }]);
+  if (JSON.stringify(next) === before) return;
+  C().reviewed_ranges = next; changed(); paintTimeline(); if (S.inspTab === 'event') paintInspector();
+}
 export function seekFrame(f, { keepPlaying = false } = {}) {
+  if (S.playing) commitWatched();
   S.frame = clamp(Math.round(f), 0, S.total - 1);
+  if (S.playing) S.watchFrom = S.frame;
   const v = $('#vid'); if (!keepPlaying) v.pause();
   v.currentTime = (S.frame + 0.5) / S.fps;
   paintPlayhead(); paintControls(); paintOverlay(); paintHud();
@@ -211,8 +252,11 @@ function paintControls() {
     h('div', { class: 'seg-ctl', role: 'group', 'aria-label': 'מהירות ניגון' }, SPEEDS.map(s => h('button', { 'aria-pressed': String(S.speed === s), onclick: () => setSpeed(s), 'data-testid': `speed-${s}` }, `${s}×`))),
     h('span', { class: 'sep' }),
     // Simple marking: the two actions that create an event are the big, labelled ones.
-    h('button', { class: 'btn primary mark-btn', title: 'סמן כאן את תחילת האירוע (I)', 'data-testid': 'mark-in', onclick: () => markIn() }, S.mark.in != null ? `התחלה: ${timecode(S.mark.in, S.fps)}` : '⏵ סמן התחלה'),
-    h('button', { class: 'btn primary mark-btn', title: 'סמן כאן את סוף האירוע (O) — האירוע נוצר', 'data-testid': 'mark-out', onclick: () => markOut(), disabled: S.mark.in == null }, '⏹ סמן סוף'),
+    // One button that changes with the state: "start event here" -> (play) -> "end event here".
+    ...(S.mark.in == null
+      ? [h('button', { class: 'btn primary mark-btn', title: 'התחל אירוע בנקודה הזו (מקש I)', 'data-testid': 'mark-in', onclick: () => markIn() }, '● התחל אירוע כאן')]
+      : [h('button', { class: 'btn primary mark-btn recording', title: 'סיים את האירוע בנקודה הזו (מקש O)', 'data-testid': 'mark-out', onclick: () => markOut() }, '■ סיים אירוע כאן'),
+         h('button', { class: 'btn sm', 'data-testid': 'mark-cancel', title: 'בטל את ההתחלה שסומנה (Esc)', onclick: () => { S.mark = { in: null, out: null }; paintMarks(); paintControls(); paintMarkLive(); } }, 'ביטול')]),
     btn('◁ אירוע קודם', () => jumpSeg(-1), 'אירוע קודם ([)'),
     btn('אירוע הבא ▷', () => jumpSeg(1), 'אירוע הבא (])'),
     h('span', { class: 'spacer' }),
@@ -252,13 +296,22 @@ function toggleQuality(mode) {
 function togglePlay() { const v = $('#vid'); if (v.paused) { v.playbackRate = S.speed; v.play(); } else v.pause(); }
 function step(n) { seekFrame(S.frame + n); }
 function setSpeed(s) { S.speed = s; $('#vid').playbackRate = s; paintControls(); }
-function markIn() { S.mark.in = S.frame; if (S.mark.out != null && S.mark.out <= S.mark.in) S.mark.out = null; paintMarks(); paintControls(); }
+function markIn() { S.mark.in = S.frame; S.mark.out = null; paintMarks(); paintControls(); paintMarkLive(); }
 function markOut() {
-  const end = S.frame + 1;
-  if (S.mark.in == null) return toast('סמן תחילה (I) לפני סוף (O)', true);
-  if (end <= S.mark.in) return toast('הסוף חייב להיות אחרי ההתחלה', true);
-  S.mark.out = end;
-  createSegment(S.mark.in, S.mark.out); S.mark = { in: null, out: null };
+  if (S.mark.in == null) return toast('לחץ קודם "התחל אירוע כאן"', true);
+  // Either direction works: if the operator went back before the start, the event spans the two points.
+  const a = Math.min(S.mark.in, S.frame), b = Math.max(S.mark.in, S.frame) + 1;
+  if (b - a < 2) return toast('האירוע קצר מדי: נגן קדימה ואז לחץ "סיים אירוע כאן"', true);
+  S.mark = { in: null, out: null }; paintMarkLive();
+  createSegment(a, b);
+  toast(`נוצר אירוע מ־${timecode(a, S.fps)} עד ${timecode(b, S.fps)}. ענה על השאלות בצד.`);
+}
+// While an event is open: a growing bar on the timeline and a badge on the video, so it is obvious what is being marked.
+function paintMarkLive() {
+  const on = S?.mark?.in != null;
+  const bar = $('#mklive'), badge = $('#hudmark');
+  if (bar) { bar.style.display = on ? '' : 'none'; if (on) { const a = Math.min(S.mark.in, S.frame), b = Math.max(S.mark.in, S.frame) + 1; bar.style.left = `${xOf(a)}px`; bar.style.width = `${Math.max(3, xOf(b - a))}px`; } }
+  if (badge) { badge.style.display = on ? '' : 'none'; if (on) badge.textContent = `● מסמן אירוע: מ־${timecode(Math.min(S.mark.in, S.frame), S.fps)} עד ${timecode(Math.max(S.mark.in, S.frame) + 1, S.fps)}`; }
 }
 function createSegment(s, e, athlete = null) {
   const id = uid();
@@ -354,9 +407,10 @@ function paintTimeline() {
     labels.append(h('div', { class: 'lab', style: { height: `${rowH}px` } }, h('span', { class: 'swatch', style: { background: t.aid ? athColor(t.aid) : 'var(--muted)' } }), t.aid ? athName(t.aid) : 'לא ידוע'));
   }
   const rv = h('div', { class: 'trk', style: { height: '30px' }, 'data-track': 'reviewed' });
-  for (const r of C().reviewed_ranges) rv.append(h('div', { class: 'rv', title: `נבדק ${r.start_frame}–${r.end_frame}`, style: { left: `${xOf(r.start_frame)}px`, width: `${xOf(r.end_frame - r.start_frame)}px` } }));
-  inner.append(rv); labels.append(h('div', { class: 'lab', style: { height: '30px', color: 'var(--accent)' } }, '▭ טווחים שנבדקו'));
-  inner.append(h('div', { class: 'ph', id: 'ph' }), h('div', { class: 'mk', id: 'mkin' }), h('div', { class: 'mk', id: 'mkout' }));
+  for (const r of C().reviewed_ranges) rv.append(h('div', { class: 'rv', title: `נצפה ${timecode(r.start_frame, S.fps)}–${timecode(r.end_frame, S.fps)}`, style: { left: `${xOf(r.start_frame)}px`, width: `${xOf(r.end_frame - r.start_frame)}px` } }));
+  rv.append(h('div', { class: 'rv live', id: 'rvlive', style: { display: 'none' } }));
+  inner.append(rv); labels.append(h('div', { class: 'lab', style: { height: '30px', color: 'var(--accent)' }, title: 'מתמלא לבד כשאתה מנגן את הסרטון' }, '▭ מה שצפית'));
+  inner.append(h('div', { class: 'mklive', id: 'mklive', style: { display: 'none' } }), h('div', { class: 'ph', id: 'ph' }), h('div', { class: 'mk', id: 'mkin' }), h('div', { class: 'mk', id: 'mkout' }));
   paintPlayhead(); paintMarks();
 }
 function paintPlayhead() {
@@ -366,6 +420,9 @@ function paintPlayhead() {
   const sc = $('#tlscroll'), x = xOf(S.frame);
   if (S.playing && (x < sc.scrollLeft || x > sc.scrollLeft + sc.clientWidth - 30)) sc.scrollLeft = x - 40;
   $('#ruler')?.setAttribute('aria-valuenow', S.frame);
+  const live = $('#rvlive');
+  if (live) { const on = S.playing && S.watchFrom != null && S.frame > S.watchFrom; live.style.display = on ? '' : 'none'; if (on) { live.style.left = `${xOf(S.watchFrom)}px`; live.style.width = `${xOf(S.frame + 1 - S.watchFrom)}px`; } }
+  paintMarkLive();
   if (S.playing) paintOverlay(); paintHud();
 }
 function paintMarks() {
@@ -672,9 +729,10 @@ function emptyGuide() {
   return h('div', { class: 'guide', 'data-testid': 'mark-guide' },
     h('h3', {}, 'איך מסמנים אירוע'),
     h('ol', {},
-      h('li', {}, 'נגן את הסרטון עד תחילת הרכיבה ולחץ ', h('b', {}, '⏵ סמן התחלה'), '.'),
-      h('li', {}, 'נגן עד סוף הרכיבה ולחץ ', h('b', {}, '⏹ סמן סוף'), '.'),
+      h('li', {}, 'נגן (רווח) עד תחילת הרכיבה ולחץ ', h('b', {}, '● התחל אירוע כאן'), '.'),
+      h('li', {}, 'המשך לנגן. פס כתום גדל בציר הזמן. בסוף הרכיבה לחץ ', h('b', {}, '■ סיים אירוע כאן'), '.'),
       h('li', {}, 'ענה על 3 השאלות שיופיעו כאן: מי, שימושי?, לדאטהסט?')),
+    h('div', { class: 'meta' }, 'אפשר גם לגרור בשורת הגולש בציר הזמן כדי ליצור אירוע. הכל נשמר אוטומטית, ו"שמור עכשיו" למעלה שומר מיד.'),
     segs.length ? h('div', {},
       h('div', { class: 'meta', style: { marginTop: '8px' } }, `אירועים בסרטון (${segs.length}), לחץ כדי לערוך:`),
       h('ul', { class: 'list', 'data-testid': 'event-list' }, segs.map((x, i) => h('li', { style: { cursor: 'pointer' }, onclick: () => { S.sel = x.id; seekFrame(x.start_frame); refresh(); } },
@@ -698,17 +756,18 @@ function renderEventTab() {
 
     !s ? emptyGuide() : segForm(s),
 
-    h('h3', {}, 'סיום הסרטון'),
-    h('div', { class: 'meta' }, `נבדק ${Math.round(cov * 100)}% מהסרטון. חלק שלא נצפה איננו "אין אירוע".`),
-    h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' } },
-      h('button', { class: `btn ${cov >= 0.999 ? '' : 'primary'}`, 'data-testid': 'reviewed-all', disabled: cov >= 0.999, onclick: () => edit(c => { c.reviewed_ranges = [{ start_frame: 0, end_frame: S.total }]; }) }, cov >= 0.999 ? '✓ צפיתי בכל הסרטון' : 'צפיתי בכל הסרטון')
-    ),
+    h('h3', {}, 'כמה מהסרטון צפית'),
+    h('div', { class: 'cov-bar', 'data-testid': 'coverage', 'data-cov': String(Math.round(cov * 100)), title: 'הפס הכחול בציר הזמן מראה בדיוק מה צפית' },
+      h('div', { class: 'cov-fill', style: { width: `${Math.round(cov * 100)}%` } })),
+    h('div', { class: 'meta' }, cov >= 0.999 ? 'צפית בכל הסרטון ✓' : `צפית ב-${Math.round(cov * 100)}% מהסרטון. כל מה שאתה מנגן נרשם לבד (הפס הכחול "מה שצפית" בציר הזמן). חלק שלא צפית בו אינו "אין אירוע".`),
+    cov >= 0.999 ? null : h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' } },
+      h('button', { class: 'btn', 'data-testid': 'reviewed-all', onclick: () => edit(c => { c.reviewed_ranges = [{ start_frame: 0, end_frame: S.total }]; }) }, 'צפיתי בכל הסרטון (גם בלי לנגן כאן)')),
     h('details', { class: 'more', style: { marginTop: '6px' } },
-      h('summary', {}, 'צפיתי רק בחלק מהסרטון'),
-      h('div', { class: 'meta' }, 'סמן התחלה, נגן עד הנקודה שבדקת, ולחץ:'),
+      h('summary', {}, 'תיקון ידני של מה שצפית'),
+      h('div', { class: 'meta' }, 'לחץ "התחל אירוע כאן" בתחילת הקטע, עבור לסופו, ולחץ "סמן קטע כנצפה". "נקה" מוחק את כל הסימון.'),
       h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px' } },
-        h('button', { class: 'btn sm', 'data-testid': 'mark-reviewed', onclick: () => { const a = S.mark.in ?? 0, b = S.mark.out ?? S.frame + 1; if (b <= a) return toast('סמן התחלה ואז נגן עד סוף הקטע שבדקת', true); edit(c => c.reviewed_ranges.push({ start_frame: a, end_frame: b })); } }, 'סמן את הקטע כנבדק'),
-        h('button', { class: 'btn sm', onclick: () => edit(c => { c.reviewed_ranges = []; }) }, 'נקה'))
+        h('button', { class: 'btn sm', 'data-testid': 'mark-reviewed', onclick: () => { const a = S.mark.in ?? 0, b = S.mark.out ?? S.frame + 1; if (b <= a) return toast('סמן התחלה ואז עבור לסוף הקטע שצפית', true); S.mark = { in: null, out: null }; paintMarkLive(); edit(c => { c.reviewed_ranges = mergeRanges([...c.reviewed_ranges, { start_frame: a, end_frame: b }]); }); } }, 'סמן קטע כנצפה'),
+        h('button', { class: 'btn sm', 'data-testid': 'reviewed-clear', onclick: () => edit(c => { c.reviewed_ranges = []; }) }, 'נקה'))
     ),
 
     h('h3', {}, 'אישור סופי (Ground Truth)'),
@@ -1177,7 +1236,7 @@ function segForm(s) {
     })) : null,
 
     // Everything else that can be recorded for the event, closed by default (opens by itself when already filled).
-    h('details', { class: 'more', 'data-testid': 'event-more', open: S.moreOpen || !!(s.sport_id || s.notes || Object.values(s.key_moments ?? {}).some(v => v != null)) || undefined, ontoggle: e => { S.moreOpen = e.target.open; } },
+    h('details', { class: 'more', 'data-testid': 'event-more', open: S.moreOpen || !!(s.sport_id || s.notes || Object.values(s.key_moments ?? {}).some(v => v != null)) || undefined, ontoggle: e => { if (S) S.moreOpen = e.target.open; } },
       h('summary', {}, 'פרטים נוספים (רשות): רגעי מפתח, הערות, ענף, אותה פעולה בסרטון אחר'),
       // Key Moments
       h('label', { class: 'f' }, 'רגעי מפתח (סמן בפריים הנוכחי):'),
@@ -1353,8 +1412,8 @@ function paintStatus() {
   setTopbar(
     S.setId === 'primary' ? h('a', { class: 'btn sm', href: `#/catalog/${S.src.id}`, 'data-testid': 'back-to-catalog', onclick: async e => {
       e.preventDefault();
-      clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
-      if (S.save === 'dirty') await save();
+      clearTimeout(S.saveTimer); commitWatched(); while (S.inflight) await new Promise(r => setTimeout(r, 50));
+      if (S.save !== 'saved') await save();
       if (S.save !== 'saved') return toast('השינויים לא נשמרו עדיין — פתור את הודעת השמירה לפני החזרה לקטלוג', true);
       location.hash = `#/catalog/${S.src.id}`;
     } }, '→ חזרה לקטלוג') : null,
@@ -1366,7 +1425,8 @@ function paintStatus() {
     sportPicker(),
     ...cloudPills(),
     h('span', { class: 'spacer' }),
-    h('span', { id: 'savepill', 'data-testid': 'savepill', 'aria-live': 'polite' })
+    h('span', { id: 'savepill', 'data-testid': 'savepill', 'aria-live': 'polite' }),
+    h('button', { id: 'savebtn', 'data-testid': 'save-now', title: 'שמור עכשיו (Ctrl+S). השמירה גם אוטומטית.', onclick: saveNow })
   );
   paintSave($('#savepill'));
 }
@@ -1403,7 +1463,7 @@ function bindKeys() {
     if (!S || $('#dlg').open) return;
     const typing = /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName) || e.target.isContentEditable;
     const mod = e.ctrlKey || e.metaKey;
-    if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); clearTimeout(S.saveTimer); save(); return; }
+    if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(); return; }
     if (typing) return;
     if (mod && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(e.shiftKey); return; }
     if (mod && e.key.toLowerCase() === 'y') { e.preventDefault(); undo(true); return; }
@@ -1420,7 +1480,7 @@ function bindKeys() {
       q: () => setSpeed(SPEEDS[Math.max(0, SPEEDS.indexOf(S.speed) - 1)]),
       w: () => setSpeed(SPEEDS[Math.min(SPEEDS.length - 1, SPEEDS.indexOf(S.speed) + 1)]),
       '+': () => zoom(1.4), '=': () => zoom(1.4), '-': () => zoom(0.7), '?': helpDialog, Delete: deleteSel, Backspace: deleteSel,
-      Escape: () => { S.tool = 'select'; S.sel = null; refresh(); },
+      Escape: () => { if (S.mark.in != null) { S.mark = { in: null, out: null }; paintMarks(); paintControls(); paintMarkLive(); return; } S.tool = 'select'; S.sel = null; refresh(); },
     };
     if (/^[1-9]$/.test(k) && s) { const a = S.athletes[+k - 1]; if (a) { e.preventDefault(); setSegmentAthlete(s.id, a.id); } return; }
     if (act[k]) { e.preventDefault(); act[k](); }
