@@ -224,7 +224,19 @@ const NO_DELETE = ['source_sports', 'sources', 'athletes', 'source_locations', '
  * Backend selection: PostgreSQL when `url` (or STUDIO_DB_URL) is given — the schema/roles are applied by
  * scripts/gt-migrate.mjs with an admin connection, never by the running app — otherwise local SQLite under `home`.
  */
-export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl } = {}) {
+/**
+ * TLS for a hosted PostgreSQL (Supabase pooler). With STUDIO_DB_CA (the provider's CA certificate, PEM) the server
+ * certificate and host name are verified (verify-full); with STUDIO_DB_SSL=require the link is encrypted without
+ * verification (until the CA is supplied); otherwise no TLS settings (local PostgreSQL / tests).
+ */
+export function sslFromEnv(env = process.env) {
+  if (env.STUDIO_DB_CA) return { ca: env.STUDIO_DB_CA.replace(/\\n/g, '\n'), rejectUnauthorized: true };
+  if (env.STUDIO_DB_SSL === 'require') return { rejectUnauthorized: false };
+  return undefined;
+}
+export const dbTlsMode = (env = process.env) => env.STUDIO_DB_CA ? 'verify-full' : env.STUDIO_DB_SSL === 'require' ? 'encrypted-unverified' : 'none';
+
+export function openDb(home, { url = process.env.STUDIO_DB_URL, ssl = sslFromEnv() } = {}) {
   if (url) {
     const db = new PgDb(url, { ssl });
     const v = db.prepare("select value from meta where key='schema_version'").get();

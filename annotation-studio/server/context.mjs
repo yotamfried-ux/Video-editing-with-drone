@@ -23,6 +23,11 @@ export function createContext(home, { roots = [], token, dbUrl, archive, cloud }
     cloudMetadata: process.env.STUDIO_CLOUD_METADATA || null,
     // Optional catalog filter: list only objects whose key or name contains this text (e.g. DJI for drone footage). Empty = all.
     cloudInclude: (process.env.STUDIO_CLOUD_INCLUDE ?? '').trim(),
+    // Hosted mode (Vercel): no long-lived process, no local disk worth keeping; originals play straight from R2.
+    serverless: !!process.env.VERCEL || process.env.STUDIO_SERVERLESS === '1',
+    // Host names (besides localhost) this server answers to, e.g. studio.d2ryf.com and the project's *.vercel.app names.
+    allowedHosts: [process.env.STUDIO_ALLOWED_HOSTS, process.env.VERCEL_URL, process.env.VERCEL_BRANCH_URL, process.env.VERCEL_PROJECT_PRODUCTION_URL]
+      .filter(Boolean).join(',').split(',').map(h => h.trim().toLowerCase()).filter(h => /^[a-z0-9.-]+$/.test(h)),
     cacheDir: path.join(home, 'cache'),
     outputsDir: path.join(home, 'outputs'),
   };

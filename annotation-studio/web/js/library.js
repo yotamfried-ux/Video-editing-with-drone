@@ -1,4 +1,4 @@
-import { h, api, ltr, pill, toast, fmtBytes, timecode, fpsOf, STATUS_HE, STATUS_CLASS, backupStatus, backupBanner, backupPill, sportsList, sportName, dialog, closeDialog } from './ui.js';
+import { h, api, ltr, pill, toast, fmtBytes, timecode, fpsOf, STATUS_HE, STATUS_CLASS, backupStatus, backupBanner, backupPill, sportsList, sportName, dialog, closeDialog, awaitJob } from './ui.js';
 import { setTopbar } from './main.js';
 
 export async function renderLibrary(root) {
@@ -352,7 +352,7 @@ export async function renderLibrary(root) {
         e.target.disabled = true;
         try {
           const j = await api('/api/ingestion/reconcile', { method: 'POST', body: {} });
-          let s; do { await new Promise(r => setTimeout(r, 300)); s = await api(`/api/jobs/${j.job_id}`); } while (s.state === 'running');
+          const s = await awaitJob(j);
           toast(s.state === 'done' ? `סנכרון הושלם: ${s.report.ingested} חדשים, ${s.report.duplicates} כפולים, ${s.report.errors.length} שגיאות` : `נכשל: ${s.error}`, s.state !== 'done');
         } catch (x) { toast(x.message, true); }
         e.target.disabled = false;

@@ -3,7 +3,7 @@
 // Nothing here is a second copy of the data: owner, sport and the draft are read and written through the same APIs the
 // library and the workbench use, so no catalogued detail can be lost or diverge. Details of each event (performer,
 // usability, decision, reasons, key moments, BOX) are edited in the workbench, opened directly at the right event/tab.
-import { h, api, toast, pill, sportsList, sportName, eventHe, timecode, REASON_HE, USABILITY_HE, DECISION_HE, PRIMARY_HE } from './ui.js';
+import { h, api, toast, pill, sportsList, sportName, eventHe, timecode, REASON_HE, USABILITY_HE, DECISION_HE, PRIMARY_HE, awaitJob } from './ui.js';
 import { setTopbar } from './main.js';
 
 const VIDEO_HE = { owner: 'של מי הסרטון', sport: 'ענף', triage: 'יש אירועים?', watched: 'צפייה בכל הסרטון', opened: 'פתיחה בסטודיו' };
@@ -43,8 +43,7 @@ export async function renderCatalog(root, selId) {
   async function runJob(btn, url, msg) {
     btn.disabled = true;
     try {
-      let j = await api(url, { method: 'POST', body: {} });
-      do { await new Promise(r => setTimeout(r, 500)); j = await api(`/api/jobs/${j.job_id}`); } while (j.state === 'running');
+      const j = await awaitJob(await api(url, { method: 'POST', body: {} }));
       if (j.state !== 'done') throw new Error(j.error ?? 'הפעולה נכשלה');
       toast(msg(j.report)); await reload(sel ? keyOf(sel) : null);
     } catch (e) { toast(e.code === 'CLOUD_NOT_CONFIGURED' ? 'הענן לא מוגדר במחשב הזה (.studio-cloud.env)' : e.message, true); }
@@ -83,8 +82,7 @@ export async function renderCatalog(root, selId) {
         h('button', { class: 'btn primary', 'data-testid': 'qc-open-cloud', onclick: async e => {
           e.target.disabled = true; e.target.textContent = 'פותח…';
           try {
-            let j = await api(`/api/cloud/objects/${i.cloud_object_id}/open`, { method: 'POST', body: {} });
-            do { await new Promise(r => setTimeout(r, 600)); j = await api(`/api/jobs/${j.job_id ?? j.id}`); } while (j.state === 'running');
+            const j = await awaitJob(await api(`/api/cloud/objects/${i.cloud_object_id}/open`, { method: 'POST', body: {} }));
             if (j.state !== 'done') throw new Error(j.error ?? 'הפתיחה נכשלה');
             await reload(j.report.source_id);
             sel = q.items.find(x => x.source_id === j.report.source_id) ?? sel; render();

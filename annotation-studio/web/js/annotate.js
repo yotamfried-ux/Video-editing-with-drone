@@ -1,7 +1,7 @@
 // Precision Annotation Workbench V2: Video + Bounding Box QA + Multitrack Timeline + Full Taxonomy Inspector.
 import {
   h, $, api, ltr, pill, toast, dialog, closeDialog, timecode, fpsOf, uid, fmtDate,
-  eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS, REASON_LIST
+  eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS, REASON_LIST, awaitJob
 } from './ui.js';
 import { setTopbar, rememberSource } from './main.js';
 
@@ -1453,12 +1453,11 @@ function cloudPills() {
     v === 'verified' ? pill('זהות אומתה', 'ok') : v === 'mismatch' ? pill('אי-התאמת SHA-256!', 'bad')
       : h('button', { class: 'btn sm', 'data-testid': 'verify-cloud', title: 'נדרש לפני אישור Ground Truth', onclick: async e => {
         e.target.disabled = true;
-        try { const j = await pollJob((await api('/api/cloud/verify', { method: 'POST', body: { source_id: S.src.id } })).job_id); toast(j.state === 'done' && j.report.verified ? 'הזהות אומתה' : 'האימות נכשל', !(j.state === 'done' && j.report.verified)); const root = S.root, id = S.src.id; teardownAnnotate(); await renderAnnotate(root, id); }
+        try { const j = await awaitJob(await api('/api/cloud/verify', { method: 'POST', body: { source_id: S.src.id } })); toast(j.state === 'done' && j.report.verified ? 'הזהות אומתה' : 'האימות נכשל', !(j.state === 'done' && j.report.verified)); const root = S.root, id = S.src.id; teardownAnnotate(); await renderAnnotate(root, id); }
         catch (x) { toast(x.message, true); e.target.disabled = false; }
       } }, 'אמת זהות (SHA-256)'),
     S.src.proxy_state === 'building' ? pill('מכין עותק תיוג מדויק…', 'warn') : S.src.proxy_state === 'failed' ? pill('בניית עותק התיוג נכשלה — מנגן את המקור', 'bad') : null].filter(Boolean);
 }
-async function pollJob(id) { for (;;) { const j = await api(`/api/jobs/${id}`); if (j.state !== 'running') return j; await new Promise(r => setTimeout(r, 400)); } }
 
 function watchCloudProxy() {
   if (S.src.provider !== 'cloud-r2' || S.src.proxy_state !== 'building') return;

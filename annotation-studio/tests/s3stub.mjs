@@ -2,7 +2,7 @@
 // ListObjectsV2 pagination, and fault injection. Records every request so tests can assert what was (never) called.
 import http from 'node:http';
 import { createHash, randomUUID } from 'node:crypto';
-import { signRequest, sha256hex } from '../server/sigv4.mjs';
+import { signRequest, sha256hex, presignUrl } from '../server/sigv4.mjs';
 
 /** Linear-time parse of `AWS4-HMAC-SHA256 Credential=<ak>/<scope>, SignedHeaders=<h>, Signature=<hex>` (no backtracking regex). */
 function parseAuthorization(header = '') {
@@ -25,6 +25,19 @@ export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey
     log.push(entry);
     const send = (status, text = '', headers = {}) => { res.writeHead(status, headers); res.end(text); };
     if (faults.outage) return send(503, 'down');
+    if (url.searchParams.has('X-Amz-Signature')) {
+      // ---- pre-signed (query) auth, as R2/S3 check it: recompute the signature, enforce the expiry ----
+      const q = url.searchParams;
+      if ((q.get('X-Amz-Credential') ?? '').split('/')[0] !== accessKeyId) return send(403, 'InvalidAccessKeyId');
+      const amzDate = q.get('X-Amz-Date') ?? '', expires = Number(q.get('X-Amz-Expires'));
+      const t0 = Date.UTC(+amzDate.slice(0, 4), +amzDate.slice(4, 6) - 1, +amzDate.slice(6, 8), +amzDate.slice(9, 11), +amzDate.slice(11, 13), +amzDate.slice(13, 15));
+      if (!(t0 + expires * 1000 > Date.now())) return send(403, 'AccessDenied: Request has expired');
+      const unsigned = new URL(`http://${req.headers.host}${url.pathname}`);
+      for (const [k, v] of q) if (!k.startsWith('X-Amz-')) unsigned.searchParams.append(k, v);
+      const expectUrl = presignUrl({ method: req.method, url: unsigned.href, region, accessKeyId, secretAccessKey, expires, amzDate });
+      if (new URL(expectUrl).searchParams.get('X-Amz-Signature') !== q.get('X-Amz-Signature')) return send(403, 'SignatureDoesNotMatch');
+      entry.presigned = true;
+    } else {
     // ---- SigV4 verification (recompute from what arrived) ----
     const auth = parseAuthorization(req.headers.authorization);
     if (!auth || auth[1] !== accessKeyId) return send(403, 'InvalidAccessKeyId');
@@ -33,6 +46,7 @@ export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey
     const expect = signRequest({ method: req.method, url: `http://${req.headers.host}${req.url}`, headers: hdrs, payloadHash: req.headers['x-amz-content-sha256'],
       region, accessKeyId, secretAccessKey, amzDate: req.headers['x-amz-date'] });
     if (!expect.authorization.endsWith(auth[3])) return send(403, 'SignatureDoesNotMatch');
+    }
     const m = new RegExp(`^/${bucket}/?(.*)$`).exec(decodeURIComponent(url.pathname));
     if (!m) return send(404, 'NoSuchBucket');
     const key = m[1], q = url.searchParams;

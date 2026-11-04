@@ -9,7 +9,7 @@ export { makeVideo } from '../scripts/synthetic.mjs';
 
 export function tmp(prefix = 'studio-test-') { return mkdtempSync(path.join(os.tmpdir(), prefix)); }
 /** Fresh isolated PostgreSQL schema per test when STUDIO_TEST_DB_URL is set (same tests, real Postgres). */
-function pgUrlForFreshSchema() {
+export function pgUrlForFreshSchema() {
   const admin = process.env.STUDIO_TEST_DB_URL;
   const schema = `gt_t_${Math.random().toString(36).slice(2, 10)}`;
   const a = new PgDb(admin);

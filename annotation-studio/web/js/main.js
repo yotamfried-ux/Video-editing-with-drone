@@ -20,6 +20,24 @@ function chrome(active) {
     h('div', { class: 'meta ltr', 'data-testid': 'app-version', title: 'גרסת הקוד שרצה כעת', style: { padding: '0 12px 6px' } }, VERSION ? `v ${VERSION}` : ''),
     h('button', { class: 'btn sm', 'aria-label': 'כווץ תפריט', onclick: () => $('#app').classList.toggle('collapsed') }, '⇔'));
 }
+/** Shown when this browser is not signed in yet: the access code goes in a POST body (never in the address bar). */
+function loginForm() {
+  let code = '';
+  const err = h('div', { class: 'banner bad', 'data-testid': 'login-error', style: { display: 'none' } });
+  const submit = async e => {
+    e?.preventDefault();
+    const r = await fetch('/auth/login', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ token: code }), credentials: 'same-origin' });
+    if (r.ok) { location.reload(); return; }
+    err.textContent = r.status === 401 ? 'קוד הכניסה שגוי. בדוק שהעתקת אותו במלואו.' : 'הכניסה נכשלה. נסה שוב.';
+    err.style.display = '';
+  };
+  return h('div', { class: 'page' }, h('form', { class: 'qc-step', style: { maxWidth: '460px', margin: '40px auto' }, 'data-testid': 'login-form', onsubmit: submit },
+    h('h3', {}, 'כניסה לסטודיו'),
+    h('p', { class: 'meta' }, 'הדבק את קוד הכניסה של הסטודיו. אחרי הכניסה הדפדפן הזה יישאר מחובר.'),
+    h('input', { type: 'password', autocomplete: 'current-password', 'aria-label': 'קוד כניסה', 'data-testid': 'login-code', oninput: e => { code = e.target.value; }, style: { width: '100%', margin: '8px 0' } }),
+    err,
+    h('button', { class: 'btn primary', type: 'submit', 'data-testid': 'login-submit' }, 'כניסה')));
+}
 export function setTopbar(...kids) { $('#topbar').replaceChildren(...kids.filter(Boolean)); }
 export function rememberSource(id) { lastSource = id; try { localStorage.setItem('studio.lastSource', id); } catch {} }
 
@@ -47,7 +65,7 @@ async function route() {
     else if (view === 'settings') await renderSettings(main);
     else main.append(h('div', { class: 'page' }, h('div', { class: 'empty' }, 'עמוד לא נמצא')));
   } catch (e) {
-    if (e.status === 401) main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'banner bad' }, 'הדפדפן הזה עוד לא מחובר לסטודיו. הפעל את הסטודיו מהקיצור "SportReel Studio" בשולחן העבודה (או start-studio-cloud.cmd) — הוא מחבר את הדפדפן, ומאז הכתובת הקבועה עובדת.')));
+    if (e.status === 401) main.replaceChildren(loginForm());
     else { toast(e.message, true); main.replaceChildren(h('div', { class: 'page' }, h('div', { class: 'banner bad' }, e.message))); }
   }
   host.focus({ preventScroll: true });

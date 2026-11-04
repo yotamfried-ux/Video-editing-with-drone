@@ -1,17 +1,10 @@
 // Cloud catalog: SportReel's existing source videos in R2, used in place (read-only; nothing is downloaded up front).
-import { h, api, ltr, pill, toast, fmtBytes, fmtDate, timecode, sportName, STATUS_HE, STATUS_CLASS, dialog, closeDialog } from './ui.js';
+import { h, api, ltr, pill, toast, fmtBytes, fmtDate, timecode, sportName, STATUS_HE, STATUS_CLASS, dialog, closeDialog, awaitJob } from './ui.js';
 import { setTopbar } from './main.js';
 
 const AVAIL = { available: ['זמין ב-raw/', 'ok'], legacy_processed: ['רק ב-processed/ (נדרש שחזור)', 'warn'], missing: ['חסר בענן', 'bad'] };
 const PIPE = { new: 'לא עובד', processed: 'עובד', processed_legacy: 'עובד (ישן)', unknown: 'לא ידוע' };
 
-async function poll(jobId) {
-  for (;;) {
-    const j = await api(`/api/jobs/${jobId}`);
-    if (j.state !== 'running') return j;
-    await new Promise(r => setTimeout(r, 400));
-  }
-}
 
 export async function renderCloud(root) {
   setTopbar(h('strong', {}, 'ענן'), pill('קריאה בלבד · R2'));
@@ -79,7 +72,7 @@ export async function renderCloud(root) {
               : o.availability === 'missing' ? '—'
               : h('button', { class: 'btn sm primary', 'data-testid': 'cloud-open', onclick: e => busy(e.target, async () => {
                 toast('פותח… (נקרא מהענן, ללא הורדה מלאה)');
-                const j = await poll((await api(`/api/cloud/objects/${o.id}/open`, { method: 'POST', body: {} })).job_id);
+                const j = await awaitJob(await api(`/api/cloud/objects/${o.id}/open`, { method: 'POST', body: {} }));
                 if (j.state !== 'done') throw new Error(j.error ?? 'הפתיחה נכשלה');
                 location.hash = `#/annotate/${j.report.source_id}`;
               }) }, 'פתח לתיוג')
@@ -203,13 +196,13 @@ export async function renderCloud(root) {
       sel([['', 'כל הגולשים'], ['unassigned', 'ללא שיוך לגולש'], ...athletes.map(a => [a.id, a.label])], 'owner', 'שיוך לגולש'),
       h('span', { class: 'spacer' }),
       h('button', { class: 'btn primary', 'data-testid': 'cloud-sync', onclick: e => busy(e.target, async () => {
-        const j = await poll((await api('/api/cloud/sync', { method: 'POST', body: {} })).job_id);
+        const j = await awaitJob(await api('/api/cloud/sync', { method: 'POST', body: {} }));
         if (j.state !== 'done') throw new Error(j.error ?? 'הסנכרון נכשל');
         toast(`הקטלוג עודכן: ${j.report.raw} ב-raw/, ${j.report.processed_legacy} ב-processed/, ${j.report.missing} חסרים`, j.report.missing > 0);
         await reload();
       }) }, 'סנכרן קטלוג מהענן'),
       h('button', { class: 'btn', 'data-testid': 'cloud-verify', title: 'מוריד בזרימה ומחשב SHA-256 לכל סרטון שנפתח; נדרש לפני אישור Ground Truth', onclick: e => busy(e.target, async () => {
-        const j = await poll((await api('/api/cloud/verify', { method: 'POST', body: {} })).job_id);
+        const j = await awaitJob(await api('/api/cloud/verify', { method: 'POST', body: {} }));
         if (j.state !== 'done') throw new Error(j.error ?? 'האימות נכשל');
         toast(`אומתו ${j.report.verified}/${j.report.checked}${j.report.mismatched.length ? ` · ${j.report.mismatched.length} אי-התאמות!` : ''}`, j.report.mismatched.length > 0);
         await reload();

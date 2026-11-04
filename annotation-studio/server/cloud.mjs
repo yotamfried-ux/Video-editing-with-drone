@@ -15,7 +15,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
-import { signRequest, sha256hex } from './sigv4.mjs';
+import { signRequest, sha256hex, presignUrl } from './sigv4.mjs';
 import { now, tx, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { probe, makeThumb, makeProxy } from './media.mjs';
@@ -41,13 +41,17 @@ export const unXml = s => s.replace(/&(amp|lt|gt|quot|apos);/g, (_, name) => XML
 export class CloudBucket {
   kind = 'cloud-r2-readonly';
   #sign;
+  #presign;
   constructor({ endpoint, bucket, accessKeyId, secretAccessKey, region = 'auto', fetchImpl = fetch, retries = 3 }) {
     for (const [k, v] of Object.entries({ endpoint, bucket, accessKeyId, secretAccessKey })) if (!v) throw new CloudError('CLOUD_CONFIG', `${k} required`);
     const secret = { accessKeyId, secretAccessKey };                  // closure-private: never serialised or logged
     this.#sign = a => signRequest({ ...a, region, service: 's3', ...secret });
+    this.#presign = (url, expires) => presignUrl({ method: 'GET', url, region: region === 'auto' ? 'auto' : region, service: 's3', expires, ...secret });
     this.endpoint = endpoint.replace(/\/+$/, ''); this.bucket = bucket; this.fetch = fetchImpl; this.retries = retries;
   }
   toJSON() { return { kind: this.kind, bucket: this.bucket }; }
+  /** Time-limited read-only link to one object (the browser plays the original straight from R2). */
+  presignGet(key, expires = 3600) { return this.#presign(this.#url(key), expires); }
 
   #url(key, query = '') { return `${this.endpoint}/${this.bucket}/${key.split('/').map(encodeURIComponent).join('/')}${query}`; }
 
@@ -248,8 +252,9 @@ async function openCloudObjectOnce(ctx, id, { baseUrl }) {
     });
     return { source_id: existing.id, reused: true };
   }
-  const url = `${baseUrl}/media/cloud/${id}/original`;
-  const meta = await probe(url, { headers: `Authorization: Bearer ${ctx.token}\r\n` });
+  // Hosted: probe straight from R2 through a short-lived read-only link (no local media route, no long-lived process).
+  const url = ctx.serverless ? ctx.cloud.presignGet(obj.key, 900) : `${baseUrl}/media/cloud/${id}/original`;
+  const meta = await probe(url, ctx.serverless ? {} : { headers: `Authorization: Bearer ${ctx.token}\r\n` });
   const sid = randomUUID();
   tx(ctx.db, () => {
     ctx.db.prepare(`insert into sources(id,sha256,byte_size,display_name,session_key,codec,width,height,rotation,fps_num,fps_den,frame_count,duration_ms,captured_at,ingest_state,provider,cloud_key,verify_state,archive_verified_at,created_at)
@@ -260,6 +265,8 @@ async function openCloudObjectOnce(ctx, id, { baseUrl }) {
     ctx.db.prepare("insert into source_locations(source_id,provider,bucket,key,kind,observed_at,active,verified_sha256) values(?,?,?,?,'operational',?,1,?)").run(sid, 'cloud-r2', ctx.cloud.bucket, obj.key, now(), verified ? sha : null);
     audit(ctx.db, 'operator', 'cloud_source_opened', sid, { key: obj.key, identity: verified ? 'hashed_from_bytes' : 'from_durable_record' });
   });
+  // Hosted: no thumbnail/proxy files (no persistent disk); the browser plays the original from R2.
+  if (ctx.serverless) return { source_id: sid, reused: false };
   const dir = path.join(ctx.cacheDir, sid), headers = `Authorization: Bearer ${ctx.token}\r\n`;
   try { const t = path.join(dir, 'thumb.jpg'); await makeThumb(url, t, { headers }); ctx.db.prepare('update sources set thumb_path=? where id=?').run(t, sid); }
   catch (e) { audit(ctx.db, 'system', 'thumb_failed', sid, { error: e.message }); }
