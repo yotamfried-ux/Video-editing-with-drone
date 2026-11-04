@@ -448,7 +448,10 @@ function bindSegment(el, s) {
     e.stopPropagation();
     const mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : 'm';
     const row = el.parentElement, startF = frameAt(e, row, true), orig = { ...s }; let moved = false;
+    // Select WITHOUT re-rendering the timeline: a re-render would detach this element and drop the pointer capture,
+    // which made dragging the edges (changing the event's length) silently do nothing.
     S.sel = s.id; el.setPointerCapture(e.pointerId);
+    el.parentElement?.parentElement?.querySelectorAll('.sg.sel').forEach(x => x.classList.remove('sel')); el.classList.add('sel');
     const mv = ev => {
       const d = frameAt(ev, row, true) - startF; if (!d && !moved) return;
       if (!moved) { snapshot(); moved = true; }
@@ -457,9 +460,11 @@ function bindSegment(el, s) {
       else if (mode === 'l') s.start_frame = clamp(orig.start_frame + d, 0, orig.end_frame - 1);
       else s.end_frame = clamp(orig.end_frame + d, orig.start_frame + 1, S.total);
       el.style.left = `${xOf(s.start_frame)}px`; el.style.width = `${xOf(s.end_frame - s.start_frame)}px`;
+      // show the frame at the edge being dragged, so the new start/end is chosen by looking at the video
+      if (mode !== 'm') { const f = mode === 'l' ? s.start_frame : s.end_frame - 1; if (f !== S.frame) seekFrame(f); }
     };
     const up = () => {
-      el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
       if (moved) {
         C().keyframes = C().keyframes.filter(k => k.segment_id !== s.id || (k.frame >= s.start_frame && k.frame < s.end_frame));
         const removed = repairOutOfRange(C());
@@ -468,8 +473,8 @@ function bindSegment(el, s) {
       } else seekFrame(S.frame);
       refresh();
     };
-    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
-    refresh();
+    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    paintInspector();
   });
 }
 function bindCreate(row, aid) {
