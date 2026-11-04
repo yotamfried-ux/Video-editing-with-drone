@@ -696,11 +696,12 @@ function syncSegmentsFromTrack(c, t) {
   for (const s of c.segments) {
     if ((s.athlete_id ?? null) !== (t.athlete_id ?? null)) continue;
     const checked = f => !!latestVerification(c, s.id, f);
+    const prev = new Map(c.keyframes.filter(k => k.segment_id === s.id && k.origin === 'suggested').map(k => [k.frame, k.id]));
     c.keyframes = c.keyframes.filter(k => !(k.segment_id === s.id && k.origin === 'suggested' && !checked(k.frame)));
     const taken = new Set(c.keyframes.filter(k => k.segment_id === s.id).map(k => k.frame));
     for (const p of t.points) {
       if (p.flag === 'wrong' || p.frame < s.start_frame || p.frame >= s.end_frame || taken.has(p.frame)) continue;
-      c.keyframes.push({ id: uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
+      c.keyframes.push({ id: prev.get(p.frame) ?? uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
     }
   }
 }
@@ -853,8 +854,48 @@ function retrackHere(s) {
   if (!trackOf(C(), aid)?.points.some(p => p.origin === 'manual')) return toast('צייר קודם תיבה על הגולש (B)', true);
   trackAthlete(aid, null);
 }
+/** The one athlete every event of this video is about (null when there are none or several). */
+function soleEventAthlete(c) {
+  const ids = new Set(c.segments.map(s => s.athlete_id ?? null)); ids.delete(null);
+  return ids.size === 1 ? [...ids][0] : null;
+}
+/** Who a box drawn with no event/athlete selected belongs to: the video owner, else the only athlete of its events. */
+function defaultBoxAthlete(c) { return S.src.owner_athlete_id ?? soleEventAthlete(c) ?? null; }
+/**
+ * Boxes drawn before an athlete was chosen live on a track with no athlete, so no event got them. When the video's
+ * events are all about one athlete, that track is theirs: hand its anchors over (merging with the athlete's own track
+ * if there is one) and re-track. Returns true when something was claimed.
+ */
+function claimOrphanTrack() {
+  const x = soleEventAthlete(C()), orphan = (C().tracks ?? []).find(t => (t.athlete_id ?? null) === null);
+  if (!x || !orphan || !orphan.points.length) return false;
+  const merge = !!trackOf(C(), x);
+  edit(c => {
+    const o = c.tracks.find(t => t.id === orphan.id), mine = trackOf(c, x);
+    if (!mine) o.athlete_id = x;
+    else {
+      const own = new Set(mine.points.filter(p => p.origin === 'manual').map(p => p.frame));
+      for (const p of o.points) if (p.origin === 'manual' && !own.has(p.frame)) setAnchor(c, x, p.frame, p.bbox);
+      c.tracks = c.tracks.filter(t => t !== o);
+    }
+    syncSegmentsFromTrack(c, trackOf(c, x));
+  }, { quiet: true });
+  toast('BOX שסומן לפני שנבחר גולש שויך לגולש של האירועים.');
+  if (merge) setTimeout(() => S && trackAthlete(x, null), 300);
+  return true;
+}
+/** Events that have no boxes yet while the track covers them (saved before events took boxes from the track). */
+function syncEventsOnOpen() {
+  const c = structuredClone(C());
+  for (const t of c.tracks ?? []) syncSegmentsFromTrack(c, t);
+  const sig = ks => ks.map(k => JSON.stringify([k.segment_id, k.frame, k.bbox, k.origin, k.id])).sort().join();
+  if (sig(c.keyframes) === sig(C().keyframes)) return;   // already in step: opening a video never rewrites it
+  edit(cc => { for (const t of cc.tracks ?? []) syncSegmentsFromTrack(cc, t); }, { quiet: true });
+}
 /** Boxes drawn before video-level tracking existed: turn an event's hand-drawn boxes into anchors, once. */
 function adoptLegacyBoxes() {
+  claimOrphanTrack();
+  syncEventsOnOpen();
   // an existing track that does not cover the whole video yet (left unfinished) is completed in the background
   for (const t of C().tracks ?? []) if (trackIncomplete(t) && t.points.some(p => p.origin === 'manual')) setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
   for (const s of C().segments) {
@@ -926,7 +967,7 @@ async function refreshStates() {
 function drawBox(e) {
   // A box can be drawn on ANY frame of the video. Inside the selected event it is also that event's box.
   const s = selSeg(), inSeg = !!s && S.frame >= s.start_frame && S.frame < s.end_frame;
-  const aid = s?.athlete_id ?? S.src.owner_athlete_id ?? null;
+  const aid = s?.athlete_id ?? defaultBoxAthlete(C());
   const ov = $('#ov'), a = norm(e, ov); const svg = $('#ovsvg'); const W = ov.clientWidth, H = ov.clientHeight, g = svgEl('rect', { class: 'bx', x: a.x * W, y: a.y * H, width: 0, height: 0, stroke: '#fff' }); svg.append(g); ov.setPointerCapture(e.pointerId);
   let box = null;
   const mv = ev => { const b = norm(ev, ov); box = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }; for (const [k, v] of [['x', box.x * W], ['y', box.y * H], ['width', box.w * W], ['height', box.h * H]]) g.setAttribute(k, v); };

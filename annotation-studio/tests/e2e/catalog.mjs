@@ -407,6 +407,49 @@ await scenario('a stuck draft whose event runs past the end of the video is repa
   assert.equal(d.segments[0].start_frame, s.frame_count - 20);
 });
 
+await scenario('saved catalogs repair themselves on open: events with no boxes get them from the track; boxes drawn before choosing a surfer join that surfer', async () => {
+  const s = src('DJI_0414.mp4'), x = src('DJI_0414.mp4').owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const getD = async () => (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json();
+  const putD = async (cur, content) => { const r = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content }) }); assert.equal(r.status, 200, await r.text()); };
+  const open = async () => { await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]'); };
+  await open(); await page.waitForTimeout(500); for (let i = 0; i < 240 && await page.evaluate(() => document.querySelector('#hudtrack')?.style.display !== 'none'); i++) await page.waitForTimeout(500);
+  await saved();
+  // (a) like live video 0165: a whole-video track of the event's surfer, but the events were saved with no boxes
+  { const cur = await getD(), c = structuredClone(cur.content);
+    assert.ok(c.tracks?.length && c.segments.length);
+    for (const t of c.tracks) t.athlete_id = x; c.tracks = c.tracks.slice(0, 1);
+    for (const g of c.segments) g.athlete_id = x;
+    c.keyframes = []; c.box_verifications = [];
+    await putD(cur, c); }
+  await open();
+  for (let i = 0; i < 40 && !draft(s.id).keyframes.length; i++) await page.waitForTimeout(250);
+  await saved();
+  { const d = draft(s.id);
+    for (const g of d.segments) {
+      const n = d.keyframes.filter(k => k.segment_id === g.id).length;
+      assert.ok(n >= 3, `event ${g.start_frame}-${g.end_frame} got ${n} boxes from the track on open (no click needed)`);
+      for (const k of d.keyframes.filter(k => k.segment_id === g.id)) assert.ok(k.frame >= g.start_frame && k.frame < g.end_frame);
+    } }
+  // round trip: opening again changes nothing (what was saved is exactly what is shown and kept)
+  { const v = (await getD()).version; await open(); await page.waitForTimeout(1500); assert.equal((await getD()).version, v, 'reopening a complete catalog does not rewrite it');
+    await page.goto(`${base}/#/annotate/${s.id}`); }
+  // (b) like live video 0163: boxes drawn before a surfer was chosen sit on a track with no surfer
+  { const cur = await getD(), c = structuredClone(cur.content), t = c.tracks[0];
+    const orphan = { id: 'orphan-track', athlete_id: null, points: t.points.filter(p => p.origin === 'manual').map(p => ({ ...p, frame: Math.min(p.frame + 5, s.frame_count - 1) })) };
+    t.points = t.points.filter(p => p.origin === 'manual'); c.tracks = [t, orphan]; c.keyframes = []; c.box_verifications = [];
+    await putD(cur, c); }
+  await open();
+  for (let i = 0; i < 240 && !(draft(s.id).tracks.length === 1 && draft(s.id).tracks[0].points.length > 30 && draft(s.id).keyframes.length); i++) await page.waitForTimeout(500);
+  await saved();
+  { const d = draft(s.id);
+    assert.equal(d.tracks.length, 1, 'no track without a surfer is left');
+    assert.equal(d.tracks[0].athlete_id, x, 'the boxes now belong to the surfer of the events');
+    assert.ok(d.tracks[0].points.filter(p => p.origin === 'manual').length >= 2, 'its hand-drawn boxes were kept as anchors');
+    assert.ok(d.tracks[0].points.length > 30, 'and the surfer is tracked through the video again');
+    for (const g of d.segments) assert.ok(d.keyframes.filter(k => k.segment_id === g.id).length >= 3, 'events have boxes'); }
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;
