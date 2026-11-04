@@ -297,6 +297,28 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
   const t2 = d.tracks[0];
   assert.ok(t2.points.some(p => p.frame === 180 && p.origin === 'manual'), 'the dragged box is an anchor');
   assert.equal(Math.max(...t2.points.map(p => p.frame)), s.frame_count - 1, 'still covers the whole video after the correction');
+  // Two boxes drawn quickly one after the other: the second does NOT throw away the first one's tracking (queue),
+  // and a track left incomplete is finished automatically when the video is opened again.
+  await go(140);
+  await page.keyboard.press('b');
+  { const g = await fr(); await page.mouse.move(...px(2 * g - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(2 * g + 44, 374), { steps: 3 }); await page.mouse.up(); }
+  await go(220);
+  await page.keyboard.press('b');
+  { const g = await fr(); await page.mouse.move(...px(Math.min(2 * g, 1236) - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(Math.min(2 * g, 1236) + 44, 374), { steps: 3 }); await page.mouse.up(); }
+  for (let i = 0; i < 240 && await page.evaluate(() => document.querySelector('#hudtrack')?.style.display !== 'none'); i++) await page.waitForTimeout(500);
+  await saved();
+  { const t = draft(s.id).tracks[0], fs = t.points.map(p => p.frame).sort((a, b) => a - b);
+    assert.ok([140, 220].every(f => t.points.some(p => p.frame === f && p.origin === 'manual')), 'both quick boxes are anchors');
+    assert.equal(fs[0], 0); assert.equal(fs.at(-1), s.frame_count - 1);
+    for (let i = 1; i < fs.length; i++) assert.ok(fs[i] - fs[i - 1] <= 12, `no hole in the track between ${fs[i - 1]} and ${fs[i]}`); }
+  // incomplete track (only anchors, as if the page was closed mid-way) -> completed on open
+  { const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
+    const c2 = structuredClone(cur.content); c2.tracks[0].points = c2.tracks[0].points.filter(p => p.origin === 'manual');
+    const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: { authorization: 'Bearer demo-token', 'content-type': 'application/json' }, body: JSON.stringify({ expected_version: cur.version, content: c2 }) });
+    assert.equal(put.status, 200);
+    await page.reload(); await page.waitForSelector('[data-testid=workbench]');
+    for (let i = 0; i < 240 && !(draft(s.id).tracks[0].points.length > 30); i++) await page.waitForTimeout(500);
+    assert.ok(draft(s.id).tracks[0].points.length > 30, 'unfinished track completed on open'); }
   await shot('07-auto-track');
   // Boxes drawn before whole-video tracking existed (event box only, no track) are adopted and tracked when opened.
   const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
