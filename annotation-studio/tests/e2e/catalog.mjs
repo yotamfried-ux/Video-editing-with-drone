@@ -39,6 +39,11 @@ async function until(fn, arg, timeout = 15000) {
   throw new Error(`timed out waiting for: ${fn}`);
 }
 const saved = () => page.waitForSelector('[data-testid=savepill][data-state=saved]', { timeout: 10000 });
+// tracking is done only when the progress pill stays hidden for a while (it hides briefly between queued passes)
+async function trackingIdle(timeout = 180000) {
+  const end = Date.now() + timeout; let quiet = 0;
+  while (Date.now() < end && quiet < 5) { quiet = await page.evaluate(() => document.querySelector('#hudtrack')?.style.display === 'none') ? quiet + 1 : 0; await page.waitForTimeout(400); }
+}
 const frameAtHead = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
 const item = name => page.locator('[data-testid=qc-item]', { hasText: name });
 console.log('Quick catalog @ 1440x900');
@@ -237,7 +242,8 @@ await scenario('save button saves immediately and says so; watched ranges fill i
   assert.match(await page.textContent('[data-testid=save-now]'), /הכל נשמר/);
   assert.equal(await page.isDisabled('[data-testid=save-now]'), true);
   // watched: clear, then play ~1.5 s from frame 120 -> one watched range starting there
-  await page.click('[data-testid=reviewed-clear]').catch(async () => { await page.click('[data-testid=insp-panel-event] details.more summary >> nth=-1'); await page.click('[data-testid=reviewed-clear]'); });
+  if (!await page.locator('[data-testid=watched-fix]').evaluate(d => d.open)) await page.click('[data-testid=watched-fix] summary');
+  await page.click('[data-testid=reviewed-clear]');
   await saved();
   assert.deepEqual(draft(s.id).reviewed_ranges, []);
   await page.evaluate(() => document.activeElement?.blur());
@@ -305,7 +311,7 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
   await go(220);
   await page.keyboard.press('b');
   { const g = await fr(); await page.mouse.move(...px(Math.min(2 * g, 1236) - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(Math.min(2 * g, 1236) + 44, 374), { steps: 3 }); await page.mouse.up(); }
-  for (let i = 0; i < 240 && await page.evaluate(() => document.querySelector('#hudtrack')?.style.display !== 'none'); i++) await page.waitForTimeout(500);
+  await trackingIdle();
   await saved();
   { const t = draft(s.id).tracks[0], fs = t.points.map(p => p.frame).sort((a, b) => a - b);
     assert.ok([140, 220].every(f => t.points.some(p => p.frame === f && p.origin === 'manual')), 'both quick boxes are anchors');
@@ -316,9 +322,15 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
     const c2 = structuredClone(cur.content); c2.tracks[0].points = c2.tracks[0].points.filter(p => p.origin === 'manual');
     const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: { authorization: 'Bearer demo-token', 'content-type': 'application/json' }, body: JSON.stringify({ expected_version: cur.version, content: c2 }) });
     assert.equal(put.status, 200);
-    await page.reload(); await page.waitForSelector('[data-testid=workbench]');
+    await page.reload(); await page.waitForSelector('[data-testid=workbench]'); const t0 = Date.now();
     for (let i = 0; i < 240 && !(draft(s.id).tracks[0].points.length > 30); i++) await page.waitForTimeout(500);
-    assert.ok(draft(s.id).tracks[0].points.length > 30, 'unfinished track completed on open'); }
+    const why = await page.evaluate(() => ['#hudtrack', '[data-testid=track-failed]', '[data-testid=savepill]', '.banner'].map(q => `${q}=${(document.querySelector(q)?.textContent ?? '-').trim().slice(0, 160)}`).join(' | '));
+    assert.ok(draft(s.id).tracks[0].points.length > 30, `unfinished track completed on open (after ${Date.now() - t0} ms; points ${draft(s.id).tracks.map(t => t.points.length)}; ${why})`); }
+  // an event created AFTER tracking gets its boxes from the track on the next save
+  await go(150); await page.click('[data-testid=mark-in]'); await go(190); await page.click('[data-testid=mark-out]');
+  await page.waitForSelector('[data-testid=segform]'); await saved();
+  { const d = draft(s.id), ev = d.segments.find(x => x.start_frame === 150);
+    assert.ok(ev, 'new event'); assert.ok(d.keyframes.filter(k => k.segment_id === ev.id).length >= 3, 'the new event has boxes from the track'); }
   await shot('07-auto-track');
   // Boxes drawn before whole-video tracking existed (event box only, no track) are adopted and tracked when opened.
   const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
@@ -367,6 +379,25 @@ await scenario('playback stall says why (file bitrate) instead of a silent froze
   await page.evaluate(() => document.querySelector('#vid').pause());
 });
 
+await scenario('"קטלג מחדש": confirm -> empty draft (copy kept) -> "בטל איפוס" brings everything back', async () => {
+  const s = src('DJI_0413.mp4');
+  await page.goto(`${base}/#/annotate/${s.id}`);
+  await page.waitForSelector('[data-testid=workbench]');
+  const before = draft(s.id);
+  assert.ok(before.segments.length >= 1, 'has events to reset');
+  await page.click('[data-testid=reset-zone] summary');
+  await page.click('[data-testid=reset-catalog]');
+  await page.click('[data-testid=reset-confirm]');
+  await page.waitForSelector('[data-testid=reset-done]');
+  const after = draft(s.id);
+  assert.deepEqual([after.segments.length, after.keyframes.length, after.reviewed_ranges.length], [0, 0, 0]);
+  assert.equal(await page.locator('[data-testid=segment]').count(), 0, 'timeline is empty');
+  assert.ok(db.prepare("select 1 from audit_log where action='draft_reset' and subject=?").get(s.id), 'copy kept in the log');
+  await page.click('[data-testid=reset-done] button:has-text("בטל איפוס")');
+  await page.waitForSelector('[data-testid=segment]');
+  assert.deepEqual(draft(s.id).segments.map(x => x.id), before.segments.map(x => x.id), 'events back');
+});
+
 await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
   const s = src('DJI_0415.mp4');
   await page.goto(`${base}/#/annotate/${s.id}`);
@@ -380,6 +411,49 @@ await scenario('a stuck draft whose event runs past the end of the video is repa
   const d = draft(s.id);
   assert.equal(d.segments[0].end_frame, s.frame_count, 'event clamped to the last frame, not dropped');
   assert.equal(d.segments[0].start_frame, s.frame_count - 20);
+});
+
+await scenario('saved catalogs repair themselves on open: events with no boxes get them from the track; boxes drawn before choosing a surfer join that surfer', async () => {
+  const s = src('DJI_0414.mp4'), x = src('DJI_0414.mp4').owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const getD = async () => (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json();
+  const putD = async (cur, content) => { const r = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content }) }); assert.equal(r.status, 200, await r.text()); };
+  const open = async () => { await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]'); };
+  await open(); await page.waitForTimeout(500); await trackingIdle();
+  await saved();
+  // (a) like live video 0165: a whole-video track of the event's surfer, but the events were saved with no boxes
+  { const cur = await getD(), c = structuredClone(cur.content);
+    assert.ok(c.tracks?.length && c.segments.length);
+    for (const t of c.tracks) t.athlete_id = x; c.tracks = c.tracks.slice(0, 1);
+    for (const g of c.segments) g.athlete_id = x;
+    c.keyframes = []; c.box_verifications = [];
+    await putD(cur, c); }
+  await open();
+  for (let i = 0; i < 40 && !draft(s.id).keyframes.length; i++) await page.waitForTimeout(250);
+  await saved();
+  { const d = draft(s.id);
+    for (const g of d.segments) {
+      const n = d.keyframes.filter(k => k.segment_id === g.id).length;
+      assert.ok(n >= 3, `event ${g.start_frame}-${g.end_frame} got ${n} boxes from the track on open (no click needed)`);
+      for (const k of d.keyframes.filter(k => k.segment_id === g.id)) assert.ok(k.frame >= g.start_frame && k.frame < g.end_frame);
+    } }
+  // round trip: opening again changes nothing (what was saved is exactly what is shown and kept)
+  { const v = (await getD()).version; await open(); await page.waitForTimeout(1500); assert.equal((await getD()).version, v, 'reopening a complete catalog does not rewrite it');
+    await page.goto(`${base}/#/annotate/${s.id}`); }
+  // (b) like live video 0163: boxes drawn before a surfer was chosen sit on a track with no surfer
+  { const cur = await getD(), c = structuredClone(cur.content), t = c.tracks[0];
+    const orphan = { id: 'orphan-track', athlete_id: null, points: t.points.filter(p => p.origin === 'manual').map(p => ({ ...p, frame: Math.min(p.frame + 5, s.frame_count - 1) })) };
+    t.points = t.points.filter(p => p.origin === 'manual'); c.tracks = [t, orphan]; c.keyframes = []; c.box_verifications = [];
+    await putD(cur, c); }
+  await open();
+  for (let i = 0; i < 240 && !(draft(s.id).tracks.length === 1 && draft(s.id).tracks[0].points.length > 30 && draft(s.id).keyframes.length); i++) await page.waitForTimeout(500);
+  await saved();
+  { const d = draft(s.id);
+    assert.equal(d.tracks.length, 1, 'no track without a surfer is left');
+    assert.equal(d.tracks[0].athlete_id, x, 'the boxes now belong to the surfer of the events');
+    assert.ok(d.tracks[0].points.filter(p => p.origin === 'manual').length >= 2, 'its hand-drawn boxes were kept as anchors');
+    assert.ok(d.tracks[0].points.length > 30, 'and the surfer is tracked through the video again');
+    for (const g of d.segments) assert.ok(d.keyframes.filter(k => k.segment_id === g.id).length >= 3, 'events have boxes'); }
 });
 
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });

@@ -12,7 +12,7 @@ let S = null, cleanup = [];
 const LEGACY = ['wave_ride', 'failed_takeoff', 'wipeout', 'paddle_out', 'other'];
 const effSport = x => x.sport_id ?? S.src.primary_sport_id ?? null;
 
-export function teardownAnnotate() { cleanup.forEach(f => f()); cleanup = []; S = null; }
+export function teardownAnnotate() { if (S) { S.trackQueue = []; S.tracking?.ctl.abort(); } cleanup.forEach(f => f()); cleanup = []; S = null; }
 const on = (t, ev, fn, o) => { t.addEventListener(ev, fn, o); cleanup.push(() => t.removeEventListener(ev, fn, o)); };
 
 export async function renderAnnotate(root, id) {
@@ -132,6 +132,7 @@ async function save() {
   if (!S || S.inflight || S.save === 'conflict') return;
   const mySeq = S.dirty; S.inflight = true; setSave('saving');
   try {
+    for (const t of C().tracks ?? []) syncSegmentsFromTrack(C(), t);   // events made/changed after tracking get their boxes
     const fixed = repairOutOfRange(C());
     const fixBanner = fixed.length ? { kind: 'warn', text: `תוקן אוטומטית לפני שמירה (ערכים מחוץ לטווח האירוע): ${fixed.join(' · ')}` } : null;
     reconcileVerifications(C());
@@ -153,6 +154,32 @@ async function save() {
     }
     else { setSave('offline'); clearTimeout(S.retryTimer); S.retryTimer = setTimeout(save, 3000); }
   }
+}
+function confirmReset() {
+  const segs = C().segments.length, boxes = (C().tracks ?? []).reduce((n, t) => n + t.points.length, 0) + C().keyframes.length;
+  dialog('לקטלג את הסרטון מחדש?', h('div', {},
+    h('p', {}, `יימחקו מהטיוטה: ${segs} אירועים, ${boxes} תיבות/נקודות מעקב, וסימון "מה שצפית".`),
+    h('p', { class: 'meta' }, 'עותק מלא נשמר ביומן, ואפשר לבטל את האיפוס בלחיצה אחת (כל עוד לא נשמר משהו חדש).')), [
+    h('button', { class: 'btn danger', 'data-testid': 'reset-confirm', onclick: async () => { closeDialog(); await doReset(); } }, 'כן, קטלג מחדש'),
+    h('button', { class: 'btn', onclick: closeDialog }, 'ביטול')]);
+}
+async function doReset() {
+  clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
+  if (S.save !== 'saved') await save();
+  if (S.save !== 'saved') return toast('יש שינויים שלא נשמרו - פתור את הודעת השמירה ואז נסה שוב', true);
+  S.trackQueue = []; S.tracking?.ctl.abort(); S.tracking = null;
+  try {
+    const r = await api(`/api/sources/${S.src.id}/draft/reset`, { method: 'POST', body: { expected_version: S.draft.version } });
+    S.draft = await api(S.draftUrl); clearPending(); S.sel = null; S.undo = []; S.redo = []; S.mark = { in: null, out: null };
+    S.trackLost = {}; S.trackErr = {}; S.autoTried = new Set(['legacy']); S.banner = { kind: 'warn', testid: 'reset-done', text: 'הקטלוג של הסרטון אופס. אפשר להתחיל לסמן מחדש.', action: ['בטל איפוס', undoReset] };
+    void r; setSave('saved'); refresh();
+  } catch (e) { toast(e.message, true); }
+}
+async function undoReset() {
+  try {
+    await api(`/api/sources/${S.src.id}/draft/restore`, { method: 'POST', body: { expected_version: S.draft.version } });
+    S.draft = await api(S.draftUrl); clearPending(); S.banner = null; S.sel = null; setSave('saved'); refresh(); toast('האיפוס בוטל - הסימונים חזרו');
+  } catch (e) { toast(e.message, true); }
 }
 async function reloadServer() { const d = await api(S.draftUrl); S.draft = d; clearPending(); S.banner = null; S.save = 'saved'; S.sel = null; refresh(); }
 
@@ -458,7 +485,7 @@ function bindSegment(el, s) {
     const row = el.parentElement, startF = frameAt(e, row, true), orig = { ...s }; let moved = false;
     // Select WITHOUT re-rendering the timeline: a re-render would detach this element and drop the pointer capture,
     // which made dragging the edges (changing the event's length) silently do nothing.
-    S.sel = s.id; el.setPointerCapture(e.pointerId);
+    S.sel = s.id; el.setPointerCapture(e.pointerId); S.dragging = true;
     el.parentElement?.parentElement?.querySelectorAll('.sg.sel').forEach(x => x.classList.remove('sel')); el.classList.add('sel');
     const mv = ev => {
       const d = frameAt(ev, row, true) - startF; if (!d && !moved) return;
@@ -473,6 +500,7 @@ function bindSegment(el, s) {
     };
     const up = () => {
       el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
+      S.dragging = false;
       if (moved) {
         C().keyframes = C().keyframes.filter(k => k.segment_id !== s.id || (k.frame >= s.start_frame && k.frame < s.end_frame));
         const removed = repairOutOfRange(C());
@@ -668,11 +696,12 @@ function syncSegmentsFromTrack(c, t) {
   for (const s of c.segments) {
     if ((s.athlete_id ?? null) !== (t.athlete_id ?? null)) continue;
     const checked = f => !!latestVerification(c, s.id, f);
+    const prev = new Map(c.keyframes.filter(k => k.segment_id === s.id && k.origin === 'suggested').map(k => [k.frame, k.id]));
     c.keyframes = c.keyframes.filter(k => !(k.segment_id === s.id && k.origin === 'suggested' && !checked(k.frame)));
     const taken = new Set(c.keyframes.filter(k => k.segment_id === s.id).map(k => k.frame));
     for (const p of t.points) {
       if (p.flag === 'wrong' || p.frame < s.start_frame || p.frame >= s.end_frame || taken.has(p.frame)) continue;
-      c.keyframes.push({ id: uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
+      c.keyframes.push({ id: prev.get(p.frame) ?? uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
     }
   }
 }
@@ -695,9 +724,10 @@ function trackAthlete(athleteId, around = null) {
 }
 async function pumpTracking() {
   if (!S || S.trackBusy) return;
-  S.trackBusy = true;
-  try { while (S?.trackQueue?.length) { const q = S.trackQueue.shift(); await runTrack(q.athleteId, q.around); } }
-  finally { if (S) { S.trackBusy = false; S.tracking = null; paintTrackHud(); refresh(); } }
+  const mine = S;                                   // a pass belongs to the video it started on
+  mine.trackBusy = true;
+  try { while (S === mine && mine.trackQueue?.length) { const q = mine.trackQueue.shift(); await runTrack(q.athleteId, q.around); } }
+  finally { mine.trackBusy = false; mine.tracking = null; if (S === mine) { paintTrackHud(); refresh(); } }
 }
 /** Stretches to (re)compute, from the anchors as they are NOW. */
 function trackUnits(t, around) {
@@ -716,6 +746,7 @@ function trackUnits(t, around) {
   return units;
 }
 async function runTrack(athleteId, around) {
+  const mine = S, alive = () => S === mine;          // never write into another video opened meanwhile
   const t0 = trackOf(C(), athleteId); if (!t0) return;
   const units = trackUnits(t0, around); if (!units.length) return;
   const ctl = new AbortController(), me = { athleteId, pct: 0, ctl, queued: S.trackQueue?.length ?? 0 };
@@ -726,27 +757,27 @@ async function runTrack(athleteId, around) {
   let done = 0; const lostAll = [], bestAll = new Set();
   try {
     for (const unit of units) {
-      if (ctl.signal.aborted || !S) return;
+      if (ctl.signal.aborted || !alive()) return;
       const results = [];
       for (const j of unit) {
         const span = Math.abs(j.to - j.from);
-        const r = await trackBox({ src, fps: S.fps, from: j.from, to: j.to, bbox: j.bbox, step, signal: ctl.signal, hold: () => !!S?.playing,
-          onProgress: p => { me.pct = (done + p * span) / work; paintTrackHud(); } });
+        const r = await trackBox({ src, fps: S.fps, from: j.from, to: j.to, bbox: j.bbox, step, signal: ctl.signal, hold: () => alive() && !!S?.playing,
+          onProgress: p => { if (!alive()) return ctl.abort(); me.pct = (done + p * span) / work; paintTrackHud(); } });
         results.push({ ...j, ...r }); done += span;
       }
-      if (ctl.signal.aborted || !S) return;
+      if (ctl.signal.aborted || !alive()) return;
       const { best, lost } = fuseUnit(results);
       lostAll.push(...lost); for (const f of best.keys()) bestAll.add(f);
       commitUnit(athleteId, results, best);       // saved now, not at the end
     }
   } catch (e) {
-    if (!S) return;
+    if (!alive()) return;
     S.trackErr = { ...(S.trackErr ?? {}), [athleteId ?? '']: e.code === 'CORS'
       ? 'מעקב אוטומטי לא זמין לסרטון הזה: הדפדפן לא מורשה לקרוא את הווידאו מהענן (חסרה הרשאת CORS). ה-BOX נשמר בפריים שציירת.'
       : `המעקב האוטומטי נעצר: ${e.message}` };
     return;
   }
-  if (!S) return;
+  if (!alive()) return;
   if (S.trackErr) delete S.trackErr[athleteId ?? ''];
   const gaps = lostAll.filter(f => !bestAll.has(f)).sort((a, b) => a - b);
   S.trackLost = { ...(S.trackLost ?? {}), [athleteId ?? '']: gaps.length ? gaps : null };
@@ -791,7 +822,8 @@ function commitUnit(athleteId, results, best) {
     t.points.sort((x, y) => x.frame - y.frame);
     syncSegmentsFromTrack(c, t);
   }, { quiet: true });
-  paintTimeline(); paintOverlay(); if (S.inspTab === 'event') paintInspector();
+  // never re-render the timeline under a drag in progress (it would drop the pointer capture); the drag repaints on release
+  if (!S.dragging) paintTimeline(); paintOverlay(); if (S.inspTab === 'event' && !S.dragging) paintInspector();
 }
 /** True when the track does not yet cover the whole video densely (left unfinished, or made before this version). */
 function trackIncomplete(t) {
@@ -822,8 +854,48 @@ function retrackHere(s) {
   if (!trackOf(C(), aid)?.points.some(p => p.origin === 'manual')) return toast('צייר קודם תיבה על הגולש (B)', true);
   trackAthlete(aid, null);
 }
+/** The one athlete every event of this video is about (null when there are none or several). */
+function soleEventAthlete(c) {
+  const ids = new Set(c.segments.map(s => s.athlete_id ?? null)); ids.delete(null);
+  return ids.size === 1 ? [...ids][0] : null;
+}
+/** Who a box drawn with no event/athlete selected belongs to: the video owner, else the only athlete of its events. */
+function defaultBoxAthlete(c) { return S.src.owner_athlete_id ?? soleEventAthlete(c) ?? null; }
+/**
+ * Boxes drawn before an athlete was chosen live on a track with no athlete, so no event got them. When the video's
+ * events are all about one athlete, that track is theirs: hand its anchors over (merging with the athlete's own track
+ * if there is one) and re-track. Returns true when something was claimed.
+ */
+function claimOrphanTrack() {
+  const x = soleEventAthlete(C()), orphan = (C().tracks ?? []).find(t => (t.athlete_id ?? null) === null);
+  if (!x || !orphan || !orphan.points.length) return false;
+  const merge = !!trackOf(C(), x);
+  edit(c => {
+    const o = c.tracks.find(t => t.id === orphan.id), mine = trackOf(c, x);
+    if (!mine) o.athlete_id = x;
+    else {
+      const own = new Set(mine.points.filter(p => p.origin === 'manual').map(p => p.frame));
+      for (const p of o.points) if (p.origin === 'manual' && !own.has(p.frame)) setAnchor(c, x, p.frame, p.bbox);
+      c.tracks = c.tracks.filter(t => t !== o);
+    }
+    syncSegmentsFromTrack(c, trackOf(c, x));
+  }, { quiet: true });
+  toast('BOX שסומן לפני שנבחר גולש שויך לגולש של האירועים.');
+  if (merge) setTimeout(() => S && trackAthlete(x, null), 300);
+  return true;
+}
+/** Events that have no boxes yet while the track covers them (saved before events took boxes from the track). */
+function syncEventsOnOpen() {
+  const c = structuredClone(C());
+  for (const t of c.tracks ?? []) syncSegmentsFromTrack(c, t);
+  const sig = ks => ks.map(k => JSON.stringify([k.segment_id, k.frame, k.bbox, k.origin, k.id])).sort().join();
+  if (sig(c.keyframes) === sig(C().keyframes)) return;   // already in step: opening a video never rewrites it
+  edit(cc => { for (const t of cc.tracks ?? []) syncSegmentsFromTrack(cc, t); }, { quiet: true });
+}
 /** Boxes drawn before video-level tracking existed: turn an event's hand-drawn boxes into anchors, once. */
 function adoptLegacyBoxes() {
+  claimOrphanTrack();
+  syncEventsOnOpen();
   // an existing track that does not cover the whole video yet (left unfinished) is completed in the background
   for (const t of C().tracks ?? []) if (trackIncomplete(t) && t.points.some(p => p.origin === 'manual')) setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
   for (const s of C().segments) {
@@ -895,7 +967,7 @@ async function refreshStates() {
 function drawBox(e) {
   // A box can be drawn on ANY frame of the video. Inside the selected event it is also that event's box.
   const s = selSeg(), inSeg = !!s && S.frame >= s.start_frame && S.frame < s.end_frame;
-  const aid = s?.athlete_id ?? S.src.owner_athlete_id ?? null;
+  const aid = s?.athlete_id ?? defaultBoxAthlete(C());
   const ov = $('#ov'), a = norm(e, ov); const svg = $('#ovsvg'); const W = ov.clientWidth, H = ov.clientHeight, g = svgEl('rect', { class: 'bx', x: a.x * W, y: a.y * H, width: 0, height: 0, stroke: '#fff' }); svg.append(g); ov.setPointerCapture(e.pointerId);
   let box = null;
   const mv = ev => { const b = norm(ev, ov); box = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }; for (const [k, v] of [['x', box.x * W], ['y', box.y * H], ['width', box.w * W], ['height', box.h * H]]) g.setAttribute(k, v); };
@@ -1006,7 +1078,7 @@ function renderEventTab() {
     h('div', { class: 'meta' }, cov >= 0.999 ? 'צפית בכל הסרטון ✓' : `צפית ב-${Math.round(cov * 100)}% מהסרטון. כל מה שאתה מנגן נרשם לבד (הפס הכחול "מה שצפית" בציר הזמן). חלק שלא צפית בו אינו "אין אירוע".`),
     cov >= 0.999 ? null : h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' } },
       h('button', { class: 'btn', 'data-testid': 'reviewed-all', onclick: () => edit(c => { c.reviewed_ranges = [{ start_frame: 0, end_frame: S.total }]; }) }, 'צפיתי בכל הסרטון (גם בלי לנגן כאן)')),
-    h('details', { class: 'more', style: { marginTop: '6px' } },
+    h('details', { class: 'more', 'data-testid': 'watched-fix', style: { marginTop: '6px' } },
       h('summary', {}, 'תיקון ידני של מה שצפית'),
       h('div', { class: 'meta' }, 'לחץ "התחל אירוע כאן" בתחילת הקטע, עבור לסופו, ולחץ "סמן קטע כנצפה". "נקה" מוחק את כל הסימון.'),
       h('div', { style: { display: 'flex', gap: '6px', marginTop: '6px' } },
@@ -1019,7 +1091,11 @@ function renderEventTab() {
     S.setId !== 'primary' ? null : approvalForm(),
 
     S.setId !== 'primary' ? null : h('h3', {}, 'היסטוריית גרסאות מאושרות', h('span', { class: 'pill' }, S.revs.length)),
-    S.setId !== 'primary' ? null : h('ul', { class: 'list', 'data-testid': 'revlist' }, S.revs.length ? S.revs.map(r => h('li', {}, h('b', {}, `v${r.seq}`), h('span', { style: { flex: 1 }, class: 'meta' }, fmtDate(r.approved_at), r.reason ? ` · ${r.reason}` : ''), h('span', { class: 'mono ltr meta' }, r.digest.slice(0, 8)), h('button', { class: 'btn sm', title: 'טען כטיוטה', onclick: () => restoreRevision(r) }, 'שחזר'))) : [h('li', {}, 'אין גרסאות מאושרות')])
+    S.setId !== 'primary' ? null : h('ul', { class: 'list', 'data-testid': 'revlist' }, S.revs.length ? S.revs.map(r => h('li', {}, h('b', {}, `v${r.seq}`), h('span', { style: { flex: 1 }, class: 'meta' }, fmtDate(r.approved_at), r.reason ? ` · ${r.reason}` : ''), h('span', { class: 'mono ltr meta' }, r.digest.slice(0, 8)), h('button', { class: 'btn sm', title: 'טען כטיוטה', onclick: () => restoreRevision(r) }, 'שחזר'))) : [h('li', {}, 'אין גרסאות מאושרות')]),
+    S.setId !== 'primary' ? null : h('details', { class: 'more', 'data-testid': 'reset-zone', style: { marginTop: '14px' } },
+      h('summary', {}, 'טעיתי - קטלג את הסרטון מחדש'),
+      h('div', { class: 'meta' }, 'מוחק את כל הסימונים של הסרטון הזה (אירועים, BOX, מעקב, מה שצפית) ומתחיל נקי. בעלים, ענף וגרסאות מאושרות לא משתנים. אפשר לבטל מיד אחרי.'),
+      h('button', { class: 'btn danger', 'data-testid': 'reset-catalog', style: { marginTop: '6px' }, onclick: confirmReset }, 'קטלג מחדש'))
   );
 }
 
@@ -1773,7 +1849,11 @@ function sportPicker() {
       h('option', { value: '' }, 'לא מסווג'), sportsList().filter(x => x.enabled || x.id === cur).map(x => h('option', { value: x.id, selected: x.id === cur }, x.name_he))));
 }
 async function changeSport(next, prev, opts = {}) {
-  if (S.save !== 'saved' || S.inflight) { toast('יש שינויים שטרם נשמרו — המתן לשמירה לפני שינוי ענף', true); return refresh(); }
+  if (S.save !== 'saved' || S.inflight) {                     // background saves (tracking) are normal: wait for them
+    clearTimeout(S.saveTimer); for (let i = 0; i < 100 && S.inflight; i++) await new Promise(r => setTimeout(r, 50));
+    if (S.save !== 'saved') await save();
+    if (S.save !== 'saved') { toast('השמירה נכשלה - פתור את הודעת השמירה ואז בחר ענף שוב', true); return refresh(); }
+  }
   if (!opts.confirmed && (S.revs.length || next == null)) {
     return dialog('שינוי ענף ספורט', h('div', {}, h('p', {}, S.revs.length ? 'לסרטון יש גרסאות מאושרות. הן והדאטהסטים הקפואים לא ישתנו; רק הטיוטה והסיווג הנוכחי.' : 'לשנות את הסיווג?'), h('p', { class: 'meta' }, `${sportName(prev ?? null)} ← ${sportName(next)}`)), [
       h('button', { class: 'btn primary', 'data-testid': 'confirm-sport', onclick: () => { closeDialog(); changeSport(next, prev, { confirmed: true }); } }, 'אשר שינוי'),

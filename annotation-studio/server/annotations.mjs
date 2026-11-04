@@ -181,6 +181,46 @@ export function saveDraft(db, sourceId, expectedVersion, content) {
   });
 }
 
+/**
+ * Start a video's catalog over (operator mistake): the draft becomes empty. Nothing is lost: the whole previous draft
+ * is written first to the append-only audit log, and restoreReset() brings it back. Approved revisions are immutable
+ * and untouched; owner, sport and the video itself are not part of the draft and stay as they are.
+ */
+export function resetDraft(db, sourceId, expectedVersion, { actor = 'operator' } = {}) {
+  getSource(db, sourceId);
+  return tx(db, () => {
+    const cur = db.prepare('select version, content from annotation_drafts where source_id=?').get(sourceId);
+    const curV = cur?.version ?? 0;
+    if (curV !== expectedVersion) throw new ApiError('VERSION_CONFLICT');
+    const prev = cur ? JSON.parse(cur.content) : null;
+    const empty = !prev || (!prev.segments?.length && !prev.keyframes?.length && !prev.tracks?.length && !prev.reviewed_ranges?.length && !prev.catalog_triage);
+    if (empty) throw new ApiError('INVALID_INPUT', 'אין מה לאפס: הקטלוג של הסרטון כבר ריק');
+    audit(db, actor, 'draft_reset', sourceId, { previous_version: curV, reset_to_version: curV + 1, previous_content: prev });
+    const rev = latestRevision(db, sourceId);
+    db.prepare('update annotation_drafts set version=?, content=?, base_revision_id=?, updated_at=? where source_id=?')
+      .run(curV + 1, JSON.stringify(emptyContent()), rev?.id ?? null, now(), sourceId);
+    return { version: curV + 1 };
+  });
+}
+/** Undo the latest reset of this video: the saved draft comes back as a new version (only while nothing new was saved). */
+export function restoreReset(db, sourceId, expectedVersion, { actor = 'operator' } = {}) {
+  const source = getSource(db, sourceId);
+  const last = db.prepare("select id, action, detail from audit_log where subject=? and action in ('draft_reset','draft_reset_undone') order by id desc limit 1").get(sourceId);
+  if (!last || last.action !== 'draft_reset') throw new ApiError('NOT_FOUND', 'אין איפוס שאפשר לבטל לסרטון הזה');
+  const { previous_content: content, reset_to_version: resetV } = JSON.parse(last.detail);
+  validateContent(content, source, db);
+  return tx(db, () => {
+    const cur = db.prepare('select version from annotation_drafts where source_id=?').get(sourceId);
+    const curV = cur?.version ?? 0;
+    if (curV !== expectedVersion) throw new ApiError('VERSION_CONFLICT');
+    if (resetV != null && curV !== resetV) throw new ApiError('VERSION_CONFLICT', 'נשמרו סימונים חדשים אחרי האיפוס, ולכן לא משחזרים מעליהם');
+    db.prepare('update annotation_drafts set version=?, content=?, updated_at=? where source_id=?').run(curV + 1, JSON.stringify(content), now(), sourceId);
+    audit(db, actor, 'draft_reset_undone', sourceId, { from_reset: last.id });
+    syncAppearances(db, sourceId, content);
+    return { version: curV + 1 };
+  });
+}
+
 function syncAppearances(db, sourceId, content) {
   const t = now();
   for (const a of new Set(content.segments.map(s => s.athlete_id).filter(Boolean))) {
