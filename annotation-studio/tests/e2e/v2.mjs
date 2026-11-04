@@ -207,6 +207,7 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) 
     await page.waitForSelector('[data-testid=segform]');
     for (let i = 0; i < 12 && await frameNum() > 0; i++) await page.keyboard.press('Shift+ArrowLeft');   // playhead to frame 0, outside [20,80)
     assert.equal(await frameNum(), 0);
+    if (!await page.locator('[data-testid=event-more]').evaluate(d => d.open)) await page.click('[data-testid=event-more] summary');
     await page.locator('[data-testid=segform] button', { hasText: 'תחילת רכיבה' }).first().click();
     await page.waitForTimeout(900);
     assert.equal(draft(src.id).segments[0].key_moments?.takeoff_frame, undefined, 'out-of-range key moment never enters the draft');

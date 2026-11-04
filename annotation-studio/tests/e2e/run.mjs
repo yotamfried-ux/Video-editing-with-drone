@@ -138,7 +138,8 @@ await scenario('reload keeps exact frames (persistence); interpolation fill + co
   const after = await page.$$eval('[data-testid=seglist] .mono', els => els.map(e => e.textContent));
   assert.deepEqual(after, before);
   await page.click('[data-testid=segment]'); await page.waitForSelector('[data-testid=segform]');
-  await page.click('text=מלא ביניים (משוער)'); await waitSaved();
+  if (!await page.locator('[data-testid=event-more]').evaluate(d => d.open)) await page.click('[data-testid=event-more] summary');
+  await page.click('text=מלא BOX בין התיבות (משוער)'); await waitSaved();
   assert.ok(await page.locator('[data-testid=kflist] li').count() > 2);
 });
 
@@ -163,6 +164,7 @@ await scenario('undo/redo, delete segment, shortcuts help dialog', async () => {
 
 await scenario('overlay toggle hides boxes without changing saved labels', async () => {
   const n = await page.locator('[data-testid=kflist] li').count();
+  if (!await page.locator('button:has-text("תיבות")').count()) await page.click('[data-testid=more-controls]');   // advanced tools live under "עוד"
   await page.click('button:has-text("תיבות")');
   assert.equal(await page.locator('[data-testid=bbox]').count(), 0);
   await page.click('button:has-text("תיבות")');
