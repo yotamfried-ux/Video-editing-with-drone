@@ -51,6 +51,7 @@ async function boot() {
   page.on('pageerror', e => consoleErrors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') consoleErrors.push(m.text()); });
   await page.goto(`${base}/?t=wf-token`);
+  await page.goto(`${base}/#/library`);
 }
 async function shutdown() {           // simulates closing the program: browser, HTTP server and database handle all go away
   await browser.close(); server.closeAllConnections(); await new Promise(r => server.close(r)); ctx.db.close();

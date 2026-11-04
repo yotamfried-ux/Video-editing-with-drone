@@ -46,7 +46,11 @@ await page.goto(`${base}/?t=demo-token`);
 await scenario('catalog is the first menu entry; queue and progress show every video with what is missing', async () => {
   await page.goto(`${base}/#/catalog`);
   await page.waitForSelector('[data-testid=quick-catalog]');
-  assert.match(await page.textContent('.nav a:first-child'), /קטלוג מהיר/);
+  assert.match(await page.textContent('.nav a:first-child'), /קטלוג/);
+  // one cataloguing process: no separate quick/long entries, marking reached through the catalog
+  const navText = await page.textContent('.nav');
+  for (const gone of ['ספרייה', 'סימון', 'קטלוג מהיר']) assert.ok(!navText.includes(gone), `no separate "${gone}" entry in the menu`);
+  await page.waitForFunction(() => /^v \S+/.test(document.querySelector('[data-testid=app-version]')?.textContent ?? ''));
   const all = db.prepare('select count(*) c from sources').get().c;
   assert.equal(Number(await page.getAttribute('[data-testid=qc-progress]', 'data-all')), all);
   assert.ok(await page.locator('[data-testid=qc-item]').count() >= 1);
@@ -72,6 +76,7 @@ await scenario('video with no events: new surfer + sport + "no events" completes
   assert.deepEqual(draft(s.id).reviewed_ranges, [{ start_frame: 0, end_frame: row.frame_count }]);
   assert.equal(draft(s.id).segments.length, 0);
   assert.equal(Number(await page.getAttribute('[data-testid=qc-progress]', 'data-complete')), before + 1);
+  assert.ok(!/(^|\s)(null|undefined)(\s|$)/.test(await page.textContent('[data-testid=qc-detail]')), 'no stray null/undefined text');
   await shot('02-no-events-done');
 });
 
@@ -130,6 +135,21 @@ await scenario('BOX strip: ✕ on a frame blocks approval with the specific reas
   const j = await r.json();
   assert.equal(r.status, 409); assert.equal(j.code, 'BLOCKING_ITEMS');
   assert.ok(j.unresolved?.blocking?.boxes_needing_correction >= 1, `blocked because of the wrong surfer: ${JSON.stringify(j.unresolved)}`);
+});
+
+await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
+  const s = src('DJI_0415.mp4');
+  await page.goto(`${base}/#/annotate/${s.id}`);
+  await page.waitForSelector('[data-testid=workbench]');
+  const bad = { schema: 1, segments: [{ id: 'past-end', start_frame: s.frame_count - 20, end_frame: s.frame_count + 30, athlete_id: null, event_type: 'wave_ride', decision: 'uncertain', usability: 'uncertain', reason_codes: [], key_moments: {} }], keyframes: [], reviewed_ranges: [], box_verifications: [] };
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`studio.pending.${s.id}`, JSON.stringify({ base: 0, content: bad, at: Date.now() })]);
+  await page.reload();
+  await page.waitForSelector('[data-testid=workbench]');
+  await until(() => /חרג מסוף הסרטון/.test(document.querySelector('[data-testid=inspector-banner]')?.textContent ?? ''));
+  await saved();
+  const d = draft(s.id);
+  assert.equal(d.segments[0].end_frame, s.frame_count, 'event clamped to the last frame, not dropped');
+  assert.equal(d.segments[0].start_frame, s.frame_count - 20);
 });
 
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });

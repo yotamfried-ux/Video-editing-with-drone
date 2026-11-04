@@ -1,4 +1,5 @@
-// Quick catalog ("קטלוג מהיר"): one video at a time, three short questions, then a checklist of every remaining field.
+// Catalog ("קטלוג"): THE cataloguing process. One video at a time, three short questions, then a checklist of every
+// remaining field; the marking workbench is step 4 of the same process (opened at the right event/tab, with a way back).
 // Nothing here is a second copy of the data: owner, sport and the draft are read and written through the same APIs the
 // library and the workbench use, so no catalogued detail can be lost or diverge. Details of each event (performer,
 // usability, decision, reasons, key moments, BOX) are edited in the workbench, opened directly at the right event/tab.
@@ -39,9 +40,26 @@ export async function renderCatalog(root, selId) {
     sel = n; render();
   }
 
+  async function runJob(btn, url, msg) {
+    btn.disabled = true;
+    try {
+      let j = await api(url, { method: 'POST', body: {} });
+      do { await new Promise(r => setTimeout(r, 500)); j = await api(`/api/jobs/${j.job_id}`); } while (j.state === 'running');
+      if (j.state !== 'done') throw new Error(j.error ?? 'הפעולה נכשלה');
+      toast(msg(j.report)); await reload(sel ? keyOf(sel) : null);
+    } catch (e) { toast(e.code === 'CLOUD_NOT_CONFIGURED' ? 'הענן לא מוגדר במחשב הזה (.studio-cloud.env)' : e.message, true); }
+    btn.disabled = false;
+  }
+
   function render() {
+    if (!root.isConnected) return;   // the operator already navigated elsewhere
     const pct = q.totals.all ? Math.round((q.totals.complete / q.totals.all) * 100) : 0;
-    setTopbar(h('strong', {}, 'קטלוג מהיר'), h('span', { class: 'meta' }, `${q.totals.complete} מתוך ${q.totals.all} סרטונים הושלמו`));
+    setTopbar(h('strong', {}, 'קטלוג'), h('span', { class: 'meta' }, `${q.totals.complete} מתוך ${q.totals.all} סרטונים הושלמו`),
+      h('span', { class: 'spacer' }),
+      h('button', { class: 'btn sm', 'data-testid': 'qc-sync-cloud', title: 'מעדכן את רשימת הסרטונים מהענן (קריאה בלבד)', onclick: e => runJob(e.target, '/api/cloud/sync', r => `נמצאו ${r.raw + r.processed_legacy} סרטונים בענן`) }, 'עדכן מהענן'),
+      h('button', { class: 'btn sm', title: 'קולט סרטונים מתיקיות המחשב', onclick: e => runJob(e.target, '/api/ingestion/reconcile', r => `נקלטו ${r.ingested} סרטונים חדשים`) }, 'קלוט מהמחשב'),
+      h('a', { class: 'btn sm', href: '#/library', title: 'שיוך/סיווג של הרבה סרטונים יחד, אימות ארכיון' }, 'פעולות מרובות'),
+      h('a', { class: 'btn sm', href: '#/cloud', title: 'מצב הסרטונים בענן ואימות זהות' }, 'מצב הענן'));
     root.replaceChildren(h('div', { class: 'page qc', 'data-testid': 'quick-catalog' },
       h('div', { class: 'qc-head' },
         h('div', { style: { flex: 1 } },
@@ -77,7 +95,7 @@ export async function renderCatalog(root, selId) {
     const vid = h('video', { class: 'qc-video', controls: true, preload: 'metadata', 'data-testid': 'qc-video' });
     api(`/api/sources/${i.source_id}`).then(s => { vid.src = s.playback_url; }).catch(() => {});
     const ok = k => i.video.find(x => x.key === k)?.ok;
-    main.append(
+    main.append(...[
       h('div', { class: 'qc-title' }, h('h2', { class: 'ltr mono' }, i.name), i.complete ? pill('הקטלוג של הסרטון הושלם', 'ok') : pill(`חסרים ${i.missing} פריטים`, 'warn'), i.approved ? pill('Ground Truth מאושר', 'ok') : null),
       h('div', { class: 'qc-split' },
         h('div', { class: 'qc-steps' },
@@ -89,7 +107,7 @@ export async function renderCatalog(root, selId) {
       h('div', { class: 'qc-foot' },
         i.triage === 'has_events' ? h('button', { class: 'btn', onclick: () => openInWorkbench(i.source_id) }, 'פתח בעמוד הסימון') : null,
         h('span', { class: 'spacer' }),
-        h('button', { class: 'btn primary', 'data-testid': 'qc-next', onclick: next }, 'לסרטון הבא ←')));
+        h('button', { class: 'btn primary', 'data-testid': 'qc-next', onclick: next }, 'לסרטון הבא ←'))].filter(Boolean));   // DOM append would print "null"
     return main;
   }
 

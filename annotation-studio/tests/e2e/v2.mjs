@@ -52,6 +52,7 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) 
   const surfer = `גולש בדיקה ${tag}`;
   console.log(`V2 operator journey @ ${tag}`);
   await page.goto(`${base}/?t=demo-token`);
+  await page.goto(`${base}/#/library`);
 
   await scenario(`${tag} layout: RTL, no horizontal scroll, library visible`, async () => {
     await page.waitForSelector('[data-testid=source-card]');

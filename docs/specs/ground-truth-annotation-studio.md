@@ -504,6 +504,11 @@ The following changes the system's **behaviour** to meet §§21–22 as written.
   - `unsure` raises the review request.
   - API: `GET /api/catalog/queue`, `GET /api/catalog/sources/:id`, `POST /api/catalog/sources/:id/triage`.
 - **BOX track strip.** The box tab shows zoomed thumbnails of the box along the event (required checkpoints, every drawn box and 12 evenly spaced frames), each decided with one click (✓ ✕ ◌ ?). ✓ on an estimated frame materializes an exact-frame box bound to the decision, so a decision still applies only to the frame it was made on.
+- **One cataloguing process (operator request).** The catalog is the only cataloguing entry and the default screen. The marking workbench is its event/BOX step: it is opened from the catalog and highlighted under it, and always offers "back to catalog". Library and cloud remain as source-management tools reached from the catalog header, not as parallel catalogue paths. No field was removed.
+- **Fixed address.** The login cookie is now persistent (1 year, HttpOnly, SameSite=Strict, server bound to 127.0.0.1), so `http://127.0.0.1:4173/#/catalog` keeps working after a browser restart.
+  - The launcher stops an older Studio still listening on the port, so the updated code is what serves. It also prints the code version and creates a desktop shortcut.
+  - `GET /api/version` reports the running commit, shown under the menu.
+- **Repair of events beyond the video end.** An event whose range runs past the last frame (previously shown only as the generic "טווח פריימים לא תקין") is clamped before saving, with a visible note; it is never dropped.
 - **Error detail reaches the operator.** The client shows the server's specific `detail` (which frame, which event) instead of only the generic message.
 
 **Gate status at this update:** `CATALOG_GO` = **NO-GO**: the save P0 needs re-verification on the workstation, the token probe was not run, the backup is on the same disk, and the catalog flow is hard to follow (P1). `FULL_SPEC_GO` = **NO-GO**. See [CATALOG-READINESS](../annotation-studio/qualification/CATALOG-READINESS.md).

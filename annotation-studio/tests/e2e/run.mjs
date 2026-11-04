@@ -44,6 +44,7 @@ const videoReady = () => until(() => { const v = document.querySelector('#vid');
 
 console.log('Annotation Studio E2E');
 await page.goto(`${base}/?t=demo-token`);
+await page.goto(`${base}/#/library`);
 
 await scenario('library: cards, dedup, archive badge, filters, next-unannotated', async () => {
   await page.waitForSelector('[data-testid=source-card]');

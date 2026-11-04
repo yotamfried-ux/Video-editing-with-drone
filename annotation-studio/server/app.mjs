@@ -20,6 +20,19 @@ import { backupStatus } from './offsite.mjs';
 import * as Sets from './sets.mjs';
 import * as Lin from './lineage.mjs';
 import * as QC from './quickcatalog.mjs';
+import { spawnSync } from 'node:child_process';
+
+/** The running code's git commit (or package version), shown in the UI so the operator can tell which version is open. */
+let versionCache = null;
+function appVersion() {
+  if (versionCache) return versionCache;
+  const here = path.dirname(fileURLToPath(import.meta.url));
+  let commit = null;
+  try { const r = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here, encoding: 'utf8', timeout: 3000 }); if (r.status === 0) commit = r.stdout.trim() || null; } catch { /* git not installed */ }
+  let version = null;
+  try { version = JSON.parse(readFileSync(path.join(here, '..', 'package.json'), 'utf8')).version ?? null; } catch { /* no package.json */ }
+  return (versionCache = { commit, version });
+}
 
 const WEB = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'web');
 const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -100,6 +113,7 @@ export function createApp(ctx) {
     }
 
     // ---- Quick catalog: one queue with every catalog field per video and per event (reads/writes the same stores) ----
+    if (m === 'GET' && p === '/api/version') return send(res, 200, appVersion());
     if (m === 'GET' && p === '/api/catalog/queue') return send(res, 200, QC.catalogQueue(db, { include: ctx.cloudInclude ?? '', likeContains: C.likeContains }));
     if ((r = /^\/api\/catalog\/sources\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, QC.sourceCatalogState(db, A.getSource(db, r[1])));
     if ((r = /^\/api\/catalog\/sources\/([\w-]+)\/triage$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, QC.setTriage(db, r[1], b)); }
@@ -364,7 +378,9 @@ export function createApp(ctx) {
       if (!hostOk(req)) return send(res, 403, { code: 'PERMISSION_DENIED' });
       const url = new URL(req.url, 'http://localhost');
       if (url.pathname === '/' && url.searchParams.get('t') && safeEq(url.searchParams.get('t'), token)) {
-        res.writeHead(302, { location: '/', 'set-cookie': `studio_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/` });
+        res.writeHead(302, { location: '/', // Persistent (1 year) so the fixed address http://127.0.0.1:<port>/ keeps working after the browser is closed;
+        // still HttpOnly + SameSite=Strict, and the server only listens on 127.0.0.1.
+        'set-cookie': `studio_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` });
         return res.end();
       }
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {

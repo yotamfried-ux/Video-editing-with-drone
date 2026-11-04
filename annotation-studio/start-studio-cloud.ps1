@@ -57,7 +57,28 @@ if ($settings.ContainsKey('STUDIO_CLOUD_METADATA') -and $settings['STUDIO_CLOUD_
   Write-Host ("!  STUDIO_CLOUD_METADATA points to a file that does not exist: " + $settings['STUDIO_CLOUD_METADATA'] + " (continuing without it)") -ForegroundColor Yellow
 }
 
-# ---- 3. start + open the browser -------------------------------------------------------------------------------
+# ---- 3. make sure the UPDATED code is what starts --------------------------------------------------------------
+# An older Studio left running keeps serving the old version on the same port, so the browser shows old screens.
+$port = if ($settings.ContainsKey('STUDIO_PORT') -and $settings['STUDIO_PORT'] -ne '') { [int]$settings['STUDIO_PORT'] } else { 4173 }
+$busy = @(Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction SilentlyContinue)
+foreach ($c in $busy) {
+  $p = Get-Process -Id $c.OwningProcess -ErrorAction SilentlyContinue
+  if ($p -and $p.ProcessName -eq 'node') {
+    Write-Host "!  An older Studio is still running on port $port. Stopping it so the updated version starts (unsaved changes stay queued in the browser)." -ForegroundColor Yellow
+    Stop-Process -Id $p.Id -Force
+    Start-Sleep -Milliseconds 800
+  } elseif ($p) {
+    Stop-WithMessage "Port $port is used by another program ($($p.ProcessName)). Close it, or set STUDIO_PORT to another number in .studio-cloud.env."
+  }
+}
+if (Get-Command git -ErrorAction SilentlyContinue) {
+  $commit = (& git rev-parse --short HEAD 2>$null)
+  $branch = (& git rev-parse --abbrev-ref HEAD 2>$null)
+  if ($commit) { Ok "Code version $commit ($branch)" }
+  if ($branch -and $branch -ne 'main') { Write-Host "!  You are on branch '$branch', not 'main'. To get the latest version run: git checkout main; git pull" -ForegroundColor Yellow }
+}
+
+# ---- 4. start + open the browser -------------------------------------------------------------------------------
 $out = Join-Path $env:TEMP 'studio-cloud.out.log'
 $err = Join-Path $env:TEMP 'studio-cloud.err.log'
 Remove-Item -LiteralPath $out, $err -ErrorAction SilentlyContinue
@@ -77,7 +98,24 @@ if (-not $url) {
   if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue }
   Stop-WithMessage ("The Studio did not start. " + $detail)
 }
-Ok "Studio is running: $url"
+Ok "Studio is running"
+$fixed = "http://127.0.0.1:$port/#/catalog"
+Write-Host ''
+Write-Host "   Fixed address (bookmark it): $fixed" -ForegroundColor Cyan
+Write-Host ''
+# One desktop shortcut that always starts the Studio and opens the fixed address.
+try {
+  $lnk = Join-Path ([Environment]::GetFolderPath('Desktop')) 'SportReel Studio.lnk'
+  if (-not (Test-Path -LiteralPath $lnk)) {
+    $sh = New-Object -ComObject WScript.Shell
+    $sc = $sh.CreateShortcut($lnk)
+    $sc.TargetPath = Join-Path $PSScriptRoot 'start-studio-cloud.cmd'
+    $sc.WorkingDirectory = $PSScriptRoot
+    $sc.Description = 'SportReel Annotation Studio'
+    $sc.Save()
+    Ok 'Desktop shortcut "SportReel Studio" created'
+  }
+} catch { Write-Host '!  Could not create the desktop shortcut (not required).' -ForegroundColor Yellow }
 Write-Host 'Opening your browser. Keep this window open while you work; close it (or press Ctrl+C) to stop the Studio.' -ForegroundColor Cyan
 Start-Process $url
 try { Wait-Process -Id $proc.Id } finally { if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } }
