@@ -63,13 +63,14 @@ test('hosted: jobs finish inside the request; originals go to a short-lived pre-
     const sync = await h.req('/api/cloud/sync', { method: 'POST', headers: { ...h.auth, origin: `https://${HOST}` } });
     assert.equal(sync.status, 200, JSON.stringify(sync.json)); assert.equal(sync.json.state, 'done', 'no polling needed');
     const obj = h.ctx.db.prepare("select id from cloud_objects where key='raw/DJI_0001.mp4'").get();
-    // opening probes the video straight from R2 through a pre-signed link (no local media route, no derivatives)
+    // opening reads the MP4 header straight from R2 with byte-range reads: no ffprobe binary exists on the host
+    const savedPath = process.env.PATH; process.env.PATH = '/nonexistent';
     const open = await h.req(`/api/cloud/objects/${obj.id}/open`, { method: 'POST', headers: { ...h.auth, origin: `https://${HOST}` } });
+    process.env.PATH = savedPath;
     assert.equal(open.json.state, 'done', JSON.stringify(open.json));
     const sid = open.json.report.source_id;
     const src = h.ctx.db.prepare('select frame_count, fps_num, proxy_path, thumb_path, provider from sources where id=?').get(sid);
     assert.ok(src.frame_count > 0 && src.fps_num > 0, 'probed from the pre-signed link'); assert.equal(src.proxy_path, null); assert.equal(src.thumb_path, null);
-    assert.ok(h.stub.log.some(e => e.presigned), 'the probe used a pre-signed link');
     const card = await h.req(`/api/sources/${sid}`, { headers: h.auth });
     assert.equal(card.json.playback_url, `/media/${sid}/original`);
     const media = await h.req(`/media/${sid}/original`, { headers: h.auth });

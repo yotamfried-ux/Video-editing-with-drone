@@ -11,6 +11,7 @@ const isSyntheticTestClip = k => /100000001[68]\.mp4/i.test(k) || /(?:^|\/)batch
 //  * A cloud source is identified by sha256+byte_size like every other source. The SHA-256 comes from the durable
 //    source_uploads record (computed by the pipeline) and is re-verified from the bytes by an explicit verify job;
 //    approving Ground Truth requires that verification to have passed.
+import { probeMp4, rangeReaderForCloud } from './mp4probe.mjs';
 import { createHash, randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { readFileSync } from 'node:fs';
@@ -252,9 +253,10 @@ async function openCloudObjectOnce(ctx, id, { baseUrl }) {
     });
     return { source_id: existing.id, reused: true };
   }
-  // Hosted: probe straight from R2 through a short-lived read-only link (no local media route, no long-lived process).
-  const url = ctx.serverless ? ctx.cloud.presignGet(obj.key, 900) : `${baseUrl}/media/cloud/${id}/original`;
-  const meta = await probe(url, ctx.serverless ? {} : { headers: `Authorization: Bearer ${ctx.token}\r\n` });
+  // Hosted: read the MP4 header straight from R2 with a few byte-range reads (no ffprobe binary on serverless hosts).
+  const url = `${baseUrl}/media/cloud/${id}/original`;
+  const meta = ctx.serverless ? await probeMp4(rangeReaderForCloud(ctx.cloud, obj.key), head.size)
+    : await probe(url, { headers: `Authorization: Bearer ${ctx.token}\r\n` });
   const sid = randomUUID();
   tx(ctx.db, () => {
     ctx.db.prepare(`insert into sources(id,sha256,byte_size,display_name,session_key,codec,width,height,rotation,fps_num,fps_den,frame_count,duration_ms,captured_at,ingest_state,provider,cloud_key,verify_state,archive_verified_at,created_at)
