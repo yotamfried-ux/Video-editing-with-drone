@@ -82,6 +82,26 @@ node --env-file=.studio-cloud.env scripts\migrate-to-cloud.mjs --url https://stu
 - הענן מקבל את הנתונים **רק אם מסד הנתונים בענן ריק**, ובודק כל טבלה אחרי הייבוא.
 - אם עבדת כבר בסטודיו בענן לפני ההעברה, הייבוא ייחסם (`IMPORT_TARGET_NOT_EMPTY`) כדי לא לדרוס נתונים. במקרה כזה פנה אליי.
 
+## מעקב BOX אוטומטי בענן: הרשאת CORS לדלי R2
+המעקב האוטומטי קורא את פיקסלי הווידאו בדפדפן. במחשב זה עובד בלי שום הגדרה. בכתובת בענן הווידאו מגיע ישירות מ־R2, ולכן הדלי צריך לאשר קריאה מהכתובות של הסטודיו. בלי ההרשאה הסטודיו מציג הודעה, וה־BOX נשמר רק בפריים שציירת.
+
+ההגדרה לא נוגעת בסרטונים. היא רק מתירה לדפדפן לקרוא אותם מהכתובות האלה.
+
+1. Cloudflare ← **R2** ← הדלי `sportreel` ← **Settings** ← **CORS Policy** ← **Add CORS policy**.
+2. הדבק:
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://studio.d2ryf.com", "https://sportreel-studio.vercel.app"],
+       "AllowedMethods": ["GET", "HEAD"],
+       "AllowedHeaders": ["Range"],
+       "ExposeHeaders": ["Content-Length", "Content-Range", "Accept-Ranges"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+3. שמור, ורענן את הסטודיו.
+
 ## אבטחה: שדרוג מומלץ
 - **אימות מלא של החיבור למסד הנתונים:**
   1. ב־Supabase ← **Database Settings** ← **SSL Configuration** ← הורד את התעודה.

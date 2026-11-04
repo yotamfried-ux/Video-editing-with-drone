@@ -4,6 +4,7 @@ import {
   eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS, REASON_LIST, awaitJob
 } from './ui.js';
 import { setTopbar, rememberSource } from './main.js';
+import { trackBox } from './tracker.js';
 
 const SPEEDS = [0.25, 0.5, 1, 2];
 const COLORS = ['#3ddc97', '#4cc9f0', '#ffa657', '#c792ea', '#ff777e'];
@@ -166,7 +167,8 @@ function layout() {
           h('div', { class: 'hud' },
             h('span', { class: 'pill mono', id: 'hudfr' }, ''),
             h('span', { class: 'pill', id: 'hudtool' }, ''),
-            h('span', { class: 'pill mark-live', id: 'hudmark', 'data-testid': 'mark-live', style: { display: 'none' } }, '')
+            h('span', { class: 'pill mark-live', id: 'hudmark', 'data-testid': 'mark-live', style: { display: 'none' } }, ''),
+            h('span', { class: 'pill track-live', id: 'hudtrack', 'data-testid': 'track-progress', style: { display: 'none' } }, '')
           ),
           h('div', { class: 'boxhover', id: 'boxHover', style: { position: 'absolute', bottom: '12px', right: '12px', display: 'none' } }, '')
         )
@@ -397,7 +399,7 @@ function paintTimeline() {
       },
         h('span', { class: 'h l' }), `${icon} ${eventHe(s.event_type, effSport(s))}`, h('span', { class: 'h r' })
       );
-      for (const k of C().keyframes.filter(k => k.segment_id === s.id)) {
+      for (const k of C().keyframes.filter(k => k.segment_id === s.id && k.origin !== 'suggested')) {   // tracked points would clutter the bar
         el.append(h('i', { class: `kfm${k.origin === 'manual' ? '' : ' i'}`, style: { left: `${xOf(k.frame - s.start_frame)}px` } }));
       }
       bindSegment(el, s); row.append(el);
@@ -604,6 +606,70 @@ function putKeyframe(s, bbox, provenance = 'manual') {
   });
 }
 
+// ---- automatic tracking: the drawn box follows the athlete through the whole event ----
+// Tracked boxes are origin 'suggested' (dashed, "משוער"): an estimate, never a verification. Tracking runs from the
+// drawn frame forward to the next hand-drawn box (or the end of the event) and backward to the previous one (or the
+// start), replacing older unchecked estimates in that stretch. A correction re-tracks from the corrected frame.
+async function autoTrack(s, f0) {
+  if (S.tracking) S.tracking.ctl.abort();
+  const seg0 = () => C().segments.find(x => x.id === s.id);
+  const anchor = C().keyframes.find(k => k.segment_id === s.id && k.frame === f0 && k.origin === 'manual');
+  if (!anchor || !seg0()) return;
+  const man = C().keyframes.filter(k => k.segment_id === s.id && k.origin === 'manual' && k.frame !== f0).map(k => k.frame);
+  const nextMan = Math.min(...man.filter(f => f > f0), Infinity), prevMan = Math.max(...man.filter(f => f < f0), -Infinity);
+  const hi = Number.isFinite(nextMan) ? nextMan - 1 : seg0().end_frame - 1, lo = Number.isFinite(prevMan) ? prevMan + 1 : seg0().start_frame;
+  if (hi <= f0 && lo >= f0) return;
+  const ctl = new AbortController(), me = { segId: s.id, pct: 0, ctl };
+  S.tracking = me; paintTrackHud(); paintInspector();
+  const src = S.quality === 'original' ? `/media/${S.src.id}/original` : S.src.playback_url;
+  const step = Math.max(1, Math.round(S.fps / 10));
+  const span = (hi - f0) + (f0 - lo) || 1;
+  const prog = (done) => p => { me.pct = (done + p * (done === 0 ? hi - f0 : f0 - lo)) / span; paintTrackHud(); };
+  let fwd = { boxes: [], lost: null }, back = { boxes: [], lost: null };
+  try {
+    if (hi > f0) fwd = await trackBox({ src, fps: S.fps, from: f0, to: hi, bbox: anchor.bbox, step, signal: ctl.signal, onProgress: prog(0) });
+    if (lo < f0 && !ctl.signal.aborted) back = await trackBox({ src, fps: S.fps, from: f0, to: lo, bbox: anchor.bbox, step, signal: ctl.signal, onProgress: prog(hi - f0) });
+  } catch (e) {
+    if (S?.tracking === me) S.tracking = null;
+    paintTrackHud();
+    if (e.code === 'CORS') S.banner = { kind: 'warn', testid: 'track-cors', text: 'מעקב אוטומטי לא זמין לסרטון הזה: הדפדפן לא מורשה לקרוא את הווידאו מהענן (צריך להוסיף הרשאת CORS לדלי R2). ה-BOX נשמר בפריים שציירת. אפשר לצייר תיבות נוספות ולמלא ביניהן.' };
+    else toast(e.message, true);
+    return refresh();
+  }
+  if (!S || S.tracking !== me || ctl.signal.aborted || !seg0()) return;
+  S.tracking = null;
+  const got = [...fwd.boxes, ...back.boxes];
+  const lost = [fwd.lost, back.lost].filter(x => x != null);
+  edit(c => {
+    const seg = c.segments.find(x => x.id === s.id); if (!seg) return;
+    const checked = f => !!latestVerification(c, s.id, f);
+    c.keyframes = c.keyframes.filter(k => !(k.segment_id === s.id && k.origin === 'suggested' && k.frame >= lo && k.frame <= hi && k.frame !== f0 && !checked(k.frame)));
+    const taken = new Set(c.keyframes.filter(k => k.segment_id === s.id).map(k => k.frame));
+    for (const b of got) {
+      if (taken.has(b.frame) || b.frame < seg.start_frame || b.frame >= seg.end_frame) continue;
+      const bb = { x: +b.bbox.x.toFixed(5), y: +b.bbox.y.toFixed(5), w: +b.bbox.w.toFixed(5), h: +b.bbox.h.toFixed(5) };
+      c.keyframes.push({ id: uid(), segment_id: s.id, frame: b.frame, bbox: bb, visibility: 'visible', origin: 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
+      taken.add(b.frame);
+    }
+  });
+  S.trackLost = { ...(S.trackLost ?? {}), [s.id]: lost.length ? lost : null };
+  paintTrackHud();
+  if (lost.length) toast(`המעקב איבד את הגולש ב-${lost.map(f => timecode(f, S.fps)).join(', ')}. עבור לשם וצייר תיבה חדשה, והמעקב ימשיך ממנה.`, true);
+  else toast('ה-BOX עוקב אחרי הגולש לאורך כל האירוע (משוער: בדוק ברצועת ה-BOX)');
+}
+function paintTrackHud() {
+  const el = $('#hudtrack'); if (!el) return;
+  const t = S?.tracking;
+  el.style.display = t ? '' : 'none';
+  if (t) el.replaceChildren(`עוקב אחרי הגולש… ${Math.round(t.pct * 100)}% `, h('button', { class: 'btn sm', 'data-testid': 'track-cancel', onclick: () => { t.ctl.abort(); S.tracking = null; paintTrackHud(); toast('המעקב בוטל'); } }, 'עצור'));
+}
+function retrackHere(s) {
+  const man = C().keyframes.filter(k => k.segment_id === s.id && k.origin === 'manual');
+  if (!man.length) return toast('צייר קודם תיבה על הגולש (B)', true);
+  const near = man.reduce((a, k) => Math.abs(k.frame - S.frame) < Math.abs(a.frame - S.frame) ? k : a);
+  autoTrack(s, near.frame);
+}
+
 // Append-only per-frame decision log (spec §21.2.4). Each entry is bound to the exact geometry and performer it attests.
 function latestVerification(c, segId, frame) {
   let best = null;   // array position decides (append-only log), exactly like the server
@@ -667,7 +733,7 @@ function drawBox(e) {
   const ov = $('#ov'), a = norm(e, ov); const svg = $('#ovsvg'); const W = ov.clientWidth, H = ov.clientHeight, g = svgEl('rect', { class: 'bx', x: a.x * W, y: a.y * H, width: 0, height: 0, stroke: '#fff' }); svg.append(g); ov.setPointerCapture(e.pointerId);
   let box = null;
   const mv = ev => { const b = norm(ev, ov); box = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }; for (const [k, v] of [['x', box.x * W], ['y', box.y * H], ['width', box.w * W], ['height', box.h * H]]) g.setAttribute(k, v); };
-  const up = () => { ov.removeEventListener('pointermove', mv); ov.removeEventListener('pointerup', up); if (box) putKeyframe(s, box); else paintOverlay(); };
+  const up = () => { ov.removeEventListener('pointermove', mv); ov.removeEventListener('pointerup', up); if (box && box.w >= 0.003 && box.h >= 0.003) { const f0 = S.frame; putKeyframe(s, box); autoTrack(s, f0); } else paintOverlay(); };
   ov.addEventListener('pointermove', mv); ov.addEventListener('pointerup', up);
 }
 
@@ -680,8 +746,9 @@ function dragBox(e, s, b, mode) {
   const up = () => {
     ov.removeEventListener('pointermove', mv); ov.removeEventListener('pointerup', up); ov.style.pointerEvents = '';
     if (nb !== o) {
-      putKeyframe(s, nb, 'manual');
-      toast('מיקום BOX תוקן עבור פריים זה');
+      const f0 = S.frame; putKeyframe(s, nb, 'manual');
+      toast('מיקום BOX תוקן. המעקב ממשיך מכאן.');
+      autoTrack(s, f0);
     } else refresh();
   };
   ov.addEventListener('pointermove', mv); ov.addEventListener('pointerup', up);
@@ -924,8 +991,8 @@ const thumbs = new Map();   // `${src}|${frame}|${bbox}` -> canvas
 let thumbVid = null, thumbQueue = Promise.resolve();
 function stripFrames(s, cps) {
   const out = new Set(cps.map(c => c.frame));
-  for (const k of C().keyframes) if (k.segment_id === s.id) out.add(k.frame);
-  const span = s.end_frame - s.start_frame, n = Math.min(12, span);
+  for (const k of C().keyframes) if (k.segment_id === s.id && k.origin !== 'suggested') out.add(k.frame);   // tracked points are covered by the even spread
+  const span = s.end_frame - s.start_frame, n = Math.min(16, span);
   for (let i = 0; i < n; i++) out.add(s.start_frame + Math.floor((i + 0.5) * span / n));
   return [...out].filter(f => f >= s.start_frame && f < s.end_frame && boxAt(s.id, f)?.bbox).sort((a, b) => a - b).slice(0, 36);
 }
@@ -1215,7 +1282,7 @@ function segForm(s) {
     // Section 4: BOX on the performer (optional)
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
       h('strong', {}, '4. BOX על הגולש (רשות)'),
-      pill(`${kfs.length} תיבות`, kfs.length ? 'ok' : '')
+      pill(`${kfs.filter(k => k.origin !== 'suggested').length} תיבות`, kfs.length ? 'ok' : '')
     ),
     h('div', { style: { display: 'flex', gap: '6px', flexWrap: 'wrap' } },
       h('button', {
@@ -1226,7 +1293,16 @@ function segForm(s) {
       }, 'ציור תיבה ', h('kbd', {}, 'B')),
       h('button', { class: 'btn sm', 'data-testid': 'insp-tab-box', disabled: !kfs.length, title: kfs.length ? '' : 'צייר קודם תיבה על הגולש', onclick: () => { S.inspTab = 'box'; refresh(); } }, 'בדוק את ה-BOX לאורך האירוע ←')
     ),
-    kfs.length ? h('ul', { class: 'list', 'data-testid': 'kflist', style: { maxHeight: '160px', overflowY: 'auto' } }, kfs.map(k => {
+    h('div', { class: 'meta' }, 'צייר תיבה על הגולש בפריים אחד: היא עוקבת אחריו לבד לאורך כל האירוע. אם היא סטתה, גרור אותה למקום והמעקב ימשיך משם.'),
+    (() => {
+      const tr = kfs.filter(k => k.origin === 'suggested'), lost = S.trackLost?.[s.id];
+      if (S.tracking?.segId === s.id) return h('div', { class: 'banner warn', 'data-testid': 'track-running' }, `עוקב אחרי הגולש… ${Math.round(S.tracking.pct * 100)}%`);
+      return h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', margin: '6px 0' } },
+        tr.length ? pill(`מעקב אוטומטי: ${tr.length} נקודות (${timecode(tr[0].frame, S.fps)}–${timecode(tr.at(-1).frame, S.fps)}) · משוער`, 'warn') : null,
+        lost ? h('button', { class: 'btn sm', 'data-testid': 'track-lost', onclick: () => seekFrame(lost[0]) }, `המעקב איבד את הגולש ב-${timecode(lost[0], S.fps)}: קפוץ לשם`) : null,
+        kfs.some(k => k.origin === 'manual') ? h('button', { class: 'btn sm', 'data-testid': 'track-auto', onclick: () => retrackHere(s) }, '↻ עקוב שוב') : null);
+    })(),
+    kfs.length ? h('ul', { class: 'list', 'data-testid': 'kflist', style: { maxHeight: '160px', overflowY: 'auto' } }, kfs.filter(k => k.origin !== 'suggested').map(k => {
       const v = latestVerification(C(), s.id, k.frame);
       const st = v?.status ?? 'unreviewed';
       const ORIGIN = { manual: 'ידני', interpolated: 'אינטרפולציה', suggested: 'הצעה' };

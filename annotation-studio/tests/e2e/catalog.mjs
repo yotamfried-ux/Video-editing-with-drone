@@ -250,6 +250,38 @@ await scenario('save button saves immediately and says so; watched ranges fill i
   assert.ok(Number(await page.getAttribute('[data-testid=coverage]', 'data-cov')) > 0);
 });
 
+await scenario('a drawn BOX follows the athlete through the whole event (auto-tracking, marked as estimate)', async () => {
+  const s = src('DJI_0414.mp4');   // synthetic: red 40x40 "surfer" at x=2n, y=330 on 1280x720; event [30,91) from the marking scenario
+  const seg = draft(s.id).segments[0];
+  const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+  await page.locator('[data-testid=segment]').first().click();
+  await page.waitForSelector('[data-testid=segform]');
+  while (await fr() < 60) await page.keyboard.press('ArrowRight');
+  while (await fr() > 60) await page.keyboard.press('ArrowLeft');
+  const f = await fr();
+  await page.keyboard.press('b');
+  const ov = await page.locator('#ov').boundingBox();
+  const px = (x, y) => [ov.x + ov.width * x / 1280, ov.y + ov.height * y / 720];
+  await page.mouse.move(...px(2 * f - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(2 * f + 44, 374), { steps: 5 }); await page.mouse.up();
+  await page.keyboard.press('b');
+  await until(() => !!document.querySelector('[data-testid=track-auto]') && !document.querySelector('[data-testid=track-running]'), undefined, 60000);
+  await saved();
+  const kf = draft(s.id).keyframes.filter(k => k.segment_id === seg.id);
+  const tr = kf.filter(k => k.origin === 'suggested');
+  assert.ok(tr.length >= 10, `tracked boxes along the event (${tr.length})`);
+  assert.equal(Math.min(...kf.map(k => k.frame)), seg.start_frame, 'reaches the start of the event');
+  assert.equal(Math.max(...kf.map(k => k.frame)), seg.end_frame - 1, 'reaches the end of the event');
+  for (const k of tr) {
+    const cx = (k.bbox.x + k.bbox.w / 2) * 1280, truth = 2 * k.frame + 20;
+    assert.ok(Math.abs(cx - truth) < 10, `frame ${k.frame}: box centre ${cx.toFixed(1)} follows the athlete at ${truth}`);
+    assert.equal(k.verification_status, 'unreviewed', 'tracked = estimate, never verified');
+  }
+  // the box is visible on frames where nothing was drawn by hand
+  while (await fr() < 85) await page.keyboard.press('ArrowRight');
+  assert.ok(await page.locator('[data-testid=bbox]').count() >= 1, 'box shown at a frame far from the drawn one');
+  await shot('07-auto-track');
+});
+
 await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
   const s = src('DJI_0415.mp4');
   await page.goto(`${base}/#/annotate/${s.id}`);
