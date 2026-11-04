@@ -146,8 +146,6 @@ dialog h2{margin:0 0 10px;font-size:16px}
 @media (max-width:1279px){.shell{grid-template-columns:56px 1fr}.nav .lbl{display:none}}
 
 /* Precision Studio V2 Additions */
-.insp-tabs{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:12px}
-.insp-tabs button{padding:8px 4px;border-radius:6px;font-size:12px;font-weight:600}
 .tag{border-radius:30px;font-size:11px;font-weight:700;padding:4px 9px;border:1px solid var(--line2);color:var(--muted);white-space:nowrap;display:inline-flex;align-items:center}
 .tag.green{border-color:#277f61;color:#52e2aa;background:#12372e}
 .tag.blue{border-color:#3e77b5;color:#83c9ff;background:#143353}
@@ -208,3 +206,18 @@ dialog h2{margin:0 0 10px;font-size:16px}
 .qc-field{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:start;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);cursor:pointer;min-width:0}
 .qc-field dt{font-size:11px;color:var(--muted)}.qc-field dd{margin:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
 .qc-field.ok dt{color:#8fd19e}.qc-field.miss{border-color:#6b2a2a}.qc-field.miss dt{color:var(--exc)}
+/* simple marking mode */
+.mark-btn{font-weight:700;padding:8px 14px}
+.insp-back{display:flex;align-items:center;gap:10px;margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--line2)}
+.owner-line{display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;background:var(--panel2);border:1px solid var(--line2);border-radius:6px;padding:8px 10px;margin-bottom:12px;font-size:12px}
+details.more{border:1px solid var(--line2);border-radius:6px;padding:6px 10px;margin-top:10px}
+details.more>summary{cursor:pointer;font-size:12px;color:var(--muted,inherit)}
+.guide ol{margin:6px 0;padding-inline-start:20px;line-height:1.8}
+.save-btn{font-weight:700;margin-inline-start:6px}
+.mark-btn.recording{background:var(--unc,#f59e0b);border-color:var(--unc,#f59e0b);color:#111;animation:recpulse 1.2s ease-in-out infinite}
+@keyframes recpulse{50%{box-shadow:0 0 0 4px rgba(245,158,11,.35)}}
+.hud .pill.mark-live,.mark-live{direction:rtl;unicode-bidi:isolate;background:rgba(245,158,11,.9);color:#111;font-weight:700}
+.mklive{position:absolute;top:26px;bottom:34px;background:rgba(245,158,11,.25);border:2px solid #f59e0b;border-radius:4px;z-index:2;pointer-events:none}
+.rv.live{background:rgba(76,201,240,.18);border-style:dashed}
+.cov-bar{direction:ltr;height:10px;border-radius:5px;background:var(--panel2);border:1px solid var(--line2);overflow:hidden;margin:4px 0}
+.cov-fill{height:100%;background:var(--accent)}

@@ -167,6 +167,7 @@ await scenario('5. Event annotation (football) uses ITS taxonomy; sport/event mi
   const r = await api(`/api/sources/${src('football_match_b.mp4').id}/draft`, { method: 'PUT', body: { expected_version: d.version, content: bad } });
   assert.equal(r.status, 400); assert.equal(r.body.code, 'SPORT_EVENT_MISMATCH');
   // mixed-sport footage: override the sport of one segment; the picker follows
+  if (!await page.locator('[data-testid=event-more]').evaluate(d => d.open)) await page.click('[data-testid=event-more] summary');
   await page.selectOption('[data-testid=seg-sport]', 'tennis');
   const t2 = await page.$$eval('[data-testid=event-type] option', os => os.map(o => o.value));
   assert.ok(t2.includes('serve') && !t2.includes('goal'));
@@ -204,6 +205,7 @@ await scenario('6. Reclassifying a draft warns, never deletes, remaps explicitly
   await page.waitForSelector('[data-testid=apply-remap]'); await page.selectOption('[data-testid=remap-shot]', 'wave_ride'); await page.click('[data-testid=apply-remap]');
   await until(() => document.querySelector('[data-testid=source-sport]')?.value === 'surfing');
   await page.click('[data-testid=segment]'); await page.waitForSelector('[data-testid=segform]');
+  if (!await page.locator('[data-testid=event-more]').evaluate(d => d.open)) await page.click('[data-testid=event-more] summary');
   await page.fill('#f-notes', 'גל מלא'); await page.locator('#f-notes').blur(); await waitSaved();   // a real content change => a new revision (identical content is deliberately a no-op)
   await page.fill('#ap-reason', 'GT v2'); await page.click('[data-testid=approve]');
   await until(() => document.querySelectorAll('[data-testid=revlist] li').length === 2);

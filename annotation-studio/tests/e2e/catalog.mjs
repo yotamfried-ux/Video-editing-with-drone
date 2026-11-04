@@ -170,12 +170,84 @@ await scenario('BOX strip: ✕ on a frame blocks approval with the specific reas
   await tile.locator('[data-testid=tile-wrong]').click();
   await saved();
   assert.equal(draft(s.id).box_verifications.filter(x => x.frame === f).at(-1).status, 'wrong_performer');
-  await page.locator('.insp-tabs button', { hasText: 'תיוג אירוע' }).click().catch(() => {});
+  if (await page.locator('[data-testid=insp-tab-event]').count()) await page.click('[data-testid=insp-tab-event]');
   await page.waitForSelector('[data-testid=approval-blocking]', { timeout: 8000 });
   const r = await fetch(`${base}/api/sources/${s.id}/approve`, { method: 'POST', headers: { authorization: 'Bearer demo-token', 'content-type': 'application/json' }, body: JSON.stringify({ expected_version: db.prepare('select version from annotation_drafts where source_id=?').get(s.id).version, acknowledge_unresolved: true }) });
   const j = await r.json();
   assert.equal(r.status, 409); assert.equal(j.code, 'BLOCKING_ITEMS');
   assert.ok(j.unresolved?.blocking?.boxes_needing_correction >= 1, `blocked because of the wrong surfer: ${JSON.stringify(j.unresolved)}`);
+});
+
+await scenario('simple marking: no tab bar; mark start/end; owner suggestion; reasons only when needed; extras folded', async () => {
+  const s = src('DJI_0414.mp4');   // owner set in the "no events" scenario, no events yet
+  try { await page.evaluate(() => { sessionStorage.removeItem('studio.focus'); }); } catch {}
+  await page.goto(`${base}/#/annotate/${s.id}`);
+  await page.waitForSelector('[data-testid=workbench]');
+  assert.equal(await page.locator('.insp-tabs').count(), 0, 'no tab bar');
+  assert.ok(!/null|undefined/.test(await page.textContent('#controls')), 'hidden tools never render as text');
+  await page.waitForSelector('[data-testid=mark-guide]');
+  assert.equal(await page.locator('[data-testid=mark-out]').count(), 0, 'one button: "end" appears only after a start');
+  assert.equal(await page.locator('[title="הגדל ציר זמן"]').count(), 0, 'zoom tools folded under "עוד"');
+  const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+  while (await fr() < 30) await page.keyboard.press('Shift+ArrowRight');
+  const a = await fr();
+  await page.click('[data-testid=mark-in]');
+  await page.waitForSelector('[data-testid=mark-out]');
+  assert.equal(await page.locator('[data-testid=mark-in]').count(), 0);
+  while (await fr() < 90) await page.keyboard.press('Shift+ArrowRight');
+  const b = await fr();
+  assert.ok(await page.locator('[data-testid=mark-live]').isVisible(), 'an open event is shown on the video');
+  assert.ok(await page.locator('#mklive').isVisible(), 'and as a growing bar on the timeline');
+  await page.click('[data-testid=mark-out]');
+  await page.waitForSelector('[data-testid=segform]');
+  await saved();
+  let d = draft(s.id);
+  assert.equal(d.segments.length, 1); assert.equal(d.segments[0].start_frame, a); assert.equal(d.segments[0].end_frame, b + 1);
+  // owner suggestion fills the performer in one click
+  await page.click('[data-testid=performer-owner]');
+  await saved();
+  assert.equal(draft(s.id).segments[0].athlete_id, src('DJI_0414.mp4').owner_athlete_id);
+  // reasons appear only once the event is marked not usable
+  assert.equal(await page.locator('[data-testid=reason-codes]').count(), 0, 'no reasons asked for an undecided event');
+  await page.locator('[data-testid=segform] button', { hasText: 'לא שמיש' }).first().click();
+  await page.waitForSelector('[data-testid=reason-codes]');
+  // optional extras are folded but reachable
+  assert.equal(await page.locator('[data-testid=event-more]').evaluate(x => x.open), false);
+  await page.click('[data-testid=event-more] summary');
+  await page.waitForSelector('[data-testid=seg-sport]', { state: 'visible' });
+  // association and BOX are sub-screens with one way back
+  await page.click('[data-testid=insp-tab-associate]');
+  await page.click('[data-testid=insp-tab-event]');
+  await page.waitForSelector('[data-testid=segform]');
+  await shot('06-simple-marking');
+});
+
+await scenario('save button saves immediately and says so; watched ranges fill in by playing, no extra button', async () => {
+  const s = src('DJI_0414.mp4');
+  await page.locator('[data-testid=segform] button', { hasText: 'כן, שימושי' }).first().click();
+  await until(() => document.querySelector('[data-testid=save-now]') && !document.querySelector('[data-testid=save-now]').disabled);
+  await page.click('[data-testid=save-now]');
+  await page.waitForSelector('[data-testid=savepill][data-state=saved]');
+  assert.equal(draft(s.id).segments[0].usability, 'usable', 'saved to the server');
+  assert.match(await page.textContent('[data-testid=save-now]'), /הכל נשמר/);
+  assert.equal(await page.isDisabled('[data-testid=save-now]'), true);
+  // watched: clear, then play ~1.5 s from frame 120 -> one watched range starting there
+  await page.click('[data-testid=reviewed-clear]').catch(async () => { await page.click('[data-testid=insp-panel-event] details.more summary >> nth=-1'); await page.click('[data-testid=reviewed-clear]'); });
+  await saved();
+  assert.deepEqual(draft(s.id).reviewed_ranges, []);
+  await page.evaluate(() => document.activeElement?.blur());
+  const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+  while (await fr() < 120) await page.keyboard.press('Shift+ArrowRight');
+  const from = await fr();
+  await page.keyboard.press(' ');
+  await page.waitForTimeout(1500);
+  await page.keyboard.press(' ');
+  await until(() => Number(document.querySelector('[data-testid=coverage]')?.dataset.cov) > 0);
+  await saved();
+  const rr = draft(s.id).reviewed_ranges;
+  assert.equal(rr.length, 1, JSON.stringify(rr));
+  assert.ok(Math.abs(rr[0].start_frame - from) <= 1 && rr[0].end_frame - rr[0].start_frame >= 15, `watched range recorded from playback: ${JSON.stringify(rr)}`);
+  assert.ok(Number(await page.getAttribute('[data-testid=coverage]', 'data-cov')) > 0);
 });
 
 await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
