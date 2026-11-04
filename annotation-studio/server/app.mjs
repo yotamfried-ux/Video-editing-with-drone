@@ -198,7 +198,7 @@ export function createApp(ctx) {
       const s = db.prepare('select * from sources where id=?').get(r[1]); if (!s) throw new ApiError('NOT_FOUND');
       if (s.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
       const locations = db.prepare('select provider,kind,key,active,observed_at from source_locations where source_id=?').all(s.id);
-      return send(res, 200, { ...sourceCard(s), locations, playback_url: s.proxy_path && !ctx.serverless ? `/media/${s.id}/proxy` : `/media/${s.id}/original`, thumb_url: s.thumb_path && !ctx.serverless ? `/media/${s.id}/thumb` : null });
+      return send(res, 200, { ...sourceCard(s), locations, playback_url: (s.proxy_path && !ctx.serverless) || (ctx.serverless && ctx.previews && s.provider === 'cloud-r2') ? `/media/${s.id}/proxy` : `/media/${s.id}/original`, thumb_url: s.thumb_path && !ctx.serverless ? `/media/${s.id}/thumb` : null });
     }
     if ((r = /^\/api\/sources\/([\w-]+)\/draft$/.exec(p))) {
       if (m === 'GET') return send(res, 200, A.getDraft(db, r[1]));
@@ -369,7 +369,9 @@ export function createApp(ctx) {
       if (kind === 'cloud-original') key = db.prepare('select key from cloud_objects where id=?').get(id)?.key ?? null;
       else if (kind === 'original' || kind === 'proxy') { const s = db.prepare('select provider, cloud_key from sources where id=?').get(id); if (s?.provider === 'cloud-r2') key = s.cloud_key; }
       if (!key || !ctx.cloud) return send(res, 404, { code: 'SOURCE_UNAVAILABLE' });
-      res.writeHead(302, { location: ctx.cloud.presignGet(key, 3600), 'cache-control': 'no-store' });
+      // playback copy: the light 720p preview when it exists, otherwise the original (always correct, just heavy)
+      const pk = kind === 'proxy' && ctx.previews ? await ctx.previews.find(key) : null;
+      res.writeHead(302, { location: pk ? ctx.previews.bucket.presignGet(pk, 3600) : ctx.cloud.presignGet(key, 3600), 'cache-control': 'no-store', 'x-studio-media': pk ? 'preview' : 'original' });
       return res.end();
     }
     let file = null, archiveKey = null, reader = ctx.archive;

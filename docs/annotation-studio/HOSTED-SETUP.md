@@ -102,6 +102,41 @@ node --env-file=.studio-cloud.env scripts\migrate-to-cloud.mjs --url https://stu
    ```
 3. שמור, ורענן את הסטודיו.
 
+## עותקי צפייה קלים (720p) במקום 4K
+המקוריים הם 4K ב־60 פריימים בשנייה, בערך 167 Mb/s, ולכן כבדים מדי לצפייה רציפה. הסטודיו מנגן עותק 720p, בערך 4 Mb/s, כשהעותק קיים. כל סימון נשאר זהה: העותק כולל אותם פריימים בדיוק ובאותו קצב, והסקריפט בודק זאת לפני ההעלאה. המקוריים לא משתנים.
+
+### שלב א: דלי נפרד ומפתח לכתיבה רק אליו (Cloudflare)
+1. **R2** ← **Create bucket** ← שם: `sportreel-studio-previews`.
+2. בדלי החדש ← **Settings** ← **CORS Policy**: הדבק את אותה מדיניות CORS שמופיעה למעלה עבור הדלי `sportreel`.
+3. **R2** ← **Manage API tokens** ← **Create API token**:
+   - **Object Read & Write**, מוגבל לדלי `sportreel-studio-previews` בלבד.
+   - שמור את ה־Access Key ID וה־Secret.
+4. בטוקן לקריאה בלבד של הסטודיו (`sportreel-studio-readonly`) הוסף גם את הדלי `sportreel-studio-previews`, עם הרשאת **Object Read only**.
+
+### שלב ב: יצירת העותקים במחשב שלך
+1. הוסף לקובץ `.studio-cloud.env`:
+   ```
+   STUDIO_PREVIEW_R2_BUCKET=sportreel-studio-previews
+   STUDIO_PREVIEW_R2_WRITE_ACCESS_KEY_ID=...
+   STUDIO_PREVIEW_R2_WRITE_SECRET_ACCESS_KEY=...
+   ```
+2. מתוך התיקייה `annotation-studio` הרץ קודם בדיקה יבשה, שלא כותבת כלום:
+   ```powershell
+   node --env-file=.studio-cloud.env scripts\make-previews.mjs --dry-run
+   ```
+3. ואז את היצירה עצמה. היא לוקחת בערך דקה לכל סרטון:
+   ```powershell
+   node --env-file=.studio-cloud.env scripts\make-previews.mjs
+   ```
+   - הסקריפט כותב **רק** לדלי העותקים, ומסרב לכתוב לדלי `sportreel`.
+   - הוא לא מוחק ולא דורס עותק קיים.
+   - הרצה חוזרת מדלגת על מה שכבר נוצר.
+
+### שלב ג: Vercel
+- ב־**Settings** ← **Environment Variables** הוסף `STUDIO_PREVIEW_R2_BUCKET` = `sportreel-studio-previews`, ואז **Redeploy**.
+- לא צריך מפתח נוסף, כי הסטודיו קורא עם הטוקן לקריאה בלבד שהרחבת בשלב א.
+- סרטון שאין לו עותק עדיין ינוגן מהמקור.
+
 ## אבטחה: שדרוג מומלץ
 - **אימות מלא של החיבור למסד הנתונים:**
   1. ב־Supabase ← **Database Settings** ← **SSL Configuration** ← הורד את התעודה.

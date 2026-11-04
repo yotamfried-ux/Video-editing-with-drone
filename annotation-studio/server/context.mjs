@@ -4,6 +4,7 @@ import { randomBytes } from 'node:crypto';
 import { openDb } from './db.mjs';
 import { LocalArchive } from './archive.mjs';
 import { CloudBucket, cloudConfigFromEnv } from './cloud.mjs';
+import { previewBucketFromEnv, previewLookup } from './previews.mjs';
 
 /** Build the runtime context from a home directory (state is entirely under it). */
 export function createContext(home, { roots = [], token, dbUrl, archive, cloud } = {}) {
@@ -21,6 +22,8 @@ export function createContext(home, { roots = [], token, dbUrl, archive, cloud }
     // Optional read-only view of SportReel's existing source videos in R2 (STUDIO_CLOUD_R2_*); null when not configured.
     cloud: cloud ?? (() => { const c = cloudConfigFromEnv(); return c ? new CloudBucket(c) : null; })(),
     cloudMetadata: process.env.STUDIO_CLOUD_METADATA || null,
+    // light 720p playback copies in their own bucket (optional): playback uses them when present
+    previews: (() => { const b = previewBucketFromEnv(); return b ? { bucket: b, find: previewLookup(b) } : null; })(),
     // Optional catalog filter: list only objects whose key or name contains this text (e.g. DJI for drone footage). Empty = all.
     cloudInclude: (process.env.STUDIO_CLOUD_INCLUDE ?? '').trim(),
     // Hosted mode (Vercel): no long-lived process, no local disk worth keeping; originals play straight from R2.
