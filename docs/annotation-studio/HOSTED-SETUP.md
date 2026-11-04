@@ -40,7 +40,7 @@
 | `STUDIO_DB_SSL` | `require` |
 | `STUDIO_TOKEN` | קוד כניסה שתבחר: ארוך, אותיות ומספרים. איתו תיכנס לסטודיו. |
 | `STUDIO_SERVERLESS` | `1` |
-| `STUDIO_ALLOWED_HOSTS` | `studio.d2ryf.com` |
+| `STUDIO_ALLOWED_HOSTS` | `studio.d2ryf.com,sportreel-studio.vercel.app` |
 | `STUDIO_CLOUD_INCLUDE` | `DJI` |
 | `STUDIO_CLOUD_R2_BUCKET` | `sportreel` |
 | `STUDIO_CLOUD_R2_ACCOUNT_ID` | אותו ערך שבקובץ `.studio-cloud.env` שבמחשב |
@@ -48,6 +48,8 @@
 | `STUDIO_CLOUD_R2_SECRET_ACCESS_KEY` | אותו ערך שבקובץ `.studio-cloud.env` |
 
 6. לחץ **Deploy**.
+
+> הכתובות שהסטודיו מוכן לענות להן הן רק אלה שב־`STUDIO_ALLOWED_HOSTS`, ובנוסף הכתובות האוטומטיות של הפריסה עצמה (Vercel מעביר אותן אוטומטית). אם Vercel נתן לפרויקט שם אחר מ־`sportreel-studio`, תקן את השם במשתנה הזה. כל כתובת אחרת נחסמת.
 
 > **חשוב:** השתמש בטוקן R2 **לקריאה בלבד**, זה שכבר יש לך במחשב. אל תשתמש במפתחות של הפייפליין, שיש להם הרשאת כתיבה.
 
