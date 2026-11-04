@@ -1,7 +1,7 @@
 // Precision Annotation Workbench V2: Video + Bounding Box QA + Multitrack Timeline + Full Taxonomy Inspector.
 import {
   h, $, api, ltr, pill, toast, dialog, closeDialog, timecode, fpsOf, uid, fmtDate,
-  eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS
+  eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS, REASON_LIST
 } from './ui.js';
 import { setTopbar, rememberSource } from './main.js';
 
@@ -18,7 +18,7 @@ export async function renderAnnotate(root, id) {
   if (!id) {
     const r = await api('/api/sources?limit=1&status=not_annotated');
     if (r.items[0]) { location.hash = `#/annotate/${r.items[0].id}`; return; }
-    root.append(h('div', { class: 'page' }, h('div', { class: 'empty' }, 'בחר סרטון מהספרייה כדי להתחיל', h('p', {}, h('a', { class: 'btn primary', href: '#/library' }, 'לספרייה'))))); return;
+    root.append(h('div', { class: 'page' }, h('div', { class: 'empty' }, 'בחר סרטון בקטלוג כדי להתחיל', h('p', {}, h('a', { class: 'btn primary', href: '#/catalog' }, 'לקטלוג'))))); return;
   }
   // Independent annotation stream (addendum §2): #/annotate/<source>?set=<setId> works on that set's own assignment.
   const [rawId, qs] = String(id).split('?');
@@ -1072,15 +1072,7 @@ function segForm(s) {
     ['uncertain', '? לא יודע עדיין']
   ];
 
-  const reasonList = [
-    ['missing_takeoff', 'חסר תחילת גל'],
-    ['missing_landing', 'חסר סיום'],
-    ['occlusion', 'הגולש מוסתר'],
-    ['unclear_identity', 'זהות לא ברורה'],
-    ['capture_issues', 'צילום לקוי'],
-    ['no_meaningful_action', 'ללא פעולה ממשית'],
-    ['duplicate_action', 'כפילות פיזית']
-  ];
+  const reasonList = REASON_LIST;
 
   return h('div', { 'data-testid': 'segform', style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
     h('div', { class: 'meta' }, h('span', { class: 'mono ltr' }, `[${s.start_frame}, ${s.end_frame})`), ` · ${s.end_frame - s.start_frame} פריימים · `, ltr(`${timecode(s.start_frame, S.fps)} → ${timecode(s.end_frame, S.fps)}`)),
@@ -1294,6 +1286,11 @@ function setKeyMoment(s, key, label) {
 function repairOutOfRange(c) {
   const notes = [], segs = new Map(c.segments.map(x => [x.id, x]));
   for (const x of c.segments) {
+    if (x.end_frame > S.total) { notes.push(`אירוע ${x.start_frame}–${x.end_frame} חרג מסוף הסרטון (${S.total}) וקוצר`); x.end_frame = S.total; }
+    if (x.start_frame < 0) { notes.push('אירוע שהתחיל לפני תחילת הסרטון הוזז לפריים 0'); x.start_frame = 0; }
+    if (!(x.end_frame > x.start_frame)) { notes.push(`אירוע באורך אפס בפריים ${x.start_frame} הורחב לפריים אחד`); if (x.start_frame >= S.total) x.start_frame = S.total - 1; x.end_frame = x.start_frame + 1; }
+  }
+  for (const x of c.segments) {
     const km = x.key_moments; if (!km || typeof km !== 'object') continue;
     for (const k of ['takeoff_frame', 'peak_frame', 'landing_frame']) {
       if (km[k] != null && (km[k] < x.start_frame || km[k] > x.end_frame)) { notes.push(`רגע מפתח בפריים ${km[k]} מחוץ לאירוע ${x.start_frame}–${x.end_frame}`); delete km[k]; }
@@ -1339,13 +1336,13 @@ function paintStatus() {
   const ownerCls = S.src.owner_status === 'needs_review' ? 'warn' : S.src.owner_athlete_id ? 'ok' : '';
 
   setTopbar(
-    S.fromCatalog ? h('a', { class: 'btn sm', href: `#/catalog/${S.src.id}`, 'data-testid': 'back-to-catalog', onclick: async e => {
+    S.setId === 'primary' ? h('a', { class: 'btn sm', href: `#/catalog/${S.src.id}`, 'data-testid': 'back-to-catalog', onclick: async e => {
       e.preventDefault();
       clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
       if (S.save === 'dirty') await save();
       if (S.save !== 'saved') return toast('השינויים לא נשמרו עדיין — פתור את הודעת השמירה לפני החזרה לקטלוג', true);
       location.hash = `#/catalog/${S.src.id}`;
-    } }, '→ חזרה לקטלוג המהיר') : null,
+    } }, '→ חזרה לקטלוג') : null,
     h('strong', {}, 'סימון'),
     h('span', { class: 'ltr mono', title: S.src.sha256, 'data-testid': 'srcname' }, S.src.display_name),
     pill(ownerLabel, ownerCls),

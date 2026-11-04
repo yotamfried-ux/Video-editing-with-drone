@@ -20,7 +20,7 @@ async function boot() {
     return { status: r.status, json: await r.json() };
   };
   const ids = ctx.db.prepare('select id from sources order by display_name').all().map(r => r.id);
-  return { ctx, call, ids, close: () => { server.closeAllConnections(); server.close(); } };
+  return { ctx, call, ids, base, close: () => { server.closeAllConnections(); server.close(); } };
 }
 const item = (q, id) => q.items.find(i => i.source_id === id);
 const check = (list, key) => list.find(i => i.key === key);
@@ -33,6 +33,7 @@ test('queue: a fresh video lists owner, sport and "are there events" as missing;
     const a = item(q, b.ids[0]);
     assert.deepEqual(a.video.map(i => [i.key, i.ok]), [['owner', false], ['sport', false], ['triage', false]]);
     assert.equal(a.triage, 'not_started'); assert.equal(a.complete, false);
+    assert.ok(Array.isArray(a.extra_sports) && Array.isArray(a.appearances), 'list-shaped video fields');
   } finally { b.close(); }
 });
 
@@ -94,5 +95,21 @@ test('an event is complete only when every field is decided; a drawn but uncheck
     const box = check(ev.checklist, 'box');
     assert.equal(box.required, true); assert.equal(box.ok, false); assert.equal(box.state, 'not_checked');
     assert.equal(ev.complete, false);
+  } finally { b.close(); }
+});
+
+test('fixed address: logging in with the token sets a persistent cookie; /api/version reports the running code', async () => {
+  const b = await boot();
+  try {
+    const port = new URL(b.base).port;
+    const r = await fetch(`${b.base}/?t=test-token`, { redirect: 'manual' });
+    assert.equal(r.status, 302);
+    const c = r.headers.get('set-cookie');
+    assert.match(c, /studio_token=/); assert.match(c, /Max-Age=31536000/); assert.match(c, /HttpOnly/); assert.match(c, /SameSite=Strict/);
+    const wrong = await fetch(`${b.base}/?t=not-the-token`, { redirect: 'manual' });
+    assert.notEqual(wrong.status, 302, 'a wrong token never logs in');
+    const v = await b.call('/api/version');
+    assert.equal(v.status, 200); assert.ok('commit' in v.json && 'version' in v.json);
+    assert.ok(port);
   } finally { b.close(); }
 });

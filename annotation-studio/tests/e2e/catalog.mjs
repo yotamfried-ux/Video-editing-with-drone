@@ -46,7 +46,11 @@ await page.goto(`${base}/?t=demo-token`);
 await scenario('catalog is the first menu entry; queue and progress show every video with what is missing', async () => {
   await page.goto(`${base}/#/catalog`);
   await page.waitForSelector('[data-testid=quick-catalog]');
-  assert.match(await page.textContent('.nav a:first-child'), /קטלוג מהיר/);
+  assert.match(await page.textContent('.nav a:first-child'), /קטלוג/);
+  // one cataloguing process: no separate quick/long entries, marking reached through the catalog
+  const navText = await page.textContent('.nav');
+  for (const gone of ['ספרייה', 'סימון', 'קטלוג מהיר']) assert.ok(!navText.includes(gone), `no separate "${gone}" entry in the menu`);
+  await page.waitForFunction(() => /^v \S+/.test(document.querySelector('[data-testid=app-version]')?.textContent ?? ''));
   const all = db.prepare('select count(*) c from sources').get().c;
   assert.equal(Number(await page.getAttribute('[data-testid=qc-progress]', 'data-all')), all);
   assert.ok(await page.locator('[data-testid=qc-item]').count() >= 1);
@@ -65,13 +69,14 @@ await scenario('video with no events: new surfer + sport + "no events" completes
   await page.selectOption('[data-testid=qc-sport]', 'surfing');
   await until(() => document.querySelector('[data-step="2"]')?.dataset.done === 'true');
   await page.click('[data-testid=qc-no-events]');
-  await until(() => document.querySelector('[data-step="3"]')?.dataset.done === 'true');
+  await until(() => document.querySelector('[data-step="4"]')?.dataset.done === 'true');   // step 3 = who else appears (optional)
   const row = src('DJI_0414.mp4');
   assert.equal(db.prepare('select label from athletes where id=?').get(row.owner_athlete_id)?.label, 'גולשת קטלוג');
   assert.equal(row.primary_sport_id, 'surfing');
   assert.deepEqual(draft(s.id).reviewed_ranges, [{ start_frame: 0, end_frame: row.frame_count }]);
   assert.equal(draft(s.id).segments.length, 0);
   assert.equal(Number(await page.getAttribute('[data-testid=qc-progress]', 'data-complete')), before + 1);
+  assert.ok(!/(^|\s)(null|undefined)(\s|$)/.test(await page.textContent('[data-testid=qc-detail]')), 'no stray null/undefined text');
   await shot('02-no-events-done');
 });
 
@@ -91,6 +96,41 @@ await scenario('video with events: a missing chip opens the workbench at that ev
   assert.equal(await page.getAttribute('[data-testid=qc-event] [data-testid=qc-ck-usability]', 'data-ok'), 'true');
   assert.equal(await page.getAttribute('[data-testid=qc-event] [data-testid=qc-ck-performer]', 'data-ok'), 'false', 'still missing, still shown');
   await shot('03-event-checklist');
+});
+
+await scenario('every catalogued field is shown with its VALUE; people, owner certainty and extra sport save to the DB', async () => {
+  const s = src('DJI_0412.mp4');   // seeded: 3 events (wave, failed take-off excluded with a reason, uncertain wave), boxes on the first
+  await page.goto(`${base}/#/catalog/${s.id}`);
+  await page.waitForSelector(`[data-testid=qc-detail][data-source="${s.id}"]`);
+  const fields = ['range', 'event_type', 'performer', 'usability', 'reasons', 'decision', 'key_moments', 'box', 'action', 'notes'];
+  const first = page.locator('[data-testid=qc-event]').first();
+  for (const f of fields) assert.equal(await first.locator(`[data-testid=qc-ck-${f}]`).count(), 1, `event field "${f}" is shown`);
+  assert.match(await first.locator('[data-testid=qc-ck-usability]').textContent(), /שימושי/);
+  assert.match(await first.locator('[data-testid=qc-ck-performer]').textContent(), /דנה/);
+  assert.match(await first.locator('[data-testid=qc-ck-notes]').textContent(), /גל מלא/);
+  assert.match(await first.locator('[data-testid=qc-ck-box]').textContent(), /3 תיבות/);
+  const second = page.locator('[data-testid=qc-event]').nth(1);
+  assert.match(await second.locator('[data-testid=qc-ck-reasons]').textContent(), /ללא פעולה ממשית/);
+  assert.match(await second.locator('[data-testid=qc-ck-decision]').textContent(), /החרג/);
+  // video level: who else appears, owner certainty, extra sport
+  const omer = db.prepare("select id from athletes where label like '%עומר%'").get().id;
+  await page.locator('[data-testid=qc-detail] input[type=checkbox]').last().check();   // "לא ודאי" next to the people picker
+  await page.selectOption('[data-testid=qc-add-person]', omer).catch(() => {});
+  const dana = db.prepare("select id from athletes where label like '%דנה%'").get().id;
+  await until(() => !!document.querySelector('[data-testid=qc-people]'));
+  const ap = db.prepare('select uncertain from athlete_appearances where source_id=? and athlete_id=?').get(s.id, omer);
+  assert.ok(ap, 'appearance saved (performers are also listed automatically)');
+  await page.selectOption('[data-testid=qc-owner]', dana);
+  await until(id => document.querySelector('[data-step="1"]')?.dataset.done === 'true', s.id);
+  await page.check('[data-testid=qc-owner-unsure]');
+  await until(() => document.querySelector('[data-testid=qc-owner-unsure]')?.checked === true);
+  await page.waitForTimeout(500);
+  assert.equal(db.prepare('select owner_status from sources where id=?').get(s.id).owner_status, 'needs_review');
+  await page.selectOption('[data-testid=qc-extra-sport]', 'football');
+  await page.waitForTimeout(600);
+  assert.ok(db.prepare('select 1 from source_sports where source_id=? and sport_id=?').get(s.id, 'football'), 'extra sport saved');
+  assert.match(await page.textContent('[data-testid=qc-status]'), /נצפה \d+% מהסרטון/);
+  await shot('05-all-fields');
 });
 
 await scenario('BOX strip: thumbnails along the event (incl. estimated frames); ✓ on an estimated frame binds an exact box', async () => {
@@ -130,6 +170,21 @@ await scenario('BOX strip: ✕ on a frame blocks approval with the specific reas
   const j = await r.json();
   assert.equal(r.status, 409); assert.equal(j.code, 'BLOCKING_ITEMS');
   assert.ok(j.unresolved?.blocking?.boxes_needing_correction >= 1, `blocked because of the wrong surfer: ${JSON.stringify(j.unresolved)}`);
+});
+
+await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
+  const s = src('DJI_0415.mp4');
+  await page.goto(`${base}/#/annotate/${s.id}`);
+  await page.waitForSelector('[data-testid=workbench]');
+  const bad = { schema: 1, segments: [{ id: 'past-end', start_frame: s.frame_count - 20, end_frame: s.frame_count + 30, athlete_id: null, event_type: 'wave_ride', decision: 'uncertain', usability: 'uncertain', reason_codes: [], key_moments: {} }], keyframes: [], reviewed_ranges: [], box_verifications: [] };
+  await page.evaluate(([k, v]) => localStorage.setItem(k, v), [`studio.pending.${s.id}`, JSON.stringify({ base: 0, content: bad, at: Date.now() })]);
+  await page.reload();
+  await page.waitForSelector('[data-testid=workbench]');
+  await until(() => /חרג מסוף הסרטון/.test(document.querySelector('[data-testid=inspector-banner]')?.textContent ?? ''));
+  await saved();
+  const d = draft(s.id);
+  assert.equal(d.segments[0].end_frame, s.frame_count, 'event clamped to the last frame, not dropped');
+  assert.equal(d.segments[0].start_frame, s.frame_count - 20);
 });
 
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
