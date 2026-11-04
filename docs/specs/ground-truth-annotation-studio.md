@@ -505,6 +505,10 @@ The following changes the system's **behaviour** to meet §§21–22 as written.
   - API: `GET /api/catalog/queue`, `GET /api/catalog/sources/:id`, `POST /api/catalog/sources/:id/triage`.
 - **BOX track strip.** The box tab shows zoomed thumbnails of the box along the event (required checkpoints, every drawn box and 12 evenly spaced frames), each decided with one click (✓ ✕ ◌ ?). ✓ on an estimated frame materializes an exact-frame box bound to the decision, so a decision still applies only to the frame it was made on.
 - **One cataloguing process (operator request).** The catalog is the only cataloguing entry and the default screen. The marking workbench is its event/BOX step: it is opened from the catalog and highlighted under it, and always offers "back to catalog". Library and cloud remain as source-management tools reached from the catalog header, not as parallel catalogue paths. No field was removed.
+- **The catalog shows every catalogued value.**
+  - Video level: owner and owner certainty (`needs_review`), primary and additional sports, who else appears (with uncertainty), the events answer, coverage, review request, file identity and approval state.
+  - Event level (one card per event): range, type and event sport, performer or primary status, usability, reason codes, decision, the three key moments, the event type's required attributes, BOX (count and checked/total), the physical-action link and notes.
+  - Each value opens the workbench at that event and tab.
 - **Fixed address.** The login cookie is now persistent (1 year, HttpOnly, SameSite=Strict, server bound to 127.0.0.1), so `http://127.0.0.1:4173/#/catalog` keeps working after a browser restart.
   - The launcher stops an older Studio still listening on the port, so the updated code is what serves. It also prints the code version and creates a desktop shortcut.
   - `GET /api/version` reports the running commit, shown under the menu.

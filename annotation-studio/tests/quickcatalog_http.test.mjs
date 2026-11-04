@@ -33,6 +33,7 @@ test('queue: a fresh video lists owner, sport and "are there events" as missing;
     const a = item(q, b.ids[0]);
     assert.deepEqual(a.video.map(i => [i.key, i.ok]), [['owner', false], ['sport', false], ['triage', false]]);
     assert.equal(a.triage, 'not_started'); assert.equal(a.complete, false);
+    assert.ok(Array.isArray(a.extra_sports) && Array.isArray(a.appearances), 'list-shaped video fields');
   } finally { b.close(); }
 });
 

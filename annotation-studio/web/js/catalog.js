@@ -3,7 +3,7 @@
 // Nothing here is a second copy of the data: owner, sport and the draft are read and written through the same APIs the
 // library and the workbench use, so no catalogued detail can be lost or diverge. Details of each event (performer,
 // usability, decision, reasons, key moments, BOX) are edited in the workbench, opened directly at the right event/tab.
-import { h, api, toast, pill, sportsList, sportName, eventHe } from './ui.js';
+import { h, api, toast, pill, sportsList, sportName, eventHe, timecode, REASON_HE, USABILITY_HE, DECISION_HE, PRIMARY_HE } from './ui.js';
 import { setTopbar } from './main.js';
 
 const VIDEO_HE = { owner: 'של מי הסרטון', sport: 'ענף', triage: 'יש אירועים?', watched: 'צפייה בכל הסרטון', opened: 'פתיחה בסטודיו' };
@@ -101,9 +101,11 @@ export async function renderCatalog(root, selId) {
         h('div', { class: 'qc-steps' },
           step(1, 'של מי הסרטון?', ok('owner'), ownerControl(i)),
           step(2, 'איזה ענף?', ok('sport'), sportControl(i)),
-          step(3, 'יש בסרטון אירועים (גלים, נפילות וכד׳)?', ok('triage'), triageControl(i))),
+          step(3, 'מי עוד מופיע בסרטון? (רשות)', i.appearances.length > 0, peopleControl(i)),
+          step(4, 'יש בסרטון אירועים (גלים, נפילות וכד׳)?', ok('triage'), triageControl(i))),
         vid),
-      i.triage === 'has_events' ? step(4, `אירועים (${i.events.length})`, i.events.every(e => e.complete) && ok('watched'), eventsControl(i)) : null,
+      i.triage === 'has_events' ? step(5, `האירועים — כל הנתונים (${i.events.length})`, i.events.every(e => e.complete) && ok('watched'), eventsControl(i)) : null,
+      step(i.triage === 'has_events' ? 6 : 5, 'מצב הסרטון', null, statusControl(i)),
       h('div', { class: 'qc-foot' },
         i.triage === 'has_events' ? h('button', { class: 'btn', onclick: () => openInWorkbench(i.source_id) }, 'פתח בעמוד הסימון') : null,
         h('span', { class: 'spacer' }),
@@ -124,7 +126,9 @@ export async function renderCatalog(root, selId) {
       h('input', { type: 'text', placeholder: 'או שם גולש חדש', 'data-testid': 'qc-new-athlete', oninput: e => { newName = e.target.value; },
         onkeydown: e => { if (e.key === 'Enter') add(); } }),
       h('button', { class: 'btn sm', 'data-testid': 'qc-add-athlete', onclick: () => add() }, 'הוסף ושייך'),
-      i.owner.status === 'needs_review' ? pill('השיוך מסומן לבדיקה', 'warn') : null);
+      i.owner.athlete_id ? h('label', { class: 'meta', style: { display: 'flex', gap: '4px', alignItems: 'center' } },
+        h('input', { type: 'checkbox', 'data-testid': 'qc-owner-unsure', checked: i.owner.status === 'needs_review', onchange: e => setOwner(i, i.owner.athlete_id, e.target.checked ? 'needs_review' : 'assigned') }),
+        'לא בטוח בשיוך — לבדיקה') : null);
     async function add() {
       if (!newName.trim()) return toast('כתוב שם לגולש החדש', true);
       const a = await api('/api/athletes', { method: 'POST', body: { label: newName.trim() } });
@@ -132,12 +136,12 @@ export async function renderCatalog(root, selId) {
       await setOwner(i, a.id);
     }
   }
-  async function setOwner(i, athleteId) {
-    const prev = i.owner.label;
-    if (i.owner.athlete_id && athleteId !== i.owner.athlete_id && !confirm(`הסרטון משויך כעת ל-${prev}. להחליף?`)) return render();
+  async function setOwner(i, athleteId, status) {
+    const prev = i.owner.label, replacing = !!i.owner.athlete_id && athleteId !== i.owner.athlete_id;
+    if (replacing && !confirm(`הסרטון משויך כעת ל-${prev}. להחליף?`)) return render();
     try {
-      await api(`/api/sources/${i.source_id}/catalog-owner`, { method: 'POST', body: { owner_athlete_id: athleteId, expected_version: i.owner.version, confirm_reassign: !!i.owner.athlete_id } });
-      toast(athleteId ? 'השיוך נשמר' : 'השיוך הוסר');
+      await api(`/api/sources/${i.source_id}/catalog-owner`, { method: 'POST', body: { owner_athlete_id: athleteId, status: status ?? (athleteId ? 'assigned' : 'unassigned'), expected_version: i.owner.version, confirm_reassign: replacing || (!!i.owner.athlete_id && !athleteId) } });
+      toast(status === 'needs_review' ? 'השיוך סומן לבדיקה' : athleteId ? 'השיוך נשמר' : 'השיוך הוסר');
     } catch (e) { toast(e.code === 'VERSION_CONFLICT' ? 'השיוך שונה במקום אחר בינתיים — טענתי את המצב העדכני. בחר שוב.' : e.message, true); }
     await reload(i.source_id);
   }
@@ -150,7 +154,39 @@ export async function renderCatalog(root, selId) {
         catch (err) { toast(err.message, true); }
         await reload(i.source_id);
       } }, h('option', { value: '' }, '— בחר ענף —'), sports.map(s => h('option', { value: s.id, selected: s.id === i.sport_id }, s.name_he))),
-      !i.sport_id && i.suggested_sport_id ? h('span', { class: 'meta' }, `הצעה מהמערכת: ${sportName(i.suggested_sport_id)} (נשמרת רק אם תבחר)`) : null);
+      !i.sport_id && i.suggested_sport_id ? h('span', { class: 'meta' }, `הצעה מהמערכת: ${sportName(i.suggested_sport_id)} (נשמרת רק אם תבחר)`) : null,
+      h('span', { class: 'meta' }, 'ענפים נוספים בסרטון:'),
+      ...(i.extra_sports ?? []).filter(x => x !== i.sport_id).map(x => pill(sportName(x))),
+      h('select', { 'data-testid': 'qc-extra-sport', 'aria-label': 'הוסף ענף נוסף', onchange: async e => {
+        if (!e.target.value) return;
+        try { await api(`/api/sources/${i.source_id}/sports`, { method: 'POST', body: { sport_id: e.target.value } }); toast('הענף הנוסף נשמר'); } catch (err) { toast(err.message, true); }
+        await reload(i.source_id);
+      } }, h('option', { value: '' }, '＋ הוסף'), sports.filter(x => x.id !== i.sport_id && !(i.extra_sports ?? []).includes(x.id)).map(x => h('option', { value: x.id }, x.name_he))));
+  }
+
+  // Who is visible in the video (independent of the owner and of any event).
+  function peopleControl(i) {
+    let unsure = false;
+    return h('div', {},
+      h('div', { class: 'qc-row', 'data-testid': 'qc-people' },
+        i.appearances.length ? i.appearances.map(a => pill(`${a.label ?? 'לא ידוע'}${a.uncertain ? ' (לא ודאי)' : ''}`, a.uncertain ? 'warn' : 'ok')) : h('span', { class: 'meta' }, 'עוד לא נרשם אף אחד. מבצעי אירועים נרשמים כאן אוטומטית.')),
+      h('div', { class: 'qc-row', style: { marginTop: '6px' } },
+        h('select', { 'data-testid': 'qc-add-person', 'aria-label': 'הוסף אדם שמופיע בסרטון', onchange: async e => {
+          if (!e.target.value) return;
+          try { await api(`/api/sources/${i.source_id}/appearances`, { method: 'POST', body: { athlete_id: e.target.value, uncertain: unsure } }); toast('נשמר'); } catch (err) { toast(err.message, true); }
+          await reload(i.source_id);
+        } }, h('option', { value: '' }, '＋ הוסף גולש שמופיע'), athletes.filter(a => !i.appearances.some(x => x.athlete_id === a.id)).map(a => h('option', { value: a.id }, a.label))),
+        h('label', { class: 'meta', style: { display: 'flex', gap: '4px', alignItems: 'center' } }, h('input', { type: 'checkbox', onchange: e => { unsure = e.target.checked; } }), 'לא ודאי')));
+  }
+
+  function statusControl(i) {
+    const idOk = i.identity.verify_state === 'verified';
+    return h('div', { class: 'qc-row', 'data-testid': 'qc-status' },
+      pill(`נצפה ${Math.round((i.coverage ?? 0) * 100)}% מהסרטון`, i.coverage >= 0.999 ? 'ok' : 'warn'),
+      pill(idOk ? 'זהות הקובץ אומתה' : 'זהות הקובץ טרם אומתה (נדרש לפני אישור)', idOk ? 'ok' : 'warn'),
+      i.review_requested ? pill('מסומן לבדיקה חוזרת', 'warn') : null,
+      pill(i.approved ? 'Ground Truth מאושר' : 'Ground Truth טרם אושר', i.approved ? 'ok' : ''),
+      h('button', { class: 'btn sm', onclick: () => openInWorkbench(i.source_id) }, 'לאישור / היסטוריה בעמוד הסימון'));
   }
 
   function triageControl(i) {
@@ -171,19 +207,37 @@ export async function renderCatalog(root, selId) {
   function eventsControl(i) {
     const watched = i.video.find(x => x.key === 'watched');
     return h('div', {},
-      h('table', { class: 't qc-events', 'data-testid': 'qc-events' },
-        h('thead', {}, h('tr', {}, h('th', {}, 'אירוע'), h('th', {}, 'מה חסר / מה מולא'))),
-        h('tbody', {}, i.events.map((e, n) => h('tr', { 'data-testid': 'qc-event', 'data-complete': String(e.complete) },
-          h('td', {}, h('b', {}, `${n + 1}. ${eventHe(e.event_type, i.sport_id)}`), h('div', { class: 'meta ltr' }, `f${e.start_frame}–f${e.end_frame}`), h('div', { class: 'meta' }, e.athlete_label ?? 'מבצע לא נבחר')),
-          h('td', {}, h('div', { class: 'qc-checks' }, e.checklist.map(c => h('button', {
-            class: `ck ${c.ok ? 'ok' : c.required ? 'miss' : 'opt'}`, 'data-testid': `qc-ck-${c.key}`, 'data-ok': String(c.ok),
-            title: c.ok ? 'מולא — לחץ לעריכה' : c.required ? 'חסר — לחץ למילוי' : 'רשות',
-            onclick: () => openInWorkbench(i.source_id, e.id, c.key === 'box' ? 'box' : 'event'),
-          }, `${c.ok ? '✓' : c.required ? '✕' : '○'} ${c.key === 'box' ? BOX_HE[c.state] ?? EVENT_HE.box : EVENT_HE[c.key]}`)))))))),
+      h('div', { class: 'qc-evlist', 'data-testid': 'qc-events' }, i.events.map((e, n) => eventCard(i, e, n))),
       h('div', { class: 'qc-row', style: { marginTop: '8px' } },
         watched?.ok ? pill('צפית בכל הסרטון', 'ok') : pill(`נבדק ${Math.round((watched?.ratio ?? 0) * 100)}% מהסרטון`, 'warn'),
         watched?.ok ? null : h('span', { class: 'meta' }, 'כדי שאירועים לא יוחמצו: בעמוד הסימון לחץ "כל הסרטון נבדק" אחרי שצפית בו עד הסוף.'),
         h('button', { class: 'btn sm', onclick: () => openInWorkbench(i.source_id) }, 'הוסף אירוע בעמוד הסימון')));
+  }
+
+  /** One event: every recorded value, each row opens the workbench at this event (and the right tab) to edit it. */
+  function eventCard(i, e, n) {
+    const ck = k => e.checklist.find(c => c.key === k);
+    const km = e.key_moments, kmTxt = [['takeoff_frame', 'תחילה'], ['peak_frame', 'שיא'], ['landing_frame', 'סיום']].map(([k, l]) => `${l}: ${km[k] != null ? `f${km[k]}` : '—'}`).join(' · ');
+    const box = ck('box');
+    const rows = [
+      ['range', 'טווח', `f${e.start_frame}–f${e.end_frame} (${e.end_frame - e.start_frame} פריימים)`, null],
+      ['event_type', 'סוג', `${eventHe(e.event_type, e.effective_sport_id)}${e.sport_id && e.sport_id !== i.sport_id ? ` · ענף: ${sportName(e.sport_id)}` : ''}`, ck('event_type')],
+      ['performer', 'מי ביצע', e.athlete_label ?? PRIMARY_HE[e.primary_status] ?? 'לא נבחר', ck('performer')],
+      ['usability', 'שימושיות', USABILITY_HE[e.usability] ?? e.usability, ck('usability')],
+      ['reasons', 'סיבות', e.reason_codes.length ? e.reason_codes.map(r => REASON_HE[r] ?? r).join(', ') : '—', ck('reasons')],
+      ['decision', 'החלטה', DECISION_HE[e.decision] ?? e.decision, ck('decision')],
+      ['key_moments', 'רגעי מפתח', kmTxt, ck('key_moments')],
+      ...e.required_attrs.map(a => [`attr:${a}`, `שדה חובה: ${a}`, e.attrs?.[a] ?? '—', ck(`attr:${a}`)]),
+      ['box', 'BOX על הגולש', `${BOX_HE[box?.state] ?? '—'}${e.boxes ? ` · ${e.boxes} תיבות${box?.box_frames ? ` · נבדקו ${box.checked}/${box.box_frames}` : ''}` : ''}`, box],
+      ['action', 'אותה פעולה בסרטון אחר', e.physical_actions.length ? `מקושר (${e.physical_actions.length})` : '—', null],
+      ['notes', 'הערות', e.notes || '—', ck('notes')],
+    ];
+    return h('div', { class: `qc-ev${e.complete ? ' done' : ''}`, 'data-testid': 'qc-event', 'data-complete': String(e.complete) },
+      h('div', { class: 'qc-ev-h' }, h('b', {}, `אירוע ${n + 1}`), e.complete ? pill('הושלם', 'ok') : pill(`חסרים ${e.checklist.filter(c => c.required && !c.ok).length}`, 'warn'), e.needs_review ? pill('מסומן לבדיקה', 'warn') : null),
+      h('dl', { class: 'qc-fields' }, rows.map(([key, label, value, c]) => h('button', {
+        class: `qc-field ${c ? (c.ok ? 'ok' : c.required ? 'miss' : 'opt') : ''}`, 'data-testid': `qc-ck-${key}`, 'data-ok': String(c ? c.ok : true),
+        title: c && !c.ok && c.required ? 'חסר — לחץ למילוי' : 'לחץ לעריכה', onclick: () => openInWorkbench(i.source_id, e.id, key === 'box' ? 'box' : 'event'),
+      }, h('dt', {}, `${c ? (c.ok ? '✓' : c.required ? '✕' : '○') : '·'} ${label}`), h('dd', {}, value)))));
   }
 
   render();

@@ -63,6 +63,12 @@ export function eventHe(key, sportId) {
   return t?.label_he ?? EVENT_HE[key] ?? key;
 }
 export const eventInfo = (sportId, key) => sportId != null ? SPORTS.find(s => s.id === sportId)?.event_types.find(e => e.key === key) ?? null : null;
+// Catalog vocabulary shared by the catalog and the workbench, so both show exactly the same words.
+export const REASON_LIST = [['missing_takeoff', 'חסר תחילת גל'], ['missing_landing', 'חסר סיום'], ['occlusion', 'הגולש מוסתר'], ['unclear_identity', 'זהות לא ברורה'],
+  ['capture_issues', 'צילום לקוי'], ['no_meaningful_action', 'ללא פעולה ממשית'], ['duplicate_action', 'כפילות פיזית']];
+export const REASON_HE = Object.fromEntries(REASON_LIST);
+export const USABILITY_HE = { usable: 'שימושי', partially_usable: 'שימושי חלקית', unusable: 'לא שמיש', uncertain: 'עוד לא הוחלט' };
+export const PRIMARY_HE = { uncertain_primary: 'לא ברור מי ביצע', no_primary_action: 'אין מבצע ראשי' };
 export const EVENT_HE = { wave_ride: 'רכיבה על גל', failed_takeoff: 'עמידה כושלת', wipeout: 'נפילה', paddle_out: 'חתירה החוצה', other: 'אחר' };
 export const DECISION_HE = { include: 'כלול', exclude: 'החרג', uncertain: 'לא בטוח' };
 export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2) + Date.now());

@@ -1,7 +1,7 @@
 // Precision Annotation Workbench V2: Video + Bounding Box QA + Multitrack Timeline + Full Taxonomy Inspector.
 import {
   h, $, api, ltr, pill, toast, dialog, closeDialog, timecode, fpsOf, uid, fmtDate,
-  eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS
+  eventHe, eventOptions, eventInfo, sportName, sportsList, DECISION_HE, STATUS_HE, STATUS_CLASS, REASON_LIST
 } from './ui.js';
 import { setTopbar, rememberSource } from './main.js';
 
@@ -1072,15 +1072,7 @@ function segForm(s) {
     ['uncertain', '? לא יודע עדיין']
   ];
 
-  const reasonList = [
-    ['missing_takeoff', 'חסר תחילת גל'],
-    ['missing_landing', 'חסר סיום'],
-    ['occlusion', 'הגולש מוסתר'],
-    ['unclear_identity', 'זהות לא ברורה'],
-    ['capture_issues', 'צילום לקוי'],
-    ['no_meaningful_action', 'ללא פעולה ממשית'],
-    ['duplicate_action', 'כפילות פיזית']
-  ];
+  const reasonList = REASON_LIST;
 
   return h('div', { 'data-testid': 'segform', style: { display: 'flex', flexDirection: 'column', gap: '12px' } },
     h('div', { class: 'meta' }, h('span', { class: 'mono ltr' }, `[${s.start_frame}, ${s.end_frame})`), ` · ${s.end_frame - s.start_frame} פריימים · `, ltr(`${timecode(s.start_frame, S.fps)} → ${timecode(s.end_frame, S.fps)}`)),

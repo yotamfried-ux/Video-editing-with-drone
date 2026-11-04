@@ -201,3 +201,10 @@ dialog h2{margin:0 0 10px;font-size:16px}
 .tile canvas{width:100%;aspect-ratio:4/3;background:#000;border-radius:4px;cursor:pointer}
 .tile .tb{display:grid;grid-template-columns:repeat(4,1fr);gap:2px}.tile .tb button{padding:2px 0;font-size:12px}
 .tile .tlab{display:flex;justify-content:space-between;font-size:11px;color:var(--muted)}
+.qc-evlist{display:flex;flex-direction:column;gap:10px}
+.qc-ev{border:1px solid var(--line2);border-radius:var(--radius);padding:8px 10px;background:var(--panel2)}.qc-ev.done{border-color:#2f5d3a}
+.qc-ev-h{display:flex;gap:8px;align-items:center;margin-bottom:6px}
+.qc-fields{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:6px;margin:0}
+.qc-field{display:flex;flex-direction:column;align-items:flex-start;gap:2px;text-align:start;padding:6px 8px;border:1px solid var(--line);border-radius:6px;background:var(--panel);color:var(--text);cursor:pointer;min-width:0}
+.qc-field dt{font-size:11px;color:var(--muted)}.qc-field dd{margin:0;font-size:13px;overflow:hidden;text-overflow:ellipsis;max-width:100%}
+.qc-field.ok dt{color:#8fd19e}.qc-field.miss{border-color:#6b2a2a}.qc-field.miss dt{color:var(--exc)}
