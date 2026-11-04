@@ -111,7 +111,7 @@ function setSave(state) { S.save = state; const el = $('#savepill'); if (el) pai
 const SAVE_UI = { saved: ['נשמר', 'ok'], dirty: ['שינויים לא שמורים', 'warn'], saving: ['שומר…', 'busy'], offline: ['לא מקוון — ממתין לשליחה', 'warn'], conflict: ['התנגשות גרסאות', 'bad'], failed: ['שמירה נכשלה', 'bad'] };
 function paintSave(el) {
   const [t, c] = SAVE_UI[S.save]; el.className = `pill ${c}`;
-  if (S.save === 'saved') S.savedAt = S.savedAt ?? new Date();
+  if (S.save === 'saved' && !S.savedAt && S.draft?.updated_at) S.savedAt = new Date(S.draft.updated_at);   // the real time of the last save on the server
   el.replaceChildren(h('span', { class: 'dot' }), S.save === 'saved' && S.savedAt ? `${t} · ${S.savedAt.toLocaleTimeString('he-IL', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}` : t);
   el.dataset.state = S.save;
   const b = $('#savebtn'); if (!b) return;
@@ -448,7 +448,10 @@ function bindSegment(el, s) {
     e.stopPropagation();
     const mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : 'm';
     const row = el.parentElement, startF = frameAt(e, row, true), orig = { ...s }; let moved = false;
+    // Select WITHOUT re-rendering the timeline: a re-render would detach this element and drop the pointer capture,
+    // which made dragging the edges (changing the event's length) silently do nothing.
     S.sel = s.id; el.setPointerCapture(e.pointerId);
+    el.parentElement?.parentElement?.querySelectorAll('.sg.sel').forEach(x => x.classList.remove('sel')); el.classList.add('sel');
     const mv = ev => {
       const d = frameAt(ev, row, true) - startF; if (!d && !moved) return;
       if (!moved) { snapshot(); moved = true; }
@@ -457,9 +460,11 @@ function bindSegment(el, s) {
       else if (mode === 'l') s.start_frame = clamp(orig.start_frame + d, 0, orig.end_frame - 1);
       else s.end_frame = clamp(orig.end_frame + d, orig.start_frame + 1, S.total);
       el.style.left = `${xOf(s.start_frame)}px`; el.style.width = `${xOf(s.end_frame - s.start_frame)}px`;
+      // show the frame at the edge being dragged, so the new start/end is chosen by looking at the video
+      if (mode !== 'm') { const f = mode === 'l' ? s.start_frame : s.end_frame - 1; if (f !== S.frame) seekFrame(f); }
     };
     const up = () => {
-      el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up);
+      el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
       if (moved) {
         C().keyframes = C().keyframes.filter(k => k.segment_id !== s.id || (k.frame >= s.start_frame && k.frame < s.end_frame));
         const removed = repairOutOfRange(C());
@@ -468,8 +473,8 @@ function bindSegment(el, s) {
       } else seekFrame(S.frame);
       refresh();
     };
-    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up);
-    refresh();
+    el.addEventListener('pointermove', mv); el.addEventListener('pointerup', up); el.addEventListener('pointercancel', up);
+    paintInspector();
   });
 }
 function bindCreate(row, aid) {
@@ -632,8 +637,10 @@ async function autoTrack(s, f0) {
   } catch (e) {
     if (S?.tracking === me) S.tracking = null;
     paintTrackHud();
-    if (e.code === 'CORS') S.banner = { kind: 'warn', testid: 'track-cors', text: 'מעקב אוטומטי לא זמין לסרטון הזה: הדפדפן לא מורשה לקרוא את הווידאו מהענן (צריך להוסיף הרשאת CORS לדלי R2). ה-BOX נשמר בפריים שציירת. אפשר לצייר תיבות נוספות ולמלא ביניהן.' };
-    else toast(e.message, true);
+    // Shown inside the BOX section (not the page banner, which belongs to save/repair notices).
+    S.trackErr = { ...(S.trackErr ?? {}), [s.id]: e.code === 'CORS'
+      ? 'מעקב אוטומטי לא זמין לסרטון הזה: הדפדפן לא מורשה לקרוא את הווידאו מהענן (חסרה הרשאת CORS בדלי R2). ה-BOX נשמר בפריים שציירת.'
+      : `המעקב האוטומטי נעצר: ${e.message}` };
     return refresh();
   }
   if (!S || S.tracking !== me || ctl.signal.aborted || !seg0()) return;
@@ -653,6 +660,7 @@ async function autoTrack(s, f0) {
     }
   });
   S.trackLost = { ...(S.trackLost ?? {}), [s.id]: lost.length ? lost : null };
+  if (S.trackErr) delete S.trackErr[s.id];
   paintTrackHud();
   if (lost.length) toast(`המעקב איבד את הגולש ב-${lost.map(f => timecode(f, S.fps)).join(', ')}. עבור לשם וצייר תיבה חדשה, והמעקב ימשיך ממנה.`, true);
   else toast('ה-BOX עוקב אחרי הגולש לאורך כל האירוע (משוער: בדוק ברצועת ה-BOX)');
@@ -1279,6 +1287,8 @@ function segForm(s) {
       )
     ),
 
+    // A box drawn earlier (or by another session) that was never tracked starts tracking as soon as the event is opened.
+    (() => { if (!S.tracking && !(S.autoTried ??= new Set()).has(s.id) && kfs.some(k => k.origin === 'manual') && !kfs.some(k => k.origin === 'suggested')) { S.autoTried.add(s.id); setTimeout(() => S?.sel === s.id && retrackHere(s), 300); } return null; })(),
     // Section 4: BOX on the performer (optional)
     h('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' } },
       h('strong', {}, '4. BOX על הגולש (רשות)'),
@@ -1299,6 +1309,7 @@ function segForm(s) {
       if (S.tracking?.segId === s.id) return h('div', { class: 'banner warn', 'data-testid': 'track-running' }, `עוקב אחרי הגולש… ${Math.round(S.tracking.pct * 100)}%`);
       return h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', margin: '6px 0' } },
         tr.length ? pill(`מעקב אוטומטי: ${tr.length} נקודות (${timecode(tr[0].frame, S.fps)}–${timecode(tr.at(-1).frame, S.fps)}) · משוער`, 'warn') : null,
+        S.trackErr?.[s.id] ? h('div', { class: 'banner bad', 'data-testid': 'track-failed', style: { width: '100%' } }, S.trackErr[s.id]) : null,
         lost ? h('button', { class: 'btn sm', 'data-testid': 'track-lost', onclick: () => seekFrame(lost[0]) }, `המעקב איבד את הגולש ב-${timecode(lost[0], S.fps)}: קפוץ לשם`) : null,
         kfs.some(k => k.origin === 'manual') ? h('button', { class: 'btn sm', 'data-testid': 'track-auto', onclick: () => retrackHere(s) }, '↻ עקוב שוב') : null);
     })(),

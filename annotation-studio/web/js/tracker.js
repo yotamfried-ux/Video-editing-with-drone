@@ -13,7 +13,8 @@ function loadVideo(src, cors = true) {
     const v = document.createElement('video');
     v.muted = true; v.preload = 'auto'; v.playsInline = true; if (cors) v.crossOrigin = 'anonymous';
     const done = ok => { v.onloadeddata = v.onerror = null; ok ? resolve(v) : reject(new TrackError('MEDIA', 'לא ניתן לטעון את הווידאו למעקב')); };
-    v.onloadeddata = () => done(true); v.onerror = () => done(false);
+    v.onloadeddata = () => { clearTimeout(t); done(true); }; v.onerror = () => { clearTimeout(t); done(false); };
+    const t = setTimeout(() => { v.onloadeddata = v.onerror = null; v.removeAttribute('src'); v.load(); reject(new TrackError('SLOW', 'הווידאו לא נטען למעקב תוך דקה. בדוק את החיבור ונסה "↻ עקוב שוב".')); }, 60000);
     v.src = src;
   });
 }
@@ -26,10 +27,12 @@ async function loadReadable(src) {
     throw e;
   }
 }
+// A seek that never completes (network stall) must not hang the tracker forever.
 function seek(v, t) {
-  return new Promise(resolve => {
+  return new Promise((resolve, reject) => {
     if (Math.abs(v.currentTime - t) < 1e-4 && v.readyState >= 2) return resolve();
-    const fin = () => { v.removeEventListener('seeked', fin); resolve(); };
+    const fin = () => { clearTimeout(to); v.removeEventListener('seeked', fin); resolve(); };
+    const to = setTimeout(() => { v.removeEventListener('seeked', fin); reject(new TrackError('SLOW', 'הווידאו נטען לאט מדי מהענן והמעקב נעצר. נסה "↻ עקוב שוב".')); }, 20000);
     v.addEventListener('seeked', fin); v.currentTime = t;
   });
 }

@@ -39,6 +39,7 @@ async function until(fn, arg, timeout = 15000) {
   throw new Error(`timed out waiting for: ${fn}`);
 }
 const saved = () => page.waitForSelector('[data-testid=savepill][data-state=saved]', { timeout: 10000 });
+const frameAtHead = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
 const item = name => page.locator('[data-testid=qc-item]', { hasText: name });
 console.log('Quick catalog @ 1440x900');
 await page.goto(`${base}/?t=demo-token`);
@@ -280,6 +281,41 @@ await scenario('a drawn BOX follows the athlete through the whole event (auto-tr
   while (await fr() < 85) await page.keyboard.press('ArrowRight');
   assert.ok(await page.locator('[data-testid=bbox]').count() >= 1, 'box shown at a frame far from the drawn one');
   await shot('07-auto-track');
+  // A box drawn BEFORE tracking existed (only a hand-drawn box, no tracked ones) starts tracking when the event is opened.
+  const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
+  const old = structuredClone(cur.content); old.keyframes = old.keyframes.filter(k => k.origin !== 'suggested');
+  const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: { authorization: 'Bearer demo-token', 'content-type': 'application/json' }, body: JSON.stringify({ expected_version: cur.version, content: old }) });
+  assert.equal(put.status, 200);
+  await page.reload();
+  await page.waitForSelector('[data-testid=workbench]');
+  if (!await page.locator('[data-testid=segform]').count()) await page.locator('[data-testid=segment]').first().click();
+  await until(id => true, null);
+  await until(() => /מעקב אוטומטי: \d+ נקודות/.test(document.querySelector('[data-testid=segform]')?.textContent ?? ''), undefined, 60000);
+  await saved();
+  assert.ok(draft(s.id).keyframes.filter(k => k.origin === 'suggested').length >= 10, 'existing box tracked on open');
+});
+
+await scenario('an event length is changed by dragging its edges on the timeline (both ends), and it saves', async () => {
+  const s = src('DJI_0413.mp4');
+  await page.goto(`${base}/#/annotate/${s.id}`);
+  await page.waitForSelector('[data-testid=segment]');
+  const d0 = draft(s.id).segments[0];
+  const seg = page.locator('[data-testid=segment]').first();
+  let r = await seg.boundingBox();
+  await page.mouse.move(r.x + r.width - 3, r.y + r.height / 2); await page.mouse.down();
+  await page.mouse.move(r.x + r.width + 100, r.y + r.height / 2, { steps: 8 }); await page.mouse.up();
+  await saved();
+  const d1 = draft(s.id).segments[0];
+  assert.ok(d1.end_frame > d0.end_frame + 10, `end dragged later: ${d0.end_frame} -> ${d1.end_frame}`);
+  assert.equal(d1.start_frame, d0.start_frame);
+  r = await seg.boundingBox();
+  await page.mouse.move(r.x + 3, r.y + r.height / 2); await page.mouse.down();
+  await page.mouse.move(r.x + 60, r.y + r.height / 2, { steps: 8 }); await page.mouse.up();
+  await saved();
+  const d2 = draft(s.id).segments[0];
+  assert.ok(d2.start_frame > d1.start_frame + 5, `start dragged later: ${d1.start_frame} -> ${d2.start_frame}`);
+  assert.equal(d2.end_frame, d1.end_frame);
+  assert.equal(await frameAtHead(), d2.start_frame, 'the video shows the frame at the dragged edge');
 });
 
 await scenario('a stuck draft whose event runs past the end of the video is repaired on save, with a visible note', async () => {
