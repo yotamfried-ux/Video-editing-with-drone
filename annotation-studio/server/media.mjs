@@ -6,7 +6,9 @@ import path from 'node:path';
 
 function run(cmd, args) {
   return new Promise((resolve, reject) => {
-    const p = spawn(cmd, args, { stdio: ['ignore', 'pipe', 'pipe'] });
+    // Hosted builds ship their own binaries (STUDIO_FFPROBE / STUDIO_FFMPEG); locally the ones on PATH are used.
+    const bin = (cmd === 'ffprobe' ? process.env.STUDIO_FFPROBE : cmd === 'ffmpeg' ? process.env.STUDIO_FFMPEG : null) || cmd;
+    const p = spawn(bin, args, { stdio: ['ignore', 'pipe', 'pipe'] });
     let out = '', err = '';
     p.stdout.on('data', d => out += d); p.stderr.on('data', d => err += d);
     p.on('error', reject);

@@ -25,3 +25,23 @@ export function signRequest({ method, url, headers = {}, payloadHash, region, se
   const signature = createHmac('sha256', key).update(toSign).digest('hex');
   return { ...all, authorization: `AWS4-HMAC-SHA256 Credential=${accessKeyId}/${scope}, SignedHeaders=${names.join(';')}, Signature=${signature}`, _canonical: canonical };
 }
+
+/**
+ * Pre-signed GET URL (query-string auth, UNSIGNED-PAYLOAD, signed header: host). Lets the browser read one object for a
+ * limited time without the credentials ever leaving the server; read-only by construction (the method is part of the
+ * signature). Verified against the AWS published presigned-URL example.
+ */
+export function presignUrl({ method = 'GET', url, region, service = 's3', accessKeyId, secretAccessKey, expires = 3600, amzDate = amzDateNow() }) {
+  const u = new URL(url);
+  const date = amzDate.slice(0, 8);
+  const scope = `${date}/${region}/${service}/aws4_request`;
+  const params = [...u.searchParams.entries(),
+    ['X-Amz-Algorithm', 'AWS4-HMAC-SHA256'], ['X-Amz-Credential', `${accessKeyId}/${scope}`], ['X-Amz-Date', amzDate],
+    ['X-Amz-Expires', String(expires)], ['X-Amz-SignedHeaders', 'host']];
+  const query = params.map(([k, v]) => [enc(k), enc(v)]).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : a[1] < b[1] ? -1 : 1).map(([k, v]) => `${k}=${v}`).join('&');
+  const canonical = [method, encPath(decodeURIComponent(u.pathname)), query, `host:${u.host}\n`, 'host', 'UNSIGNED-PAYLOAD'].join('\n');
+  const toSign = ['AWS4-HMAC-SHA256', amzDate, scope, sha256hex(canonical)].join('\n');
+  const key = hmac(hmac(hmac(hmac(`AWS4${secretAccessKey}`, date), region), service), 'aws4_request');
+  const signature = createHmac('sha256', key).update(toSign).digest('hex');
+  return `${u.origin}${encPath(decodeURIComponent(u.pathname))}?${query}&X-Amz-Signature=${signature}`;
+}

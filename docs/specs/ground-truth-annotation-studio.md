@@ -516,3 +516,18 @@ The following changes the system's **behaviour** to meet §§21–22 as written.
 - **Error detail reaches the operator.** The client shows the server's specific `detail` (which frame, which event) instead of only the generic message.
 
 **Gate status at this update:** `CATALOG_GO` = **NO-GO**: the save P0 needs re-verification on the workstation, the token probe was not run, the backup is on the same disk, and the catalog flow is hard to follow (P1). `FULL_SPEC_GO` = **NO-GO**. See [CATALOG-READINESS](../annotation-studio/qualification/CATALOG-READINESS.md).
+
+### 22.7 Update — hosted on the existing SportReel resources, 2026-11-04 (behaviour changes; requirements unchanged)
+
+- **Database:** the existing Supabase project `sportreel`, separate schema `ground_truth` (migrations 0001–0006 and `roles.sql`). No new database.
+  - Applied outside `supabase/migrations`, so the production migration history is unchanged.
+  - Live check: `anon`, `authenticated`, `service_role` and `authenticator` hold no privilege on the schema. A read as `service_role` is refused, `gt_studio` has no delete privilege, and RLS is on every table.
+- **Hosting:** a separate Vercel project (`api/index.js`, `vercel.json`, region `fra1`) running the same request handler in hosted mode:
+  - jobs complete within the request;
+  - originals are served by 1-hour pre-signed read-only R2 links;
+  - no local derivatives;
+  - login code sent in a POST body, Secure cookie;
+  - only configured hosts accepted;
+  - database TLS is `verify-full` with `STUDIO_DB_CA`, otherwise encrypted.
+- **Migration:** the local catalog moves once with `scripts/migrate-to-cloud.mjs`, into an empty database only, verified table by table.
+- **Secrets:** the database password, login code and R2 key are entered by the operator in Supabase and Vercel; they never pass through the repository or chat. Setup steps: `docs/annotation-studio/HOSTED-SETUP.md`.

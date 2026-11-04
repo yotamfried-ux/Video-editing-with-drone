@@ -48,6 +48,8 @@ grant select, insert on annotation_set_status, set_revisions, person_lineage_rel
                         action_occurrences, action_occurrence_retirements to gt_studio;
 grant select on frozen_revisions, frozen_datasets to gt_studio;
 grant usage, select on all sequences in schema __SCHEMA__ to gt_studio;
+-- setval after an import (restore) keeps identity sequences ahead of the imported ids; it grants no data access.
+grant update on all sequences in schema __SCHEMA__ to gt_studio;
 -- gt_studio holds NO delete privilege on any table: deletion is not an application operation.
 
 -- 4. Evaluator: frozen ground truth + predictions, writes only its own results

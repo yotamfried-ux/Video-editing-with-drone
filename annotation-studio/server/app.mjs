@@ -15,20 +15,22 @@ import * as C from './cloud.mjs';
 import * as Catalog from './catalog_owner.mjs';
 import { reconcile, verifyArchives } from './ingest.mjs';
 import * as I from './imports.mjs';
-import { exportBackup, verifyIntegrity } from './backup.mjs';
+import { exportBackup, verifyIntegrity, restoreBackup, BACKUP_FORMAT } from './backup.mjs';
 import { backupStatus } from './offsite.mjs';
 import * as Sets from './sets.mjs';
 import * as Lin from './lineage.mjs';
 import * as QC from './quickcatalog.mjs';
 import { spawnSync } from 'node:child_process';
+import { gunzipSync } from 'node:zlib';
+import { dbTlsMode } from './db.mjs';
 
 /** The running code's git commit (or package version), shown in the UI so the operator can tell which version is open. */
 let versionCache = null;
 function appVersion() {
   if (versionCache) return versionCache;
   const here = path.dirname(fileURLToPath(import.meta.url));
-  let commit = null;
-  try { const r = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here, encoding: 'utf8', timeout: 3000 }); if (r.status === 0) commit = r.stdout.trim() || null; } catch { /* git not installed */ }
+  let commit = process.env.VERCEL_GIT_COMMIT_SHA ? process.env.VERCEL_GIT_COMMIT_SHA.slice(0, 7) : null;   // hosted builds have no .git
+  if (!commit) try { const r = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here, encoding: 'utf8', timeout: 3000 }); if (r.status === 0) commit = r.stdout.trim() || null; } catch { /* git not installed */ }
   let version = null;
   try { version = JSON.parse(readFileSync(path.join(here, '..', 'package.json'), 'utf8')).version ?? null; } catch { /* no package.json */ }
   return (versionCache = { commit, version });
@@ -50,13 +52,24 @@ export function createApp(ctx) {
     const m = /(?:^|;\s*)studio_token=([^;]+)/.exec(req.headers.cookie ?? '');
     return !!m && safeEq(decodeURIComponent(m[1]), token);
   }
-  const hostOk = req => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host ?? '');
+  const isLocalHost = req => /^(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(req.headers.host ?? '');
+  // localhost, or a host name this deployment was explicitly given (studio.<domain>, its *.vercel.app names); anything else
+  // (DNS rebinding, stray domains pointed at the deployment) is refused.
+  const hostOk = req => isLocalHost(req) || (ctx.allowedHosts ?? []).includes((req.headers.host ?? '').toLowerCase());
+  const originOk = o => /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(o) || (ctx.allowedHosts ?? []).some(h => o.toLowerCase() === `https://${h}`);
+  // The login cookie is HttpOnly + SameSite=Strict, persistent (1 year), and Secure whenever the request came over HTTPS.
+  const loginCookie = req => `studio_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000${req.headers['x-forwarded-proto'] === 'https' ? '; Secure' : ''}`;
 
   async function body(req) {
     let n = 0; const chunks = [];
     for await (const c of req) { n += c.length; if (n > 8e6) throw new ApiError('INVALID_INPUT', 'גוף בקשה גדול מדי'); chunks.push(c); }
     if (!n) return {};
-    try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); } catch { throw new ApiError('INVALID_INPUT'); }
+    let raw = Buffer.concat(chunks);
+    // gzip bodies (the one-time import of a local Studio) keep large exports under hosted request-size limits.
+    if (/\bgzip\b/i.test(req.headers['content-encoding'] ?? '')) {
+      try { raw = gunzipSync(raw, { maxOutputLength: 128e6 }); } catch { throw new ApiError('INVALID_INPUT', 'גוף בקשה דחוס לא תקין'); }
+    }
+    try { return JSON.parse(raw.toString('utf8')); } catch { throw new ApiError('INVALID_INPUT'); }
   }
   const send = (res, status, obj, extra = {}) => {
     res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...extra });
@@ -113,7 +126,7 @@ export function createApp(ctx) {
     }
 
     // ---- Quick catalog: one queue with every catalog field per video and per event (reads/writes the same stores) ----
-    if (m === 'GET' && p === '/api/version') return send(res, 200, appVersion());
+    if (m === 'GET' && p === '/api/version') return send(res, 200, { ...appVersion(), hosted: !!ctx.serverless, backend: ctx.dbUrl ? 'postgresql' : 'sqlite', db_tls: ctx.dbUrl ? dbTlsMode() : null });
     if (m === 'GET' && p === '/api/catalog/queue') return send(res, 200, QC.catalogQueue(db, { include: ctx.cloudInclude ?? '', likeContains: C.likeContains }));
     if ((r = /^\/api\/catalog\/sources\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, 200, QC.sourceCatalogState(db, A.getSource(db, r[1])));
     if ((r = /^\/api\/catalog\/sources\/([\w-]+)\/triage$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, QC.setTriage(db, r[1], b)); }
@@ -158,21 +171,16 @@ export function createApp(ctx) {
     }
     if (m === 'POST' && p === '/api/cloud/sync') {
       if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
-      const id = randomUUID(); jobs.set(id, { state: 'running' });
-      C.syncCloudCatalog(ctx, { metadata: C.loadMetadata(ctx.cloudMetadata) }).then(rep => jobs.set(id, { state: 'done', report: rep }), e => jobs.set(id, { state: 'failed', error: e.message }));
-      return send(res, 202, { job_id: id });
+      return startJob(res, () => C.syncCloudCatalog(ctx, { metadata: C.loadMetadata(ctx.cloudMetadata) }));
     }
     if ((r = /^\/api\/cloud\/objects\/([\w-]+)\/open$/.exec(p)) && m === 'POST') {
       if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
-      const id = randomUUID(); jobs.set(id, { state: 'running' });
-      C.openCloudObject(ctx, r[1], { baseUrl: `http://${req.headers.host}` }).then(rep => jobs.set(id, { state: 'done', report: { source_id: rep.source_id, reused: rep.reused } }), e => jobs.set(id, { state: 'failed', error: e.message }));
-      return send(res, 202, { job_id: id });
+      return startJob(res, async () => { const rep = await C.openCloudObject(ctx, r[1], { baseUrl: `http://${req.headers.host}` }); return { source_id: rep.source_id, reused: rep.reused }; });
     }
     if (m === 'POST' && p === '/api/cloud/verify') {
       if (!ctx.cloud) throw new ApiError('CLOUD_NOT_CONFIGURED');
-      const b = await body(req), id = randomUUID(); jobs.set(id, { state: 'running' });
-      C.verifyCloudSources(ctx, { onlyId: b.source_id }).then(rep => jobs.set(id, { state: 'done', report: rep }), e => jobs.set(id, { state: 'failed', error: e.message }));
-      return send(res, 202, { job_id: id });
+      const b = await body(req);
+      return startJob(res, () => C.verifyCloudSources(ctx, { onlyId: b.source_id }));
     }
     if (m === 'POST' && p === '/api/sources/bulk-sport') { const b = await body(req); return send(res, 200, S.bulkSetSport(db, b.source_ids, b.sport_id ?? null, b.reason)); }
     if ((r = /^\/api\/sources\/([\w-]+)\/sport$/.exec(p)) && m === 'PATCH') {
@@ -190,7 +198,7 @@ export function createApp(ctx) {
       const s = db.prepare('select * from sources where id=?').get(r[1]); if (!s) throw new ApiError('NOT_FOUND');
       if (s.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
       const locations = db.prepare('select provider,kind,key,active,observed_at from source_locations where source_id=?').all(s.id);
-      return send(res, 200, { ...sourceCard(s), locations, playback_url: s.proxy_path ? `/media/${s.id}/proxy` : `/media/${s.id}/original`, thumb_url: s.thumb_path ? `/media/${s.id}/thumb` : null });
+      return send(res, 200, { ...sourceCard(s), locations, playback_url: s.proxy_path && !ctx.serverless ? `/media/${s.id}/proxy` : `/media/${s.id}/original`, thumb_url: s.thumb_path && !ctx.serverless ? `/media/${s.id}/thumb` : null });
     }
     if ((r = /^\/api\/sources\/([\w-]+)\/draft$/.exec(p))) {
       if (m === 'GET') return send(res, 200, A.getDraft(db, r[1]));
@@ -245,9 +253,7 @@ export function createApp(ctx) {
     if (m === 'GET' && p === '/api/batches') return send(res, 200, { items: db.prepare(`select b.id,b.label,b.created_at,count(distinct o.source_id) sources from upload_batches b left join upload_occurrences o on o.batch_id=b.id group by b.id order by b.created_at desc`).all() });
     if (m === 'POST' && p === '/api/ingestion/reconcile') {
       const b = await body(req);
-      const id = randomUUID(); jobs.set(id, { state: 'running' });
-      reconcile(ctx, { roots: ctx.roots, deep: !!b.deep }).then(rep => jobs.set(id, { state: 'done', report: rep }), e => jobs.set(id, { state: 'failed', error: e.message }));
-      return send(res, 202, { job_id: id });
+      return startJob(res, () => reconcile(ctx, { roots: ctx.roots, deep: !!b.deep }));
     }
     if ((r = /^\/api\/jobs\/([\w-]+)$/.exec(p)) && m === 'GET') return send(res, jobs.has(r[1]) ? 200 : 404, jobs.get(r[1]) ?? { code: 'NOT_FOUND' });
     if (m === 'POST' && p === '/api/archive/verify') return send(res, 200, await verifyArchives(ctx));
@@ -282,7 +288,15 @@ export function createApp(ctx) {
     if (m === 'POST' && p === '/api/imports/edl') { const b = await body(req); return send(res, 201, I.importEdl(db, b.edl ?? b)); }
     if (m === 'POST' && p === '/api/imports/predictions') return send(res, 201, I.importPipelinePredictions(db, await body(req)));
     // Read-only by design: running a backup writes to an operator-chosen path, so it is a CLI action, never an HTTP one.
-    if (m === 'GET' && p === '/api/backup/status') return send(res, 200, backupStatus(db));
+    // One-time move of an existing local Studio into this (empty) database: the local export, verified table by table.
+    // restoreBackup refuses a non-empty database, so this can never overwrite catalog data.
+    if (m === 'POST' && p === '/api/admin/import-backup') {
+      const backup = await body(req);
+      if (backup?.format !== BACKUP_FORMAT) throw new ApiError('INVALID_INPUT', 'קובץ ייצוא לא מוכר');
+      try { return send(res, 200, restoreBackup(db, backup, { actor: 'operator:migration' })); }
+      catch (e) { throw new ApiError(/non-empty/.test(e.message) ? 'IMPORT_TARGET_NOT_EMPTY' : 'INVALID_INPUT', e.message); }
+    }
+    if (m === 'GET' && p === '/api/backup/status') return send(res, 200, ctx.serverless ? { state: 'managed', provider: 'supabase' } : backupStatus(db));
     if (m === 'POST' && p === '/api/integrity/verify') return send(res, 200, verifyIntegrity(db));
     if (m === 'GET' && p === '/api/outputs') return send(res, 200, { items: db.prepare('select id,output_id,run_id,source_id,created_at,payload from edl_records order by created_at desc').all().map(e => { const x = JSON.parse(e.payload); return { id: e.id, output_id: e.output_id, run_id: e.run_id, source_id: e.source_id, mode: x.mode, has_video: !!x.output_file, mapping: x.mapping ?? 'verified', output: x.output, source: x.source }; }) });
     if ((r = /^\/api\/outputs\/([\w-]+)\/edl$/.exec(p)) && m === 'GET') { const e = db.prepare('select payload from edl_records where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND'); return send(res, 200, JSON.parse(e.payload)); }
@@ -329,7 +343,35 @@ export function createApp(ctx) {
     throw new ApiError('NOT_FOUND');
   }
 
+  /**
+   * Long work (cloud sync, opening a video, identity check, ingest). Locally it runs in the background and the client polls
+   * /api/jobs/<id>. On a serverless host there is no process that outlives the request (and the next poll may reach
+   * another instance), so the work completes inside the request and the final state is returned directly.
+   */
+  async function startJob(res, work) {
+    const id = randomUUID();
+    if (ctx.serverless) {
+      let j;
+      try { j = { state: 'done', report: await work() }; } catch (e) { j = { state: 'failed', error: e.message, code: e.code }; }
+      jobs.set(id, j);
+      return send(res, 200, { job_id: id, ...j });
+    }
+    jobs.set(id, { state: 'running' });
+    work().then(rep => jobs.set(id, { state: 'done', report: rep }), e => jobs.set(id, { state: 'failed', error: e.message }));
+    return send(res, 202, { job_id: id });
+  }
+
   async function media(req, res, id, kind) {
+    if (ctx.serverless) {
+      // Serverless: originals are played straight from R2 through a short-lived, read-only, pre-signed link; nothing
+      // large passes through the function and the R2 credentials never reach the browser. No local derivatives exist.
+      let key = null;
+      if (kind === 'cloud-original') key = db.prepare('select key from cloud_objects where id=?').get(id)?.key ?? null;
+      else if (kind === 'original' || kind === 'proxy') { const s = db.prepare('select provider, cloud_key from sources where id=?').get(id); if (s?.provider === 'cloud-r2') key = s.cloud_key; }
+      if (!key || !ctx.cloud) return send(res, 404, { code: 'SOURCE_UNAVAILABLE' });
+      res.writeHead(302, { location: ctx.cloud.presignGet(key, 3600), 'cache-control': 'no-store' });
+      return res.end();
+    }
     let file = null, archiveKey = null, reader = ctx.archive;
     if (kind === 'cloud-original') {                                   // /media/cloud/<object id>/original : a catalogued object (used while opening)
       const o = db.prepare('select key from cloud_objects where id=?').get(id);
@@ -380,14 +422,24 @@ export function createApp(ctx) {
       if (url.pathname === '/' && url.searchParams.get('t') && safeEq(url.searchParams.get('t'), token)) {
         res.writeHead(302, { location: '/', // Persistent (1 year) so the fixed address http://127.0.0.1:<port>/ keeps working after the browser is closed;
         // still HttpOnly + SameSite=Strict, and the server only listens on 127.0.0.1.
-        'set-cookie': `studio_token=${encodeURIComponent(token)}; HttpOnly; SameSite=Strict; Path=/; Max-Age=31536000` });
+        'set-cookie': loginCookie(req) });
         return res.end();
+      }
+      // Login form (hosted): the access code is sent in a POST body, never in a URL that could land in access logs.
+      if (url.pathname === '/auth/login' && req.method === 'POST') {
+        if (req.headers.origin && !originOk(req.headers.origin)) return send(res, 403, { code: 'PERMISSION_DENIED' });
+        let b = {}; try { b = await body(req); } catch { /* empty / invalid body = wrong code */ }
+        if (typeof b.token !== 'string' || !safeEq(b.token.trim(), token)) {
+          await new Promise(r => setTimeout(r, 400));   // slows guessing; the code is 192 bits anyway
+          return send(res, 401, { code: 'PERMISSION_DENIED', message: 'קוד הכניסה שגוי' });
+        }
+        return send(res, 200, { ok: true }, { 'set-cookie': loginCookie(req) });
       }
       if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/media/')) {
         if (!authed(req)) return send(res, 401, { code: 'PERMISSION_DENIED', message: new ApiError('PERMISSION_DENIED').he });
         if (req.method !== 'GET') {
           const o = req.headers.origin;
-          if (o && !/^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(o)) return send(res, 403, { code: 'PERMISSION_DENIED' });
+          if (o && !originOk(o)) return send(res, 403, { code: 'PERMISSION_DENIED' });
         }
         const cm = /^\/media\/cloud\/([\w-]+)\/original$/.exec(url.pathname);
         if (cm) return await media(req, res, cm[1], 'cloud-original');

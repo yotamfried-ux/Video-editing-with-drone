@@ -34,6 +34,12 @@ export async function api(path, opts = {}) {
   if (!res.ok) throw Object.assign(new Error(msg), { code: data.code, status: res.status, data });
   return data;
 }
+/** Final state of a long job: locally it is polled; on a serverless host the POST already returns it. */
+export async function awaitJob(resp, interval = 400) {
+  let j = resp;
+  while (!j.state || j.state === 'running') { await new Promise(r => setTimeout(r, interval)); j = await api(`/api/jobs/${resp.job_id}`); }
+  return j;
+}
 export function toast(msg, bad = false) {
   const t = h('div', { class: `toast${bad ? ' bad' : ''}`, role: bad ? 'alert' : 'status' }, msg);
   $('#toasts').append(t); setTimeout(() => t.remove(), bad ? 6000 : 3000);
@@ -76,7 +82,7 @@ export const uid = () => (crypto.randomUUID ? crypto.randomUUID() : String(Math.
 /** External-backup status: Local First only works if the independent copy really exists and is fresh. */
 export async function backupStatus() { try { return await api('/api/backup/status'); } catch { return null; } }
 export function backupBanner(b) {
-  if (!b) return null;
+  if (!b || b.state === 'managed') return null;   // hosted: the database provider keeps the data, no local backup disk
   const cmd = h('code', { class: 'ltr' }, 'node scripts/gt-offsite-backup.mjs run --to <דיסק אחר>');
   if (b.state === 'ok' && !b.last_failed) {
     if (b.encrypted === false) return h('div', { class: 'banner warn', role: 'status', 'data-testid': 'backup-banner-plain' }, 'הגיבוי האחרון אינו מוצפן (הוצהר שהדיסק מוצפן). מומלץ לעבור לגיבוי מוצפן עם מפתח.');
@@ -92,5 +98,6 @@ export function backupBanner(b) {
 }
 export function backupPill(b) {
   if (!b) return null;
+  if (b.state === 'managed') return pill('הנתונים נשמרים ב-Supabase', 'ok');
   return b.state === 'ok' ? pill(`גיבוי חיצוני: לפני ${Math.floor(b.age_days)} ימים`, 'ok') : pill(b.state === 'never' ? 'אין גיבוי חיצוני' : 'גיבוי חיצוני ישן', 'bad');
 }
