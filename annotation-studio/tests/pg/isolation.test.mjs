@@ -11,6 +11,8 @@ import { migrate } from '../../scripts/gt-migrate.mjs';
 import { createContext } from '../../server/context.mjs';
 import { reconcile } from '../../server/ingest.mjs';
 import * as A from '../../server/annotations.mjs';
+import * as Catalog from '../../server/catalog_owner.mjs';
+import * as S from '../../server/sports.mjs';
 import * as D from '../../server/datasets.mjs';
 import * as E from '../../server/evaluate.mjs';
 import { makeVideo, tmp, seg } from '../helpers.mjs';
@@ -72,6 +74,11 @@ test('pipeline-side roles (anon, authenticated, service_role) cannot touch Groun
 test('Studio role: working access, but no deletes, no history rewrites, no DDL, no production tables', { skip }, async () => {
   const w = await setup();
   try {
+    // every Ground Truth table the application writes must be readable and insertable by the Studio role
+    const missing = (await w.a.query(`select c.relname from pg_class c join pg_namespace n on n.oid=c.relnamespace
+      where n.nspname='ground_truth' and c.relkind='r' and c.relname <> 'schema_migrations'
+        and not (has_table_privilege('gt_studio', c.oid, 'SELECT') and has_table_privilege('gt_studio', c.oid, 'INSERT'))`)).rows.map(r => r.relname);
+    assert.deepEqual(missing, [], `tables without Studio grants: ${missing.join(', ')}`);
     const s = w.mk('gt_studio');
     const now = new Date().toISOString();
     assert.equal(await denied(s, `insert into athletes(id,label,created_at) values('a1','x',$1)`, [now]), 'allowed');
@@ -106,7 +113,16 @@ test('end-to-end on Postgres roles: Studio ingests+annotates+freezes; evaluator 
     const ath = A.createAthlete(studio.db, 'S1');
     const c = A.emptyContent(); c.segments.push(seg('s', 5, 40, { athlete_id: ath.id })); c.reviewed_ranges.push({ start_frame: 0, end_frame: 60 });
     A.saveDraft(studio.db, src.id, 0, c);
-    A.approve(studio.db, src.id, { expectedVersion: 1 });
+    // catalog actions the operator does every day must work under the Studio role (found live: the owner history
+    // table had no grant, so assigning an owner failed with "permission denied for table source_owner_history")
+    const own = Catalog.setCatalogOwner(studio.db, src.id, { owner_athlete_id: ath.id, expected_version: 0 });
+    assert.equal(own.owner_athlete_id, ath.id);
+    Catalog.setCatalogOwner(studio.db, src.id, { owner_athlete_id: ath.id, status: 'needs_review', expected_version: own.owner_version });
+    assert.equal(studio.db.prepare('select count(*) n from source_owner_history').get().n, 2);
+    A.addAppearance(studio.db, ath.id, src.id, { uncertain: true });
+    S.setSourceSport(studio.db, src.id, 'surfing', { reason: 'role test' });
+    S.addSourceSport(studio.db, src.id, 'football');
+    A.approve(studio.db, src.id, { expectedVersion: A.getDraft(studio.db, src.id).version });
     const ds = D.freezeDataset(studio.db, { name: 'v1', sourceIds: [src.id], policy: { seed: 's', ratios: { train: 0, validation: 0, test: 1 } } });
     const pred = E.importPredictions(studio.db, { run_id: 'r1', pipeline_version: 'abc', sources: [{ source_sha256: src.sha256, events: [{ start_frame: 6, end_frame: 39, athlete_key: 'k' }] }] });
     // Studio role cannot delete/rewrite through the application either

@@ -22,6 +22,7 @@ export async function renderCatalog(root, selId) {
   let q = await api('/api/catalog/queue');
   let athletes = (await api('/api/athletes')).items;
   let filter = 'todo';
+  let player = { id: null, el: null };
   let sel = selId ? q.items.find(i => i.source_id === selId || i.cloud_object_id === selId) : null;
   const keyOf = i => i.source_id ?? `c:${i.cloud_object_id}`;
   const visible = () => q.items.filter(i => filter === 'all' || (filter === 'done' ? i.complete : !i.complete));
@@ -90,8 +91,14 @@ export async function renderCatalog(root, selId) {
         } }, 'פתח את הסרטון'));
     }
     const main = h('div', { class: 'qc-main', 'data-testid': 'qc-detail', 'data-source': i.source_id });
-    const vid = h('video', { class: 'qc-video', controls: true, preload: 'metadata', 'data-testid': 'qc-video' });
-    api(`/api/sources/${i.source_id}`).then(s => { vid.src = s.playback_url; }).catch(() => {});
+    // One player per video, kept across re-renders: answering a question re-renders the form, never the video
+    // (no reload, playback position and pause state stay as they were).
+    if (player.id !== i.source_id) {
+      player = { id: i.source_id, el: h('video', { class: 'qc-video', controls: true, preload: 'metadata', 'data-testid': 'qc-video' }) };
+      const el = player.el;
+      api(`/api/sources/${i.source_id}`).then(s => { if (player.el === el) el.src = s.playback_url; }).catch(() => {});
+    }
+    const vid = player.el;
     const ok = k => i.video.find(x => x.key === k)?.ok;
     main.append(...[
       h('div', { class: 'qc-title' }, h('h2', { class: 'ltr mono' }, i.name), i.complete ? pill('הקטלוג של הסרטון הושלם', 'ok') : pill(`חסרים ${i.missing} פריטים`, 'warn'), i.approved ? pill('Ground Truth מאושר', 'ok') : null),
@@ -174,7 +181,16 @@ export async function renderCatalog(root, selId) {
           try { await api(`/api/sources/${i.source_id}/appearances`, { method: 'POST', body: { athlete_id: e.target.value, uncertain: unsure } }); toast('נשמר'); } catch (err) { toast(err.message, true); }
           await reload(i.source_id);
         } }, h('option', { value: '' }, '＋ הוסף גולש שמופיע'), athletes.filter(a => !i.appearances.some(x => x.athlete_id === a.id)).map(a => h('option', { value: a.id }, a.label))),
-        h('label', { class: 'meta', style: { display: 'flex', gap: '4px', alignItems: 'center' } }, h('input', { type: 'checkbox', onchange: e => { unsure = e.target.checked; } }), 'לא ודאי')));
+        ...certaintyChips(v => { unsure = v; })),
+      h('div', { class: 'meta', style: { marginTop: '4px' } }, 'גולשים שרואים בסרטון, גם אם הם לא הבעלים ולא ביצעו אירוע. "לא בטוח" = נראה כמו הגולש אבל אי אפשר לזהות בוודאות.'));
+  }
+  /** Two explicit choices instead of an unexplained checkbox; "sure" is the default. */
+  function certaintyChips(onChange) {
+    const sure = h('button', { class: 'chip', type: 'button', 'aria-pressed': 'true', 'data-testid': 'qc-person-sure' }, 'בטוח שזה הוא');
+    const unsure = h('button', { class: 'chip', type: 'button', 'aria-pressed': 'false', 'data-testid': 'qc-person-unsure' }, 'לא בטוח');
+    const set = v => { sure.setAttribute('aria-pressed', String(!v)); unsure.setAttribute('aria-pressed', String(v)); onChange(v); };
+    sure.onclick = () => set(false); unsure.onclick = () => set(true);
+    return [h('span', { class: 'meta' }, 'זיהוי:'), sure, unsure];
   }
 
   function statusControl(i) {
