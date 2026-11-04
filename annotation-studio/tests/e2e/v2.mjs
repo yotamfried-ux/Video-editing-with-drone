@@ -97,7 +97,7 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 1920, height: 1080 }]) 
     await saved();
     let d = draft(src.id);
     assert.equal(d.segments.length, 1);
-    assert.equal(d.segments[0].usability, 'uncertain'); assert.equal(d.segments[0].decision, 'uncertain');
+    assert.equal(d.segments[0].usability, 'usable'); assert.equal(d.segments[0].decision, 'include');   // by exception: change only what is not OK
     // The performer select (previously threw: setSegmentAthlete was undefined).
     const ownerId = db.prepare('select owner_athlete_id from sources where id=?').get(src.id).owner_athlete_id;
     await page.selectOption('[data-testid=athlete-select]', ownerId);

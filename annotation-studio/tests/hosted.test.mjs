@@ -72,7 +72,9 @@ test('hosted: jobs finish inside the request; originals go to a short-lived pre-
     const src = h.ctx.db.prepare('select frame_count, fps_num, proxy_path, thumb_path, provider from sources where id=?').get(sid);
     assert.ok(src.frame_count > 0 && src.fps_num > 0, 'probed from the pre-signed link'); assert.equal(src.proxy_path, null); assert.equal(src.thumb_path, null);
     const card = await h.req(`/api/sources/${sid}`, { headers: h.auth });
-    assert.equal(card.json.playback_url, `/media/${sid}/original`);
+    assert.equal(card.json.playback_url, `/media/${sid}/proxy`, 'playback asks for the light copy first');
+    const viaProxy = await h.req(`/media/${sid}/proxy`, { headers: h.auth });
+    assert.equal(viaProxy.status, 302); assert.equal(viaProxy.headers['x-studio-media'], 'original', 'no copy in studio/previews/ yet -> the original');
     const media = await h.req(`/media/${sid}/original`, { headers: h.auth });
     assert.equal(media.status, 302);
     const loc = new URL(media.headers.location);

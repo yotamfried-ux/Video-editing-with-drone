@@ -140,7 +140,7 @@ await scenario('every catalogued field is shown with its VALUE; people, owner ce
   await shot('05-all-fields');
 });
 
-await scenario('BOX strip: thumbnails along the event (incl. estimated frames); ✓ on an estimated frame binds an exact box', async () => {
+await scenario('BOX strip: thumbnails along the event; one click accepts every box not marked wrong (exception review)', async () => {
   const s = src('DJI_0412.mp4');   // seg-wave1 [20,160) with manual boxes at 20, 90, 159
   try { await page.evaluate(id => { sessionStorage.setItem('studio.focus', JSON.stringify({ source: id, seg: 'seg-wave1', tab: 'box' })); sessionStorage.setItem('studio.fromCatalog', id); }, s.id); } catch {}
   await page.goto(`${base}/#/annotate/${s.id}`);
@@ -151,20 +151,24 @@ await scenario('BOX strip: thumbnails along the event (incl. estimated frames); 
   const f = Number(await est.getAttribute('data-frame'));
   // the thumbnail is real pixels from the video, not an empty canvas
   await until(fr => { const c = document.querySelector(`[data-testid=strip-tile][data-frame="${fr}"] canvas`); if (!c) return false; const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data; let n = 0; for (let i = 0; i < d.length; i += 4) n += d[i] + d[i + 1] + d[i + 2]; return n > 0; }, f);
-  await est.locator('[data-testid=tile-ok]').click();
+  // management by exception: no per-frame approval buttons; one click accepts every box that was not marked wrong
+  assert.equal(await page.locator('[data-testid=tile-ok]').count(), 0, 'no ✓ per frame');
+  const open = draft(s.id).keyframes.filter(k => k.segment_id === 'seg-wave1' && !draft(s.id).box_verifications.some(v => v.segment_id === 'seg-wave1' && v.frame === k.frame)).length;
+  assert.ok(open >= 3, `boxes waiting for review (${open})`);
+  await page.click('[data-testid=accept-rest]');
   await saved();
   const d = draft(s.id);
-  const k = d.keyframes.find(x => x.segment_id === 'seg-wave1' && x.frame === f);
-  assert.ok(k, 'exact-frame box created for the checked estimated frame'); assert.equal(k.origin, 'interpolated');
-  const v = d.box_verifications.filter(x => x.segment_id === 'seg-wave1' && x.frame === f).at(-1);
-  assert.equal(v.status, 'verified_correct'); assert.deepEqual(v.bbox, k.bbox); assert.ok(v.athlete_id);
-  await page.waitForSelector(`[data-testid=strip-tile][data-frame="${f}"][data-status=verified_correct]`);
+  for (const k of d.keyframes.filter(k => k.segment_id === 'seg-wave1')) {
+    const v = d.box_verifications.filter(x => x.segment_id === 'seg-wave1' && x.frame === k.frame).at(-1);
+    assert.ok(v, `frame ${k.frame} has a decision`);
+    assert.equal(v.status, 'verified_correct'); assert.deepEqual(v.bbox, k.bbox); assert.equal(v.method, 'exception_review');
+  }
   await shot('04-box-strip');
 });
 
 await scenario('BOX strip: ✕ on a frame blocks approval with the specific reason', async () => {
   const s = src('DJI_0412.mp4');
-  const tile = page.locator('[data-testid=strip-tile][data-status=unreviewed]').first();
+  const tile = page.locator('[data-testid=strip-tile]').first();
   const f = Number(await tile.getAttribute('data-frame'));
   const st0 = await (await fetch(`${base}/api/sources/${s.id}/states`, { headers: { authorization: 'Bearer demo-token' } })).json();
   assert.ok(!st0.workflow_computed_reasons.blocking.boxes_needing_correction, 'not blocked by a wrong surfer before the click');
@@ -251,48 +255,60 @@ await scenario('save button saves immediately and says so; watched ranges fill i
   assert.ok(Number(await page.getAttribute('[data-testid=coverage]', 'data-cov')) > 0);
 });
 
-await scenario('a drawn BOX follows the athlete through the whole event (auto-tracking, marked as estimate)', async () => {
-  const s = src('DJI_0414.mp4');   // synthetic: red 40x40 "surfer" at x=2n, y=330 on 1280x720; event [30,91) from the marking scenario
+await scenario('one drawn BOX follows the athlete through the WHOLE video; dragging it fixes the boxes before and after', async () => {
+  const s = src('DJI_0414.mp4');   // synthetic: red 40x40 "surfer" at x=2n, y=330 on 1280x720 (240 frames); event [30,91)
   const seg = draft(s.id).segments[0];
   const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
-  await page.locator('[data-testid=segment]').first().click();
-  await page.waitForSelector('[data-testid=segform]');
-  while (await fr() < 60) await page.keyboard.press('ArrowRight');
-  while (await fr() > 60) await page.keyboard.press('ArrowLeft');
-  const f = await fr();
-  await page.keyboard.press('b');
+  const go = async n => { while (await fr() < n) await page.keyboard.press(await fr() + 10 <= n ? 'Shift+ArrowRight' : 'ArrowRight'); while (await fr() > n) await page.keyboard.press(await fr() - 10 >= n ? 'Shift+ArrowLeft' : 'ArrowLeft'); };
   const ov = await page.locator('#ov').boundingBox();
   const px = (x, y) => [ov.x + ov.width * x / 1280, ov.y + ov.height * y / 720];
-  await page.mouse.move(...px(2 * f - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(2 * f + 44, 374), { steps: 5 }); await page.mouse.up();
+  await page.locator('[data-testid=segment]').first().click();
+  await page.waitForSelector('[data-testid=segform]');
+  await go(60);
+  const f = await fr();
   await page.keyboard.press('b');
-  await until(() => !!document.querySelector('[data-testid=track-auto]') && !document.querySelector('[data-testid=track-running]'), undefined, 60000);
+  await page.mouse.move(...px(2 * f - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(2 * f + 44, 374), { steps: 5 }); await page.mouse.up();
+  await until(() => !!document.querySelector('[data-testid=track-auto]') && !document.querySelector('[data-testid=track-running]'), undefined, 90000);
   await saved();
-  const kf = draft(s.id).keyframes.filter(k => k.segment_id === seg.id);
-  const tr = kf.filter(k => k.origin === 'suggested');
-  assert.ok(tr.length >= 10, `tracked boxes along the event (${tr.length})`);
-  assert.equal(Math.min(...kf.map(k => k.frame)), seg.start_frame, 'reaches the start of the event');
-  assert.equal(Math.max(...kf.map(k => k.frame)), seg.end_frame - 1, 'reaches the end of the event');
-  for (const k of tr) {
-    const cx = (k.bbox.x + k.bbox.w / 2) * 1280, truth = 2 * k.frame + 20;
-    assert.ok(Math.abs(cx - truth) < 10, `frame ${k.frame}: box centre ${cx.toFixed(1)} follows the athlete at ${truth}`);
-    assert.equal(k.verification_status, 'unreviewed', 'tracked = estimate, never verified');
+  let d = draft(s.id);
+  const t = (d.tracks ?? [])[0];
+  assert.ok(t, 'a video-level track exists');
+  const fs = t.points.map(p => p.frame);
+  assert.equal(Math.min(...fs), 0, 'track reaches the first frame of the video');
+  assert.equal(Math.max(...fs), s.frame_count - 1, 'track reaches the last frame of the video');
+  for (const p of t.points) {
+    const cx = (p.bbox.x + p.bbox.w / 2) * 1280, truth = Math.min(2 * p.frame, 1240) + 20;
+    assert.ok(Math.abs(cx - truth) < 12, `frame ${p.frame}: box centre ${cx.toFixed(1)} follows the athlete at ${truth}`);
   }
-  // the box is visible on frames where nothing was drawn by hand
-  while (await fr() < 85) await page.keyboard.press('ArrowRight');
-  assert.ok(await page.locator('[data-testid=bbox]').count() >= 1, 'box shown at a frame far from the drawn one');
+  // the event's own boxes come from the track and stay estimates
+  const ek = d.keyframes.filter(k => k.segment_id === seg.id);
+  assert.equal(Math.min(...ek.map(k => k.frame)), seg.start_frame); assert.equal(Math.max(...ek.map(k => k.frame)), seg.end_frame - 1);
+  assert.ok(ek.filter(k => k.origin === 'suggested').every(k => k.verification_status === 'unreviewed'));
+  // a box is shown far outside the event too
+  await go(180);
+  assert.ok(await page.locator('[data-testid=track-box]').count() >= 1, 'box shown at frame 180, outside the event');
+  // correction: drag the box at frame 180 by +60 px -> anchor; the stretch on both sides is re-tracked from it
+  const r = await page.locator('[data-testid=track-box]').first().boundingBox();
+  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2); await page.mouse.down();
+  await page.mouse.move(r.x + r.width / 2 + 25, r.y + r.height / 2, { steps: 5 }); await page.mouse.up();
+  await until(() => !document.querySelector('[data-testid=track-running]') && !document.querySelector('#hudtrack:not([style*="none"])'), undefined, 90000);
+  await saved();
+  d = draft(s.id);
+  const t2 = d.tracks[0];
+  assert.ok(t2.points.some(p => p.frame === 180 && p.origin === 'manual'), 'the dragged box is an anchor');
+  assert.equal(Math.max(...t2.points.map(p => p.frame)), s.frame_count - 1, 'still covers the whole video after the correction');
   await shot('07-auto-track');
-  // A box drawn BEFORE tracking existed (only a hand-drawn box, no tracked ones) starts tracking when the event is opened.
+  // Boxes drawn before whole-video tracking existed (event box only, no track) are adopted and tracked when opened.
   const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
-  const old = structuredClone(cur.content); old.keyframes = old.keyframes.filter(k => k.origin !== 'suggested');
+  const old = structuredClone(cur.content); delete old.tracks; old.keyframes = old.keyframes.filter(k => k.origin === 'manual' && k.frame === f);
+  old.box_verifications = [];
   const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: { authorization: 'Bearer demo-token', 'content-type': 'application/json' }, body: JSON.stringify({ expected_version: cur.version, content: old }) });
-  assert.equal(put.status, 200);
+  assert.equal(put.status, 200, await put.text());
   await page.reload();
   await page.waitForSelector('[data-testid=workbench]');
-  if (!await page.locator('[data-testid=segform]').count()) await page.locator('[data-testid=segment]').first().click();
-  await until(id => true, null);
-  await until(() => /מעקב אוטומטי: \d+ נקודות/.test(document.querySelector('[data-testid=segform]')?.textContent ?? ''), undefined, 60000);
-  await saved();
-  assert.ok(draft(s.id).keyframes.filter(k => k.origin === 'suggested').length >= 10, 'existing box tracked on open');
+  for (let i = 0; i < 180 && !((draft(s.id).tracks ?? [])[0]?.points.length > 20); i++) await page.waitForTimeout(500);
+  const t3 = (draft(s.id).tracks ?? [])[0];
+  assert.ok(t3 && t3.points.length > 20, 'legacy box adopted and tracked over the whole video');
 });
 
 await scenario('an event length is changed by dragging its edges on the timeline (both ends), and it saves', async () => {

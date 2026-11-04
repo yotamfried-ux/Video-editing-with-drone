@@ -1,7 +1,7 @@
 // Minimal in-memory S3 server for tests: verifies SigV4 + payload/checksum headers, supports ranges, multipart,
 // ListObjectsV2 pagination, and fault injection. Records every request so tests can assert what was (never) called.
 import http from 'node:http';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import { signRequest, sha256hex, presignUrl } from '../server/sigv4.mjs';
 
 /** Linear-time parse of `AWS4-HMAC-SHA256 Credential=<ak>/<scope>, SignedHeaders=<h>, Signature=<hex>` (no backtracking regex). */
@@ -14,7 +14,7 @@ function parseAuthorization(header = '') {
 }
 
 const etagOf = data => createHash('md5').update(data).digest('hex');
-export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey = 'test-secret-do-not-use', bucket = 'gt-archive', region = 'auto' } = {}) {
+export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey = 'test-secret-do-not-use', bucket = 'gt-archive', region = 'auto', readOnlyKeys = {} } = {}) {
   const objects = new Map(), uploads = new Map(), log = [];
   const faults = { failPuts: 0, corruptNextPut: false, outage: false };
   const server = http.createServer(async (req, res) => {
@@ -28,29 +28,59 @@ export async function startS3Stub({ accessKeyId = 'AKIATESTKEY', secretAccessKey
     if (url.searchParams.has('X-Amz-Signature')) {
       // ---- pre-signed (query) auth, as R2/S3 check it: recompute the signature, enforce the expiry ----
       const q = url.searchParams;
-      if ((q.get('X-Amz-Credential') ?? '').split('/')[0] !== accessKeyId) return send(403, 'InvalidAccessKeyId');
+      const qk = (q.get('X-Amz-Credential') ?? '').split('/')[0], qro = readOnlyKeys[qk];
+      if (qk !== accessKeyId && !qro) return send(403, 'InvalidAccessKeyId');
+      if (qro && !['GET', 'HEAD'].includes(req.method)) return send(403, 'AccessDenied: read-only key');
       const amzDate = q.get('X-Amz-Date') ?? '', expires = Number(q.get('X-Amz-Expires'));
       const t0 = Date.UTC(+amzDate.slice(0, 4), +amzDate.slice(4, 6) - 1, +amzDate.slice(6, 8), +amzDate.slice(9, 11), +amzDate.slice(11, 13), +amzDate.slice(13, 15));
       if (!(t0 + expires * 1000 > Date.now())) return send(403, 'AccessDenied: Request has expired');
       const unsigned = new URL(`http://${req.headers.host}${url.pathname}`);
       for (const [k, v] of q) if (!k.startsWith('X-Amz-')) unsigned.searchParams.append(k, v);
-      const expectUrl = presignUrl({ method: req.method, url: unsigned.href, region, accessKeyId, secretAccessKey, expires, amzDate });
+      const expectUrl = presignUrl({ method: req.method, url: unsigned.href, region, accessKeyId: qk, secretAccessKey: qro ?? secretAccessKey, expires, amzDate });
       if (new URL(expectUrl).searchParams.get('X-Amz-Signature') !== q.get('X-Amz-Signature')) return send(403, 'SignatureDoesNotMatch');
       entry.presigned = true;
     } else {
     // ---- SigV4 verification (recompute from what arrived) ----
     const auth = parseAuthorization(req.headers.authorization);
-    if (!auth || auth[1] !== accessKeyId) return send(403, 'InvalidAccessKeyId');
+    // extra read-only keys (like the Studio's R2 token): GET/HEAD only
+    const ro = auth && readOnlyKeys[auth[1]];
+    if (ro && !['GET', 'HEAD'].includes(req.method)) { entry.denied = true; return send(403, 'AccessDenied: read-only key'); }
+    if (!auth || (auth[1] !== accessKeyId && !ro)) return send(403, 'InvalidAccessKeyId');
+    // ---- R2 temporary credentials (locally signed JWT, as R2 checks them): HS256 by the parent secret, not
+    //      expired; the request is then signed with sha256(jwt) and limited to the JWT's bucket, actions and prefixes ----
+    let secret = ro ? ro : secretAccessKey;
+    const st = req.headers['x-amz-security-token'];
+    if (st) {
+      const raw = Buffer.from(st, 'base64').toString('utf8');
+      if (!raw.startsWith('jwt/')) return send(400, 'InvalidArgument: X-Amz-Security-Token');
+      const jwt = raw.slice(4), [h, p, sig] = jwt.split('.');
+      const ok = createHmac('sha256', secretAccessKey).update(`${h}.${p}`).digest('base64url') === sig;
+      const claims = ok ? JSON.parse(Buffer.from(p, 'base64url').toString('utf8')) : null;
+      if (!claims || claims.iss !== accessKeyId || !(claims.exp * 1000 > Date.now())) return send(403, 'AccessDenied: invalid or expired session token');
+      if (!!claims.scope === !!claims.actions) return send(400, 'InvalidArgument: X-Amz-Security-Token');
+      secret = sha256hex(jwt);
+      entry.temp = claims;
+    }
     const signedNames = auth[2].split(';').filter(n => n !== 'host' && n !== 'x-amz-date' && n !== 'x-amz-content-sha256');
     const hdrs = Object.fromEntries(signedNames.map(n => [n, req.headers[n]]));
     const expect = signRequest({ method: req.method, url: `http://${req.headers.host}${req.url}`, headers: hdrs, payloadHash: req.headers['x-amz-content-sha256'],
-      region, accessKeyId, secretAccessKey, amzDate: req.headers['x-amz-date'] });
+      region, accessKeyId: auth[1], secretAccessKey: secret, amzDate: req.headers['x-amz-date'] });
     if (!expect.authorization.endsWith(auth[3])) return send(403, 'SignatureDoesNotMatch');
     }
     const m = new RegExp(`^/${bucket}/?(.*)$`).exec(decodeURIComponent(url.pathname));
     if (!m) return send(404, 'NoSuchBucket');
     const key = m[1], q = url.searchParams;
     const isPut = req.method === 'PUT';
+    if (entry.temp) {
+      const c = entry.temp;
+      const op = isPut ? 'PutObject' : req.method === 'DELETE' ? 'DeleteObject' : req.method === 'HEAD' ? 'HeadObject' : key === '' ? 'ListObjectsV2' : req.method === 'GET' ? 'GetObject' : 'Other';
+      const scopeOps = { 'object-read-only': ['GetObject', 'HeadObject', 'ListObjectsV2'], 'object-read-write': ['GetObject', 'HeadObject', 'ListObjectsV2', 'PutObject', 'DeleteObject'] };
+      const allowed = c.actions ?? scopeOps[c.scope] ?? [];
+      const pre = c.paths?.prefixPaths ?? [], objs = c.paths?.objectPaths ?? [];
+      const inPath = !c.paths || pre.some(x => key.startsWith(x)) || objs.includes(key);
+      if (c.bucket !== bucket || !allowed.includes(op) || !inPath) { entry.denied = true; return send(403, 'AccessDenied'); }
+    }
+    if (isPut && req.headers['if-none-match'] === '*' && objects.has(key)) { entry.preconditionFailed = true; return send(412, '<Error><Code>PreconditionFailed</Code></Error>'); }
     if (isPut && faults.failPuts > 0) { faults.failPuts--; return send(500, 'InternalError'); }
     if (isPut && faults.corruptNextPut) { faults.corruptNextPut = false; body = Buffer.from(body); body[0] ^= 0xff; }
     if (isPut || (req.method === 'POST' && q.has('uploadId'))) {
