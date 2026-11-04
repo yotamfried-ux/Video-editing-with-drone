@@ -39,6 +39,11 @@ async function until(fn, arg, timeout = 15000) {
   throw new Error(`timed out waiting for: ${fn}`);
 }
 const saved = () => page.waitForSelector('[data-testid=savepill][data-state=saved]', { timeout: 10000 });
+// tracking is done only when the progress pill stays hidden for a while (it hides briefly between queued passes)
+async function trackingIdle(timeout = 180000) {
+  const end = Date.now() + timeout; let quiet = 0;
+  while (Date.now() < end && quiet < 5) { quiet = await page.evaluate(() => document.querySelector('#hudtrack')?.style.display === 'none') ? quiet + 1 : 0; await page.waitForTimeout(400); }
+}
 const frameAtHead = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
 const item = name => page.locator('[data-testid=qc-item]', { hasText: name });
 console.log('Quick catalog @ 1440x900');
@@ -306,7 +311,7 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
   await go(220);
   await page.keyboard.press('b');
   { const g = await fr(); await page.mouse.move(...px(Math.min(2 * g, 1236) - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(Math.min(2 * g, 1236) + 44, 374), { steps: 3 }); await page.mouse.up(); }
-  for (let i = 0; i < 240 && await page.evaluate(() => document.querySelector('#hudtrack')?.style.display !== 'none'); i++) await page.waitForTimeout(500);
+  await trackingIdle();
   await saved();
   { const t = draft(s.id).tracks[0], fs = t.points.map(p => p.frame).sort((a, b) => a - b);
     assert.ok([140, 220].every(f => t.points.some(p => p.frame === f && p.origin === 'manual')), 'both quick boxes are anchors');
@@ -317,9 +322,10 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
     const c2 = structuredClone(cur.content); c2.tracks[0].points = c2.tracks[0].points.filter(p => p.origin === 'manual');
     const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: { authorization: 'Bearer demo-token', 'content-type': 'application/json' }, body: JSON.stringify({ expected_version: cur.version, content: c2 }) });
     assert.equal(put.status, 200);
-    await page.reload(); await page.waitForSelector('[data-testid=workbench]');
+    await page.reload(); await page.waitForSelector('[data-testid=workbench]'); const t0 = Date.now();
     for (let i = 0; i < 240 && !(draft(s.id).tracks[0].points.length > 30); i++) await page.waitForTimeout(500);
-    assert.ok(draft(s.id).tracks[0].points.length > 30, 'unfinished track completed on open'); }
+    const why = await page.evaluate(() => ['#hudtrack', '[data-testid=track-failed]', '[data-testid=savepill]', '.banner'].map(q => `${q}=${(document.querySelector(q)?.textContent ?? '-').trim().slice(0, 160)}`).join(' | '));
+    assert.ok(draft(s.id).tracks[0].points.length > 30, `unfinished track completed on open (after ${Date.now() - t0} ms; points ${draft(s.id).tracks.map(t => t.points.length)}; ${why})`); }
   // an event created AFTER tracking gets its boxes from the track on the next save
   await go(150); await page.click('[data-testid=mark-in]'); await go(190); await page.click('[data-testid=mark-out]');
   await page.waitForSelector('[data-testid=segform]'); await saved();
@@ -413,7 +419,7 @@ await scenario('saved catalogs repair themselves on open: events with no boxes g
   const getD = async () => (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json();
   const putD = async (cur, content) => { const r = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content }) }); assert.equal(r.status, 200, await r.text()); };
   const open = async () => { await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]'); };
-  await open(); await page.waitForTimeout(500); for (let i = 0; i < 240 && await page.evaluate(() => document.querySelector('#hudtrack')?.style.display !== 'none'); i++) await page.waitForTimeout(500);
+  await open(); await page.waitForTimeout(500); await trackingIdle();
   await saved();
   // (a) like live video 0165: a whole-video track of the event's surfer, but the events were saved with no boxes
   { const cur = await getD(), c = structuredClone(cur.content);
