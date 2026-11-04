@@ -568,7 +568,7 @@ function paintOverlay() {
       svg.append(hd);
 
       // Box Tag
-      const statusText = isVerified ? ' ✓ פריים נבדק' : isWrong ? ' ✕ גולש שגוי' : isCorrected ? ' ✎ תוקן' : ' · משוער / לבדיקה';
+      const statusText = isVerified ? ' ✓ תקין' : isWrong ? ' ✕ גולש שגוי' : isCorrected ? ' ✎ תוקן' : b.kf?.origin === 'manual' ? ' · סומן ידנית' : ' · מעקב אוטומטי';
       const athLabel = s.athlete_id ? athName(s.athlete_id) : 'לא ידוע';
 
       // Measure the label so the tag fits it exactly; with direction=rtl the text anchor is its RIGHT edge.
@@ -680,56 +680,88 @@ function syncSegmentsFromTrack(c, t) {
  * (Re)track an athlete. With `around` = an anchor frame, only the stretches touching that anchor are redone;
  * without it, the whole video. Runs in the background with a progress pill; edits are applied at the end in one step.
  */
-async function trackAthlete(athleteId, around = null) {
-  if (S.tracking) S.tracking.ctl.abort();
-  const t0 = trackOf(C(), athleteId); if (!t0) return;
-  const anchors = t0.points.filter(p => p.origin === 'manual').sort((a, b) => a.frame - b.frame);
-  if (!anchors.length) return;
-  const last = S.total - 1, jobs = [];   // [from, to, bbox, fuseWithAnchorAtTo?]
-  const i0 = around == null ? 0 : Math.max(0, anchors.findIndex(p => p.frame === around) - 1);
-  const i1 = around == null ? anchors.length - 1 : Math.min(anchors.length - 1, anchors.findIndex(p => p.frame === around) + 1);
-  if (i0 === 0 && anchors[0].frame > 0) jobs.push({ from: anchors[0].frame, to: 0, bbox: anchors[0].bbox });
+/**
+ * Tracking requests go into a queue and are processed one after the other: a new box never throws away work in
+ * progress. Each stretch (between two anchors, or from an anchor to the video's start/end) is saved as soon as it is
+ * done, so leaving the page or drawing another box loses at most the stretch being computed.
+ */
+function trackAthlete(athleteId, around = null) {
+  S.trackQueue ??= [];
+  const same = q => (q.athleteId ?? null) === (athleteId ?? null);
+  if (around == null) S.trackQueue = S.trackQueue.filter(q => !same(q));            // a full pass covers everything
+  else if (S.trackQueue.some(q => same(q) && q.around == null)) return pumpTracking(); // already queued in full
+  if (!S.trackQueue.some(q => same(q) && q.around === around)) S.trackQueue.push({ athleteId, around });
+  pumpTracking();
+}
+async function pumpTracking() {
+  if (!S || S.trackBusy) return;
+  S.trackBusy = true;
+  try { while (S?.trackQueue?.length) { const q = S.trackQueue.shift(); await runTrack(q.athleteId, q.around); } }
+  finally { if (S) { S.trackBusy = false; S.tracking = null; paintTrackHud(); refresh(); } }
+}
+/** Stretches to (re)compute, from the anchors as they are NOW. */
+function trackUnits(t, around) {
+  const anchors = t.points.filter(p => p.origin === 'manual').sort((a, b) => a.frame - b.frame);
+  if (!anchors.length) return [];
+  const last = S.total - 1, units = [];
+  const k = around == null ? -1 : anchors.findIndex(p => p.frame === around);
+  const i0 = around == null || k < 0 ? 0 : Math.max(0, k - 1), i1 = around == null || k < 0 ? anchors.length - 1 : Math.min(anchors.length - 1, k + 1);
+  if (i0 === 0 && anchors[0].frame > 0) units.push([{ from: anchors[0].frame, to: 0, bbox: anchors[0].bbox }]);
   for (let i = i0; i < i1; i++) {
     const A = anchors[i], B = anchors[i + 1];
     if (B.frame - A.frame < 2) continue;
-    jobs.push({ from: A.frame, to: B.frame - 1, bbox: A.bbox, pair: i });
-    jobs.push({ from: B.frame, to: A.frame + 1, bbox: B.bbox, pair: i });
+    units.push([{ from: A.frame, to: B.frame - 1, bbox: A.bbox, pair: true }, { from: B.frame, to: A.frame + 1, bbox: B.bbox, pair: true }]);
   }
-  if (i1 === anchors.length - 1 && anchors.at(-1).frame < last) jobs.push({ from: anchors.at(-1).frame, to: last, bbox: anchors.at(-1).bbox });
-  if (!jobs.length) return;
-  const ctl = new AbortController(), me = { athleteId, pct: 0, ctl };
+  if (i1 === anchors.length - 1 && anchors.at(-1).frame < last) units.push([{ from: anchors.at(-1).frame, to: last, bbox: anchors.at(-1).bbox }]);
+  return units;
+}
+async function runTrack(athleteId, around) {
+  const t0 = trackOf(C(), athleteId); if (!t0) return;
+  const units = trackUnits(t0, around); if (!units.length) return;
+  const ctl = new AbortController(), me = { athleteId, pct: 0, ctl, queued: S.trackQueue?.length ?? 0 };
   S.tracking = me; paintTrackHud(); paintInspector();
   const src = S.quality === 'original' ? `/media/${S.src.id}/original` : S.src.playback_url;
   const step = Math.max(1, Math.round(S.fps / 10));
-  const work = jobs.reduce((n, j) => n + Math.abs(j.to - j.from), 0) || 1;
-  let done = 0; const results = [];
+  const work = units.flat().reduce((n, j) => n + Math.abs(j.to - j.from), 0) || 1;
+  let done = 0; const lostAll = [], bestAll = new Set();
   try {
-    for (const j of jobs) {
-      if (ctl.signal.aborted) break;
-      const span = Math.abs(j.to - j.from);
-      const r = await trackBox({ src, fps: S.fps, from: j.from, to: j.to, bbox: j.bbox, step, signal: ctl.signal, hold: () => !!S?.playing,
-        onProgress: p => { me.pct = (done + p * span) / work; paintTrackHud(); } });
-      results.push({ ...j, ...r }); done += span;
+    for (const unit of units) {
+      if (ctl.signal.aborted || !S) return;
+      const results = [];
+      for (const j of unit) {
+        const span = Math.abs(j.to - j.from);
+        const r = await trackBox({ src, fps: S.fps, from: j.from, to: j.to, bbox: j.bbox, step, signal: ctl.signal, hold: () => !!S?.playing,
+          onProgress: p => { me.pct = (done + p * span) / work; paintTrackHud(); } });
+        results.push({ ...j, ...r }); done += span;
+      }
+      if (ctl.signal.aborted || !S) return;
+      const { best, lost } = fuseUnit(results);
+      lostAll.push(...lost); for (const f of best.keys()) bestAll.add(f);
+      commitUnit(athleteId, results, best);       // saved now, not at the end
     }
   } catch (e) {
-    if (S?.tracking === me) S.tracking = null;
-    paintTrackHud();
+    if (!S) return;
     S.trackErr = { ...(S.trackErr ?? {}), [athleteId ?? '']: e.code === 'CORS'
       ? 'מעקב אוטומטי לא זמין לסרטון הזה: הדפדפן לא מורשה לקרוא את הווידאו מהענן (חסרה הרשאת CORS). ה-BOX נשמר בפריים שציירת.'
       : `המעקב האוטומטי נעצר: ${e.message}` };
-    return refresh();
+    return;
   }
-  if (!S || S.tracking !== me || ctl.signal.aborted) return;
-  S.tracking = null;
-  // Between two anchors, each side must END where the other anchor is: a side that drifted onto foam or another
-  // surfer is cut back to where it still agreed with the other side (no box is better than a wrong box).
+  if (!S) return;
+  if (S.trackErr) delete S.trackErr[athleteId ?? ''];
+  const gaps = lostAll.filter(f => !bestAll.has(f)).sort((a, b) => a - b);
+  S.trackLost = { ...(S.trackLost ?? {}), [athleteId ?? '']: gaps.length ? gaps : null };
+  if (gaps.length) toast(`המעקב איבד את הגולש ב-${gaps.map(f => timecode(f, S.fps)).join(', ')}. גרור/צייר שם את ה-BOX על הגולש, והמעקב יתוקן לפני ואחרי.`, true);
+  else if (!S.trackQueue?.length) toast('ה-BOX עוקב אחרי הגולש לאורך כל הסרטון. אם משהו לא במקום - גרור אותו, והמעקב יתוקן לפני ואחרי.');
+}
+/** Two sides of a stretch: cut back a side that ends far from the other anchor, then keep per frame the side nearer its own anchor. */
+function fuseUnit(results) {
   const cen = b => [b.x + b.w / 2, b.y + b.h / 2], dia = b => Math.hypot(b.w, b.h);
   const far = (p, q, k = 0.5) => { const [ax, ay] = cen(p), [bx2, by2] = cen(q); return Math.hypot(ax - bx2, ay - by2) > k * Math.max(dia(p), dia(q)); };
   for (const r of results) {
-    if (r.pair == null) continue;
-    const other = results.find(o => o.pair === r.pair && o !== r); if (!other) continue;
+    if (!r.pair) continue;
+    const other = results.find(o => o.pair && o !== r); if (!other) continue;
     const otherAt = new Map(other.boxes.map(b => [b.frame, b.bbox]));
-    const ordered = [...r.boxes].sort((a, b) => Math.abs(b.frame - r.from) - Math.abs(a.frame - r.from));   // from the far end back
+    const ordered = [...r.boxes].sort((a, b) => Math.abs(b.frame - r.from) - Math.abs(a.frame - r.from));
     const drop = new Set();
     for (const b of ordered) {
       const o = otherAt.get(b.frame);
@@ -740,17 +772,17 @@ async function trackAthlete(athleteId, around = null) {
     }
     r.boxes = r.boxes.filter(b => !drop.has(b.frame));
   }
-  // Fuse: per frame keep the most confident result (both sides of a stretch between two anchors were tracked).
-  const best = new Map(); const lost = [];
+  const best = new Map(), lost = [];
   for (const r of results) {
-    // reached the very first/last frame without losing the athlete: the last box stands for the remaining frames
-    if (r.pair == null && r.lost == null && r.boxes.length && !r.boxes.some(b => b.frame === r.to)) { const e = r.boxes.reduce((m, b) => Math.abs(b.frame - r.to) < Math.abs(m.frame - r.to) ? b : m); if (Math.abs(e.frame - r.to) <= Math.max(3, Math.round(S.fps / 10))) r.boxes.push({ ...e, frame: r.to }); }
+    if (!r.pair && r.lost == null && r.boxes.length && !r.boxes.some(b => b.frame === r.to)) { const e = r.boxes.reduce((m, b) => Math.abs(b.frame - r.to) < Math.abs(m.frame - r.to) ? b : m); if (Math.abs(e.frame - r.to) <= Math.max(3, Math.round(S.fps / 10))) r.boxes.push({ ...e, frame: r.to }); }
     if (r.lost != null) lost.push(r.lost);
-    // near its own anchor a result is more trustworthy (the operator just put the box there)
     const span = Math.max(1, Math.abs(r.to - r.from));
-    for (const b of r.boxes) { const eff = 0.3 * b.score + (1 - Math.abs(b.frame - r.from) / span); /* tracking errors grow with distance from the anchor */ const o = best.get(b.frame); if (!o || eff > o.eff) best.set(b.frame, { ...b, eff }); }
+    for (const b of r.boxes) { const eff = 0.3 * b.score + (1 - Math.abs(b.frame - r.from) / span); /* errors grow with distance from the anchor */ const o = best.get(b.frame); if (!o || eff > o.eff) best.set(b.frame, { ...b, eff }); }
   }
-  const lo = Math.min(...jobs.map(j => Math.min(j.from, j.to))), hi = Math.max(...jobs.map(j => Math.max(j.from, j.to)));
+  return { best, lost };
+}
+function commitUnit(athleteId, results, best) {
+  const lo = Math.min(...results.map(j => Math.min(j.from, j.to))), hi = Math.max(...results.map(j => Math.max(j.from, j.to)));
   edit(c => {
     const t = trackOf(c, athleteId); if (!t) return;
     const anchorF = new Set(t.points.filter(p => p.origin === 'manual').map(p => p.frame));
@@ -759,13 +791,16 @@ async function trackAthlete(athleteId, around = null) {
     t.points.sort((x, y) => x.frame - y.frame);
     syncSegmentsFromTrack(c, t);
   }, { quiet: true });
-  if (S.trackErr) delete S.trackErr[athleteId ?? ''];
-  // a stretch that could not be bridged from either side is reported; one fused from the other side is fine
-  const gaps = lost.filter(f => !best.has(f));
-  S.trackLost = { ...(S.trackLost ?? {}), [athleteId ?? '']: gaps.length ? gaps.sort((a, b) => a - b) : null };
-  paintTrackHud(); refresh();
-  if (gaps.length) toast(`המעקב איבד את הגולש ב-${gaps.map(f => timecode(f, S.fps)).join(', ')}. גרור/צייר שם את ה-BOX על הגולש, והמעקב יתוקן לפני ואחרי.`, true);
-  else toast('ה-BOX עוקב אחרי הגולש לאורך כל הסרטון (משוער: אם משהו לא במקום - גרור אותו, והמעקב יתוקן לפני ואחרי)');
+  paintTimeline(); paintOverlay(); if (S.inspTab === 'event') paintInspector();
+}
+/** True when the track does not yet cover the whole video densely (left unfinished, or made before this version). */
+function trackIncomplete(t) {
+  const pts = (t?.points ?? []).map(p => p.frame).sort((a, b) => a - b);
+  if (!pts.length) return false;
+  if (pts[0] > 0 || pts.at(-1) < S.total - 1) return true;
+  const maxGap = 4 * Math.max(1, Math.round(S.fps / 10));
+  for (let i = 1; i < pts.length; i++) if (pts[i] - pts[i - 1] > maxGap) return true;
+  return false;
 }
 /** Compatibility entry point used by the event screen: the event's athlete, anchored at frame f0. */
 function autoTrack(s, f0) { return trackAthlete(s?.athlete_id ?? null, f0); }
@@ -780,7 +815,7 @@ function paintTrackHud() {
   const el = $('#hudtrack'); if (!el) return;
   const t = S?.tracking;
   el.style.display = t ? '' : 'none';
-  if (t) el.replaceChildren(`עוקב אחרי הגולש… ${Math.round(t.pct * 100)}% `, h('button', { class: 'btn sm', 'data-testid': 'track-cancel', onclick: () => { t.ctl.abort(); S.tracking = null; paintTrackHud(); toast('המעקב בוטל'); } }, 'עצור'));
+  if (t) el.replaceChildren(`עוקב אחרי הגולש… ${Math.round(t.pct * 100)}%${S.trackQueue?.length ? ` (+${S.trackQueue.length} בתור)` : ''} `, h('button', { class: 'btn sm', 'data-testid': 'track-cancel', onclick: () => { S.trackQueue = []; t.ctl.abort(); S.tracking = null; paintTrackHud(); toast('המעקב נעצר. מה שכבר חושב נשמר.'); } }, 'עצור'));
 }
 function retrackHere(s) {
   const aid = s?.athlete_id ?? null;
@@ -789,6 +824,8 @@ function retrackHere(s) {
 }
 /** Boxes drawn before video-level tracking existed: turn an event's hand-drawn boxes into anchors, once. */
 function adoptLegacyBoxes() {
+  // an existing track that does not cover the whole video yet (left unfinished) is completed in the background
+  for (const t of C().tracks ?? []) if (trackIncomplete(t) && t.points.some(p => p.origin === 'manual')) setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
   for (const s of C().segments) {
     const man = C().keyframes.filter(k => k.segment_id === s.id && k.origin === 'manual');
     if (!man.length || trackOf(C(), s.athlete_id ?? null)) continue;
@@ -1201,7 +1238,7 @@ function trackStrip(s, cps) {
           btn('◌', 'occluded', 'הגולש מוסתר', 'tile-occluded'),
           h('button', { class: 'btn sm', 'data-testid': 'tile-fix', title: 'עבור לפריים וגרור את ה-BOX לגולש', onclick: () => { seekFrame(f); toast('גרור את ה-BOX על הגולש - המעקב יתוקן לפני ואחרי'); } }, 'תקן')));
     })),
-    h('div', { class: 'meta' }, '• = נקודת בדיקה נדרשת. "משוער" = מיקום שחושב בין תיבות שציירת; ✓ עליו קובע אותו כתיבה מאומתת בפריים הזה. ✕ — לחץ על התמונה כדי לעבור לפריים, ותקן את התיבה בנגן.'));
+    h('div', { class: 'meta' }, '• = נקודת בדיקה חשובה (התחלה, אמצע, סוף, קפיצה, הצטלבות). "משוער" = מיקום מהמעקב האוטומטי. מסמנים רק מה שלא תקין: ✕ אם ה-BOX לא על הגולש, או "תקן" כדי לגרור אותו. כל השאר נחשב תקין.'));
 }
 
 function renderBoxQATab() {
