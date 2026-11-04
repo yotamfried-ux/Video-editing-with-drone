@@ -7,9 +7,6 @@ import { dbTlsMode } from '../server/db.mjs';
 let handler = null, booting = null, bootError = null;
 
 async function boot() {
-  if (!process.env.STUDIO_FFPROBE) {
-    try { const m = await import('@ffprobe-installer/ffprobe'); process.env.STUDIO_FFPROBE = (m.default ?? m).path; } catch { /* probe unavailable: opening a video reports it */ }
-  }
   if (!process.env.STUDIO_TOKEN) throw Object.assign(new Error('STUDIO_TOKEN is not configured'), { code: 'CONFIG' });
   // STUDIO_DB_URL may list several candidates separated by "|" (e.g. pooler hosts); the first that connects is used.
   const urls = (process.env.STUDIO_DB_URL ?? '').split('|').map(s => s.trim()).filter(Boolean);
