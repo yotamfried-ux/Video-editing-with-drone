@@ -959,6 +959,21 @@ function retrackHere(s) {
   if (!trackOf(C(), aid)?.points.some(p => p.origin === 'manual')) return toast('צייר קודם תיבה על הגולש (B)', true);
   trackAthlete(aid, null);
 }
+/**
+ * True when a stretch between two drawn boxes holds samples from two grids: what the old merge wrote (forward samples
+ * at A+k*step and backward samples at B-k*step, interleaved), which plays back as a box jumping between two estimates.
+ */
+function mixedGrid(t) {
+  const step = Math.max(1, Math.round(S.fps / 10));
+  const man = t.points.filter(p => p.origin === 'manual').map(p => p.frame).sort((a, b) => a - b);
+  for (let i = 0; i < man.length - 1; i++) {
+    const A = man[i], B = man[i + 1];
+    const inner = t.points.filter(p => p.origin !== 'manual' && p.frame > A && p.frame < B);
+    const off = inner.filter(p => (p.frame - A) % step !== 0 && p.frame !== B - 1).length;
+    if (inner.length >= 4 && off >= 2) return true;
+  }
+  return false;
+}
 /** The one athlete every event of this video is about (null when there are none or several). */
 function soleEventAthlete(c) {
   const ids = new Set(c.segments.map(s => s.athlete_id ?? null)); ids.delete(null);
@@ -1003,6 +1018,8 @@ function adoptLegacyBoxes() {
   // (no resume / re-sync / re-assign): any change would silently make it "changed since approval"
   if (S.draft.approved_current) return;
   claimOrphanTrack();
+  // tracks written by the old two-grid merge (box shaking between two drawn boxes) are re-tracked once, smoothly
+  for (const t of C().tracks ?? []) if (mixedGrid(t) && !(S.autoTried ??= new Set()).has(`grid:${t.id}`)) { S.autoTried.add(`grid:${t.id}`); setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300); }
   syncEventsOnOpen();
   // an existing track that does not cover the whole video yet (left unfinished) is completed in the background
   for (const t of C().tracks ?? []) if (trackIncomplete(t) && t.points.some(p => p.origin === 'manual')) setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);

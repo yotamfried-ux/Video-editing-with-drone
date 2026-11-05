@@ -70,6 +70,22 @@ async function route() {
   }
   host.focus({ preventScroll: true });
 }
-addEventListener('hashchange', route);
-api('/api/version').then(v => { VERSION = v.commit ?? v.version ?? null; const el = $('[data-testid=app-version]'); if (el) el.textContent = VERSION ? `v ${VERSION}` : ''; }).catch(() => {});
+// A page left open keeps running the code it was loaded with. When a newer Studio is deployed: moving to another page
+// reloads into it (nothing is lost: unsaved work is kept locally and restored), and a banner offers it right away.
+let NEWER = null;
+async function checkVersion() {
+  try {
+    const v = await api('/api/version'), cur = v.commit ?? v.version ?? null;
+    if (VERSION == null) { VERSION = cur; const el = $('[data-testid=app-version]'); if (el) el.textContent = VERSION ? `v ${VERSION}` : ''; return; }
+    if (cur && cur !== VERSION && !NEWER) {
+      NEWER = cur;
+      document.body.append(h('div', { class: 'banner warn', 'data-testid': 'new-version', style: { position: 'fixed', bottom: '12px', left: '12px', zIndex: 1000, maxWidth: '420px' } },
+        `יש גרסה חדשה של הסטודיו (${cur}). `, h('button', { class: 'btn primary sm', onclick: () => location.reload() }, 'רענן עכשיו'), ' (עבודה שלא נשמרה נשמרת ותחזור אחרי הרענון)'));
+    }
+  } catch { /* offline: try again later */ }
+}
+addEventListener('hashchange', () => { if (NEWER) return location.reload(); route(); });
+checkVersion();
+setInterval(checkVersion, 120000);
+addEventListener('focus', checkVersion);
 if (!location.hash) location.hash = '#/catalog'; else route();
