@@ -187,9 +187,11 @@ const bil = (I, x, y) => {
   const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, k = y0 * I.w + x0;
   return (I.g[k] * (1 - fx) + I.g[k + 1] * fx) * (1 - fy) + (I.g[k + I.w] * (1 - fx) + I.g[k + I.w + 1] * fx) * fy;
 };
-/** Gauss-Newton fit of B(c + s(x-c) + t) = A(x) (robust weights: waves and foam that changed count less).
- *  Returns {s, tx, ty} in units of the small image, or null when the fit is not trustworthy. */
-function cameraMotion(A, B) {
+/** Gauss-Newton fit of B(c + s(x-c) + t) = A(x) (robust weights: waves and foam that changed count less), on the
+ *  picture AROUND the athlete: `ex` = {x0,y0,x1,y1} in small-image units is left out, since the athlete moves on its own.
+ *  Returns {s, tx, ty} in units of the small image, or null when the fit is not trustworthy (e.g. a background with
+ *  too little detail to tell how the camera moved: then the camera is assumed still). */
+function cameraMotion(A, B, ex) {
   const PA = [A, half(A)], PB = [B, half(B)];
   let s = 1, tx = 0, ty = 0;
   for (let lv = 1; lv >= 0; lv--) {
@@ -197,7 +199,9 @@ function cameraMotion(A, B) {
     if (lv === 0) { tx *= 2; ty *= 2; }
     for (let it = 0; it < 8; it++) {
       let h00 = 0, h01 = 0, h02 = 0, h11 = 0, h12 = 0, h22 = 0, g0 = 0, g1 = 0, g2 = 0, ss = 0, nn = 0;
+      const f = lv ? 0.5 : 1;
       for (let y = 2; y < a.h - 2; y++) for (let x = 2; x < a.w - 2; x++) {
+        if (ex && x >= ex.x0 * f && x <= ex.x1 * f && y >= ex.y0 * f && y <= ex.y1 * f) continue;
         const u = cx + s * (x - cx) + tx, v = cy + s * (y - cy) + ty;
         if (u < 1 || v < 1 || u >= b.w - 2 || v >= b.h - 2) continue;
         const r = bil(b, u, v) - a.g[y * a.w + x];
@@ -208,6 +212,8 @@ function cameraMotion(A, B) {
         g0 += w * j0 * r; g1 += w * gx * r; g2 += w * gy * r; ss += r * r; nn++;
       }
       if (nn < a.w * a.h * 0.3) return null;
+      // enough detail in both directions (and for scale) to measure the camera; a flat sky/sea is not
+      if (h11 / nn < 4 || h22 / nn < 4 || h00 / (nn * (a.w * a.w + a.h * a.h) / 12) < 0.5) return null;
       // solve H d = -g (3x3, Cramer)
       const det = h00 * (h11 * h22 - h12 * h12) - h01 * (h01 * h22 - h12 * h02) + h02 * (h01 * h12 - h11 * h02);
       if (Math.abs(det) < 1e-9) return null;
@@ -268,7 +274,8 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
       await seek(v, at(f));
       F = features(ctx, v, W, H); RGB = readRGB(ctx, W, H);
       // the camera: move and scale the box with the picture (zoom in -> the athlete and the box grow together)
-      const cam1 = smallGray(F[0], W, H), m = cameraMotion(cam, cam1); cam = cam1;
+      const kk = W / SW, ex = { x0: (bx - bw) / kk, y0: (by - bh) / kk, x1: (bx + 2 * bw) / kk, y1: (by + 2 * bh) / kk };   // the athlete and around it
+      const cam1 = smallGray(F[0], W, H), m = cameraMotion(cam, cam1, ex); cam = cam1;
       if (m) {
         const k = W / SW, ox = W / 2, oy = cam1.h * k / 2;
         const ncx = ox + m.s * (bx + bw / 2 - ox) + m.tx * k, ncy = oy + m.s * (by + bh / 2 - oy) + m.ty * k;
