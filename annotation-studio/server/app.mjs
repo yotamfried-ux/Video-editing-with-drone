@@ -453,6 +453,9 @@ export function createApp(ctx) {
       }
       return serveStatic(res, url.pathname);
     } catch (e) {
+      // a failure after the response started (e.g. a media stream whose source broke): the status line is gone, so
+      // just end the connection instead of trying to write a second response (ERR_HTTP_HEADERS_SENT)
+      if (res.headersSent) { console.error('[studio] error after response started:', e?.message); try { res.destroy(); } catch { /* already closed */ } return; }
       if (e instanceof ApiError) return send(res, e.status, { code: e.code, message: e.he, detail: e.message, unresolved: e.unresolved, incompatible: e.incompatible, conflicts: e.conflicts });
       if (/IMMUTABLE|PROTECTED/.test(e?.message ?? '')) return send(res, 409, { code: 'IMMUTABLE', message: 'רשומה בלתי ניתנת לשינוי' });
       console.error('[studio] internal error:', e?.message);
