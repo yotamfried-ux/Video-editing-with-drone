@@ -310,13 +310,24 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
   { const g = await fr(); await page.mouse.move(...px(2 * g - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(2 * g + 44, 374), { steps: 3 }); await page.mouse.up(); }
   await go(220);
   await page.keyboard.press('b');
-  { const g = await fr(); await page.mouse.move(...px(Math.min(2 * g, 1236) - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(Math.min(2 * g, 1236) + 44, 374), { steps: 3 }); await page.mouse.up(); }
+  { const g = await fr(); await page.mouse.move(...px(Math.min(2 * g, 1236) - 8, 320)); await page.mouse.down(); await page.mouse.move(...px(Math.min(2 * g, 1236) + 48, 382), { steps: 3 }); await page.mouse.up(); }   // drawn a bit larger, like a real correction
   await trackingIdle();
   await saved();
   { const t = draft(s.id).tracks[0], fs = t.points.map(p => p.frame).sort((a, b) => a - b);
     assert.ok([140, 220].every(f => t.points.some(p => p.frame === f && p.origin === 'manual')), 'both quick boxes are anchors');
     assert.equal(fs[0], 0); assert.equal(fs.at(-1), s.frame_count - 1);
-    for (let i = 1; i < fs.length; i++) assert.ok(fs[i] - fs[i - 1] <= 12, `no hole in the track between ${fs[i - 1]} and ${fs[i]}`); }
+    for (let i = 1; i < fs.length; i++) assert.ok(fs[i] - fs[i - 1] <= 12, `no hole in the track between ${fs[i - 1]} and ${fs[i]}`);
+    // no shaking: between two consecutive drawn boxes the box moves smoothly (no back-and-forth between estimates).
+    // Measured as the second difference of the centre, in px, sample to sample (the old two-grid merge gave ~40 px).
+    const man = t.points.filter(p => p.origin === 'manual').map(p => p.frame).sort((a, b) => a - b);
+    for (let a = 0; a < man.length - 1; a++) {
+      const mid = t.points.filter(p => p.frame > man[a] && p.frame < man[a + 1]).sort((x, y) => x.frame - y.frame);
+      const cx = mid.map(p => (p.bbox.x + p.bbox.w / 2) * 1280), cy = mid.map(p => (p.bbox.y + p.bbox.h / 2) * 720);
+      for (let i = 2; i < mid.length; i++) {
+        const j = Math.hypot(cx[i] - 2 * cx[i - 1] + cx[i - 2], cy[i] - 2 * cy[i - 1] + cy[i - 2]);
+        assert.ok(j < 9, `box shakes at frame ${mid[i].frame} (between drawn boxes ${man[a]} and ${man[a + 1]}): ${j.toFixed(1)} px | ${mid.map((p, k) => `${p.frame}:${cx[k].toFixed(0)}`).join(' ')}`);
+      }
+    } }
   // incomplete track (only anchors, as if the page was closed mid-way) -> completed on open
   { const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: { authorization: 'Bearer demo-token' } })).json();
     const c2 = structuredClone(cur.content); c2.tracks[0].points = c2.tracks[0].points.filter(p => p.origin === 'manual');
