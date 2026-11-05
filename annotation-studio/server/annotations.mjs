@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { now, tx, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { validateSegmentTaxonomy, stampResolved, taxonomyVersionsFor } from './sports.mjs';
-import { validateBoxEvidence, upgradeLegacyBoxQA, trackQaSummary, latestByFrame } from './trackqa.mjs';
+import { validateBoxEvidence, upgradeLegacyBoxQA, trackQaSummary, latestByFrame, applyExceptionAcceptance, approvalPreview } from './trackqa.mjs';
 
 export const SCHEMA = 1;
 export const DECISIONS = ['include', 'exclude', 'uncertain'];
@@ -157,7 +157,10 @@ export function getDraft(db, sourceId) {
   const d = db.prepare('select * from annotation_drafts where source_id=?').get(sourceId);
   if (d) {
     const up = upgradeLegacyBoxQA(JSON.parse(d.content));
-    return { version: d.version, content: up.content, base_revision_id: d.base_revision_id, updated_at: d.updated_at, legacy_box_qa_upgraded: up.changed };
+    const rev = latestRevision(db, sourceId);
+    return { version: d.version, content: up.content, base_revision_id: d.base_revision_id, updated_at: d.updated_at, legacy_box_qa_upgraded: up.changed,
+      // the draft is exactly the approved Ground Truth: automatic repairs must leave it alone
+      approved_current: !!rev && digestOf(JSON.parse(d.content)) === rev.digest };
   }
   const rev = latestRevision(db, sourceId);
   const content = rev ? upgradeLegacyBoxQA(JSON.parse(rev.content)).content : emptyContent();
@@ -273,7 +276,14 @@ export function unresolved(content, source = null) {
   return out;
 }
 
-export function approve(db, sourceId, { expectedVersion, scope = 'source', reason = '', acknowledgeUnresolved = false, author = 'operator' }) {
+/**
+ * Approve the draft as an immutable revision. With `acceptByException` (the operator's way of working: watch, fix only
+ * what is wrong, approve), every event box not marked wrong inside the watched part is recorded as verified_correct
+ * (method 'exception_review') IN THE SAME TRANSACTION as the revision: there is never an approval without its box
+ * decisions, nor box decisions from an approval that failed. Repeating the approval adds nothing (idempotent).
+ * `onBeforeCommit` is a test hook to prove that.
+ */
+export function approve(db, sourceId, { expectedVersion, scope = 'source', reason = '', acknowledgeUnresolved = false, author = 'operator', acceptByException = false, onBeforeCommit = null }) {
   const source = getSource(db, sourceId);
   if (source.ingest_state !== 'ready') throw new ApiError('ARCHIVE_UNVERIFIED');
   // Ground Truth on a cloud source is only approved once its identity was re-verified from the bucket's bytes.
@@ -283,6 +293,7 @@ export function approve(db, sourceId, { expectedVersion, scope = 'source', reaso
     const d = db.prepare('select * from annotation_drafts where source_id=?').get(sourceId);
     if (!d || d.version !== expectedVersion) throw new ApiError('VERSION_CONFLICT');
     const content = upgradeLegacyBoxQA(JSON.parse(d.content)).content;
+    const accepted = acceptByException ? applyExceptionAcceptance(content, { author }) : 0;
     validateContent(content, source, db);
     stampResolved(content, source);
     const u = unresolved(content, source);
@@ -294,15 +305,18 @@ export function approve(db, sourceId, { expectedVersion, scope = 'source', reaso
     const caveats = { scope, acknowledged: u.has_acknowledgeable ? u.acknowledgeable : {}, caveats: u.caveats, track_qa: u.track_qa };
     const parent = latestRevision(db, sourceId);
     const digest = digestOf(content);
-    if (parent && parent.digest === digest) return { revision: parent, unchanged: true };
+    if (parent && parent.digest === digest) return { revision: parent, unchanged: true, accepted_by_exception: 0, draft_version: d.version };
     const id = randomUUID(), t = now();
     const tax = taxonomyVersionsFor(db, content);
     db.prepare(`insert into annotation_revisions(id,source_id,seq,parent_revision_id,content,digest,author,reason,schema_version,scope,created_at,approved_at,taxonomy_versions)
       values(?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(id, sourceId, (parent?.seq ?? 0) + 1, parent?.id ?? null, JSON.stringify(content), digest, author, reason, SCHEMA, scope, t, t, JSON.stringify(tax));
     // Source sport may have been reclassified since the draft was saved: keep the stored draft identical to what was approved.
-    db.prepare('update annotation_drafts set content=?, base_revision_id=? where source_id=?').run(JSON.stringify(content), id, sourceId);
-    audit(db, author, 'approve_revision', sourceId, { revision: id, digest, unresolved: u, approval_caveats: caveats });
-    return { revision: db.prepare('select * from annotation_revisions where id=?').get(id), unchanged: false, unresolved: u, approval_caveats: caveats };
+    // The box decisions recorded by the approval are part of the draft too (a new draft version, so open pages reload it).
+    const draftVersion = accepted ? d.version + 1 : d.version;
+    db.prepare('update annotation_drafts set version=?, content=?, base_revision_id=?, updated_at=? where source_id=?').run(draftVersion, JSON.stringify(content), id, accepted ? now() : d.updated_at, sourceId);
+    audit(db, author, 'approve_revision', sourceId, { revision: id, digest, unresolved: u, approval_caveats: caveats, accepted_by_exception: accepted });
+    if (onBeforeCommit) onBeforeCommit();
+    return { revision: db.prepare('select * from annotation_revisions where id=?').get(id), unchanged: false, unresolved: u, approval_caveats: caveats, accepted_by_exception: accepted, draft_version: draftVersion };
   });
 }
 
@@ -342,6 +356,7 @@ export function sourceStates(db, sourceId) {
   const qa = u._qa;
   const frozen = db.prepare(`select m.dataset_id, v.name, m.revision_id, m.split from dataset_members m join dataset_versions v on v.id=m.dataset_id where m.source_id=?`).all(sourceId);
   const draftEqualsApproved = !!(rev && d && digestOf(JSON.parse(d.content)) === rev.digest);
+  const approvalBoxes = approvalPreview(content);
   const operatorRequestedReview = !!content.review_request?.requested;
   let workflow;
   if (!d && !rev) workflow = operatorRequestedReview ? 'needs_review' : 'not_started';
@@ -363,6 +378,7 @@ export function sourceStates(db, sourceId) {
     box_qa: { frames_verified: qa.reduce((a, q) => a + q.verified_frames, 0), per_segment: qa.map(q => ({ segment_id: q.segment_id, status: q.status, checked_frames: q.checked_frames, verified_frames: q.verified_frames, box_frames: q.box_frames, interpolated_frames: q.interpolated_frames, checked_range: q.checked_range, event_span_checked_ratio: q.event_span_checked_ratio, missing_checkpoints: q.missing_checkpoints, needs_correction_frames: q.needs_correction_frames, crossings: q.crossings.length })) },
     reviewed_coverage: reviewedCoverage(content, src.frame_count || 0),
     ground_truth: rev ? { approved: true, latest_seq: rev.seq, latest_revision_id: rev.id, draft_matches_approved: draftEqualsApproved || !d } : { approved: false },
+    approval_preview: approvalBoxes,
     datasets: { frozen_in: frozen },
     source_identity: { sha256: src.sha256, ingest_state: src.ingest_state, provider: src.provider ?? 'local', verify_state: src.verify_state ?? (src.ingest_state === 'ready' ? 'verified' : 'unverified') },
   };

@@ -281,3 +281,64 @@ export function segmentTrackQa(content, seg, fps) {
 export function trackQaSummary(content, fps) {
   return (content.segments || []).map(s => segmentTrackQa(content, s, fps));
 }
+
+/**
+ * Approval by exception (operator principle: mark only what is wrong). For each event box, what an approval does:
+ *  - to_verify:        a box of an event with a known performer, inside the watched part, visible, with no decision
+ *                      (or whose earlier decision was invalidated) -> recorded as verified_correct, method 'exception_review'
+ *  - already_verified: a bound positive decision exists (kept, not duplicated)
+ *  - marked:           the operator marked it (✕ wrong performer / ◌ hidden / indeterminate) -> never verified
+ *  - not_checked:      outside the watched part, no performer, or not visible -> left unreviewed
+ * `events_checked`: events whose whole span was watched.
+ */
+const HIDDEN = new Set(['occluded', 'not_visible']);
+function classifyBoxes(c) {
+  const segs = new Map((c.segments ?? []).map(s => [s.id, s]));
+  const ranges = c.reviewed_ranges ?? [];
+  const watched = f => ranges.some(r => f >= r.start_frame && f < r.end_frame);
+  const latest = latestByFrame(c.box_verifications);
+  const out = { to_verify: [], already_verified: 0, marked: 0, not_checked: 0 };
+  for (const k of c.keyframes ?? []) {
+    const s = segs.get(k.segment_id); if (!s) continue;
+    const v = latest.get(`${k.segment_id}:${k.frame}`), st = v?.status ?? 'unreviewed';
+    if (POSITIVE.has(st) && boxEq(v.bbox, k.bbox)) out.already_verified++;
+    else if (st !== 'unreviewed') out.marked++;
+    else if (!s.athlete_id || !watched(k.frame) || HIDDEN.has(k.visibility) || !validBox(k.bbox)) out.not_checked++;
+    else out.to_verify.push({ s, k });
+  }
+  const spanWatched = s => { for (let f = s.start_frame; f < s.end_frame; f++) if (!watched(f)) return false; return true; };
+  out.events_checked = (c.segments ?? []).filter(spanWatched).length;
+  out.events = (c.segments ?? []).length;
+  return out;
+}
+export function approvalPreview(c) {
+  const x = classifyBoxes(c);
+  return { to_verify: x.to_verify.length, already_verified: x.already_verified, marked: x.marked, not_checked: x.not_checked, events_checked: x.events_checked, events: x.events };
+}
+/** Records the exception acceptance into `c` (mutates). Idempotent: a box already decided is never decided again. */
+export function applyExceptionAcceptance(c, { author = 'operator', at = new Date().toISOString() } = {}) {
+  const { to_verify } = classifyBoxes(c);
+  if (!to_verify.length) return 0;
+  c.box_verifications = Array.isArray(c.box_verifications) ? c.box_verifications : [];
+  const latest = latestByFrame(c.box_verifications);
+  for (const { s, k } of to_verify) {
+    const prev = latest.get(`${k.segment_id}:${k.frame}`);
+    const t = prev && ts(prev.verified_at) >= ts(at) ? new Date(ts(prev.verified_at) + 1).toISOString() : at;
+    c.box_verifications.push({ segment_id: s.id, frame: k.frame, status: 'verified_correct', athlete_id: s.athlete_id, bbox: { ...k.bbox },
+      verified_by: author, verified_at: t, method: 'exception_review' });
+    k.verification_status = 'verified_correct';
+  }
+  return to_verify.length;
+}
+/** The boxes a training pipeline may use from an approved revision: latest decision positive and bound to this geometry. */
+export function verifiedBoxes(c) {
+  const segs = new Map((c.segments ?? []).map(s => [s.id, s]));
+  const latest = latestByFrame(c.box_verifications);
+  const out = [];
+  for (const k of c.keyframes ?? []) {
+    const s = segs.get(k.segment_id), v = latest.get(`${k.segment_id}:${k.frame}`);
+    if (!s || !v || !POSITIVE.has(v.status) || !boxEq(v.bbox, k.bbox) || v.athlete_id !== s.athlete_id) continue;
+    out.push({ segment_id: s.id, frame: k.frame, bbox: { ...k.bbox }, athlete_id: s.athlete_id, event_type: s.event_type, method: v.method ?? 'per_frame' });
+  }
+  return out.sort((a, b) => a.frame - b.frame);
+}

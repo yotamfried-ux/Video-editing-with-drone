@@ -65,7 +65,7 @@ export async function renderCatalog(root, selId) {
     root.replaceChildren(h('div', { class: 'page qc', 'data-testid': 'quick-catalog' },
       h('div', { class: 'qc-head' },
         h('div', { style: { flex: 1 } },
-          h('div', { class: 'meta' }, `הושלמו ${q.totals.complete} מתוך ${q.totals.all} (${pct}%) · נשארו ${q.totals.remaining} · מאושרים ${q.totals.approved ?? 0}`),
+          h('div', { class: 'meta' }, `הושלמו ${q.totals.complete} מתוך ${q.totals.all} (${pct}%) · נשארו ${q.totals.remaining} · מאושרים ${q.totals.approved ?? 0} מתוך ${q.totals.all}`),
           h('div', { class: 'bar', 'data-testid': 'qc-progress', 'data-complete': q.totals.complete, 'data-all': q.totals.all }, h('i', { style: { width: `${pct}%` } }))),
         h('div', { class: 'toolbar', style: { margin: 0 } }, FILTERS.map(([k, l]) => h('button', { class: `chip`, 'aria-pressed': String(filter === k), onclick: () => { filter = k; render(); } }, l)))),
       h('div', { class: 'qc-body' },
@@ -73,7 +73,7 @@ export async function renderCatalog(root, selId) {
           visible().length ? visible().map(i => h('li', { 'aria-selected': String(sel && keyOf(i) === keyOf(sel)), 'data-testid': 'qc-item', 'data-complete': String(i.complete), tabindex: 0,
             onclick: () => { sel = i; render(); }, onkeydown: e => { if (e.key === 'Enter') { sel = i; render(); } } },
             h('span', { class: 'ltr mono qc-name' }, i.name),
-            isDone(i) ? pill(i.approved_current ? `הושלם · מאושר v${i.approved_seq}` : 'הושלם · טרם אושר', i.approved_current ? 'ok' : '') : i.complete ? pill(`שונה מאז אישור v${i.approved_seq}`, 'warn') : pill(`חסרים ${i.missing}`, 'warn'))) : [h('li', {}, filter === 'done' ? 'עוד לא הושלם אף סרטון.' : 'אין סרטונים לטיפול. כל הכבוד.')]),
+            isDone(i) ? pill(i.approved_current ? `הושלם · מאושר v${i.approved_seq}` : 'הושלם · טרם אושר', i.approved_current ? 'ok' : '') : i.complete ? pill(`שונה מאז אישור v${i.approved_seq} · נדרש אישור מחדש`, 'warn') : pill(`חסרים ${i.missing}`, 'warn'))) : [h('li', {}, filter === 'done' ? 'עוד לא הושלם אף סרטון.' : 'אין סרטונים לטיפול. כל הכבוד.')]),
         sel ? detail(sel) : h('div', { class: 'empty' }, 'אין סרטונים בתור. סנכרן את הענן או ייבא סרטונים בספרייה.'))));
   }
 
@@ -201,7 +201,7 @@ export async function renderCatalog(root, selId) {
       pill(`נצפה ${Math.round((i.coverage ?? 0) * 100)}% מהסרטון`, i.coverage >= 0.999 ? 'ok' : 'warn'),
       pill(idOk ? 'זהות הקובץ אומתה' : 'זהות הקובץ טרם אומתה (נדרש לפני אישור)', idOk ? 'ok' : 'warn'),
       i.review_requested ? pill('מסומן לבדיקה חוזרת', 'warn') : null,
-      pill(i.approved_current ? `Ground Truth מאושר (v${i.approved_seq})` : i.approved ? `שונה מאז אישור v${i.approved_seq} - צריך לאשר שוב` : 'Ground Truth טרם אושר', i.approved_current ? 'ok' : i.approved ? 'warn' : ''),
+      pill(i.approved_current ? `Ground Truth מאושר (v${i.approved_seq})` : i.approved ? `שונה מאז אישור v${i.approved_seq} · נדרש אישור מחדש` : 'Ground Truth טרם אושר', i.approved_current ? 'ok' : i.approved ? 'warn' : ''),
       h('button', { class: 'btn sm', onclick: () => openInWorkbench(i.source_id) }, 'לאישור / היסטוריה בעמוד הסימון'));
   }
 

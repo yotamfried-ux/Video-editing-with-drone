@@ -208,8 +208,8 @@ export function createApp(ctx) {
     if ((r = /^\/api\/sources\/([\w-]+)\/draft\/restore$/.exec(p)) && m === 'POST') { const b = await body(req); return send(res, 200, A.restoreReset(db, r[1], b.expected_version)); }
     if ((r = /^\/api\/sources\/([\w-]+)\/approve$/.exec(p)) && m === 'POST') {
       const b = await body(req);
-      const out = A.approve(db, r[1], { expectedVersion: b.expected_version, scope: b.scope, reason: b.reason, acknowledgeUnresolved: !!b.acknowledge_unresolved });
-      return send(res, 200, { revision: { id: out.revision.id, seq: out.revision.seq, digest: out.revision.digest, approved_at: out.revision.approved_at }, unchanged: out.unchanged, unresolved: out.unresolved, approval_caveats: out.approval_caveats });
+      const out = A.approve(db, r[1], { expectedVersion: b.expected_version, scope: b.scope, reason: b.reason, acknowledgeUnresolved: !!b.acknowledge_unresolved, acceptByException: !!b.accept_by_exception });
+      return send(res, 200, { revision: { id: out.revision.id, seq: out.revision.seq, digest: out.revision.digest, approved_at: out.revision.approved_at }, unchanged: out.unchanged, unresolved: out.unresolved, approval_caveats: out.approval_caveats, accepted_by_exception: out.accepted_by_exception ?? 0, draft_version: out.draft_version });
     }
     // ---- Independent annotation sets, agreement, adjudication (addendum §2, §8, §9) ----
     if (p === '/api/sets') {
