@@ -76,7 +76,10 @@ export function sourceCatalogState(db, src) {
     appearances, coverage: cov.ratio, review_requested: !!c.review_request?.requested,
     identity: { provider: src.provider ?? 'local', verify_state: src.verify_state ?? (src.ingest_state === 'ready' ? 'verified' : 'unverified') },
     draft_version: draft.version, triage, video, events, missing, complete: missing === 0,
-    approved: !!states.ground_truth.approved, workflow: states.workflow,
+    approved: !!states.ground_truth.approved, approved_seq: states.ground_truth.latest_seq ?? null,
+    // the approved version is what the pipeline trains on; a draft changed after approval needs approving again
+    approved_current: !!states.ground_truth.approved && !!states.ground_truth.draft_matches_approved,
+    workflow: states.workflow,
   };
 }
 
@@ -95,8 +98,10 @@ export function catalogQueue(db, { include = '', likeContains } = {}) {
       owner: { athlete_id: o.owner_athlete_id ?? null, label: o.owner_athlete_id ? labels.get(o.owner_athlete_id) ?? null : null, status: o.owner_status ?? 'unassigned', version: o.owner_version ?? 0 },
       triage: 'not_started', video: [{ key: 'opened', ok: false, required: true }], events: [], missing: 1, complete: false });
   }
-  const done = items.filter(i => i.complete).length;
-  return { items, totals: { all: items.length, complete: done, remaining: items.length - done } };
+  // same rule as the screen: a video changed after its approval is not done until it is approved again
+  const done = items.filter(i => i.complete && !(i.approved && !i.approved_current)).length;
+  const approved = items.filter(i => i.approved_current).length;
+  return { items, totals: { all: items.length, complete: done, remaining: items.length - done, approved } };
 }
 
 /**
