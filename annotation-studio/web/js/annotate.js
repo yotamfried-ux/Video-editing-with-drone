@@ -593,7 +593,11 @@ function boxAt(segId, f) {
     kf: null,
     interp: true,
     // No keyframe at this frame => nothing here can be a verified box (a positive decision needs an exact-frame box).
-    verification_status: ver && !['verified_correct', 'corrected'].includes(ver.status) ? ver.status : 'unreviewed'
+    verification_status: ver && !['verified_correct', 'corrected'].includes(ver.status) ? ver.status : 'unreviewed',
+    // ...but on screen, the box between two checked boxes is the same checked box moving: drawn like them, so playback
+    // shows ONE steady box instead of a green box on the checked frames flickering with a dashed one in between
+    between_verified: ['verified_correct', 'corrected'].includes(latestVerification(C(), segId, a.frame)?.status)
+      && ['verified_correct', 'corrected'].includes(latestVerification(C(), segId, b.frame)?.status)
   };
 }
 
@@ -611,7 +615,7 @@ function paintOverlay() {
     const b = boxAt(s.id, S.frame); if (!b) continue;
     const isSel = s.id === S.sel, col = s.athlete_id ? athColor(s.athlete_id) : '#4cc9f0';
 
-    const isVerified = b.verification_status === 'verified_correct';
+    const isVerified = b.verification_status === 'verified_correct' || !!b.between_verified;
     const isWrong = b.verification_status === 'wrong_performer';
     const isCorrected = b.verification_status === 'corrected';
 
@@ -619,7 +623,7 @@ function paintOverlay() {
     const strokeDash = isVerified ? '' : '6 4';
 
     const r = svgEl('rect', {
-      class: `bx${b.interp ? ' interp' : ''}${isSel ? ' sel' : ''}`,
+      class: `bx${b.interp && !isVerified ? ' interp' : ''}${isSel ? ' sel' : ''}`,   // a checked box is drawn solid, whether exact or between checked boxes
       x: b.bbox.x * W, y: b.bbox.y * H, width: b.bbox.w * W, height: b.bbox.h * H,
       stroke: strokeCol,
       'stroke-dasharray': strokeDash,
@@ -1843,7 +1847,25 @@ const UNRES_HE = {
   needs_review_flags: 'מקטעים שסומנו לבדיקה',
   boxes_needing_correction: 'מקטעים עם BOX שסומן כשגוי (חוסם אישור)',
   included_boxes_unverified: 'מקטעים שנכללו עם BOX שלא אומת במלואו (יירשם כהסתייגות)',
+  usable_without_primary: 'אירועים שמישים בלי גולש מבצע',
 };
+/** Each open item: which events it is about, and the one thing to do. Clicking it jumps to the first such event. */
+const UNRES_FIX = {
+  uncertain_segments: [s => s.decision === 'uncertain', 'קבע "להכניס לדאטהסט?": כלול / החרג'],
+  unknown_athlete_included: [s => s.decision === 'include' && !s.athlete_id, 'בחר "מי ביצע את הפעולה?" (או סמן שאין מבצע ראשי)'],
+  usable_without_primary: [s => (s.usability === 'usable' || s.usability === 'partially_usable') && !s.athlete_id && !['no_primary_action', 'uncertain_primary'].includes(s.primary_status), 'בחר "מי ביצע את הפעולה?" (או סמן שאין מבצע ראשי)'],
+  usability_undecided: [s => s.usability == null || s.usability === 'uncertain', 'קבע "האם הקטע שימושי לסרטון?"'],
+  included_not_usable: [s => s.decision === 'include' && s.usability === 'unusable', 'אירוע לא שמיש: סמן "החרג" או שנה את השימושיות'],
+  missing_reason_codes: [s => (s.usability === 'partially_usable' || s.usability === 'unusable') && !(s.reason_codes?.length), 'בחר סיבה (למה רק חלק / לא שמיש)'],
+  needs_review_flags: [s => !!s.needs_review, 'בדוק את האירוע ובטל את "דורש בדיקה"'],
+};
+function gotoEvent(seg) {
+  if (!seg) return;
+  S.sel = seg.id; S.inspTab = 'event';
+  seekFrame(seg.start_frame);
+  refresh();
+  toast(`אירוע ${timecode(seg.start_frame, S.fps)}–${timecode(seg.end_frame, S.fps)} נבחר. התיקון בפאנל האירוע.`);
+}
 /** Key moments must lie inside their event (the server refuses the whole draft otherwise). Clicking again clears it. */
 function setKeyMoment(s, key, label) {
   const cur = s.key_moments?.[key];
@@ -1908,7 +1930,12 @@ function approvalForm() {
       ` · ${pv.events_checked} מתוך ${pv.events} אירועים נצפו במלואם. תיבה שגויה: סמן ✕ או גרור אותה לפני האישור.`) : null,
     S.save !== 'saved' ? h('div', { class: 'meta', 'data-testid': 'approval-pending-save', style: { color: 'var(--unc)' } }, S.save === 'failed' ? 'השמירה האחרונה נכשלה — המצב כאן הוא של הגרסה השמורה בשרת.' : 'המצב כאן יתעדכן מיד אחרי השמירה האוטומטית.') : null,
     blockItems.length ? h('div', { class: 'banner bad', 'data-testid': 'approval-blocking' }, h('b', {}, 'חוסם אישור: '), blockItems.map(([k, n]) => `${UNRES_HE[k] ?? k}: ${n}`).join(' · ')) : null,
-    openItems.length ? h('ul', { class: 'list', 'data-testid': 'unresolved' }, openItems.map(([k, n]) => h('li', {}, h('span', { style: { flex: 1 } }, UNRES_HE[k] ?? k), h('b', {}, n)))) : h('div', { class: 'meta', 'data-testid': 'unresolved' }, 'אין פריטים פתוחים'),
+    openItems.length ? h('ul', { class: 'list', 'data-testid': 'unresolved' }, openItems.map(([k, n]) => {
+      const [is, fix] = UNRES_FIX[k] ?? [null, null], seg = is ? [...C().segments].sort((a, b) => a.start_frame - b.start_frame).find(is) : null;
+      return h('li', { 'data-testid': 'unresolved-item', 'data-key': k, style: { cursor: seg ? 'pointer' : 'default', flexWrap: 'wrap' }, title: seg ? 'לחץ כדי לעבור לאירוע' : '', onclick: () => gotoEvent(seg) },
+        h('span', { style: { flex: 1 } }, UNRES_HE[k] ?? k), h('b', {}, n),
+        fix ? h('div', { class: 'meta', style: { width: '100%' } }, `${seg ? '→ ' : ''}${fix}`) : null);
+    })) : h('div', { class: 'meta', 'data-testid': 'unresolved' }, 'אין פריטים פתוחים'),
     (st?.box_qa?.per_segment ?? []).some(q => q.box_frames && q.status !== 'verified_in_checked_range') ? h('div', { class: 'meta' }, UNRES_HE.included_boxes_unverified) : null,
     h('div', { class: 'cols2' }, field('היקף אישור', h('select', { id: 'ap-scope', onchange: e => { scope = e.target.value; } }, [['source', 'כל הסרטון (מסמך מלא)'], ['interval', 'טווח (נרשם כהערה — הגרסה כוללת את כל המסמך)'], ['segment', 'מקטע (נרשם כהערה — הגרסה כוללת את כל המסמך)']].map(([k, l]) => h('option', { value: k }, l))), 'ap-scope'), field('סיבה / הערה', h('input', { type: 'text', id: 'ap-reason', oninput: e => { reason = e.target.value; } }), 'ap-reason')),
     openItems.length ? h('label', { style: { display: 'flex', gap: '6px', margin: '8px 0', color: 'var(--unc)' } }, h('input', { type: 'checkbox', 'data-testid': 'ack', onchange: e => { ack = e.target.checked; } }), `אני מאשר במפורש לאשר עם ${openItems.reduce((a, [, n]) => a + n, 0)} פריטים פתוחים — הם יירשמו כהסתייגויות ולא כאימות`) : null,
