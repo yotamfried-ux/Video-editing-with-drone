@@ -740,15 +740,30 @@ function setAnchor(c, athleteId, frame, bbox) {
 }
 /** Copy the track into the events of that athlete, so the event's BOX check works on it (estimates only). */
 function syncSegmentsFromTrack(c, t) {
+  const at = new Map(t.points.filter(p => p.flag !== 'wrong').map(p => [p.frame, p]));
+  const same = (u, v) => ['x', 'y', 'w', 'h'].every(k => Math.abs(u[k] - v[k]) < 1e-5);
   for (const s of c.segments) {
     if ((s.athlete_id ?? null) !== (t.athlete_id ?? null)) continue;
-    const checked = f => !!latestVerification(c, s.id, f);
-    const prev = new Map(c.keyframes.filter(k => k.segment_id === s.id && k.origin === 'suggested').map(k => [k.frame, k.id]));
-    c.keyframes = c.keyframes.filter(k => !(k.segment_id === s.id && k.origin === 'suggested' && !checked(k.frame)));
+    const inEvent = f => f >= s.start_frame && f < s.end_frame;
+    // The event's tracker boxes follow the track. Where the track changed (a correction re-tracked it), the box moves
+    // with it and a check made on the old geometry stops counting (recorded as invalidated, never silently kept), so
+    // an event can never keep old checked boxes interleaved with new ones. Boxes drawn by hand stay as they are.
+    const keep = [];
+    for (const k of c.keyframes) {
+      if (k.segment_id !== s.id || k.origin !== 'suggested') { keep.push(k); continue; }
+      const p = at.get(k.frame), last = latestVerification(c, s.id, k.frame), decided = last && last.status !== 'unreviewed';
+      if (!p || !inEvent(k.frame)) { if (decided) appendVerification(c, s, k.frame, 'unreviewed', { invalidation: 'keyframe_removed' }); continue; }
+      if (!same(p.bbox, k.bbox)) {
+        k.bbox = { ...p.bbox }; k.verification_status = 'unreviewed';
+        if (decided) appendVerification(c, s, k.frame, 'unreviewed', { invalidation: 'geometry_changed' });
+      }
+      keep.push(k);
+    }
+    c.keyframes = keep;
     const taken = new Set(c.keyframes.filter(k => k.segment_id === s.id).map(k => k.frame));
     for (const p of t.points) {
-      if (p.flag === 'wrong' || p.frame < s.start_frame || p.frame >= s.end_frame || taken.has(p.frame)) continue;
-      c.keyframes.push({ id: prev.get(p.frame) ?? uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
+      if (p.flag === 'wrong' || !inEvent(p.frame) || taken.has(p.frame)) continue;
+      c.keyframes.push({ id: uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
     }
   }
 }
@@ -959,6 +974,21 @@ function retrackHere(s) {
   if (!trackOf(C(), aid)?.points.some(p => p.origin === 'manual')) return toast('צייר קודם תיבה על הגולש (B)', true);
   trackAthlete(aid, null);
 }
+/**
+ * True when a stretch between two drawn boxes holds samples from two grids: what the old merge wrote (forward samples
+ * at A+k*step and backward samples at B-k*step, interleaved), which plays back as a box jumping between two estimates.
+ */
+function mixedGrid(t) {
+  const step = Math.max(1, Math.round(S.fps / 10));
+  const man = t.points.filter(p => p.origin === 'manual').map(p => p.frame).sort((a, b) => a - b);
+  for (let i = 0; i < man.length - 1; i++) {
+    const A = man[i], B = man[i + 1];
+    const inner = t.points.filter(p => p.origin !== 'manual' && p.frame > A && p.frame < B);
+    const off = inner.filter(p => (p.frame - A) % step !== 0 && p.frame !== B - 1).length;
+    if (inner.length >= 4 && off >= 2) return true;
+  }
+  return false;
+}
 /** The one athlete every event of this video is about (null when there are none or several). */
 function soleEventAthlete(c) {
   const ids = new Set(c.segments.map(s => s.athlete_id ?? null)); ids.delete(null);
@@ -999,7 +1029,15 @@ function syncEventsOnOpen() {
 }
 /** Boxes drawn before video-level tracking existed: turn an event's hand-drawn boxes into anchors, once. */
 function adoptLegacyBoxes() {
-  // an approved video whose draft IS the approved version is never changed behind the operator's back
+  // A track written by the old two-grid merge (two interleaved estimates = a box jumping between two positions) is a
+  // known defect: it is re-tracked smoothly even when that version was already approved. The approved revision itself
+  // never changes; the video then reads "changed since approval" and the operator approves the clean track.
+  for (const t of C().tracks ?? []) if (mixedGrid(t) && !(S.autoTried ??= new Set()).has(`grid:${t.id}`)) {
+    S.autoTried.add(`grid:${t.id}`);
+    if (S.draft.approved_current) S.banner = { kind: 'warn', testid: 'track-repair', text: 'ה-BOX בסרטון הזה נשמר עם קפיצות (גרסה ישנה של המעקב). המעקב מחושב מחדש עכשיו בצורה חלקה. אחרי שזה מסתיים: בדוק ואשר שוב.' };
+    setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
+  }
+  // otherwise an approved video whose draft IS the approved version is never changed behind the operator's back
   // (no resume / re-sync / re-assign): any change would silently make it "changed since approval"
   if (S.draft.approved_current) return;
   claimOrphanTrack();
@@ -1842,7 +1880,10 @@ function approvalForm() {
   const pv = S.states?.approval_preview;
   const st = S.states, open = st?.workflow_computed_reasons?.open ?? {}, blocking = st?.workflow_computed_reasons?.blocking ?? {};
   const openItems = Object.entries(open).filter(([, n]) => n), blockItems = Object.entries(blocking).filter(([, n]) => n);
-  const btn = h('button', { class: 'btn primary', 'data-testid': 'approve', disabled: blockItems.length > 0, onclick: async () => {
+  // never approve boxes that are still being computed: wait for the tracking to finish (it saves as it goes)
+  const tracking = !!(S.tracking || S.trackQueue?.length);
+  const btn = h('button', { class: 'btn primary', 'data-testid': 'approve', disabled: blockItems.length > 0 || tracking, onclick: async () => {
+    if (S.tracking || S.trackQueue?.length) return toast('המעקב עדיין רץ. האישור יתאפשר כשהוא יסתיים.', true);
     btn.disabled = true;
     try {
       clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
@@ -1857,6 +1898,7 @@ function approvalForm() {
   } }, 'אשר גרסת Ground Truth');
   return h('div', { 'data-testid': 'approval-panel' },
     h('div', { class: 'meta' }, 'אישור יוצר גרסה בלתי ניתנת לשינוי של הטיוטה. "נשמר" אינו "מאושר".'),
+    tracking ? h('div', { class: 'banner warn', 'data-testid': 'approval-wait-tracking' }, 'המעקב אחרי הגולש עדיין רץ. אפשר לאשר כשהוא יסתיים.') : null,
     pv ? h('div', { class: 'meta', 'data-testid': 'approval-exception-boxes', 'data-to-verify': pv.to_verify, 'data-marked': pv.marked, 'data-not-checked': pv.not_checked },
       h('b', {}, 'מה האישור יעשה עם ה-BOX: '),
       `${pv.to_verify} יאומתו (לא סימנת אותן כשגויות, בחלק שצפית בו)`,

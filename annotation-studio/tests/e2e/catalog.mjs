@@ -467,6 +467,62 @@ await scenario('saved catalogs repair themselves on open: events with no boxes g
     for (const g of d.segments) assert.ok(d.keyframes.filter(k => k.segment_id === g.id).length >= 3, 'events have boxes'); }
 });
 
+await scenario('a track saved by the old merge (two interleaved grids = shaking box) is re-tracked smoothly when opened', async () => {
+  const s = src('DJI_0414.mp4');
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  const t = c.tracks[0], B = (x, y) => ({ x: x / 1280, y: y / 720, w: 48 / 1280, h: 48 / 720 });
+  // anchors at 60 and 150; inside: forward samples on 60+3k, backward samples on 150-3k shifted by 20 px (as the old code saved them)
+  t.points = [{ frame: 60, bbox: B(2 * 60 - 4, 326), origin: 'manual' }, { frame: 150, bbox: B(2 * 150 - 4, 326), origin: 'manual' }];
+  for (let f = 63; f < 150; f += 3) t.points.push({ frame: f, bbox: B(2 * f - 4, 326), origin: 'suggested' });
+  for (let f = 148; f > 60; f -= 3) if (!t.points.some(p => p.frame === f)) t.points.push({ frame: f, bbox: B(2 * f + 16, 326), origin: 'suggested' });
+  t.points.sort((a, b) => a.frame - b.frame);
+  // the event's boxes copied from that track, and the whole thing APPROVED (as happened live with 0163 v4)
+  const ev = c.segments[0]; Object.assign(ev, { start_frame: 30, end_frame: 200, athlete_id: t.athlete_id, usability: 'usable', decision: 'include' });
+  c.segments = [ev]; c.reviewed_ranges = [{ start_frame: 0, end_frame: s.frame_count }];
+  c.tracks = [t]; c.box_verifications = [];
+  c.keyframes = t.points.filter(p => p.frame >= 30 && p.frame < 200).map((p, i) => ({ id: `mk${i}`, segment_id: ev.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: 'suggested', verification_status: 'unreviewed' }));
+  const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  const v = (await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json()).version;
+  const ap = await fetch(`${base}/api/sources/${s.id}/approve`, { method: 'POST', headers: H, body: JSON.stringify({ expected_version: v, accept_by_exception: true, acknowledge_unresolved: true }) });
+  assert.equal(ap.status, 200, await ap.text());
+  assert.equal((await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json()).approved_current, true);
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]');
+  const offGrid = () => draft(s.id).tracks[0].points.filter(p => p.origin !== 'manual' && p.frame > 60 && p.frame < 150 && (p.frame - 60) % 3 !== 0 && p.frame !== 149).length;
+  for (let i = 0; i < 240 && offGrid() > 0; i++) await page.waitForTimeout(500);
+  await trackingIdle(); await saved();
+  assert.equal(offGrid(), 0, 'one grid between the two drawn boxes after opening');
+  // the event's boxes follow the repaired track: no box from the old second grid is left, and checks made on the
+  // old geometry no longer count (the video now needs approving again)
+  { const d = draft(s.id), ev = d.segments[0];
+    const evOff = d.keyframes.filter(k => k.segment_id === ev.id && k.origin === 'suggested' && k.frame > 60 && k.frame < 150 && (k.frame - 60) % 3 !== 0 && k.frame !== 149);
+    assert.equal(evOff.length, 0, `event boxes from the old grid left: ${evOff.map(k => k.frame)}`);
+    const tr = new Map(d.tracks[0].points.map(p => [p.frame, p.bbox]));
+    for (const k of d.keyframes.filter(k => k.segment_id === ev.id && k.origin === 'suggested')) { const p = tr.get(k.frame); assert.ok(p && ['x', 'y', 'w', 'h'].every(q => Math.abs(p[q] - k.bbox[q]) < 1e-4), `event box at ${k.frame} = track: ${JSON.stringify(k.bbox)} vs ${JSON.stringify(p)}`); }
+    const latest = new Map(); for (const x of d.box_verifications) latest.set(`${x.segment_id}:${x.frame}`, x);
+    const stale = d.keyframes.filter(k => k.segment_id === ev.id && latest.get(`${ev.id}:${k.frame}`)?.status === 'verified_correct' && ['x', 'y', 'w', 'h'].some(q => Math.abs(latest.get(`${ev.id}:${k.frame}`).bbox[q] - k.bbox[q]) > 1e-4));
+    assert.equal(stale.length, 0, 'no check left on a geometry that changed'); }
+  { const it = (await (await fetch(`${base}/api/catalog/queue`, { headers: H })).json()).items.find(i => i.source_id === s.id);
+    assert.equal(it.approved_current, false, 'shown as changed since approval -> approve the clean track'); }
+  const mid = draft(s.id).tracks[0].points.filter(p => p.frame > 60 && p.frame < 150).sort((a, b) => a.frame - b.frame);
+  const cx = mid.map(p => (p.bbox.x + p.bbox.w / 2) * 1280);
+  for (let i = 2; i < cx.length; i++) assert.ok(Math.abs(cx[i] - 2 * cx[i - 1] + cx[i - 2]) < 9, `smooth at ${mid[i].frame}`);
+});
+
+await scenario('a page left open learns about a newer deployment: banner now, reload on the next page change', async () => {
+  await page.goto(`${base}/#/catalog`); await page.reload(); await page.waitForSelector('[data-testid=qc-item]');
+  await page.route('**/api/version', route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ commit: 'f00dbab' }) }));
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')));
+  await page.waitForSelector('[data-testid=new-version]');
+  assert.match(await page.textContent('[data-testid=new-version]'), /גרסה חדשה.*f00dbab/);
+  await page.unroute('**/api/version');
+  const nav = page.waitForEvent('load');
+  await page.evaluate(() => { location.hash = '#/athletes'; });
+  await nav;   // moving to another page reloads into the new code
+  await page.waitForSelector('#main, main');
+});
+
 await scenario('the video is downloaded ONCE into the browser (with progress); playback, tracking and thumbnails then use that copy', async () => {
   const s = src('DJI_0414.mp4');
   const hits = []; const count = r => { if (r.url().includes(`/media/${s.id}/`)) hits.push(r.url()); };
