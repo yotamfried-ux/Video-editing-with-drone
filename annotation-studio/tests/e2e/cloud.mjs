@@ -88,7 +88,16 @@ await scenario('2. open one for annotation: no re-upload, no full download; view
   await waitForProxy();
   await shot('02-annotate-cloud');
 });
-async function waitForProxy() { await waitForProxies(); await page.reload(); await page.waitForSelector('[data-testid=workbench]'); await videoReady(); assert.ok((await page.evaluate(() => document.querySelector('#vid').currentSrc)).endsWith('/proxy'), 'plays the frame-exact proxy once built'); }
+async function waitForProxy() {
+  await waitForProxies();
+  const media = []; const rec = r => { if (/\/media\//.test(r.url())) media.push(r.url()); }; page.on('request', rec);
+  await page.reload(); await page.waitForSelector('[data-testid=workbench]'); await videoReady();
+  // the player reads the proxy, either streamed or from the one in-browser copy made of it
+  await page.waitForFunction(() => document.querySelector('#vid').currentSrc.startsWith('blob:'), null, { timeout: 30000 }).catch(() => {});
+  page.off('request', rec);
+  const cur = await page.evaluate(() => document.querySelector('#vid').currentSrc);
+  assert.ok(cur.endsWith('/proxy') || (cur.startsWith('blob:') && media.some(u => u.endsWith('/proxy')) && !media.some(u => u.endsWith('/original'))), `plays the frame-exact proxy once built (${cur}; ${media.join(', ')})`);
+}
 
 await scenario('3. label an athlete + event; autosave; Ground Truth approval is blocked until identity is verified', async () => {
   await page.goto(`${base}/#/athletes`); await page.waitForSelector('[data-testid=add-athlete]');

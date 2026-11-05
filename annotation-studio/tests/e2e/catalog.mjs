@@ -456,6 +456,33 @@ await scenario('saved catalogs repair themselves on open: events with no boxes g
     for (const g of d.segments) assert.ok(d.keyframes.filter(k => k.segment_id === g.id).length >= 3, 'events have boxes'); }
 });
 
+await scenario('the video is downloaded ONCE into the browser (with progress); playback, tracking and thumbnails then use that copy', async () => {
+  const s = src('DJI_0414.mp4');
+  const hits = []; const count = r => { if (r.url().includes(`/media/${s.id}/`)) hits.push(r.url()); };
+  // a slow connection: the download takes a moment, so the progress pill is visible
+  await page.route(`**/media/${s.id}/**`, async route => { await new Promise(r => setTimeout(r, 1500)); await route.continue(); });
+  page.on('request', count);
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await page.waitForSelector('[data-testid=local-copy]', { state: 'visible', timeout: 5000 });
+  assert.match(await page.textContent('[data-testid=local-copy]'), /מוריד את הסרטון לדפדפן/);
+  await until(() => document.querySelector('#vid').src.startsWith('blob:'), null, 30000);
+  await page.waitForSelector('[data-testid=local-copy]', { state: 'hidden' });
+  await page.unroute(`**/media/${s.id}/**`);
+  // tracking now reads the copy: re-track the whole video and check no new download of the video is made
+  const before = hits.length;
+  await page.evaluate(() => { const v = document.querySelector('#vid'); v.currentTime = 1; });
+  await page.locator('[data-testid=segment]').first().click(); await page.waitForSelector('[data-testid=segform]');
+  const n0 = draft(s.id).tracks[0].points.length;
+  await page.keyboard.press('b');
+  const ov = await page.locator('#ov').boundingBox(), fr = Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+  const px = (x, y) => [ov.x + ov.width * x / 1280, ov.y + ov.height * y / 720];
+  await page.mouse.move(...px(2 * fr - 4, 326)); await page.mouse.down(); await page.mouse.move(...px(2 * fr + 44, 374), { steps: 3 }); await page.mouse.up();
+  await trackingIdle(); await saved();
+  assert.ok(draft(s.id).tracks[0].points.length >= Math.min(n0, 30), 'tracking ran');
+  page.off('request', count);
+  assert.equal(hits.length - before, 0, `no extra video downloads after the copy (saw ${hits.slice(before).join(', ')})`);
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;

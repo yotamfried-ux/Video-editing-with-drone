@@ -12,7 +12,7 @@ let S = null, cleanup = [];
 const LEGACY = ['wave_ride', 'failed_takeoff', 'wipeout', 'paddle_out', 'other'];
 const effSport = x => x.sport_id ?? S.src.primary_sport_id ?? null;
 
-export function teardownAnnotate() { if (S) { S.trackQueue = []; S.tracking?.ctl.abort(); } cleanup.forEach(f => f()); cleanup = []; S = null; }
+export function teardownAnnotate() { if (S) { S.trackQueue = []; S.tracking?.ctl.abort(); S.copyCtl?.abort(); if (S.copy?.url) URL.revokeObjectURL(S.copy.url); } cleanup.forEach(f => f()); cleanup = []; S = null; }
 const on = (t, ev, fn, o) => { t.addEventListener(ev, fn, o); cleanup.push(() => t.removeEventListener(ev, fn, o)); };
 
 export async function renderAnnotate(root, id) {
@@ -196,6 +196,7 @@ function layout() {
             h('span', { class: 'pill', id: 'hudtool' }, ''),
             h('span', { class: 'pill mark-live', id: 'hudmark', 'data-testid': 'mark-live', style: { display: 'none' } }, ''),
             h('span', { class: 'pill stall-live', id: 'hudstall', 'data-testid': 'stall', style: { display: 'none' } }, ''),
+            h('span', { class: 'pill stall-live', id: 'hudcopy', 'data-testid': 'local-copy', style: { display: 'none' } }, ''),
             h('span', { class: 'pill track-live', id: 'hudtrack', 'data-testid': 'track-progress', style: { display: 'none' } }, '')
           ),
           h('div', { class: 'boxhover', id: 'boxHover', style: { position: 'absolute', bottom: '12px', right: '12px', display: 'none' } }, '')
@@ -211,9 +212,55 @@ function layout() {
   );
 }
 
+/** The video the player, the tracker and the thumbnails read: the in-browser copy once it is there. */
+function mediaUrl() { return S.quality === 'original' ? `/media/${S.src.id}/original` : (S.copy?.url ?? S.src.playback_url); }
+const LOCAL_COPY_MAX = 1.5e9;
+/**
+ * The originals are 4K/60 at 100-170 Mb/s: streaming them stalls on most connections, and the player, the tracker and
+ * the thumbnails each pulled their own stream. Download the video ONCE into the browser (with progress); everything
+ * then plays and seeks from that copy without the network. Falls back to streaming if the download fails.
+ */
+function startLocalCopy() {
+  const mine = S, url = S.src.playback_url, size = S.src.byte_size;
+  if (!url || !(size > 0 && size <= LOCAL_COPY_MAX)) { S.copyReady = Promise.resolve(); return; }
+  const ctl = new AbortController(); S.copyCtl = ctl; S.copy = { pct: 0 }; setTimeout(paintCopy, 0);
+  S.copyReady = (async () => {
+    try {
+      const r = await fetch(url, { signal: ctl.signal, credentials: 'same-origin' });
+      if (!r.ok || !r.body) throw new Error(`HTTP ${r.status}`);
+      const total = Number(r.headers.get('content-length')) || size, reader = r.body.getReader(), parts = []; let got = 0, last = 0;
+      for (;;) {
+        const { done, value } = await reader.read(); if (done) break;
+        parts.push(value); got += value.length;
+        if (S !== mine) return ctl.abort();
+        if (Date.now() - last > 250) { last = Date.now(); mine.copy = { pct: Math.min(1, got / total), got, total }; paintCopy(); }
+      }
+      if (S !== mine) return;
+      const blobUrl = URL.createObjectURL(new Blob(parts, { type: 'video/mp4' }));
+      mine.copy = { url: blobUrl };
+      if (S.quality !== 'original') {
+        const v = $('#vid'), t = v.currentTime, playing = !v.paused;
+        v.preload = 'auto'; v.src = blobUrl;
+        v.addEventListener('loadedmetadata', () => { v.currentTime = t; if (playing) v.play().catch(() => {}); }, { once: true });
+      }
+      paintStall(false); paintCopy();
+    } catch (e) {
+      if (S !== mine || ctl.signal.aborted) return;
+      mine.copy = { failed: true }; paintCopy();     // keep streaming as before
+    }
+  })();
+}
+function paintCopy() {
+  const el = $('#hudcopy'); if (!el) return;
+  const c = S?.copy, on = !!c && c.url == null && !c.failed;
+  el.style.display = on ? '' : 'none';
+  if (on) el.textContent = `מוריד את הסרטון לדפדפן לניגון חלק… ${Math.round((c.pct ?? 0) * 100)}%${c.total ? ` (${Math.round(c.got / 1e6)}/${Math.round(c.total / 1e6)} MB)` : ''}`;
+}
 function mountVideo() {
   const v = $('#vid');
-  v.src = S.quality === 'original' ? `/media/${S.src.id}/original` : S.src.playback_url;
+  startLocalCopy();
+  if (S.copy && !S.copy.url) v.preload = 'metadata';       // don't compete with the download; the first frame still shows
+  v.src = mediaUrl();
   v.addEventListener('loadedmetadata', () => { placeOverlay(); refresh(); });
   v.addEventListener('seeked', () => { syncFrameFromVideo(); });
   v.addEventListener('play', () => { if (!S) return; S.playing = true; S.watchFrom = S.frame; loop(); paintControls(); });
@@ -321,7 +368,7 @@ function toggleQuality(mode) {
   S.quality = mode;
   const v = $('#vid');
   const curTime = v.currentTime;
-  v.src = mode === 'original' ? `/media/${S.src.id}/original` : S.src.playback_url;
+  v.src = mediaUrl();
   v.currentTime = curTime;
   toast(mode === 'original' ? 'הועבר למצב בדיקת מקור (4K מקורי)' : 'הועבר למצב תצוגה מהירה (Proxy)');
   refresh();
@@ -726,7 +773,8 @@ async function pumpTracking() {
   if (!S || S.trackBusy) return;
   const mine = S;                                   // a pass belongs to the video it started on
   mine.trackBusy = true;
-  try { while (S === mine && mine.trackQueue?.length) { const q = mine.trackQueue.shift(); await runTrack(q.athleteId, q.around); } }
+  try {
+    if (mine.copy && !mine.copy.url && !mine.copy.failed) { mine.tracking = { pct: 0, waiting: true, ctl: new AbortController() }; paintTrackHud(); await mine.copyReady; } while (S === mine && mine.trackQueue?.length) { const q = mine.trackQueue.shift(); await runTrack(q.athleteId, q.around); } }
   finally { mine.trackBusy = false; mine.tracking = null; if (S === mine) { paintTrackHud(); refresh(); } }
 }
 /** Stretches to (re)compute, from the anchors as they are NOW. */
@@ -751,7 +799,7 @@ async function runTrack(athleteId, around) {
   const units = trackUnits(t0, around); if (!units.length) return;
   const ctl = new AbortController(), me = { athleteId, pct: 0, ctl, queued: S.trackQueue?.length ?? 0 };
   S.tracking = me; paintTrackHud(); paintInspector();
-  const src = S.quality === 'original' ? `/media/${S.src.id}/original` : S.src.playback_url;
+  const src = mediaUrl();
   const step = Math.max(1, Math.round(S.fps / 10));
   const work = units.flat().reduce((n, j) => n + Math.abs(j.to - j.from), 0) || 1;
   let done = 0; const lostAll = [], bestAll = new Set();
@@ -840,6 +888,7 @@ function paintStall(on) {
   const el = $('#hudstall'); if (!el) return;
   el.style.display = on ? '' : 'none';
   if (!on) return;
+  if (S.copy && !S.copy.url && !S.copy.failed) return (el.style.display = 'none');   // the download pill already says it
   const r = S.src.byte_size && S.total ? S.src.byte_size * 8 / (S.total / S.fps) / 1e6 : null, mbps = r == null ? null : r < 10 ? r.toFixed(1) : Math.round(r);
   el.textContent = `טוען את הווידאו…${mbps != null ? ` (קובץ ${mbps} Mb/s)` : ''}${S.stalls > 1 ? ' · מהירות 0.5× או מעבר פריים־פריים (חיצים) חלקים יותר' : ''}`;
 }
@@ -847,6 +896,7 @@ function paintTrackHud() {
   const el = $('#hudtrack'); if (!el) return;
   const t = S?.tracking;
   el.style.display = t ? '' : 'none';
+  if (t?.waiting) return el.replaceChildren('המעקב יתחיל כשהסרטון יירד לדפדפן');
   if (t) el.replaceChildren(`עוקב אחרי הגולש… ${Math.round(t.pct * 100)}%${S.trackQueue?.length ? ` (+${S.trackQueue.length} בתור)` : ''} `, h('button', { class: 'btn sm', 'data-testid': 'track-cancel', onclick: () => { S.trackQueue = []; t.ctl.abort(); S.tracking = null; paintTrackHud(); toast('המעקב נעצר. מה שכבר חושב נשמר.'); } }, 'עצור'));
 }
 function retrackHere(s) {
@@ -1265,7 +1315,7 @@ function stripFrames(s, cps) {
 function grabThumb(frame, bbox, color) {
   const key = `${S.src.id}|${frame}|${[bbox.x, bbox.y, bbox.w, bbox.h].map(v => v.toFixed(4)).join(',')}`;
   if (thumbs.has(key)) return Promise.resolve(thumbs.get(key));
-  const srcId = S.src.id, url = S.src.playback_url, fps = S.fps;
+  const srcId = S.src.id, url = S.quality === 'original' ? S.src.playback_url : mediaUrl(), fps = S.fps;
   const job = thumbQueue.then(async () => {
     while (S?.playing) await new Promise(r => setTimeout(r, 250));   // thumbnails wait while the video plays
     if (!thumbVid || thumbVid.dataset.src !== url) {
