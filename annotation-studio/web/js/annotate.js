@@ -665,7 +665,7 @@ function paintOverlay() {
     }
   }
   // Whole-video track: shown on every frame where no event box of that athlete is drawn. Drag it to correct it.
-  const shown = new Set(C().segments.filter(x => S.frame >= x.start_frame && S.frame < x.end_frame && boxAt(x.id, S.frame)).map(x => x.athlete_id ?? null));
+  const shown = new Set(C().segments.filter(x => S.frame >= x.start_frame && S.frame < x.end_frame && boxAt(x.id, S.frame)).map(x => boxAth(x) ?? null));
   for (const t of C().tracks ?? []) {
     if (shown.has(t.athlete_id ?? null)) continue;
     const tb = trackBoxAt(t, S.frame); if (!tb) continue;
@@ -750,7 +750,7 @@ function syncSegmentsFromTrack(c, t) {
   const at = new Map(t.points.filter(p => p.flag !== 'wrong').map(p => [p.frame, p]));
   const same = (u, v) => ['x', 'y', 'w', 'h'].every(k => Math.abs(u[k] - v[k]) < 1e-5);
   for (const s of c.segments) {
-    if ((s.athlete_id ?? null) !== (t.athlete_id ?? null)) continue;
+    if ((boxAth(s, c) ?? null) !== (t.athlete_id ?? null)) continue;
     const inEvent = f => f >= s.start_frame && f < s.end_frame;
     // The event's tracker boxes follow the track. Where the track changed (a correction re-tracked it), the box moves
     // with it and a check made on the old geometry stops counting (recorded as invalidated, never silently kept), so
@@ -960,7 +960,7 @@ function trackIncomplete(t) {
   return false;
 }
 /** Compatibility entry point used by the event screen: the event's athlete, anchored at frame f0. */
-function autoTrack(s, f0) { return trackAthlete(s?.athlete_id ?? null, f0); }
+function autoTrack(s, f0) { return trackAthlete(boxAth(s) ?? null, f0); }
 function paintStall(on) {
   const el = $('#hudstall'); if (!el) return;
   el.style.display = on ? '' : 'none';
@@ -977,7 +977,7 @@ function paintTrackHud() {
   if (t) el.replaceChildren(`עוקב אחרי הגולש… ${Math.round(t.pct * 100)}%${S.trackQueue?.length ? ` (+${S.trackQueue.length} בתור)` : ''} `, h('button', { class: 'btn sm', 'data-testid': 'track-cancel', onclick: () => { S.trackQueue = []; t.ctl.abort(); S.tracking = null; paintTrackHud(); toast('המעקב נעצר. מה שכבר חושב נשמר.'); } }, 'עצור'));
 }
 function retrackHere(s) {
-  const aid = s?.athlete_id ?? null;
+  const aid = boxAth(s) ?? null;
   if (!trackOf(C(), aid)?.points.some(p => p.origin === 'manual')) return toast('צייר קודם תיבה על הגולש (B)', true);
   trackAthlete(aid, null);
 }
@@ -1003,6 +1003,11 @@ function soleEventAthlete(c) {
 }
 /** Who a box drawn with no event/athlete selected belongs to: the video owner, else the only athlete of its events. */
 function defaultBoxAthlete(c) { return S.src.owner_athlete_id ?? soleEventAthlete(c) ?? null; }
+/**
+ * The track an event's boxes belong to: its performer's; while no performer is chosen yet, the default athlete's
+ * (the owner). One person on screen is one track, so drawing, dragging and the event's boxes never split it in two.
+ */
+function boxAth(s, c = C()) { return s?.athlete_id ?? defaultBoxAthlete(c); }
 /**
  * Boxes drawn before an athlete was chosen live on a track with no athlete, so no event got them. When the video's
  * events are all about one athlete, that track is theirs: hand its anchors over (merging with the athlete's own track
@@ -1056,9 +1061,9 @@ function adoptLegacyBoxes() {
   for (const t of C().tracks ?? []) if (trackIncomplete(t) && t.points.some(p => p.origin === 'manual')) setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
   for (const s of C().segments) {
     const man = C().keyframes.filter(k => k.segment_id === s.id && k.origin === 'manual');
-    if (!man.length || trackOf(C(), s.athlete_id ?? null)) continue;
-    edit(c => { for (const k of man) setAnchor(c, s.athlete_id ?? null, k.frame, k.bbox); }, { quiet: true });
-    setTimeout(() => S && trackAthlete(s.athlete_id ?? null, null), 300);
+    if (!man.length || trackOf(C(), boxAth(s) ?? null)) continue;
+    edit(c => { for (const k of man) setAnchor(c, boxAth(s, c) ?? null, k.frame, k.bbox); }, { quiet: true });
+    setTimeout(() => S && trackAthlete(boxAth(s) ?? null, null), 300);
     return;
   }
 }
@@ -1143,7 +1148,7 @@ function placeAnchor(s, aid, f0, box) {
   trackAthlete(aid, f0);
 }
 
-function dragBox(e, s, b, mode, aid = s?.athlete_id ?? null) {
+function dragBox(e, s, b, mode, aid = boxAth(s) ?? null) {
   const ov = $('#ov'), a = norm(e, ov), o = { ...b.bbox }; let nb = o; ov.style.pointerEvents = 'auto'; ov.setPointerCapture(e.pointerId);
   const rect = e.target.closest('rect.bx') ?? (s ? $(`[data-seg="${s.id}"]`) : $('[data-track-box]'));
   const mv = ev => { const p = norm(ev, ov), dx = p.x - a.x, dy = p.y - a.y;
@@ -1397,7 +1402,7 @@ function decideAt(s, frame, status) {
   }
   if (status === 'wrong_performer' && !cur?.bbox) return toast(`אין BOX בפריים ${frame}`, true);
   edit(c => {
-    if (status === 'wrong_performer') { const tp = trackOf(c, s.athlete_id ?? null)?.points.find(p => p.frame === frame && p.origin === 'suggested'); if (tp) tp.flag = 'wrong'; }
+    if (status === 'wrong_performer') { const tp = trackOf(c, boxAth(s, c) ?? null)?.points.find(p => p.frame === frame && p.origin === 'suggested'); if (tp) tp.flag = 'wrong'; }
     let kf = c.keyframes.find(k => k.segment_id === s.id && k.frame === frame);
     if (status === 'verified_correct' && !kf) {
       // The operator checked the estimated position at this exact frame: materialize it, keeping its origin.
@@ -1728,7 +1733,7 @@ function segForm(s) {
     ),
     h('div', { class: 'meta' }, 'צייר תיבה על הגולש בפריים אחד, בכל מקום בסרטון: היא עוקבת אחריו לבד מתחילת הסרטון ועד סופו. אם היא סטתה באיזשהו רגע - גרור אותה לגולש באותו רגע, והמעקב מתוקן לפני ואחרי.'),
     (() => {
-      const key = s.athlete_id ?? '', t = trackOf(C(), s.athlete_id ?? null), lost = S.trackLost?.[key];
+      const key = boxAth(s) ?? '', t = trackOf(C(), boxAth(s) ?? null), lost = S.trackLost?.[key];
       const pts = t?.points ?? [], tr = pts.filter(p => p.origin === 'suggested'), an = pts.filter(p => p.origin === 'manual');
       if (S.tracking && (S.tracking.athleteId ?? '') === key) return h('div', { class: 'banner warn', 'data-testid': 'track-running' }, `עוקב אחרי הגולש לאורך הסרטון… ${Math.round(S.tracking.pct * 100)}%`);
       return h('div', { style: { display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap', margin: '6px 0' } },
