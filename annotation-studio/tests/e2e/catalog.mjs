@@ -483,6 +483,43 @@ await scenario('the video is downloaded ONCE into the browser (with progress); p
   assert.equal(hits.length - before, 0, `no extra video downloads after the copy (saw ${hits.slice(before).join(', ')})`);
 });
 
+await scenario('approving accepts the boxes not marked wrong (exception review); the catalog counts it done + approved, and "changed since approval" when edited after', async () => {
+  const s = src('DJI_0414.mp4'), x = s.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const getD = async () => (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json();
+  const queueItem = async () => (await (await fetch(`${base}/api/catalog/queue`, { headers: H })).json()).items.find(i => i.source_id === s.id);
+  { const cur = await getD(), c = structuredClone(cur.content);
+    for (const g of c.segments) Object.assign(g, { athlete_id: x, usability: 'usable', decision: 'include', reason_codes: [], needs_review: false });
+    c.reviewed_ranges = [{ start_frame: 0, end_frame: s.frame_count }]; c.box_verifications = [];
+    for (const k of c.keyframes) k.verification_status = 'unreviewed';
+    const r = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) }); assert.equal(r.status, 200, await r.text()); }
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await trackingIdle(); await saved();
+  const boxes = draft(s.id).keyframes.length; assert.ok(boxes > 5);
+  await page.keyboard.press('Escape');
+  await page.waitForSelector('[data-testid=approval-exception-boxes]');
+  assert.match(await page.textContent('[data-testid=approval-exception-boxes]'), new RegExp(`${boxes} תיבות`));
+  await page.click('[data-testid=approve]');
+  await page.waitForTimeout(800);
+  if (!await page.locator('[data-testid=revlist] li b').count() || await page.locator('.toast.bad').count()) {
+    if (await page.locator('[data-testid=ack]').count()) await page.check('[data-testid=ack]');
+    await page.click('[data-testid=approve]');
+  }
+  await page.waitForSelector('[data-testid=revlist] li b');
+  const rev = JSON.parse(db.prepare('select content from annotation_revisions where source_id=? order by seq desc').get(s.id).content);
+  const ok = rev.box_verifications.filter(v => v.status === 'verified_correct' && v.method === 'exception_review');
+  assert.equal(ok.length, boxes, 'every box not marked wrong is recorded as checked-correct in the approved version');
+  assert.ok(rev.keyframes.every(k => k.verification_status === 'verified_correct'));
+  { const it = await queueItem(); assert.equal(it.approved_current, true); assert.equal(it.complete, true, `catalog fields complete (missing ${it.missing})`); }
+  // edited after approval -> not done until approved again
+  { const cur = await getD(), c = structuredClone(cur.content); c.segments[0].notes = 'שינוי אחרי אישור';
+    await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) }); }
+  { const it = await queueItem(); assert.equal(it.approved, true); assert.equal(it.approved_current, false, 'changed since approval'); }
+  await page.goto(`${base}/#/catalog`);
+  await page.waitForSelector('[data-testid=qc-item]');
+  assert.match(await page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' }).textContent(), /שונה מאז אישור v\d/);
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;
