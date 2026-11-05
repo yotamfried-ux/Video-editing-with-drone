@@ -9,6 +9,9 @@
 //  - constant-velocity prediction and a search around it, with a small preference for the predicted place;
 //  - short occlusions are bridged (coast on the prediction, search wider), the template adapts slowly and stays
 //    anchored to what the operator drew.
+//  - the camera's own motion (drone closing in / pulling back, panning) is measured on the whole picture each step
+//    and applied to the box first: when the camera zooms in, the box grows with the athlete and keeps the proportion
+//    it was drawn with (the pipeline crops/zooms from it), instead of staying the size it was drawn.
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -162,6 +165,69 @@ function meanShift(d, W, H, L, cx, cy, bw, bh) {
   return { cx, cy, mass };
 }
 
+// ---- camera: how the whole picture zoomed and moved between two sampled frames (drone closing in / pulling back) ----
+const SW = 128;
+/** A small gray copy of the frame (SW px wide), zero-mean, for the camera estimate. */
+function smallGray(F0, W, H) {
+  const k = W / SW, sh = Math.max(8, Math.round(H / k)), o = new Float32Array(SW * sh);
+  for (let j = 0; j < sh; j++) for (let i = 0; i < SW; i++) {
+    let s = 0, c = 0;
+    for (let y = Math.floor(j * k), ye = Math.min(H, Math.floor((j + 1) * k) || 1); y < ye; y++) for (let x = Math.floor(i * k), xe = Math.min(W, Math.floor((i + 1) * k) || 1); x < xe; x++) { s += F0[y * W + x]; c++; }
+    o[j * SW + i] = c ? s / c : 0;
+  }
+  let m = 0; for (const v of o) m += v; m /= o.length; for (let i = 0; i < o.length; i++) o[i] -= m;
+  return { g: o, w: SW, h: sh };
+}
+function half(I) {
+  const w = I.w >> 1, h = I.h >> 1, o = new Float32Array(w * h);
+  for (let j = 0; j < h; j++) for (let i = 0; i < w; i++) { const k = 2 * j * I.w + 2 * i; o[j * w + i] = (I.g[k] + I.g[k + 1] + I.g[k + I.w] + I.g[k + I.w + 1]) / 4; }
+  return { g: o, w, h };
+}
+const bil = (I, x, y) => {
+  const x0 = Math.floor(x), y0 = Math.floor(y), fx = x - x0, fy = y - y0, k = y0 * I.w + x0;
+  return (I.g[k] * (1 - fx) + I.g[k + 1] * fx) * (1 - fy) + (I.g[k + I.w] * (1 - fx) + I.g[k + I.w + 1] * fx) * fy;
+};
+/** Gauss-Newton fit of B(c + s(x-c) + t) = A(x) (robust weights: waves and foam that changed count less), on the
+ *  picture AROUND the athlete: `ex` = {x0,y0,x1,y1} in small-image units is left out, since the athlete moves on its own.
+ *  Returns {s, tx, ty} in units of the small image, or null when the fit is not trustworthy (e.g. a background with
+ *  too little detail to tell how the camera moved: then the camera is assumed still). */
+function cameraMotion(A, B, ex) {
+  const PA = [A, half(A)], PB = [B, half(B)];
+  let s = 1, tx = 0, ty = 0;
+  for (let lv = 1; lv >= 0; lv--) {
+    const a = PA[lv], b = PB[lv], cx = a.w / 2, cy = a.h / 2;
+    if (lv === 0) { tx *= 2; ty *= 2; }
+    for (let it = 0; it < 8; it++) {
+      let h00 = 0, h01 = 0, h02 = 0, h11 = 0, h12 = 0, h22 = 0, g0 = 0, g1 = 0, g2 = 0, ss = 0, nn = 0;
+      const f = lv ? 0.5 : 1;
+      for (let y = 2; y < a.h - 2; y++) for (let x = 2; x < a.w - 2; x++) {
+        if (ex && x >= ex.x0 * f && x <= ex.x1 * f && y >= ex.y0 * f && y <= ex.y1 * f) continue;
+        const u = cx + s * (x - cx) + tx, v = cy + s * (y - cy) + ty;
+        if (u < 1 || v < 1 || u >= b.w - 2 || v >= b.h - 2) continue;
+        const r = bil(b, u, v) - a.g[y * a.w + x];
+        const gx = (bil(b, u + 1, v) - bil(b, u - 1, v)) / 2, gy = (bil(b, u, v + 1) - bil(b, u, v - 1)) / 2;
+        const w = 1 / (1 + (r / 12) ** 2);
+        const j0 = gx * (x - cx) + gy * (y - cy);
+        h00 += w * j0 * j0; h01 += w * j0 * gx; h02 += w * j0 * gy; h11 += w * gx * gx; h12 += w * gx * gy; h22 += w * gy * gy;
+        g0 += w * j0 * r; g1 += w * gx * r; g2 += w * gy * r; ss += r * r; nn++;
+      }
+      if (nn < a.w * a.h * 0.3) return null;
+      // enough detail in both directions (and for scale) to measure the camera; a flat sky/sea is not
+      if (h11 / nn < 4 || h22 / nn < 4 || h00 / (nn * (a.w * a.w + a.h * a.h) / 12) < 0.5) return null;
+      // solve H d = -g (3x3, Cramer)
+      const det = h00 * (h11 * h22 - h12 * h12) - h01 * (h01 * h22 - h12 * h02) + h02 * (h01 * h12 - h11 * h02);
+      if (Math.abs(det) < 1e-9) return null;
+      const d0 = -(g0 * (h11 * h22 - h12 * h12) - h01 * (g1 * h22 - h12 * g2) + h02 * (g1 * h12 - h11 * g2)) / det;
+      const d1 = -(h00 * (g1 * h22 - g2 * h12) - g0 * (h01 * h22 - h12 * h02) + h02 * (h01 * g2 - g1 * h02)) / det;
+      const d2 = -(h00 * (h11 * g2 - h12 * g1) - h01 * (h01 * g2 - g1 * h02) + g0 * (h01 * h12 - h11 * h02)) / det;
+      s += d0; tx += d1; ty += d2;
+      if (!(Math.abs(s - 1) < 0.15) || Math.abs(tx) > a.w / 4 || Math.abs(ty) > a.h / 4) return null;
+      if (Math.abs(d0) < 1e-5 && Math.abs(d1) < 0.01 && Math.abs(d2) < 0.01) break;
+    }
+  }
+  return { s, tx, ty };
+}
+
 /**
  * Track a box from frame `from` (where the operator drew it) to frame `to` (inclusive, either direction).
  * @returns {Promise<{boxes: {frame:number,bbox:object,score:number}[], lost: number|null}>}
@@ -180,6 +246,7 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     let F = features(ctx, v, W, H);
     let RGB = readRGB(ctx, W, H);
     let bx = bbox.x * W, by = bbox.y * H, bw = Math.max(6, bbox.w * W), bh = Math.max(6, bbox.h * H);
+    const bw0 = bw, bh0 = bh;
     const tw = clamp(Math.round(bw), 8, 72), th = clamp(Math.round(bh), 8, 72);
     const P0 = patch(F, W, H, bx, by, bw, bh, tw, th);
     const { wt, mask, fgFrac } = weights(P0, tw, th);
@@ -188,6 +255,7 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     if (T0.every(t => t.n < 0.5 * Math.sqrt(sumW))) throw new TrackError('FLAT', 'אין מספיק פרטים בתוך ה-BOX כדי לעקוב (צייר תיבה הדוקה יותר על הגולש)');
     const L = colourModel(RGB, W, H, bx, by, bw, bh, mask, tw, th);
     const mass0 = Math.max(1e-6, meanShift(RGB, W, H, L, bx + bw / 2, by + bh / 2, bw * 0.6, bh * 0.6).mass);
+    let cam = smallGray(F[0], W, H);
     const recent = P0.map(c => Float32Array.from(c));
     let T = T0;
     const dir = to >= from ? 1 : -1, total = Math.abs(to - from), out = [];
@@ -205,6 +273,15 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
       while (hold?.() && !signal?.aborted) await new Promise(r => setTimeout(r, 250));   // yield the network to the player
       await seek(v, at(f));
       F = features(ctx, v, W, H); RGB = readRGB(ctx, W, H);
+      // the camera: move and scale the box with the picture (zoom in -> the athlete and the box grow together)
+      const kk = W / SW, ex = { x0: (bx - bw) / kk, y0: (by - bh) / kk, x1: (bx + 2 * bw) / kk, y1: (by + 2 * bh) / kk };   // the athlete and around it
+      const cam1 = smallGray(F[0], W, H), m = cameraMotion(cam, cam1, ex); cam = cam1;
+      if (m) {
+        const k = W / SW, ox = W / 2, oy = cam1.h * k / 2;
+        const ncx = ox + m.s * (bx + bw / 2 - ox) + m.tx * k, ncy = oy + m.s * (by + bh / 2 - oy) + m.ty * k;
+        const z = clamp(m.s, 0.25 * bw0 / bw, 6 * bw0 / bw);
+        bw = clamp(bw * z, 6, W); bh = clamp(bh * z, 6, H); bx = clamp(ncx - bw / 2, 0, W - bw); by = clamp(ncy - bh / 2, 0, H - bh);
+      }
       // 1) colour: mean-shift from the predicted centre onto the athlete-coloured pixels (robust to foam and water)
       const pcx = bx + vx + bw / 2, pcy = by + vy + bh / 2;
       const ms = meanShift(RGB, W, H, L, pcx, pcy, bw * (miss ? 0.9 : 0.6), bh * (miss ? 0.9 : 0.6));
@@ -228,10 +305,12 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
       let cx = (best.x + tw / 2) * sx, cy = (best.y + th / 2) * sy;
       // shape match weak (spray, pose change) but colour clearly there: trust the colour centre
       if (useColour && best.raw < 0.4) { cx = ms.cx; cy = ms.cy; }
-      let sc = 1, sb = best.raw;
-      for (const s2 of [0.9, 1.1]) {
+      // size: the camera zoom is already applied (above); here only a small change for the athlete's own pose
+      let scx = 1, scy = 1, sb = best.raw;
+      for (const s2 of [0.95, 1.05]) {
+        if (bw * s2 / bw0 < 0.25 || bw * s2 / bw0 > 6) continue;
         const v2 = nccPatch(patch(F, W, H, cx - bw * s2 / 2, cy - bh * s2 / 2, bw * s2, bh * s2, tw, th), T, wt, sumW);
-        if (v2 > sb + 0.03) { sb = v2; sc = s2; }
+        if (v2 > sb + 0.03) { sb = v2; scx = scy = s2; }
       }
       const dist = Math.hypot(cx - pcx, cy - pcy) / Math.hypot(bw, bh);   // in box diagonals
       const conf = Math.max(sb, Math.min(1, colour) * 0.8);
@@ -242,7 +321,7 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
         if (miss > maxMiss) lost = lastGood + dir * step;
         return;
       }
-      const nw = clamp(bw * sc, 6, W), nh = clamp(bh * sc, 6, H), nx = clamp(cx - nw / 2, 0, W - nw), ny = clamp(cy - nh / 2, 0, H - nh);
+      const nw = clamp(bw * scx, 6, W), nh = clamp(bh * scy, 6, H), nx = clamp(cx - nw / 2, 0, W - nw), ny = clamp(cy - nh / 2, 0, H - nh);
       const n1 = miss + 1;
       vx = 0.5 * vx + 0.5 * (nx - bx) / n1; vy = 0.5 * vy + 0.5 * (ny - by) / n1;
       const vmax = 0.35 * Math.hypot(bw, bh), vm = Math.hypot(vx, vy); if (vm > vmax) { vx *= vmax / vm; vy *= vmax / vm; }   // no runaway prediction

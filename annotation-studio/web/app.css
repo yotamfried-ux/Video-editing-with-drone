@@ -104,6 +104,7 @@ table.t th{color:var(--muted);font-weight:500;font-size:12px;background:var(--pa
 .sg.exc{background:repeating-linear-gradient(135deg,rgba(255,107,107,.22) 0 6px,rgba(255,107,107,.1) 6px 12px);border-color:var(--exc)}
 .sg.unc{background:rgba(245,184,61,.18);border-color:var(--unc);border-style:dashed}
 .sg.sel{outline:2px solid var(--focus);z-index:2}
+.sg.snapped{outline:2px solid #ffd54a;box-shadow:0 0 0 4px rgba(255,213,74,.3)}
 .sg .h{position:absolute;top:0;bottom:0;width:12px;cursor:ew-resize;background:rgba(255,255,255,.08)}.sg .h:hover,.sg.sel .h{background:rgba(255,255,255,.35)}.sg .h::after{content:"";position:absolute;top:6px;bottom:6px;left:5px;width:2px;border-radius:1px;background:rgba(255,255,255,.7)}.sg .h.l{left:0}.sg .h.r{right:0}
 .kfm{position:absolute;bottom:1px;width:7px;height:7px;background:#fff;transform:translateX(-3px) rotate(45deg);pointer-events:none}
 .kfm.i{background:transparent;border:1px solid #fff}

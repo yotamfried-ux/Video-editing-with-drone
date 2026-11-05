@@ -58,6 +58,12 @@ async function shutdown() {           // simulates closing the program: browser,
 }
 const shot = n => page.screenshot({ path: path.join(SHOTS, `wf-${n}.png`) });
 const waitSaved = () => page.waitForSelector('[data-testid=savepill][data-state=saved]', { timeout: 8000 });
+// approval is refused while box tracking runs in the background (it would race with it): wait until the progress pill
+// stays hidden for a while (it hides briefly between queued passes), as an operator waits for "עוקב…" to finish
+async function trackingIdle(timeout = 180000) {
+  const end = Date.now() + timeout; let quiet = 0;
+  while (Date.now() < end && quiet < 5) { quiet = await page.evaluate(() => (document.querySelector('#hudtrack')?.style.display ?? 'none') === 'none') ? quiet + 1 : 0; await page.waitForTimeout(400); }
+}
 async function until(fn, timeout = 15000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) { if (await page.evaluate(fn)) return; await page.waitForTimeout(100); }
@@ -185,7 +191,7 @@ await scenario('6. Reclassifying a draft warns, never deletes, remaps explicitly
   await page.click('[data-testid=segment]'); await page.waitForSelector('[data-testid=segform]');
   // usability is an active human decision (new events start 'uncertain'); the operator sets it before approving
   await page.click('[data-testid=usability-usable]'); await waitSaved();
-  await page.fill('#ap-reason', 'GT v1'); await page.click('[data-testid=approve]');
+  await trackingIdle(); await page.fill('#ap-reason', 'GT v1'); await page.click('[data-testid=approve]');
   await page.waitForSelector('[data-testid=revlist] li b');
   const rev1 = ctx.db.prepare('select digest from annotation_revisions where source_id=?').get(src('surf_session_a.mp4').id).digest;
   await page.selectOption('[data-testid=source-sport]', 'basketball');
@@ -207,14 +213,14 @@ await scenario('6. Reclassifying a draft warns, never deletes, remaps explicitly
   await page.click('[data-testid=segment]'); await page.waitForSelector('[data-testid=segform]');
   if (!await page.locator('[data-testid=event-more]').evaluate(d => d.open)) await page.click('[data-testid=event-more] summary');
   await page.fill('#f-notes', 'גל מלא'); await page.locator('#f-notes').blur(); await waitSaved();   // a real content change => a new revision (identical content is deliberately a no-op)
-  await page.fill('#ap-reason', 'GT v2'); await page.click('[data-testid=approve]');
+  await trackingIdle(); await page.fill('#ap-reason', 'GT v2'); await page.click('[data-testid=approve]');
   await until(() => document.querySelectorAll('[data-testid=revlist] li').length === 2);
   assert.equal(Number(ctx.db.prepare('select count(*) n from annotation_revisions where source_id=?').get(src('surf_session_a.mp4').id).n), 2);
   // the football/tennis source gets approved too (mixed sport)
   await goAnnotate('football_match_b.mp4'); await page.click('[data-testid=segment]');
   await page.click('[data-testid=usability-usable]'); await waitSaved(); await page.fill('#ap-reason', 'GT football');
   await page.check('[data-testid=ack]');      // no athlete assigned to the included event => explicit acknowledgement is required
-  await page.click('[data-testid=approve]');
+  await trackingIdle(); await page.click('[data-testid=approve]');
   await page.waitForSelector('[data-testid=revlist] li b');
   await shot('06-approved');
 });

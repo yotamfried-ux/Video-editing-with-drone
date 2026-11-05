@@ -704,6 +704,78 @@ await scenario('an event with no performer yet uses the owner\'s track: dragging
   assert.equal(await page.locator('[data-testid=bbox], [data-testid=track-box]').count(), 1, 'one box on screen');
 });
 
+await scenario('an event marked at the same time as the owner\'s ride is another surfer: no performer, a prompt, and its own box', async () => {
+  const s0 = src('DJI_0414.mp4'), owner = s0.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const B = (f, x0 = 0) => ({ x: (x0 + 2 * f - 4) / 1280, y: 326 / 720, w: 48 / 1280, h: 48 / 720 });
+  const cur = await (await fetch(`${base}/api/sources/${s0.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  c.segments = [{ id: 'ride', start_frame: 30, end_frame: 200, event_type: 'wave_ride', athlete_id: owner, usability: 'usable', decision: 'include', reason_codes: [], key_moments: {}, notes: '', framing_mode: null, target: null }];
+  c.keyframes = []; c.box_verifications = []; delete c.catalog_triage;
+  c.tracks = [{ id: 'own', athlete_id: owner, points: [{ frame: 40, bbox: B(40), origin: 'manual' }] }];
+  const put = await fetch(`${base}/api/sources/${s0.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s0.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await trackingIdle(); await saved();
+  const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+  const go = async n => { while (await fr() !== n) { const d = n - await fr(); await page.keyboard.press(Math.abs(d) >= 10 ? (d > 0 ? 'Shift+ArrowRight' : 'Shift+ArrowLeft') : (d > 0 ? 'ArrowRight' : 'ArrowLeft')); } };
+  // the ride is selected; the operator marks a second event inside it (100 -> 150)
+  await page.locator('[data-testid=segment]').first().click(); await page.waitForSelector('[data-testid=segform]');
+  await go(100); await page.click('[data-testid=mark-in]'); await go(150); await page.click('[data-testid=mark-out]');
+  await saved();
+  let d = draft(s0.id); const two = d.segments.find(x => x.id !== 'ride');
+  assert.equal(two.athlete_id ?? null, null, 'the overlapping event does not take the owner as its performer');
+  await page.waitForSelector('[data-testid=overlap-other]');
+  assert.equal(await page.locator('[data-testid=performer-owner]').count(), 0, 'no one-click "it is the owner" for it');
+  // drawing a box for it is refused until the second surfer is named
+  await go(120); await page.keyboard.press('b');
+  let o = await page.locator('#ov').boundingBox(); const drag = async (x0, y0) => { await page.mouse.move(o.x + x0, o.y + y0); await page.mouse.down(); await page.mouse.move(o.x + x0 + 40, o.y + y0 + 40, { steps: 4 }); await page.mouse.up(); };
+  await drag(o.width * 0.7, o.height * 0.2);
+  await page.waitForTimeout(300);
+  assert.equal(draft(s0.id).tracks.length, 1, 'no box (and no track) for an unnamed second surfer');
+  // name the second surfer (＋ חדש) and draw their box: a second track, the owner's untouched
+  await page.click('[data-testid=new-athlete]'); await page.fill('#na-label', 'גולש שני'); await page.click('[data-testid=na-ok]');
+  for (let i = 0; i < 50 && !draft(s0.id).segments.find(x => x.id === two.id).athlete_id; i++) await page.waitForTimeout(200);
+  d = draft(s0.id); const second = d.segments.find(x => x.id === two.id).athlete_id;
+  assert.ok(second && second !== owner, 'the event now has its own performer');
+  await page.keyboard.press('b'); o = await page.locator('#ov').boundingBox(); await drag(o.width * 0.7, o.height * 0.2);
+  await trackingIdle(); await saved();
+  d = draft(s0.id);
+  assert.deepEqual(d.tracks.map(t => t.athlete_id).sort(), [owner, second].sort(), 'two surfers, two tracks');
+  assert.ok(d.tracks.find(t => t.athlete_id === owner).points.every(p => p.frame !== 120 || p.origin !== 'manual'), 'the owner\'s track got no anchor from it');
+  assert.ok(d.keyframes.some(k => k.segment_id === two.id), 'the second event has its own boxes');
+  assert.ok(await page.locator('[data-testid=bbox], [data-testid=track-box]').count() >= 2, 'both surfers are boxed on screen');
+});
+
+await scenario('dragging an event edge near the next event sticks to it exactly (a wipeout starts where the ride ends)', async () => {
+  const s0 = src('DJI_0414.mp4'), owner = s0.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const cur = await (await fetch(`${base}/api/sources/${s0.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  const ev = { athlete_id: owner, usability: 'usable', decision: 'include', reason_codes: [], key_moments: {}, notes: '', framing_mode: null, target: null };
+  c.segments = [{ ...ev, id: 'ride', start_frame: 30, end_frame: 150, event_type: 'wave_ride' }, { ...ev, id: 'wipe', start_frame: 170, end_frame: 220, event_type: 'wipeout' }];
+  c.keyframes = []; c.box_verifications = []; c.tracks = [];
+  const put = await fetch(`${base}/api/sources/${s0.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s0.id}`); await page.waitForSelector('[data-testid=workbench]');
+  const wipe = page.locator('[data-id=wipe]'), handle = await wipe.locator('.h.l').boundingBox();
+  const hy = handle.y + handle.height / 2;
+  // the x of the ride's end on screen; drag the wipeout's start to 4 px past it (by eye: "about there")
+  const toX = await page.evaluate(() => { const ride = document.querySelector('[data-id=ride]'); return ride.parentElement.getBoundingClientRect().left + parseFloat(ride.style.left) + parseFloat(ride.style.width); });
+  await page.mouse.move(handle.x + 2, hy); await page.mouse.down();
+  await page.mouse.move(toX + 4, hy, { steps: 8 });
+  assert.equal(await wipe.getAttribute('data-snapped'), '1', 'the edge shows it is stuck to the ride');
+  await page.mouse.up(); await saved();
+  const d = draft(s0.id), w = d.segments.find(x => x.id === 'wipe'), r = d.segments.find(x => x.id === 'ride');
+  assert.equal(w.start_frame, r.end_frame, 'the wipeout starts exactly where the ride ends');
+  assert.equal(w.end_frame, 220, 'its end did not move');
+  // moving the whole event near the ride also sticks (its start onto the ride's end); Alt drags freely
+  const body = await wipe.boundingBox();
+  await page.mouse.move(body.x + body.width / 2, hy); await page.mouse.down();
+  await page.mouse.move(body.x + body.width / 2 + 3, hy, { steps: 3 });
+  assert.equal(await wipe.getAttribute('data-snapped'), '1');
+  await page.mouse.up(); await saved();
+  assert.equal(draft(s0.id).segments.find(x => x.id === 'wipe').start_frame, 150);
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;

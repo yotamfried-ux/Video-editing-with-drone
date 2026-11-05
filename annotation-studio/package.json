@@ -16,7 +16,7 @@
     "check": "node scripts/check-syntax.mjs",
     "migrate": "node scripts/gt-migrate.mjs",
     "test:pg": "node --disable-warning=ExperimentalWarning --test tests/pg/*.test.mjs",
-    "test:sim": "python3 scripts/sim-surf.py .sim-clip/surf && node --disable-warning=ExperimentalWarning tests/sim/surf-ui.mjs .sim-clip/surf 30 && node --disable-warning=ExperimentalWarning tests/sim/surf-ui.mjs .sim-clip/surf 200"
+    "test:sim": "python3 scripts/sim-surf.py .sim-clip/surf && node --disable-warning=ExperimentalWarning tests/sim/surf-ui.mjs .sim-clip/surf 30 && node --disable-warning=ExperimentalWarning tests/sim/surf-ui.mjs .sim-clip/surf 200 && python3 scripts/sim-surf.py .sim-clip/zoom --zoomrate 0.2 && node --disable-warning=ExperimentalWarning tests/sim/surf-ui.mjs .sim-clip/zoom 30"
   },
   "optionalDependencies": {
     "pg": "8.13.1"
