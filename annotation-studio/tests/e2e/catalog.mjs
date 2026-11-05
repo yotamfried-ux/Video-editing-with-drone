@@ -498,7 +498,8 @@ await scenario('approving accepts the boxes not marked wrong (exception review);
   const boxes = draft(s.id).keyframes.length; assert.ok(boxes > 5);
   await page.keyboard.press('Escape');
   await page.waitForSelector('[data-testid=approval-exception-boxes]');
-  assert.match(await page.textContent('[data-testid=approval-exception-boxes]'), new RegExp(`${boxes} תיבות`));
+  await until(n => document.querySelector('[data-testid=approval-exception-boxes]')?.dataset.toVerify === String(n), boxes);
+  assert.match(await page.textContent('[data-testid=approval-exception-boxes]'), new RegExp(`${boxes} יאומתו`));
   await page.click('[data-testid=approve]');
   await page.waitForTimeout(800);
   if (!await page.locator('[data-testid=revlist] li b').count() || await page.locator('.toast.bad').count()) {
@@ -511,13 +512,20 @@ await scenario('approving accepts the boxes not marked wrong (exception review);
   assert.equal(ok.length, boxes, 'every box not marked wrong is recorded as checked-correct in the approved version');
   assert.ok(rev.keyframes.every(k => k.verification_status === 'verified_correct'));
   { const it = await queueItem(); assert.equal(it.approved_current, true); assert.equal(it.complete, true, `catalog fields complete (missing ${it.missing})`); }
+  // the page took the server's draft (with the approval's decisions): no stale save afterwards, and a refresh keeps the status
+  await page.reload(); await page.waitForSelector('[data-testid=workbench]'); await page.waitForTimeout(1500);
+  { const it = await queueItem(); assert.equal(it.approved_current, true, 'still approved after a browser refresh (nothing rewrote the draft)'); }
+  await page.goto(`${base}/#/catalog`); await page.waitForSelector('[data-testid=qc-item]');
+  await page.click('button.chip:has-text("הושלמו")');
+  assert.match(await page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' }).textContent(), /הושלם · מאושר v\d/);
   // edited after approval -> not done until approved again
   { const cur = await getD(), c = structuredClone(cur.content); c.segments[0].notes = 'שינוי אחרי אישור';
     await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) }); }
   { const it = await queueItem(); assert.equal(it.approved, true); assert.equal(it.approved_current, false, 'changed since approval'); }
-  await page.goto(`${base}/#/catalog`);
+  await page.reload();   // the catalog page was already open: load the queue again
   await page.waitForSelector('[data-testid=qc-item]');
-  assert.match(await page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' }).textContent(), /שונה מאז אישור v\d/);
+  await page.click('button.chip:has-text("לטיפול")');
+  assert.match(await page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' }).textContent(), /שונה מאז אישור v\d · נדרש אישור מחדש/);
 });
 
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });

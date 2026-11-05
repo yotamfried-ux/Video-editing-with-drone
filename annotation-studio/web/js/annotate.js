@@ -944,6 +944,9 @@ function syncEventsOnOpen() {
 }
 /** Boxes drawn before video-level tracking existed: turn an event's hand-drawn boxes into anchors, once. */
 function adoptLegacyBoxes() {
+  // an approved video whose draft IS the approved version is never changed behind the operator's back
+  // (no resume / re-sync / re-assign): any change would silently make it "changed since approval"
+  if (S.draft.approved_current) return;
   claimOrphanTrack();
   syncEventsOnOpen();
   // an existing track that does not cover the whole video yet (left unfinished) is completed in the background
@@ -1779,42 +1782,33 @@ function repairOutOfRange(c) {
   if (c.keyframes.length < before) notes.push(`${before - c.keyframes.length} תיבות מחוץ לטווח האירוע שלהן`);
   return notes;
 }
-/**
- * Review by exception, applied at approval: every event box the operator did not mark wrong, inside the part of the
- * video they watched, is recorded as checked-correct (method 'exception_review', like "כל השאר תקין" on a strip).
- * Boxes of events with no performer, outside watched ranges, or already decided are left alone.
- */
-function exceptionAcceptance(c) {
-  const watched = f => (c.reviewed_ranges ?? []).some(r => f >= r.start_frame && f < r.end_frame);
-  const out = [];
-  for (const s of c.segments) {
-    if (!s.athlete_id) continue;
-    for (const k of c.keyframes) if (k.segment_id === s.id && watched(k.frame) && !latestVerification(c, s.id, k.frame)) out.push([s, k.frame]);
-  }
-  return out;
-}
 function approvalForm() {
   let scope = 'source', reason = '', ack = false;
-  const pendingBoxes = exceptionAcceptance(C()).length;
+  const pv = S.states?.approval_preview;
   const st = S.states, open = st?.workflow_computed_reasons?.open ?? {}, blocking = st?.workflow_computed_reasons?.blocking ?? {};
   const openItems = Object.entries(open).filter(([, n]) => n), blockItems = Object.entries(blocking).filter(([, n]) => n);
   const btn = h('button', { class: 'btn primary', 'data-testid': 'approve', disabled: blockItems.length > 0, onclick: async () => {
     btn.disabled = true;
     try {
       clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
-      const acc = exceptionAcceptance(C());
-      if (acc.length) edit(c => { for (const [s, f] of exceptionAcceptance(c)) appendVerification(c, c.segments.find(x => x.id === s.id), f, 'verified_correct', { method: 'exception_review' }); }, { quiet: true });
-      clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
       if (S.save !== 'saved') await save();
       if (S.save !== 'saved') throw new Error('יש לשמור את הטיוטה לפני אישור');
-      const r = await api(`/api/sources/${S.src.id}/approve`, { method: 'POST', body: { expected_version: S.draft.version, scope, reason, acknowledge_unresolved: ack } });
-      toast(r.unchanged ? 'אין שינוי מאז הגרסה המאושרת' : `גרסה ${r.revision.seq} אושרה ונשמרה כבלתי ניתנת לשינוי${ack ? ' (עם הסתייגויות מתועדות)' : ''}`);
+      const r = await api(`/api/sources/${S.src.id}/approve`, { method: 'POST', body: { expected_version: S.draft.version, scope, reason, acknowledge_unresolved: ack, accept_by_exception: true } });
+      // the approval recorded box decisions in the same transaction: take the server's draft (new version)
+      if (r.draft_version != null && r.draft_version !== S.draft.version) { const sel = S.sel; S.draft = await api(S.draftUrl); clearPending(); setSave('saved'); S.sel = sel && seg(sel) ? sel : null; }
+      toast(r.unchanged ? 'אין שינוי מאז הגרסה המאושרת' : `גרסה ${r.revision.seq} אושרה${r.accepted_by_exception ? ` · ${r.accepted_by_exception} תיבות BOX נרשמו כתקינות` : ''}${ack ? ' (עם הסתייגויות מתועדות)' : ''}`);
       S.revs = (await api(`/api/sources/${S.src.id}/revisions`)).items; paintStatus(); refreshStates(); refresh();
     } catch (e) { toast(e.message + (e.data?.code === 'UNRESOLVED_ITEMS' ? ' — סמן אישור מפורש של ההסתייגויות' : ''), true); btn.disabled = false; }
   } }, 'אשר גרסת Ground Truth');
   return h('div', { 'data-testid': 'approval-panel' },
     h('div', { class: 'meta' }, 'אישור יוצר גרסה בלתי ניתנת לשינוי של הטיוטה. "נשמר" אינו "מאושר".'),
-    pendingBoxes ? h('div', { class: 'meta', 'data-testid': 'approval-exception-boxes' }, `בדיקה לפי חריגים: ${pendingBoxes} תיבות BOX באירועים שלא סימנת כשגויות (בחלק שצפית בו) יירשמו כתקינות עם האישור. תיבה שגויה - סמן ✕ או גרור אותה לפני האישור.`) : null,
+    pv ? h('div', { class: 'meta', 'data-testid': 'approval-exception-boxes', 'data-to-verify': pv.to_verify, 'data-marked': pv.marked, 'data-not-checked': pv.not_checked },
+      h('b', {}, 'מה האישור יעשה עם ה-BOX: '),
+      `${pv.to_verify} יאומתו (לא סימנת אותן כשגויות, בחלק שצפית בו)`,
+      pv.already_verified ? ` · ${pv.already_verified} כבר מאומתות` : '',
+      ` · ${pv.marked} סומנו כשגויות/מוסתרות ולא יאומתו`,
+      ` · ${pv.not_checked} לא נבדקו (מחוץ למה שצפית / בלי גולש) ולא יאומתו`,
+      ` · ${pv.events_checked} מתוך ${pv.events} אירועים נצפו במלואם. תיבה שגויה: סמן ✕ או גרור אותה לפני האישור.`) : null,
     S.save !== 'saved' ? h('div', { class: 'meta', 'data-testid': 'approval-pending-save', style: { color: 'var(--unc)' } }, S.save === 'failed' ? 'השמירה האחרונה נכשלה — המצב כאן הוא של הגרסה השמורה בשרת.' : 'המצב כאן יתעדכן מיד אחרי השמירה האוטומטית.') : null,
     blockItems.length ? h('div', { class: 'banner bad', 'data-testid': 'approval-blocking' }, h('b', {}, 'חוסם אישור: '), blockItems.map(([k, n]) => `${UNRES_HE[k] ?? k}: ${n}`).join(' · ')) : null,
     openItems.length ? h('ul', { class: 'list', 'data-testid': 'unresolved' }, openItems.map(([k, n]) => h('li', {}, h('span', { style: { flex: 1 } }, UNRES_HE[k] ?? k), h('b', {}, n)))) : h('div', { class: 'meta', 'data-testid': 'unresolved' }, 'אין פריטים פתוחים'),

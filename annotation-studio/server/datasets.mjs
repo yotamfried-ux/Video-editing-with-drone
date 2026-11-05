@@ -1,5 +1,6 @@
 // Dataset freezing. A dataset version pins exact (sha256, approved revision) pairs and is immutable.
 import { createHash, randomUUID } from 'node:crypto';
+import { verifiedBoxes } from './trackqa.mjs';
 import { now, tx, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { digestOf, latestRevision } from './annotations.mjs';
@@ -97,7 +98,9 @@ export function exportJsonl(db, datasetId, splits = ['train', 'validation']) {
     if (!splits.includes(m.split)) continue;
     const rev = db.prepare('select content,digest,seq from annotation_revisions where id=?').get(m.revision_id);
     lines.push(JSON.stringify({ schema: 1, dataset_id: datasetId, dataset_digest: d.digest, source_sha256: m.sha256,
-      split: m.split, revision_digest: rev.digest, annotations: JSON.parse(rev.content) }));
+      split: m.split, revision_digest: rev.digest, annotations: JSON.parse(rev.content),
+      // convenience: the boxes this approved revision vouches for (latest decision positive and bound to the geometry)
+      verified_boxes: verifiedBoxes(JSON.parse(rev.content)) }));
   }
   return lines.join('\n') + (lines.length ? '\n' : '');
 }
