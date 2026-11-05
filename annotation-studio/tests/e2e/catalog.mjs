@@ -652,6 +652,30 @@ await scenario('boxes drawn before the owner was set join the owner\'s track (no
   assert.equal(await page.locator('[data-testid=track-box]').count(), 1, 'one box on screen');
 });
 
+await scenario('"missing N" is clickable: it lists what is missing and goes to it (a catalog step, or the event in the workbench)', async () => {
+  const s0 = src('DJI_0414.mp4');
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const setDraft = async f => { const cur = await (await fetch(`${base}/api/sources/${s0.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content); f(c);
+    const r = await fetch(`${base}/api/sources/${s0.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) }); assert.equal(r.status, 200, await r.text()); };
+  const ev0 = { id: 'miss-ev', start_frame: 30, end_frame: 90, event_type: 'wave_ride', reason_codes: [], key_moments: {}, notes: '', framing_mode: null, target: null };
+  // 1) the events question not answered -> the pill goes to step 4 of the catalog
+  await setDraft(c => { c.segments = []; c.keyframes = []; c.box_verifications = []; delete c.catalog_triage; });
+  await page.goto(`${base}/#/catalog`); await page.reload(); await page.waitForSelector('[data-testid=qc-item]');
+  await page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' }).click();
+  await page.waitForSelector('[data-testid=qc-missing]');
+  assert.match(await page.textContent('[data-testid=qc-missing]'), /יש אירועים\?/);
+  await page.click('.qc-title [data-testid=qc-missing-go]');
+  await page.waitForSelector('.qc-step[data-step="4"].flash', { timeout: 3000 });
+  // 2) an event with no performer -> the pill in the LIST opens the workbench at that event
+  await setDraft(c => { c.segments = [{ ...ev0, athlete_id: null, primary_status: null, usability: 'usable', decision: 'include' }]; c.keyframes = []; c.box_verifications = []; });
+  await page.reload(); await page.waitForSelector('[data-testid=qc-item]');
+  const item = page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' });
+  await item.locator('[data-testid=qc-missing-go]').click();
+  await page.waitForFunction(id => location.hash.startsWith(`#/annotate/${id}`), s0.id, { timeout: 5000 });
+  await page.waitForSelector('[data-testid=segform]');
+  assert.ok(await page.locator('[data-testid=segment].sel').count() === 1, 'that event is selected');
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;

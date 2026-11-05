@@ -73,7 +73,7 @@ export async function renderCatalog(root, selId) {
           visible().length ? visible().map(i => h('li', { 'aria-selected': String(sel && keyOf(i) === keyOf(sel)), 'data-testid': 'qc-item', 'data-complete': String(i.complete), tabindex: 0,
             onclick: () => { sel = i; render(); }, onkeydown: e => { if (e.key === 'Enter') { sel = i; render(); } } },
             h('span', { class: 'ltr mono qc-name' }, i.name),
-            isDone(i) ? pill(i.approved_current ? `הושלם · מאושר v${i.approved_seq}` : 'הושלם · טרם אושר', i.approved_current ? 'ok' : '') : i.complete ? pill(`שונה מאז אישור v${i.approved_seq} · נדרש אישור מחדש`, 'warn') : pill(`חסרים ${i.missing}`, 'warn'))) : [h('li', {}, filter === 'done' ? 'עוד לא הושלם אף סרטון.' : 'אין סרטונים לטיפול. כל הכבוד.')]),
+            isDone(i) ? pill(i.approved_current ? `הושלם · מאושר v${i.approved_seq}` : 'הושלם · טרם אושר', i.approved_current ? 'ok' : '') : i.complete ? pill(`שונה מאז אישור v${i.approved_seq} · נדרש אישור מחדש`, 'warn') : missingButton(i, `חסרים ${i.missing}`))) : [h('li', {}, filter === 'done' ? 'עוד לא הושלם אף סרטון.' : 'אין סרטונים לטיפול. כל הכבוד.')]),
         sel ? detail(sel) : h('div', { class: 'empty' }, 'אין סרטונים בתור. סנכרן את הענן או ייבא סרטונים בספרייה.'))));
   }
 
@@ -103,7 +103,9 @@ export async function renderCatalog(root, selId) {
     const vid = player.el;
     const ok = k => i.video.find(x => x.key === k)?.ok;
     main.append(...[
-      h('div', { class: 'qc-title' }, h('h2', { class: 'ltr mono' }, i.name), i.complete ? pill('הקטלוג של הסרטון הושלם', 'ok') : pill(`חסרים ${i.missing} פריטים`, 'warn'), i.approved ? pill('Ground Truth מאושר', 'ok') : null),
+      h('div', { class: 'qc-title' }, h('h2', { class: 'ltr mono' }, i.name), i.complete ? pill('הקטלוג של הסרטון הושלם', 'ok') : missingButton(i, `חסרים ${i.missing} פריטים ←`), i.approved ? pill('Ground Truth מאושר', 'ok') : null),
+      missingList(i).length ? h('div', { class: 'qc-missing', 'data-testid': 'qc-missing' }, h('b', {}, 'מה חסר: '),
+        missingList(i).map(m => h('button', { class: 'chip warn', 'data-testid': 'qc-missing-item', 'data-key': m.key, onclick: m.go }, m.label))) : null,
       h('div', { class: 'qc-split' },
         h('div', { class: 'qc-steps' },
           step(1, 'של מי הסרטון?', ok('owner'), ownerControl(i)),
@@ -120,6 +122,38 @@ export async function renderCatalog(root, selId) {
     return main;
   }
 
+  /** What is still missing for a video, each with where to go to fill it in. */
+  function missingList(i) {
+    const out = [];
+    const VIDEO = { owner: ['של מי הסרטון', 1], sport: ['ענף', 2], triage: ['יש אירועים?', 4] };
+    for (const c of i.video ?? []) {
+      if (!c.required || c.ok) continue;
+      if (c.key === 'opened') out.push({ key: 'opened', label: 'לפתוח את הסרטון', go: () => { sel = i; render(); } });
+      else if (c.key === 'watched') out.push({ key: 'watched', label: `לצפות בכל הסרטון (נצפה ${Math.round((c.ratio ?? 0) * 100)}%)`, go: () => openInWorkbench(i.source_id) });
+      else if (VIDEO[c.key]) out.push({ key: c.key, label: VIDEO[c.key][0], go: () => gotoStep(i, VIDEO[c.key][1]) });
+    }
+    const FIELD = { event_type: 'סוג האירוע', performer: 'מי ביצע', usability: 'שימושיות', decision: 'להכניס לדאטהסט?', reasons: 'סיבה', box: 'בדיקת ה-BOX' };
+    (i.events ?? []).forEach((e, n) => {
+      for (const c of e.checklist ?? []) {
+        if (!c.required || c.ok) continue;
+        const label = FIELD[c.key] ?? (c.key.startsWith('attr:') ? `שדה חובה: ${c.key.slice(5)}` : c.key);
+        out.push({ key: `ev${n}:${c.key}`, label: `אירוע ${n + 1}: ${label}`, go: () => openInWorkbench(i.source_id, e.id, c.key === 'box' ? 'box' : 'event') });
+      }
+    });
+    return out;
+  }
+  /** A clickable "missing" pill: goes straight to the first missing item. */
+  function missingButton(i, text) {
+    return h('button', { class: 'pill warn', 'data-testid': 'qc-missing-go', title: 'לחץ כדי לעבור לפריט החסר', style: { cursor: 'pointer' },
+      onclick: e => { e.stopPropagation(); const first = missingList(i)[0]; if (sel !== i) { sel = i; render(); } if (first) setTimeout(first.go, 0); } }, h('span', { class: 'dot' }), text);
+  }
+  function gotoStep(i, n) {
+    if (sel !== i) { sel = i; render(); }
+    const el = document.querySelector(`.qc-step[data-step="${n}"]`); if (!el) return;
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    el.classList.add('flash'); setTimeout(() => el.classList.remove('flash'), 1600);
+    el.querySelector('select, input, button')?.focus({ preventScroll: true });
+  }
   function step(n, title, done, body) {
     return h('section', { class: `qc-step${done ? ' done' : ''}`, 'data-step': n, 'data-done': String(!!done) },
       h('h3', {}, h('span', { class: 'qc-num' }, done ? '✓' : n), title), body);
