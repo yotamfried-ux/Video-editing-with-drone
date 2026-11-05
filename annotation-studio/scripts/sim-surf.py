@@ -17,6 +17,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('out'); ap.add_argument('--w', type=int, default=1920); ap.add_argument('--h', type=int, default=1080)
 ap.add_argument('--fps', type=float, default=60000 / 1001); ap.add_argument('--seconds', type=float, default=4.0)
 ap.add_argument('--seed', type=int, default=7)
+ap.add_argument('--zoomrate', type=float, default=0.06, help='camera zoom per second (0.25 = closing in fast)')
 a = ap.parse_args()
 W, H, N = a.w, a.h, int(round(a.fps * a.seconds))
 rng = np.random.default_rng(a.seed)
@@ -76,7 +77,7 @@ proc = subprocess.Popen(['ffmpeg', '-y', '-v', 'error', '-f', 'rawvideo', '-pix_
 truth = []
 for n in range(N):
     t = n / a.fps
-    pan_x, pan_y, zoom = 120 * S * t + 25 * S * math.sin(t * 2.1), 40 * S * math.sin(t * 1.3), 1 + 0.06 * t
+    pan_x, pan_y, zoom = 120 * S * t + 25 * S * math.sin(t * 2.1), 40 * S * math.sin(t * 1.3), 1 + a.zoomrate * t
     img, _, _ = water(t, pan_x, pan_y, zoom)
     img += noise_bank[n % len(noise_bank)][..., None]
     # look-alike surfers (same colours as the target), one crosses close to it mid-clip
@@ -91,7 +92,7 @@ for n in range(N):
         r = 30 * S * zoom
         m = (xx - sx - 20 * S) ** 2 + (yy - sy) ** 2 < r * r
         img[m] = img[m] * 0.3 + np.array([235, 240, 240]) * 0.7
-    truth.append(None if bb is None else {'frame': n, 'x': bb[0] / W, 'y': bb[1] / H, 'w': (bb[2] - bb[0]) / W, 'h': (bb[3] - bb[1]) / H})
+    truth.append(None if bb is None else {'frame': n, 'x': bb[0] / W, 'y': bb[1] / H, 'w': (bb[2] - bb[0]) / W, 'h': (bb[3] - bb[1]) / H, 'zoom': zoom, 'scale': zoom * sc})
     proc.stdin.write(np.clip(img, 0, 255).astype(np.uint8).tobytes())
 proc.stdin.close(); proc.wait()
 json.dump({'w': W, 'h': H, 'fps': a.fps, 'frames': N, 'truth': truth}, open(a.out + '.json', 'w'))

@@ -3,6 +3,7 @@
 // the "operator" drags it onto the surfer once (a correction), and the Studio re-tracks before and after.
 // Reports accuracy after each correction. Exit code 1 if the video is not fully on-target within MAX_FIX corrections.
 //   python3 scripts/sim-surf.py /tmp/surf && node tests/sim/surf-ui.mjs /tmp/surf [anchorFrame]
+// The box must also keep its size in proportion to the picture while the camera zooms (--zoomrate 0.2: closing in fast).
 import path from 'node:path'; import { mkdirSync, copyFileSync, readFileSync, rmSync } from 'node:fs'; import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createContext } from '../../server/context.mjs';
@@ -36,11 +37,18 @@ const ov = async () => page.locator('#ov').boundingBox();
 const pad = (g, p) => ({ x: g.x - g.w * p, y: g.y - g.h * p, w: g.w * (1 + 2 * p), h: g.h * (1 + 2 * p) });
 const idle = async () => { await page.waitForTimeout(400); await page.waitForFunction(() => { const h = document.querySelector('#hudtrack'); return h && h.style.display === 'none'; }, undefined, { timeout: 240000 }); await page.waitForSelector('[data-testid=savepill][data-state=saved]', { timeout: 30000 }); };
 const err = p => { const t = T[p.frame]; return Math.hypot((p.bbox.x + p.bbox.w / 2 - t.x - t.w / 2) * meta.w, (p.bbox.y + p.bbox.h / 2 - t.y - t.h / 2) * meta.h) / Math.hypot(t.w * meta.w, t.h * meta.h); };
+// size: the box must keep its proportion to the picture as the camera zooms in or out (truth.zoom); the drawn box's
+// ratio must hold: a loose box stays loose by the same factor. zoomDrift = worst |log| of that ratio over the track.
+const sizeOf = b => Math.sqrt(b.w * meta.w * b.h * meta.h);
+const zoomDrift = pts => { const a = pts.find(p => p.origin === 'manual') ?? pts[0]; const r0 = sizeOf(a.bbox) / T[a.frame].zoom;
+  return Math.max(...pts.map(p => Math.abs(Math.log(sizeOf(p.bbox) / T[p.frame].zoom / r0)))); };
+const MAX_ZOOM_DRIFT = 0.15;
 const report = label => {
   const pts = draft().tracks?.[0]?.points ?? [];
   const bad = pts.filter(p => err(p) >= 0.5).map(p => p.frame);
   const fs = pts.map(p => p.frame);
-  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2) };
+  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2), zoomDrift: +zoomDrift(pts).toFixed(2) };
+  if (process.env.SIM_DUMP) console.log(pts.map(p => `${p.frame}:${(sizeOf(p.bbox) / T[p.frame].zoom).toFixed(1)}/${err(p).toFixed(2)}`).join(" "));
   console.log(JSON.stringify(r)); return r;
 };
 // 1) the operator draws one (loose) box
@@ -70,6 +78,7 @@ while ((r.firstBad != null || r.from > 0 || r.to < last) && fixes < MAX_FIX) {
   r = report(`after correction ${fixes} at f${f}`);
 }
 await page.screenshot({ path: path.join(path.dirname(clip), 'sim-ui.png') });
-console.log(JSON.stringify({ result: r.offTarget === 0 && r.from === 0 && r.to === src.frame_count - 1 ? 'PASS' : 'FAIL', corrections: fixes, pageErrors: errors }));
+const pass = r.offTarget === 0 && r.from === 0 && r.to === src.frame_count - 1 && r.zoomDrift <= MAX_ZOOM_DRIFT;
+console.log(JSON.stringify({ result: pass ? 'PASS' : 'FAIL', corrections: fixes, pageErrors: errors }));
 await b.close(); server.close();
-process.exit(r.offTarget === 0 && r.from === 0 && r.to === src.frame_count - 1 && !errors.length ? 0 : 1);
+process.exit(pass && !errors.length ? 0 : 1);

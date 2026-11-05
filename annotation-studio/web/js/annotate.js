@@ -399,7 +399,10 @@ function paintMarkLive() {
 }
 function createSegment(s, e, athlete = null) {
   const id = uid();
-  const a = athlete ?? (selSeg()?.athlete_id ?? null);
+  let a = athlete ?? (selSeg()?.athlete_id ?? null);
+  const D = defaultBoxAthlete(C()), who = a ?? D;
+  const clash = who != null && C().segments.find(o => o.start_frame < e && s < o.end_frame && (o.athlete_id ?? D) === who);
+  if (clash) { a = null; setTimeout(() => toast(`האירוע חופף בזמן לאירוע של ${athName(who)}, אז זה גולש אחר. בחר מי הוא (או ＋ חדש) וסמן לו BOX משלו.`), 0); }
   edit(c => c.segments.push({
     id,
     start_frame: s,
@@ -533,6 +536,7 @@ function bindSegment(el, s) {
     e.stopPropagation();
     const mode = e.target.classList.contains('l') ? 'l' : e.target.classList.contains('r') ? 'r' : 'm';
     const row = el.parentElement, startF = frameAt(e, row, true), orig = { ...s }; let moved = false;
+    const edges = [...new Set([0, S.total, ...C().segments.filter(o => o.id !== s.id).flatMap(o => [o.start_frame, o.end_frame])])], snapF = Math.max(1, 8 / S.ppf);
     // Select WITHOUT re-rendering the timeline: a re-render would detach this element and drop the pointer capture,
     // which made dragging the edges (changing the event's length) silently do nothing.
     S.sel = s.id; el.setPointerCapture(e.pointerId); S.dragging = true;
@@ -541,9 +545,18 @@ function bindSegment(el, s) {
       const d = frameAt(ev, row, true) - startF; if (!d && !moved) return;
       if (!moved) { snapshot(); moved = true; }
       const len = orig.end_frame - orig.start_frame;
-      if (mode === 'm') { const ns = clamp(orig.start_frame + d, 0, S.total - len); s.start_frame = ns; s.end_frame = ns + len; }
-      else if (mode === 'l') s.start_frame = clamp(orig.start_frame + d, 0, orig.end_frame - 1);
-      else s.end_frame = clamp(orig.end_frame + d, orig.start_frame + 1, S.total);
+      // an edge near another event's start/end (or the video's) sticks to it exactly, so a wipeout starts on the frame
+      // the ride ends, not "about there"; hold Alt to drag freely
+      const snap = f => { if (ev.altKey) return [f, false]; let best = null; for (const e of edges) if (Math.abs(e - f) <= snapF && (best == null || Math.abs(e - f) < Math.abs(best - f))) best = e; return best == null ? [f, false] : [best, true]; };
+      let snapped = false;
+      if (mode === 'm') {
+        let ns = clamp(orig.start_frame + d, 0, S.total - len);
+        const [a1, s1] = snap(ns), [b1, s2] = snap(ns + len);
+        if (s1 && (!s2 || Math.abs(a1 - ns) <= Math.abs(b1 - ns - len))) { ns = a1; snapped = true; } else if (s2) { ns = b1 - len; snapped = true; }
+        ns = clamp(ns, 0, S.total - len); s.start_frame = ns; s.end_frame = ns + len;
+      } else if (mode === 'l') { const [f, k] = snap(clamp(orig.start_frame + d, 0, orig.end_frame - 1)); s.start_frame = clamp(f, 0, orig.end_frame - 1); snapped = k; }
+      else { const [f, k] = snap(clamp(orig.end_frame + d, orig.start_frame + 1, S.total)); s.end_frame = clamp(f, orig.start_frame + 1, S.total); snapped = k; }
+      el.classList.toggle('snapped', snapped); el.dataset.snapped = snapped ? '1' : '';
       el.style.left = `${xOf(s.start_frame)}px`; el.style.width = `${xOf(s.end_frame - s.start_frame)}px`;
       // show the frame at the edge being dragged, so the new start/end is chosen by looking at the video
       if (mode !== 'm') { const f = mode === 'l' ? s.start_frame : s.end_frame - 1; if (f !== S.frame) seekFrame(f); }
@@ -551,6 +564,7 @@ function bindSegment(el, s) {
     const up = () => {
       el.removeEventListener('pointermove', mv); el.removeEventListener('pointerup', up); el.removeEventListener('pointercancel', up);
       S.dragging = false;
+      el.classList.remove('snapped');
       if (moved) {
         C().keyframes = C().keyframes.filter(k => k.segment_id !== s.id || (k.frame >= s.start_frame && k.frame < s.end_frame));
         const removed = repairOutOfRange(C());
@@ -960,7 +974,7 @@ function trackIncomplete(t) {
   return false;
 }
 /** Compatibility entry point used by the event screen: the event's athlete, anchored at frame f0. */
-function autoTrack(s, f0) { return trackAthlete(boxAth(s) ?? null, f0); }
+function autoTrack(s, f0) { if (boxAth(s) == null && overlapping(s)) return; return trackAthlete(boxAth(s) ?? null, f0); }
 function paintStall(on) {
   const el = $('#hudstall'); if (!el) return;
   el.style.display = on ? '' : 'none';
@@ -1007,7 +1021,18 @@ function defaultBoxAthlete(c) { return S.src.owner_athlete_id ?? soleEventAthlet
  * The track an event's boxes belong to: its performer's; while no performer is chosen yet, the default athlete's
  * (the owner). One person on screen is one track, so drawing, dragging and the event's boxes never split it in two.
  */
-function boxAth(s, c = C()) { return s?.athlete_id ?? defaultBoxAthlete(c); }
+function boxAth(s, c = C()) { return s?.athlete_id ?? (s && overlapping(s, c) ? null : defaultBoxAthlete(c)); }
+/**
+ * Two events at the same time are two people (operator, 2026-11-05: the event that "jumps down" to a second lane is
+ * another athlete). Returns the event this one overlaps whose performer is the one this event would default to:
+ * an event with that performer set, or an earlier event that also has none yet. Null when it overlaps nobody's.
+ */
+function overlapping(s, c = C()) {
+  const D = defaultBoxAthlete(c), me = s.athlete_id ?? D; if (me == null) return null;
+  const i = c.segments.indexOf(s);
+  return c.segments.find((o, j) => o !== s && o.start_frame < s.end_frame && s.start_frame < o.end_frame &&
+    (o.athlete_id != null ? o.athlete_id === me : (s.athlete_id == null && D != null && j < i))) ?? null;
+}
 /**
  * Boxes drawn before an athlete was chosen live on a track with no athlete, so no event got them. When the video's
  * events are all about one athlete, that track is theirs: hand its anchors over (merging with the athlete's own track
@@ -1061,7 +1086,7 @@ function adoptLegacyBoxes() {
   for (const t of C().tracks ?? []) if (trackIncomplete(t) && t.points.some(p => p.origin === 'manual')) setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
   for (const s of C().segments) {
     const man = C().keyframes.filter(k => k.segment_id === s.id && k.origin === 'manual');
-    if (!man.length || trackOf(C(), boxAth(s) ?? null)) continue;
+    if (!man.length || trackOf(C(), boxAth(s) ?? null) || (boxAth(s) == null && overlapping(s))) continue;   // a second person waits for their name
     edit(c => { for (const k of man) setAnchor(c, boxAth(s, c) ?? null, k.frame, k.bbox); }, { quiet: true });
     setTimeout(() => S && trackAthlete(boxAth(s) ?? null, null), 300);
     return;
@@ -1128,7 +1153,8 @@ async function refreshStates() {
 function drawBox(e) {
   // A box can be drawn on ANY frame of the video. Inside the selected event it is also that event's box.
   const s = selSeg(), inSeg = !!s && S.frame >= s.start_frame && S.frame < s.end_frame;
-  const aid = s?.athlete_id ?? defaultBoxAthlete(C());
+  const aid = inSeg ? boxAth(s) : s?.athlete_id ?? defaultBoxAthlete(C());
+  if (inSeg && aid == null && overlapping(s)) { S.tool = 'select'; refresh(); return toast('האירוע הזה חופף לאירוע של גולש אחר. בחר קודם מי ביצע אותו (או ＋ חדש), ואז צייר לו BOX.', true); }
   const ov = $('#ov'), a = norm(e, ov); const svg = $('#ovsvg'); const W = ov.clientWidth, H = ov.clientHeight, g = svgEl('rect', { class: 'bx', x: a.x * W, y: a.y * H, width: 0, height: 0, stroke: '#fff' }); svg.append(g); ov.setPointerCapture(e.pointerId);
   let box = null;
   const mv = ev => { const b = norm(ev, ov); box = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), w: Math.abs(b.x - a.x), h: Math.abs(b.y - a.y) }; for (const [k, v] of [['x', box.x * W], ['y', box.y * H], ['width', box.w * W], ['height', box.h * H]]) g.setAttribute(k, v); };
@@ -1651,7 +1677,10 @@ function segForm(s) {
     h('div', { class: 'section', style: { background: 'var(--panel2)', border: '1px solid var(--line2)', borderRadius: 'var(--radius)', padding: '12px' } },
       h('strong', { style: { fontSize: '13px', display: 'block', marginBottom: '8px' } }, '1. מי ביצע ומה קרה?'),
       // One click for the common case: the video's owner performed the event (never applied automatically).
-      !s.athlete_id && S.src.owner_athlete_id ? h('button', { class: 'btn primary sm', 'data-testid': 'performer-owner', style: { marginBottom: '6px' }, onclick: () => { setSegmentAthlete(s.id, S.src.owner_athlete_id); refresh(); } }, `זה ${S.src.owner_athlete_label ?? 'בעל הסרטון'} (בעל הסרטון)`) : null,
+      (o => o ? h('div', { class: 'banner warn', 'data-testid': 'overlap-other', style: { marginBottom: '6px' } },
+        s.athlete_id ? `האירוע חופף בזמן לאירוע אחר של ${athName(s.athlete_id)}. אם בזמן הזה יש שני גולשים, בחר כאן את הגולש השני (או ＋ חדש): לכל גולש BOX משלו.`
+          : `האירוע חופף בזמן לאירוע של ${athName(o.athlete_id ?? defaultBoxAthlete(C()))}, אז זה גולש אחר. בחר מי הוא (או ＋ חדש), ואז צייר לו BOX משלו.`) : null)(s.athlete_id ? C().segments.find(o => o !== s && o.athlete_id === s.athlete_id && o.start_frame < s.end_frame && s.start_frame < o.end_frame) : overlapping(s)),
+      !s.athlete_id && S.src.owner_athlete_id && !overlapping(s) ? h('button', { class: 'btn primary sm', 'data-testid': 'performer-owner', style: { marginBottom: '6px' }, onclick: () => { setSegmentAthlete(s.id, S.src.owner_athlete_id); refresh(); } }, `זה ${S.src.owner_athlete_label ?? 'בעל הסרטון'} (בעל הסרטון)`) : null,
       field('מי ביצע את הפעולה?', h('div', { style: { display: 'flex', gap: '6px' } },
         h('select', { id: 'f-athlete', 'data-testid': 'athlete-select', onchange: e => { setSegmentAthlete(s.id, e.target.value || null); refresh(); } },
           h('option', { value: '' }, 'לא ידוע'),
