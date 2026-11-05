@@ -740,15 +740,30 @@ function setAnchor(c, athleteId, frame, bbox) {
 }
 /** Copy the track into the events of that athlete, so the event's BOX check works on it (estimates only). */
 function syncSegmentsFromTrack(c, t) {
+  const at = new Map(t.points.filter(p => p.flag !== 'wrong').map(p => [p.frame, p]));
+  const same = (u, v) => ['x', 'y', 'w', 'h'].every(k => Math.abs(u[k] - v[k]) < 1e-5);
   for (const s of c.segments) {
     if ((s.athlete_id ?? null) !== (t.athlete_id ?? null)) continue;
-    const checked = f => !!latestVerification(c, s.id, f);
-    const prev = new Map(c.keyframes.filter(k => k.segment_id === s.id && k.origin === 'suggested').map(k => [k.frame, k.id]));
-    c.keyframes = c.keyframes.filter(k => !(k.segment_id === s.id && k.origin === 'suggested' && !checked(k.frame)));
+    const inEvent = f => f >= s.start_frame && f < s.end_frame;
+    // The event's tracker boxes follow the track. Where the track changed (a correction re-tracked it), the box moves
+    // with it and a check made on the old geometry stops counting (recorded as invalidated, never silently kept), so
+    // an event can never keep old checked boxes interleaved with new ones. Boxes drawn by hand stay as they are.
+    const keep = [];
+    for (const k of c.keyframes) {
+      if (k.segment_id !== s.id || k.origin !== 'suggested') { keep.push(k); continue; }
+      const p = at.get(k.frame), last = latestVerification(c, s.id, k.frame), decided = last && last.status !== 'unreviewed';
+      if (!p || !inEvent(k.frame)) { if (decided) appendVerification(c, s, k.frame, 'unreviewed', { invalidation: 'keyframe_removed' }); continue; }
+      if (!same(p.bbox, k.bbox)) {
+        k.bbox = { ...p.bbox }; k.verification_status = 'unreviewed';
+        if (decided) appendVerification(c, s, k.frame, 'unreviewed', { invalidation: 'geometry_changed' });
+      }
+      keep.push(k);
+    }
+    c.keyframes = keep;
     const taken = new Set(c.keyframes.filter(k => k.segment_id === s.id).map(k => k.frame));
     for (const p of t.points) {
-      if (p.flag === 'wrong' || p.frame < s.start_frame || p.frame >= s.end_frame || taken.has(p.frame)) continue;
-      c.keyframes.push({ id: prev.get(p.frame) ?? uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
+      if (p.flag === 'wrong' || !inEvent(p.frame) || taken.has(p.frame)) continue;
+      c.keyframes.push({ id: uid(), segment_id: s.id, frame: p.frame, bbox: { ...p.bbox }, visibility: 'visible', origin: p.origin === 'manual' ? 'manual' : 'suggested', verification_status: 'unreviewed', verified_at: null, verified_by: null });
     }
   }
 }
@@ -1014,12 +1029,18 @@ function syncEventsOnOpen() {
 }
 /** Boxes drawn before video-level tracking existed: turn an event's hand-drawn boxes into anchors, once. */
 function adoptLegacyBoxes() {
-  // an approved video whose draft IS the approved version is never changed behind the operator's back
+  // A track written by the old two-grid merge (two interleaved estimates = a box jumping between two positions) is a
+  // known defect: it is re-tracked smoothly even when that version was already approved. The approved revision itself
+  // never changes; the video then reads "changed since approval" and the operator approves the clean track.
+  for (const t of C().tracks ?? []) if (mixedGrid(t) && !(S.autoTried ??= new Set()).has(`grid:${t.id}`)) {
+    S.autoTried.add(`grid:${t.id}`);
+    if (S.draft.approved_current) S.banner = { kind: 'warn', testid: 'track-repair', text: 'ה-BOX בסרטון הזה נשמר עם קפיצות (גרסה ישנה של המעקב). המעקב מחושב מחדש עכשיו בצורה חלקה. אחרי שזה מסתיים: בדוק ואשר שוב.' };
+    setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
+  }
+  // otherwise an approved video whose draft IS the approved version is never changed behind the operator's back
   // (no resume / re-sync / re-assign): any change would silently make it "changed since approval"
   if (S.draft.approved_current) return;
   claimOrphanTrack();
-  // tracks written by the old two-grid merge (box shaking between two drawn boxes) are re-tracked once, smoothly
-  for (const t of C().tracks ?? []) if (mixedGrid(t) && !(S.autoTried ??= new Set()).has(`grid:${t.id}`)) { S.autoTried.add(`grid:${t.id}`); setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300); }
   syncEventsOnOpen();
   // an existing track that does not cover the whole video yet (left unfinished) is completed in the background
   for (const t of C().tracks ?? []) if (trackIncomplete(t) && t.points.some(p => p.origin === 'manual')) setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
