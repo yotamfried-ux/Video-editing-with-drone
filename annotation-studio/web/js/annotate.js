@@ -832,41 +832,96 @@ async function runTrack(athleteId, around) {
   if (gaps.length) toast(`המעקב איבד את הגולש ב-${gaps.map(f => timecode(f, S.fps)).join(', ')}. גרור/צייר שם את ה-BOX על הגולש, והמעקב יתוקן לפני ואחרי.`, true);
   else if (!S.trackQueue?.length) toast('ה-BOX עוקב אחרי הגולש לאורך כל הסרטון. אם משהו לא במקום - גרור אותו, והמעקב יתוקן לפני ואחרי.');
 }
-/** Two sides of a stretch: cut back a side that ends far from the other anchor, then keep per frame the side nearer its own anchor. */
+/** Box of a tracked series at frame f, linearly interpolated between its two nearest samples (null outside the series). */
+function seriesAt(samples, f) {
+  let lo = null, hi = null;
+  for (const b of samples) { if (b.frame <= f && (!lo || b.frame > lo.frame)) lo = b; if (b.frame >= f && (!hi || b.frame < hi.frame)) hi = b; }
+  if (!lo || !hi) return null;
+  if (lo.frame === hi.frame) return { bbox: lo.bbox, score: lo.score ?? 1 };
+  const t = (f - lo.frame) / (hi.frame - lo.frame), L = (a, b) => a + (b - a) * t;
+  return { bbox: { x: L(lo.bbox.x, hi.bbox.x), y: L(lo.bbox.y, hi.bbox.y), w: L(lo.bbox.w, hi.bbox.w), h: L(lo.bbox.h, hi.bbox.h) }, score: Math.min(lo.score ?? 1, hi.score ?? 1) };
+}
+/**
+ * Two sides of a stretch between two drawn boxes A and B. The tracker runs A->B and B->A; each samples every few frames
+ * starting at ITS anchor, so the two series fall on different frames. Keeping both made the saved track alternate
+ * between two estimates every 2-4 frames (the box "shaking" around the athlete). Now:
+ *  1. each side is cut back where it ends far from the other side (it lost the athlete);
+ *  2. the two sides are blended onto ONE grid, weighted by distance from each anchor (near A -> A's side), so position
+ *     and size change smoothly from one drawn box to the other.
+ * A stretch with one anchor (to the start/end of the video) is a single series and is kept as is.
+ */
 function fuseUnit(results) {
   const cen = b => [b.x + b.w / 2, b.y + b.h / 2], dia = b => Math.hypot(b.w, b.h);
   const far = (p, q, k = 0.5) => { const [ax, ay] = cen(p), [bx2, by2] = cen(q); return Math.hypot(ax - bx2, ay - by2) > k * Math.max(dia(p), dia(q)); };
+  const step = Math.max(1, Math.round(S.fps / 10));
+  const withAnchor = r => [{ frame: r.from, bbox: r.bbox, score: 1 }, ...r.boxes];
   for (const r of results) {
     if (!r.pair) continue;
     const other = results.find(o => o.pair && o !== r); if (!other) continue;
-    const otherAt = new Map(other.boxes.map(b => [b.frame, b.bbox]));
+    const otherS = withAnchor(other);
     const ordered = [...r.boxes].sort((a, b) => Math.abs(b.frame - r.from) - Math.abs(a.frame - r.from));
     const drop = new Set();
     for (const b of ordered) {
-      const o = otherAt.get(b.frame);
-      if (o) { if (far(b.bbox, o)) { drop.add(b.frame); continue; } break; }
-      const steps = Math.abs(other.from - b.frame) / Math.max(1, Math.round(S.fps / 10));
+      const o = seriesAt(otherS, b.frame);
+      if (o) { if (far(b.bbox, o.bbox)) { drop.add(b.frame); continue; } break; }
+      const steps = Math.abs(other.from - b.frame) / step;
       if (far(b.bbox, other.bbox, 0.5 + 0.35 * steps)) { drop.add(b.frame); continue; }
       break;
     }
     r.boxes = r.boxes.filter(b => !drop.has(b.frame));
   }
   const best = new Map(), lost = [];
+  const fwd = results.find(r => r.pair && r.to > r.from), bwd = results.find(r => r.pair && r.to < r.from);
+  if (fwd && bwd) {
+    const A = fwd.from, B = bwd.from, fS = withAnchor(fwd), bS = withAnchor(bwd);
+    for (const r of [fwd, bwd]) if (r.lost != null) lost.push(r.lost);
+    const grid = []; for (let f = A + step; f < B; f += step) grid.push(f);
+    if (B - A > 1 && grid.at(-1) !== B - 1) grid.push(B - 1);
+    for (const f of grid) {
+      const a = seriesAt(fS, f), b = seriesAt(bS, f);
+      if (!a && !b) continue;
+      const w = (B - f) / (B - A);                                   // weight of A's side: 1 at A, 0 at B
+      const bbox = a && b ? { x: a.bbox.x * w + b.bbox.x * (1 - w), y: a.bbox.y * w + b.bbox.y * (1 - w), w: a.bbox.w * w + b.bbox.w * (1 - w), h: a.bbox.h * w + b.bbox.h * (1 - w) } : (a ?? b).bbox;
+      best.set(f, { frame: f, bbox, score: Math.min(a?.score ?? 1, b?.score ?? 1), eff: 1 });
+    }
+    return { best, lost };
+  }
   for (const r of results) {
-    if (!r.pair && r.lost == null && r.boxes.length && !r.boxes.some(b => b.frame === r.to)) { const e = r.boxes.reduce((m, b) => Math.abs(b.frame - r.to) < Math.abs(m.frame - r.to) ? b : m); if (Math.abs(e.frame - r.to) <= Math.max(3, Math.round(S.fps / 10))) r.boxes.push({ ...e, frame: r.to }); }
+    if (!r.pair && r.lost == null && r.boxes.length && !r.boxes.some(b => b.frame === r.to)) { const e = r.boxes.reduce((m, b) => Math.abs(b.frame - r.to) < Math.abs(m.frame - r.to) ? b : m); if (Math.abs(e.frame - r.to) <= Math.max(3, step)) r.boxes.push({ ...e, frame: r.to }); }
     if (r.lost != null) lost.push(r.lost);
     const span = Math.max(1, Math.abs(r.to - r.from));
-    for (const b of r.boxes) { const eff = 0.3 * b.score + (1 - Math.abs(b.frame - r.from) / span); /* errors grow with distance from the anchor */ const o = best.get(b.frame); if (!o || eff > o.eff) best.set(b.frame, { ...b, eff }); }
+    for (const b of r.boxes) { const eff = 0.3 * b.score + (1 - Math.abs(b.frame - r.from) / span); const o = best.get(b.frame); if (!o || eff > o.eff) best.set(b.frame, { ...b, eff }); }
   }
   return { best, lost };
+}
+/**
+ * Per-sample tracker noise (a few px back and forth) reads as a shaking box. Smooth the tracked samples of one stretch
+ * (median of 3, then mean of 3, per coordinate) while the boxes the operator drew stay exactly where they are.
+ */
+function smoothSeries(best, fixed) {
+  const fr = [...best.keys()].sort((a, b) => a - b);
+  if (fr.length < 3) return best;
+  const seq = fr.map(f => ({ f, b: best.get(f).bbox }));
+  // the drawn boxes at the ends take part (so the path meets them) but are not themselves changed
+  const ends = [...fixed].filter(([f]) => f < fr[0] || f > fr.at(-1)).sort((a, b) => a[0] - b[0]);
+  const lead = ends.filter(([f]) => f < fr[0]).slice(-1).map(([f, b]) => ({ f, b, fixed: true }));
+  const tail = ends.filter(([f]) => f > fr.at(-1)).slice(0, 1).map(([f, b]) => ({ f, b, fixed: true }));
+  const all = [...lead, ...seq, ...tail];
+  const K = ['x', 'y', 'w', 'h'];
+  const med = all.map((p, i) => (i === 0 || i === all.length - 1 || p.fixed) ? p.b : Object.fromEntries(K.map(k => [k, [all[i - 1].b[k], p.b[k], all[i + 1].b[k]].sort((a, b) => a - b)[1]])));
+  const avg = all.map((p, i) => (i === 0 || i === all.length - 1 || p.fixed) ? p.b : Object.fromEntries(K.map(k => [k, (med[i - 1][k] + med[i][k] + med[i + 1][k]) / 3])));
+  const out = new Map();
+  all.forEach((p, i) => { if (!p.fixed) out.set(p.f, { ...best.get(p.f), bbox: avg[i] }); });
+  return out;
 }
 function commitUnit(athleteId, results, best) {
   const lo = Math.min(...results.map(j => Math.min(j.from, j.to))), hi = Math.max(...results.map(j => Math.max(j.from, j.to)));
   edit(c => {
     const t = trackOf(c, athleteId); if (!t) return;
-    const anchorF = new Set(t.points.filter(p => p.origin === 'manual').map(p => p.frame));
+    const anchors = new Map(t.points.filter(p => p.origin === 'manual').map(p => [p.frame, p.bbox]));
     t.points = t.points.filter(p => p.origin === 'manual' || p.frame < lo || p.frame > hi);
-    for (const [f, b] of best) if (!anchorF.has(f)) t.points.push({ frame: f, bbox: R5(b.bbox), origin: 'suggested' });
+    for (const f of anchors.keys()) best.delete(f);
+    for (const [f, b] of smoothSeries(best, anchors)) t.points.push({ frame: f, bbox: R5(b.bbox), origin: 'suggested' });
     t.points.sort((x, y) => x.frame - y.frame);
     syncSegmentsFromTrack(c, t);
   }, { quiet: true });
