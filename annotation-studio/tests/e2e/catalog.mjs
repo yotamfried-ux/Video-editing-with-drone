@@ -582,6 +582,20 @@ await scenario('approving accepts the boxes not marked wrong (exception review);
   // the page took the server's draft (with the approval's decisions): no stale save afterwards, and a refresh keeps the status
   await page.reload(); await page.waitForSelector('[data-testid=workbench]'); await page.waitForTimeout(1500);
   { const it = await queueItem(); assert.equal(it.approved_current, true, 'still approved after a browser refresh (nothing rewrote the draft)'); }
+  // after approval, stepping through the event shows ONE steady checked box on every frame (no green box on the
+  // checked frames flickering with a dashed one in between, no second track box)
+  { const ev = draft(s.id).segments[0];
+    const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+    while (await fr() < ev.start_frame + 2) await page.keyboard.press('ArrowRight');
+    for (let i = 0; i < 14; i++) {
+      const f = await fr();
+      const st = await page.evaluate(() => ({ n: document.querySelectorAll('[data-testid=bbox]').length, t: document.querySelectorAll('[data-testid=track-box]').length,
+        v: [...document.querySelectorAll('[data-testid=bbox]')].map(e => e.getAttribute('data-verified')), dash: [...document.querySelectorAll('[data-testid=bbox]')].map(e => getComputedStyle(e).strokeDasharray) }));
+      assert.equal(st.n + st.t, 1, `frame ${f}: one box on screen (${st.n} event + ${st.t} track)`);
+      assert.deepEqual(st.v, ['true'], `frame ${f}: the box is shown as checked`);
+      assert.ok(st.dash.every(d => d === 'none' || d === ''), `frame ${f}: solid, not dashed (${st.dash})`);
+      await page.keyboard.press('ArrowRight');
+    } }
   await page.goto(`${base}/#/catalog`); await page.waitForSelector('[data-testid=qc-item]');
   await page.click('button.chip:has-text("הושלמו")');
   assert.match(await page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' }).textContent(), /הושלם · מאושר v\d/);
@@ -593,6 +607,28 @@ await scenario('approving accepts the boxes not marked wrong (exception review);
   await page.waitForSelector('[data-testid=qc-item]');
   await page.click('button.chip:has-text("לטיפול")');
   assert.match(await page.locator('[data-testid=qc-item]', { hasText: 'DJI_0414.mp4' }).textContent(), /שונה מאז אישור v\d · נדרש אישור מחדש/);
+});
+
+await scenario('approval panel: open items are in Hebrew, say how to fix them, and a click jumps to the event', async () => {
+  const s = src('DJI_0414.mp4');
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  for (const g of c.segments) Object.assign(g, { athlete_id: null, primary_status: null, usability: 'usable', decision: 'include' });
+  c.box_verifications = []; for (const k of c.keyframes) k.verification_status = 'unreviewed';
+  const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await trackingIdle(); await saved();
+  await page.keyboard.press('Escape');
+  const item = page.locator('[data-testid=unresolved-item][data-key=usable_without_primary]');
+  await item.waitFor();
+  const txt = await item.textContent();
+  assert.match(txt, /אירועים שמישים בלי גולש מבצע/); assert.match(txt, /מי ביצע את הפעולה/);
+  assert.ok(!/usable_without_primary/.test(await page.textContent('[data-testid=approval-panel]')), 'no raw keys on screen');
+  await item.click();
+  await page.waitForSelector('[data-testid=segform]');
+  const sel = await page.evaluate(() => document.querySelector('[data-testid=segment].sel')?.getAttribute('data-id') ?? document.querySelector('[data-testid=segment].sel') !== null);
+  assert.ok(sel, 'the event is selected');
 });
 
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
