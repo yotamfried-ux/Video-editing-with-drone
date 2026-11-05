@@ -631,6 +631,27 @@ await scenario('approval panel: open items are in Hebrew, say how to fix them, a
   assert.ok(sel, 'the event is selected');
 });
 
+await scenario('boxes drawn before the owner was set join the owner\'s track (no events): one box on screen, not two', async () => {
+  const s = src('DJI_0414.mp4'), owner = s.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const cur = await (await fetch(`${base}/api/sources/${s.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  const B = f => ({ x: (2 * f - 4) / 1280, y: 326 / 720, w: 48 / 1280, h: 48 / 720 });
+  // like live 0162: the owner's track, and a track with no surfer holding a box drawn before the owner was set
+  c.segments = []; c.keyframes = []; c.box_verifications = []; c.reviewed_ranges = [];
+  c.tracks = [{ id: 'own', athlete_id: owner, points: [{ frame: 12, bbox: B(12), origin: 'manual' }, { frame: 100, bbox: B(100), origin: 'manual' }] },
+              { id: 'orph', athlete_id: null, points: [{ frame: 12, bbox: B(12), origin: 'manual' }, { frame: 180, bbox: B(180), origin: 'manual' }] }];
+  const put = await fetch(`${base}/api/sources/${s.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s.id}`); await page.waitForSelector('[data-testid=workbench]');
+  for (let i = 0; i < 60 && draft(s.id).tracks.length > 1; i++) await page.waitForTimeout(250);
+  await trackingIdle(); await saved();
+  const d = draft(s.id);
+  assert.equal(d.tracks.length, 1, 'a single track');
+  assert.equal(d.tracks[0].athlete_id, owner, 'it is the owner\'s');
+  assert.deepEqual(d.tracks[0].points.filter(p => p.origin === 'manual').map(p => p.frame).sort((a, b) => a - b), [12, 100, 180], 'every drawn box kept');
+  assert.equal(await page.locator('[data-testid=track-box]').count(), 1, 'one box on screen');
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;

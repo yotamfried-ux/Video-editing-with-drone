@@ -67,6 +67,9 @@ export async function renderAnnotate(root, id) {
   }
   refresh();
   refreshStates();
+  // repairs on open (owner/orphan boxes, unfinished or two-grid tracks, event boxes in step with the track) run for
+  // every video, also one with no events yet (they used to start only from the event panel)
+  if (S.setId === 'primary' && !(S.autoTried ??= new Set()).has('legacy')) { S.autoTried.add('legacy'); setTimeout(() => S && !S.tracking && adoptLegacyBoxes(), 0); }
   if (focus?.source === id && selSeg()) setTimeout(() => S && seekFrame(selSeg().start_frame), 0);
   if (S.setId === 'primary') Promise.all([api(`/api/physical-actions?source=${id}`), api('/api/physical-actions')]).then(([m, all]) => { if (!S) return; S.actions = m.items; S.allActions = all.items; refresh(); }).catch(() => {});
   cleanup.push(() => { clearTimeout(S?.saveTimer); clearTimeout(S?.retryTimer); });
@@ -1006,7 +1009,10 @@ function defaultBoxAthlete(c) { return S.src.owner_athlete_id ?? soleEventAthlet
  * if there is one) and re-track. Returns true when something was claimed.
  */
 function claimOrphanTrack() {
-  const x = soleEventAthlete(C()), orphan = (C().tracks ?? []).find(t => (t.athlete_id ?? null) === null);
+  // whose boxes: the one athlete of the events; with no athlete in any event, the video's owner
+  const evAth = C().segments.some(s => s.athlete_id);
+  const x = soleEventAthlete(C()) ?? (evAth ? null : S.src.owner_athlete_id ?? null);
+  const orphan = (C().tracks ?? []).find(t => (t.athlete_id ?? null) === null);
   if (!x || !orphan || !orphan.points.length) return false;
   const merge = !!trackOf(C(), x);
   edit(c => {
@@ -1019,7 +1025,7 @@ function claimOrphanTrack() {
     }
     syncSegmentsFromTrack(c, trackOf(c, x));
   }, { quiet: true });
-  toast('BOX שסומן לפני שנבחר גולש שויך לגולש של האירועים.');
+  toast(`BOX שסומן לפני שנבחר גולש שויך ל-${athName(x)}.`);
   if (merge) setTimeout(() => S && trackAthlete(x, null), 300);
   return true;
 }
@@ -1277,6 +1283,7 @@ function renderAssociateTab() {
               S.src.owner_athlete_label = res.athlete?.label || null;
               S.src.owner_version = res.owner_version;
               toast(res.owner_athlete_id ? `הסרטון שויך ל-${res.athlete?.label}` : 'השיוך הוסר');
+              if (res.owner_athlete_id && !S.draft.approved_current) claimOrphanTrack();   // boxes drawn before the owner was set now belong to them
               paintStatus();
               refresh();
             } catch (err) {
@@ -1318,6 +1325,7 @@ function renderAssociateTab() {
               S.src.owner_status = res.owner_status;
               S.src.owner_athlete_label = created.label;
               S.src.owner_version = res.owner_version;
+              if (res.owner_athlete_id && !S.draft.approved_current) claimOrphanTrack();
               toast(`הגולש "${created.label}" נוצר ושויך לסרטון`);
               paintStatus();
               refresh();
