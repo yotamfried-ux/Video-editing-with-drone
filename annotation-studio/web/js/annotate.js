@@ -1880,7 +1880,10 @@ function approvalForm() {
   const pv = S.states?.approval_preview;
   const st = S.states, open = st?.workflow_computed_reasons?.open ?? {}, blocking = st?.workflow_computed_reasons?.blocking ?? {};
   const openItems = Object.entries(open).filter(([, n]) => n), blockItems = Object.entries(blocking).filter(([, n]) => n);
-  const btn = h('button', { class: 'btn primary', 'data-testid': 'approve', disabled: blockItems.length > 0, onclick: async () => {
+  // never approve boxes that are still being computed: wait for the tracking to finish (it saves as it goes)
+  const tracking = !!(S.tracking || S.trackQueue?.length);
+  const btn = h('button', { class: 'btn primary', 'data-testid': 'approve', disabled: blockItems.length > 0 || tracking, onclick: async () => {
+    if (S.tracking || S.trackQueue?.length) return toast('המעקב עדיין רץ. האישור יתאפשר כשהוא יסתיים.', true);
     btn.disabled = true;
     try {
       clearTimeout(S.saveTimer); while (S.inflight) await new Promise(r => setTimeout(r, 50));
@@ -1895,6 +1898,7 @@ function approvalForm() {
   } }, 'אשר גרסת Ground Truth');
   return h('div', { 'data-testid': 'approval-panel' },
     h('div', { class: 'meta' }, 'אישור יוצר גרסה בלתי ניתנת לשינוי של הטיוטה. "נשמר" אינו "מאושר".'),
+    tracking ? h('div', { class: 'banner warn', 'data-testid': 'approval-wait-tracking' }, 'המעקב אחרי הגולש עדיין רץ. אפשר לאשר כשהוא יסתיים.') : null,
     pv ? h('div', { class: 'meta', 'data-testid': 'approval-exception-boxes', 'data-to-verify': pv.to_verify, 'data-marked': pv.marked, 'data-not-checked': pv.not_checked },
       h('b', {}, 'מה האישור יעשה עם ה-BOX: '),
       `${pv.to_verify} יאומתו (לא סימנת אותן כשגויות, בחלק שצפית בו)`,
