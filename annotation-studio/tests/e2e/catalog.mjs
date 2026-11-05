@@ -676,6 +676,34 @@ await scenario('"missing N" is clickable: it lists what is missing and goes to i
   assert.ok(await page.locator('[data-testid=segment].sel').count() === 1, 'that event is selected');
 });
 
+await scenario('an event with no performer yet uses the owner\'s track: dragging its box does not create a second box', async () => {
+  const s0 = src('DJI_0414.mp4'), owner = s0.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const B = f => ({ x: (2 * f - 4) / 1280, y: 326 / 720, w: 48 / 1280, h: 48 / 720 });
+  const cur = await (await fetch(`${base}/api/sources/${s0.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  c.segments = [{ id: 'np-ev', start_frame: 30, end_frame: 200, event_type: 'wave_ride', athlete_id: null, primary_status: null, usability: 'usable', decision: 'include', reason_codes: [], key_moments: {}, notes: '', framing_mode: null, target: null }];
+  c.keyframes = []; c.box_verifications = []; delete c.catalog_triage;
+  c.tracks = [{ id: 'own', athlete_id: owner, points: [{ frame: 40, bbox: B(40), origin: 'manual' }] }];
+  const put = await fetch(`${base}/api/sources/${s0.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s0.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await trackingIdle(); await saved();
+  assert.ok(draft(s0.id).keyframes.filter(k => k.segment_id === 'np-ev').length > 3, 'the event took its boxes from the owner\'s track');
+  // go into the event and drag its box a little (a correction), as the operator did on live 0104
+  const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+  while (await fr() < 120) await page.keyboard.press(await fr() + 10 <= 120 ? 'Shift+ArrowRight' : 'ArrowRight');
+  await page.locator('[data-testid=segment]').first().click(); await page.waitForSelector('[data-testid=segform]');
+  const box = page.locator('[data-testid=bbox]').first(); await box.waitFor();
+  const bb = await box.boundingBox();
+  await page.mouse.move(bb.x + bb.width / 2, bb.y + bb.height / 2); await page.mouse.down();
+  await page.mouse.move(bb.x + bb.width / 2 + 6, bb.y + bb.height / 2 + 3, { steps: 3 }); await page.mouse.up();
+  await trackingIdle(); await saved();
+  const d = draft(s0.id);
+  assert.deepEqual(d.tracks.map(t => t.athlete_id), [owner], 'still one track, the owner\'s');
+  assert.ok(d.tracks[0].points.some(p => p.origin === 'manual' && p.frame === 120), 'the drag became an anchor of the owner\'s track');
+  assert.equal(await page.locator('[data-testid=bbox], [data-testid=track-box]').count(), 1, 'one box on screen');
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;
