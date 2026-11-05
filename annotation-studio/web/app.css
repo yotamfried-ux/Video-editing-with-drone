@@ -183,6 +183,9 @@ dialog h2{margin:0 0 10px;font-size:16px}
 @media (max-width:1300px){.qc-split{grid-template-columns:1fr}.qc-video{position:static;max-height:40vh}}
 .qc-step{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:10px 14px}
 .qc-step.done{border-color:#2f5d3a}
+.qc-step.flash{outline:3px solid var(--unc,#f5a524);outline-offset:2px;transition:outline-color .3s}
+.qc-missing{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 10px}
+button.pill{border:0;font:inherit}
 .qc-step h3{margin:0 0 8px;font-size:14px;display:flex;gap:8px;align-items:center}
 .qc-num{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;background:var(--panel2);border:1px solid var(--line2);font-size:12px}
 .qc-step.done .qc-num{background:#1f4a2b;border-color:#2f5d3a}
