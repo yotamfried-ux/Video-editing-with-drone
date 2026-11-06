@@ -360,6 +360,18 @@ await scenario('13. Backup & restore drill: independent copy, integrity verified
   assert.equal(await page.locator('[data-testid=backup-banner]').count(), 0, 'banner disappears once a verified backup exists');
 });
 
+await scenario('14. Datasets screen: freezing defaults to the leak-free split (by athlete), with a confirmation', async () => {
+  await page.goto(`${base}/#/datasets`); await page.waitForSelector('[data-testid=freeze]');
+  assert.equal(await page.inputValue('[data-testid=split-method]'), 'athlete', 'leak-free split is the default');
+  await page.fill('#dsname', 'ui-leak-free'); await page.check('[data-testid=select-all]');
+  page.once('dialog', d => d.accept());
+  await page.click('[data-testid=freeze]');
+  await until(() => [...document.querySelectorAll('[data-testid=ds-table] td')].some(td => td.textContent === 'ui-leak-free'));
+  const row = ctx.db.prepare("select policy, manifest from dataset_versions where name='ui-leak-free'").get();
+  assert.equal(JSON.parse(row.policy).group_by, 'athlete');
+  assert.ok(JSON.parse(row.manifest).members.length >= 1);
+});
+
 await scenario('no console/page errors across the workflow', async () => {
   const real = consoleErrors.filter(e => !/aborted|net::ERR_FAILED|Failed to load resource/i.test(e));
   assert.deepEqual(real, []);

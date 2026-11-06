@@ -197,11 +197,28 @@ export async function renderDatasets(root) {
   setTopbar(h('strong', {}, 'ניהול דאטהסטים'), pill('גרסאות קפואות'));
   const [ds, src] = await Promise.all([api('/api/datasets'), api('/api/sources?limit=200&status=approved')]);
   const checks = new Map();
-  root.replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'דאטהסטים'), h('div', { class: 'sub' }, 'קפיאה נועלת (sha256 + גרסה מאושרת) לכל סרטון. פיצול לפי סשן הקלטה; קבוצת המבחן קבועה ולא ניתנת להזזה.'),
+  // Leak-free by default (operator, 2026-11-06): every athlete in one split, whole recording days held out as the test set,
+  // so the pipeline is never judged on people or footage it trained on.
+  const sessions = [...new Set(src.items.map(s => s.session_key).filter(Boolean))].sort();
+  const testDays = new Map(sessions.map((d, i) => [d, h('input', { type: 'checkbox', 'data-testid': `test-day-${d}`, checked: i === sessions.length - 1 && sessions.length > 1 })]));
+  const method = h('select', { id: 'ds-method', 'data-testid': 'split-method' },
+    h('option', { value: 'athlete', selected: true }, 'לפי גולש, בלי דליפה (מומלץ)'), h('option', { value: 'session' }, 'לפי יום צילום (ישן)'));
+  const allBox = h('input', { type: 'checkbox', 'data-testid': 'select-all', onchange: e => { for (const c of checks.values()) c.checked = e.target.checked; } });
+  const freeze = async () => {
+    const ids = [...checks].filter(([, c]) => c.checked).map(([id]) => id);
+    const policy = { seed: 'sportreel-v1', ratios: { train: 0.7, validation: 0.15, test: 0.15 } };
+    if (method.value === 'athlete') { policy.group_by = 'athlete'; policy.test_sessions = [...testDays].filter(([, c]) => c.checked).map(([d]) => d); }
+    const days = policy.test_sessions?.length ? ` ימי הבדיקה (${policy.test_sessions.join(', ')}) יישמרו לבדיקה בלבד, לתמיד.` : '';
+    if (!confirm(`לקפוא ${ids.length} סרטונים?${days}`)) return;
+    try { await api('/api/datasets', { method: 'POST', body: { name: root.querySelector('#dsname').value, source_ids: ids, policy } }); toast('הדאטהסט נקפא'); renderDatasets(root); } catch (e) { toast(e.message, true); }
+  };
+  root.replaceChildren(h('div', { class: 'page' }, h('h1', {}, 'דאטהסטים'), h('div', { class: 'sub' }, 'קפיאה נועלת (sha256 + גרסה מאושרת) לכל סרטון. חלוקה לפי גולש: כל גולש כולו באימון, בוולידציה או בבדיקה, ויום צילום שלם נשמר לבדיקה. קבוצת המבחן קבועה ולא ניתנת להזזה.'),
     h('h2', { style: { fontSize: '15px' } }, 'קפיאת דאטהסט חדש'),
     src.items.length ? h('div', {}, h('div', { class: 'toolbar' }, h('input', { type: 'text', id: 'dsname', placeholder: 'שם הדאטהסט', style: { maxWidth: '240px' }, 'aria-label': 'שם דאטהסט' }),
-      h('button', { class: 'btn primary', 'data-testid': 'freeze', onclick: async () => { const ids = [...checks].filter(([, c]) => c.checked).map(([id]) => id); try { await api('/api/datasets', { method: 'POST', body: { name: root.querySelector('#dsname').value, source_ids: ids } }); toast('הדאטהסט נקפא'); renderDatasets(root); } catch (e) { toast(e.message, true); } } }, 'קפא דאטהסט')),
-      h('ul', { class: 'list' }, src.items.map(s => { const c = h('input', { type: 'checkbox', 'aria-label': s.display_name }); checks.set(s.id, c); return h('li', {}, c, ltr(s.display_name), pill(`v${s.revision_seq}`, 'ok')); }))) : h('div', { class: 'empty' }, 'אין סרטונים עם גרסה מאושרת לקפיאה'),
+      method, sessions.length ? h('span', { class: 'meta' }, 'ימי בדיקה: ', ...sessions.flatMap(d => [h('label', {}, testDays.get(d), ' ', ltr(d)), ' '])) : null,
+      h('button', { class: 'btn primary', 'data-testid': 'freeze', onclick: freeze }, 'קפא דאטהסט')),
+      h('label', { class: 'meta' }, allBox, ' בחר הכול'),
+      h('ul', { class: 'list' }, src.items.map(s => { const c = h('input', { type: 'checkbox', 'aria-label': s.display_name }); checks.set(s.id, c); return h('li', {}, c, ltr(s.display_name), pill(`v${s.revision_seq}`, 'ok'), s.session_key ? pill(s.session_key) : null, s.owner_athlete_label ? pill(s.owner_athlete_label) : null); }))) : h('div', { class: 'empty' }, 'אין סרטונים עם גרסה מאושרת לקפיאה'),
     h('h2', { style: { fontSize: '15px', marginTop: '24px' } }, 'גרסאות קיימות'),
     ds.items.length ? h('table', { class: 't', 'data-testid': 'ds-table' }, h('thead', {}, h('tr', {}, ['שם', 'נוצר', 'train', 'validation', 'test', 'digest', 'ייצוא'].map(x => h('th', {}, x)))), h('tbody', {}, ds.items.map(d => h('tr', {}, h('td', {}, d.name), h('td', {}, fmtDate(d.created_at)), h('td', {}, d.counts.train), h('td', {}, d.counts.validation), h('td', {}, d.counts.test), h('td', {}, ltr(d.digest.slice(0, 12))), h('td', {}, h('a', { class: 'btn sm', href: `/api/datasets/${d.id}/export.jsonl`, download: `${d.name}.jsonl` }, 'JSONL'))))))
       : h('div', { class: 'empty' }, 'אין דאטהסטים קפואים')));

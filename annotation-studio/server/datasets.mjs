@@ -34,11 +34,35 @@ export function freezeDataset(db, { name, sourceIds, policy = DEFAULT_POLICY }) 
       const group = s.session_key ?? s.id;
       // Taxonomy versions in force when the revision was approved are pinned in the manifest (only when a sport was involved).
       const tax = rev.taxonomy_versions ? JSON.parse(rev.taxonomy_versions) : {};
-      members.push({ source_id: id, sha256: s.sha256, revision_id: rev.id, revision_digest: rev.digest, group,
+      // who is in this video (its owner and every event's performer): the athletes it would teach the pipeline about
+      const athletes = [...new Set([s.owner_athlete_id, ...(JSON.parse(rev.content).segments ?? []).map(g => g.athlete_id)].filter(Boolean))].sort();
+      members.push({ source_id: id, sha256: s.sha256, revision_id: rev.id, revision_digest: rev.digest, group, session: s.session_key ?? null, athletes,
         ...(Object.keys(tax).length ? { taxonomy_versions: tax } : {}),
         // whose video this is: SOURCE OF TRUTH for the pipeline (assigned by the operator), pinned as it was at freeze
         ...(s.owner_athlete_id ? { athlete_of_record: { athlete_id: s.owner_athlete_id, status: s.owner_status ?? null, assigned_by: s.owner_assigned_by ?? null, owner_version: s.owner_version ?? null } } : {}),
         split: heldOut.has(id) ? 'test' : splitFor(group, policy) });
+    }
+    // Leak-free split by ATHLETE (policy.group_by = 'athlete'): every video of an athlete - and of anyone sharing a video
+    // with them - is one group, so no athlete is seen in training and then "tested" again (the pipeline must be judged on
+    // people and conditions it never saw, not on what it memorised). policy.test_sessions: recording days held out whole
+    // as the test set (another day = other light, sea and people). The rest is assigned in deterministic hash order by
+    // cumulative share of videos. The permanent held-out test set still wins.
+    if (policy.group_by === 'athlete') {
+      const parent = new Map(), find = a => { while (parent.get(a) !== a) { parent.set(a, parent.get(parent.get(a))); a = parent.get(a); } return a; };
+      const add = a => { if (!parent.has(a)) parent.set(a, a); };
+      for (const m of members) { const ks = m.athletes.length ? m.athletes.map(a => `a:${a}`) : [`v:${m.source_id}`]; ks.forEach(add); for (const k of ks.slice(1)) parent.set(find(k), find(ks[0])); }
+      const comp = new Map();
+      for (const m of members) { const root = find(m.athletes.length ? `a:${m.athletes[0]}` : `v:${m.source_id}`); (comp.get(root) ?? comp.set(root, []).get(root)).push(m); }
+      const testSessions = new Set(policy.test_sessions ?? []);
+      const groups = [...comp.values()].map(ms => ({ ms, key: ms.flatMap(m => m.athletes.length ? m.athletes : [m.source_id]).sort()[0] }));
+      for (const g of groups) for (const m of g.ms) m.group = `athlete:${g.key}`;
+      const forced = groups.filter(g => g.ms.some(m => testSessions.has(m.session) || heldOut.has(m.source_id)));
+      const rest = groups.filter(g => !forced.includes(g)).sort((a, b) => cmpHash(`${policy.seed}|${a.key}`, `${policy.seed}|${b.key}`));
+      for (const g of forced) for (const m of g.ms) m.split = 'test';
+      const r = policy.ratios, pool = testSessions.size ? { train: r.train / (r.train + r.validation), validation: 1 } : { train: r.train, validation: r.train + r.validation };
+      const N = rest.reduce((n, g) => n + g.ms.length, 0); let cum = 0;
+      for (const g of rest) { const u = (cum + g.ms.length / 2) / Math.max(1, N); cum += g.ms.length;
+        const sp = u < pool.train ? 'train' : u < pool.validation ? 'validation' : 'test'; for (const m of g.ms) m.split = sp; }
     }
     // Optional stratification by sport (spec §18): within each sport, groups are ordered by their deterministic hash and
     // assigned by cumulative ratio, so every sport gets its share of train/validation/test. The permanent held-out test
@@ -61,7 +85,7 @@ export function freezeDataset(db, { name, sourceIds, policy = DEFAULT_POLICY }) 
     // Addendum §11: no freeze while an independent comparison has blocking disagreements without an accepted adjudication.
     const open = unadjudicatedDisagreements(db, members.map(m => m.source_id));
     if (open.length) throw Object.assign(new ApiError('BLOCKING_DISAGREEMENT', `${open.length} מקורות עם אי-הסכמות חוסמות שלא הוכרעו`), { unresolved: open });
-    const manifest = { name, policy, members: members.map(({ group, sport, ...m }) => m) };
+    const manifest = { name, policy, members: members.map(({ group, sport, session, athletes, ...m }) => policy.group_by === 'athlete' ? { ...m, group } : m) };
     if (policy.stratify_by_sport) manifest.sport_strata = Object.fromEntries([...new Set(members.map(m => m.sport))].sort().map(sp => [sp, ['train', 'validation', 'test'].reduce((o, k) => ({ ...o, [k]: members.filter(m => m.sport === sp && m.split === k).length }), {})]));
     // Pin the exact identity-lineage relations and physical-action lineage used by this version (only when any exist,
     // so manifests of datasets without lineage are byte-identical to before).
