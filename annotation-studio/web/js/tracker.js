@@ -143,7 +143,9 @@ function colourModel(d, W, H, bx, by, bw, bh, wt, tw, th) {
     const k = (y * W + x) * 4; bg[binOf(d[k], d[k + 1], d[k + 2])]++; bs++;
   }
   const L = new Float32Array(BINS ** 3);
-  for (let i = 0; i < L.length; i++) { const f = fg[i] / Math.max(fs, 1), b = bg[i] / Math.max(bs, 1); L[i] = f > 0 ? clamp(f / (f + 3 * b + 1e-3), 0, 1) : 0; }   // colours also found around the box (water, foam) score low
+  let sep = 0;
+  for (let i = 0; i < L.length; i++) { const f = fg[i] / Math.max(fs, 1), b = bg[i] / Math.max(bs, 1); L[i] = f > 0 ? clamp(f / (f + 3 * b + 1e-3), 0, 1) : 0; sep += f * L[i]; }   // colours also found around the box (water, foam) score low
+  L.sep = sep;   // how clearly the boxed colours stand apart from their surroundings (spray or foam inside the box: lower)
   return L;
 }
 /** Mean-shift on the colour likelihood: the centre of "athlete-coloured" pixels near the predicted place. */
@@ -229,10 +231,52 @@ function cameraMotion(A, B, ex) {
 }
 
 /**
+ * Where the athlete AND their equipment are (surfer + board, player + ball close to them...): the connected blob of
+ * pixels coloured like what the operator boxed, grown from the centre (look-alikes further away are separate blobs).
+ * Measured on a grid that scales with the box, so small gaps (board / body / shorts) are bridged. Returns the blob's
+ * extent (1st-99th percentile, robust to a stray pixel) in working pixels, or null when there is no clear blob.
+ */
+function extent(d, W, H, L, cx, cy, bw, bh) {
+  const g = Math.max(1, Math.round(Math.min(bw, bh) / 20));
+  const x0 = Math.max(0, Math.round(cx - bw * 2)), y0 = Math.max(0, Math.round(cy - bh * 2));
+  const gw = Math.max(1, Math.ceil((Math.min(W, Math.round(cx + bw * 2)) - x0) / g)), gh = Math.max(1, Math.ceil((Math.min(H, Math.round(cy + bh * 2)) - y0) / g));
+  const cnt = new Uint16Array(gw * gh), need = Math.max(1, Math.round(g * g * 0.15));
+  for (let j = 0; j < gh; j++) for (let i = 0; i < gw; i++) {
+    let c = 0;
+    for (let y = y0 + j * g, ye = Math.min(H, y + g); y < ye; y++) for (let x = x0 + i * g, xe = Math.min(W, x + g); x < xe; x++) {
+      const k = (y * W + x) * 4; if (L[binOf(d[k], d[k + 1], d[k + 2])] >= 0.6) c++;
+    }
+    cnt[j * gw + i] = c >= need ? c : 0;
+  }
+  // the largest connected blob that reaches into the middle of the box (not just the cell nearest the centre: that can
+  // be a lone bit of the head or a gap between body and board)
+  const ci = (cx - x0) / g - 0.5, cj = (cy - y0) / g - 0.5, seen = new Uint8Array(gw * gh);
+  let bestN = 0, hx = null, hy = null;
+  for (let j0 = 0; j0 < gh; j0++) for (let i0 = 0; i0 < gw; i0++) {
+    const k0 = j0 * gw + i0;
+    if (!cnt[k0] || seen[k0] || Math.abs((i0 - ci) * g) > bw * 0.3 || Math.abs((j0 - cj) * g) > bh * 0.3) continue;
+    const st = [k0], ax = new Float32Array(gw), ay = new Float32Array(gh); seen[k0] = 1; let n = 0;
+    while (st.length) {
+      const k = st.pop(), i = k % gw, j = (k - i) / gw; ax[i] += cnt[k]; ay[j] += cnt[k]; n += cnt[k];
+      for (let dj = -1; dj <= 1; dj++) for (let di = -1; di <= 1; di++) {
+        const ii = i + di, jj = j + dj; if (ii < 0 || jj < 0 || ii >= gw || jj >= gh) continue;
+        const kk = jj * gw + ii; if (!seen[kk] && cnt[kk]) { seen[kk] = 1; st.push(kk); }
+      }
+    }
+    if (n > bestN) { bestN = n; hx = ax; hy = ay; }
+  }
+  if (!bestN) return null;
+  const n = bestN;
+  const q = (h, p) => { let a = 0; for (let i = 0; i < h.length; i++) { a += h[i]; if (a >= p * n) return i; } return h.length - 1; };
+  // one cell more on every side: dark parts next to the coloured ones (head, shorts, a shadowed board edge) are inside
+  return { n, x0: x0 + (q(hx, 0.01) - 1) * g, x1: x0 + (q(hx, 0.99) + 2) * g, y0: y0 + (q(hy, 0.01) - 1) * g, y1: y0 + (q(hy, 0.99) + 2) * g };
+}
+
+/**
  * Track a box from frame `from` (where the operator drew it) to frame `to` (inclusive, either direction).
  * @returns {Promise<{boxes: {frame:number,bbox:object,score:number}[], lost: number|null}>}
  */
-export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress, signal, minScore = 0.45, hold }) {
+export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress, signal, minScore = 0.45, hold, refs = [] }) {
   const v = await loadReadable(src);
   try {
     const vw = v.videoWidth, vh = v.videoHeight;
@@ -257,6 +301,22 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     const mass0 = Math.max(1e-6, meanShift(RGB, W, H, L, bx + bw / 2, by + bh / 2, bw * 0.6, bh * 0.6).mass);
     let cam = smallGray(F[0], W, H);
     const recent = P0.map(c => Float32Array.from(c));
+    // the athlete + equipment blob at the drawn box: how much of the drawn box it fills, to keep the same margin later
+    // The athlete's extent is measured with the colours of the CLEANEST box the operator drew (`refs`: other drawn boxes
+    // of this athlete), not necessarily this one: a correction made in spray learns foam as "athlete".
+    let LX = L, ref = { bw, bh, e: extent(RGB, W, H, L, bx + bw / 2, by + bh / 2, bw, bh) };
+    for (const r of refs.slice(0, 4)) {
+      if (signal?.aborted) break;
+      await seek(v, at(r.frame));
+      const F2 = features(ctx, v, W, H), D2 = readRGB(ctx, W, H);
+      const rx = r.bbox.x * W, ry = r.bbox.y * H, rw = Math.max(6, r.bbox.w * W), rh = Math.max(6, r.bbox.h * H);
+      const L2 = colourModel(D2, W, H, rx, ry, rw, rh, weights(patch(F2, W, H, rx, ry, rw, rh, tw, th), tw, th).mask, tw, th);
+      if (L2.sep > LX.sep + 0.05) { const e2 = extent(D2, W, H, L2, rx + rw / 2, ry + rh / 2, rw, rh); if (e2) { LX = L2; ref = { bw: rw, bh: rh, e: e2 }; } }
+    }
+    if (refs.length) { await seek(v, at(from)); F = features(ctx, v, W, H); RGB = readRGB(ctx, W, H); }
+    const b0 = ref.e;
+    const pad = b0 ? clamp(Math.max(ref.bw / (b0.x1 - b0.x0), ref.bh / (b0.y1 - b0.y0)), 1.06, 1.6) : 1.15;   // drawn box / blob
+    let dens = b0 ? b0.n / (ref.bw * ref.bh) : 0;   // how densely the athlete's colours fill a box drawn around them
     let T = T0;
     const dir = to >= from ? 1 : -1, total = Math.abs(to - from), out = [];
     let vx = 0, vy = 0, miss = 0, lost = null, lastGood = from;
@@ -268,6 +328,22 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
       if (Math.abs(to - f) < step && f !== to) { await one(to); break; }
     }
     return { boxes: out, lost, fg: +fgFrac.toFixed(3) };
+
+    // The stored box must hold the whole athlete and equipment (surfer + board, player + ball at their feet): the
+    // tracked box, grown wherever the athlete's colour blob reaches past it (the athlete turns, stands up, comes closer).
+    // It only ever grows the box, by what the blob shows: a blob that is thin (spray hides part of the athlete) or much
+    // larger than the athlete (foam, a look-alike joined it) is ignored, and the tracked box is kept as it is.
+    function contain(cx, cy) {
+      let L0 = bx, T0 = by, R0 = bx + bw, B0 = by + bh;
+      const e = extent(RGB, W, H, LX, cx, cy, bw, bh), ew = e && e.x1 - e.x0, eh = e && e.y1 - e.y0;
+      const d = e ? e.n / (bw * bh) : 0;
+      const big = 3 * Math.max(bw, bh);       // the athlete may turn: a box drawn around them lying flat is short, not they
+      const ok = e && b0 && d > 0.6 * dens && ew < big && eh < big;
+      if (e) dens = 0.85 * dens + 0.15 * d;   // follows slow changes (the athlete turns, comes closer), not a sudden drop
+      if (ok) { const mx = (pad - 1) / 2 * ew, my = (pad - 1) / 2 * eh; L0 = Math.min(L0, e.x0 - mx); T0 = Math.min(T0, e.y0 - my); R0 = Math.max(R0, e.x1 + mx); B0 = Math.max(B0, e.y1 + my); }
+      L0 = clamp(L0, 0, W - 1); T0 = clamp(T0, 0, H - 1); R0 = clamp(R0, L0 + 1, W); B0 = clamp(B0, T0 + 1, H);   // always inside the picture
+      return { x: L0 / W, y: T0 / H, w: (R0 - L0) / W, h: (B0 - T0) / H };
+    }
 
     async function one(f) {
       while (hold?.() && !signal?.aborted) await new Promise(r => setTimeout(r, 250));   // yield the network to the player
@@ -326,7 +402,7 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
       vx = 0.5 * vx + 0.5 * (nx - bx) / n1; vy = 0.5 * vy + 0.5 * (ny - by) / n1;
       const vmax = 0.35 * Math.hypot(bw, bh), vm = Math.hypot(vx, vy); if (vm > vmax) { vx *= vmax / vm; vy *= vmax / vm; }   // no runaway prediction
       bx = nx; by = ny; bw = nw; bh = nh; miss = 0; lastGood = f;
-      out.push({ frame: f, score: +conf.toFixed(3), bbox: { x: bx / W, y: by / H, w: bw / W, h: bh / H } });
+      out.push({ frame: f, score: +conf.toFixed(3), bbox: contain(bx + bw / 2, by + bh / 2) });
       if (sb > 0.6) {                                                 // slow adaptation, anchored to the drawn box
         const P = patch(F, W, H, bx, by, bw, bh, tw, th);
         for (let c = 0; c < NCH; c++) for (let i = 0; i < P[c].length; i++) recent[c][i] = 0.8 * recent[c][i] + 0.2 * P[c][i];
