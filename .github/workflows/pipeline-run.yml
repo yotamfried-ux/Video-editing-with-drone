@@ -65,32 +65,103 @@ jobs:
           sudo docker image prune --all --force >/dev/null 2>&1 || true
           df -h / | tail -1
 
+      # ---- Installs are cached between runs (operator, 2026-11-06): a run only re-installs what changed. ----
+      # ffmpeg: the .deb files are cached once and installed offline with dpkg, so a hanging apt mirror
+      # (15+ minutes on 2026-11-06) can no longer stall a run. apt is only used on a cache miss, bounded.
+      - name: Restore ffmpeg packages
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: ffmpeg-debs-ubuntu-24.04-v1
+
       - name: Install ffmpeg
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ffmpeg
+          echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null 2>&1 || true
+          sudo rm -f /var/lib/man-db/auto-update
+          mkdir -p ~/apt-debs
+          if ls ~/apt-debs/*.deb >/dev/null 2>&1 && sudo dpkg -i ~/apt-debs/*.deb >/dev/null && command -v ffmpeg >/dev/null; then
+            echo "ffmpeg installed offline from the cached packages"; ffmpeg -version | head -1; exit 0
+          fi
+          rm -f ~/apt-debs/*.deb
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60"
+          for i in 1 2 3; do
+            if timeout 180 sudo apt-get $APT_OPTS update \
+               && timeout 300 sudo apt-get $APT_OPTS install -y --no-install-recommends --download-only -o Dir::Cache::archives="$HOME/apt-debs" ffmpeg \
+               && sudo dpkg -i ~/apt-debs/*.deb >/dev/null && command -v ffmpeg >/dev/null; then
+              sudo chown -R "$USER" ~/apt-debs; rm -rf ~/apt-debs/partial ~/apt-debs/lock
+              ffmpeg -version | head -1; exit 0
+            fi
+            echo "apt attempt $i failed or hung, retrying"; sleep 10
+          done
+          exit 1
+
+      - name: Save ffmpeg packages
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-debs
+          key: ffmpeg-debs-ubuntu-24.04-v1
 
       - name: Setup Python
+        id: py
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-          cache: pip
+
+      # The whole virtualenv (torch, ultralytics, transformers, ...) is cached, keyed by the exact Python
+      # version and requirements.txt: unchanged requirements = no pip work at all.
+      - name: Restore Python environment
+        id: venv-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/venv
+          key: venv-ubuntu-24.04-py${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements.txt') }}-v1
 
       - name: Install Python dependencies
         run: |
-          python -m pip install --upgrade pip
-          if ! pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --retries 5 --timeout 120; then
-            echo "::warning::Falling back to PyPI for torch/torchvision after PyTorch CPU index install failed"
-            pip install torch torchvision --retries 5 --timeout 120
+          if [ "${{ steps.venv-cache.outputs.cache-hit }}" != "true" ] || ! ~/venv/bin/python -c "import torch, torchvision, lap" 2>/dev/null; then
+            rm -rf ~/venv
+            python -m venv ~/venv
+            ~/venv/bin/python -m pip install --upgrade pip
+            if ! ~/venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --retries 5 --timeout 120; then
+              echo "::warning::Falling back to PyPI for torch/torchvision after PyTorch CPU index install failed"
+              ~/venv/bin/pip install torch torchvision --retries 5 --timeout 120
+            fi
+            ~/venv/bin/pip install -r requirements.txt
+            echo "VENV_FRESH=1" >> "$GITHUB_ENV"
+          else
+            echo "Python environment restored from cache (requirements unchanged)"
           fi
-          pip install -r requirements.txt
-          python - <<'PY'
+          echo "$HOME/venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$HOME/venv" >> "$GITHUB_ENV"
+          ~/venv/bin/python - <<'PY'
           import torch
           import torchvision
           import lap
           from torchvision.ops import nms
           print(f"torch={torch.__version__} torchvision={torchvision.__version__} lap={lap.__version__} nms={nms.__name__}")
           PY
+
+      - name: Save Python environment
+        if: env.VENV_FRESH == '1'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/venv
+          key: venv-ubuntu-24.04-py${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements.txt') }}-v1
+
+      # Model weights (YOLO detector, CLIP identity model) are downloaded once and reused.
+      - name: Restore model weights
+        id: models-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            yolo11s.pt
+          key: models-v1-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
 
       - name: Write credential files from secrets
         env:
@@ -250,6 +321,16 @@ jobs:
         env:
           TMP_DIR: /tmp/dtor
         run: python scripts/print_run_diagnostics.py
+
+      - name: Save model weights
+        if: always() && steps.models-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cache/huggingface
+            yolo11s.pt
+          key: models-v1-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
 
       - name: Save LLM analysis cache
         # Saved even when the run fails: the analysis is the expensive part and stays valid.
