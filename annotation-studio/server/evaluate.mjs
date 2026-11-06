@@ -22,8 +22,8 @@ export function iou1d(a, b) {
 const overlaps = (a, b) => Math.min(a.end_frame, b.end_frame) > Math.max(a.start_frame, b.start_frame);
 const inRanges = (frame, ranges) => ranges.some(r => frame >= r.start_frame && frame < r.end_frame);
 
-/** @returns per-source result with every decision traceable to a reason code. */
-export function evaluateSource(gt, preds, params, rejected = []) {
+/** Deterministic one-to-one GT/prediction pairing (shared by the evaluator and the error review). */
+export function matchEvents(gt, preds, params) {
   const thr = params.iou_threshold;
   const G = gt.segments.filter(s => s.decision === 'include').map(s => ({ ...s }))
     .sort((a, b) => a.start_frame - b.start_frame || a.end_frame - b.end_frame || cmp(a.id, b.id));
@@ -32,7 +32,6 @@ export function evaluateSource(gt, preds, params, rejected = []) {
   const pairs = [];
   // No cross-sport matching: a prediction that declares a sport only pairs with GT of that same sport.
   // (Predictions that declare none — legacy exports — pair by time/IoU alone and are counted under the sport of what they matched.)
-  const gSport = g => g.resolved_sport_id ?? 'unknown';
   for (const g of G) for (const p of P) { if (p.sport_id != null && p.sport_id !== gSport(g)) continue; const v = iou1d(g, p); if (v >= thr) pairs.push({ g, p, iou: v }); }
   const bErr = q => Math.abs(q.g.start_frame - q.p.start_frame) + Math.abs(q.g.end_frame - q.p.end_frame);
   pairs.sort((x, y) => y.iou - x.iou || bErr(x) - bErr(y) || cmp(x.g.id, y.g.id) || x.p.idx - y.p.idx);
@@ -41,6 +40,13 @@ export function evaluateSource(gt, preds, params, rejected = []) {
     if (usedG.has(m.g.id) || usedP.has(m.p.idx)) continue;
     usedG.add(m.g.id); usedP.add(m.p.idx); matches.push(m);
   }
+  return { thr, G, P, matches, usedG, usedP };
+}
+const gSport = g => g.resolved_sport_id ?? 'unknown';
+
+/** @returns per-source result with every decision traceable to a reason code. */
+export function evaluateSource(gt, preds, params, rejected = []) {
+  const { thr, G, P, matches, usedG, usedP } = matchEvents(gt, preds, params);
   // Athlete attribution: pipeline athlete keys are arbitrary, so derive a deterministic
   // key->athlete mapping from co-occurrence over matched pairs, then flag deviations.
   const co = new Map();

@@ -128,7 +128,7 @@ export function evaluateEditing(edl, gtSpec, opts = {}) {
   if (edl.mapping === 'visual_match') return { ...base, status: 'NOT_EVALUABLE', reason: 'EDL_UNVERIFIED', mapping: 'unverified_mapping' };
 
   const centerRows = [], timeline = [], rows = [];
-  let evaluated = 0, visible = 0, partial = 0, missing = 0, edgeViol = 0, skippedUnreviewed = 0, notScored = 0, blendFrames = 0, unresolvedFrames = 0;
+  let diagCenter = 0, evaluated = 0, visible = 0, partial = 0, missing = 0, edgeViol = 0, skippedUnreviewed = 0, notScored = 0, blendFrames = 0, unresolvedFrames = 0;
   const total = edl.shots[edl.shots.length - 1].out_end;
   for (let f = 0; f < total; f++) {
     const at = shotAt(edl, f);
@@ -162,6 +162,8 @@ export function evaluateEditing(edl, gtSpec, opts = {}) {
     if (mode === 'tracked_crop') {
       if (seg.framing_mode === 'geometric_center') target = { x: 0.5, y: 0.5 };
       else if (seg.framing_mode === 'directional_lead_room' && seg.target) target = seg.target;
+      // Diagnostic only (error review): no operator target -> measure against an explicit default, reported separately.
+      else if (opts.default_target) { target = opts.default_target; diagCenter++; }
     }
     if (target) {
       const err = Math.hypot(cx - target.x, cy - target.y);
@@ -204,6 +206,7 @@ export function evaluateEditing(edl, gtSpec, opts = {}) {
     centering: centerRows.length ? { scored_frames: centerRows.length, median: r6(q(centerRows, 0.5)), p95: r6(q(centerRows, 0.95)), max: r6(Math.max(...centerRows)) }
       : { scored_frames: 0, note: edl.mode === 'contain' ? 'contain framing is not scored against centre' : edl.mode === 'mixed' ? 'no tracked-crop frame with an operator target' : 'no operator target selected' },
     not_centering_scored_frames: notScored,
+    ...(opts.default_target ? { centering_default_target_frames: diagCenter } : {}),
     smoothness: { crop_jumps: jumps.length, max_jerk: jerk.length ? r6(Math.max(...jerk)) : 0, jerk_flags: jerk.filter(j => j > th.crop_jerk_max).length },
     errors: timeline,
   };

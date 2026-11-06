@@ -9,6 +9,7 @@ import { now, audit } from './db.mjs';
 import * as A from './annotations.mjs';
 import * as D from './datasets.mjs';
 import * as E from './evaluate.mjs';
+import * as Rv from './review.mjs';
 import * as L from './edl.mjs';
 import * as S from './sports.mjs';
 import * as C from './cloud.mjs';
@@ -287,6 +288,7 @@ export function createApp(ctx) {
       if (m === 'POST') { const o = E.runEvaluation(db, await body(req)); return send(res, 201, { id: o.id, digest: o.digest }); }
       if (m === 'GET') return send(res, 200, { items: E.listEvaluations(db) });
     }
+    if ((r = /^\/api\/evaluations\/([\w-]+)\/review$/.exec(p)) && m === 'GET') return send(res, 200, Rv.reviewEvaluation(db, r[1]));
     if ((r = /^\/api\/evaluations\/([\w-]+)$/.exec(p)) && m === 'GET') { const e = db.prepare('select report,digest from evaluation_runs where id=?').get(r[1]); if (!e) throw new ApiError('NOT_FOUND'); return send(res, 200, { digest: e.digest, report: JSON.parse(e.report) }); }
     if (m === 'POST' && p === '/api/imports/edl') { const b = await body(req); return send(res, 201, I.importEdl(db, b.edl ?? b)); }
     if (m === 'POST' && p === '/api/imports/predictions') return send(res, 201, I.importPipelinePredictions(db, await body(req)));
