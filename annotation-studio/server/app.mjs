@@ -86,6 +86,7 @@ export function createApp(ctx) {
       id: s.id, display_name: s.display_name, sha256: s.sha256, byte_size: s.byte_size, width: s.width, height: s.height,
       fps_num: s.fps_num, fps_den: s.fps_den, frame_count: s.frame_count, duration_ms: s.duration_ms, rotation: s.rotation,
       codec: s.codec ?? null, primary_sport_id: s.primary_sport_id ?? null, suggested_sport_id: s.suggested_sport_id ?? null, sport_suggestion_source: s.sport_suggestion_source ?? null, provider: s.provider ?? 'local', verify_state: s.verify_state ?? null, proxy_state: s.proxy_state ?? (s.proxy_path ? 'ready' : null),
+      session_key: s.session_key ?? null,
       owner_athlete_id: s.owner_athlete_id ?? null,
       owner_status: s.owner_status ?? 'unassigned',
       owner_athlete_label: ownerAthlete?.label ?? null,
