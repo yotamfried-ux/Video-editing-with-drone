@@ -51,11 +51,19 @@ jobs:
       - name: Install dependencies (pg is an optional dependency, only used for the PostgreSQL backend)
         run: npm ci --no-audit --no-fund
       - name: Install ffmpeg (synthetic fixtures + proxies)
-        # apt on the runner hung for 15+ minutes (2026-11-06, twice in a row): bounded attempts instead of an open wait
+        # apt on the runner hung for 15+ minutes (2026-11-06, repeatedly). Known slow spots on these images: the man-db
+        # trigger after install and an unresponsive mirror during update. Disable the trigger, bound every network
+        # read, skip recommends, and keep output visible so a hang shows where it is.
         timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
+          if command -v ffmpeg >/dev/null; then ffmpeg -version | head -1; exit 0; fi
+          echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null 2>&1 || true
+          sudo rm -f /var/lib/man-db/auto-update
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60"
           for i in 1 2 3; do
-            if timeout 180 sudo apt-get update -qq && timeout 300 sudo apt-get install -y -qq ffmpeg; then ffmpeg -version | head -1; exit 0; fi
+            if timeout 180 sudo apt-get $APT_OPTS update && timeout 300 sudo apt-get $APT_OPTS install -y --no-install-recommends ffmpeg; then ffmpeg -version | head -1; exit 0; fi
             echo "apt attempt $i failed or hung, retrying"; sleep 10
           done
           exit 1
