@@ -316,6 +316,7 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     if (refs.length) { await seek(v, at(from)); F = features(ctx, v, W, H); RGB = readRGB(ctx, W, H); }
     const b0 = ref.e;
     const pad = b0 ? clamp(Math.max(ref.bw / (b0.x1 - b0.x0), ref.bh / (b0.y1 - b0.y0)), 1.06, 1.6) : 1.15;   // drawn box / blob
+    const grow = { l: 0, t: 0, r: 0, b: 0 };   // how far the box reaches past the tracked box, per side (smoothed)
     let dens = b0 ? b0.n / (ref.bw * ref.bh) : 0;   // how densely the athlete's colours fill a box drawn around them
     let T = T0;
     const dir = to >= from ? 1 : -1, total = Math.abs(to - from), out = [];
@@ -329,18 +330,25 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     }
     return { boxes: out, lost, fg: +fgFrac.toFixed(3) };
 
-    // The stored box must hold the whole athlete and equipment (surfer + board, player + ball at their feet): the
-    // tracked box, grown wherever the athlete's colour blob reaches past it (the athlete turns, stands up, comes closer).
-    // It only ever grows the box, by what the blob shows: a blob that is thin (spray hides part of the athlete) or much
-    // larger than the athlete (foam, a look-alike joined it) is ignored, and the tracked box is kept as it is.
-    function contain(cx, cy) {
-      let L0 = bx, T0 = by, R0 = bx + bw, B0 = by + bh;
+    // The stored box should hold the whole athlete and equipment (surfer + board): the tracked box, grown on a side
+    // where the athlete's colour blob reaches past it (they turn, stand up, come closer). On real footage the blob also
+    // catches wake, foam and spray, so the growth is kept modest and steady: at most a quarter of the box per side,
+    // smoothed over time, and starting gradually away from each drawn box (the box the operator drew is the size it is).
+    // A blob that is thin (spray hides part of the athlete) or far larger than the athlete is ignored.
+    function contain(cx, cy, f) {
       const e = extent(RGB, W, H, LX, cx, cy, bw, bh), ew = e && e.x1 - e.x0, eh = e && e.y1 - e.y0;
-      const d = e ? e.n / (bw * bh) : 0;
-      const big = 3 * Math.max(bw, bh);       // the athlete may turn: a box drawn around them lying flat is short, not they
+      const d = e ? e.n / (bw * bh) : 0, big = 3 * Math.max(bw, bh);   // the athlete may turn: a flat drawn box is short, not they
       const ok = e && b0 && d > 0.6 * dens && ew < big && eh < big;
       if (e) dens = 0.85 * dens + 0.15 * d;   // follows slow changes (the athlete turns, comes closer), not a sudden drop
-      if (ok) { const mx = (pad - 1) / 2 * ew, my = (pad - 1) / 2 * eh; L0 = Math.min(L0, e.x0 - mx); T0 = Math.min(T0, e.y0 - my); R0 = Math.max(R0, e.x1 + mx); B0 = Math.max(B0, e.y1 + my); }
+      const cap = 0.25, want = { l: 0, t: 0, r: 0, b: 0 };
+      if (ok) {
+        const mx = (pad - 1) / 2 * ew, my = (pad - 1) / 2 * eh;
+        want.l = clamp((bx - (e.x0 - mx)) / bw, 0, cap); want.r = clamp((e.x1 + mx - bx - bw) / bw, 0, cap);
+        want.t = clamp((by - (e.y0 - my)) / bh, 0, cap); want.b = clamp((e.y1 + my - by - bh) / bh, 0, cap);
+      }
+      for (const k of ['l', 't', 'r', 'b']) grow[k] = ok ? 0.7 * grow[k] + 0.3 * want[k] : 0.85 * grow[k];
+      const ramp = Math.min(1, Math.abs(f - from) / (5 * step));
+      let L0 = bx - grow.l * ramp * bw, T0 = by - grow.t * ramp * bh, R0 = bx + bw + grow.r * ramp * bw, B0 = by + bh + grow.b * ramp * bh;
       L0 = clamp(L0, 0, W - 1); T0 = clamp(T0, 0, H - 1); R0 = clamp(R0, L0 + 1, W); B0 = clamp(B0, T0 + 1, H);   // always inside the picture
       return { x: L0 / W, y: T0 / H, w: (R0 - L0) / W, h: (B0 - T0) / H };
     }
@@ -402,7 +410,7 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
       vx = 0.5 * vx + 0.5 * (nx - bx) / n1; vy = 0.5 * vy + 0.5 * (ny - by) / n1;
       const vmax = 0.35 * Math.hypot(bw, bh), vm = Math.hypot(vx, vy); if (vm > vmax) { vx *= vmax / vm; vy *= vmax / vm; }   // no runaway prediction
       bx = nx; by = ny; bw = nw; bh = nh; miss = 0; lastGood = f;
-      out.push({ frame: f, score: +conf.toFixed(3), bbox: contain(bx + bw / 2, by + bh / 2) });
+      out.push({ frame: f, score: +conf.toFixed(3), bbox: contain(bx + bw / 2, by + bh / 2, f) });
       if (sb > 0.6) {                                                 // slow adaptation, anchored to the drawn box
         const P = patch(F, W, H, bx, by, bw, bh, tw, th);
         for (let c = 0; c < NCH; c++) for (let i = 0; i < P[c].length; i++) recent[c][i] = 0.8 * recent[c][i] + 0.2 * P[c][i];

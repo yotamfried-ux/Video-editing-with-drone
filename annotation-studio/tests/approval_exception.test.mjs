@@ -9,6 +9,7 @@ import { reconcile } from '../server/ingest.mjs';
 import * as A from '../server/annotations.mjs';
 import * as QC from '../server/quickcatalog.mjs';
 import { freezeDataset, exportJsonl } from '../server/datasets.mjs';
+import { setCatalogOwner } from '../server/catalog_owner.mjs';
 import { verifiedBoxes, approvalPreview, latestByFrame } from '../server/trackqa.mjs';
 
 async function withSource() {
@@ -161,6 +162,27 @@ test('8. the training export reads the verified boxes from the approved revision
   assert.equal(lines[0].verified_boxes.length, 10);
   assert.ok(lines[0].verified_boxes.every(b => b.athlete_id === a && b.event_type === 'wave_ride' && b.method === 'exception_review'));
   assert.ok(!lines[0].annotations.keyframes.some(k => k.id === 'extra'), 'draft-only box is not exported');
+});
+
+test('9. the export says what is source of truth (whose video) and what is guidance (boxes, drawn or tracked)', async () => {
+  const { db, src } = await withSource();
+  const a = A.createAthlete(db, 'A').id;
+  setCatalogOwner(db, src.id, { owner_athlete_id: a, expected_version: 0 });
+  const c = content(a); c.keyframes.find(k => k.frame === 0).origin = 'manual';
+  A.saveDraft(db, src.id, 0, c);
+  approve(db, src.id);
+  const ds = freezeDataset(db, { name: 'roles', sourceIds: [src.id] });
+  // a later owner change does not rewrite what the frozen dataset recorded
+  setCatalogOwner(db, src.id, { owner_athlete_id: A.createAthlete(db, 'B').id, expected_version: 1, confirm_reassign: true, reason: 'test' });
+  const [line] = exportJsonl(db, ds.id, ['train', 'validation', 'test']).trim().split('\n').map(l => JSON.parse(l));
+  assert.equal(line.label_roles.athlete_of_record, 'source_of_truth');
+  assert.equal(line.label_roles.box_guidance, 'guidance');
+  assert.equal(line.athlete_of_record.athlete_id, a, 'pinned at freeze');
+  assert.equal(line.athlete_of_record.assigned_by, 'operator');
+  assert.equal(line.box_guidance.length, 10);
+  assert.ok(line.box_guidance.every(b => b.role === 'guidance' && b.event_decision === 'include' && b.event_usability === 'usable'));
+  assert.deepEqual(line.box_guidance.map(b => b.origin).filter(o => o === 'drawn').length, 1, 'the drawn box is told apart from tracked ones');
+  assert.equal(line.verified_boxes.length, 10, 'legacy field kept for existing readers');
 });
 
 test('without acceptByException the approval stays as before (no box decisions are invented)', async () => {

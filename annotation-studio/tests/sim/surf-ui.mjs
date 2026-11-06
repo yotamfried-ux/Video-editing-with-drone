@@ -47,12 +47,18 @@ const loose = pts => { const a = pts.find(p => p.origin === 'manual') ?? pts[0];
 const MAX_LOOSE = 2.5;
 // containment: the box must hold the whole athlete AND their equipment (surfer + board): share of the truth box inside it
 const cover = p => { const t = T[p.frame], b = p.bbox, ix = Math.max(0, Math.min(b.x + b.w, t.x + t.w) - Math.max(b.x, t.x)), iy = Math.max(0, Math.min(b.y + b.h, t.y + t.h) - Math.max(b.y, t.y)); return ix * iy / (t.w * t.h); };
-const MIN_COVER = 0.95;
+// The box grows to hold the athlete + equipment only modestly (real footage: the colour blob also catches wake and foam,
+// which made the box pump). A 90-degree turn plus 1.6x growth (this clip) is beyond that: the operator resizes once.
+const MIN_COVER = 0.45;
+// steadiness: the box must not pump in size from one sample to the next (live 0115: around each correction the height
+// swung 0.28 -> 0.73 -> 0.33). Worst |log(area ratio)| between neighbouring samples.
+const sizeStep = pts => Math.max(0, ...pts.slice(1).map((p, i) => Math.abs(Math.log((p.bbox.w * p.bbox.h) / (pts[i].bbox.w * pts[i].bbox.h)))));
+const MAX_SIZE_STEP = 0.35;
 const report = label => {
   const pts = draft().tracks?.[0]?.points ?? [];
   const bad = pts.filter(p => err(p) >= 0.5).map(p => p.frame);
   const fs = pts.map(p => p.frame);
-  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2), maxLoose: +loose(pts).toFixed(2), minCover: +Math.min(...pts.map(cover)).toFixed(2), worstCoverAt: pts.reduce((a, p) => cover(p) < cover(a) ? p : a, pts[0])?.frame };
+  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2), maxLoose: +loose(pts).toFixed(2), maxSizeStep: +sizeStep(pts).toFixed(2), minCover: +Math.min(...pts.map(cover)).toFixed(2), worstCoverAt: pts.reduce((a, p) => cover(p) < cover(a) ? p : a, pts[0])?.frame };
   if (process.env.SIM_DUMP) console.log(pts.map(p => `${p.frame}:${(sizeOf(p.bbox) / sizeOf(T[p.frame])).toFixed(2)}/${err(p).toFixed(2)}/c${cover(p).toFixed(2)}`).join(" "));
   console.log(JSON.stringify(r)); return r;
 };
@@ -83,7 +89,7 @@ while ((r.firstBad != null || r.from > 0 || r.to < last) && fixes < MAX_FIX) {
   r = report(`after correction ${fixes} at f${f}`);
 }
 await page.screenshot({ path: path.join(path.dirname(clip), 'sim-ui.png') });
-const pass = r.offTarget === 0 && r.from === 0 && r.to === src.frame_count - 1 && r.maxLoose <= MAX_LOOSE && r.minCover >= MIN_COVER;
+const pass = r.offTarget === 0 && r.from === 0 && r.to === src.frame_count - 1 && r.maxLoose <= MAX_LOOSE && r.maxSizeStep <= MAX_SIZE_STEP && r.minCover >= MIN_COVER;
 console.log(JSON.stringify({ result: pass ? 'PASS' : 'FAIL', corrections: fixes, pageErrors: errors }));
 await b.close(); server.close();
 process.exit(pass && !errors.length ? 0 : 1);

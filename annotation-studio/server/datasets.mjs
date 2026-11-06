@@ -36,6 +36,8 @@ export function freezeDataset(db, { name, sourceIds, policy = DEFAULT_POLICY }) 
       const tax = rev.taxonomy_versions ? JSON.parse(rev.taxonomy_versions) : {};
       members.push({ source_id: id, sha256: s.sha256, revision_id: rev.id, revision_digest: rev.digest, group,
         ...(Object.keys(tax).length ? { taxonomy_versions: tax } : {}),
+        // whose video this is: SOURCE OF TRUTH for the pipeline (assigned by the operator), pinned as it was at freeze
+        ...(s.owner_athlete_id ? { athlete_of_record: { athlete_id: s.owner_athlete_id, status: s.owner_status ?? null, assigned_by: s.owner_assigned_by ?? null, owner_version: s.owner_version ?? null } } : {}),
         split: heldOut.has(id) ? 'test' : splitFor(group, policy) });
     }
     // Optional stratification by sport (spec §18): within each sport, groups are ordered by their deterministic hash and
@@ -89,17 +91,34 @@ export function listDatasets(db) {
   });
 }
 
+/**
+ * How much each label may be trusted (operator, 2026-11-06): the video's owner (athlete_of_record) is the source of
+ * truth; boxes GUIDE the pipeline (where to look, how big the athlete is) and are not unquestionable truth - drawn by
+ * the operator or suggested by the tracker and accepted on review.
+ */
+export const LABEL_ROLES = { athlete_of_record: 'source_of_truth', box_guidance: 'guidance', verified_boxes: 'guidance (same boxes, legacy name)' };
+/** The approved boxes as guidance: who drew them, and whether their event is in the dataset. */
+export function boxGuidance(content) {
+  const segs = new Map((content.segments ?? []).map(s => [s.id, s]));
+  const kf = new Map((content.keyframes ?? []).map(k => [`${k.segment_id}:${k.frame}`, k]));
+  return verifiedBoxes(content).map(b => { const s = segs.get(b.segment_id), k = kf.get(`${b.segment_id}:${b.frame}`);
+    return { ...b, role: 'guidance', origin: k?.origin === 'manual' ? 'drawn' : 'tracked', event_decision: s?.decision ?? null, event_usability: s?.usability ?? null }; });
+}
+
 /** Training export: JSONL from approved, frozen revisions ONLY (never from drafts or live data). */
 export function exportJsonl(db, datasetId, splits = ['train', 'validation']) {
   const d = db.prepare('select * from dataset_versions where id=?').get(datasetId);
   if (!d) throw new ApiError('NOT_FOUND');
-  const lines = [];
+  const lines = [], pinned = new Map((JSON.parse(d.manifest).members ?? []).map(x => [x.source_id, x.athlete_of_record]));
   for (const m of db.prepare('select * from dataset_members where dataset_id=? order by source_id').all(datasetId)) {
     if (!splits.includes(m.split)) continue;
     const rev = db.prepare('select content,digest,seq from annotation_revisions where id=?').get(m.revision_id);
     lines.push(JSON.stringify({ schema: 1, dataset_id: datasetId, dataset_digest: d.digest, source_sha256: m.sha256,
-      split: m.split, revision_digest: rev.digest, annotations: JSON.parse(rev.content),
-      // convenience: the boxes this approved revision vouches for (latest decision positive and bound to the geometry)
+      split: m.split, revision_digest: rev.digest, label_roles: LABEL_ROLES,
+      athlete_of_record: pinned.get(m.source_id) ?? null,   // source of truth: whose video this is
+      annotations: JSON.parse(rev.content),
+      box_guidance: boxGuidance(JSON.parse(rev.content)),   // guidance, not unquestionable truth (see LABEL_ROLES)
+      // legacy name kept for existing readers: the same approved boxes (also guidance)
       verified_boxes: verifiedBoxes(JSON.parse(rev.content)) }));
   }
   return lines.join('\n') + (lines.length ? '\n' : '');

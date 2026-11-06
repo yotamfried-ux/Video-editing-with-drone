@@ -803,6 +803,28 @@ await scenario('typing a note while tracking saves in the background: the field 
   assert.deepEqual(errors.slice(before), [], 'no DOM error while repainting');
 });
 
+await scenario('a saved track whose box pumps in size (first containment version, live 0115) is re-tracked steadily on open', async () => {
+  const s0 = src('DJI_0414.mp4'), owner = s0.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const B = (f, k = 1) => ({ x: (2 * f - 4) / 1280, y: 326 / 720, w: 48 / 1280, h: Math.min(0.5, 48 * k / 720) });
+  const cur = await (await fetch(`${base}/api/sources/${s0.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  c.segments = []; c.keyframes = []; c.box_verifications = []; delete c.catalog_triage;
+  const pts = [{ frame: 40, bbox: B(40), origin: 'manual' }];
+  // a complete track (so only the pumping can trigger a re-track): every 3 frames over the whole video, height swinging
+  for (let f = 0; f < s0.frame_count; f += 3) if (f !== 40) pts.push({ frame: f, bbox: B(Math.max(2, Math.min(f, 600)), (f / 3) % 2 ? 2.2 : 1), origin: 'suggested' });
+  if (pts.at(-1).frame !== s0.frame_count - 1) pts.push({ frame: s0.frame_count - 1, bbox: B(600), origin: 'suggested' });
+  pts.sort((a, b) => a.frame - b.frame);
+  c.tracks = [{ id: 'pump', athlete_id: owner, points: pts }];
+  const put = await fetch(`${base}/api/sources/${s0.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s0.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await trackingIdle(); await saved();
+  const t = draft(s0.id).tracks.find(x => x.athlete_id === owner), p2 = [...t.points].sort((a, b) => a.frame - b.frame);
+  const worst = Math.max(...p2.slice(1).map((p, i) => Math.abs(Math.log((p.bbox.w * p.bbox.h) / (p2[i].bbox.w * p2[i].bbox.h)))));
+  assert.ok(worst < 0.5, `box size steady after the repair (worst step ${worst.toFixed(2)})`);
+  assert.ok(p2.some(p => p.frame === 40 && p.origin === 'manual'), 'the drawn box is kept');
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;
