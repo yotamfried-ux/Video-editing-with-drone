@@ -24,6 +24,7 @@ export async function renderAnnotate(root, id) {
   // Independent annotation stream (addendum §2): #/annotate/<source>?set=<setId> works on that set's own assignment.
   const [rawId, qs] = String(id).split('?');
   const setId = new URLSearchParams(qs ?? '').get('set') || 'primary';
+  const jumpTo = Number.parseInt(new URLSearchParams(qs ?? '').get('f') ?? '', 10);   // #/annotate/<id>?f=<frame> (error review links)
   id = rawId;
   if (setId === 'primary') rememberSource(id);
   const draftUrl = setId === 'primary' ? `/api/sources/${id}/draft` : `/api/sets/${setId}/assignments/${id}`;
@@ -70,7 +71,8 @@ export async function renderAnnotate(root, id) {
   // repairs on open (owner/orphan boxes, unfinished or two-grid tracks, event boxes in step with the track) run for
   // every video, also one with no events yet (they used to start only from the event panel)
   if (S.setId === 'primary' && !(S.autoTried ??= new Set()).has('legacy')) { S.autoTried.add('legacy'); setTimeout(() => S && !S.tracking && adoptLegacyBoxes(), 0); }
-  if (focus?.source === id && selSeg()) setTimeout(() => S && seekFrame(selSeg().start_frame), 0);
+  if (Number.isInteger(jumpTo) && jumpTo >= 0) setTimeout(() => S && seekFrame(jumpTo), 0);
+  else if (focus?.source === id && selSeg()) setTimeout(() => S && seekFrame(selSeg().start_frame), 0);
   if (S.setId === 'primary') Promise.all([api(`/api/physical-actions?source=${id}`), api('/api/physical-actions')]).then(([m, all]) => { if (!S) return; S.actions = m.items; S.allActions = all.items; refresh(); }).catch(() => {});
   cleanup.push(() => { clearTimeout(S?.saveTimer); clearTimeout(S?.retryTimer); });
 }

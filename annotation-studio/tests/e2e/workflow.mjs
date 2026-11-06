@@ -294,6 +294,11 @@ await scenario('10. Evaluation + Report in the UI: sport-separated, no cross-spo
   assert.deepEqual(Object.keys(rows).sort(), ['football', 'surfing', 'tennis']);
   assert.equal(rows.surfing[3], '1', 'surfing: 1 matched'); assert.equal(rows.surfing[2], '2', 'surfing: both predictions counted'); assert.equal(rows.surfing[5], '0', 'a prediction outside any reviewed range is reported as unreviewed, never as a false positive');
   assert.equal(rows.tennis[1], '1', 'tennis GT exists'); assert.equal(rows.tennis[3], '0', 'the football-declared prediction can NOT match the tennis GT');
+  // error review: every pipeline choice against the truth, grouped (used-but-shouldn't / missed / identity / assembly / trim / framing)
+  await page.waitForSelector('[data-testid=review-summary]');
+  for (const c of ['selection_wrong_use', 'selection_missed', 'identity', 'assembly', 'trim', 'framing']) assert.ok(await page.locator(`[data-testid=review-${c}]`).count(), `review section ${c}`);
+  const jump = page.locator('[data-testid=review-jump]').first();
+  if (await jump.count()) { const href = await jump.getAttribute('href'); assert.match(href, /^#\/annotate\/[\w-]+(\?f=\d+)?$/, 'review rows jump to the video at the problem frame'); }
   await shot('10-eval-report');
   const a = await api('/api/evaluations', { method: 'POST', body: { dataset_id: ds.id, prediction_id: predId } });
   const b = await api('/api/evaluations', { method: 'POST', body: { dataset_id: ds.id, prediction_id: predId } });

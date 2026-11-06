@@ -258,8 +258,49 @@ async function renderEvalDetail(root, id) {
       h('table', { class: 't', 'data-testid': 'by-sport' }, h('thead', {}, h('tr', {}, ['ענף', 'GT', 'תחזיות', 'הותאמו', 'הוחמצו', 'FP', 'recall', 'precision'].map(x => h('th', {}, x)))),
         h('tbody', {}, Object.entries(r.by_sport).map(([sp, c]) => h('tr', { 'data-sport': sp }, h('td', {}, sp === 'unknown' ? 'לא מסווג' : sp === 'unspecified' ? 'תחזית ללא ענף' : sportName(sp)), h('td', {}, c.gt_included), h('td', {}, c.predictions), h('td', {}, c.matched), h('td', {}, c.missed), h('td', {}, c.false_positives), h('td', {}, pct(c.event_recall)), h('td', {}, pct(c.event_precision))))))) : null,
     h('div', { class: 'legend' }, `IoU ≥ ${r.params.iou_threshold} · פיצולים: ${r.params.splits.join(', ')} · שיוך גולשים לפי מיפוי התאמות דטרמיניסטי`),
+    h('div', { 'data-testid': 'error-review' }, h('div', { class: 'empty' }, 'טוען סקירת טעויות…')),
+    h('h2', { style: { fontSize: '15px', marginTop: '22px' } }, 'פירוט טכני לפי מקור'),
     r.per_source.map(p => h('div', { style: { marginBottom: '18px' } }, h('h3', { style: { fontSize: '14px' } }, ltr(p.sha256.slice(0, 12)), ' · ', p.split, p.has_prediction ? '' : ' · אין תחזית למקור זה'),
       p.errors.length ? h('table', { class: 't', 'data-testid': 'eval-errors' }, h('thead', {}, h('tr', {}, ['סוג', 'פריימים', 'מקטע/תחזית'].map(x => h('th', {}, x)))), h('tbody', {}, p.errors.map(e => h('tr', {}, h('td', {}, pill(ERR_HE[e.type] ?? e.type, e.type === 'missed_event' || e.type === 'wrong_athlete' ? 'bad' : 'warn')), h('td', {}, ltr(`${e.start_frame}–${e.end_frame}`)), h('td', {}, ltr(e.segment_id ?? `pred#${e.pred_index}`)))))) : h('div', { class: 'banner warn', style: { color: 'var(--inc)' } }, 'אין שגיאות לסרטון זה')))));
+  renderErrorReview(root.querySelector('[data-testid=error-review]'), id);
+}
+
+const REVIEW_CAT = {
+  selection_wrong_use: ['השתמש ולא היה צריך', 'קטעים שהפייפליין בחר אבל לפי האמת אין בהם גל, הם מוחרגים או כפולים'],
+  selection_missed: ['לא השתמש והיה צריך', 'גלים מתויגים שלא נבחרו — נפסלו, לא זוהו בכלל, או נחתכו רחוק מדי'],
+  identity: ['זיהוי גולשים', 'שיוך גל לגולש, ועקביות הזהות לאורך כל הריצה'],
+  assembly: ['שילוב קליפים', 'איזה גלים נכנסו לאיזה סרטון פלט'],
+  trim: ['עריכה וחיתוך', 'תחילת וסוף החיתוך מול הגל המתויג (הקמה / סיום)'],
+  framing: ['מרכוז ופריימינג', 'הגולש בתוך החיתוך בפלט, מרכוז וקפיצות — הבוקסים הם הכוונה, לא אמת מוחלטת'],
+};
+const SEV = { bad: ['טעות', 'bad'], warn: ['אזהרה', 'warn'], info: ['מידע', ''] };
+const mmss = s => s == null ? '' : `${Math.floor(s / 60)}:${(s % 60).toFixed(1).padStart(4, '0')}`;
+async function renderErrorReview(box, id) {
+  let rv;
+  try { rv = await api(`/api/evaluations/${id}/review`); } catch (e) { box.replaceChildren(h('div', { class: 'banner warn' }, `סקירת הטעויות לא נטענה: ${e.message}`)); return; }
+  const s = rv.summary, by = c => rv.items.filter(i => i.category === c);
+  const row = i => h('tr', { 'data-type': i.type, 'data-severity': i.severity },
+    h('td', {}, pill(SEV[i.severity][0], SEV[i.severity][1])),
+    h('td', {}, i.video ? (i.video.source_id ? h('a', { href: `#/annotate/${i.video.source_id}${i.start_frame != null ? `?f=${i.start_frame}` : ''}`, 'data-testid': 'review-jump' }, ltr(i.video.name)) : ltr(i.video.name)) : '—'),
+    h('td', {}, i.start_sec != null ? ltr(`${mmss(i.start_sec)}–${mmss(i.end_sec)}`) : ''),
+    h('td', {}, i.athlete?.label ?? ''),
+    h('td', {}, i.explain_he));
+  const section = c => { const its = by(c); const bad = its.filter(i => i.severity === 'bad').length;
+    return h('details', { class: 'card', open: bad > 0, 'data-testid': `review-${c}`, style: { marginBottom: '10px' } },
+      h('summary', { style: { padding: '10px', cursor: 'pointer' } }, h('strong', {}, REVIEW_CAT[c][0]), ' ', pill(`${its.length}`, bad ? 'bad' : its.length ? 'warn' : ''), h('span', { class: 'meta' }, ` · ${REVIEW_CAT[c][1]}`)),
+      h('div', { class: 'body' }, its.length ? h('table', { class: 't' }, h('thead', {}, h('tr', {}, ['חומרה', 'סרטון', 'זמן', 'גולש', 'מה קרה'].map(x => h('th', {}, x)))), h('tbody', {}, its.map(row)))
+        : h('div', { class: 'meta' }, 'לא נמצאו בעיות בקטגוריה הזו'),
+        c === 'identity' && rv.identity_map.length ? h('table', { class: 't', 'data-testid': 'identity-map', style: { marginTop: '8px' } }, h('thead', {}, h('tr', {}, ['זהות בפייפליין', 'מופתה ל', 'בפועל הופיעו'].map(x => h('th', {}, x)))),
+          h('tbody', {}, rv.identity_map.map(m => h('tr', {}, h('td', {}, ltr(m.pipeline_athlete_key)), h('td', {}, m.mapped_to?.label ?? '—'), h('td', {}, m.seen_as.map(a => `${a.label} (${a.events})`).join(', ')))))) : null,
+        c === 'assembly' && rv.outputs.length ? h('table', { class: 't', 'data-testid': 'outputs-table', style: { marginTop: '8px' } }, h('thead', {}, h('tr', {}, ['סרטון פלט', 'גלים', 'גולשים'].map(x => h('th', {}, x)))),
+          h('tbody', {}, rv.outputs.map(o => h('tr', {}, h('td', {}, ltr(o.output_id)), h('td', {}, o.events), h('td', {}, o.athletes.map(a => `${a.label} (${a.events})`).join(', ') || '—'))))) : null,
+        c === 'framing' ? h('div', { class: 'meta', style: { marginTop: '6px' } }, rv.framing.length ? `נבדקו ${s.framing_outputs_evaluated} מתוך ${rv.framing.length} סרטוני פלט (רק פלטים שכל הקליפים שלהם מסרטוני ההערכה). מרכוז ללא יעד שהוגדר בתיוג נמדד מול מרכז הפריים — לאבחון בלבד.` : 'לא יובאו קובצי EDL של הריצה הזו — אי אפשר לבדוק מרכוז. ייבא EDL ב"בקרת עריכה".') : null));
+  };
+  box.replaceChildren(h('h2', { style: { fontSize: '15px', marginTop: '18px' } }, 'סקירת טעויות — כל הבחירות של הפייפליין מול האמת'),
+    h('div', { class: 'sub' }, `${s.videos} סרטונים (${rv.splits.join(', ')}) · ${s.gt_events} גלים מתויגים · ${s.matched} נמצאו, מתוכם ${s.matched_without_issue} בלי שום הערה`),
+    h('div', { class: 'stats', 'data-testid': 'review-summary' }, [['השתמש ולא היה צריך', s.used_wrongly], ['לא השתמש והיה צריך', s.missed], ['· נפסלו', s.missed_rejected], ['· לא זוהו', s.missed_never_detected], ['זיהוי גולשים', s.identity_issues], ['שילוב קליפים', s.assembly_issues], ['חיתוך', s.trim_issues], ['מרכוז', s.framing_issues]]
+      .map(([l, v]) => h('div', { class: 'stat' }, h('b', {}, v), h('span', {}, l)))),
+    ...Object.keys(REVIEW_CAT).map(section));
 }
 
 // ---------------- Settings ----------------
