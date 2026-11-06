@@ -776,6 +776,28 @@ await scenario('dragging an event edge near the next event sticks to it exactly 
   assert.equal(draft(s0.id).segments.find(x => x.id === 'wipe').start_frame, 150);
 });
 
+await scenario('typing a note while tracking saves in the background: the field is not replaced under the operator, no DOM error', async () => {
+  const s0 = src('DJI_0414.mp4'), owner = s0.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const B = f => ({ x: (2 * f - 4) / 1280, y: 326 / 720, w: 48 / 1280, h: 48 / 720 });
+  const cur = await (await fetch(`${base}/api/sources/${s0.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  c.segments = [{ id: 'note-ev', start_frame: 30, end_frame: 200, event_type: 'wave_ride', athlete_id: owner, usability: 'usable', decision: 'include', reason_codes: [], key_moments: {}, notes: '', framing_mode: null, target: null }];
+  c.keyframes = []; c.box_verifications = [];
+  c.tracks = [{ id: 'own', athlete_id: owner, points: [{ frame: 40, bbox: B(40), origin: 'manual' }] }];   // unfinished: resumes on open
+  const put = await fetch(`${base}/api/sources/${s0.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  const before = errors.length;
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s0.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await page.locator('[data-testid=segment]').first().click(); await page.waitForSelector('[data-testid=segform]');
+  if (!await page.locator('[data-testid=event-more]').evaluate(d => d.open)) await page.click('[data-testid=event-more] summary');
+  const text = 'גל ארוך, נפילה בסוף, הגולש חוזר לחתור החוצה';
+  await page.click('#f-notes'); await page.keyboard.type(text, { delay: 90 });   // ~4 s while tracking commits stretches
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'f-notes', 'still typing in the same field');
+  await page.locator('#f-notes').blur(); await trackingIdle(); await saved();
+  assert.equal(draft(s0.id).segments.find(x => x.id === 'note-ev').notes, text, 'every character typed was kept');
+  assert.deepEqual(errors.slice(before), [], 'no DOM error while repainting');
+});
+
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
 await browser.close(); server.close();
 const ok = results.filter(r => r.ok).length;

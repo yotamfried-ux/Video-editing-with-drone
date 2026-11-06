@@ -845,7 +845,9 @@ async function runTrack(athleteId, around) {
       const results = [];
       for (const j of unit) {
         const span = Math.abs(j.to - j.from);
-        const r = await trackBox({ src, fps: S.fps, from: j.from, to: j.to, bbox: j.bbox, step, signal: ctl.signal, hold: () => alive() && !!S?.playing,
+        // the other boxes drawn for this athlete, nearest first: the tracker measures the athlete's extent with the colours of the cleanest
+        const refs = (trackOf(C(), athleteId)?.points ?? []).filter(p => p.origin === 'manual' && p.frame !== j.from).sort((a, b) => Math.abs(a.frame - j.from) - Math.abs(b.frame - j.from)).slice(0, 4).map(p => ({ frame: p.frame, bbox: p.bbox }));
+        const r = await trackBox({ src, fps: S.fps, from: j.from, to: j.to, bbox: j.bbox, step, refs, signal: ctl.signal, hold: () => alive() && !!S?.playing,
           onProgress: p => { if (!alive()) return ctl.abort(); me.pct = (done + p * span) / work; paintTrackHud(); } });
         results.push({ ...j, ...r }); done += span;
       }
@@ -917,7 +919,18 @@ function fuseUnit(results) {
       const a = seriesAt(fS, f), b = seriesAt(bS, f);
       if (!a && !b) continue;
       const w = (B - f) / (B - A);                                   // weight of A's side: 1 at A, 0 at B
-      const bbox = a && b ? { x: a.bbox.x * w + b.bbox.x * (1 - w), y: a.bbox.y * w + b.bbox.y * (1 - w), w: a.bbox.w * w + b.bbox.w * (1 - w), h: a.bbox.h * w + b.bbox.h * (1 - w) } : (a ?? b).bbox;
+      // centre: blended by distance from each anchor. Size: the box must hold the whole athlete + equipment, so in the
+      // middle it takes the larger of the two estimates (one pass may have lost the athlete's full extent), easing to
+      // each drawn box at its end so the path still meets it exactly.
+      let bbox = (a ?? b).bbox;
+      if (a && b) {
+        const L = (p, q) => p * w + q * (1 - w), k = Math.min(1, 4 * w * (1 - w));
+        const cx = L(a.bbox.x + a.bbox.w / 2, b.bbox.x + b.bbox.w / 2), cy = L(a.bbox.y + a.bbox.h / 2, b.bbox.y + b.bbox.h / 2);
+        const bw = L(a.bbox.w, b.bbox.w), bh = L(a.bbox.h, b.bbox.h);
+        const ww = bw + (Math.max(a.bbox.w, b.bbox.w) - bw) * k, hh = bh + (Math.max(a.bbox.h, b.bbox.h) - bh) * k;
+        const x = Math.max(0, cx - ww / 2), y = Math.max(0, cy - hh / 2);   // always inside the picture (the server refuses otherwise)
+        bbox = { x, y, w: Math.min(1 - x, ww), h: Math.min(1 - y, hh) };
+      }
       best.set(f, { frame: f, bbox, score: Math.min(a?.score ?? 1, b?.score ?? 1), eff: 1 });
     }
     return { best, lost };
@@ -1214,6 +1227,14 @@ function fillInterpolated(s) {
 // ---------------- inspector ----------------
 function paintInspector() {
   const el = $('#insp'); if (!el) return;
+  // While the operator is typing in a text field of the panel, a background repaint (tracking finished, a save came
+  // back) would replace the field under them: removing a focused, edited field fires its change handler, which repaints
+  // the panel again in the middle of this repaint (a DOM error) and loses what they are typing. Repaint once they leave it.
+  const a = document.activeElement;
+  if (a && el.contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && /^(text|search|number|)$/.test(a.type)))) {
+    if (!S.inspDeferred) { S.inspDeferred = true; a.addEventListener('blur', () => setTimeout(() => { if (!S) return; S.inspDeferred = false; paintInspector(); }, 0), { once: true }); }
+    return;
+  }
   // Simple marking mode: no tab bar. The event flow is the home screen; "שיוך הסרטון" and "בדיקת BOX" open as
   // sub-screens with one clear way back.
   if (S.inspTab === 'associate' || S.inspTab === 'box') {
@@ -1760,7 +1781,7 @@ function segForm(s) {
       }, 'ציור תיבה ', h('kbd', {}, 'B')),
       h('button', { class: 'btn sm', 'data-testid': 'insp-tab-box', disabled: !kfs.length, title: kfs.length ? '' : 'צייר קודם תיבה על הגולש', onclick: () => { S.inspTab = 'box'; refresh(); } }, 'בדוק את ה-BOX לאורך האירוע ←')
     ),
-    h('div', { class: 'meta' }, 'צייר תיבה על הגולש בפריים אחד, בכל מקום בסרטון: היא עוקבת אחריו לבד מתחילת הסרטון ועד סופו. אם היא סטתה באיזשהו רגע - גרור אותה לגולש באותו רגע, והמעקב מתוקן לפני ואחרי.'),
+    h('div', { class: 'meta' }, 'צייר תיבה בפריים אחד, בכל מקום בסרטון, סביב הספורטאי יחד עם הציוד שלו (גולש וגלשן; שחקן והכדור שלידו): היא עוקבת אחריו לבד מתחילת הסרטון ועד סופו, וגדלה כשהוא מסתובב או מתקרב כך שהכול נשאר בתוכה. אם היא סטתה או חתכה חלק באיזשהו רגע - גרור או הגדל אותה באותו רגע, והמעקב מתוקן לפני ואחרי.'),
     (() => {
       const key = boxAth(s) ?? '', t = trackOf(C(), boxAth(s) ?? null), lost = S.trackLost?.[key];
       const pts = t?.points ?? [], tr = pts.filter(p => p.origin === 'suggested'), an = pts.filter(p => p.origin === 'manual');

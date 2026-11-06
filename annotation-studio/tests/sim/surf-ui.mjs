@@ -3,7 +3,8 @@
 // the "operator" drags it onto the surfer once (a correction), and the Studio re-tracks before and after.
 // Reports accuracy after each correction. Exit code 1 if the video is not fully on-target within MAX_FIX corrections.
 //   python3 scripts/sim-surf.py /tmp/surf && node tests/sim/surf-ui.mjs /tmp/surf [anchorFrame]
-// The box must also keep its size in proportion to the picture while the camera zooms (--zoomrate 0.2: closing in fast).
+// The box must always hold the whole athlete + board, also while the camera zooms (--zoomrate 0.2: closing in fast) and
+// the surfer turns and comes closer, without becoming much looser than drawn.
 import path from 'node:path'; import { mkdirSync, copyFileSync, readFileSync, rmSync } from 'node:fs'; import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { createContext } from '../../server/context.mjs';
@@ -37,18 +38,22 @@ const ov = async () => page.locator('#ov').boundingBox();
 const pad = (g, p) => ({ x: g.x - g.w * p, y: g.y - g.h * p, w: g.w * (1 + 2 * p), h: g.h * (1 + 2 * p) });
 const idle = async () => { await page.waitForTimeout(400); await page.waitForFunction(() => { const h = document.querySelector('#hudtrack'); return h && h.style.display === 'none'; }, undefined, { timeout: 240000 }); await page.waitForSelector('[data-testid=savepill][data-state=saved]', { timeout: 30000 }); };
 const err = p => { const t = T[p.frame]; return Math.hypot((p.bbox.x + p.bbox.w / 2 - t.x - t.w / 2) * meta.w, (p.bbox.y + p.bbox.h / 2 - t.y - t.h / 2) * meta.h) / Math.hypot(t.w * meta.w, t.h * meta.h); };
-// size: the box must keep its proportion to the picture as the camera zooms in or out (truth.zoom); the drawn box's
-// ratio must hold: a loose box stays loose by the same factor. zoomDrift = worst |log| of that ratio over the track.
+// size: as the camera zooms and the athlete turns / comes closer, the box follows the athlete + equipment. Holding them
+// whole comes first, so a box drawn around a surfer lying flat stays that wide when they stand up and grows in height:
+// it may get looser than drawn, but not without bound (loose = box size / truth size, relative to the drawn box's).
 const sizeOf = b => Math.sqrt(b.w * meta.w * b.h * meta.h);
-const zoomDrift = pts => { const a = pts.find(p => p.origin === 'manual') ?? pts[0]; const r0 = sizeOf(a.bbox) / T[a.frame].zoom;
-  return Math.max(...pts.map(p => Math.abs(Math.log(sizeOf(p.bbox) / T[p.frame].zoom / r0)))); };
-const MAX_ZOOM_DRIFT = 0.15;
+const loose = pts => { const a = pts.find(p => p.origin === 'manual') ?? pts[0]; const r0 = sizeOf(a.bbox) / sizeOf(T[a.frame]);
+  return Math.max(...pts.map(p => sizeOf(p.bbox) / sizeOf(T[p.frame]) / r0)); };
+const MAX_LOOSE = 2.5;
+// containment: the box must hold the whole athlete AND their equipment (surfer + board): share of the truth box inside it
+const cover = p => { const t = T[p.frame], b = p.bbox, ix = Math.max(0, Math.min(b.x + b.w, t.x + t.w) - Math.max(b.x, t.x)), iy = Math.max(0, Math.min(b.y + b.h, t.y + t.h) - Math.max(b.y, t.y)); return ix * iy / (t.w * t.h); };
+const MIN_COVER = 0.95;
 const report = label => {
   const pts = draft().tracks?.[0]?.points ?? [];
   const bad = pts.filter(p => err(p) >= 0.5).map(p => p.frame);
   const fs = pts.map(p => p.frame);
-  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2), zoomDrift: +zoomDrift(pts).toFixed(2) };
-  if (process.env.SIM_DUMP) console.log(pts.map(p => `${p.frame}:${(sizeOf(p.bbox) / T[p.frame].zoom).toFixed(1)}/${err(p).toFixed(2)}`).join(" "));
+  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2), maxLoose: +loose(pts).toFixed(2), minCover: +Math.min(...pts.map(cover)).toFixed(2), worstCoverAt: pts.reduce((a, p) => cover(p) < cover(a) ? p : a, pts[0])?.frame };
+  if (process.env.SIM_DUMP) console.log(pts.map(p => `${p.frame}:${(sizeOf(p.bbox) / sizeOf(T[p.frame])).toFixed(2)}/${err(p).toFixed(2)}/c${cover(p).toFixed(2)}`).join(" "));
   console.log(JSON.stringify(r)); return r;
 };
 // 1) the operator draws one (loose) box
@@ -78,7 +83,7 @@ while ((r.firstBad != null || r.from > 0 || r.to < last) && fixes < MAX_FIX) {
   r = report(`after correction ${fixes} at f${f}`);
 }
 await page.screenshot({ path: path.join(path.dirname(clip), 'sim-ui.png') });
-const pass = r.offTarget === 0 && r.from === 0 && r.to === src.frame_count - 1 && r.zoomDrift <= MAX_ZOOM_DRIFT;
+const pass = r.offTarget === 0 && r.from === 0 && r.to === src.frame_count - 1 && r.maxLoose <= MAX_LOOSE && r.minCover >= MIN_COVER;
 console.log(JSON.stringify({ result: pass ? 'PASS' : 'FAIL', corrections: fixes, pageErrors: errors }));
 await b.close(); server.close();
 process.exit(pass && !errors.length ? 0 : 1);
