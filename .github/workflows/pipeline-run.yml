@@ -301,6 +301,9 @@ jobs:
           SPORTREEL_ULTRALYTICS_FPS: '30'
           SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '5' }}
           TMP_DIR: /tmp/dtor
+          # Ground-truth evaluation evidence (predictions/v1 + EDL per output) for Annotation Studio.
+          # Observational only: never alters or fails a run.
+          SPORTREEL_EXPORT_EDL: '1'
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
         run: bash scripts/run_pipeline_with_diagnostics.sh
