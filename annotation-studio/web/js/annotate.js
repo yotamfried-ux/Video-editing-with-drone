@@ -1023,6 +1023,16 @@ function mixedGrid(t) {
   }
   return false;
 }
+/**
+ * True when a track's box pumps in size (live 0115, tracked with the first containment version: around each drawn box
+ * the height swung 0.28 -> 0.73 -> 0.33). Two or more neighbouring samples whose area differs by more than ~1.6x.
+ */
+function pumpingTrack(t) {
+  const pts = [...t.points].sort((a, b) => a.frame - b.frame);
+  let n = 0;
+  for (let i = 1; i < pts.length; i++) { const a = pts[i - 1].bbox, b = pts[i].bbox; if (Math.abs(Math.log((b.w * b.h) / (a.w * a.h))) > 0.5) n++; }
+  return n >= 2;
+}
 /** The one athlete every event of this video is about (null when there are none or several). */
 function soleEventAthlete(c) {
   const ids = new Set(c.segments.map(s => s.athlete_id ?? null)); ids.delete(null);
@@ -1093,6 +1103,11 @@ function adoptLegacyBoxes() {
   // otherwise an approved video whose draft IS the approved version is never changed behind the operator's back
   // (no resume / re-sync / re-assign): any change would silently make it "changed since approval"
   if (S.draft.approved_current) return;
+  // a box that pumps in size (saved by the first containment version) is re-tracked once, steadily
+  for (const t of C().tracks ?? []) if (pumpingTrack(t) && t.points.some(p => p.origin === 'manual') && !(S.autoTried ??= new Set()).has(`pump:${t.id}`)) {
+    S.autoTried.add(`pump:${t.id}`);
+    setTimeout(() => S && trackAthlete(t.athlete_id ?? null, null), 300);
+  }
   claimOrphanTrack();
   syncEventsOnOpen();
   // an existing track that does not cover the whole video yet (left unfinished) is completed in the background
