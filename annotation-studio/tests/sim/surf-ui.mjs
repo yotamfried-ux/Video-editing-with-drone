@@ -45,6 +45,13 @@ const sizeOf = b => Math.sqrt(b.w * meta.w * b.h * meta.h);
 const loose = pts => { const a = pts.find(p => p.origin === 'manual') ?? pts[0]; const r0 = sizeOf(a.bbox) / sizeOf(T[a.frame]);
   return Math.max(...pts.map(p => sizeOf(p.bbox) / sizeOf(T[p.frame]) / r0)); };
 const MAX_LOOSE = 2.5;
+// ...and never shrinks away from the athlete (live 0112: water read as a camera zoom-out shrank the box to half)
+// (measured against the athlete's physical size on screen, truth.scale = zoom x own size: the outline of a turning
+// surfer changes area by itself)
+const tight = pts => { const a = pts.find(p => p.origin === 'manual') ?? pts[0]; const r0 = sizeOf(a.bbox) / T[a.frame].scale;
+  return Math.min(...pts.map(p => sizeOf(p.bbox) / T[p.frame].scale / r0)); };
+// reported only: a turning surfer's projected size changes by itself; a box shrinking away from the athlete shows up
+// as lost coverage (minCover), which is asserted
 // containment: the box must hold the whole athlete AND their equipment (surfer + board): share of the truth box inside it
 const cover = p => { const t = T[p.frame], b = p.bbox, ix = Math.max(0, Math.min(b.x + b.w, t.x + t.w) - Math.max(b.x, t.x)), iy = Math.max(0, Math.min(b.y + b.h, t.y + t.h) - Math.max(b.y, t.y)); return ix * iy / (t.w * t.h); };
 // The box grows to hold the athlete + equipment only modestly (real footage: the colour blob also catches wake and foam,
@@ -58,7 +65,7 @@ const report = label => {
   const pts = draft().tracks?.[0]?.points ?? [];
   const bad = pts.filter(p => err(p) >= 0.5).map(p => p.frame);
   const fs = pts.map(p => p.frame);
-  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2), maxLoose: +loose(pts).toFixed(2), maxSizeStep: +sizeStep(pts).toFixed(2), minCover: +Math.min(...pts.map(cover)).toFixed(2), worstCoverAt: pts.reduce((a, p) => cover(p) < cover(a) ? p : a, pts[0])?.frame };
+  const r = { label, points: pts.length, from: Math.min(...fs), to: Math.max(...fs), offTarget: bad.length, firstBad: bad[0] ?? null, maxErr: +Math.max(...pts.map(err)).toFixed(2), maxLoose: +loose(pts).toFixed(2), minTight: +tight(pts).toFixed(2), maxSizeStep: +sizeStep(pts).toFixed(2), minCover: +Math.min(...pts.map(cover)).toFixed(2), worstCoverAt: pts.reduce((a, p) => cover(p) < cover(a) ? p : a, pts[0])?.frame };
   if (process.env.SIM_DUMP) console.log(pts.map(p => `${p.frame}:${(sizeOf(p.bbox) / sizeOf(T[p.frame])).toFixed(2)}/${err(p).toFixed(2)}/c${cover(p).toFixed(2)}`).join(" "));
   console.log(JSON.stringify(r)); return r;
 };

@@ -193,7 +193,7 @@ const bil = (I, x, y) => {
  *  picture AROUND the athlete: `ex` = {x0,y0,x1,y1} in small-image units is left out, since the athlete moves on its own.
  *  Returns {s, tx, ty} in units of the small image, or null when the fit is not trustworthy (e.g. a background with
  *  too little detail to tell how the camera moved: then the camera is assumed still). */
-function cameraMotion(A, B, ex) {
+function fitMotion(A, B, ex, reg) {
   const PA = [A, half(A)], PB = [B, half(B)];
   let s = 1, tx = 0, ty = 0;
   for (let lv = 1; lv >= 0; lv--) {
@@ -202,7 +202,8 @@ function cameraMotion(A, B, ex) {
     for (let it = 0; it < 8; it++) {
       let h00 = 0, h01 = 0, h02 = 0, h11 = 0, h12 = 0, h22 = 0, g0 = 0, g1 = 0, g2 = 0, ss = 0, nn = 0;
       const f = lv ? 0.5 : 1;
-      for (let y = 2; y < a.h - 2; y++) for (let x = 2; x < a.w - 2; x++) {
+      const X0 = Math.max(2, Math.floor(reg.x0 * f)), X1 = Math.min(a.w - 2, Math.ceil(reg.x1 * f)), Y0 = Math.max(2, Math.floor(reg.y0 * f)), Y1 = Math.min(a.h - 2, Math.ceil(reg.y1 * f));
+      for (let y = Y0; y < Y1; y++) for (let x = X0; x < X1; x++) {
         if (ex && x >= ex.x0 * f && x <= ex.x1 * f && y >= ex.y0 * f && y <= ex.y1 * f) continue;
         const u = cx + s * (x - cx) + tx, v = cy + s * (y - cy) + ty;
         if (u < 1 || v < 1 || u >= b.w - 2 || v >= b.h - 2) continue;
@@ -213,7 +214,7 @@ function cameraMotion(A, B, ex) {
         h00 += w * j0 * j0; h01 += w * j0 * gx; h02 += w * j0 * gy; h11 += w * gx * gx; h12 += w * gx * gy; h22 += w * gy * gy;
         g0 += w * j0 * r; g1 += w * gx * r; g2 += w * gy * r; ss += r * r; nn++;
       }
-      if (nn < a.w * a.h * 0.3) return null;
+      if (nn < (X1 - X0) * (Y1 - Y0) * 0.3) return null;
       // enough detail in both directions (and for scale) to measure the camera; a flat sky/sea is not
       if (h11 / nn < 4 || h22 / nn < 4 || h00 / (nn * (a.w * a.w + a.h * a.h) / 12) < 0.5) return null;
       // solve H d = -g (3x3, Cramer)
@@ -228,6 +229,21 @@ function cameraMotion(A, B, ex) {
     }
   }
   return { s, tx, ty };
+}
+/**
+ * The camera's zoom and pan between two frames. A real zoom scales the WHOLE picture about its centre, so the left,
+ * right, top and bottom halves each show the same scale; moving water (waves running in different directions, a
+ * breaking wave) can look like a zoom to a whole-picture fit, but its halves disagree. A scale is used only when all
+ * four halves agree with it; otherwise the camera is taken as not zooming (live 0112: the box shrank ~1.5% per step
+ * on a static shot of breaking waves). The pan is kept either way.
+ */
+function cameraMotion(A, B, ex) {
+  const all = { x0: 0, y0: 0, x1: A.w, y1: A.h }, g = fitMotion(A, B, ex, all);
+  if (!g || Math.abs(g.s - 1) < 0.002) return g;
+  const hw = A.w / 2, hh = A.h / 2;
+  const parts = [{ ...all, x1: hw }, { ...all, x0: hw }, { ...all, y1: hh }, { ...all, y0: hh }].map(r => fitMotion(A, B, ex, r));
+  const agree = parts.every(p => p && (p.s - 1) / (g.s - 1) >= 0.2);   // each half zooms the same way, noticeably
+  return agree ? g : { s: 1, tx: g.tx, ty: g.ty };
 }
 
 /**
@@ -316,7 +332,8 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     if (refs.length) { await seek(v, at(from)); F = features(ctx, v, W, H); RGB = readRGB(ctx, W, H); }
     const b0 = ref.e;
     const pad = b0 ? clamp(Math.max(ref.bw / (b0.x1 - b0.x0), ref.bh / (b0.y1 - b0.y0)), 1.06, 1.6) : 1.15;   // drawn box / blob
-    const grow = { l: 0, t: 0, r: 0, b: 0 };   // how far the box reaches past the tracked box, per side (smoothed)
+    const grow = { l: 0, t: 0, r: 0, b: 0 };
+    let camAcc = 1, camSteps = 0;   // camera zoom applied since the last check against the athlete's own look   // how far the box reaches past the tracked box, per side (smoothed)
     let dens = b0 ? b0.n / (ref.bw * ref.bh) : 0;   // how densely the athlete's colours fill a box drawn around them
     let T = T0;
     const dir = to >= from ? 1 : -1, total = Math.abs(to - from), out = [];
@@ -365,6 +382,7 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
         const ncx = ox + m.s * (bx + bw / 2 - ox) + m.tx * k, ncy = oy + m.s * (by + bh / 2 - oy) + m.ty * k;
         const z = clamp(m.s, 0.25 * bw0 / bw, 6 * bw0 / bw);
         bw = clamp(bw * z, 6, W); bh = clamp(bh * z, 6, H); bx = clamp(ncx - bw / 2, 0, W - bw); by = clamp(ncy - bh / 2, 0, H - bh);
+        camAcc *= z;
       }
       // 1) colour: mean-shift from the predicted centre onto the athlete-coloured pixels (robust to foam and water)
       const pcx = bx + vx + bw / 2, pcy = by + vy + bh / 2;
@@ -410,6 +428,16 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
       vx = 0.5 * vx + 0.5 * (nx - bx) / n1; vy = 0.5 * vy + 0.5 * (ny - by) / n1;
       const vmax = 0.35 * Math.hypot(bw, bh), vm = Math.hypot(vx, vy); if (vm > vmax) { vx *= vmax / vm; vy *= vmax / vm; }   // no runaway prediction
       bx = nx; by = ny; bw = nw; bh = nh; miss = 0; lastGood = f;
+      // every few steps: if the box fits the athlete better without the zoom the camera estimate added since the last
+      // check, that zoom was the water moving, not the camera (live 0112: the box shrank ~1.5% per step): undo it
+      if (++camSteps >= 5) {
+        if (Math.abs(Math.log(camAcc)) > 0.02 && sb > 0.5) {
+          const ow = clamp(bw / camAcc, 6, W), oh = clamp(bh / camAcc, 6, H), cx2 = bx + bw / 2, cy2 = by + bh / 2;
+          const vNow = nccPatch(patch(F, W, H, bx, by, bw, bh, tw, th), T, wt, sumW), vOld = nccPatch(patch(F, W, H, cx2 - ow / 2, cy2 - oh / 2, ow, oh, tw, th), T, wt, sumW);
+          if (vOld > vNow + 0.01) { bw = ow; bh = oh; bx = clamp(cx2 - bw / 2, 0, W - bw); by = clamp(cy2 - bh / 2, 0, H - bh); }
+        }
+        camAcc = 1; camSteps = 0;
+      }
       out.push({ frame: f, score: +conf.toFixed(3), bbox: contain(bx + bw / 2, by + bh / 2, f) });
       if (sb > 0.6) {                                                 // slow adaptation, anchored to the drawn box
         const P = patch(F, W, H, bx, by, bw, bh, tw, th);
@@ -421,3 +449,6 @@ export async function trackBox({ src, fps, from, to, bbox, step = 3, onProgress,
     }
   } finally { v.removeAttribute('src'); v.load(); }
 }
+
+// for tests (pure functions, no browser needed)
+export const _camera = { cameraMotion, smallGray, fit: fitMotion };
