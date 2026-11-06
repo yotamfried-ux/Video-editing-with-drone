@@ -625,6 +625,11 @@ await scenario('approval panel: open items are in Hebrew, say how to fix them, a
   const txt = await item.textContent();
   assert.match(txt, /אירועים שמישים בלי גולש מבצע/); assert.match(txt, /מי ביצע את הפעולה/);
   assert.ok(!/usable_without_primary/.test(await page.textContent('[data-testid=approval-panel]')), 'no raw keys on screen');
+  // each open item names its events (type + time), and comes before the BOX summary so it is not read as a BOX problem
+  const chips = item.locator('[data-testid=unresolved-event]');
+  assert.equal(await chips.count(), c.segments.length, 'one button per event with this open item');
+  assert.match(await chips.first().textContent(), /\d{2}:\d{2}/);
+  assert.ok(await page.evaluate(() => { const u = document.querySelector('[data-testid=unresolved]'), b = document.querySelector('[data-testid=approval-exception-boxes]'); return !b || !!(u.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING); }), 'open items come before the BOX summary');
   await item.click();
   await page.waitForSelector('[data-testid=segform]');
   const sel = await page.evaluate(() => document.querySelector('[data-testid=segment].sel')?.getAttribute('data-id') ?? document.querySelector('[data-testid=segment].sel') !== null);

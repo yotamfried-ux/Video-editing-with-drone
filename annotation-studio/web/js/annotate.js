@@ -1984,6 +1984,16 @@ function approvalForm() {
   return h('div', { 'data-testid': 'approval-panel' },
     h('div', { class: 'meta' }, 'אישור יוצר גרסה בלתי ניתנת לשינוי של הטיוטה. "נשמר" אינו "מאושר".'),
     tracking ? h('div', { class: 'banner warn', 'data-testid': 'approval-wait-tracking' }, 'המעקב אחרי הגולש עדיין רץ. אפשר לאשר כשהוא יסתיים.') : null,
+    // what is still open, by event: named (type + time) and clickable, before the BOX summary, so it is not read as a BOX problem
+    openItems.length ? h('div', { class: 'meta', style: { marginTop: '6px' } }, h('b', {}, 'פתוח לפני אישור (באירועים, לא ב-BOX):')) : null,
+    openItems.length ? h('ul', { class: 'list', 'data-testid': 'unresolved' }, openItems.map(([k, n]) => {
+      const [is, fix] = UNRES_FIX[k] ?? [null, null], segs = is ? [...C().segments].sort((a, b) => a.start_frame - b.start_frame).filter(is) : [], seg = segs[0] ?? null;
+      return h('li', { 'data-testid': 'unresolved-item', 'data-key': k, style: { cursor: seg ? 'pointer' : 'default', flexWrap: 'wrap' }, title: seg ? 'לחץ כדי לעבור לאירוע' : '', onclick: () => gotoEvent(seg) },
+        h('span', { style: { flex: 1 } }, UNRES_HE[k] ?? k), h('b', {}, n),
+        fix ? h('div', { class: 'meta', style: { width: '100%' } }, `${seg ? '→ ' : ''}${fix}`) : null,
+        segs.length ? h('div', { style: { width: '100%', display: 'flex', gap: '4px', flexWrap: 'wrap', marginTop: '4px' } }, segs.map(x =>
+          h('button', { class: 'btn sm', 'data-testid': 'unresolved-event', onclick: e => { e.stopPropagation(); gotoEvent(x); } }, `${eventHe(x.event_type, effSport(x))} · ${timecode(x.start_frame, S.fps)}`))) : null);
+    })) : h('div', { class: 'meta', 'data-testid': 'unresolved' }, 'אין פריטים פתוחים'),
     pv ? h('div', { class: 'meta', 'data-testid': 'approval-exception-boxes', 'data-to-verify': pv.to_verify, 'data-marked': pv.marked, 'data-not-checked': pv.not_checked },
       h('b', {}, 'מה האישור יעשה עם ה-BOX: '),
       `${pv.to_verify} יאומתו (לא סימנת אותן כשגויות, בחלק שצפית בו)`,
@@ -1993,12 +2003,6 @@ function approvalForm() {
       ` · ${pv.events_checked} מתוך ${pv.events} אירועים נצפו במלואם. תיבה שגויה: סמן ✕ או גרור אותה לפני האישור.`) : null,
     S.save !== 'saved' ? h('div', { class: 'meta', 'data-testid': 'approval-pending-save', style: { color: 'var(--unc)' } }, S.save === 'failed' ? 'השמירה האחרונה נכשלה — המצב כאן הוא של הגרסה השמורה בשרת.' : 'המצב כאן יתעדכן מיד אחרי השמירה האוטומטית.') : null,
     blockItems.length ? h('div', { class: 'banner bad', 'data-testid': 'approval-blocking' }, h('b', {}, 'חוסם אישור: '), blockItems.map(([k, n]) => `${UNRES_HE[k] ?? k}: ${n}`).join(' · ')) : null,
-    openItems.length ? h('ul', { class: 'list', 'data-testid': 'unresolved' }, openItems.map(([k, n]) => {
-      const [is, fix] = UNRES_FIX[k] ?? [null, null], seg = is ? [...C().segments].sort((a, b) => a.start_frame - b.start_frame).find(is) : null;
-      return h('li', { 'data-testid': 'unresolved-item', 'data-key': k, style: { cursor: seg ? 'pointer' : 'default', flexWrap: 'wrap' }, title: seg ? 'לחץ כדי לעבור לאירוע' : '', onclick: () => gotoEvent(seg) },
-        h('span', { style: { flex: 1 } }, UNRES_HE[k] ?? k), h('b', {}, n),
-        fix ? h('div', { class: 'meta', style: { width: '100%' } }, `${seg ? '→ ' : ''}${fix}`) : null);
-    })) : h('div', { class: 'meta', 'data-testid': 'unresolved' }, 'אין פריטים פתוחים'),
     (st?.box_qa?.per_segment ?? []).some(q => q.box_frames && q.status !== 'verified_in_checked_range') ? h('div', { class: 'meta' }, UNRES_HE.included_boxes_unverified) : null,
     h('div', { class: 'cols2' }, field('היקף אישור', h('select', { id: 'ap-scope', onchange: e => { scope = e.target.value; } }, [['source', 'כל הסרטון (מסמך מלא)'], ['interval', 'טווח (נרשם כהערה — הגרסה כוללת את כל המסמך)'], ['segment', 'מקטע (נרשם כהערה — הגרסה כוללת את כל המסמך)']].map(([k, l]) => h('option', { value: k }, l))), 'ap-scope'), field('סיבה / הערה', h('input', { type: 'text', id: 'ap-reason', oninput: e => { reason = e.target.value; } }), 'ap-reason')),
     openItems.length ? h('label', { style: { display: 'flex', gap: '6px', margin: '8px 0', color: 'var(--unc)' } }, h('input', { type: 'checkbox', 'data-testid': 'ack', onchange: e => { ack = e.target.checked; } }), `אני מאשר במפורש לאשר עם ${openItems.reduce((a, [, n]) => a + n, 0)} פריטים פתוחים — הם יירשמו כהסתייגויות ולא כאימות`) : null,
