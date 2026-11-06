@@ -422,6 +422,7 @@ function createSegment(s, e, athlete = null) {
     target: null
   }));
   S.sel = id; S.inspTab = 'event'; refresh(); setTimeout(() => $('#f-athlete')?.focus(), 0);
+  trackNewSpan(boxAth(C().segments.find(x => x.id === id)));
 }
 function jumpSeg(dir) {
   const starts = C().segments.map(s => s.start_frame).sort((a, b) => a - b);
@@ -570,6 +571,7 @@ function bindSegment(el, s) {
         const removed = repairOutOfRange(C());
         if (removed.length) toast(`הוסר אחרי שינוי האירוע: ${removed.join(' · ')}`);
         changed();
+        trackNewSpan(boxAth(s));
       } else seekFrame(S.frame);
       refresh();
     };
@@ -682,6 +684,7 @@ function paintOverlay() {
   const shown = new Set(C().segments.filter(x => S.frame >= x.start_frame && S.frame < x.end_frame && boxAt(x.id, S.frame)).map(x => boxAth(x) ?? null));
   for (const t of C().tracks ?? []) {
     if (shown.has(t.athlete_id ?? null)) continue;
+    const [lo, hi] = trackSpan(t.athlete_id ?? null); if (S.frame < lo || S.frame > hi) continue;   // only while the athlete is in their events
     const tb = trackBoxAt(t, S.frame); if (!tb) continue;
     const col = t.athlete_id ? athColor(t.athlete_id) : '#4cc9f0';
     const r = svgEl('rect', { class: 'bx interp sel', x: tb.bbox.x * W, y: tb.bbox.y * H, width: tb.bbox.w * W, height: tb.bbox.h * H, stroke: col, 'stroke-dasharray': tb.origin === 'manual' ? '' : '6 4', 'data-testid': 'track-box', 'data-track-box': t.id, style: 'cursor:move' });
@@ -813,14 +816,25 @@ async function pumpTracking() {
     if (mine.copy && !mine.copy.url && !mine.copy.failed) { mine.tracking = { pct: 0, waiting: true, ctl: new AbortController() }; paintTrackHud(); await mine.copyReady; } while (S === mine && mine.trackQueue?.length) { const q = mine.trackQueue.shift(); await runTrack(q.athleteId, q.around); } }
   finally { mine.trackBusy = false; mine.tracking = null; if (S === mine) { paintTrackHud(); refresh(); } }
 }
+/**
+ * The frames an athlete's box is tracked and shown on: from their first event to the end of their last (and any box the
+ * operator drew outside them). Before any event is marked, the whole video. Live 0094: two waves, two surfers - the
+ * first surfer's box went on after they had left the picture and settled on the second surfer's wave.
+ */
+function trackSpan(athleteId, c = C()) {
+  const segs = c.segments.filter(s => (boxAth(s, c) ?? null) === (athleteId ?? null));
+  if (!segs.length) return [0, S.total - 1];
+  const man = (trackOf(c, athleteId)?.points ?? []).filter(p => p.origin === 'manual').map(p => p.frame);
+  return [Math.min(...segs.map(s => s.start_frame), ...man), Math.min(S.total - 1, Math.max(...segs.map(s => s.end_frame - 1), ...man))];
+}
 /** Stretches to (re)compute, from the anchors as they are NOW. */
 function trackUnits(t, around) {
   const anchors = t.points.filter(p => p.origin === 'manual').sort((a, b) => a.frame - b.frame);
   if (!anchors.length) return [];
-  const last = S.total - 1, units = [];
+  const [first, last] = trackSpan(t.athlete_id ?? null), units = [];
   const k = around == null ? -1 : anchors.findIndex(p => p.frame === around);
   const i0 = around == null || k < 0 ? 0 : Math.max(0, k - 1), i1 = around == null || k < 0 ? anchors.length - 1 : Math.min(anchors.length - 1, k + 1);
-  if (i0 === 0 && anchors[0].frame > 0) units.push([{ from: anchors[0].frame, to: 0, bbox: anchors[0].bbox }]);
+  if (i0 === 0 && anchors[0].frame > first) units.push([{ from: anchors[0].frame, to: first, bbox: anchors[0].bbox }]);
   for (let i = i0; i < i1; i++) {
     const A = anchors[i], B = anchors[i + 1];
     if (B.frame - A.frame < 2) continue;
@@ -971,17 +985,28 @@ function commitUnit(athleteId, results, best) {
     t.points = t.points.filter(p => p.origin === 'manual' || p.frame < lo || p.frame > hi);
     for (const f of anchors.keys()) best.delete(f);
     for (const [f, b] of smoothSeries(best, anchors)) t.points.push({ frame: f, bbox: R5(b.bbox), origin: 'suggested' });
+    trimToSpan(c, t);
     t.points.sort((x, y) => x.frame - y.frame);
     syncSegmentsFromTrack(c, t);
   }, { quiet: true });
   // never re-render the timeline under a drag in progress (it would drop the pointer capture); the drag repaints on release
   if (!S.dragging) paintTimeline(); paintOverlay(); if (S.inspTab === 'event' && !S.dragging) paintInspector();
 }
+/** Tracked (not drawn) points outside the athlete's events are not about them: drop them. */
+function trimToSpan(c, t) {
+  const [lo, hi] = trackSpan(t.athlete_id ?? null, c);
+  const n = t.points.length;
+  t.points = t.points.filter(p => p.origin === 'manual' || (p.frame >= lo && p.frame <= hi));
+  return t.points.length !== n;
+}
+/** After an event changes, its athlete's box is tracked over the frames it now covers (only what is missing). */
+function trackNewSpan(aid) { const t = trackOf(C(), aid ?? null); if (t && t.points.some(p => p.origin === 'manual') && trackIncomplete(t)) setTimeout(() => S && trackAthlete(aid ?? null, null), 300); }
 /** True when the track does not yet cover the whole video densely (left unfinished, or made before this version). */
 function trackIncomplete(t) {
-  const pts = (t?.points ?? []).map(p => p.frame).sort((a, b) => a - b);
-  if (!pts.length) return false;
-  if (pts[0] > 0 || pts.at(-1) < S.total - 1) return true;
+  const [lo, hi] = trackSpan(t?.athlete_id ?? null);
+  const pts = (t?.points ?? []).map(p => p.frame).filter(f => f >= lo && f <= hi).sort((a, b) => a - b);
+  if (!pts.length) return (t?.points ?? []).some(p => p.origin === 'manual');
+  if (pts[0] > lo || pts.at(-1) < hi) return true;
   const maxGap = 4 * Math.max(1, Math.round(S.fps / 10));
   for (let i = 1; i < pts.length; i++) if (pts[i] - pts[i - 1] > maxGap) return true;
   return false;
@@ -1103,6 +1128,9 @@ function adoptLegacyBoxes() {
   // otherwise an approved video whose draft IS the approved version is never changed behind the operator's back
   // (no resume / re-sync / re-assign): any change would silently make it "changed since approval"
   if (S.draft.approved_current) return;
+  // tracked boxes outside the athlete's events (saved before the track was limited to them) are dropped
+  if ((C().tracks ?? []).some(t => C().segments.some(x => (boxAth(x) ?? null) === (t.athlete_id ?? null)) && t.points.some(p => p.origin !== 'manual' && (p.frame < trackSpan(t.athlete_id ?? null)[0] || p.frame > trackSpan(t.athlete_id ?? null)[1]))))
+    edit(c => { for (const t of c.tracks ?? []) trimToSpan(c, t); }, { quiet: true });
   // a box that pumps in size (saved by the first containment version) is re-tracked once, steadily
   for (const t of C().tracks ?? []) if (pumpingTrack(t) && t.points.some(p => p.origin === 'manual') && !(S.autoTried ??= new Set()).has(`pump:${t.id}`)) {
     S.autoTried.add(`pump:${t.id}`);
@@ -1172,6 +1200,7 @@ function setSegmentAthlete(segId, athleteId) {
     s.athlete_id = athleteId ?? null;
     reconcileVerifications(c);
   });
+  trackNewSpan(athleteId ?? null);
 }
 async function refreshStates() {
   if (!S || S.setId !== 'primary') return;   // states/track QA describe the primary Ground Truth stream

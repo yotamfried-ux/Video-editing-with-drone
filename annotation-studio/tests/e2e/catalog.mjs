@@ -261,7 +261,7 @@ await scenario('save button saves immediately and says so; watched ranges fill i
   assert.ok(Number(await page.getAttribute('[data-testid=coverage]', 'data-cov')) > 0);
 });
 
-await scenario('one drawn BOX follows the athlete through the WHOLE video; dragging it fixes the boxes before and after', async () => {
+await scenario('one drawn BOX follows the athlete over their event (and up to any box drawn outside it); a box drawn later fixes the boxes before and after', async () => {
   const s = src('DJI_0414.mp4');   // synthetic: red 40x40 "surfer" at x=2n, y=330 on 1280x720 (240 frames); event [30,91)
   const seg = draft(s.id).segments[0];
   const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
@@ -280,8 +280,9 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
   const t = (d.tracks ?? [])[0];
   assert.ok(t, 'a video-level track exists');
   const fs = t.points.map(p => p.frame);
-  assert.equal(Math.min(...fs), 0, 'track reaches the first frame of the video');
-  assert.equal(Math.max(...fs), s.frame_count - 1, 'track reaches the last frame of the video');
+  // the athlete's box covers their event, not the whole video (live 0094: a box went on after its surfer had left)
+  assert.equal(Math.min(...fs), seg.start_frame, 'track starts where the athlete\'s event starts');
+  assert.equal(Math.max(...fs), seg.end_frame - 1, 'track ends where the athlete\'s event ends');
   for (const p of t.points) {
     const cx = (p.bbox.x + p.bbox.w / 2) * 1280, truth = Math.min(2 * p.frame, 1240) + 20;
     assert.ok(Math.abs(cx - truth) < 12, `frame ${p.frame}: box centre ${cx.toFixed(1)} follows the athlete at ${truth}`);
@@ -290,19 +291,18 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
   const ek = d.keyframes.filter(k => k.segment_id === seg.id);
   assert.equal(Math.min(...ek.map(k => k.frame)), seg.start_frame); assert.equal(Math.max(...ek.map(k => k.frame)), seg.end_frame - 1);
   assert.ok(ek.filter(k => k.origin === 'suggested').every(k => k.verification_status === 'unreviewed'));
-  // a box is shown far outside the event too
+  // outside the athlete's event no box is shown...
   await go(180);
-  assert.ok(await page.locator('[data-testid=track-box]').count() >= 1, 'box shown at frame 180, outside the event');
-  // correction: drag the box at frame 180 by +60 px -> anchor; the stretch on both sides is re-tracked from it
-  const r = await page.locator('[data-testid=track-box]').first().boundingBox();
-  await page.mouse.move(r.x + r.width / 2, r.y + r.height / 2); await page.mouse.down();
-  await page.mouse.move(r.x + r.width / 2 + 25, r.y + r.height / 2, { steps: 5 }); await page.mouse.up();
+  assert.equal(await page.locator('[data-testid=track-box]').count(), 0, 'no box at frame 180, outside the athlete\'s event');
+  // ...until the operator draws one there: it is an anchor, and the athlete is tracked up to it
+  await page.keyboard.press('b');
+  { const g = await fr(); await page.mouse.move(...px(2 * g - 4 + 25, 326)); await page.mouse.down(); await page.mouse.move(...px(2 * g + 44 + 25, 374), { steps: 5 }); await page.mouse.up(); }
   await until(() => !document.querySelector('[data-testid=track-running]') && !document.querySelector('#hudtrack:not([style*="none"])'), undefined, 90000);
   await saved();
   d = draft(s.id);
   const t2 = d.tracks[0];
-  assert.ok(t2.points.some(p => p.frame === 180 && p.origin === 'manual'), 'the dragged box is an anchor');
-  assert.equal(Math.max(...t2.points.map(p => p.frame)), s.frame_count - 1, 'still covers the whole video after the correction');
+  assert.ok(t2.points.some(p => p.frame === 180 && p.origin === 'manual'), 'the drawn box is an anchor');
+  assert.equal(Math.max(...t2.points.map(p => p.frame)), 180, 'the track now reaches the box drawn outside the event');
   // Two boxes drawn quickly one after the other: the second does NOT throw away the first one's tracking (queue),
   // and a track left incomplete is finished automatically when the video is opened again.
   await go(140);
@@ -315,7 +315,7 @@ await scenario('one drawn BOX follows the athlete through the WHOLE video; dragg
   await saved();
   { const t = draft(s.id).tracks[0], fs = t.points.map(p => p.frame).sort((a, b) => a - b);
     assert.ok([140, 220].every(f => t.points.some(p => p.frame === f && p.origin === 'manual')), 'both quick boxes are anchors');
-    assert.equal(fs[0], 0); assert.equal(fs.at(-1), s.frame_count - 1);
+    assert.equal(fs[0], seg.start_frame); assert.equal(fs.at(-1), 220, 'from the event start to the last drawn box');
     for (let i = 1; i < fs.length; i++) assert.ok(fs[i] - fs[i - 1] <= 12, `no hole in the track between ${fs[i - 1]} and ${fs[i]}`);
     // no shaking: between two consecutive drawn boxes the box moves smoothly (no back-and-forth between estimates).
     // Measured as the second difference of the centre, in px, sample to sample (the old two-grid merge gave ~40 px).
@@ -457,13 +457,15 @@ await scenario('saved catalogs repair themselves on open: events with no boxes g
     t.points = t.points.filter(p => p.origin === 'manual'); c.tracks = [t, orphan]; c.keyframes = []; c.box_verifications = [];
     await putD(cur, c); }
   await open();
-  for (let i = 0; i < 240 && !(draft(s.id).tracks.length === 1 && draft(s.id).tracks[0].points.length > 30 && draft(s.id).keyframes.length); i++) await page.waitForTimeout(500);
+  const allBoxed = d => d.tracks.length === 1 && d.tracks[0].points.length > 5 && d.segments.every(g => d.keyframes.filter(k => k.segment_id === g.id).length >= 3);
+  for (let i = 0; i < 240 && !allBoxed(draft(s.id)); i++) await page.waitForTimeout(500);
+  await trackingIdle();
   await saved();
   { const d = draft(s.id);
     assert.equal(d.tracks.length, 1, 'no track without a surfer is left');
     assert.equal(d.tracks[0].athlete_id, x, 'the boxes now belong to the surfer of the events');
     assert.ok(d.tracks[0].points.filter(p => p.origin === 'manual').length >= 2, 'its hand-drawn boxes were kept as anchors');
-    assert.ok(d.tracks[0].points.length > 30, 'and the surfer is tracked through the video again');
+    assert.ok(d.tracks[0].points.length > 5, 'and the surfer is tracked over their events again');
     for (const g of d.segments) assert.ok(d.keyframes.filter(k => k.segment_id === g.id).length >= 3, 'events have boxes'); }
 });
 
@@ -823,6 +825,31 @@ await scenario('a saved track whose box pumps in size (first containment version
   const worst = Math.max(...p2.slice(1).map((p, i) => Math.abs(Math.log((p.bbox.w * p.bbox.h) / (p2[i].bbox.w * p2[i].bbox.h)))));
   assert.ok(worst < 0.5, `box size steady after the repair (worst step ${worst.toFixed(2)})`);
   assert.ok(p2.some(p => p.frame === 40 && p.origin === 'manual'), 'the drawn box is kept');
+});
+
+await scenario('two surfers on two waves: each box is tracked and shown only over that surfer\'s events (live 0094)', async () => {
+  const s0 = src('DJI_0414.mp4'), owner = s0.owner_athlete_id;
+  const H = { authorization: 'Bearer demo-token', 'content-type': 'application/json' };
+  const other = await (await fetch(`${base}/api/athletes`, { method: 'POST', headers: H, body: JSON.stringify({ label: 'גולש שני גל שני' }) })).json();
+  const B = f => ({ x: (2 * Math.max(2, Math.min(f, 600)) - 4) / 1280, y: 326 / 720, w: 48 / 1280, h: 48 / 720 });
+  const cur = await (await fetch(`${base}/api/sources/${s0.id}/draft`, { headers: H })).json(), c = structuredClone(cur.content);
+  const ev = { usability: 'usable', decision: 'include', reason_codes: [], key_moments: {}, notes: '', framing_mode: null, target: null, event_type: 'wave_ride' };
+  c.segments = [{ ...ev, id: 'w1', start_frame: 20, end_frame: 90, athlete_id: owner }, { ...ev, id: 'w2', start_frame: 140, end_frame: 230, athlete_id: other.id }];
+  c.keyframes = []; c.box_verifications = []; delete c.catalog_triage;
+  // the first surfer's track as saved before: over the whole video (it "followed" something else after their wave)
+  const pts = [{ frame: 40, bbox: B(40), origin: 'manual' }];
+  for (let f = 0; f < s0.frame_count; f += 3) if (f !== 40) pts.push({ frame: f, bbox: B(f), origin: 'suggested' });
+  c.tracks = [{ id: 't1', athlete_id: owner, points: pts.sort((a, b) => a.frame - b.frame) }];
+  const put = await fetch(`${base}/api/sources/${s0.id}/draft`, { method: 'PUT', headers: H, body: JSON.stringify({ expected_version: cur.version, content: c }) });
+  assert.equal(put.status, 200, await put.text());
+  await page.goto(`${base}/#/catalog`); await page.goto(`${base}/#/annotate/${s0.id}`); await page.waitForSelector('[data-testid=workbench]');
+  await trackingIdle(); await saved();
+  const t = draft(s0.id).tracks.find(x => x.athlete_id === owner);
+  assert.ok(t.points.every(p => p.frame >= 20 && p.frame <= 89), `the first surfer's box only over their wave (got ${Math.min(...t.points.map(p => p.frame))}-${Math.max(...t.points.map(p => p.frame))})`);
+  // on the second wave, the first surfer's box is not on screen
+  const fr = async () => Number((await page.textContent('[data-testid=framenum]')).match(/frame (\d+)/)[1]);
+  while (await fr() < 180) await page.keyboard.press(await fr() + 10 <= 180 ? 'Shift+ArrowRight' : 'ArrowRight');
+  assert.equal(await page.locator(`[data-track-box="t1"]`).count(), 0, 'no box of the first surfer on the second wave');
 });
 
 await scenario('no page/console errors', async () => { assert.deepEqual(errors, []); });
