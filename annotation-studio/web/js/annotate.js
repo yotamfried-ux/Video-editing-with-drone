@@ -1227,6 +1227,14 @@ function fillInterpolated(s) {
 // ---------------- inspector ----------------
 function paintInspector() {
   const el = $('#insp'); if (!el) return;
+  // While the operator is typing in a text field of the panel, a background repaint (tracking finished, a save came
+  // back) would replace the field under them: removing a focused, edited field fires its change handler, which repaints
+  // the panel again in the middle of this repaint (a DOM error) and loses what they are typing. Repaint once they leave it.
+  const a = document.activeElement;
+  if (a && el.contains(a) && (a.tagName === 'TEXTAREA' || (a.tagName === 'INPUT' && /^(text|search|number|)$/.test(a.type)))) {
+    if (!S.inspDeferred) { S.inspDeferred = true; a.addEventListener('blur', () => setTimeout(() => { if (!S) return; S.inspDeferred = false; paintInspector(); }, 0), { once: true }); }
+    return;
+  }
   // Simple marking mode: no tab bar. The event flow is the home screen; "שיוך הסרטון" and "בדיקת BOX" open as
   // sub-screens with one clear way back.
   if (S.inspTab === 'associate' || S.inspTab === 'box') {
