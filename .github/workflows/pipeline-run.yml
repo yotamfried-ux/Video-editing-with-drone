@@ -89,8 +89,8 @@ jobs:
           rm -f ~/apt-debs/*.deb
           APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60"
           for i in 1 2 3; do
-            if timeout 180 sudo apt-get $APT_OPTS update \
-               && timeout 300 sudo apt-get $APT_OPTS install -y --no-install-recommends --download-only -o Dir::Cache::archives="$HOME/apt-debs" ffmpeg \
+            if timeout 120 sudo apt-get $APT_OPTS update \
+               && timeout 240 sudo apt-get $APT_OPTS install -y --no-install-recommends --download-only -o Dir::Cache::archives="$HOME/apt-debs" ffmpeg \
                && sudo dpkg -i ~/apt-debs/*.deb >/dev/null && command -v ffmpeg >/dev/null; then
               sudo chown -R "$USER" ~/apt-debs; rm -rf ~/apt-debs/partial ~/apt-debs/lock
               ffmpeg -version | head -1; exit 0
