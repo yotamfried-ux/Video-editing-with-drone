@@ -18,6 +18,7 @@ from collections import defaultdict
 from langsmith import traceable
 
 import config
+from pipeline import identity_trace
 from integrations.gemini import genai
 
 logger = logging.getLogger(__name__)
@@ -110,6 +111,9 @@ Return ONLY valid JSON, no markdown:
 _VISUAL_CLUSTER_PROMPT = """\
 You are matching athletes across multiple sports video clips.
 Thumbnail images from each clip are shown above, labeled [Clip N, person_X].
+Each image may be a contact sheet of up to 4 crops (2x2 grid) of that ONE tracked person at
+different moments of the clip: treat all crops in one image as the same person and use every
+view (front, back, side, near, far) together before deciding.
 Group the images that show the SAME person.
 
 IMPORTANT — DRONE/AERIAL FOOTAGE: These thumbnails were captured from a drone looking down.
@@ -700,6 +704,8 @@ def _merge_duplicate_clusters(clusters: list[dict]) -> list[dict]:
 _VERIFY_PROMPT = """\
 The thumbnail images above were grouped as showing the SAME athlete across
 different drone video clips. Verify this grouping.
+Each image may be a contact sheet of up to 4 crops (2x2 grid) of one tracked person at
+different moments of that clip; all crops in one image are the same person.
 
 DRONE/AERIAL footage: do not rely on faces. Compare clothing colors (top-down
 view of torso/shoulders), equipment (board/bike/helmet color and shape), and
@@ -814,6 +820,13 @@ def _post_process_clusters(clusters: list[dict], clip_analyses: list[dict]) -> l
     """Shared safety pass before reels are compiled."""
     if not clusters:
         return clusters
+    identity_trace.record_layer("model", clusters)
+    result = _post_process_clusters_inner(clusters, clip_analyses)
+    identity_trace.record_layer("post_process", result)
+    return result
+
+
+def _post_process_clusters_inner(clusters: list[dict], clip_analyses: list[dict]) -> list[dict]:
 
     clusters = _ensure_all_event_persons_present(clusters, clip_analyses)
     clusters = _split_impossible_clusters(clusters)
@@ -838,6 +851,13 @@ def _cleanup_thumbnails(clip_analyses: list[dict]) -> None:
                     pass
 
 
+def _traced_fallback(clip_analyses: list[dict]) -> list[dict]:
+    result = _strip_internal_fields(_fallback_clusters(clip_analyses))
+    identity_trace.record_layer("model", result)
+    identity_trace.record_layer("post_process", result)
+    return result
+
+
 # ── Public API ────────────────────────────────────────────────────────────────
 
 @traceable(name="cluster-clips")
@@ -857,9 +877,10 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
     if not clip_analyses:
         return []
 
+    identity_trace.record_persons(clip_analyses)
     try:
         if len(clip_analyses) == 1:
-            return _strip_internal_fields(_fallback_clusters(clip_analyses))
+            return _traced_fallback(clip_analyses)
 
         descriptions = [
             {
@@ -902,7 +923,7 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
 
         # ── Tier 4: per-clip fallback ─────────────────────────────────────────
         logger.warning("Identity clustering fell back to one cluster per detected person")
-        return _strip_internal_fields(_fallback_clusters(clip_analyses))
+        return _traced_fallback(clip_analyses)
 
     finally:
         _cleanup_thumbnails(clip_analyses)

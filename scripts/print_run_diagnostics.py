@@ -385,6 +385,22 @@ def event_funnel(debug: Path) -> list[str]:
     return out
 
 
+def identity_trace_section(debug: Path) -> list[str]:
+    """Where every detected person went at each identity layer; the IDTRACE_JSON line is machine-readable."""
+    path = debug.parent / "identity_trace.json"
+    data = _json(path)
+    if not data:
+        return [f"no identity trace at {path}"]
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from pipeline.identity_trace import compact_lines
+    kinds = Counter((p.get("evidence") or {}).get("kind", "-") for p in data.get("persons", {}).values())
+    out = [f"persons={len(data.get('persons', {}))} evidence={dict(kinds)} "
+           + " ".join(f"{k}_clusters={len(v)}" for k, v in data.get("layers", {}).items())]
+    out.extend(compact_lines(data)[:MAX_ROWS])
+    out.append("IDTRACE_JSON " + json.dumps(data, ensure_ascii=False, separators=(",", ":")))
+    return out
+
+
 SECTIONS: list[tuple[str, Callable[[Path], list[str]]]] = [
     ("Stage timings (seconds)", stage_timings),
     ("LLM cost", llm_cost),
@@ -398,6 +414,7 @@ SECTIONS: list[tuple[str, Callable[[Path], list[str]]]] = [
     ("Draft windows (trace)", trace),
     ("Athlete coverage", coverage),
     ("Identity clustering", identity),
+    ("Identity trace", identity_trace_section),
 ]
 
 
@@ -417,7 +434,7 @@ def main() -> int:
     if summary:
         try:
             with open(summary, "a", encoding="utf-8") as handle:
-                handle.write("## Run diagnostics\n\n```\n" + "\n".join(l for l in lines if not l.startswith("::")) + "\n```\n")
+                handle.write("## Run diagnostics\n\n```\n" + "\n".join(l for l in lines if not l.startswith(("::", "IDTRACE_JSON"))) + "\n```\n")
         except OSError:
             pass
     return 0
