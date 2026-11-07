@@ -222,16 +222,10 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         pending: list[tuple[str, str]] = []
         pending_meta: list[tuple[str, str, list[dict], dict]] = []
         fn_to_id = fn_to_id or {}
-        for ci, cluster in enumerate(clusters):
-            orchestrator._write_status("editing", 0.30 + 0.15 * (ci / max(1, len(clusters))), cluster=f"{ci + 1}/{len(clusters)}", athlete=str(cluster.get("description", ""))[:60])
-            first_path = cluster["appearances"][0]["path"] if cluster.get("appearances") else None
-            source_video = str(first_path or "")
-            source_quality = orchestrator._get_source_info(first_path) if first_path else {}
-            all_events = [ev for app in cluster.get("appearances", []) for ev in app.get("events", [])]
-            events_out: list[tuple[str, list[dict]]] = []
-            reels = orchestrator.compile_multi_source_reel(cluster.get("appearances", []), sport=activity, athlete_label=cluster.get("description", ""), _events_out=events_out)
-            events_out = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in events_out]
 
+        def _finish_cluster(cluster: dict, reels: list[str], events_out: list, source_video: str,
+                            source_quality: dict, all_events: list[dict]) -> tuple[list, list]:
+            """QA gate + draft naming for one rendered cluster. Runs on the QA worker while the next cluster renders."""
             def _recompile(evs: list[dict], out: list) -> list[str]:
                 result = orchestrator.compile_multi_source_reel(orchestrator._group_appearances(evs), sport=activity, athlete_label=cluster.get("description", ""), _events_out=out)
                 out[:] = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in out]
@@ -248,6 +242,8 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             sources = [{"id": fn_to_id.get(Path(app["path"]).name, ""), "name": Path(app["path"]).name} for app in cluster.get("appearances", [])]
             clean_count = sum(1 for r in reels if "_music" not in os.path.basename(r))
             clean_idx = 0
+            out_pending: list = []
+            out_meta: list = []
             for reel in reels:
                 is_music = "_music" in os.path.basename(reel)
                 if not is_music:
@@ -257,9 +253,39 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 qa_label = " QA-FLAGGED" if reel in flagged else ""
                 name = orchestrator._safe_draft_name(str(cluster.get("description", "")) + part_label + music_label + qa_label)
                 reel_events = events_by_reel.get(reel, all_events)
-                pending.append((reel, name))
-                pending_meta.append((reel, name, reel_events, source_quality))
+                out_pending.append((reel, name))
+                out_meta.append((reel, name, reel_events, source_quality))
                 orchestrator._record_draft_sources(name, sources, activity, str(cluster.get("description", "")))
+            return out_pending, out_meta
+
+        # Reel QA is a network wait on the model (little CPU); rendering is CPU-bound ffmpeg. With QA_OVERLAP on
+        # (default) cluster N's QA runs on one worker thread while cluster N+1 renders. One QA at a time, results
+        # gathered in cluster order, so drafts, names and lineage are identical to the serial loop.
+        overlap = os.getenv("QA_OVERLAP", "1").strip().lower() not in {"0", "false", "no", "off"}
+        qa_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reel-qa") if overlap else None
+        finished: list = []
+        try:
+            for ci, cluster in enumerate(clusters):
+                orchestrator._write_status("editing", 0.30 + 0.15 * (ci / max(1, len(clusters))), cluster=f"{ci + 1}/{len(clusters)}", athlete=str(cluster.get("description", ""))[:60])
+                first_path = cluster["appearances"][0]["path"] if cluster.get("appearances") else None
+                source_video = str(first_path or "")
+                source_quality = orchestrator._get_source_info(first_path) if first_path else {}
+                all_events = [ev for app in cluster.get("appearances", []) for ev in app.get("events", [])]
+                events_out: list[tuple[str, list[dict]]] = []
+                reels = orchestrator.compile_multi_source_reel(cluster.get("appearances", []), sport=activity, athlete_label=cluster.get("description", ""), _events_out=events_out)
+                events_out = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in events_out]
+                args = (cluster, reels, events_out, source_video, source_quality, all_events)
+                if qa_pool is None:
+                    finished.append(_finish_cluster(*args))
+                else:
+                    finished.append(qa_pool.submit(_finish_cluster, *args))
+            for item in finished:
+                cluster_pending, cluster_meta = item.result() if qa_pool is not None else item
+                pending.extend(cluster_pending)
+                pending_meta.extend(cluster_meta)
+        finally:
+            if qa_pool is not None:
+                qa_pool.shutdown(wait=True)
         pending, pending_meta, dropped = filter_duplicate_draft_candidates(pending, pending_meta)
         for detail in dropped:
             print(f"  Context QA blocked duplicate draft {detail['dropped_draft']} -> kept {detail['kept_draft']}")
