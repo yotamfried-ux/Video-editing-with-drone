@@ -9,6 +9,7 @@ on:
       - 'pipeline/draft_diagnostics.py'
       - 'scripts/sitecustomize.py'
       - 'scripts/test_context_qa_gate_contract.py'
+      - 'scripts/test_qa_overlap_contract.py'
       - 'scripts/test_production_qa_failure_modes.py'
       - 'scripts/test_production_qa_manifest_coverage_simulation.py'
       - 'pipeline/source_evidence_runner.py'
@@ -26,6 +27,8 @@ jobs:
           python-version: '3.11'
       - name: Validate context QA gate contract
         run: python scripts/test_context_qa_gate_contract.py
+      - name: Reel QA overlaps the next render (same drafts, one QA at a time)
+        run: python scripts/test_qa_overlap_contract.py
       - name: Install simulation dependencies
         run: python -m pip install python-dotenv
       - name: Production QA failure-mode simulations

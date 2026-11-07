@@ -190,8 +190,24 @@ def _exercise_install(policy: Any) -> None:
                 setattr(pipeline, name, value)
 
 
+def check_one_reel_per_athlete(policy) -> None:
+    """Operator rule (2026-11-07): one reel per athlete, whatever its length."""
+    long_session = [event(i, i * 30, i * 30 + 25, 8) for i in range(1, 7)]  # ~150 s of rides
+    parts = policy.partition_complete_performance_reels(long_session, False, 89.0, single_part=True)
+    if len(parts) != 1 or len(parts[0]) != 6:
+        raise SystemExit(f"single_part must keep every ride in one reel, got {[len(p) for p in parts]}")
+    if parts[0][0].get("performance_reel_part_count") != 1 or parts[0][-1].get("performance_reel_total_wave_count") != 6:
+        raise SystemExit("single_part reel must still carry the wave annotation")
+    over_budget = [event(9, 0, 120, 8)]  # one ride longer than the old 89 s budget
+    if len(policy.partition_complete_performance_reels(over_budget, False, 89.0, single_part=True)) != 1:
+        raise SystemExit("single_part must not block a ride longer than the old budget")
+    if len(policy.partition_complete_performance_reels(long_session, False, 89.0)) < 2:
+        raise SystemExit("default packer (rule off) must still split long sessions")
+
+
 def main() -> int:
     policy = load_policy()
+    check_one_reel_per_athlete(policy)
 
     readable_low_score = event(1, 0, 12, score=4)
     failed_takeoff = event(

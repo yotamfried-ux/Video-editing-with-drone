@@ -56,6 +56,10 @@ def _verified_single_track_per_source(cluster: dict[str, Any]) -> bool:
     return all(len(_track_ids(app)) <= 1 for app in cluster.get("appearances", []) or [])
 
 
+def _one_reel_per_athlete() -> bool:
+    return os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _identity_gate(reason: str, decision: str, cluster: dict[str, Any], app: dict[str, Any]) -> dict[str, Any]:
     return {
         "decision": decision,
@@ -99,6 +103,17 @@ def enforce_identity_gate(clusters: list[dict[str, Any]]) -> list[dict[str, Any]
         track_sets = [_track_ids(app) for app in apps]
         if any(track_sets) and len(set().union(*track_sets)) > 1:
             reason = "conflicting_track_ids"
+        if _one_reel_per_athlete():
+            # Tracker ids are numbered per video, so cross-source ids never match ("conflicting" is the norm for a
+            # multi-video athlete). Keep the identity clustering's athlete together as ONE reel and record that
+            # identity across sources was not independently confirmed, instead of splitting into identity-split rows.
+            kept = []
+            for app in apps:
+                gate = _identity_gate(reason, "kept_together_unconfirmed", cluster, app)
+                kept.append(_annotate_app(app, gate))
+            result.append({**cluster, "appearances": kept, "_identity_gate": "kept_together_unconfirmed",
+                           "_identity_gate_reason": reason})
+            continue
         for index, app in enumerate(apps, start=1):
             gate = _identity_gate(reason, "split_to_single_appearance", cluster, app)
             result.append({
