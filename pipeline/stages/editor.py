@@ -594,6 +594,13 @@ def _est_clip_dur(ev: dict, slowmo_capable: bool) -> float:  # noqa: ARG001
     return ev["end"] - ev["start"]
 
 
+def one_reel_per_athlete() -> bool:
+    """Operator rule (2026-11-07): exactly one reel per athlete from all of that athlete's moments in the run,
+    whatever its length (no ≤85 s parts, no identity-split rows). SPORTREEL_ONE_REEL_PER_ATHLETE=0 restores
+    the length-capped parts and the split-to-single identity gate."""
+    return os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _partition_events(
     events: list[dict],
     slowmo_capable: bool,
@@ -609,6 +616,9 @@ def _partition_events(
     """
     if not events:
         return []
+    if one_reel_per_athlete():
+        # Operator rule (2026-11-07): one reel per athlete with every kept moment, whatever its length.
+        return [list(sorted(events, key=lambda e: e["score"], reverse=True))]
 
     def _group_dur(grp: list[dict]) -> float:
         if not grp:

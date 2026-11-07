@@ -33,25 +33,47 @@ def test_verified_cluster_with_one_track_per_source_stays_one_reel() -> None:
     assert gate["decision"] == "pass" and gate["reason"] == "visual_verified_per_source_tracks", gate
 
 
+def _split_mode():
+    os.environ["SPORTREEL_ONE_REEL_PER_ATHLETE"] = "0"
+
+
 def test_unverified_cluster_still_splits() -> None:
     from pipeline.real_identity_gate import enforce_identity_gate
-    out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1"), app("b.mp4", "b", "t9"))])
+    _split_mode()
+    try:
+        out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1"), app("b.mp4", "b", "t9"))])
+    finally:
+        os.environ.pop("SPORTREEL_ONE_REEL_PER_ATHLETE", None)
     assert len(out) == 2 and all(len(c["appearances"]) == 1 for c in out), out
 
 
 def test_two_tracks_inside_one_source_still_split() -> None:
     from pipeline.real_identity_gate import enforce_identity_gate
-    out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1", "t2"), app("b.mp4", "b", "t9"), verified=True)])
+    _split_mode()
+    try:
+        out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1", "t2"), app("b.mp4", "b", "t9"), verified=True)])
+    finally:
+        os.environ.pop("SPORTREEL_ONE_REEL_PER_ATHLETE", None)
     assert len(out) == 2, out
+
+
+def test_one_reel_rule_keeps_an_unverified_athlete_together() -> None:
+    """Operator rule (2026-11-07): one reel per athlete by default; unconfirmed identity is recorded, not split."""
+    from pipeline.real_identity_gate import enforce_identity_gate
+    out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1"), app("b.mp4", "b", "t9"))])
+    assert len(out) == 1 and len(out[0]["appearances"]) == 2, out
+    assert out[0]["_identity_gate"] == "kept_together_unconfirmed", out[0]
 
 
 def test_kill_switch_restores_split() -> None:
     from pipeline.real_identity_gate import enforce_identity_gate
     os.environ["SPORTREEL_MERGE_VERIFIED_CLUSTERS"] = "0"
+    _split_mode()
     try:
         out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1"), app("b.mp4", "b", "t9"), verified=True)])
     finally:
         os.environ.pop("SPORTREEL_MERGE_VERIFIED_CLUSTERS", None)
+        os.environ.pop("SPORTREEL_ONE_REEL_PER_ATHLETE", None)
     assert len(out) == 2, out
 
 

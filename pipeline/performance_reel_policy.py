@@ -213,8 +213,12 @@ def partition_complete_performance_reels(
     target_max: float = MAX_PERFORMANCE_REEL_SEC,
     *,
     xfade_dur: float = 0.25,
+    single_part: bool = False,
 ) -> list[list[dict[str, Any]]]:
-    """Pack every whole ride and split only between rides before 90 seconds."""
+    """Pack every whole ride and split only between rides before 90 seconds.
+
+    single_part (operator rule 2026-11-07, one reel per athlete): every ride goes into one part, whatever the
+    total length; rides keep their source/time order and annotation."""
     if not events:
         return []
 
@@ -245,6 +249,9 @@ def partition_complete_performance_reels(
     groups: list[list[dict[str, Any]]] = []
     current: list[dict[str, Any]] = []
     for event in ordered:
+        if single_part:
+            current.append(event)
+            continue
         standalone_duration = _group_duration([event], slowmo_capable, xfade_dur)
         if standalone_duration > budget:
             event_id = event.get("event_id") or event.get("id") or "unknown"
@@ -389,6 +396,11 @@ def _patch_prompt_and_filters() -> None:
         analyzer.get_negative_feedback_hint = lambda: ""
 
 
+def _one_reel_per_athlete() -> bool:
+    import os
+    return os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def _patch_editor() -> None:
     from pipeline.final_duplicate_guard import remove_duplicate_events
     from pipeline.stages import editor
@@ -407,6 +419,7 @@ def _patch_editor() -> None:
             bool(slowmo_capable),
             target_max=target_max,
             xfade_dur=float(getattr(editor, "XFADE_DUR", 0.25)),
+            single_part=_one_reel_per_athlete(),
         )
 
     editor._partition_events = partition

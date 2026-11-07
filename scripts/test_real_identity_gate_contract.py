@@ -16,8 +16,27 @@ def app(path: str, event_id: str, track_id=None):
 
 
 def main() -> int:
+    import os
     from pipeline.draft_diagnostics import build_diagnostic_artifact
     from pipeline.real_identity_gate import enforce_identity_gate
+
+    # Default operator rule (2026-11-07): one reel per athlete. A multi-source cluster whose identity is not
+    # independently confirmed stays ONE cluster, and the unconfirmed identity is recorded on every event.
+    os.environ.pop("SPORTREEL_ONE_REEL_PER_ATHLETE", None)
+    kept = enforce_identity_gate([{"description": "mixed surfer", "appearances": [app("a.mp4", "a1", "t1"), app("b.mp4", "b1", "t2")]}])
+    if len(kept) != 1 or len(kept[0]["appearances"]) != 2 or kept[0]["description"] != "mixed surfer":
+        raise SystemExit("one-reel rule: an unconfirmed multi-source athlete must stay one cluster")
+    if kept[0].get("_identity_gate") != "kept_together_unconfirmed" or kept[0].get("_identity_gate_reason") != "conflicting_track_ids":
+        raise SystemExit("one-reel rule: the unconfirmed identity must be recorded on the cluster")
+    gate = kept[0]["appearances"][1]["events"][0].get("identity_gate", {})
+    if gate.get("decision") != "kept_together_unconfirmed" or gate.get("appearance", {}).get("track_ids") != ["t2"]:
+        raise SystemExit("one-reel rule: per-event identity evidence missing")
+    kept = enforce_identity_gate([{"description": "uncertain surfer", "appearances": [app("a.mp4", "a1"), app("b.mp4", "b1")]}])
+    if len(kept) != 1 or kept[0].get("_identity_gate_reason") != "missing_track_evidence":
+        raise SystemExit("one-reel rule: missing track evidence keeps the athlete together, with the reason")
+
+    # SPORTREEL_ONE_REEL_PER_ATHLETE=0 restores the split-to-single identity gate checked below.
+    os.environ["SPORTREEL_ONE_REEL_PER_ATHLETE"] = "0"
 
     stable = [{"description": "same surfer", "appearances": [app("a.mp4", "a1", "t7"), app("b.mp4", "b1", "t7")]}]
     out = enforce_identity_gate(stable)
