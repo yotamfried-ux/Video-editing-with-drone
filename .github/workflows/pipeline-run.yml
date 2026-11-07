@@ -302,7 +302,7 @@ jobs:
           SPORTREEL_REQUIRE_PERCEPTION: '1'
           SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
           SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || 'botsort.yaml' }}
-          SPORTREEL_ULTRALYTICS_FPS: '30'
+          SPORTREEL_ULTRALYTICS_FPS: ${{ vars.SPORTREEL_ULTRALYTICS_FPS || 'auto' }}
           SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '5' }}
           TMP_DIR: /tmp/dtor
           # Ground-truth evaluation evidence (predictions/v1 + EDL per output) for Annotation Studio.

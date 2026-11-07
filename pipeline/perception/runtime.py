@@ -313,7 +313,18 @@ def _sidecar_cache_key(video_path: str, command: str) -> str | None:
         stride = os.getenv("SPORTREEL_ULTRALYTICS_VID_STRIDE", "5").strip()
         imgsz = os.getenv("SPORTREEL_ULTRALYTICS_IMGSZ", "640").strip()
         min_conf = os.getenv("SPORTREEL_PERCEPTION_MIN_CONFIDENCE", "0").strip()
-        fps = os.getenv("SPORTREEL_ULTRALYTICS_FPS", "30").strip()
+        fps_cfg = os.getenv("SPORTREEL_ULTRALYTICS_FPS", "auto").strip().lower()
+        if fps_cfg in {"", "auto", "detect", "native"}:
+            try:
+                import cv2
+                cap = cv2.VideoCapture(video_path)
+                detected = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
+                cap.release()
+                fps = f"{round(detected, 2)}" if detected > 0 else "30"
+            except Exception:
+                fps = "30"
+        else:
+            fps = fps_cfg
         detect_eq = os.getenv("SPORTREEL_DETECT_EQUIPMENT", "1").strip()
         adaptive = os.getenv("SPORTREEL_ADAPTIVE_INFERENCE", "1").strip()
         extra = (

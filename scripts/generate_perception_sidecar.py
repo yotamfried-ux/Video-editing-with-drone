@@ -46,20 +46,29 @@ def _positive_int(raw: str | None, default: int, label: str) -> int:
 
 
 def _fps(raw: str | None, video_path: str) -> float | None:
-    value = (raw or os.getenv("SPORTREEL_ULTRALYTICS_FPS", "")).strip()
-    if value:
-        fps = float(value)
-        if fps <= 0:
-            raise ValueError("fps must be positive")
-        return fps
+    # Prefer true container FPS (24, 29.97, 30, 50, 59.94, 60, etc.) unless explicitly forced
+    raw_val = (raw or "").strip().lower()
+    env_val = os.getenv("SPORTREEL_ULTRALYTICS_FPS", "auto").strip().lower()
+    value = raw_val or env_val
+
+    if value not in {"", "auto", "detect", "native"}:
+        try:
+            fps = float(value)
+            if fps > 0:
+                return fps
+        except ValueError:
+            pass
+
     try:
         import cv2  # type: ignore
         cap = cv2.VideoCapture(video_path)
         detected = float(cap.get(cv2.CAP_PROP_FPS) or 0.0)
         cap.release()
-        return detected if detected > 0 else None
+        if detected > 0:
+            return round(detected, 3)
     except Exception:
-        return None
+        pass
+    return 30.0
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:

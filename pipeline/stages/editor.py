@@ -106,8 +106,8 @@ TARGET_REEL_MAX = 85
 
 # Encoding: intermediate clips get re-encoded again at compile, so they must be
 # visually transparent (CRF 14) or the double generation visibly degrades the output.
-CLIP_CRF  = "14"
-REEL_CRF  = "16"
+CLIP_CRF  = os.getenv("CLIP_CRF", "12")
+REEL_CRF  = os.getenv("REEL_CRF", "14")
 X264_PRESET = "medium"
 # Lanczos resampling for every scale step — portrait conversion upscales a
 # 1080p landscape source ×1.78, where bicubic (default) visibly softens.
@@ -1528,6 +1528,37 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             ordered = [_preview_ev] + ordered
 
         event_transitions = [ev.get("edit", {}).get("transition_out", "slide") for ev in ordered]
+        reel_stem = _multi_reel_stem(first_stem, athlete_label, part_idx, len(partitions))
+        reel_path = os.path.join(config.TMP_DIR, f"{reel_stem}.mp4")
+
+        # OPT-07: Real render cache pre-check before cutting clips or calling FFmpeg
+        from pipeline.render_qa_cache import compute_render_signature, get_cached_render, put_cached_render
+        _part_app_map: dict[str, list[dict]] = {}
+        for _ev in ordered:
+            _s_path = _ev.get("_src") or appearances[0]["path"]
+            _clean_ev = {k: v for k, v in _ev.items() if k != "_src"}
+            _part_app_map.setdefault(_s_path, []).append(_clean_ev)
+        _part_apps = [{"path": p, "events": evs} for p, evs in _part_app_map.items()]
+        _render_sig = compute_render_signature(
+            _part_apps,
+            sport=sport,
+            athlete_label=athlete_label,
+            ffmpeg_params={
+                "codec": "libx264",
+                "crf": REEL_CRF,
+                "preset": X264_PRESET,
+                "fps": reel_fps,
+                "aspect": "9:16",
+                "silent": True,
+            },
+        )
+        _hit, _cached_events = get_cached_render(_render_sig, reel_path)
+        if _hit and _cached_events is not None and os.path.exists(reel_path):
+            print(f"♻️  Render cache hit for '{reel_stem}.mp4' (sig={_render_sig[:12]}) — skipping FFmpeg render")
+            reels.append(reel_path)
+            if _events_out is not None:
+                _events_out.append((reel_path, _cached_events))
+            continue
         # "zoom" transition only makes sense on the penultimate clip (builds to climax)
         _n = len(ordered)
         _has_zoom = "zoom" in event_transitions
@@ -1612,6 +1643,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                 reels.append(reel_clean)
                 if _events_out is not None:
                     _events_out.append((reel_clean, rendered_events))
+                put_cached_render(_render_sig, reel_clean, rendered_events)
 
             music_track = _pick_music(sport)
             if music_track:
@@ -1792,6 +1824,34 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         if _has_zoom and _n >= 3:
             event_transitions[_n - 2] = "zoom"
 
+        suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
+        reel_stem = f"REEL_{Path(video_path).stem}{sport_tag}{suffix}"
+        reel_path = os.path.join(config.TMP_DIR, f"{reel_stem}.mp4")
+
+        # OPT-07: Real render cache pre-check for single-source reel
+        from pipeline.render_qa_cache import compute_render_signature, get_cached_render, put_cached_render
+        _single_app = [{"path": video_path, "events": [{k: v for k, v in _ev.items() if k != "_src"} for _ev in ordered]}]
+        _single_render_sig = compute_render_signature(
+            _single_app,
+            sport=sport,
+            athlete_label=athlete_label,
+            ffmpeg_params={
+                "codec": "libx264",
+                "crf": REEL_CRF,
+                "preset": X264_PRESET,
+                "fps": reel_fps,
+                "aspect": "9:16",
+                "silent": True,
+            },
+        )
+        _single_hit, _single_cached_events = get_cached_render(_single_render_sig, reel_path)
+        if _single_hit and _single_cached_events is not None and os.path.exists(reel_path):
+            print(f"♻️  Render cache hit for '{reel_stem}.mp4' (sig={_single_render_sig[:12]}) — skipping FFmpeg render")
+            reels.append(reel_path)
+            if _events_out is not None:
+                _events_out.append((reel_path, _single_cached_events))
+            continue
+
         # 4. חיתוך קליפים במקביל
         idx_base   = part_idx * 50 + 1
         clip_paths = []
@@ -1857,6 +1917,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                 reels.append(reel_clean)
                 if _events_out is not None:
                     _events_out.append((reel_clean, rendered_events))
+                put_cached_render(_single_render_sig, reel_clean, rendered_events)
 
             music_track = _pick_music(sport)
             if music_track:

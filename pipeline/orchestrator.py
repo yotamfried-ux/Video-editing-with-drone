@@ -197,7 +197,7 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
     for reel in [r for r in reels if "_music" not in os.path.basename(r)]:
         _write_status("qa", 0.46, reel=Path(reel).name[:60],
                       athlete=str(athlete_label)[:60])
-        qa = qa_check_reel(reel, sport=sport, athlete_label=athlete_label)
+        qa = qa_check_reel(reel, sport=sport, athlete_label=athlete_label, events=events_by_reel.get(reel))
         _print_qa_result(reel, qa)
         cur, attempt, skipped_noop = reel, 0, 0
 
@@ -247,7 +247,7 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
                     except OSError: pass
             final.extend(r for r in new_reels if r not in final)
             cur = new_clean
-            qa = qa_check_reel(cur, sport=sport, athlete_label=athlete_label)
+            qa = qa_check_reel(cur, sport=sport, athlete_label=athlete_label, events=events_by_reel.get(cur))
             _print_qa_result(cur, qa)
 
         if _qa_blocking(qa):

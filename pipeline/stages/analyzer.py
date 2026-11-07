@@ -397,84 +397,93 @@ def _make_qa_proxy(reel_path: str) -> str | None:
         return None
 
 
-def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "") -> dict:
-    """Independent social-media QA on a compiled reel — two layers:
+def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "", events: list[dict] | None = None) -> dict:
+    """Independent social-media QA on a compiled reel — 3-Tier Production Architecture (OPT-04):
 
-      A. Technical compliance (deterministic, ffprobe): 9:16, duration, resolution, audio.
-      B. Content + engagement (LLM rubric, grounded in TikTok/IG best practices).
+      Tier 1: Technical & deterministic compliance (ffprobe, EDL, identity, framing, audio).
+              Fails immediately without calling Gemini (0 LLM tokens).
+      Tier 2: Cryptographic QA cache hit (SHA-256 bound to video, EDL, policy) OR live Gemini content QA.
+      Tier 3: Exception audit for borderline scores and compound minor defects.
 
-    verdict (advisory only — never blocks): PASS iff technical_pass AND
-    engagement_score >= config.QA_ENGAGEMENT_THRESHOLD.
-
-    Returns FAIL with explicit unavailable evidence on provider errors; never fabricates QA PASS.
-    Result is persisted to qa_results.jsonl for future calibration.
+    Result is persisted to qa_results.jsonl and cached deterministically.
     """
-    specs, technical_pass, tech_issues = _check_technical_compliance(reel_path)
+    from pipeline.tiered_qa_gate import evaluate_reel_tiered_qa
 
-    _PASS = {
-        "verdict": "FAIL",
-        "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
-        "content": {},
-        "defects": [{"code": "QA_PROVIDER_UNAVAILABLE", "severity": "critical"}],
-        "engagement_score": 0,
-        "overall": "QA provider unavailable; review required",
-    }
-    qa_proxy = _make_qa_proxy(reel_path)
-    try:
-        vf = _upload_video(qa_proxy or reel_path)
+    def _live_gemini_content_qa(path: str, sp: str, label: str) -> dict:
+        specs, technical_pass, tech_issues = _check_technical_compliance(path)
+        _FAIL_RES = {
+            "verdict": "FAIL",
+            "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
+            "content": {},
+            "defects": [{"code": "QA_PROVIDER_UNAVAILABLE", "severity": "critical"}],
+            "engagement_score": 0,
+            "overall": "QA provider unavailable; review required",
+        }
+        qa_proxy = _make_qa_proxy(path)
         try:
-            prompt = _QA_REEL_PROMPT + _QA_LAYOUT_NOTE
-            if sport:
-                prompt += f"\nSport context: {sport}"
-            if athlete_label:
-                prompt += f"\nAthlete: {athlete_label}"
-            # Calibration context: aggregate operator-approval signal (not per-reel
-            # editing instructions — independence preserved).
+            vf = _upload_video(qa_proxy or path)
             try:
-                from pipeline.stages.feedback import get_qa_calibration_hint
-                hint = get_qa_calibration_hint(sport)
-                if hint:
-                    prompt += "\n" + hint
-            except Exception as exc:
-                logger.debug("QA calibration hint unavailable: %s", exc)
+                prompt = _QA_REEL_PROMPT + _QA_LAYOUT_NOTE
+                if sp:
+                    prompt += f"\nSport context: {sp}"
+                if label:
+                    prompt += f"\nAthlete: {label}"
+                try:
+                    from pipeline.stages.feedback import get_qa_calibration_hint
+                    hint = get_qa_calibration_hint(sp)
+                    if hint:
+                        prompt += "\n" + hint
+                except Exception as exc:
+                    logger.debug("QA calibration hint unavailable: %s", exc)
 
-            model = genai.GenerativeModel(model_name=_QA_REEL_MODEL)
-            resp = _with_retry(lambda: model.generate_content(
-                [vf, prompt], request_options={"timeout": 120}
-            ))
-            text = resp.text.strip()
-            if text.startswith("```"):
-                text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("`").strip()
-            parsed = json.loads(text)
+                model = genai.GenerativeModel(model_name=_QA_REEL_MODEL)
+                resp = _with_retry(lambda: model.generate_content(
+                    [vf, prompt], request_options={"timeout": 120}
+                ))
+                text = resp.text.strip()
+                if text.startswith("```"):
+                    text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("`").strip()
+                parsed = json.loads(text)
 
-            engagement = int(parsed.get("engagement_score", 0))
-            engagement_ok = engagement >= config.QA_ENGAGEMENT_THRESHOLD
-            defects = [d for d in (parsed.get("defects") or []) if isinstance(d, dict)]
-            critical = [d for d in defects
-                        if str(d.get("severity", "")).lower() == "critical"]
-            result = {
-                "verdict": "PASS" if (technical_pass and engagement_ok and not critical)
-                           else "FAIL",
-                "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
-                "content": parsed.get("content", {}),
-                "defects": defects,
-                "engagement_score": engagement,
-                "overall": parsed.get("overall", ""),
-            }
-            _persist_qa_result(result, reel_path, sport)
-            return result
+                engagement = int(parsed.get("engagement_score", 0))
+                engagement_ok = engagement >= config.QA_ENGAGEMENT_THRESHOLD
+                defects = [d for d in (parsed.get("defects") or []) if isinstance(d, dict)]
+                critical = [d for d in defects
+                            if str(d.get("severity", "")).lower() == "critical"]
+                return {
+                    "verdict": "PASS" if (technical_pass and engagement_ok and not critical)
+                               else "FAIL",
+                    "technical": {"pass": technical_pass, "issues": tech_issues, **specs},
+                    "content": parsed.get("content", {}),
+                    "defects": defects,
+                    "engagement_score": engagement,
+                    "overall": parsed.get("overall", ""),
+                }
+            finally:
+                _delete_video(vf)
+        except Exception as exc:
+            logger.warning("qa_check_reel live Gemini call failed for %s: %s", Path(path).name, exc)
+            return _FAIL_RES
         finally:
-            _delete_video(vf)
-    except Exception as exc:
-        logger.warning("qa_check_reel failed for %s: %s", Path(reel_path).name, exc)
-        _persist_qa_result(_PASS, reel_path, sport)
-        return _PASS
-    finally:
-        if qa_proxy:
-            try:
-                os.remove(qa_proxy)
-            except OSError:
-                pass
+            if qa_proxy:
+                try:
+                    os.remove(qa_proxy)
+                except OSError:
+                    pass
+
+    specs, technical_pass, tech_issues = _check_technical_compliance(reel_path)
+    result = evaluate_reel_tiered_qa(
+        reel_path,
+        events=events,
+        sport=sport,
+        athlete_label=athlete_label,
+        content_qa_fn=_live_gemini_content_qa,
+        specs={"pass": technical_pass, "issues": tech_issues, **specs},
+        engagement_threshold=int(getattr(config, "QA_ENGAGEMENT_THRESHOLD", 60)),
+        single_reel_per_athlete=True,
+    )
+    _persist_qa_result(result, reel_path, sport)
+    return result
 
 
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
@@ -929,18 +938,37 @@ def analyze_session(video_path: str) -> dict:
                 chunk_duration = float(_video_duration(chunk_path))
             except Exception:
                 chunk_duration = None
+            ts_map = None
             if not is_chunked:
                 from pipeline import activity_window
                 if activity_window.enabled():
-                    trim_window = activity_window.window_for_video(chunk_path, _video_duration(chunk_path))
-                    if trim_window:
-                        print(f"✂️  Activity window {trim_window[0]:.0f}s–{trim_window[1]:.0f}s from detector sidecar")
+                    try:
+                        from pipeline.perception.runtime import load_sidecar_detections
+                        dets = load_sidecar_detections(chunk_path)
+                    except Exception:
+                        dets = None
+                    if dets and activity_window.internal_slicing_enabled() and chunk_duration:
+                        w_res = activity_window.compute_internal_activity_windows(dets, chunk_duration)
+                        if w_res.get("mode") in {"internal_windows", "outer_window"}:
+                            windows = w_res.get("windows") or []
+                            if len(windows) == 1:
+                                trim_window = (windows[0][0], windows[0][1])
+                                ts_map = w_res.get("timestamp_map")
+                                print(f"✂️  Activity window {trim_window[0]:.0f}s–{trim_window[1]:.0f}s from detector sidecar")
+                            elif len(windows) > 1:
+                                trim_window = (windows[0][0], windows[-1][1])
+                                ts_map = w_res.get("timestamp_map")
+                                print(f"✂️  Internal activity windows ({len(windows)} segments, saved {w_res.get('saved_seconds', 0):.0f}s) from detector sidecar")
+                    elif chunk_duration:
+                        trim_window = activity_window.window_for_video(chunk_path, chunk_duration)
+                        if trim_window:
+                            print(f"✂️  Activity window {trim_window[0]:.0f}s–{trim_window[1]:.0f}s from detector sidecar")
             try:
                 media_sha = _llm_cache.file_sha256(chunk_path)
                 cache_key = _llm_cache.make_key(
                     "analyze-session", media_sha256=media_sha,
                     prompt=prompt, model=_MODEL, version=_ANALYSIS_CACHE_VERSION,
-                    extra=json.dumps([_analysis_call_options(trim_window, chunk_duration)], sort_keys=True))
+                    extra=json.dumps([_analysis_call_options(trim_window, chunk_duration), [[w[0], w[1]] for w in (ts_map.windows if ts_map else [])]], sort_keys=True))
                 cached_text = _llm_cache.get(cache_key)
                 if not cached_text and trim_window is not None:
                     untrimmed_key = _llm_cache.make_key(
@@ -950,6 +978,8 @@ def analyze_session(video_path: str) -> dict:
                     cached_text = _llm_cache.get(untrimmed_key)
                 if cached_text:
                     parsed_cached = _parse_session(cached_text)
+                    if ts_map is not None:
+                        parsed_cached = ts_map.remap_session_to_source(parsed_cached)
                     print(f"♻️  Analysis cache hit for '{Path(chunk_path).name}' — no Gemini call")
                     return parsed_cached
             except json.JSONDecodeError:
@@ -968,6 +998,8 @@ def analyze_session(video_path: str) -> dict:
                 duration=chunk_duration,
             )
             parsed = _parse_session(response_text)
+            if ts_map is not None:
+                parsed = ts_map.remap_session_to_source(parsed)
             if cache_key:
                 _llm_cache.put(cache_key, response_text, model=_MODEL, source=Path(chunk_path).name)
             return parsed

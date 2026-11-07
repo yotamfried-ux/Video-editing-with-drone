@@ -51,6 +51,160 @@ on:
       - 'pipeline/visual_embeddings.py'
       - 'pipeline/activity_window.py'
       - 'scripts/test_hybrid_optimizations_and_gates_contract.py'
+      - 'scripts/test_production_integration_contracts.py'
+      - 'scripts/test_qa_overlap_contract.py'
+      - 'pipeline/qa_gate_policy.py'
+      - 'pipeline/qa_reedit_window_contract.py'
+      - 'pipeline/runtime_quality.py'
+      - 'pipeline/selector_candidate_runtime.py'
+      - 'pipeline/single_athlete_selection_policy.py'
+      - 'pipeline/source_window_dedup.py'
+      - 'pipeline/teaser_policy_runtime.py'
+      - 'pipeline/stages/analyzer.py'
+      - 'pipeline/stages/editor.py'
+      - 'pipeline/stages/identity.py'
+      - 'pipeline/window_policy.py'
+      - 'requirements.txt'
+      - 'scripts/check_publishable_reel_manifest.py'
+      - 'scripts/check_qa_reedit_schema.py'
+      - 'scripts/verify_qa_reedit_tasks.py'
+      - 'scripts/operator_smoke.py'
+      - 'scripts/reset_and_rerun.py'
+      - 'scripts/run_pipeline_with_diagnostics.sh'
+      - 'scripts/run_tracked.py'
+      - 'scripts/sitecustomize.py'
+      - 'scripts/append_athlete_coverage_summary_to_report.py'
+      - 'scripts/append_pairwise_source_window_overlap_to_report.py'
+      - 'scripts/append_qa_policy_trace_summary_to_report.py'
+      - 'scripts/append_selection_decision_audit_summary_to_report.py'
+      - 'scripts/build_athlete_coverage_report.py'
+      - 'scripts/build_candidate_decision_ledger.py'
+      - 'scripts/build_draft_decision_trace.py'
+      - 'scripts/build_selection_decision_audit.py'
+      - 'scripts/generate_missed_moment_report.py'
+      - 'scripts/generate_run_quality_report.py'
+      - 'scripts/test_analyzer_phase_time_contract.py'
+      - 'scripts/test_athlete_coverage_report_contract.py'
+      - 'scripts/test_batch_scope_contract.py'
+      - 'scripts/test_bootstrap_parity_contract.py'
+      - 'scripts/test_chunk_identity_timeline_contract.py'
+      - 'scripts/test_cross_source_dedup_contract.py'
+      - 'scripts/test_draft_identity_lineage_contract.py'
+      - 'scripts/test_drive_upload_contract.py'
+      - 'scripts/test_event_window_contract.py'
+      - 'scripts/test_explicit_sidecar_validation_contract.py'
+      - 'scripts/test_long_video_subject_prefilter_contract.py'
+      - 'scripts/test_missed_moment_report_contract.py'
+      - 'scripts/test_multi_person_clip_gate_contract.py'
+      - 'scripts/test_multi_upload_batch_contract.py'
+      - 'scripts/test_operator_review_gate_contract.py'
+      - 'scripts/test_operator_smoke_contract.py'
+      - 'scripts/test_simple_raw_dispatch_contract.py'
+      - 'web-api/src/app/api/operator/pipeline/start-raw/route.ts'
+      - 'web-api/src/app/api/operator/pipeline/reset-raw/route.ts'
+      - 'web-api/src/lib/pipeline-dispatch.ts'
+      - 'web-api/src/lib/pipeline-dispatch-core.ts'
+      - 'scripts/record_run_correlation.py'
+      - 'scripts/preflight_frozen_inputs.py'
+      - 'scripts/test_operator_smoke_workflow_validator.py'
+      - 'scripts/test_pairwise_source_window_overlap_contract.py'
+      - 'scripts/test_perception_contract.py'
+      - 'scripts/test_perception_producer_diagnostics_contract.py'
+      - 'scripts/test_pipeline_quality_contract.py'
+      - 'scripts/test_pipeline_status_stale_contract.py'
+      - 'scripts/test_premature_cut_qa_gate_contract.py'
+      - 'scripts/test_publishable_reel_business_contract.py'
+      - 'scripts/test_qa_policy_trace_contract.py'
+      - 'scripts/test_qa_reedit_loop_contract.py'
+      - 'scripts/test_qa_reedit_reason_fallback_contract.py'
+      - 'scripts/test_qa_reedit_schema_preflight_contract.py'
+      - 'scripts/test_qa_reedit_task_verifier_contract.py'
+      - 'scripts/test_qa_reedit_window_contract.py'
+      - 'scripts/print_run_diagnostics.py'
+      - 'scripts/test_run_quality_report_contract.py'
+      - 'scripts/test_selection_decision_audit_contract.py'
+      - 'scripts/test_silent_output_policy_contract.py'
+      - 'scripts/test_single_athlete_selection_policy_contract.py'
+      - 'scripts/test_source_window_dedup_contract.py'
+      - 'scripts/test_storage_contract.py'
+      - 'scripts/test_structured_feedback_contract.py'
+      - 'scripts/test_teaser_policy_contract.py'
+      - 'scripts/test_ultralytics_tracker_contract.py'
+      - 'scripts/validate_operator_smoke_workflow.py'
+      - 'supabase/migrations/**'
+      - 'web-api/src/app/api/operator/drafts/route.ts'
+      - 'web-api/src/app/api/operator/drafts/feedback/route.ts'
+      - 'web-api/src/app/api/operator/reprocess/route.ts'
+      - 'web-api/src/app/api/operator/pipeline/start/route.ts'
+      - 'web-api/src/app/api/operator/pipeline/status/route.ts'
+      - 'web-api/src/app/api/operator/upload/route.ts'
+      - 'web-api/src/lib/draft-review-policy.ts'
+      - 'web-api/src/types/operator-contracts.ts'
+      - 'pipeline/candidate_ledger.py'
+      - 'pipeline/editorial_value_ranker.py'
+      - 'pipeline/stages/feedback.py'
+      - 'integrations/supabase_uploader.py'
+      - 'scripts/test_editorial_value_ranker_contract.py'
+      - 'mobile/src/app/(operator)/pipeline.tsx'
+      - 'mobile/src/features/operator/lib/uploadQueue.ts'
+      - 'mobile/src/features/operator/lib/uploadQueue.test.ts'
+      - 'mobile/src/app/(operator)/review.tsx'
+      - 'mobile/src/features/operator/hooks/usePipelineStatus.ts'
+      - 'mobile/src/features/operator/types/contracts.ts'
+
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/operator-smoke.yml'
+      - '.github/workflows/operator-smoke-check.yml'
+      - '.github/workflows/pipeline-run.yml'
+      - 'README.md'
+      - 'docs/app-pipeline-audit.md'
+      - 'docs/operator-api-contracts.md'
+      - 'docs/operator-pipeline-contract.md'
+      - 'docs/operator-smoke.md'
+      - 'docs/qa-reedit-migration-smoke.md'
+      - 'docs/audit/personal-publishable-reel-completion-plan-20260717.md'
+      - 'web-api/src/lib/operator-draft-approve.ts'
+      - 'web-api/src/lib/draft-publishability.ts'
+      - 'scripts/test_pipeline_logical_consistency_integration.py'
+      - 'pipeline/stages/selector_candidates.py'
+      - 'pipeline/subject_gate_policy.py'
+      - 'pipeline/rendered_timeline.py'
+      - 'docs/audit/cross-layer-logical-consistency-test-basis-20260717.md'
+      - 'docs/audit/run-29165422772-four-gap-repair-plan.md'
+      - 'integrations/drive.py'
+      - 'integrations/r2_storage.py'
+      - 'integrations/run_status.py'
+      - 'integrations/storage.py'
+      - 'integrations/supabase_uploader.py'
+      - 'run.py'
+      - 'run_surf.py'
+      - 'sitecustomize.py'
+      - 'pipeline/athlete_canonicalization.py'
+      - 'pipeline/bootstrap.py'
+      - 'pipeline/performance_reel_policy.py'
+      - 'pipeline/publishable_reel_policy.py'
+      - 'pipeline/silent_output_policy.py'
+      - 'pipeline/publishable_qa_evidence.py'
+      - 'pipeline/r2_batch_scope.py'
+      - 'pipeline/chunk_timeline_runtime.py'
+      - 'pipeline/context_qa_gate.py'
+      - 'pipeline/context_qa_long_video.py'
+      - 'pipeline/cross_source_dedup.py'
+      - 'pipeline/draft_identity_metadata.py'
+      - 'pipeline/multi_person_clip_gate.py'
+      - 'pipeline/primary_actor_policy.py'
+      - 'pipeline/perception/event_fingerprint.py'
+      - 'pipeline/perception/**'
+      - 'pipeline/identity_decision_engine.py'
+      - 'pipeline/tiered_qa_gate.py'
+      - 'pipeline/render_qa_cache.py'
+      - 'pipeline/visual_embeddings.py'
+      - 'pipeline/activity_window.py'
+      - 'scripts/test_hybrid_optimizations_and_gates_contract.py'
+      - 'scripts/test_production_integration_contracts.py'
       - 'scripts/test_qa_overlap_contract.py'
       - 'pipeline/qa_gate_policy.py'
       - 'pipeline/qa_reedit_window_contract.py'
@@ -160,7 +314,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
@@ -171,7 +325,14 @@ jobs:
         id: web-api-changes
         shell: bash
         run: |
-          if git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -q '^web-api/'; then
+          if [ -n "${{ github.base_ref }}" ]; then
+            DIFF_TARGET="origin/${{ github.base_ref }}...HEAD"
+          elif [ -n "${{ github.event.before }}" ] && [ "${{ github.event.before }}" != "0000000000000000000000000000000000000000" ]; then
+            DIFF_TARGET="${{ github.event.before }}...HEAD"
+          else
+            DIFF_TARGET="HEAD~1...HEAD"
+          fi
+          if git diff --name-only "$DIFF_TARGET" 2>/dev/null | grep -q '^web-api/'; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
@@ -242,6 +403,8 @@ jobs:
         run: python scripts/test_editorial_value_ranker_contract.py
       - name: Validate Hybrid CV+LLM optimizations contract
         run: python scripts/test_hybrid_optimizations_and_gates_contract.py
+      - name: Validate Production integration contracts
+        run: python scripts/test_production_integration_contracts.py
       - name: Validate QA overlap cross-thread contract
         run: python scripts/test_qa_overlap_contract.py
       - name: Validate Perception contract

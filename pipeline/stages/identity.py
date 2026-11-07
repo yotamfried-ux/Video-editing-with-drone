@@ -348,7 +348,7 @@ def _split_cluster_to_singles(cluster: dict, reason: str) -> list[dict]:
         return [cluster]
     logger.warning("Splitting identity cluster '%s' into singles: %s",
                    cluster.get("description", "?"), reason)
-    print(f"  ✂️  Split identity '{cluster.get('description','?')[:40]}' "
+    print(f"  [SPLIT] Split identity '{cluster.get('description','?')[:40]}' "
           f"into {len(apps)} separate athlete(s): {reason}")
     result: list[dict] = []
     for app in apps:
@@ -402,7 +402,7 @@ def _build_clusters_from_data(data: dict, clip_analyses: list[dict]) -> list[dic
                 "⚠️ Cluster '%s' spans %d clips with confidence=%s — check reel for mixed athletes",
                 cluster.get("description", "?"), len(resolved), confidence,
             )
-            print(f"  ⚠️ Identity confidence={confidence} for "
+            print(f"  [WARN] Identity confidence={confidence} for "
                   f"'{cluster.get('description','?')[:40]}' across "
                   f"{len(resolved)} clip(s)")
 
@@ -439,7 +439,7 @@ def _ensure_all_event_persons_present(clusters: list[dict],
     if missing:
         logger.warning("Identity clustering omitted %d detected person(s); adding singleton clusters",
                        len(missing))
-        print(f"  ➕ Preserved {len(missing)} unclustered detected person(s) as separate athlete(s)")
+        print(f"  [+] Preserved {len(missing)} unclustered detected person(s) as separate athlete(s)")
         out.extend(_cluster_from_entry(entry) for entry in missing)
 
     return out
@@ -703,7 +703,7 @@ def _merge_duplicate_clusters(clusters: list[dict]) -> list[dict]:
 
             logger.info("Merging duplicate-description clusters: '%s'",
                         c.get("description", "?")[:40])
-            print(f"  🔗 Merged duplicate identity '{c.get('description','?')[:40]}' "
+            print(f"  [MERGE] Merged duplicate identity '{c.get('description','?')[:40]}' "
                   f"(+{len(c.get('appearances', []))} clip(s))")
             merged[key]["appearances"].extend(c.get("appearances", []))
         else:
@@ -996,21 +996,22 @@ def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
             }
             if _cluster_has_same_clip_conflict(combined) or _cluster_has_number_conflict(combined):
                 continue
-            t_attrs = [_appearance_structured_attrs(a, str(target.get("description") or "")) for a in t_apps]
+            from pipeline.identity_decision_engine import IdentityDecisionEngine
+            engine = IdentityDecisionEngine()
             pair_scores: list[float] = []
             compatible = True
-            for ta in t_attrs:
-                for ca in c_attrs:
-                    ok, sc = structured_attributes_compatible(ta, ca)
-                    if not ok:
+            for ta in t_apps:
+                for ca in c_apps:
+                    dec = engine.evaluate_pair(ta, ca)
+                    if dec.decision == "NO_MATCH":
                         compatible = False
                         break
-                    pair_scores.append(sc)
+                    pair_scores.append(dec.score)
                 if not compatible:
                     break
             if compatible and pair_scores:
                 mean_score = sum(pair_scores) / len(pair_scores)
-                if mean_score > best_score:
+                if mean_score >= engine.match_threshold and mean_score > best_score:
                     best_score = mean_score
                     merged_into = idx
 
@@ -1113,7 +1114,7 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
 
             keep = [a for i, a in enumerate(apps) if i not in bad]
             split = [a for i, a in enumerate(apps) if i in bad]
-            print(f"  ✂️  Identity verification split {len(split)} clip(s) out of "
+            print(f"  [SPLIT] Identity verification split {len(split)} clip(s) out of "
                   f"'{cluster.get('description','?')[:40]}' — different athlete detected")
             logger.warning("Identity verify: split %d/%d appearance(s) from '%s'",
                            len(split), len(apps), cluster.get("description", "?"))
@@ -1139,6 +1140,8 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
 
 def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
     """Apply deterministic no-guessing safeguards before expensive verification."""
+    from pipeline.identity_decision_engine import IdentityDecisionEngine
+    engine = IdentityDecisionEngine()
     out: list[dict] = []
     for cluster in clusters:
         if _cluster_has_same_clip_conflict(cluster):
@@ -1148,7 +1151,31 @@ def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
             out.extend(_split_cluster_to_singles(
                 cluster, "conflicting jersey/bib numbers"))
         else:
-            out.append(cluster)
+            apps = cluster.get("appearances", []) or []
+            has_no_match = False
+            split_reason = ""
+            for i in range(len(apps)):
+                for j in range(i + 1, len(apps)):
+                    dec = engine.evaluate_pair(apps[i], apps[j])
+                    hard_conflict_reasons = {
+                        "same_source_clip_conflict",
+                        "conflicting_jersey_or_bib_numbers",
+                        "companion_solo_vs_tandem_conflict",
+                        "incompatible_swimwear_or_category",
+                        "wetsuit_vs_bare_or_swimsuit_conflict",
+                        "conflicting_equipment_color",
+                        "rejected_by_semantic_or_visual_verifier",
+                    }
+                    if any(r in hard_conflict_reasons for r in dec.reasons):
+                        has_no_match = True
+                        split_reason = f"IdentityDecisionEngine hard conflict ({', '.join(dec.reasons)})"
+                        break
+                if has_no_match:
+                    break
+            if has_no_match:
+                out.extend(_split_cluster_to_singles(cluster, split_reason))
+            else:
+                out.append(cluster)
     return out
 
 

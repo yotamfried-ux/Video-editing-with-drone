@@ -11,6 +11,7 @@ from typing import Any
 _INSTALLED_FLAG = "_sportreel_publishable_pending_scope_installed"
 _PENDING_LOCK = threading.RLock()
 _PENDING_TOKENS: dict[tuple[int, str, str], deque[str]] = {}
+_SCOPES_BY_INVOCATION_ID: dict[str, str] = {}
 _ACTIVE_TOKEN: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "sportreel_publishable_invocation_token",
     default=None,
@@ -42,19 +43,27 @@ def current_scope_token(*, required: bool = False) -> str | None:
     return token
 
 
-def create_pending_scope(sport: str, athlete_label: str) -> str:
+def create_pending_scope(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
     """Create and enqueue one unique token after an editor invocation completes."""
     token = f"publishable_{uuid.uuid4().hex}"
     key = _queue_key(sport, athlete_label)
     with _PENDING_LOCK:
+        if invocation_id:
+            _SCOPES_BY_INVOCATION_ID[str(invocation_id)] = token
         _PENDING_TOKENS.setdefault(key, deque()).append(token)
     return token
 
 
-def activate_next_scope(sport: str, athlete_label: str) -> str:
+def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
     """Activate the matching editor invocation immediately before its QA gate."""
-    key = _queue_key(sport, athlete_label)
     with _PENDING_LOCK:
+        if invocation_id and str(invocation_id) in _SCOPES_BY_INVOCATION_ID:
+            token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id))
+            _ACTIVE_TOKEN.set(token)
+            _ACTIVE_IDENTITY.set(_identity(sport, athlete_label))
+            return token
+
+        key = _queue_key(sport, athlete_label)
         queue = _PENDING_TOKENS.get(key)
         if not queue:
             normalized_sport, normalized_label = _identity(sport, athlete_label)
@@ -87,12 +96,12 @@ def release_scope(token: str) -> None:
         _ACTIVE_IDENTITY.set(None)
 
 
-def pending_key(sport: str, athlete_label: str) -> str:
+def pending_key(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
     """Return the active token during QA, otherwise enqueue a new render token."""
     active = _ACTIVE_TOKEN.get()
     if active and _ACTIVE_IDENTITY.get() == _identity(sport, athlete_label):
         return active
-    return create_pending_scope(sport, athlete_label)
+    return create_pending_scope(sport, athlete_label, invocation_id=invocation_id)
 
 
 def install() -> None:
