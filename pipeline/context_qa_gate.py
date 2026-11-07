@@ -219,6 +219,11 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             raise RuntimeError(
                 "real identity gate failed before context QA; refusing fail-open compilation"
             ) from exc
+        try:
+            from pipeline import identity_trace
+            identity_trace.record_layer("compile", clusters)
+        except Exception:  # observational only
+            pass
         pending: list[tuple[str, str]] = []
         pending_meta: list[tuple[str, str, list[dict], dict]] = []
         fn_to_id = fn_to_id or {}

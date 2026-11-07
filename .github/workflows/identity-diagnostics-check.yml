@@ -6,6 +6,12 @@ on:
       - '.github/workflows/identity-diagnostics-check.yml'
       - 'scripts/print_run_diagnostics.py'
       - 'scripts/test_identity_diagnostics_contract.py'
+      - 'scripts/test_identity_trace_contract.py'
+      - 'scripts/eval_identity_trace.py'
+      - 'pipeline/identity_trace.py'
+      - 'pipeline/runtime_quality.py'
+      - 'pipeline/stages/identity.py'
+      - 'pipeline/context_qa_gate.py'
 
 jobs:
   validate:
@@ -17,3 +23,22 @@ jobs:
           python-version: '3.11'
       - name: Validate identity diagnostics contract
         run: python scripts/test_identity_diagnostics_contract.py
+      - name: Install ffmpeg (synthetic video for the identity sheet test)
+        # Same bounded install as the Annotation Studio check: apt on these runners has hung for 15+ minutes.
+        timeout-minutes: 15
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          if command -v ffmpeg >/dev/null; then ffmpeg -version | head -1; exit 0; fi
+          echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null 2>&1 || true
+          sudo rm -f /var/lib/man-db/auto-update
+          APT_OPTS="-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60"
+          for i in 1 2 3; do
+            if timeout 180 sudo apt-get $APT_OPTS update && timeout 300 sudo apt-get $APT_OPTS install -y --no-install-recommends ffmpeg; then ffmpeg -version | head -1; exit 0; fi
+            echo "apt attempt $i failed or hung, retrying"; sleep 10
+          done
+          exit 1
+      - name: Identity trace, multi-crop identity evidence and GT identity evaluator
+        run: |
+          pip install --quiet "Pillow>=12.3.0" langsmith python-dotenv
+          python scripts/test_identity_trace_contract.py
