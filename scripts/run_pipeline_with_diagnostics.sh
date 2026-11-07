@@ -65,6 +65,9 @@ fi
 if [ -f "$PUBLISHABLE_MANIFEST_FILE" ]; then
   cp "$PUBLISHABLE_MANIFEST_FILE" "$DEBUG_DIR/publishable_reel_manifest.json" || true
 fi
+if [ -f "$TMP_ROOT/identity_trace.json" ]; then
+  cp "$TMP_ROOT/identity_trace.json" "$DEBUG_DIR/identity_trace.json" || true
+fi
 
 python - "$DEBUG_DIR" "$TMP_ROOT" "$STATUS" <<'PY'
 from __future__ import annotations

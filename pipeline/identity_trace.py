@@ -80,6 +80,9 @@ def record_persons(clip_analyses: list[dict]) -> None:
                     if not events:
                         continue
                     key = person_key(path, person.get("id"))
+                    for ev in events:
+                        if isinstance(ev, dict) and not ev.get(KEY_FIELD):
+                            ev[KEY_FIELD] = key
                     _trace["persons"][key] = {
                         "source": Path(str(path)).name,
                         "person_id": str(person.get("id", "")),
@@ -111,6 +114,16 @@ def record_layer(layer: str, clusters: list[dict]) -> None:
             _write()
     except Exception as exc:
         logger.debug("identity trace layer %s skipped: %s", layer, exc)
+
+
+def record_metadata(section: str, data: Any) -> None:
+    """Record OPT-02 visual embedding pre-filter or OPT-03 decision engine traces."""
+    try:
+        with _lock:
+            _trace[section] = data
+            _write()
+    except Exception as exc:
+        logger.debug("identity trace metadata %s skipped: %s", section, exc)
 
 
 def snapshot() -> dict[str, Any]:

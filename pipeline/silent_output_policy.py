@@ -30,6 +30,10 @@ def _finite_float(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def _one_reel_per_athlete() -> bool:
+    return os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def silent_social_ready_issues(specs: dict[str, Any]) -> list[str]:
     """Return deterministic reasons a file violates the silent social-ready contract."""
     issues: list[str] = []
@@ -40,9 +44,10 @@ def silent_social_ready_issues(specs: dict[str, Any]) -> list[str]:
         issues.append("audio_state_unknown")
 
     duration = _finite_float(specs.get("duration"))
+    allow_unbounded = bool(specs.get("single_reel_per_athlete")) and _one_reel_per_athlete()
     if duration is None or duration <= 0:
         issues.append("invalid_duration")
-    elif duration > MAX_PUBLISHABLE_SECONDS:
+    elif duration > MAX_PUBLISHABLE_SECONDS and not allow_unbounded:
         issues.append("duration_over_90_seconds")
 
     aspect = _finite_float(specs.get("aspect"))
@@ -126,7 +131,11 @@ def canonicalize_silent_variants(
             continue
 
         duration = _finite_float(candidate_specs.get("duration"))
-        if duration is None or duration <= 0 or duration > MAX_PUBLISHABLE_SECONDS:
+        candidate_events = event_map.get(candidate) or event_map.get(canonical) or []
+        allow_unbounded = _one_reel_per_athlete() and (
+            len(order) == 1 and (len(candidate_events) > 1 or bool(candidate_specs.get("single_reel_per_athlete")))
+        )
+        if duration is None or duration <= 0 or (duration > MAX_PUBLISHABLE_SECONDS and not allow_unbounded):
             code = (
                 "invalid_duration"
                 if duration is None or duration <= 0
@@ -136,8 +145,6 @@ def canonicalize_silent_variants(
             for variant in variants:
                 _safe_remove(variant)
             continue
-
-        candidate_events = event_map.get(candidate) or event_map.get(canonical) or []
         if candidate != canonical:
             try:
                 os.replace(candidate, canonical)

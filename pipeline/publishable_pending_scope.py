@@ -57,6 +57,17 @@ def activate_next_scope(sport: str, athlete_label: str) -> str:
     with _PENDING_LOCK:
         queue = _PENDING_TOKENS.get(key)
         if not queue:
+            normalized_sport, normalized_label = _identity(sport, athlete_label)
+            for candidate_key, candidate_queue in _PENDING_TOKENS.items():
+                if (
+                    candidate_key[1] == normalized_sport
+                    and candidate_key[2] == normalized_label
+                    and candidate_queue
+                ):
+                    key = candidate_key
+                    queue = candidate_queue
+                    break
+        if not queue:
             raise RuntimeError(
                 "publishable QA could not find a pending render invocation for "
                 f"{athlete_label!r} ({sport!r})"

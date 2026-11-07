@@ -45,6 +45,13 @@ on:
       - 'pipeline/primary_actor_policy.py'
       - 'pipeline/perception/event_fingerprint.py'
       - 'pipeline/perception/**'
+      - 'pipeline/identity_decision_engine.py'
+      - 'pipeline/tiered_qa_gate.py'
+      - 'pipeline/render_qa_cache.py'
+      - 'pipeline/visual_embeddings.py'
+      - 'pipeline/activity_window.py'
+      - 'scripts/test_hybrid_optimizations_and_gates_contract.py'
+      - 'scripts/test_qa_overlap_contract.py'
       - 'pipeline/qa_gate_policy.py'
       - 'pipeline/qa_reedit_window_contract.py'
       - 'pipeline/runtime_quality.py'
@@ -233,6 +240,10 @@ jobs:
         run: PYTHONPATH=scripts:. python scripts/test_missed_moment_report_contract.py
       - name: Validate Editorial value ranker contract
         run: python scripts/test_editorial_value_ranker_contract.py
+      - name: Validate Hybrid CV+LLM optimizations contract
+        run: python scripts/test_hybrid_optimizations_and_gates_contract.py
+      - name: Validate QA overlap cross-thread contract
+        run: python scripts/test_qa_overlap_contract.py
       - name: Validate Perception contract
         run: python scripts/test_perception_contract.py
       - name: Validate Explicit sidecar validation contract

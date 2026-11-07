@@ -146,6 +146,22 @@ def _render_command(command: str, video_path: str, sidecar_path: Path) -> list[s
     SPORTREEL_PERCEPTION_OUTPUT.
     """
     args = shlex.split(command)
+    if os.name == "nt":
+        raw_tokens = shlex.split(command, posix=False)
+        merged_tokens: list[str] = []
+        i = 0
+        while i < len(raw_tokens):
+            tok = raw_tokens[i].strip('"')
+            if not os.path.exists(tok) and i + 1 < len(raw_tokens):
+                for j in range(len(raw_tokens), i + 1, -1):
+                    candidate = " ".join(t.strip('"') for t in raw_tokens[i:j])
+                    if os.path.exists(candidate):
+                        tok = candidate
+                        i = j - 1
+                        break
+            merged_tokens.append(tok)
+            i += 1
+        args = merged_tokens
     if "{video_path}" in command or "{sidecar_path}" in command:
         return [
             arg.replace("{video_path}", video_path).replace("{sidecar_path}", str(sidecar_path))
@@ -233,14 +249,21 @@ def load_sidecar_detections(video_path: str) -> list[PerceptionDetection]:
 
 
 def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[str, Any]:
-    """Validate sidecar parseability and return a compact summary."""
+    """Validate sidecar parseability, source identity, and return a compact summary."""
     path = sidecar_path or _sidecar_path(video_path)
     if path is None or not path.exists():
         raise FileNotFoundError("perception sidecar not found")
     with open(path, encoding="utf-8") as handle:
         payload = json.load(handle)
+    if not isinstance(payload, dict):
+        raise ValueError("perception sidecar root must be a JSON object")
     if not isinstance(payload.get("detections", []), list):
         raise ValueError("perception sidecar detections must be a list")
+    recorded_sha = payload.get("source_sha256")
+    if recorded_sha and os.path.exists(video_path):
+        actual_sha = _llm_cache.file_sha256(video_path)
+        if str(recorded_sha) != str(actual_sha):
+            raise ValueError("perception sidecar source_sha256 mismatch with source video")
     detections = _detections_from_payload(video_path, payload)
     summary = {
         "path": str(path),
@@ -255,8 +278,32 @@ def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[
     return summary
 
 
+def load_sidecar_context(video_path: str) -> dict[str, Any]:
+    """Load equipment links and activity profiles from the sidecar (computing if absent)."""
+    path = _sidecar_path(video_path)
+    if path is None or not path.exists():
+        return {"athlete_equipment_links": {}, "track_activity_profiles": {}}
+    try:
+        with open(path, encoding="utf-8") as handle:
+            payload = json.load(handle)
+        if not isinstance(payload, dict):
+            return {"athlete_equipment_links": {}, "track_activity_profiles": {}}
+        links = payload.get("athlete_equipment_links")
+        profiles = payload.get("track_activity_profiles")
+        if isinstance(links, dict) and isinstance(profiles, dict):
+            return {"athlete_equipment_links": links, "track_activity_profiles": profiles}
+        from .equipment_association import associate_equipment_with_athletes, classify_track_activity_profiles
+        raw_dets = [d for d in (payload.get("detections") or []) if isinstance(d, dict)]
+        raw_equips = [d for d in (payload.get("equipment_detections") or []) if isinstance(d, dict)]
+        enriched_dets, computed_links = associate_equipment_with_athletes(raw_dets, raw_equips)
+        computed_profiles = classify_track_activity_profiles(enriched_dets, computed_links)
+        return {"athlete_equipment_links": computed_links, "track_activity_profiles": computed_profiles}
+    except Exception:
+        return {"athlete_equipment_links": {}, "track_activity_profiles": {}}
+
+
 def _sidecar_cache_key(video_path: str, command: str) -> str | None:
-    """Return a content-addressed cache key for the video's perception sidecar."""
+    """Return a content-addressed cache key for the video's perception sidecar (GATE-06)."""
     if not _llm_cache.enabled() or not os.path.exists(video_path):
         return None
     try:
@@ -265,7 +312,14 @@ def _sidecar_cache_key(video_path: str, command: str) -> str | None:
         tracker = os.getenv("SPORTREEL_ULTRALYTICS_TRACKER", "botsort.yaml").strip()
         stride = os.getenv("SPORTREEL_ULTRALYTICS_VID_STRIDE", "5").strip()
         imgsz = os.getenv("SPORTREEL_ULTRALYTICS_IMGSZ", "640").strip()
-        extra = f"tracker={tracker}|stride={stride}|imgsz={imgsz}"
+        min_conf = os.getenv("SPORTREEL_PERCEPTION_MIN_CONFIDENCE", "0").strip()
+        fps = os.getenv("SPORTREEL_ULTRALYTICS_FPS", "30").strip()
+        detect_eq = os.getenv("SPORTREEL_DETECT_EQUIPMENT", "1").strip()
+        adaptive = os.getenv("SPORTREEL_ADAPTIVE_INFERENCE", "1").strip()
+        extra = (
+            f"tracker={tracker}|stride={stride}|imgsz={imgsz}|conf={min_conf}"
+            f"|fps={fps}|equip={detect_eq}|adaptive={adaptive}|stitch=v2"
+        )
         return _llm_cache.make_key(
             "perception-sidecar",
             media_sha256=media_sha,
@@ -468,6 +522,7 @@ def _best_primary(
     event: dict[str, Any],
     *,
     claimed_tracks: set[str] | None = None,
+    track_profiles: dict[str, dict[str, Any]] | None = None,
 ) -> PerceptionDetection | None:
     if not candidates:
         return None
@@ -483,9 +538,20 @@ def _best_primary(
     def _rank_key(item: tuple[str, list[PerceptionDetection]]) -> tuple[float, float, float, float]:
         tid, dets = item
         score = _track_score(dets, event, max_window_len=max_len)
+        comp = score[0]
+        if track_profiles and len(by_track) > 1:
+            prof = track_profiles.get(tid) or {}
+            state = prof.get("activity_state")
+            eq_ratio = float(prof.get("equipment_association_ratio") or 0.0)
+            if state == "active":
+                comp += 0.04 + min(0.04, eq_ratio * 0.06)
+            elif state == "waiting":
+                comp *= 0.85
+            elif state == "background_passerby":
+                comp *= 0.65
         if tid in claimed and len(by_track) > 1:
-            return (round(score[0] * 0.72, 6), score[1], score[2], score[3])
-        return score
+            comp *= 0.72
+        return (round(comp, 6), score[1], score[2], score[3])
 
     best_id, track_detections = max(by_track.items(), key=_rank_key)
     mid = _event_mid(event)
@@ -503,11 +569,14 @@ def enrich_event(
     detections: list[PerceptionDetection],
     *,
     claimed_tracks: set[str] | None = None,
+    sidecar_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Attach bbox/track evidence to one event without mutating input."""
+    profiles = (sidecar_context or {}).get("track_activity_profiles") or {}
+    equip_links = (sidecar_context or {}).get("athlete_equipment_links") or {}
     window_detections = _in_window(detections, event)
     primary = (
-        _best_primary(window_detections, event, claimed_tracks=claimed_tracks)
+        _best_primary(window_detections, event, claimed_tracks=claimed_tracks, track_profiles=profiles)
         or _nearest(detections, event)
     )
     if primary is None:
@@ -515,10 +584,17 @@ def enrich_event(
     visible_ids = _track_ids(window_detections or [primary])
     metadata = primary.to_event_metadata()
     if primary.tracker_id is not None:
+        tid_str = str(primary.tracker_id)
         metadata.update({
-            "target_track_id": str(primary.tracker_id),
+            "target_track_id": tid_str,
             "track_binding_source": "cv_track_continuity_with_llm_crop_hint" if _event_crop_point(event) else "cv_track_continuity",
         })
+        if tid_str in profiles:
+            metadata["athlete_activity_state"] = profiles[tid_str].get("activity_state")
+            metadata["athlete_activity_score"] = profiles[tid_str].get("activity_score")
+        if tid_str in equip_links:
+            metadata["associated_equipment"] = equip_links[tid_str].get("primary_equipment")
+            metadata["equipment_association_ratio"] = equip_links[tid_str].get("equipment_association_ratio")
     if visible_ids:
         metadata.update({
             "source_window_track_ids": visible_ids,
@@ -571,6 +647,7 @@ def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dic
     if not detections:
         return session
     refine = _window_refiner()
+    sidecar_ctx = load_sidecar_context(video_path)
     people = []
     assigned_events: list[tuple[dict[str, Any], str]] = []
     for person in session.get("persons", []) or []:
@@ -579,7 +656,7 @@ def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dic
             claimed = {
                 tid for prev_ev, tid in assigned_events if _windows_overlap(event, prev_ev)
             }
-            enriched = enrich_event(event, detections, claimed_tracks=claimed)
+            enriched = enrich_event(event, detections, claimed_tracks=claimed, sidecar_context=sidecar_ctx)
             tid = enriched.get("target_track_id") or enriched.get("track_id")
             if tid is not None:
                 assigned_events.append((event, str(tid)))

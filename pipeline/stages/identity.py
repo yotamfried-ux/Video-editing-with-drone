@@ -751,7 +751,7 @@ def extract_structured_attributes(description: str) -> dict:
             equip_color = "pink" if " red/pink " not in equip_mod else "red"
         elif any(c in equip_mod for c in (" red ", " crimson ")):
             equip_color = "red"
-        elif any(c in equip_mod for c in (" turquoise ", " light blue ", " blue ", " teal ", " cyan ", " aqua ")):
+        elif any(c in equip_mod.replace(chr(47), chr(32)) for c in (" turquoise ", " light blue ", " blue ", " teal ", " cyan ", " aqua ")):
             equip_color = "turquoise_blue"
         elif any(c in equip_mod for c in (" bright green ", " green ", " lime ")):
             equip_color = "green"
@@ -932,6 +932,14 @@ def structured_attributes_compatible(attr_a: dict, attr_b: dict) -> tuple[bool, 
     if ba and bb and ba == bb:
         score += 0.10
     return score >= 0.70, round(score, 3)
+
+
+def score_structured_identity_match(desc_a: str, desc_b: str) -> float:
+    """Return calibrated structured attribute similarity in [0.0, 1.0] between two athlete descriptions."""
+    attr_a = extract_structured_attributes(desc_a)
+    attr_b = extract_structured_attributes(desc_b)
+    ok, score = structured_attributes_compatible(attr_a, attr_b)
+    return score if ok else 0.0
 
 
 def _appearance_structured_attrs(app: dict, fallback_desc: str = "") -> dict:
@@ -1164,6 +1172,27 @@ def _post_process_clusters_inner(clusters: list[dict], clip_analyses: list[dict]
     clusters = _verify_multi_clusters(clusters)
     clusters = _merge_compatible_structured_clusters(clusters)
     clusters = _split_impossible_clusters(clusters)
+    try:
+        from pipeline.identity_decision_engine import IdentityDecisionEngine
+        engine = IdentityDecisionEngine()
+        decision_records = []
+        for idx, cl in enumerate(clusters):
+            apps = cl.get("appearances", []) or []
+            if len(apps) >= 2:
+                dec = engine.evaluate_pair(
+                    apps[0],
+                    apps[1],
+                    semantic_decision="MATCH",
+                    semantic_confidence=str(cl.get("confidence") or "high"),
+                    visual_verified=bool(cl.get("_visual_verified")),
+                )
+                decision_records.append({"cluster_index": idx, **dec.to_dict()})
+        identity_trace.record_metadata("identity_decision_engine", {
+            "evaluated_multi_clip_clusters": len(decision_records),
+            "decisions": decision_records,
+        })
+    except Exception as dec_exc:
+        logger.debug("Identity decision engine trace skipped: %s", dec_exc)
     return _strip_internal_fields(clusters)
 
 
@@ -1223,6 +1252,25 @@ def cluster_clips(clip_analyses: list[dict]) -> list[dict]:
 
         if not descriptions:
             return []
+
+        # ── OPT-02: Local visual embedding candidate evaluation before Gemini ─
+        try:
+            from pipeline import visual_embeddings
+            emb_summary = visual_embeddings.evaluate_candidate_pairs(_person_entries(clip_analyses))
+            identity_trace.record_metadata("visual_embedding_prefilter", {
+                "model_version": emb_summary.get("model_version"),
+                "crop_version": emb_summary.get("crop_version"),
+                "shadow_mode": emb_summary.get("shadow_mode"),
+                "total_entries": emb_summary.get("total_entries"),
+                "embeddings_computed": emb_summary.get("embeddings_computed"),
+                "embeddings_cache_hits": emb_summary.get("embeddings_cache_hits"),
+                "total_cross_clip_pairs": emb_summary.get("total_cross_clip_pairs"),
+                "plausible_pairs_count": emb_summary.get("plausible_pairs_count"),
+                "rejected_pairs_count": emb_summary.get("rejected_pairs_count"),
+                "strong_local_matches_count": emb_summary.get("strong_local_matches_count"),
+            })
+        except Exception as emb_exc:
+            logger.debug("Visual embedding prefilter skipped: %s", emb_exc)
 
         # ── Tier 1: Gemini visual (thumbnails) ────────────────────────────────
         try:

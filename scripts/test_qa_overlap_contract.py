@@ -89,6 +89,74 @@ def _run(overlap: bool, n: int = 4, qa_seconds: float = 0.3):
     return count, orch.uploaded, log, time.monotonic() - started
 
 
+
+
+def _assert_cross_thread_pending_scope_handoff() -> None:
+    """Regression for Run #165: create_pending_scope on MainThread + activate_next_scope on reel-qa worker thread."""
+    import tempfile
+    from concurrent.futures import ThreadPoolExecutor
+    import pipeline.publishable_pending_scope as pending_scope
+    import pipeline.publishable_qa_evidence as qa_evidence
+    import pipeline.publishable_reel_policy as policy
+    import pipeline.silent_output_policy as silent
+
+    policy.social_ready_issues = silent.silent_social_ready_issues
+    pending_scope.install()
+    with tempfile.TemporaryDirectory(prefix="sportreel-qa-overlap-scope-") as tmpdir:
+        manifest = Path(tmpdir) / "publishable_reel_manifest.json"
+        os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"] = str(manifest)
+        policy.reset_manifest()
+        pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="reel-qa")
+        futures = []
+        try:
+            for idx in range(3):
+                label = f"Surfer athlete #{idx}"
+                reel_path = str(Path(tmpdir) / f"MULTI_surfer_{idx}.mp4")
+                Path(reel_path).write_bytes(b"silent")
+                # MainThread creates the pending invocation scope during compile_multi_source_reel
+                main_token = policy._pending_key("surfing", label)
+
+                def _worker_qa(sport_arg: str, label_arg: str, reel_arg: str, expected_token: str) -> str:
+                    activated = pending_scope.activate_next_scope(sport_arg, label_arg)
+                    if activated != expected_token:
+                        raise RuntimeError(f"Expected {expected_token}, got {activated}")
+                    try:
+                        qa_evidence.record_qa_result(
+                            reel_arg,
+                            {"verdict": "PASS", "engagement_score": 88, "overall": "Great surf reel", "defects": []},
+                        )
+                        policy.record_athlete_outcome(
+                            sport=sport_arg,
+                            athlete_label=label_arg,
+                            final_reels=[reel_arg],
+                            events_by_reel={
+                                reel_arg: [
+                                    {"event_id": "e1", "athlete_id": f"ath_{label_arg}", "type": "surf_ride", "start": 1.0, "end": 12.0, "score": 8, "_src": "clip.mp4"},
+                                    {"event_id": "e2", "athlete_id": f"ath_{label_arg}", "type": "surf_ride", "start": 20.0, "end": 85.0, "score": 9, "_src": "clip2.mp4"},
+                                ]
+                            },
+                            flagged_paths=set(),
+                            specs_getter=lambda _p: {"has_audio": False, "duration": 96.0, "width": 1080, "height": 1920, "aspect": 1080 / 1920},
+                        )
+                        blocked = qa_evidence.apply_final_qa_evidence(
+                            sport=sport_arg,
+                            athlete_label=label_arg,
+                            final_reels=[reel_arg],
+                        )
+                        if blocked:
+                            raise RuntimeError(f"Unexpected blocked reels: {blocked}")
+                        return activated
+                    finally:
+                        qa_evidence.clear_recorded_qa(activated)
+                        pending_scope.release_scope(activated)
+
+                futures.append(pool.submit(_worker_qa, "surfing", label, reel_path, main_token))
+            for fut in futures:
+                fut.result()
+        finally:
+            pool.shutdown(wait=True)
+
+
 def main() -> int:
     serial_count, serial_names, _, serial_t = _run(overlap=False)
     count, names, log, overlap_t = _run(overlap=True)
@@ -114,6 +182,7 @@ def main() -> int:
     if overlap_t > serial_t * 0.8:
         raise SystemExit(f"overlap should save time: {overlap_t:.2f}s vs serial {serial_t:.2f}s")
 
+    _assert_cross_thread_pending_scope_handoff()
     print(f"QA overlap contract ok (serial {serial_t:.2f}s -> overlapped {overlap_t:.2f}s, drafts identical)")
     return 0
 

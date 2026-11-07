@@ -8,6 +8,7 @@ and every media field proves a finite, vertical, silent, <=90-second output.
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
 SCHEMA_VERSION = "sportreel.publishable_reel_manifest.v1"
@@ -321,7 +322,9 @@ def validate_manifest(
                 errors.append(_gap(f"{label}: Part {part_pos} technical issues: {issues}", when=withheld))
 
             duration = _finite_float(part.get("duration"))
-            if duration is None or duration <= 0 or duration > 90.0:
+            one_reel_mode = os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower() not in {"0", "false", "no", "off"}
+            max_duration = math.inf if (one_reel_mode and len(parts) == 1 and int(part.get("action_count") or 0) > 1) else 90.0
+            if duration is None or duration <= 0 or duration > max_duration:
                 errors.append(_gap(
                     f"{label}: Part {part_pos} invalid finite duration {part.get('duration')}",
                     when=withheld,

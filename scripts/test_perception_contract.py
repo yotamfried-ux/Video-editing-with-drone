@@ -181,7 +181,7 @@ def require_sidecar_generator_contract() -> None:
         for path in sorted(producer_dir.rglob("*"), reverse=True):
             try:
                 path.unlink()
-            except IsADirectoryError:
+            except (IsADirectoryError, PermissionError):
                 path.rmdir()
             except FileNotFoundError:
                 pass
@@ -296,7 +296,7 @@ def require_sidecar_producer_contract() -> None:
         for path in sorted(producer_dir.rglob("*"), reverse=True):
             try:
                 path.unlink()
-            except IsADirectoryError:
+            except (IsADirectoryError, PermissionError):
                 path.rmdir()
             except FileNotFoundError:
                 pass

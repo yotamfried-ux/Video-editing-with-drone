@@ -125,13 +125,40 @@ def _context_prompt(context: dict[str, Any]) -> str:
 def _qa_gate_with_edit_context(orchestrator: Any, reels, events_out, sport, athlete_label, recompile):
     from pipeline.stages import analyzer
     context_by_reel = {reel: build_edit_context(reel, events) for reel, events in events_out}
+    events_map = {reel: list(events or []) for reel, events in events_out}
     original_check = analyzer.qa_check_reel
 
     def contextual_check(reel, *args, **kwargs):
         ctx = context_by_reel.get(reel)
         if ctx:
             kwargs["athlete_label"] = str(kwargs.get("athlete_label", "")) + _context_prompt(ctx)
-        return original_check(reel, *args, **kwargs)
+        qa_sig = None
+        try:
+            from pipeline.render_qa_cache import compute_qa_signature, get_cached_qa_result, put_cached_qa_result
+            qa_sig = compute_qa_signature(
+                reel,
+                events=events_map.get(reel, []),
+                sport=str(sport or ""),
+                athlete_label=str(athlete_label or ""),
+            )
+            cached = get_cached_qa_result(qa_sig)
+            if cached is not None:
+                try:
+                    from pipeline.publishable_qa_evidence import record_qa_result
+                    record_qa_result(reel, cached)
+                except Exception:
+                    pass
+                return cached
+        except Exception:
+            qa_sig = None
+        result = original_check(reel, *args, **kwargs)
+        if qa_sig is not None and isinstance(result, dict):
+            try:
+                from pipeline.render_qa_cache import put_cached_qa_result
+                put_cached_qa_result(qa_sig, result)
+            except Exception:
+                pass
+        return result
 
     analyzer.qa_check_reel = contextual_check
     try:
@@ -271,6 +298,10 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         finished: list = []
         try:
             for ci, cluster in enumerate(clusters):
+                if qa_pool is not None:
+                    for done_item in finished:
+                        if done_item.done():
+                            done_item.result()
                 orchestrator._write_status("editing", 0.30 + 0.15 * (ci / max(1, len(clusters))), cluster=f"{ci + 1}/{len(clusters)}", athlete=str(cluster.get("description", ""))[:60])
                 first_path = cluster["appearances"][0]["path"] if cluster.get("appearances") else None
                 source_video = str(first_path or "")

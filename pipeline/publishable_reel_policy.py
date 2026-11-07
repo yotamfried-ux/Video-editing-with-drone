@@ -237,6 +237,10 @@ def _default_specs(path: str) -> dict[str, Any]:
         return {}
 
 
+def _one_reel_per_athlete() -> bool:
+    return os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def social_ready_issues(specs: dict[str, Any]) -> list[str]:
     """Return deterministic reasons that a rendered file is not directly publishable."""
     issues: list[str] = []
@@ -246,9 +250,10 @@ def social_ready_issues(specs: dict[str, Any]) -> list[str]:
         duration = float(specs.get("duration"))
     except (TypeError, ValueError):
         duration = 0.0
+    allow_unbounded = bool(specs.get("single_reel_per_athlete")) and _one_reel_per_athlete()
     if duration <= 0:
         issues.append("invalid_duration")
-    elif duration > MAX_PUBLISHABLE_SECONDS:
+    elif duration > MAX_PUBLISHABLE_SECONDS and not allow_unbounded:
         issues.append("duration_over_90_seconds")
     try:
         aspect = float(specs.get("aspect"))
@@ -318,13 +323,15 @@ def canonicalize_publishable_variants(
             for variant in variants:
                 _safe_remove(variant)
             continue
-        if float(candidate_specs.get("duration") or 0.0) > MAX_PUBLISHABLE_SECONDS:
+        candidate_events = event_map.get(candidate) or event_map.get(canonical) or []
+        allow_unbounded = _one_reel_per_athlete() and (
+            len(order) == 1 and (len(candidate_events) > 1 or bool(candidate_specs.get("single_reel_per_athlete")))
+        )
+        if float(candidate_specs.get("duration") or 0.0) > MAX_PUBLISHABLE_SECONDS and not allow_unbounded:
             failures.append(f"duration_over_90_seconds:{Path(canonical).name}")
             for variant in variants:
                 _safe_remove(variant)
             continue
-
-        candidate_events = event_map.get(candidate) or event_map.get(canonical) or []
         if candidate != canonical:
             try:
                 os.replace(candidate, canonical)
@@ -572,7 +579,10 @@ def record_athlete_outcome(
     blocking_reasons = list(variant_failures or [])
 
     for index, path in enumerate(final_reels or [], start=1):
-        specs = specs_snapshot.get(_specs_key(path), {})
+        specs = dict(specs_snapshot.get(_specs_key(path), {}))
+        events = [event for event in events_by_reel.get(path, []) if not event.get("_teaser")]
+        if _one_reel_per_athlete() and len(final_reels or []) == 1 and len(events) > 1:
+            specs["single_reel_per_athlete"] = True
         issues = social_ready_issues(specs)
         qa_passed = path not in set(flagged_paths or set())
         if not qa_passed:
@@ -581,7 +591,6 @@ def record_athlete_outcome(
         name = Path(path).name
         if not render_ready:
             blocking_reasons.extend(f"{issue}:{name}" for issue in issues)
-        events = [event for event in events_by_reel.get(path, []) if not event.get("_teaser")]
         parts.append({
             "part_index": index,
             "local_path": path,

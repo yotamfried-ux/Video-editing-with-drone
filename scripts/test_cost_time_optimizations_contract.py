@@ -33,7 +33,7 @@ SESSION = json.dumps({"activity": "surfing", "persons": [{"id": "p1", "descripti
 
 
 def test_qa_minimum_duration_default_is_five_seconds() -> None:
-    text = (ROOT / "config" / "settings.py").read_text()
+    text = (ROOT / "config" / "settings.py").read_text(encoding='utf-8')
     assert 'os.getenv("QA_DUR_OK_MIN", "5")' in text
 
 
@@ -142,7 +142,7 @@ def test_trim_window_becomes_gemini_offsets_and_changes_the_cache_key() -> None:
 
 
 def test_concurrent_analysis_keeps_order_isolates_failures_and_is_faster() -> None:
-    source = (ROOT / "pipeline" / "orchestrator.py").read_text()
+    source = (ROOT / "pipeline" / "orchestrator.py").read_text(encoding='utf-8')
     assert source.count("_analyze_downloaded(downloaded)") == 2, "both session paths must use the shared helper"
     namespace: dict = {}
     helper = source[source.index("def _analyze_one_source"):source.index("def _process_clips_session")]
@@ -217,7 +217,7 @@ def test_llm_cost_calls_are_persisted_immediately() -> None:
                 prompt_token_count=10, candidates_token_count=2, thoughts_token_count=1, prompt_tokens_details=[]))
             llm_cost.record_call(usage, model="gemini-2.5-flash", label="t.a")
             llm_cost.record_call(usage, model="gemini-2.5-flash", label="t.b")
-            rows = [json.loads(line) for line in (Path(tmp) / "pipeline-debug" / "llm_cost_calls.jsonl").read_text().splitlines()]
+            rows = [json.loads(line) for line in (Path(tmp) / "pipeline-debug" / "llm_cost_calls.jsonl").read_text(encoding='utf-8').splitlines()]
         finally:
             os.environ.pop("TMP_DIR", None)
     assert [r["label"] for r in rows] == ["t.a", "t.b"] and all("ts" in r for r in rows), rows
@@ -235,16 +235,16 @@ def test_stage_timer_persists_and_never_raises() -> None:
                     raise ValueError("kept")
             except ValueError:
                 pass
-            rows = [json.loads(line) for line in (Path(tmp) / "pipeline-debug" / "stage_timings.jsonl").read_text().splitlines()]
+            rows = [json.loads(line) for line in (Path(tmp) / "pipeline-debug" / "stage_timings.jsonl").read_text(encoding='utf-8').splitlines()]
         finally:
             os.environ.pop("TMP_DIR", None)
     assert [r["stage"] for r in rows] == ["unit", "failing"] and rows[0]["source"] == "x.mp4", rows
 
 
 def test_pipeline_log_is_unbuffered_and_cache_is_wired() -> None:
-    script = (ROOT / "scripts" / "run_pipeline_with_diagnostics.sh").read_text()
+    script = (ROOT / "scripts" / "run_pipeline_with_diagnostics.sh").read_text(encoding='utf-8')
     assert "PYTHONUNBUFFERED=1 python -u scripts/run_tracked.py" in script
-    workflow = (ROOT / ".github" / "workflows" / "pipeline-run.yml").read_text()
+    workflow = (ROOT / ".github" / "workflows" / "pipeline-run.yml").read_text(encoding='utf-8')
     assert "actions/cache/restore@v4" in workflow and "actions/cache/save@v4" in workflow
     assert "LLM_CACHE_DIR: /tmp/llm-cache" in workflow
     save = workflow[workflow.index("Save LLM analysis cache"):]
