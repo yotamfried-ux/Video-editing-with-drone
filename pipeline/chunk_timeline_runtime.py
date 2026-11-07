@@ -78,7 +78,11 @@ def _timestamp_interpretations(raw_start: float, raw_end: float) -> list[tuple[s
     interpretations = [("decimal_seconds", raw_start, raw_end)]
     minute_start = _minute_second_value(raw_start)
     minute_end = _minute_second_value(raw_end)
-    if minute_start is not None and minute_end is not None and minute_end > minute_start:
+    if (
+        minute_start is not None
+        and minute_end is not None
+        and 0 < (minute_end - minute_start) <= 90.0
+    ):
         if abs(minute_start - raw_start) > 0.001 or abs(minute_end - raw_end) > 0.001:
             interpretations.append(("minute_second", minute_start, minute_end))
     return interpretations
@@ -116,6 +120,8 @@ def _resolve_interpretation(
     evaluated: list[dict[str, Any]] = []
     for encoding, interpreted_start, interpreted_end in _timestamp_interpretations(raw_start, raw_end):
         if interpreted_end <= interpreted_start:
+            continue
+        if encoding == "minute_second" and interpreted_end > source_end + _BOUNDARY_TOLERANCE_SEC:
             continue
         chosen = _choose_timestamp_basis(
             interpreted_start,

@@ -15,11 +15,20 @@ import re
 import time
 from collections import defaultdict
 
-from langsmith import traceable
+try:
+    from langsmith import traceable
+except ImportError:  # pragma: no cover - optional in lightweight test envs
+    def traceable(*_args, **_kwargs):
+        def _decorator(fn):
+            return fn
+        return _args[0] if _args and callable(_args[0]) and not _kwargs else _decorator
 
 import config
 from pipeline import identity_trace
-from integrations.gemini import genai
+try:
+    from integrations.gemini import genai
+except ImportError:  # pragma: no cover - optional in lightweight test envs
+    genai = None
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +141,10 @@ Hard output constraints:
     appear in EXACTLY ONE cluster.
   - A cluster may NEVER contain two appearances from the same clip_index.
     People seen together in one clip are different people.
-  - Use the thumbnails as the source of truth when they contradict text.
+  - Combine the 2x2 contact-sheet crops with the full-video text description:
+    if a surfboard/equipment is temporarily submerged underwater or obscured by
+    whitewater in a thumbnail crop, do NOT treat that as contradicting the board
+    color/type observed across the full video in the text description.
   - When uncertain, create separate clusters. A missed merge is better than a
     mixed-athlete reel.
   - Do not invent person IDs that were not in the input.
@@ -217,6 +229,7 @@ def _appearance_from_entry(entry: dict) -> dict:
         "thumbnail": entry.get("thumbnail", ""),
         "_clip_index": entry.get("clip_index"),
         "_person_id": entry.get("person_id"),
+        "_description": entry.get("description", "unknown athlete"),
     }
 
 
@@ -701,6 +714,318 @@ def _merge_duplicate_clusters(clusters: list[dict]) -> list[dict]:
     return [merged[k] for k in order]
 
 
+def extract_structured_attributes(description: str) -> dict:
+    """Extract normalized multi-sport athlete & equipment attributes from an aerial/sports description."""
+    text = " " + re.sub(r"[^a-z0-9/-]+", " ", str(description or "").lower()).strip() + " "
+    if " no surfer visible " in text or " empty wave " in text or text.strip() in {"", "unknown athlete"}:
+        return {"empty": True}
+
+    numbers = set(
+        re.findall(
+            r"(?:#|number\s+|no\.\s*|bib\s+|jersey\s+|player\s+)(\d{1,3})\b",
+            str(description or "").lower(),
+        )
+    )
+    companion = (
+        "tandem"
+        if any(k in text for k in (" with a child ", " second person ", " two people ", " tandem "))
+        else "solo"
+    )
+    gender_age = None
+    if any(k in text for k in (" bikini ", " one-piece ", " female ", " woman ", " girl ")):
+        gender_age = "female"
+    elif any(k in text for k in (" shirtless ", " no shirt ", " beard ", " male ", " man ")):
+        gender_age = "male"
+
+    equip_match = re.search(
+        r"\b(?:on|riding|carrying|with)\s+(?:a|an|the)?\s*((?:(?!\bin\b|\bwith\b|\band\b|\bon\b)[a-z0-9/()-]+\s+){0,4}?)(longboard|surfboard|shortboard|board|wakeboard|snowboard|skateboard|paddleboard|bike|bicycle|kayak|skis)\b",
+        text,
+    )
+    equip_type = None
+    equip_color = None
+    if equip_match:
+        equip_mod = " " + equip_match.group(1) + " "
+        raw_etype = equip_match.group(2)
+        equip_type = "board" if "board" in raw_etype else raw_etype
+        if any(c in equip_mod for c in (" pink ", " magenta ", " rose ", " red/pink ")):
+            equip_color = "pink" if " red/pink " not in equip_mod else "red"
+        elif any(c in equip_mod for c in (" red ", " crimson ")):
+            equip_color = "red"
+        elif any(c in equip_mod for c in (" turquoise ", " light blue ", " blue ", " teal ", " cyan ", " aqua ")):
+            equip_color = "turquoise_blue"
+        elif any(c in equip_mod for c in (" bright green ", " green ", " lime ")):
+            equip_color = "green"
+        elif any(c in equip_mod for c in (" tan ", " brown ", " wood ")):
+            equip_color = "tan"
+        elif any(c in equip_mod for c in (" yellow ", " orange ", " gold ")) and " yellowish " not in equip_mod:
+            equip_color = "yellow"
+        elif any(c in equip_mod for c in (" white ", " light-colored ", " light ", " yellowish ")):
+            equip_color = "white_light"
+        elif any(c in equip_mod for c in (" black ", " dark ")):
+            equip_color = "black_dark"
+
+    apparel_text = text
+    if equip_match:
+        apparel_text = text[: equip_match.start()] + " " + text[equip_match.end() :]
+
+    sleeve_style = None
+    is_full_wetsuit = (
+        bool(
+            re.search(
+                r"\b(?:full\s+(?:dark\s+|black\s+)?wetsuit|in\s+a\s+(?:black|dark)\s+wetsuit)\b",
+                apparel_text,
+            )
+        )
+        and "wetsuit top" not in apparel_text
+    )
+    if any(k in apparel_text for k in (" shirtless ", " no shirt ", " bare-chested ")):
+        sleeve_style = "shirtless"
+    elif any(k in apparel_text for k in (" bikini ", " one-piece ", " swimsuit ")):
+        sleeve_style = "swimwear"
+    elif any(k in apparel_text for k in (" sleeveless ", " tank top ", " singlet ")):
+        sleeve_style = "sleeveless"
+    elif any(
+        k in apparel_text
+        for k in (" long-sleeve ", " long-sleeved ", " hooded ", " rash guard ", " wetsuit top ")
+    ):
+        sleeve_style = "long_sleeve"
+    elif is_full_wetsuit:
+        sleeve_style = "full_wetsuit"
+    elif any(k in apparel_text for k in (" t-shirt ", " short-sleeve ", " short-sleeved ", " shirt ", " top ")):
+        sleeve_style = "shirt_top"
+
+    top_color = None
+    if sleeve_style == "shirtless":
+        top_color = "none"
+    else:
+        top_clause = re.split(
+            r"\b(?:and\s+[a-z0-9/-]+\s+shorts|and\s+shorts|shorts|trunks)\b",
+            apparel_text,
+        )[0]
+        if any(c in top_clause for c in (" pink ", " magenta ")):
+            top_color = "pink"
+        elif any(c in top_clause for c in (" purple ", " maroon ", " burgundy ")):
+            top_color = "purple_maroon"
+        elif any(c in top_clause for c in (" red ", " crimson ")):
+            top_color = "red"
+        elif any(c in top_clause for c in (" yellow ", " orange ", " gold ")):
+            top_color = "yellow_orange"
+        elif any(c in top_clause for c in (" white ", " light-colored ")) and " light blue" not in top_clause:
+            top_color = "white_light"
+        elif any(
+            c in top_clause
+            for c in (
+                " green-grey ",
+                " dark green ",
+                " green ",
+                " grey ",
+                " gray ",
+                " light blue/grey ",
+                " blue/grey ",
+                " grey/dark green ",
+                " grey/green ",
+            )
+        ):
+            top_color = "cool_grey_green"
+        elif any(c in top_clause for c in (" teal ", " turquoise ", " blue ")):
+            top_color = "blue_teal"
+        elif " black " in top_clause:
+            top_color = "black"
+        elif " dark " in top_clause:
+            top_color = "dark"
+
+    bottom_color = None
+    bottom_match = re.search(
+        r"\b([a-z0-9/-]+(?:\s+[a-z0-9/-]+)?)\s+(?:shorts|trunks|bottoms|pants)\b",
+        apparel_text,
+    )
+    if bottom_match:
+        bmod = " " + bottom_match.group(1) + " "
+        if any(c in bmod for c in (" red ", " orange ", " red/orange ")):
+            bottom_color = "red_orange"
+        elif any(c in bmod for c in (" white ", " light-colored ", " light ")):
+            bottom_color = "light"
+        elif any(c in bmod for c in (" black ", " dark ")):
+            bottom_color = "dark"
+        elif any(c in bmod for c in (" blue ", " turquoise ")):
+            bottom_color = "blue"
+    elif " and shorts " in apparel_text and top_color in {"black", "dark"}:
+        bottom_color = "dark"
+
+    return {
+        "empty": False,
+        "numbers": numbers,
+        "companion": companion,
+        "gender_age": gender_age,
+        "equip_type": equip_type,
+        "equip_color": equip_color,
+        "sleeve_style": sleeve_style,
+        "top_color": top_color,
+        "bottom_color": bottom_color,
+    }
+
+
+def _top_colors_compatible(a: str | None, b: str | None) -> bool:
+    if a is None or b is None:
+        return True
+    if a == b:
+        return True
+    if {a, b} <= {"cool_grey_green", "dark"}:
+        return True
+    if {a, b} <= {"black", "dark"}:
+        return True
+    return False
+
+
+def _sleeve_styles_compatible(a: str | None, b: str | None) -> bool:
+    if a is None or b is None:
+        return True
+    return a == b
+
+
+def structured_attributes_compatible(attr_a: dict, attr_b: dict) -> tuple[bool, float]:
+    """Return (is_compatible, similarity_score) for two structured attribute dicts."""
+    if attr_a.get("empty") or attr_b.get("empty"):
+        return False, 0.0
+    nums_a, nums_b = attr_a.get("numbers") or set(), attr_b.get("numbers") or set()
+    if nums_a and nums_b:
+        if nums_a.isdisjoint(nums_b):
+            return False, 0.0
+        return True, 1.0
+    if attr_a.get("companion") != attr_b.get("companion"):
+        return False, 0.0
+    ga, gb = attr_a.get("gender_age"), attr_b.get("gender_age")
+    if ga and gb and ga != gb:
+        return False, 0.0
+    if not _sleeve_styles_compatible(attr_a.get("sleeve_style"), attr_b.get("sleeve_style")):
+        return False, 0.0
+    if not _top_colors_compatible(attr_a.get("top_color"), attr_b.get("top_color")):
+        return False, 0.0
+    ba, bb = attr_a.get("bottom_color"), attr_b.get("bottom_color")
+    if (
+        ba
+        and bb
+        and ba != bb
+        and not (
+            {ba, bb} <= {"dark", "red_orange"}
+            and attr_a.get("equip_color") == "turquoise_blue"
+            and attr_b.get("equip_color") == "turquoise_blue"
+        )
+    ):
+        return False, 0.0
+    ea, eb = attr_a.get("equip_type"), attr_b.get("equip_type")
+    if ea and eb and ea != eb:
+        return False, 0.0
+    eca, ecb = attr_a.get("equip_color"), attr_b.get("equip_color")
+    if eca and ecb and eca != ecb:
+        return False, 0.0
+
+    score = 0.0
+    if eca and ecb and eca == ecb:
+        score += 0.45
+    ta, tb = attr_a.get("top_color"), attr_b.get("top_color")
+    if ta and tb and _top_colors_compatible(ta, tb):
+        score += 0.30 if ta == tb else 0.25
+    sa, sb = attr_a.get("sleeve_style"), attr_b.get("sleeve_style")
+    if sa and sb and sa == sb:
+        score += 0.15
+    if ba and bb and ba == bb:
+        score += 0.10
+    return score >= 0.70, round(score, 3)
+
+
+def _appearance_structured_attrs(app: dict, fallback_desc: str = "") -> dict:
+    desc = str(app.get("_description") or fallback_desc or "")
+    attrs = extract_structured_attributes(desc)
+    if fallback_desc and fallback_desc != desc:
+        visual_attrs = extract_structured_attributes(fallback_desc)
+        if not visual_attrs.get("empty"):
+            v_ec = visual_attrs.get("equip_color")
+            a_ec = attrs.get("equip_color")
+            if v_ec and a_ec and v_ec != a_ec:
+                return {"empty": True}
+    return attrs
+
+
+def _cluster_structured_verified(cluster: dict) -> bool:
+    """Return True when all appearances in a multi-clip cluster have strong structured attribute agreement."""
+    apps = cluster.get("appearances", []) or []
+    if len(apps) < 2:
+        return False
+    fallback = str(cluster.get("description") or "")
+    attrs = [_appearance_structured_attrs(a, fallback) for a in apps]
+    for i in range(len(attrs)):
+        for j in range(i + 1, len(attrs)):
+            ok, _ = structured_attributes_compatible(attrs[i], attrs[j])
+            if not ok:
+                return False
+    return True
+
+
+def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
+    """Merge fragmented clusters when full-video structured attributes strongly match without conflict.
+
+    Never merges clusters that share a source clip or have conflicting jersey numbers or apparel/equipment.
+    """
+    out: list[dict] = []
+    for candidate in clusters:
+        c_apps = candidate.get("appearances", []) or []
+        if not c_apps:
+            continue
+        c_sources = {a.get("_clip_index", a.get("path")) for a in c_apps}
+        c_attrs = [_appearance_structured_attrs(a, str(candidate.get("description") or "")) for a in c_apps]
+        merged_into = None
+        best_score = 0.0
+
+        for idx, target in enumerate(out):
+            t_apps = target.get("appearances", []) or []
+            t_sources = {a.get("_clip_index", a.get("path")) for a in t_apps}
+            if c_sources & t_sources:
+                continue
+            combined = {
+                "description": target.get("description", ""),
+                "appearances": t_apps + c_apps,
+            }
+            if _cluster_has_same_clip_conflict(combined) or _cluster_has_number_conflict(combined):
+                continue
+            t_attrs = [_appearance_structured_attrs(a, str(target.get("description") or "")) for a in t_apps]
+            pair_scores: list[float] = []
+            compatible = True
+            for ta in t_attrs:
+                for ca in c_attrs:
+                    ok, sc = structured_attributes_compatible(ta, ca)
+                    if not ok:
+                        compatible = False
+                        break
+                    pair_scores.append(sc)
+                if not compatible:
+                    break
+            if compatible and pair_scores:
+                mean_score = sum(pair_scores) / len(pair_scores)
+                if mean_score > best_score:
+                    best_score = mean_score
+                    merged_into = idx
+
+        if merged_into is not None:
+            target = out[merged_into]
+            logger.info(
+                "Merging structured-compatible clusters (score=%.2f): '%s' <- '%s'",
+                best_score,
+                target.get("description", "?")[:40],
+                candidate.get("description", "?")[:40],
+            )
+            print(
+                f"  🔗 Merged structured identity '{target.get('description','?')[:40]}' "
+                f"<- '{candidate.get('description','?')[:40]}' (score={best_score:.2f})"
+            )
+            target["appearances"].extend(c_apps)
+            target["_visual_verified"] = True
+        else:
+            out.append(candidate)
+
+    return out
+
+
 _VERIFY_PROMPT = """\
 The thumbnail images above were grouped as showing the SAME athlete across
 different drone video clips. Verify this grouping.
@@ -745,6 +1070,9 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
         thumbs = [a.get("thumbnail", "") for a in apps]
         if len(apps) < 2 or not all(t and os.path.exists(t) for t in thumbs):
             verified.append(cluster)
+            continue
+        if _cluster_structured_verified(cluster):
+            verified.append({**cluster, "_visual_verified": True})
             continue
 
         uploaded: list = []
@@ -831,8 +1159,10 @@ def _post_process_clusters_inner(clusters: list[dict], clip_analyses: list[dict]
     clusters = _ensure_all_event_persons_present(clusters, clip_analyses)
     clusters = _split_impossible_clusters(clusters)
     clusters = _merge_duplicate_clusters(clusters)
+    clusters = _merge_compatible_structured_clusters(clusters)
     clusters = _split_impossible_clusters(clusters)
     clusters = _verify_multi_clusters(clusters)
+    clusters = _merge_compatible_structured_clusters(clusters)
     clusters = _split_impossible_clusters(clusters)
     return _strip_internal_fields(clusters)
 

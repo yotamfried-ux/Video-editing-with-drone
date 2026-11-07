@@ -1579,8 +1579,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             print(f"❌ No clips produced for '{label}' — reel skipped (check event timestamps)")
             continue
 
-        suffix    = f"_p{part_idx + 1}" if len(partitions) > 1 else ""
-        reel_stem = f"MULTI_{first_stem}{suffix}"
+        reel_stem = _multi_reel_stem(first_stem, athlete_label, part_idx, len(partitions))
         reel_path = os.path.join(config.TMP_DIR, f"{reel_stem}.mp4")
 
         # Cache clips for add_music.py beat-sync step

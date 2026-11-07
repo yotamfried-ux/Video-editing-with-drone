@@ -146,12 +146,17 @@ def _track_samples(events: list[dict], detections: list, k: int) -> list:
         return []
     good = [d for d in pool if d.visible_ratio >= _SHEET_MIN_VISIBLE] or pool
     good.sort(key=lambda d: d.time_sec)
-    area = lambda d: (d.xyxy[2] - d.xyxy[0]) * (d.xyxy[3] - d.xyxy[1])
+    quality = lambda d: (
+        (d.xyxy[2] - d.xyxy[0])
+        * (d.xyxy[3] - d.xyxy[1])
+        * float(d.confidence or 0.5)
+        * float(d.visible_ratio or 1.0)
+    )
     picks = []
     for i in range(min(k, len(good))):
         bucket = good[i * len(good) // min(k, len(good)):(i + 1) * len(good) // min(k, len(good))]
         if bucket:
-            picks.append(max(bucket, key=area))
+            picks.append(max(bucket, key=quality))
     return picks
 
 

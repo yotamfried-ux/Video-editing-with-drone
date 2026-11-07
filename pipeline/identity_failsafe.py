@@ -122,6 +122,11 @@ def _wrap_verify_multi_clusters(identity):
             if len(apps) < 2:
                 verified.append(cluster)
                 continue
+            if _cluster_has_perception_evidence(cluster) and getattr(
+                identity, "_cluster_structured_verified", lambda _c: False
+            )(cluster):
+                verified.append({**cluster, "_visual_verified": True})
+                continue
             if not all(t and os.path.exists(t) for t in thumbs):
                 verified.extend(identity._split_cluster_to_singles(
                     cluster,

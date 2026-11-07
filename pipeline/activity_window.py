@@ -16,7 +16,7 @@ MIN_DETECTIONS = 3
 
 
 def enabled() -> bool:
-    return os.getenv("ANALYSIS_TRIM_TO_ACTIVITY", "").strip().lower() in {"1", "true", "yes", "on"}
+    return os.getenv("ANALYSIS_TRIM_TO_ACTIVITY", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
 def compute_window(times: Iterable[float], duration: float, *, pad: float | None = None,

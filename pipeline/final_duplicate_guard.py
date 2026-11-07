@@ -54,7 +54,12 @@ def _duplicate_reason(candidate: dict[str, Any], kept: dict[str, Any]) -> str | 
         return "same_source_time_overlap"
     c_track = candidate.get("track_id")
     k_track = kept.get("track_id")
-    if c_track is not None and str(c_track) == str(k_track) and _overlap_ratio(candidate, kept) >= 0.70:
+    if (
+        _src(candidate) == _src(kept)
+        and c_track is not None
+        and str(c_track) == str(k_track)
+        and _overlap_ratio(candidate, kept) >= 0.70
+    ):
         return "same_track_time_overlap"
     return None
 

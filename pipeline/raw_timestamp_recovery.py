@@ -52,13 +52,38 @@ def _parse_payload(raw_text: str) -> dict[str, Any]:
     return payload if isinstance(payload, dict) else {}
 
 
-def recover_event_timestamp(event: dict[str, Any], min_event_sec: float) -> dict[str, Any]:
+_MAX_RECOVERED_EVENT_SEC = 90.0
+
+
+def _active_source_duration() -> float | None:
+    try:
+        from pipeline.chunk_timeline_runtime import _ACTIVE_SOURCE
+
+        active = _ACTIVE_SOURCE.get()
+        if active is not None and len(active) >= 2:
+            dur = _num(active[1])
+            if dur is not None and dur > 0:
+                return dur
+    except Exception:
+        pass
+    return None
+
+
+def recover_event_timestamp(
+    event: dict[str, Any],
+    min_event_sec: float,
+    *,
+    max_duration_sec: float | None = None,
+) -> dict[str, Any]:
     """Return an event with deterministic encoding evidence and optional MM.SS recovery."""
     recovered = dict(event)
     raw_start = _num(event.get("start"))
     raw_end = _num(event.get("end"))
     if raw_start is None or raw_end is None or raw_end <= raw_start:
         return recovered
+
+    if max_duration_sec is None:
+        max_duration_sec = _active_source_duration()
 
     encoding = "decimal_seconds"
     interpreted_start = raw_start
@@ -67,10 +92,16 @@ def recover_event_timestamp(event: dict[str, Any], min_event_sec: float) -> dict
     if raw_end - raw_start < min_event_sec:
         minute_start = _minute_second_value(raw_start)
         minute_end = _minute_second_value(raw_end)
+        within_source = (
+            max_duration_sec is None
+            or minute_end is None
+            or minute_end <= max_duration_sec + 1.0
+        )
         if (
             minute_start is not None
             and minute_end is not None
-            and minute_end - minute_start >= min_event_sec
+            and min_event_sec <= (minute_end - minute_start) <= _MAX_RECOVERED_EVENT_SEC
+            and within_source
         ):
             encoding = "minute_second"
             interpreted_start = minute_start

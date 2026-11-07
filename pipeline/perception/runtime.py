@@ -30,17 +30,20 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
 import shlex
 import subprocess
 from pathlib import Path
 from typing import Any
 
+from integrations import llm_cache as _llm_cache
 from .schema import PerceptionDetection
 
 logger = logging.getLogger(__name__)
 
 _INSTALLED_FLAG = "_sportreel_perception_runtime_installed"
+_SIDECAR_CACHE_VERSION = "2"
 _SIDECAR_ENV = "SPORTREEL_PERCEPTION_SIDECAR_DIR"
 _COMMAND_ENV = "SPORTREEL_PERCEPTION_COMMAND"
 _REQUIRED_ENV = "SPORTREEL_REQUIRE_PERCEPTION"
@@ -252,6 +255,30 @@ def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[
     return summary
 
 
+def _sidecar_cache_key(video_path: str, command: str) -> str | None:
+    """Return a content-addressed cache key for the video's perception sidecar."""
+    if not _llm_cache.enabled() or not os.path.exists(video_path):
+        return None
+    try:
+        media_sha = _llm_cache.file_sha256(video_path)
+        model = os.getenv("SPORTREEL_ULTRALYTICS_MODEL", "yolo11s.pt").strip()
+        tracker = os.getenv("SPORTREEL_ULTRALYTICS_TRACKER", "botsort.yaml").strip()
+        stride = os.getenv("SPORTREEL_ULTRALYTICS_VID_STRIDE", "5").strip()
+        imgsz = os.getenv("SPORTREEL_ULTRALYTICS_IMGSZ", "640").strip()
+        extra = f"tracker={tracker}|stride={stride}|imgsz={imgsz}"
+        return _llm_cache.make_key(
+            "perception-sidecar",
+            media_sha256=media_sha,
+            prompt=command,
+            model=model,
+            version=_SIDECAR_CACHE_VERSION,
+            extra=extra,
+        )
+    except Exception as exc:
+        logger.debug("sidecar cache key skipped: %s", exc)
+        return None
+
+
 def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
     """Run the configured pre-analysis producer when a sidecar is missing.
 
@@ -284,6 +311,21 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
         return {"path": str(output), "producer_status": "skipped", "detection_count": 0}
 
     output.parent.mkdir(parents=True, exist_ok=True)
+    cache_key = _sidecar_cache_key(video_path, command)
+    if cache_key:
+        cached_json = _llm_cache.get(cache_key)
+        if cached_json:
+            try:
+                tmp = output.with_suffix(output.suffix + ".cache.tmp")
+                tmp.write_text(cached_json, encoding="utf-8")
+                tmp.replace(output)
+                summary = validate_sidecar(video_path, output)
+                if _is_reusable_sidecar(summary) and int(summary.get("detection_count") or 0) > 0:
+                    print(f"♻️  Perception sidecar cache hit for '{Path(video_path).name}' ({summary.get('detection_count')} detections)")
+                    return {**summary, "producer_status": "existing"}
+            except Exception as exc:
+                logger.debug("Cached perception sidecar unusable for %s: %s", video_path, exc)
+
     args = _render_command(command, video_path, output)
     env = {
         **os.environ,
@@ -312,6 +354,16 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
         if perception_required():
             raise RuntimeError(_non_reusable_error(summary))
         return {**summary, "producer_status": _producer_status_from_sidecar(summary)}
+    if cache_key and int(summary.get("detection_count") or 0) > 0:
+        try:
+            _llm_cache.put(
+                cache_key,
+                output.read_text(encoding="utf-8"),
+                source=Path(video_path).name,
+                detection_count=summary.get("detection_count"),
+            )
+        except Exception as exc:
+            logger.debug("Perception sidecar cache write skipped: %s", exc)
     return {**summary, "producer_status": "created"}
 
 
@@ -350,26 +402,73 @@ def _event_crop_point(event: dict[str, Any]) -> tuple[float, float] | None:
     return x, y
 
 
-def _track_score(detections: list[PerceptionDetection], event: dict[str, Any]) -> tuple[float, float, float, float]:
-    """Rank a whole track, never an isolated high-confidence box."""
+def _track_score(
+    detections: list[PerceptionDetection],
+    event: dict[str, Any],
+    *,
+    max_window_len: int | None = None,
+) -> tuple[float, float, float, float]:
+    """Rank a whole track using persistence, kinematic motion, and spatial proximity.
+
+    Never allow a 1-4 frame noise detection or stationary bystander to beat a
+    sustained moving athlete track simply because of a slightly closer single-point
+    Euclidean distance to a static crop hint.
+    """
     if not detections:
         return (-1.0, -1.0, -1.0, -1.0)
+    n = len(detections)
+    start, end = _event_window(event)
+    window_dur = max(0.5, end - start)
+
+    times = [float(d.time_sec) for d in detections]
+    span = max(0.0, max(times) - min(times))
+    coverage = min(1.0, span / window_dur) if window_dur >= 1.5 else 1.0
+
+    ref_len = max(n, int(max_window_len or n))
+    persistence = min(1.0, n / max(4.0, float(ref_len) * 0.65)) if ref_len >= 4 else 1.0
+    if ref_len >= 8 and n < 4:
+        micro_penalty = 0.15
+    elif ref_len >= 15 and n < 6:
+        micro_penalty = 0.45
+    else:
+        micro_penalty = 1.0
+
+    cxs = [((d.xyxy[0] + d.xyxy[2]) / 2.0) / max(1.0, float(d.frame_width)) for d in detections]
+    cys = [((d.xyxy[1] + d.xyxy[3]) / 2.0) / max(1.0, float(d.frame_height)) for d in detections]
+    disp = math.hypot(max(cxs) - min(cxs), max(cys) - min(cys))
+    motion_score = min(1.0, disp / 0.25) if ref_len >= 6 else 0.5
+
     crop = _event_crop_point(event)
-    crop_match = 0.0
+    crop_match = 0.5
     if crop is not None:
-        distances = []
-        for detection in detections:
-            x1, y1, x2, y2 = detection.xyxy
-            cx = ((x1 + x2) / 2.0) / max(1.0, float(detection.frame_width))
-            cy = ((y1 + y2) / 2.0) / max(1.0, float(detection.frame_height))
-            distances.append(((cx - crop[0]) ** 2 + (cy - crop[1]) ** 2) ** 0.5)
-        crop_match = 1.0 - min(1.0, sum(distances) / len(distances))
-    confidence = sum((d.confidence or 0.0) for d in detections) / len(detections)
-    visible = sum(d.visible_ratio for d in detections) / len(detections)
-    return (crop_match, float(len(detections)), confidence, visible)
+        distances = sorted(math.hypot(cx - crop[0], cy - crop[1]) for cx, cy in zip(cxs, cys))
+        k = max(1, len(distances) // 3)
+        best_dist = sum(distances[:k]) / k
+        mean_dist = sum(distances) / len(distances)
+        crop_match = 0.65 * (1.0 - min(1.0, best_dist)) + 0.35 * (1.0 - min(1.0, mean_dist))
+
+    confidence = sum((d.confidence or 0.0) for d in detections) / n
+    visible = sum(d.visible_ratio for d in detections) / n
+
+    if ref_len <= 2:
+        composite = crop_match if crop is not None else confidence
+    else:
+        composite = micro_penalty * (
+            0.42 * crop_match
+            + 0.28 * persistence
+            + 0.15 * coverage
+            + 0.10 * motion_score
+            + 0.05 * confidence
+        )
+    return (round(composite, 6), float(n), round(confidence, 4), round(visible, 4))
 
 
-def _best_primary(candidates: list[PerceptionDetection], event: dict[str, Any]) -> PerceptionDetection | None:
+def _best_primary(
+    candidates: list[PerceptionDetection],
+    event: dict[str, Any],
+    *,
+    claimed_tracks: set[str] | None = None,
+) -> PerceptionDetection | None:
     if not candidates:
         return None
     by_track: dict[str, list[PerceptionDetection]] = {}
@@ -378,7 +477,17 @@ def _best_primary(candidates: list[PerceptionDetection], event: dict[str, Any]) 
             by_track.setdefault(str(detection.tracker_id), []).append(detection)
     if not by_track:
         return None
-    best_id, track_detections = max(by_track.items(), key=lambda item: _track_score(item[1], event))
+    max_len = max((len(items) for items in by_track.values()), default=1)
+    claimed = claimed_tracks or set()
+
+    def _rank_key(item: tuple[str, list[PerceptionDetection]]) -> tuple[float, float, float, float]:
+        tid, dets = item
+        score = _track_score(dets, event, max_window_len=max_len)
+        if tid in claimed and len(by_track) > 1:
+            return (round(score[0] * 0.72, 6), score[1], score[2], score[3])
+        return score
+
+    best_id, track_detections = max(by_track.items(), key=_rank_key)
     mid = _event_mid(event)
     primary = min(track_detections, key=lambda detection: abs(detection.time_sec - mid))
     return primary
@@ -389,10 +498,18 @@ def _track_ids(candidates: list[PerceptionDetection]) -> list[str]:
     return sorted(ids)
 
 
-def enrich_event(event: dict[str, Any], detections: list[PerceptionDetection]) -> dict[str, Any]:
+def enrich_event(
+    event: dict[str, Any],
+    detections: list[PerceptionDetection],
+    *,
+    claimed_tracks: set[str] | None = None,
+) -> dict[str, Any]:
     """Attach bbox/track evidence to one event without mutating input."""
     window_detections = _in_window(detections, event)
-    primary = _best_primary(window_detections, event) or _nearest(detections, event)
+    primary = (
+        _best_primary(window_detections, event, claimed_tracks=claimed_tracks)
+        or _nearest(detections, event)
+    )
     if primary is None:
         return {**event, "perception_evidence_status": "no_tracker_detection"}
     visible_ids = _track_ids(window_detections or [primary])
@@ -436,6 +553,13 @@ def _window_refiner():
     return refine
 
 
+def _windows_overlap(a: dict[str, Any], b: dict[str, Any]) -> bool:
+    sa, ea = _event_window(a)
+    sb, eb = _event_window(b)
+    overlap = max(0.0, min(ea, eb) - max(sa, sb))
+    return overlap >= 1.5
+
+
 def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dict[str, Any]:
     try:
         detections = load_sidecar_detections(video_path)
@@ -448,8 +572,18 @@ def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dic
         return session
     refine = _window_refiner()
     people = []
+    assigned_events: list[tuple[dict[str, Any], str]] = []
     for person in session.get("persons", []) or []:
-        events = [refine(enrich_event(event, detections), detections) for event in person.get("events", []) or []]
+        events = []
+        for event in person.get("events", []) or []:
+            claimed = {
+                tid for prev_ev, tid in assigned_events if _windows_overlap(event, prev_ev)
+            }
+            enriched = enrich_event(event, detections, claimed_tracks=claimed)
+            tid = enriched.get("target_track_id") or enriched.get("track_id")
+            if tid is not None:
+                assigned_events.append((event, str(tid)))
+            events.append(refine(enriched, detections))
         people.append({**person, "events": events, "perception_evidence_source": "tracker_sidecar"})
     return {**session, "persons": people, "perception_evidence_source": "tracker_sidecar"}
 

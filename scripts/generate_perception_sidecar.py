@@ -105,25 +105,40 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
 
     from ultralytics import YOLO
 
-    track_kwargs: dict[str, Any] = {
-        "source": args.video_path,
-        "tracker": tracker,
-        "persist": True,
-        "stream": True,
-        "verbose": False,
-        "vid_stride": stride,
-        "imgsz": imgsz,
-        "classes": [0],
-    }
-    if device:
-        track_kwargs["device"] = device
+    def _run_track_pass(run_stride: int, run_imgsz: int, conf_override: float | None = None) -> tuple[list[dict[str, Any]], _DetectorStats]:
+        track_kwargs: dict[str, Any] = {
+            "source": args.video_path,
+            "tracker": tracker,
+            "persist": True,
+            "stream": True,
+            "verbose": False,
+            "vid_stride": run_stride,
+            "imgsz": run_imgsz,
+            "classes": [0],
+        }
+        if conf_override is not None:
+            track_kwargs["conf"] = conf_override
+        if device:
+            track_kwargs["device"] = device
 
-    model_obj = YOLO(model)
-    detections: list[dict[str, Any]] = []
-    seen = _DetectorStats()
-    for result_index, result in enumerate(model_obj.track(**track_kwargs)):
-        seen.observe(result)
-        detections.extend(detections_from_ultralytics_result(result, frame_index=result_index * stride, fps=fps))
+        model_obj = YOLO(model)
+        pass_detections: list[dict[str, Any]] = []
+        pass_seen = _DetectorStats()
+        for result_index, result in enumerate(model_obj.track(**track_kwargs)):
+            pass_seen.observe(result)
+            pass_detections.extend(
+                detections_from_ultralytics_result(result, frame_index=result_index * run_stride, fps=fps)
+            )
+        return pass_detections, pass_seen
+
+    detections, seen = _run_track_pass(stride, imgsz)
+    if not detections and imgsz < 1280:
+        fallback_imgsz = 1280
+        fallback_stride = max(1, min(stride, 5))
+        detections, seen = _run_track_pass(fallback_stride, fallback_imgsz, conf_override=0.15)
+        if detections:
+            imgsz = fallback_imgsz
+            stride = fallback_stride
 
     payload = {
         "source_video": args.video_path,
@@ -143,6 +158,11 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def main() -> int:
+    if hasattr(sys.stdout, "reconfigure"):
+        try:
+            sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass
     parser = argparse.ArgumentParser(description="Generate a SportReel perception sidecar from a configured backend output.")
     parser.add_argument("video_path", help="Input source video path")
     parser.add_argument("output_path", help="Output .perception.json path")

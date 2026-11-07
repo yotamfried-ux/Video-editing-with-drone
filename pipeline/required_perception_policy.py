@@ -116,16 +116,35 @@ def install() -> None:
     def enrich_and_require(session: dict[str, Any], video_path: str) -> dict[str, Any]:
         enriched = original_enrich(session, video_path)
         missing: list[str] = []
+        valid_event_count = 0
+        updated_persons: list[dict[str, Any]] = []
         for person_index, person in enumerate(enriched.get("persons", []) or []):
-            for event_index, event in enumerate(person.get("events", []) or []):
-                if not _event_has_required_evidence(event):
+            events = list(person.get("events", []) or [])
+            valid_events: list[dict[str, Any]] = []
+            for event_index, event in enumerate(events):
+                if _event_has_required_evidence(event):
+                    valid_events.append(event)
+                    valid_event_count += 1
+                else:
                     missing.append(f"person={person_index},event={event_index}")
-        if missing:
+            if events and not valid_events:
+                updated_persons.append({
+                    **person,
+                    "events": [],
+                    "no_output_reason": person.get("no_output_reason") or "insufficient_track_evidence",
+                })
+            elif len(valid_events) != len(events):
+                updated_persons.append({**person, "events": valid_events})
+            else:
+                updated_persons.append(person)
+        if missing and valid_event_count == 0:
             preview = "; ".join(missing[:10])
             raise RuntimeError(
                 "Mandatory perception evidence or featured-athlete track binding "
                 f"is missing for analyzed events: {preview}"
             )
+        if missing:
+            return {**enriched, "persons": updated_persons}
         return enriched
 
     runtime.enrich_session_with_sidecar = enrich_and_require

@@ -936,11 +936,18 @@ def analyze_session(video_path: str) -> dict:
                     if trim_window:
                         print(f"✂️  Activity window {trim_window[0]:.0f}s–{trim_window[1]:.0f}s from detector sidecar")
             try:
+                media_sha = _llm_cache.file_sha256(chunk_path)
                 cache_key = _llm_cache.make_key(
-                    "analyze-session", media_sha256=_llm_cache.file_sha256(chunk_path),
+                    "analyze-session", media_sha256=media_sha,
                     prompt=prompt, model=_MODEL, version=_ANALYSIS_CACHE_VERSION,
                     extra=json.dumps([_analysis_call_options(trim_window, chunk_duration)], sort_keys=True))
                 cached_text = _llm_cache.get(cache_key)
+                if not cached_text and trim_window is not None:
+                    untrimmed_key = _llm_cache.make_key(
+                        "analyze-session", media_sha256=media_sha,
+                        prompt=prompt, model=_MODEL, version=_ANALYSIS_CACHE_VERSION,
+                        extra=json.dumps([_analysis_call_options(None, chunk_duration)], sort_keys=True))
+                    cached_text = _llm_cache.get(untrimmed_key)
                 if cached_text:
                     parsed_cached = _parse_session(cached_text)
                     print(f"♻️  Analysis cache hit for '{Path(chunk_path).name}' — no Gemini call")
