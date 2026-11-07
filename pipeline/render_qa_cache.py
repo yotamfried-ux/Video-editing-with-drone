@@ -78,6 +78,14 @@ def _canonical_event_spec(ev: Mapping[str, Any]) -> dict[str, Any]:
         "track_id": str(ev.get("target_track_id") or ev.get("track_id") or ""),
         "source_person_key": str(ev.get("source_person_key") or ""),
         "athlete_id": str(ev.get("athlete_id") or ""),
+        "teaser": bool(ev.get("_teaser", False)),
+        "cap_duration": ev.get("_cap_dur"),
+        # Include every renderer-visible event field (excluding transient transport IDs).
+        # This is conservative: extra cache misses are safer than false cache hits.
+        "full_event": json.dumps(
+            {k: v for k, v in ev.items() if k not in {"_render_invocation_id", "_src"}},
+            sort_keys=True, ensure_ascii=False, default=str,
+        ),
         "edit": {
             "zoom": round(float(edit.get("zoom") or 1.0), 3),
             "slowmo": bool(edit.get("slowmo", False)),
@@ -104,7 +112,7 @@ def compute_render_signature(
         events = [
             _canonical_event_spec(ev)
             for ev in (app.get("events") or [])
-            if isinstance(ev, Mapping) and not ev.get("_teaser")
+            if isinstance(ev, Mapping)
         ]
         normalized_apps.append({
             "source_sig": _source_signature(path),
@@ -113,7 +121,7 @@ def compute_render_signature(
         })
     payload = {
         "kind": "sportreel_render_cache_v1",
-        "code_version": code_version,
+        "code_version": os.getenv("GITHUB_SHA") or code_version,
         "one_reel_per_athlete": os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower(),
         "sport": str(sport or "").strip().lower(),
         "athlete_label": str(athlete_label or "").strip(),
@@ -217,6 +225,9 @@ def compute_qa_signature(
     payload = {
         "kind": "sportreel_qa_cache_v1",
         "qa_policy_version": qa_policy_version,
+        "pipeline_code_version": os.getenv("GITHUB_SHA") or RENDER_CODE_VERSION,
+        "qa_model": os.getenv("SPORTREEL_REEL_QA_MODEL", "gemini-2.5-flash"),
+        "qa_prompt_version": os.getenv("SPORTREEL_QA_PROMPT_VERSION", "qa-prompt-2026-11-07"),
         "engagement_threshold": int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60")),
         "one_reel_per_athlete": os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower(),
         "reel_file_sha256": reel_sha,
