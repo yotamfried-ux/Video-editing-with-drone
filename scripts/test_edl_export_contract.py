@@ -257,6 +257,32 @@ def test_rendering_is_unchanged_by_export() -> None:
     assert digests[0] == digests[1]
 
 
+def test_reel_edl_through_a_star_args_wrapper():
+    """Run 162: compile_reel is wrapped by (*args, **kwargs) policies; the reel EDL must still be written."""
+    from pipeline import quality_preserving_framing as framing
+    calls = []
+    real = edl_export.write_reel_edl
+    def silent_wrapper(*args, **kwargs):  # same shape as silent_output_policy.compile_silent
+        return "reel.mp4"
+    edl_export.write_reel_edl = lambda clips, out, transitions, *rest: calls.append((clips, out, transitions))
+    os.environ[edl_export.ENV_FLAG] = "1"
+    try:
+        framing._export_edl_reel(silent_wrapper, [["a.mp4", "b.mp4"], "logo.png", "/tmp/out.mp4", "surfing", "x", None, ["fade"]], {})
+    finally:
+        edl_export.write_reel_edl = real
+        os.environ.pop(edl_export.ENV_FLAG, None)
+    assert calls == [(["a.mp4", "b.mp4"], "/tmp/out.mp4", ["fade"])], calls
+    calls.clear()
+    edl_export.write_reel_edl = lambda clips, out, transitions, *rest: calls.append((clips, out, transitions))
+    os.environ[edl_export.ENV_FLAG] = "1"
+    try:
+        framing._export_edl_reel(silent_wrapper, [["c.mp4"], "logo.png"], {"output_path": "/tmp/o2.mp4", "fps": 30})
+    finally:
+        edl_export.write_reel_edl = real
+        os.environ.pop(edl_export.ENV_FLAG, None)
+    assert calls == [(["c.mp4"], "/tmp/o2.mp4", None)], calls
+
+
 def main() -> int:
     if not shutil.which("ffmpeg"):
         print("SKIP edl export contract (ffmpeg missing)")

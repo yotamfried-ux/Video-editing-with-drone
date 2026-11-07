@@ -40,8 +40,10 @@ def _time(event: dict[str, Any], fields: tuple[str, ...]) -> tuple[str | None, f
 
 
 def _window(event: dict[str, Any]) -> tuple[float, float]:
-    start = _num(event.get("final_cut_start", event.get("start")))
-    end = _num(event.get("final_cut_end", event.get("end")), start)
+    # present-but-null final_cut_* must fall through to start/end (a chained .get() returned None -> 0.0)
+    fs, fe = event.get("final_cut_start"), event.get("final_cut_end")
+    start = _num(fs if fs is not None else event.get("start"))
+    end = _num(fe if fe is not None else event.get("end"), start)
     return start, end
 
 
