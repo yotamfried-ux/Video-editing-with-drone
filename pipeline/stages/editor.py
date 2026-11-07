@@ -1653,28 +1653,7 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
         reel_stem = _multi_reel_stem(first_stem, athlete_label, part_idx, len(partitions))
         reel_path = os.path.join(config.TMP_DIR, f"{reel_stem}.mp4")
 
-        # Cache clips for add_music.py beat-sync step
-        cached_clips_m: list[str] = []
-        try:
-            cache_dir_m = os.path.join(config.CLIPS_CACHE_DIR, reel_stem)
-            os.makedirs(cache_dir_m, exist_ok=True)
-            for cp in clip_paths:
-                dst = os.path.join(cache_dir_m, Path(cp).name)
-                shutil.copy2(cp, dst)
-                cached_clips_m.append(dst)
-            first_si = next(iter(src_info_cache.values())) if src_info_cache else {}
-            meta_m = {
-                "events":         rendered_events,
-                "sport":          sport,
-                "athlete_label":  athlete_label,
-                "clip_paths":     cached_clips_m,
-                "source_quality": first_si,
-            }
-            with open(os.path.join(cache_dir_m, f"{reel_stem}.meta.json"), "w") as _mf:
-                json.dump(meta_m, _mf, ensure_ascii=False, indent=2)
-        except Exception as _ce:
-            logger.warning("Clips cache failed (multi): %s", _ce)
-
+        # Silent-only output: do not duplicate cut clips for legacy beat-sync music.
         try:
             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                       sport=sport, athlete_label=athlete_label,
@@ -1685,17 +1664,6 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
                     _events_out.append((reel_clean, rendered_events))
                 put_cached_render(_render_sig, reel_clean, rendered_events)
 
-            music_track = _pick_music(sport)
-            if music_track:
-                music_reel_path = reel_path.replace(".mp4", "_music.mp4")
-                reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
-                                          sport=sport, athlete_label=athlete_label,
-                                          music_path=music_track,
-                                          transitions=rendered_transitions, fps=reel_fps)
-                if reel_music:
-                    reels.append(reel_music)
-                    if _events_out is not None:
-                        _events_out.append((reel_music, rendered_events))
         finally:
             for p in clip_paths:
                 try: os.remove(p)
@@ -1921,27 +1889,7 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
         reel_stem = f"REEL_{Path(video_path).stem}{sport_tag}{suffix}"
         reel_path = os.path.join(config.TMP_DIR, f"{reel_stem}.mp4")
 
-        # Cache clips for add_music.py beat-sync step
-        cached_clips: list[str] = []
-        try:
-            cache_dir = os.path.join(config.CLIPS_CACHE_DIR, reel_stem)
-            os.makedirs(cache_dir, exist_ok=True)
-            for cp in clip_paths:
-                dst = os.path.join(cache_dir, Path(cp).name)
-                shutil.copy2(cp, dst)
-                cached_clips.append(dst)
-            meta = {
-                "events":         rendered_events,
-                "sport":          sport,
-                "athlete_label":  athlete_label,
-                "clip_paths":     cached_clips,
-                "source_quality": src_info,
-            }
-            with open(os.path.join(cache_dir, f"{reel_stem}.meta.json"), "w") as _mf:
-                json.dump(meta, _mf, ensure_ascii=False, indent=2)
-        except Exception as _ce:
-            logger.warning("Clips cache failed: %s", _ce)
-
+        # Silent-only output: do not duplicate cut clips for legacy beat-sync music.
         try:
             reel_clean = compile_reel(clip_paths, config.LOGO_PATH, reel_path,
                                       sport=sport, athlete_label=athlete_label,
@@ -1952,17 +1900,6 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
                     _events_out.append((reel_clean, rendered_events))
                 put_cached_render(_single_render_sig, reel_clean, rendered_events)
 
-            music_track = _pick_music(sport)
-            if music_track:
-                music_reel_path = reel_path.replace(".mp4", "_music.mp4")
-                reel_music = compile_reel(clip_paths, config.LOGO_PATH, music_reel_path,
-                                          sport=sport, athlete_label=athlete_label,
-                                          music_path=music_track,
-                                          transitions=rendered_transitions, fps=reel_fps)
-                if reel_music:
-                    reels.append(reel_music)
-                    if _events_out is not None:
-                        _events_out.append((reel_music, rendered_events))
         finally:
             for p in clip_paths:
                 try: os.remove(p)
