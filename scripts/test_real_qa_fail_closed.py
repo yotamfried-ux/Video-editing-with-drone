@@ -4,7 +4,7 @@ import ast
 from pathlib import Path
 from types import SimpleNamespace
 
-source = Path("pipeline/stages/analyzer.py").read_text()
+source = Path("pipeline/stages/analyzer.py").read_text(encoding="utf-8")
 module = ast.parse(source)
 node = next(n for n in module.body if isinstance(n, ast.FunctionDef) and n.name == "qa_check_reel")
 node.decorator_list = []
