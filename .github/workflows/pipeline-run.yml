@@ -308,6 +308,10 @@ jobs:
           # Ground-truth evaluation evidence (predictions/v1 + EDL per output) for Annotation Studio.
           # Observational only: never alters or fails a run.
           SPORTREEL_EXPORT_EDL: '1'
+          # Development phase (operator, 2026-11-07): no automatic QA re-edit loop. Each reel is still QA-checked once
+          # and its verdict recorded (evaluation evidence), but a FAIL no longer triggers re-edit + re-render, which
+          # dropped good waves (0094: 5 -> 1 clip) and kept runs from finishing. Set repo variable QA_GATE=true to restore.
+          QA_GATE: ${{ vars.QA_GATE || 'false' }}
           PIPELINE_RUN_ID: ${{ github.event.client_payload.pipeline_run_id || inputs.pipeline_run_id || '' }}
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
         run: bash scripts/run_pipeline_with_diagnostics.sh
