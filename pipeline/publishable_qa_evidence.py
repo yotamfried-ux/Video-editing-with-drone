@@ -194,7 +194,23 @@ def _patch_orchestrator() -> None:
         def gate_with_required_evidence(reels, events_out, sport, athlete_label, recompile):
             from pipeline.publishable_pending_scope import activate_next_scope, release_scope
 
-            token = activate_next_scope(sport, athlete_label)
+            invocation_ids = {
+                str(event["_render_invocation_id"])
+                for _reel, event_list in (events_out or [])
+                for event in (event_list or [])
+                if isinstance(event, dict) and event.get("_render_invocation_id")
+            }
+            if len(invocation_ids) > 1:
+                raise RuntimeError("render-to-QA handoff received multiple invocation IDs")
+            invocation_id = next(iter(invocation_ids), None)
+            if (
+                not invocation_id
+                and reels
+                and os.getenv("SPORTREEL_REQUIRE_EXPLICIT_SCOPE", "0").strip().lower()
+                in {"1", "true", "yes", "on"}
+            ):
+                raise RuntimeError("render-to-QA handoff is missing its explicit invocation ID")
+            token = activate_next_scope(sport, athlete_label, invocation_id=invocation_id)
             clear_recorded_qa(token)
             try:
                 final_reels, events_by_reel, flagged = original_gate(

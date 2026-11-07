@@ -939,6 +939,7 @@ def analyze_session(video_path: str) -> dict:
             except Exception:
                 chunk_duration = None
             ts_map = None
+            analysis_windows = None
             if not is_chunked:
                 from pipeline import activity_window
                 if activity_window.enabled():
@@ -950,16 +951,16 @@ def analyze_session(video_path: str) -> dict:
                     if dets and activity_window.internal_slicing_enabled() and chunk_duration:
                         w_res = activity_window.compute_internal_activity_windows(dets, chunk_duration)
                         if w_res.get("mode") in {"internal_windows", "outer_window"}:
-                            windows = w_res.get("windows") or []
-                            if len(windows) == 1:
-                                trim_window = (windows[0][0], windows[0][1])
-                                ts_map = w_res.get("timestamp_map")
-                                print(f"✂️  Activity window {trim_window[0]:.0f}s–{trim_window[1]:.0f}s from detector sidecar")
-                            elif len(windows) > 1:
-                                trim_window = (windows[0][0], windows[-1][1])
-                                ts_map = w_res.get("timestamp_map")
-                                print(f"✂️  Internal activity windows ({len(windows)} segments, saved {w_res.get('saved_seconds', 0):.0f}s) from detector sidecar")
+                            analysis_windows = w_res.get("windows") or []
+                            ts_map = w_res.get("timestamp_map")
+                            # Do not send first_start..last_end with a piecewise map.
+                            # FFmpeg will construct the exact condensed input after cache lookup.
+                            logger.info(
+                                "Activity analysis planned: %d windows, %.1fs saved",
+                                len(analysis_windows), w_res.get("saved_seconds", 0.0),
+                            )
                     elif chunk_duration:
+                        # Legacy single-offset path uses original timestamps, not a piecewise map.
                         trim_window = activity_window.window_for_video(chunk_path, chunk_duration)
                         if trim_window:
                             print(f"✂️  Activity window {trim_window[0]:.0f}s–{trim_window[1]:.0f}s from detector sidecar")
@@ -968,9 +969,9 @@ def analyze_session(video_path: str) -> dict:
                 cache_key = _llm_cache.make_key(
                     "analyze-session", media_sha256=media_sha,
                     prompt=prompt, model=_MODEL, version=_ANALYSIS_CACHE_VERSION,
-                    extra=json.dumps([_analysis_call_options(trim_window, chunk_duration), [[w[0], w[1]] for w in (ts_map.windows if ts_map else [])]], sort_keys=True))
+                    extra=json.dumps(["concat-proxy-v1" if ts_map else "native-offset", _analysis_call_options(trim_window, (ts_map.condensed_duration if ts_map else chunk_duration)), [[w[0], w[1]] for w in (ts_map.windows if ts_map else [])]], sort_keys=True))
                 cached_text = _llm_cache.get(cache_key)
-                if not cached_text and trim_window is not None:
+                if not cached_text and trim_window is not None and ts_map is None:
                     untrimmed_key = _llm_cache.make_key(
                         "analyze-session", media_sha256=media_sha,
                         prompt=prompt, model=_MODEL, version=_ANALYSIS_CACHE_VERSION,
@@ -986,7 +987,26 @@ def analyze_session(video_path: str) -> dict:
                 pass  # corrupt/obsolete cache entry → fall through to a fresh analysis
             except Exception as _cache_exc:
                 logger.debug("analysis cache lookup skipped: %s", _cache_exc)
-            proxy_path = _make_proxy(chunk_path)
+            if analysis_windows:
+                from uuid import uuid4
+                from pipeline.activity_window import create_analysis_window_video
+                planned_output = os.path.join(
+                    config.TMP_DIR, f"analysis_activity_{Path(chunk_path).stem}_{uuid4().hex[:10]}.mp4"
+                )
+                try:
+                    proxy_path = create_analysis_window_video(
+                        chunk_path, analysis_windows, planned_output
+                    )
+                    trim_window = None
+                except Exception as exc:
+                    # A failed optimization must NEVER remap an uncondensed input.
+                    logger.warning("Activity proxy unavailable; analyzing full original: %s", exc)
+                    ts_map = None
+                    trim_window = None
+                    analysis_windows = None
+                    cache_key = None
+            if proxy_path is None:
+                proxy_path = _make_proxy(chunk_path)
             upload_path = proxy_path if proxy_path else chunk_path
             vf = _with_retry(lambda: _upload_video(upload_path))
             response_text = _gemini_call_session(
@@ -995,7 +1015,7 @@ def analyze_session(video_path: str) -> dict:
                 model_name=_MODEL,
                 video_name=Path(upload_path).name,
                 trim_window=trim_window,
-                duration=chunk_duration,
+                duration=(ts_map.condensed_duration if analysis_windows and ts_map else chunk_duration),
             )
             parsed = _parse_session(response_text)
             if ts_map is not None:

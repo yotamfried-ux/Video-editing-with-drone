@@ -21,4 +21,4 @@ jobs:
         with:
           python-version: '3.11'
       - name: Simulate Gemini outage against production QA function
-        run: python scripts/test_real_qa_fail_closed.py
+        run: PYTHONPATH=. python scripts/test_real_qa_fail_closed.py

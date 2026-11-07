@@ -20,7 +20,10 @@ def unavailable(path):
     raise RuntimeError("429 simulated Gemini outage")
 
 env = {
-    "_check_technical_compliance": lambda path: ({"duration": 15, "aspect": 9/16}, True, []),
+    "_check_technical_compliance": lambda path: (
+        {"duration": 15, "aspect": 9/16, "width": 2160,
+         "height": 3840, "has_audio": False, "fps": 30}, True, []
+    ),
     "_QA_PASS_CONTENT": {"hook": 10},
     "_upload_video": unavailable,
     "_make_qa_proxy": lambda path: None,

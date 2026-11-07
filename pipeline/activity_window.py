@@ -106,6 +106,85 @@ class PiecewiseTimestampMap:
         return out
 
 
+def create_analysis_window_video(
+    source_video: str,
+    windows: Iterable[tuple[float, float]],
+    output_video: str,
+) -> str:
+    """Build the EXACT condensed timeline that PiecewiseTimestampMap describes.
+
+    Native Gemini start/end offsets accept a single continuous interval only.
+    Applying a piecewise map to an uncondensed [first_start, last_end] input
+    corrupts event timestamps. This proxy is analysis-only: render ALWAYS uses
+    the original full-resolution source video.
+    """
+    import json
+    import subprocess
+    from pathlib import Path
+
+    segments = [(float(a), float(b)) for a, b in windows]
+    if not segments or any(b <= a or a < 0 for a, b in segments):
+        raise ValueError("activity windows must have positive non-negative bounds")
+    if any(segments[i][0] < segments[i - 1][1] for i in range(1, len(segments))):
+        raise ValueError("activity windows must be ordered and non-overlapping")
+
+    target = Path(output_video)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    # Explicit output FPS preserves the full frame duration at each concat seam.
+    # Without CFR, FFmpeg can report 0.9s for 10 frames at 10fps and cause
+    # cumulative drift relative to PiecewiseTimestampMap.
+    source_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=avg_frame_rate,r_frame_rate",
+         "-of", "json", str(source_video)],
+        capture_output=True, check=True, timeout=30,
+    )
+    fps_info = json.loads(source_probe.stdout).get("streams", [{}])[0]
+    output_fps = fps_info.get("avg_frame_rate") or fps_info.get("r_frame_rate") or "30/1"
+    if output_fps in {"0/0", "0/1", "N/A"}:
+        output_fps = fps_info.get("r_frame_rate") or "30/1"
+    # Compose all windows in the same FFmpeg filter graph, retaining continuous PTS.
+    # The analysis proxy (NOT the delivered reel) is at most 1280px wide.
+    filters = [
+        f"[0:v]trim=start={start:.6f}:end={end:.6f},setpts=PTS-STARTPTS,"
+        f"scale=w='min(iw,1280)':h=-2,setsar=1[v{i}]"
+        for i, (start, end) in enumerate(segments)
+    ]
+    filters.append(
+        "".join(f"[v{i}]" for i in range(len(segments)))
+        + f"concat=n={len(segments)}:v=1:a=0[outv]"
+    )
+    try:
+        subprocess.run(
+            [
+                "ffmpeg", "-v", "error", "-y", "-i", str(source_video),
+                "-filter_complex", ";".join(filters),
+                "-map", "[outv]", "-an", "-c:v", "libx264",
+                "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p",
+                "-r", str(output_fps), "-fps_mode", "cfr",
+                "-movflags", "+faststart", str(target),
+            ],
+            check=True, capture_output=True, timeout=600,
+        )
+        probe = subprocess.run(
+            [
+                "ffprobe", "-v", "error", "-show_entries", "format=duration",
+                "-of", "json", str(target),
+            ],
+            check=True, capture_output=True, timeout=30,
+        )
+        actual = float(json.loads(probe.stdout)["format"]["duration"])
+        expected = sum(b - a for a, b in segments)
+        if abs(actual - expected) > max(0.4, expected * 0.02):
+            raise ValueError(
+                f"condensed analysis proxy duration mismatch: {actual:.3f}s vs {expected:.3f}s"
+            )
+    except Exception:
+        target.unlink(missing_ok=True)
+        raise
+    return str(target)
+
+
 def compute_window(
     times: Iterable[float],
     duration: float,
