@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import threading
+import uuid
 from pathlib import Path
 from typing import Any, Callable
 
@@ -768,6 +769,21 @@ def _patch_analyzer_contract() -> None:
     setattr(analyzer, _ANALYZER_FLAG, True)
 
 
+def _stamp_render_invocation(selected_events: list, scope_token: str) -> list:
+    """Carry an exact invocation ID from the editor wrapper into QA's EDL."""
+    if not str(scope_token).startswith("publishable_"):
+        # Legacy direct-module callers may not have installed pending_scope.
+        return selected_events
+    from pipeline.publishable_pending_scope import bind_invocation_id
+    invocation_id = f"render_{uuid.uuid4().hex}"
+    bind_invocation_id(scope_token, invocation_id)
+    return [
+        (path, [{**event, "_render_invocation_id": invocation_id}
+                for event in (events or [])])
+        for path, events in selected_events
+    ]
+
+
 def _patch_editor_outputs() -> None:
     from pipeline.stages import editor
     if getattr(editor, _INSTALLED_FLAG, False):
@@ -790,6 +806,7 @@ def _patch_editor_outputs() -> None:
             dict(event) for event in events or [] if isinstance(event, dict) and not event.get("_teaser")
         ]
         selected, selected_events, failures = canonicalize_publishable_variants(raw_reels, raw_events_out)
+        selected_events = _stamp_render_invocation(selected_events, key)
         _PENDING_VARIANT_FAILURES[key] = failures
         if _events_out is not None:
             _events_out.extend(selected_events)
@@ -812,6 +829,7 @@ def _patch_editor_outputs() -> None:
         ]
         _PENDING_EVENT_LINEAGE[key] = _flatten_events(raw_events_out) or input_events
         selected, selected_events, failures = canonicalize_publishable_variants(raw_reels, raw_events_out)
+        selected_events = _stamp_render_invocation(selected_events, key)
         _PENDING_VARIANT_FAILURES[key] = failures
         if _events_out is not None:
             _events_out.extend(selected_events)
