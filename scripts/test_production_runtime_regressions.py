@@ -51,6 +51,44 @@ class ProductionIntegrityRegressions(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             activate_next_scope("surfing", "same description")
 
+    def test_exact_render_scope_metadata_survives_cross_thread_handoff(self):
+        from concurrent.futures import ThreadPoolExecutor
+        from pipeline.publishable_pending_scope import pending_key, activate_next_scope, release_scope
+        from pipeline.publishable_reel_policy import _stamp_render_invocation
+        from pipeline.context_qa_gate import _annotate_subject_gates
+
+        label = "same surfer description"
+        tok1 = pending_key("surfing", label)
+        tok2 = pending_key("surfing", label)
+        first = _stamp_render_invocation([
+            ("reel1.mp4", [{"event_id": "e1", "_src": "raw_one.mp4", "start": 0, "end": 4}])
+        ], tok1)
+        second = _stamp_render_invocation([
+            ("reel2.mp4", [{"event_id": "e2", "_src": "raw_two.mp4", "start": 0, "end": 4}])
+        ], tok2)
+        id1 = _annotate_subject_gates(first[0][1], "", label)[0]["_render_invocation_id"]
+        id2 = _annotate_subject_gates(second[0][1], "", label)[0]["_render_invocation_id"]
+        self.assertNotEqual(id1, id2)
+
+        def activate(inv_id):
+            token = activate_next_scope("surfing", label, invocation_id=inv_id)
+            release_scope(token)
+            return token
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            # Reversed completion order must not swap scopes.
+            result2 = workers.submit(activate, id2)
+            result1 = workers.submit(activate, id1)
+            self.assertEqual(result2.result(), tok2)
+            self.assertEqual(result1.result(), tok1)
+
+    def test_invalid_cached_media_never_accepted_by_editor(self):
+        from pipeline.stages.editor import _valid_cached_reel
+        with tempfile.TemporaryDirectory() as d:
+            fake = Path(d) / "not_a_video.mp4"
+            fake.write_bytes(b"not even an MP4")
+            self.assertFalse(_valid_cached_reel(str(fake), 30))
+
     def test_teaser_affects_render_cache_signature(self):
         from pipeline.render_qa_cache import compute_render_signature
         with tempfile.TemporaryDirectory() as d:
