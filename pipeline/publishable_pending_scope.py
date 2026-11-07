@@ -54,11 +54,35 @@ def create_pending_scope(sport: str, athlete_label: str, *, invocation_id: str |
     return token
 
 
+def bind_invocation_id(token: str, invocation_id: str) -> None:
+    """Bind a render-created token to a unique ID carried through its EDL."""
+    if not token or not invocation_id:
+        raise ValueError("scope token and invocation_id are required")
+    with _PENDING_LOCK:
+        if invocation_id in _SCOPES_BY_INVOCATION_ID:
+            raise RuntimeError(f"duplicate render invocation_id: {invocation_id}")
+        if not any(token in queue for queue in _PENDING_TOKENS.values()):
+            raise RuntimeError("cannot bind a token that is not pending")
+        _SCOPES_BY_INVOCATION_ID[invocation_id] = token
+
+
 def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
     """Activate the matching editor invocation immediately before its QA gate."""
     with _PENDING_LOCK:
-        if invocation_id and str(invocation_id) in _SCOPES_BY_INVOCATION_ID:
-            token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id))
+        if invocation_id is not None:
+            token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id), None)
+            if token is None:
+                raise RuntimeError(f"unknown render invocation_id: {invocation_id}")
+            # Explicit activation must remove the legacy pending queue entry too.
+            # Otherwise a subsequent label-based lookup can consume a stale token.
+            for pending_key, pending_queue in list(_PENDING_TOKENS.items()):
+                try:
+                    pending_queue.remove(token)
+                except ValueError:
+                    continue
+                if not pending_queue:
+                    _PENDING_TOKENS.pop(pending_key, None)
+                break
             _ACTIVE_TOKEN.set(token)
             _ACTIVE_IDENTITY.set(_identity(sport, athlete_label))
             return token
@@ -84,6 +108,10 @@ def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | 
         token = queue.popleft()
         if not queue:
             _PENDING_TOKENS.pop(key, None)
+        # Remove any identifier bound to this token during legacy fallback too.
+        for bound_id, bound_token in list(_SCOPES_BY_INVOCATION_ID.items()):
+            if bound_token == token:
+                _SCOPES_BY_INVOCATION_ID.pop(bound_id, None)
     _ACTIVE_TOKEN.set(token)
     _ACTIVE_IDENTITY.set(_identity(sport, athlete_label))
     return token
