@@ -130,6 +130,19 @@ def create_analysis_window_video(
 
     target = Path(output_video)
     target.parent.mkdir(parents=True, exist_ok=True)
+    # Explicit output FPS preserves the full frame duration at each concat seam.
+    # Without CFR, FFmpeg can report 0.9s for 10 frames at 10fps and cause
+    # cumulative drift relative to PiecewiseTimestampMap.
+    source_probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-select_streams", "v:0",
+         "-show_entries", "stream=avg_frame_rate,r_frame_rate",
+         "-of", "json", str(source_video)],
+        capture_output=True, check=True, timeout=30,
+    )
+    fps_info = json.loads(source_probe.stdout).get("streams", [{}])[0]
+    output_fps = fps_info.get("avg_frame_rate") or fps_info.get("r_frame_rate") or "30/1"
+    if output_fps in {"0/0", "0/1", "N/A"}:
+        output_fps = fps_info.get("r_frame_rate") or "30/1"
     # Compose all windows in the same FFmpeg filter graph, retaining continuous PTS.
     # The analysis proxy (NOT the delivered reel) is at most 1280px wide.
     filters = [
@@ -148,6 +161,7 @@ def create_analysis_window_video(
                 "-filter_complex", ";".join(filters),
                 "-map", "[outv]", "-an", "-c:v", "libx264",
                 "-preset", "veryfast", "-crf", "24", "-pix_fmt", "yuv420p",
+                "-r", str(output_fps), "-fps_mode", "cfr",
                 "-movflags", "+faststart", str(target),
             ],
             check=True, capture_output=True, timeout=600,
