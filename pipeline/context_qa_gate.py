@@ -48,8 +48,8 @@ def event_window_key(event: dict[str, Any], index: int) -> tuple[Any, ...]:
     if fp:
         return ("fp", fp)
     source = _src(event)
-    start = event.get("final_cut_start", event.get("start"))
-    end = event.get("final_cut_end", event.get("end"))
+    start = event.get("final_cut_start") if event.get("final_cut_start") is not None else event.get("start")
+    end = event.get("final_cut_end") if event.get("final_cut_end") is not None else event.get("end")
     if source:
         return ("window", source, _bucket_time(start), _bucket_time(end), str(event.get("track_id") or ""))
     return ("event", _event_id(event, index), _bucket_time(start), _bucket_time(end))

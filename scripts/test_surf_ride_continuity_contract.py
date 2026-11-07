@@ -42,6 +42,19 @@ def main() -> int:
     if len(separate) != 2:
         raise SystemExit("distant waves must not merge")
 
+    # Run 162 (2026-11-06): the analyzer emits present-but-null boundary fields ("ride_end": null). A dict.get
+    # chain returned that None instead of falling through, so the ride ended at 0.0 and the compile step dropped
+    # it as "shorter than 4 s" — 15 of 24 catalogued sources lost their only wave.
+    nulls = normalize_surf_rides([ev("n", 2.8, 17.8, ride_start=None, ride_end=None, outcome_end=None, landing_time=None, takeoff_time=None, peak_time=None)], "surfing")
+    if len(nulls) != 1 or nulls[0].get("start") != 2.8 or nulls[0].get("end") != 17.8:
+        raise SystemExit(f"null boundary fields must fall through to start/end, got {nulls[0].get('start')}-{nulls[0].get('end')}")
+    both_null = normalize_surf_rides([ev("m", 0.0, 7.5, ride_start=None, ride_end=None)], "surfing")[0]
+    if both_null.get("end") != 7.5:
+        raise SystemExit(f"null ride_end must not zero the ride end, got {both_null.get('end')}")
+    explicit = normalize_surf_rides([ev("x", 3.0, 9.0, ride_end=12.0)], "surfing")[0]
+    if explicit.get("end") != 12.0:
+        raise SystemExit("an explicit ride_end still wins")
+
     text = (ROOT / "pipeline/surf_ride_segment.py").read_text(encoding="utf-8")
     boot = (ROOT / "pipeline/bootstrap.py").read_text(encoding="utf-8")
     for token in ["normalize_surf_rides", "RIDE_BOUNDARY_UNCERTAIN", "IDENTITY_UNCERTAIN", "merged_ride_fragments"]:

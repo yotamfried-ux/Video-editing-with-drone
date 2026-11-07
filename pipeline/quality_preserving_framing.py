@@ -472,17 +472,26 @@ def _export_edl_clip(video_path: str, event: dict[str, Any], decision: FramingDe
                                OUTPUT_WIDTH, OUTPUT_HEIGHT, OUTPUT_FPS)
 
 
+# Positional order of pipeline.stages.editor.compile_reel (the unwrapped function).
+_COMPILE_REEL_PARAMS = ("clip_paths", "logo_path", "output_path", "sport", "athlete_label", "music_path",
+                        "transitions", "style", "fps")
+
+
+def _compile_reel_arguments(args: list[Any], kwargs: dict[str, Any]) -> dict[str, Any]:
+    values = dict(zip(_COMPILE_REEL_PARAMS, args))
+    values.update(kwargs)
+    return values
+
+
 def _export_edl_reel(original_compile_reel: Any, args: list[Any], kwargs: dict[str, Any]) -> None:
     from pipeline import edl_export
 
     if not edl_export.enabled():
         return
-    import inspect
-
+    del original_compile_reel  # it is usually a (*args, **kwargs) wrapper (silent output policy): its signature
+    # carries no parameter names, so binding to it never yields clip_paths (every reel EDL was skipped in run 162).
     try:
-        bound = inspect.signature(original_compile_reel).bind(*args, **kwargs)
-        bound.apply_defaults()
-        values = bound.arguments
+        values = _compile_reel_arguments(args, kwargs)
         edl_export.write_reel_edl(values["clip_paths"], values["output_path"], values.get("transitions"),
                                   OUTPUT_FPS, OUTPUT_WIDTH, OUTPUT_HEIGHT)
     except Exception as exc:  # noqa: BLE001

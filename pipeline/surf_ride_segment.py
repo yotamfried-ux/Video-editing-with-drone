@@ -27,16 +27,27 @@ def _track(event: dict[str, Any]) -> str:
     return str(event.get("track_id") or event.get("person_id") or event.get("athlete_id") or "")
 
 
+def _first(event: dict[str, Any], *keys: str) -> Any:
+    """First boundary field that holds a value. The analyzer emits present-but-null fields ("ride_end": null);
+    a chained dict.get() returns that None instead of falling through, which zeroed ride ends (run 162)."""
+    for key in keys:
+        value = event.get(key)
+        if value is not None and value != "":
+            return value
+    return None
+
+
 def _start(event: dict[str, Any]) -> float:
-    return _num(event.get("ride_start", event.get("takeoff_time", event.get("start"))))
+    return _num(_first(event, "ride_start", "takeoff_time", "start"))
 
 
 def _end(event: dict[str, Any]) -> float:
-    return _num(event.get("ride_end", event.get("outcome_end", event.get("landing_time", event.get("end")))))
+    return _num(_first(event, "ride_end", "outcome_end", "landing_time", "end"))
 
 
 def _peak(event: dict[str, Any]) -> float:
-    return _num(event.get("peak_time", event.get("action_time", (_start(event) + _end(event)) / 2)))
+    peak = _first(event, "peak_time", "action_time")
+    return _num(peak) if peak is not None else (_start(event) + _end(event)) / 2
 
 
 def _has_explicit_end(event: dict[str, Any]) -> bool:
