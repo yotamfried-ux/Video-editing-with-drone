@@ -33,6 +33,53 @@ _quality_issues: list[dict] = []
 _quality_lock   = threading.Lock()
 
 
+def _render_cache_params(output_fps: int | float) -> dict:
+    """Hash all output-affecting quality settings, including logo bytes."""
+    logo_path = Path(str(getattr(config, "LOGO_PATH", "") or ""))
+    logo_digest = (
+        hashlib.sha256(logo_path.read_bytes()).hexdigest()
+        if logo_path.is_file() else "no_logo"
+    )
+    return {
+        "codec": "libx264",
+        "clip_crf": CLIP_CRF,
+        "reel_crf": REEL_CRF,
+        "preset": X264_PRESET,
+        "fps": output_fps,
+        "width": REEL_W,
+        "height": REEL_H,
+        "scale_flags": _SCALE_FLAGS,
+        "logo_sha256": logo_digest,
+        "slowmo_interpolate": bool(getattr(config, "SLOWMO_INTERPOLATE", False)),
+        "athlete_text_overlay": bool(getattr(config, "ATHLETE_TEXT_OVERLAY", False)),
+        "silent": True,
+    }
+
+
+def _valid_cached_reel(path: str, expected_fps: int | float) -> bool:
+    """Fail closed on a cached non-MP4, wrong-size, wrong-FPS or audible artifact."""
+    try:
+        probe = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries",
+             "stream=codec_type,codec_name,width,height,avg_frame_rate",
+             "-of", "json", path],
+            capture_output=True, text=True, check=True, timeout=30,
+        )
+        streams = json.loads(probe.stdout).get("streams", [])
+        video = next((x for x in streams if x.get("codec_type") == "video"), None)
+        if video is None or any(x.get("codec_type") == "audio" for x in streams):
+            return False
+        if video.get("codec_name") != "h264":
+            return False
+        if int(video.get("width") or 0) != REEL_W or int(video.get("height") or 0) != REEL_H:
+            return False
+        num, den = str(video.get("avg_frame_rate", "0/1")).split("/", 1)
+        actual_fps = float(num) / max(1.0, float(den))
+        return abs(actual_fps - float(expected_fps)) <= 0.5
+    except (OSError, ValueError, TypeError, subprocess.SubprocessError, KeyError):
+        return False
+
+
 def _log_quality_issue(video_path: str, event: dict, reason: str,
                         source_info: dict, mode: str) -> None:
     """Append a quality issue to the in-memory accumulator and quality_issues.jsonl."""
@@ -1543,17 +1590,10 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
             _part_apps,
             sport=sport,
             athlete_label=athlete_label,
-            ffmpeg_params={
-                "codec": "libx264",
-                "crf": REEL_CRF,
-                "preset": X264_PRESET,
-                "fps": reel_fps,
-                "aspect": "9:16",
-                "silent": True,
-            },
+            ffmpeg_params=_render_cache_params(reel_fps),
         )
         _hit, _cached_events = get_cached_render(_render_sig, reel_path)
-        if _hit and _cached_events is not None and os.path.exists(reel_path):
+        if _hit and _cached_events is not None and _valid_cached_reel(reel_path, reel_fps):
             print(f"♻️  Render cache hit for '{reel_stem}.mp4' (sig={_render_sig[:12]}) — skipping FFmpeg render")
             reels.append(reel_path)
             if _events_out is not None:
@@ -1835,17 +1875,10 @@ def create_reel(video_path: str, events: list[dict], sport: str = "",
             _single_app,
             sport=sport,
             athlete_label=athlete_label,
-            ffmpeg_params={
-                "codec": "libx264",
-                "crf": REEL_CRF,
-                "preset": X264_PRESET,
-                "fps": reel_fps,
-                "aspect": "9:16",
-                "silent": True,
-            },
+            ffmpeg_params=_render_cache_params(reel_fps),
         )
         _single_hit, _single_cached_events = get_cached_render(_single_render_sig, reel_path)
-        if _single_hit and _single_cached_events is not None and os.path.exists(reel_path):
+        if _single_hit and _single_cached_events is not None and _valid_cached_reel(reel_path, reel_fps):
             print(f"♻️  Render cache hit for '{reel_stem}.mp4' (sig={_single_render_sig[:12]}) — skipping FFmpeg render")
             reels.append(reel_path)
             if _events_out is not None:
