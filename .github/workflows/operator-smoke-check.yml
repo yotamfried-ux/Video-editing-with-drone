@@ -52,6 +52,7 @@ on:
       - 'pipeline/activity_window.py'
       - 'scripts/test_hybrid_optimizations_and_gates_contract.py'
       - 'scripts/test_production_integration_contracts.py'
+      - 'scripts/test_production_runtime_regressions.py'
       - 'scripts/test_qa_overlap_contract.py'
       - 'pipeline/qa_gate_policy.py'
       - 'pipeline/qa_reedit_window_contract.py'
@@ -405,6 +406,8 @@ jobs:
         run: python scripts/test_hybrid_optimizations_and_gates_contract.py
       - name: Validate Production integration contracts
         run: python scripts/test_production_integration_contracts.py
+      - name: Validate Production runtime integrity regressions
+        run: python scripts/test_production_runtime_regressions.py
       - name: Validate QA overlap cross-thread contract
         run: python scripts/test_qa_overlap_contract.py
       - name: Validate Perception contract
