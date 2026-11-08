@@ -215,6 +215,31 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
             self.assertEqual(len(payload["detections"]), 0)
             self.assertEqual(payload.get("reason"), "zero_person_detections_unverified")
 
+    def test_06_zero_detection_dense_pass_must_actually_scan_frames(self):
+        # Regression: the producer passed "start"/"end", but the targeted scanner
+        # reads "start_sec"/"end_sec"; KeyError was swallowed as zero scanned frames.
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "no_person.mp4"
+            source.write_bytes(b"synthetic video placeholder")
+            output = Path(tmp) / "no_person.perception.json"
+            args = MagicMock(
+                video_path=str(source), output_path=str(output),
+                ultralytics_model="yolo11n.pt", ultralytics_tracker="botsort.yaml",
+                ultralytics_vid_stride="10", ultralytics_imgsz="640",
+                ultralytics_device="cpu", fps="30",
+            )
+            cap = MagicMock()
+            cap.isOpened.return_value = True
+            cap.read.return_value = (True, MagicMock())
+            cap.get.return_value = 30
+            model = MagicMock()
+            model.track.return_value = []
+            with patch("cv2.VideoCapture", return_value=cap), patch("ultralytics.YOLO", return_value=model):
+                payload = _fast_ultralytics_sidecar(args)
+            self.assertEqual(payload.get("classification"), "review_required")
+            self.assertGreater(payload["adaptive_inference"].get("zero_detection_escalated_frames", 0), 0,
+                               "the high-resolution rescue must read real frames, not swallow KeyError")
+
 
 if __name__ == "__main__":
     unittest.main()
