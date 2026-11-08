@@ -69,6 +69,31 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
             self.assertEqual(enriched.get("persons"), [])
             self.assertEqual(enriched.get("perception_evidence_status"), "empty_scene")
 
+    def test_unconfirmed_zero_detection_preserves_audit_and_prevents_false_empty(self):
+        from pipeline.perception.runtime import enrich_session_with_sidecar
+        from pipeline.required_perception_policy import install as install_required
+        from pipeline.perception.runtime import sidecar_output_path
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "missed_surfer.mp4"
+            source.write_bytes(b"synthetic source placeholder")
+            sidecar = sidecar_output_path(str(source))
+            sidecar.write_text(json.dumps({
+                "source_video": str(source),
+                "status": "ok",
+                "classification": "review_required",
+                "empty_scene_verified": False,
+                "reason": "zero_person_detections_unverified",
+                "detections": []
+            }), encoding="utf-8")
+            install_required()
+            session = {"persons": [{"id": "p1", "events": [
+                {"type": "surf_ride", "start": 1, "end": 3}
+            ]}]}
+            result = enrich_session_with_sidecar(session, str(source))
+            self.assertFalse(result.get("empty_scene_verified", False))
+            self.assertEqual(result.get("perception_evidence_status"), "review_required")
+            self.assertEqual(result["persons"][0].get("no_output_reason"), "perception_zero_detection_unverified")
+
     @patch("cv2.VideoCapture")
     def test_03_corrupt_video_fails_as_technical_failure(self, mock_vc):
         mock_cap = MagicMock()
@@ -184,9 +209,11 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
                     payload = _fast_ultralytics_sidecar(args)
 
             self.assertEqual(payload["status"], "ok")
-            self.assertTrue(payload.get("empty_scene_verified"))
-            self.assertEqual(payload.get("classification"), "empty_scene")
+            # Zero YOLO detections only proves a detector miss, NOT an empty ocean.
+            self.assertFalse(payload.get("empty_scene_verified"))
+            self.assertEqual(payload.get("classification"), "review_required")
             self.assertEqual(len(payload["detections"]), 0)
+            self.assertEqual(payload.get("reason"), "zero_person_detections_unverified")
 
 
 if __name__ == "__main__":
