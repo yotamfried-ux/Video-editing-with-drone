@@ -1,0 +1,26 @@
+name: Pipeline Primary Actor Fix Simulation (isolated)
+
+on:
+  pull_request:
+    paths:
+      - 'pipeline/primary_actor_policy.py'
+      - 'scripts/test_primary_actor_fix_simulation.py'
+      - '.github/workflows/pipeline-primary-actor-fix.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  primary-actor-simulation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Measure synthetic before vs after
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_primary_actor_fix_simulation.py
