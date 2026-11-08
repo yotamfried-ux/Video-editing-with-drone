@@ -54,6 +54,10 @@ on:
       - 'scripts/test_production_integration_contracts.py'
       - 'scripts/test_production_runtime_regressions.py'
       - 'scripts/test_qa_overlap_contract.py'
+      - 'scripts/test_p0_01_scope_concurrency.py'
+      - 'scripts/test_p0_02_zero_detection_recovery.py'
+      - 'scripts/test_p0_03_p0_04_lifecycle_and_ledger.py'
+      - 'scripts/test_verified_render_preset.py'
       - 'pipeline/qa_gate_policy.py'
       - 'pipeline/qa_reedit_window_contract.py'
       - 'pipeline/runtime_quality.py'
@@ -207,6 +211,10 @@ on:
       - 'scripts/test_hybrid_optimizations_and_gates_contract.py'
       - 'scripts/test_production_integration_contracts.py'
       - 'scripts/test_qa_overlap_contract.py'
+      - 'scripts/test_p0_01_scope_concurrency.py'
+      - 'scripts/test_p0_02_zero_detection_recovery.py'
+      - 'scripts/test_p0_03_p0_04_lifecycle_and_ledger.py'
+      - 'scripts/test_verified_render_preset.py'
       - 'pipeline/qa_gate_policy.py'
       - 'pipeline/qa_reedit_window_contract.py'
       - 'pipeline/runtime_quality.py'
@@ -408,6 +416,14 @@ jobs:
         run: python scripts/test_production_integration_contracts.py
       - name: Validate Production runtime integrity regressions
         run: python scripts/test_production_runtime_regressions.py
+      - name: Validate P0 invocation lifecycle and collision regressions
+        run: python scripts/test_p0_01_scope_concurrency.py
+      - name: Validate P0 detector uncertainty and zero-detection recovery
+        run: python scripts/test_p0_02_zero_detection_recovery.py
+      - name: Validate P0 crash recovery and evidence-grade candidate ledger
+        run: python scripts/test_p0_03_p0_04_lifecycle_and_ledger.py
+      - name: Validate effective production 4K encoder preset
+        run: python scripts/test_verified_render_preset.py
       - name: Validate QA overlap cross-thread contract
         run: python scripts/test_qa_overlap_contract.py
       - name: Validate Perception contract
