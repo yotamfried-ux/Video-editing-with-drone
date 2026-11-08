@@ -137,6 +137,41 @@ def _split_person_and_equipment(all_detections: list[dict[str, Any]]) -> tuple[l
     return persons, equipment
 
 
+_ZERO_DETECTION_RESCUE_FRAME_BUDGET = 96
+_ZERO_DETECTION_RESCUE_WINDOWS = 12
+
+
+def _zero_detection_rescue_windows(
+    frame_count: int, fps: float, escalation_stride: int,
+) -> list[dict[str, float]]:
+    """Bound CPU-heavy 1280px work while probing the entire source timeline.
+
+    This is a best-effort *rescue*, never evidence that an unobserved interval
+    contains no person. A 10-minute source receives <=96 high-res inference
+    frames across 12 time regions instead of thousands of dense frames.
+    """
+    if frame_count <= 0 or fps <= 0 or escalation_stride <= 0:
+        return []
+    budget = _ZERO_DETECTION_RESCUE_FRAME_BUDGET
+    step = escalation_stride
+    available = ((frame_count - 1) // step) + 1
+    if available <= budget:
+        return [{"start_sec": 0.0, "end_sec": (frame_count - 1) / fps}]
+    count = min(_ZERO_DETECTION_RESCUE_WINDOWS, budget // 8)
+    samples_per_window = budget // count
+    end_offset = (samples_per_window - 1) * step
+    last_start = frame_count - 1 - end_offset
+    result = []
+    for i in range(count):
+        start_frame = round(last_start * i / max(1, count - 1))
+        end_frame = start_frame + end_offset
+        result.append({
+            "start_sec": start_frame / fps,
+            "end_sec": end_frame / fps,
+        })
+    return result
+
+
 def _run_targeted_window_escalation(
     video_path: str,
     model_name: str,
@@ -154,12 +189,12 @@ def _run_targeted_window_escalation(
     try:
         import cv2  # type: ignore
         from ultralytics import YOLO
-    except Exception:
-        return [], 0
+    except Exception as exc:
+        raise RuntimeError("high-resolution perception escalation dependencies failed") from exc
 
     cap = cv2.VideoCapture(video_path)
     if not cap.isOpened():
-        return [], 0
+        raise RuntimeError("high-resolution perception escalation failed to open video")
 
     escalated: list[dict[str, Any]] = []
     frames_evaluated = 0
@@ -167,15 +202,16 @@ def _run_targeted_window_escalation(
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         model_obj = YOLO(model_name)
         for win in weak_windows:
-            start_frame = max(0, int(float(win["start_sec"]) * fps))
-            end_frame = int(float(win["end_sec"]) * fps)
+            start_frame = max(0, int(round(float(win["start_sec"]) * fps)))
+            end_frame = int(round(float(win["end_sec"]) * fps))
             if total_frames > 0:
                 end_frame = min(total_frames - 1, end_frame)
             for f_idx in range(start_frame, end_frame + 1, max(1, escalation_stride)):
-                cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx)
+                if not cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx):
+                    raise RuntimeError(f"decoder seek failed at frame={f_idx}")
                 ok, frame = cap.read()
                 if not ok or frame is None:
-                    continue
+                    raise RuntimeError(f"decoder read failed at frame={f_idx}")
                 frames_evaluated += 1
                 track_kwargs: dict[str, Any] = {
                     "source": frame,
@@ -191,8 +227,8 @@ def _run_targeted_window_escalation(
                 results = model_obj.track(**track_kwargs)
                 for res in results or []:
                     escalated.extend(detections_from_ultralytics_result(res, frame_index=f_idx, fps=fps))
-    except Exception:
-        pass
+    except Exception as exc:
+        raise RuntimeError(f"high-resolution perception escalation failed: {exc}") from exc
     finally:
         cap.release()
     return escalated, frames_evaluated
@@ -244,18 +280,9 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
     cpu_sec_primary = round(time.monotonic() - t0_primary, 3)
     person_detections, equipment_detections = _split_person_and_equipment(raw_all)
 
-    # Whole-video high-res fallback when 0 person detections were found at 640px
-    if not person_detections and imgsz < 1280:
-        fallback_imgsz = 1280
-        fallback_stride = max(1, min(stride, 5))
-        fb_all, fb_seen = _run_track_pass(fallback_stride, fallback_imgsz, conf_override=0.15)
-        fb_persons, fb_equip = _split_person_and_equipment(fb_all)
-        if fb_persons:
-            person_detections = fb_persons
-            equipment_detections = fb_equip
-            seen = fb_seen
-            imgsz = fallback_imgsz
-            stride = fallback_stride
+    # Never run a redundant whole-video 1280px pass after the primary scan
+    # found zero people. The single bounded, timeline-distributed rescue below
+    # avoids running another 2-3 expensive passes on long 4K footage.
 
     # OPT-05: Targeted window-level adaptive high-res inference when primary pass has weak/fragmented windows
     duration_sec = (seen.frames * stride / (fps or 30.0)) if seen.frames > 0 else 0.0
@@ -326,19 +353,30 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
             _write_json(Path(args.output_path), payload)
             return payload
 
-        # Zero-detection rescue: dense escalation scan at 1280px with lower stride
-        dense_stride = max(1, stride // 3)
+        # A bounded set of short windows spans the entire timeline, rather
+        # than scanning all 4K source frames again at 1280px. Missing persons
+        # remain review_required; sampled evidence never verifies emptiness.
+        rescue_stride = max(1, min(stride, 2))
+        rescue_windows = _zero_detection_rescue_windows(
+            frame_cnt, fps or 30.0, rescue_stride,
+        )
+        t0_rescue = time.monotonic()
         esc_all, esc_frames = _run_targeted_window_escalation(
             args.video_path,
             model_name=model,
             tracker=tracker,
             device=device,
             fps=fps or 30.0,
-            weak_windows=[{"start_sec": 0.0, "end_sec": frame_cnt / (fps or 30.0)}],
+            weak_windows=rescue_windows,
             target_classes=target_classes,
-            escalation_stride=dense_stride,
+            escalation_stride=rescue_stride,
             escalation_imgsz=1280,
         )
+        adaptive_meta.update({
+            "zero_rescue_frame_budget": _ZERO_DETECTION_RESCUE_FRAME_BUDGET,
+            "zero_rescue_windows_count": len(rescue_windows),
+            "cpu_seconds_zero_rescue": round(time.monotonic() - t0_rescue, 3),
+        })
         esc_persons, esc_equips = _split_person_and_equipment(esc_all)
         if esc_persons:
             person_detections = esc_persons
