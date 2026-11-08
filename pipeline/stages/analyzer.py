@@ -114,13 +114,15 @@ def _make_proxy(video_path: str) -> str | None:
     stem = Path(video_path).stem
     os.makedirs(config.TMP_DIR, exist_ok=True)
     proxy_path = os.path.join(config.TMP_DIR, f"proxy_{stem}.mp4")
-    subprocess.run([
-        "ffmpeg", "-y", "-i", video_path,
-        "-vf", f"scale={_PROXY_MAX_WIDTH}:-2",
-        "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
-        "-an",
-        proxy_path,
-    ], capture_output=True, timeout=300, check=True)
+    from integrations.stage_timer import timed
+    with timed("analysis_proxy_encode", source=Path(video_path).name):
+        subprocess.run([
+            "ffmpeg", "-y", "-i", video_path,
+            "-vf", f"scale={_PROXY_MAX_WIDTH}:-2",
+            "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
+            "-an",
+            proxy_path,
+        ], capture_output=True, timeout=300, check=True)
     mb = Path(proxy_path).stat().st_size / 1024 / 1024
     print(f"📐 Proxy created: {Path(proxy_path).name} ({mb:.1f} MB) from {width}px source")
     return proxy_path
@@ -1009,14 +1011,16 @@ def analyze_session(video_path: str) -> dict:
                 proxy_path = _make_proxy(chunk_path)
             upload_path = proxy_path if proxy_path else chunk_path
             vf = _with_retry(lambda: _upload_video(upload_path))
-            response_text = _gemini_call_session(
-                vf=vf,
-                prompt=prompt,
-                model_name=_MODEL,
-                video_name=Path(upload_path).name,
-                trim_window=trim_window,
-                duration=(ts_map.condensed_duration if analysis_windows and ts_map else chunk_duration),
-            )
+            from integrations.stage_timer import timed
+            with timed("gemini_native_analysis", source=Path(chunk_path).name, model=_MODEL):
+                response_text = _gemini_call_session(
+                    vf=vf,
+                    prompt=prompt,
+                    model_name=_MODEL,
+                    video_name=Path(upload_path).name,
+                    trim_window=trim_window,
+                    duration=(ts_map.condensed_duration if analysis_windows and ts_map else chunk_duration),
+                )
             parsed = _parse_session(response_text)
             if ts_map is not None:
                 parsed = ts_map.remap_session_to_source(parsed)
