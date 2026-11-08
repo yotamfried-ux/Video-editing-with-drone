@@ -268,6 +268,77 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             else:
                 os.environ["PIPELINE_RUN_ID"] = old
 
+    def test_checkpoint_survives_runner_disk_loss_with_fake_remote_boundary(self):
+        """Persist real manifest mutations, delete /tmp state, restore from remote."""
+        import copy
+        old_id = os.environ.get("PIPELINE_RUN_ID")
+        os.environ["PIPELINE_RUN_ID"] = "checkpoint-run-sim"
+        remote_store = {}
+        try:
+            def upload(data):
+                remote_store["payload"] = copy.deepcopy(data)
+            def load():
+                return copy.deepcopy(remote_store.get("payload"))
+            with patch.object(policy, "_remote_checkpoint_enabled", return_value=True):
+                with patch.object(policy, "_store_remote_manifest", side_effect=upload):
+                    with patch.object(policy, "_load_remote_manifest", side_effect=load):
+                        policy.reset_manifest()
+                        reel = self._create_fake_reel("durable_state.mp4")
+                        policy.record_athlete_outcome(
+                            sport="surfing", athlete_label="Surfer-R",
+                            final_reels=[str(reel)],
+                            events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8}]},
+                            flagged_paths=set(),
+                            specs_by_path={str(reel): {
+                                "duration": 7, "width": 2160, "height": 3840,
+                                "aspect": 0.5625, "has_audio": False,
+                            }},
+                        )
+                        self.assertEqual(len(remote_store["payload"]["athletes"]), 1)
+                        expected = remote_store["payload"]
+                        self.manifest_file.unlink(missing_ok=True)
+                        policy.initialize_manifest()
+                        self.assertEqual(policy._read_manifest(), expected)
+        finally:
+            if old_id is None:
+                os.environ.pop("PIPELINE_RUN_ID", None)
+            else:
+                os.environ["PIPELINE_RUN_ID"] = old_id
+
+    def test_uploaded_approved_draft_is_idempotent_and_rejects_stale_bytes(self):
+        """Reused uploaded content must match QA approval AND the SHA256 on disk."""
+        reel = self._create_fake_reel("resume_qa.mp4")
+        name = "review_surfer.mp4"
+        with patch.dict(os.environ, {"STORAGE_BACKEND": "drive"}):
+            policy.record_athlete_outcome(
+                sport="surfing", athlete_label="Approved athlete",
+                final_reels=[str(reel)],
+                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 7}]},
+                flagged_paths=set(),
+                specs_by_path={str(reel): {
+                    "duration": 6.0, "width": 2160, "height": 3840,
+                    "aspect": 0.5625, "has_audio": False,
+                }},
+            )
+            self.assertIsNone(policy.previously_uploaded_draft(str(reel), name))
+            token = "evidence-approved-reel"
+            publishable_qa_evidence.record_qa_result(
+                str(reel),
+                {"verdict": "PASS", "engagement_score": 92,
+                 "overall": "Clear athlete", "defects": []},
+                invocation_token=token,
+            )
+            publishable_qa_evidence.apply_final_qa_evidence(
+                sport="surfing", athlete_label="Approved athlete",
+                final_reels=[str(reel)], invocation_token=token,
+            )
+            with patch.object(policy, "_persist_draft_publishability", return_value=None):
+                policy.mark_upload_result(str(reel), name, storage_object_id="review/reel-approved.mp4")
+            self.assertEqual(policy.previously_uploaded_draft(str(reel), name), "review/reel-approved.mp4")
+            self.assertIsNone(policy.previously_uploaded_draft(str(reel), "wrong_name.mp4"))
+            reel.write_bytes(b"modified video content, SHA no longer matches approval")
+            self.assertIsNone(policy.previously_uploaded_draft(str(reel), name))
+
     def test_p04_candidate_accountability_ledger_100_percent_reason_codes(self):
         """Verify that every discarded candidate has an explicit reason code."""
         trace_path = Path(self.temp_dir) / "trace.json"
