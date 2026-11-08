@@ -269,13 +269,20 @@ def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[
         if str(recorded_sha) != str(actual_sha):
             raise ValueError("perception sidecar source_sha256 mismatch with source video")
     detections = _detections_from_payload(video_path, payload)
+    claimed_empty = bool(payload.get("empty_scene_verified")) or payload.get("classification") == "empty_scene"
+    if claimed_empty and detections:
+        raise ValueError("empty_scene assertion contradicts actual person detections")
+    # Detector output is not an independent emptiness proof. Do not trust
+    # legacy/imported sidecar flags to erase a surfer's LLM/GT events.
+    # Independently verified emptiness needs a separate trusted review boundary.
+    unverified_empty_claim = claimed_empty and not detections
     summary = {
         "path": str(path),
         "status": str(payload.get("status") or "ok"),
-        "reason": payload.get("reason"),
+        "reason": "empty_scene_claim_lacks_independent_evidence" if unverified_empty_claim else payload.get("reason"),
         "detection_count": len(detections),
-        "classification": payload.get("classification"),
-        "empty_scene_verified": bool(payload.get("empty_scene_verified")),
+        "classification": "review_required" if unverified_empty_claim else payload.get("classification"),
+        "empty_scene_verified": False if unverified_empty_claim else bool(payload.get("empty_scene_verified")),
         "technical_failure": bool(payload.get("technical_failure")),
     }
     # Detector-side counters written by scripts/generate_perception_sidecar.py (absent in older sidecars).
