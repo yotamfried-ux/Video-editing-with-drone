@@ -55,6 +55,9 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: none
+          # The runner provides a vetted CodeQL bundle; avoid a GitHub release
+          # asset download that repeatedly returned HTTP 504 on 2026-11-08.
+          tools: toolcache
       - name: Analyze
         uses: github/codeql-action/analyze@v4
         with:
