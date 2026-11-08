@@ -104,3 +104,48 @@ test('blind manifest and training export never leak unapproved/inference-forbidd
   const lines = D.exportJsonl(db, ds.id, ['train']).trim().split('\n').map(JSON.parse);
   assert.equal(lines.length, 2); assert.ok(lines.every(l => l.annotations.segments[0].end_frame === 40));
 });
+
+
+test('cross-source athlete merges are visible in identity metrics, not hidden by per-video remapping', async () => {
+  const { db, srcs } = await world(2);
+  const athletes = [A.createAthlete(db, 'Surfer 1'), A.createAthlete(db, 'Surfer 2')];
+  srcs.forEach((src, i) => approveWith(db, src, c => {
+    c.segments.push(seg('event-' + i, 10, 50, { athlete_id: athletes[i].id }));
+    c.reviewed_ranges.push({ start_frame: 0, end_frame: 80 });
+  }));
+  const ds = D.freezeDataset(db, { name: 'cross-source-identity', sourceIds: srcs.map(s => s.id),
+    policy: { seed: 'identity', ratios: { train: 0, validation: 0, test: 1 } } });
+  const pr = E.importPredictions(db, { run_id: 'merge-repro', pipeline_version: 'def456',
+    sources: srcs.map(s => ({ source_sha256: s.sha256,
+      events: [{ start_frame: 10, end_frame: 50, athlete_key: 'merged-surfer' }] })) });
+  const { report } = E.runEvaluation(db, { dataset_id: ds.id, prediction_id: pr.id });
+  assert.equal(report.metrics.event_recall, 1, 'event overlap alone misses the identity defect');
+  assert.equal(report.metrics.identity_bcubed_precision, 0.5, 'a merged predicted cluster contains two distinct GT athletes');
+  assert.equal(report.metrics.identity_bcubed_recall, 1);
+  assert.equal(report.identity.false_merge_clusters, 1);
+  assert.equal(report.metrics.identity_accuracy, 0.5, 'global attribution must not remap the same key in each source');
+});
+
+test('missing prediction source makes comparison explicitly inconclusive, even with perfect observed matches', async () => {
+  const { db, srcs } = await world(2);
+  for (const s of srcs) approveWith(db, s, c => {
+    c.segments.push(seg('wave', 10, 50));
+    c.reviewed_ranges.push({ start_frame: 0, end_frame: 80 });
+  });
+  const ds = D.freezeDataset(db, { name: 'partial', sourceIds: srcs.map(s => s.id),
+    policy: { seed: 'all-test', ratios: { train: 0, validation: 0, test: 1 } } });
+  const pr = E.importPredictions(db, { run_id: 'partial-run', pipeline_version: 'def456',
+    sources: [{ source_sha256: srcs[0].sha256, events: [{ start_frame: 10, end_frame: 50 }] }] });
+  const { report } = E.runEvaluation(db, { dataset_id: ds.id, prediction_id: pr.id });
+  assert.equal(report.status, 'inconclusive');
+  assert.deepEqual(report.evidence_gaps.missing_prediction_sources, [srcs[1].sha256]);
+  assert.equal(report.evidence_gaps.expected_source_count, 2);
+  assert.equal(report.evidence_gaps.matched_source_count, 1);
+});
+
+test('prediction imports reject duplicate source digests rather than silently overwriting evidence', async () => {
+  const { db, srcs } = await world(1);
+  const duplicate = { source_sha256: srcs[0].sha256, events: [] };
+  assert.throws(() => E.importPredictions(db, { run_id: 'dup', pipeline_version: 'def456',
+    sources: [duplicate, duplicate] }), /INVALID_INPUT|duplicate|מקור/i);
+});
