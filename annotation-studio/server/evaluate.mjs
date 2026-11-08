@@ -5,10 +5,10 @@ import { now, audit } from './db.mjs';
 import { ApiError } from './errors.mjs';
 import { digestOf } from './annotations.mjs';
 
-export const EVALUATOR_VERSION = 'eval-1.2.0';
+export const EVALUATOR_VERSION = 'eval-1.3.0';
 // Addendum §8: ranking = IoU desc, then combined |Δstart|+|Δend| asc, then truth id, then prediction index.
 export const MATCHING_VERSION = 'match-2';
-export const METRIC_TOLERANCE_VERSION = 'tol-1';
+export const METRIC_TOLERANCE_VERSION = 'tol-2';
 export const DEFAULT_PARAMS = { iou_threshold: 0.5, splits: ['test'] };
 
 const cmp = (a, b) => a < b ? -1 : a > b ? 1 : 0;
@@ -122,12 +122,81 @@ export function evaluateSource(gt, preds, params, rejected = []) {
   };
 }
 
+
+/** Identity keys are pipeline-global. Per-video relabeling would conceal false merges and splits. */
+export function summarizeGlobalIdentity(pairs) {
+  const byPred = new Map(), byTruth = new Map(), joint = new Map();
+  for (const row of pairs) {
+    const key = String(row.predicted_athlete_key), ath = String(row.gt_athlete_id);
+    if (!byPred.has(key)) byPred.set(key, new Map());
+    if (!byTruth.has(ath)) byTruth.set(ath, new Map());
+    byPred.get(key).set(ath, (byPred.get(key).get(ath) ?? 0) + 1);
+    byTruth.get(ath).set(key, (byTruth.get(ath).get(key) ?? 0) + 1);
+    const pairKey = JSON.stringify([key, ath]);
+    joint.set(pairKey, (joint.get(pairKey) ?? 0) + 1);
+  }
+  const n = pairs.length;
+  let precision = 0, recall = 0;
+  const predTotals = new Map([...byPred].map(([k, v]) => [k, [...v.values()].reduce((a, b) => a + b, 0)]));
+  const gtTotals = new Map([...byTruth].map(([k, v]) => [k, [...v.values()].reduce((a, b) => a + b, 0)]));
+  for (const row of pairs) {
+    const key = String(row.predicted_athlete_key), ath = String(row.gt_athlete_id);
+    const together = joint.get(JSON.stringify([key, ath]));
+    precision += together / predTotals.get(key);
+    recall += together / gtTotals.get(ath);
+  }
+  const rounded = n => Math.round(n * 1e6) / 1e6;
+  const bcubedPrecision = n ? rounded(precision / n) : null;
+  const bcubedRecall = n ? rounded(recall / n) : null;
+  const bcubedF1 = n && precision + recall ? rounded(2 * precision * recall / (n * (precision + recall))) : null;
+
+  // Establish one deterministic global attribution for diagnostics, never a different
+  // prediction->truth relabeling in every video.
+  const assignments = [...joint].map(([encoded, count]) => {
+    const [key, ath] = JSON.parse(encoded);
+    return { key, ath, count };
+  }).sort((a, b) => b.count - a.count || cmp(a.key, b.key) || cmp(a.ath, b.ath));
+  const mappedKeys = new Set(), mappedAthletes = new Set(), predictedToTruth = new Map();
+  let correct = 0;
+  for (const { key, ath, count } of assignments) {
+    if (mappedKeys.has(key) || mappedAthletes.has(ath)) continue;
+    mappedKeys.add(key); mappedAthletes.add(ath);
+    predictedToTruth.set(key, ath);
+    correct += count;
+  }
+  const falseMerges = [...byPred].filter(([, truths]) => truths.size > 1).map(([key, truths]) => ({
+    predicted_athlete_key: key, gt_athlete_ids: [...truths.keys()].sort(cmp),
+  }));
+  const falseSplits = [...byTruth].filter(([, preds]) => preds.size > 1).map(([ath, preds]) => ({
+    gt_athlete_id: ath, predicted_athlete_keys: [...preds.keys()].sort(cmp),
+  }));
+  return {
+    matched_events_with_identity: n,
+    correct_global_attribution: correct,
+    bcubed_precision: bcubedPrecision,
+    bcubed_recall: bcubedRecall,
+    bcubed_f1: bcubedF1,
+    false_merge_clusters: falseMerges.length,
+    false_split_athletes: falseSplits.length,
+    false_merges: falseMerges,
+    false_splits: falseSplits,
+    attribution_errors: pairs.filter(row =>
+      predictedToTruth.get(String(row.predicted_athlete_key)) !== String(row.gt_athlete_id)
+    ).map(row => ({ source_sha256: row.source_sha256, segment_id: row.segment_id,
+      pred_index: row.pred_index, reason_code: 'wrong_athlete_global',
+      predicted_athlete_key: row.predicted_athlete_key, gt_athlete_id: row.gt_athlete_id })),
+  };
+}
+
 const ratio = (n, d) => d > 0 ? Math.round(n / d * 1e6) / 1e6 : null;
 
 export function importPredictions(db, { run_id, pipeline_version, sources, extra = {} }) {
   if (!run_id || !pipeline_version || !Array.isArray(sources)) throw new ApiError('INVALID_INPUT');
+  const sourceDigests = new Set();
   for (const s of sources) {
     if (!/^[0-9a-f]{64}$/.test(s.source_sha256 ?? '') || !Array.isArray(s.events)) throw new ApiError('INVALID_INPUT');
+    if (sourceDigests.has(s.source_sha256)) throw new ApiError('INVALID_INPUT', 'duplicate source_sha256 in prediction manifest');
+    sourceDigests.add(s.source_sha256);
     for (const e of s.events) if (!Number.isInteger(e.start_frame) || !Number.isInteger(e.end_frame) || e.end_frame <= e.start_frame) throw new ApiError('INVALID_INTERVAL');
   }
   const payload = { run_id, pipeline_version, sources, ...extra };
@@ -154,27 +223,51 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
   const prior = db.prepare('select * from evaluation_runs where identity_key=?').get(identityKey);
   if (prior) return { id: prior.id, digest: prior.digest, report: JSON.parse(prior.report), idempotent_replay: true };
   const predSources = JSON.parse(pr.payload).sources;
-  const preds = new Map(predSources.map(s => [s.source_sha256, s.events]));
-  const rejects = new Map(predSources.map(s => [s.source_sha256, s.rejected ?? []]));
-  const per = [], bySportTot = {};
+  const preds = new Map();
+  const rejects = new Map();
+  for (const s of predSources) {
+    if (preds.has(s.source_sha256)) throw new ApiError('INVALID_INPUT', 'duplicate source_sha256 in stored prediction manifest');
+    preds.set(s.source_sha256, s.events);
+    rejects.set(s.source_sha256, s.rejected ?? []);
+  }
+  const per = [], bySportTot = {}, identityPairs = [];
   const tot = { gt_included: 0, predictions: 0, matched: 0, missed: 0, duplicates: 0, predicted_excluded: 0, false_positives: 0,
     unreviewed_predictions: 0, uncertain_overlap: 0, missed_but_rejected: 0, attributable: 0, correct_attribution: 0, sum_abs_start_error: 0, sum_abs_end_error: 0 };
   const members = db.prepare('select * from frozen_revisions where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
+  const missingPredictionSources = members.filter(m => !preds.has(m.sha256)).map(m => m.sha256);
   for (const m of members) {
     const gt = JSON.parse(m.content);
     const events = preds.get(m.sha256);
     const r = evaluateSource(gt, events ?? [], p, rejects.get(m.sha256) ?? []);
-    per.push({ sha256: m.sha256, split: m.split, revision_id: m.revision_id, has_prediction: !!events, ...r });
+    for (const hit of matchEvents(gt, events ?? [], p).matches) {
+      if (hit.g.athlete_id != null && hit.p.athlete_key != null) identityPairs.push({
+        source_sha256: m.sha256, segment_id: hit.g.id, pred_index: hit.p.idx,
+        predicted_athlete_key: String(hit.p.athlete_key), gt_athlete_id: String(hit.g.athlete_id),
+      });
+    }
+    per.push({ sha256: m.sha256, split: m.split, revision_id: m.revision_id, has_prediction: !!events, identity_scope: 'source_local_diagnostic', ...r });
     for (const k of Object.keys(tot)) tot[k] += r[k];
     for (const [sp, c] of Object.entries(r.by_sport)) { const t = bySportTot[sp] ??= {}; for (const [k, v] of Object.entries(c)) t[k] = (t[k] ?? 0) + v; }
   }
+  const identityResult = summarizeGlobalIdentity(identityPairs);
+  tot.correct_attribution = identityResult.correct_global_attribution;
   const report = {
+    status: missingPredictionSources.length || !members.length ? 'inconclusive' : 'complete',
+    evidence_gaps: { expected_source_count: members.length, matched_source_count: members.length - missingPredictionSources.length,
+      missing_prediction_sources: missingPredictionSources,
+      reason_codes: [...(!members.length ? ['no_ground_truth_in_selected_splits'] : []),
+        ...(missingPredictionSources.length ? ['missing_source_prediction_manifest'] : [])] },
+    identity: identityResult,
     evaluator_version: EVALUATOR_VERSION, matching_version: MATCHING_VERSION, comparison_identity: identity, params: p, dataset_digest: ds.digest, prediction_digest: pr.digest,
     pipeline_version: pr.pipeline_version, run_id: pr.run_id, totals: tot,
     metrics: {
       event_recall: ratio(tot.matched, tot.gt_included),
       event_precision: ratio(tot.matched, tot.matched + tot.false_positives + tot.duplicates + tot.predicted_excluded),
       identity_accuracy: ratio(tot.correct_attribution, tot.attributable),
+      identity_bcubed_precision: identityResult.bcubed_precision,
+      identity_bcubed_recall: identityResult.bcubed_recall,
+      identity_bcubed_f1: identityResult.bcubed_f1,
+      identity_evidence_coverage: ratio(identityPairs.length, tot.gt_included),
       mean_abs_start_error_frames: ratio(tot.sum_abs_start_error, tot.matched),
       mean_abs_end_error_frames: ratio(tot.sum_abs_end_error, tot.matched),
       unreviewed_prediction_share: ratio(tot.unreviewed_predictions, tot.predictions),
