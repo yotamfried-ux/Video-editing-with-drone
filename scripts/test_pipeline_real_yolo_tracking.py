@@ -110,12 +110,12 @@ def main() -> None:
         assert len(manifest["athletes"]) == 1, manifest
         part = manifest["athletes"][0]["parts"][0]
         assert part["qa_verdict"] == "PASS" and part["qa_evidence_recorded"], part
-        assert part["render_ready"] is False, part
-        assert "missing_audio" in part["technical_issues"], part
+        assert part["render_ready"] is True, part
+        assert not part["technical_issues"], part
         assert manifest["summary"]["publishable_athlete_count"] == 0, manifest
         assert manifest["summary"]["coverage_gap_count"] == 1, manifest
         # Qualify a final compiled reel from the SAME real YOLO/BoT-SORT event.
-        # cut_clip is intentionally silent; compile_reel adds the final audio.
+        # Intentional legacy music input exercises the silent-only release gate.
         music = root / "music.wav"
         subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
@@ -158,7 +158,8 @@ def main() -> None:
                        if part["local_path"] == final]
         assert len(final_parts) == 1, final_row
         final_part = final_parts[0]
-        assert final_part["render_ready"] is True, final_row
+        assert final_part["render_ready"] is False, final_row
+        assert "unexpected_audio" in final_part["technical_issues"], final_row
         assert final_part["qa_verdict"] == "PASS", final_row
         assert final_part["qa_evidence_recorded"] is True, final_row
         assert final_manifest["summary"]["publishable_athlete_count"] == 0
@@ -182,10 +183,11 @@ def main() -> None:
             "production_access": False,
             "actual_ffmpeg_render": True,
             "actual_manifest_qa_policy": True,
-            "silent_intermediate_blocked": True,
+            "silent_intermediate_render_ready": True,
             "real_yolo_final_reel_compiled": True,
             "final_aac_audio_verified": True,
-            "final_render_ready": True,
+            "music_variant_blocked": True,
+            "final_render_ready": False,
             "qa_verdict_controlled_not_llm": True,
             "upload_executed": False,
             "publication_fail_closed": True,
