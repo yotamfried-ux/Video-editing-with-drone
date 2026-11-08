@@ -5,6 +5,7 @@ import collections
 import contextvars
 import os
 import threading
+import uuid
 from collections import deque
 from typing import Any
 
@@ -40,7 +41,7 @@ def create_pending_scope(sport: str, athlete_label: str, *, invocation_id: str |
     ident = _identity(sport, athlete_label)
     with _PENDING_LOCK:
         _COUNTER += 1
-        token = f"publishable_{ident}::{os.getpid()}::{_COUNTER}"
+        token = f"publishable_{ident}::{uuid.uuid4().hex}::{os.getpid()}::{_COUNTER}"
         if invocation_id is not None:
             inv_str = str(invocation_id)
             if not inv_str or inv_str in _SCOPES_BY_INVOCATION_ID:
