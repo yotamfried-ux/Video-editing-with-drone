@@ -58,6 +58,7 @@ on:
       - 'scripts/test_p0_02_zero_detection_recovery.py'
       - 'scripts/test_p0_03_p0_04_lifecycle_and_ledger.py'
       - 'scripts/test_verified_render_preset.py'
+      - 'scripts/test_analysis_progress_contract.py'
       - 'pipeline/qa_gate_policy.py'
       - 'pipeline/qa_reedit_window_contract.py'
       - 'pipeline/runtime_quality.py'
@@ -215,6 +216,7 @@ on:
       - 'scripts/test_p0_02_zero_detection_recovery.py'
       - 'scripts/test_p0_03_p0_04_lifecycle_and_ledger.py'
       - 'scripts/test_verified_render_preset.py'
+      - 'scripts/test_analysis_progress_contract.py'
       - 'pipeline/qa_gate_policy.py'
       - 'pipeline/qa_reedit_window_contract.py'
       - 'pipeline/runtime_quality.py'
@@ -424,6 +426,8 @@ jobs:
         run: python scripts/test_p0_03_p0_04_lifecycle_and_ledger.py
       - name: Validate effective production 4K encoder preset
         run: python scripts/test_verified_render_preset.py
+      - name: Validate per-source analysis progress and ordering
+        run: python scripts/test_analysis_progress_contract.py
       - name: Validate QA overlap cross-thread contract
         run: python scripts/test_qa_overlap_contract.py
       - name: Validate Perception contract
