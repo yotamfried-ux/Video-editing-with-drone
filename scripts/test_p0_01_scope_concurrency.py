@@ -202,5 +202,29 @@ class TestP001ScopeConcurrency(unittest.TestCase):
         self.assertEqual(len(scope._INVOCATION_BY_TOKEN), 0, "No reverse map leaks")
 
 
+
+    def test_conflicting_explicit_discard_cannot_delete_another_scope(self):
+        first = scope.create_pending_scope("surfing", "one", invocation_id="run-one")
+        second = scope.create_pending_scope("surfing", "two", invocation_id="run-two")
+        with self.assertRaises(RuntimeError):
+            scope.discard_pending_scope(invocation_id="run-one", token=second)
+        self.assertEqual(scope.activate_next_scope("surfing", "one", invocation_id="run-one"), first)
+        scope.release_scope(first)
+        self.assertEqual(scope.activate_next_scope("surfing", "two", invocation_id="run-two"), second)
+        scope.release_scope(second)
+
+    def test_active_scope_rejects_foreign_explicit_invocation(self):
+        first = scope.create_pending_scope("surfing", "one", invocation_id="active-one")
+        second = scope.create_pending_scope("surfing", "two", invocation_id="active-two")
+        self.assertEqual(scope.activate_next_scope("surfing", "one", invocation_id="active-one"), first)
+        try:
+            with self.assertRaises(RuntimeError):
+                scope.pending_key("surfing", "two", invocation_id="active-two")
+        finally:
+            scope.release_scope(first)
+        self.assertEqual(scope.activate_next_scope("surfing", "two", invocation_id="active-two"), second)
+        scope.release_scope(second)
+
+
 if __name__ == "__main__":
     unittest.main()
