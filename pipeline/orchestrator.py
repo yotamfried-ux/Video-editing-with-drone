@@ -691,20 +691,63 @@ def _analyze_one_source(item: dict) -> dict | None:
     return {"path": item["path"], "analysis": analysis, "meta": item["meta"]}
 
 
-def _analyze_downloaded(downloaded: list[dict]) -> list[dict]:
-    """Analyze all sources, `_ANALYSIS_WORKERS` at a time, preserving input order.
+def _analysis_progress_update(
+    *, completed: int, total: int, failed: int, elapsed_seconds: float
+) -> None:
+    """Persist each source completion so a slow YOLO/Gemini stage is observable."""
+    try:
+        from integrations.supabase_uploader import write_pipeline_status
+        progress = 0.20 + 0.09 * completed / max(1, total)
+        write_pipeline_status(
+            "analyzing", progress,
+            source_completed=completed, source_total=total,
+            source_failed=failed, analysis_elapsed_seconds=round(elapsed_seconds, 1),
+        )
+    except Exception as exc:
+        logger.warning("Nonblocking analysis progress update failed: %s", exc)
 
-    Analysis is dominated by waiting on Gemini and uploads, so overlapping sources cuts wall
-    time without changing any per-source result. ANALYSIS_WORKERS=1 restores the serial loop.
+
+def _analyze_downloaded(downloaded: list[dict]) -> list[dict]:
+    """Run per-source analysis with bounded parallelism and visible progress.
+
+    Unlike list(pool.map(...)), as_completed reports finished sources immediately
+    even when the first source takes much longer. Final results remain in original
+    source order for stable athlete/lineage matching.
     """
+    import time
+    from concurrent.futures import as_completed
+
+    if not downloaded:
+        return []
     workers = max(1, min(len(downloaded), _ANALYSIS_WORKERS))
+    started_at = time.monotonic()
+    ordered: list[dict | None] = [None] * len(downloaded)
+    completed = 0
+    failed = 0
+
+    def _finish(index: int, result: dict | None) -> None:
+        nonlocal completed, failed
+        ordered[index] = result
+        completed += 1
+        if result is None:
+            failed += 1
+        _analysis_progress_update(
+            completed=completed, total=len(downloaded),
+            failed=failed, elapsed_seconds=time.monotonic() - started_at,
+        )
+
     if workers == 1:
-        results = [_analyze_one_source(item) for item in downloaded]
+        for index, item in enumerate(downloaded):
+            _finish(index, _analyze_one_source(item))
     else:
         with ThreadPoolExecutor(max_workers=workers) as pool:
-            results = list(pool.map(_analyze_one_source, downloaded))
-    return [r for r in results if r is not None]
-
+            futures = {
+                pool.submit(_analyze_one_source, item): index
+                for index, item in enumerate(downloaded)
+            }
+            for future in as_completed(futures):
+                _finish(futures[future], future.result())
+    return [result for result in ordered if result is not None]
 
 def _process_clips_session(videos: list[dict]) -> int:
     print(f"\n{'='*60}")
