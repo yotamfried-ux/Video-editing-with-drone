@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/pipeline-integrated-video-qualification.yml'
       - 'scripts/test_pipeline_real_yolo_tracking.py'
+      - 'scripts/preflight_yolo_weights.py'
+      - 'scripts/test_preflight_yolo_weights_contract.py'
       - 'scripts/test_pipeline_real_qa_manifest.py'
       - 'scripts/test_combined_pipeline_fixes.py'
       - 'pipeline/primary_actor_policy.py'
@@ -35,6 +37,11 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_combined_pipeline_fixes.py
+      - name: Verify and cache pinned YOLO weights (independent of GitHub release 504)
+        timeout-minutes: 5
+        run: |
+          python scripts/test_preflight_yolo_weights_contract.py
+          python scripts/preflight_yolo_weights.py --model yolo11n.pt
       - name: Real video decode, YOLO, tracking, FFmpeg, QA and manifest
         env:
           PYTHONPATH: .

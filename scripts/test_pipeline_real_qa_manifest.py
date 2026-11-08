@@ -110,15 +110,17 @@ def main() -> None:
         assert not any(reason.startswith(("final_qa_failed:", "missing_final_qa_evidence:"))
                        for reason in retry_row["blocking_reasons"]), retry_row
         assert retry_row["parts"][0]["qa_verdict"] == "PASS", retry_row
-        assert retry_row["parts"][0]["render_ready"] is True, retry_row
+        # A QA retry PASS must NOT override an unrelated existing audio violation.
+        # This fixture intentionally rendered music; the blocker is correct.
+        assert retry_row["parts"][0]["render_ready"] is False, retry_row
         manifest = json.loads(Path(os.environ["PUBLISHABLE_REEL_MANIFEST_FILE"]).read_text())
         assert len(manifest["athletes"]) == 2, manifest
         by_label = {r["athlete_label"]: r["parts"][0] for r in manifest["athletes"]}
         assert by_label["surfer 0"]["qa_verdict"] == "PASS"
         assert by_label["surfer 0"]["qa_evidence_recorded"] is True
-        assert by_label["surfer 0"]["render_ready"] is True
+        assert by_label["surfer 0"]["render_ready"] is False, by_label
         assert by_label["surfer 1"]["qa_verdict"] == "PASS"
-        assert by_label["surfer 1"]["render_ready"] is True
+        assert by_label["surfer 1"]["render_ready"] is False, by_label
         assert "final_qa_failed" not in by_label["surfer 1"]["technical_issues"]
         # A PASS must never become publishable until upload is confirmed.
         assert manifest["summary"]["publishable_athlete_count"] == 0

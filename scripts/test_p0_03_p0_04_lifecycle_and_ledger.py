@@ -216,6 +216,129 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
         self.assertTrue(part["uploaded_to_review"])
         self.assertEqual(part["storage_object_id"], "r2_id_101")
 
+    def test_restarting_same_run_preserves_approved_manifest(self):
+        """A new process must not erase a completed QA/upload checkpoint."""
+        old = os.environ.get("PIPELINE_RUN_ID")
+        try:
+            os.environ["PIPELINE_RUN_ID"] = "durable-run-a"
+            policy.reset_manifest()
+            reel = self._create_fake_reel("durable.mp4")
+            policy.record_athlete_outcome(
+                sport="surfing", athlete_label="Surfer D",
+                final_reels=[str(reel)],
+                events_by_reel={str(reel): [{"type": "surf_ride", "start": 1, "end": 8}]},
+                flagged_paths=set(),
+                specs_by_path={str(reel): {
+                    "duration": 7.0, "width": 2160, "height": 3840,
+                    "aspect": 0.5625, "has_audio": False,
+                }}
+            )
+            with patch.object(policy, "_persist_draft_publishability", return_value=None):
+                policy.mark_upload_result(str(reel), "draft_durable.mp4", storage_object_id="obj-durable")
+            self.assertEqual(policy._read_manifest()["athletes"][0]["parts"][0]["state"], policy.STATE_UPLOADED)
+            policy.initialize_manifest()  # simulates the install hook on restart
+            self.assertEqual(policy._read_manifest()["athletes"][0]["parts"][0]["state"], policy.STATE_UPLOADED)
+            os.environ["PIPELINE_RUN_ID"] = "new-distinct-run-b"
+            policy.initialize_manifest()
+            self.assertEqual(policy._read_manifest()["athletes"], [])
+        finally:
+            if old is None:
+                os.environ.pop("PIPELINE_RUN_ID", None)
+            else:
+                os.environ["PIPELINE_RUN_ID"] = old
+
+    def test_remote_checkpoint_recovers_when_runner_local_disk_is_lost(self):
+        """A fresh runner must load the persisted R2 manifest for the same run ID."""
+        old = os.environ.get("PIPELINE_RUN_ID")
+        os.environ["PIPELINE_RUN_ID"] = "run-with-remote-checkpoint"
+        try:
+            recovered = policy._empty_manifest()
+            recovered["athletes"] = [{"athlete_key": "a1", "parts": [
+                {"state": policy.STATE_UPLOADED, "storage_object_id": "review/reel.mp4"}
+            ]}]
+            self.manifest_file.unlink(missing_ok=True)
+            with patch.object(policy, "_remote_checkpoint_enabled", return_value=True):
+                with patch.object(policy, "_load_remote_manifest", return_value=recovered) as remote:
+                    policy.initialize_manifest()
+                    remote.assert_called_once()
+            self.assertEqual(policy._read_manifest()["athletes"][0]["parts"][0]["state"], policy.STATE_UPLOADED)
+        finally:
+            if old is None:
+                os.environ.pop("PIPELINE_RUN_ID", None)
+            else:
+                os.environ["PIPELINE_RUN_ID"] = old
+
+    def test_checkpoint_survives_runner_disk_loss_with_fake_remote_boundary(self):
+        """Persist real manifest mutations, delete /tmp state, restore from remote."""
+        import copy
+        old_id = os.environ.get("PIPELINE_RUN_ID")
+        os.environ["PIPELINE_RUN_ID"] = "checkpoint-run-sim"
+        remote_store = {}
+        try:
+            def upload(data):
+                remote_store["payload"] = copy.deepcopy(data)
+            def load():
+                return copy.deepcopy(remote_store.get("payload"))
+            with patch.object(policy, "_remote_checkpoint_enabled", return_value=True):
+                with patch.object(policy, "_store_remote_manifest", side_effect=upload):
+                    with patch.object(policy, "_load_remote_manifest", side_effect=load):
+                        policy.reset_manifest()
+                        reel = self._create_fake_reel("durable_state.mp4")
+                        policy.record_athlete_outcome(
+                            sport="surfing", athlete_label="Surfer-R",
+                            final_reels=[str(reel)],
+                            events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8}]},
+                            flagged_paths=set(),
+                            specs_by_path={str(reel): {
+                                "duration": 7, "width": 2160, "height": 3840,
+                                "aspect": 0.5625, "has_audio": False,
+                            }},
+                        )
+                        self.assertEqual(len(remote_store["payload"]["athletes"]), 1)
+                        expected = remote_store["payload"]
+                        self.manifest_file.unlink(missing_ok=True)
+                        policy.initialize_manifest()
+                        self.assertEqual(policy._read_manifest(), expected)
+        finally:
+            if old_id is None:
+                os.environ.pop("PIPELINE_RUN_ID", None)
+            else:
+                os.environ["PIPELINE_RUN_ID"] = old_id
+
+    def test_uploaded_approved_draft_is_idempotent_and_rejects_stale_bytes(self):
+        """Reused uploaded content must match QA approval AND the SHA256 on disk."""
+        reel = self._create_fake_reel("resume_qa.mp4")
+        name = "review_surfer.mp4"
+        with patch.dict(os.environ, {"STORAGE_BACKEND": "drive"}):
+            policy.record_athlete_outcome(
+                sport="surfing", athlete_label="Approved athlete",
+                final_reels=[str(reel)],
+                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 7}]},
+                flagged_paths=set(),
+                specs_by_path={str(reel): {
+                    "duration": 6.0, "width": 2160, "height": 3840,
+                    "aspect": 0.5625, "has_audio": False,
+                }},
+            )
+            self.assertIsNone(policy.previously_uploaded_draft(str(reel), name))
+            token = "evidence-approved-reel"
+            publishable_qa_evidence.record_qa_result(
+                str(reel),
+                {"verdict": "PASS", "engagement_score": 92,
+                 "overall": "Clear athlete", "defects": []},
+                invocation_token=token,
+            )
+            publishable_qa_evidence.apply_final_qa_evidence(
+                sport="surfing", athlete_label="Approved athlete",
+                final_reels=[str(reel)], invocation_token=token,
+            )
+            with patch.object(policy, "_persist_draft_publishability", return_value=None):
+                policy.mark_upload_result(str(reel), name, storage_object_id="review/reel-approved.mp4")
+            self.assertEqual(policy.previously_uploaded_draft(str(reel), name), "review/reel-approved.mp4")
+            self.assertIsNone(policy.previously_uploaded_draft(str(reel), "wrong_name.mp4"))
+            reel.write_bytes(b"modified video content, SHA no longer matches approval")
+            self.assertIsNone(policy.previously_uploaded_draft(str(reel), name))
+
     def test_p04_candidate_accountability_ledger_100_percent_reason_codes(self):
         """Verify that every discarded candidate has an explicit reason code."""
         trace_path = Path(self.temp_dir) / "trace.json"
@@ -295,14 +418,15 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
         self.assertEqual(ledger["discarded_count"], 3)
         self.assertEqual(ledger["unmatched_selector_selected_count"], 1)
 
-        # 100% of discarded candidates MUST have a discard_cause
-        self.assertTrue(ledger["discard_causes_available"])
-        for cand in ledger["candidates"]:
-            if cand.get("discarded"):
-                self.assertIsNotNone(cand.get("discard_cause"))
-                self.assertTrue(len(cand["discard_cause"]) > 0)
-            elif cand.get("selected"):
-                self.assertIsNotNone(cand.get("selection_reason"))
+        # Incomplete upstream data must remain explicitly unverified; inventing
+        # 'not_a_useful_action' would hide missed athlete/action recall defects.
+        self.assertFalse(ledger["discard_causes_available"])
+        causes = {c["candidate_id"]: c.get("discard_cause") for c in ledger["candidates"]}
+        self.assertEqual(causes["c3"], "identity_conflict")
+        self.assertIsNone(causes["c4"])
+        self.assertEqual(causes["c2"], "selected_by_selector_not_emitted_as_draft")
+        self.assertEqual(ledger.get("unexplained_discard_count"), 1)
+        self.assertEqual(ledger["recall_status"], "incomplete")
 
 
 if __name__ == "__main__":

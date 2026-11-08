@@ -226,6 +226,12 @@ def _patch_orchestrator() -> None:
                 if len(invocation_ids) > 1:
                     raise RuntimeError("render-to-QA handoff received multiple invocation IDs")
                 inv_id = next(iter(invocation_ids), None)
+            if (
+                not inv_id
+                and os.getenv("SPORTREEL_REQUIRE_EXPLICIT_SCOPE", "0").strip().lower()
+                in {"1", "true", "yes", "on"}
+            ):
+                raise RuntimeError("production QA invocation is missing its explicit ID")
             token = activate_next_scope(sport, athlete_label, invocation_id=inv_id)
             clear_recorded_qa(token)
             try:

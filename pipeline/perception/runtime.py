@@ -405,7 +405,9 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
         "SPORTREEL_PERCEPTION_OUTPUT": str(output),
     }
     try:
-        subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
+        from integrations.stage_timer import timed
+        with timed("yolo_perception", source=Path(video_path).name):
+            subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
     except Exception as exc:
         message = _producer_failure_message(exc)
         if perception_required():
@@ -667,6 +669,30 @@ def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dic
         if sidecar_p and sidecar_p.exists():
             try:
                 summary = validate_sidecar(video_path, sidecar_p)
+                if summary.get("classification") == "review_required":
+                    persons = list(session.get("persons", []) or [])
+                    return {
+                        **session,
+                        # Mandatory-CV policy cannot render untracked actions, but
+                        # retain the originals and an explicit source/athlete reason.
+                        "persons": [
+                            {
+                                **person,
+                                "unverified_events": list(person.get("events", []) or []),
+                                "events": [],
+                                "no_output_reason": "perception_zero_detection_unverified",
+                                "review_required": True,
+                            }
+                            for person in persons
+                        ],
+                        "perception_evidence_source": "zero_detection_after_escalation",
+                        "perception_evidence_status": "review_required",
+                        "perception_review_required": True,
+                        "perception_unverified_events_count": sum(
+                            len(person.get("events", []) or []) for person in persons
+                        ),
+                        "empty_scene_verified": False,
+                    }
                 if summary.get("empty_scene_verified") or summary.get("classification") == "empty_scene":
                     return {
                         **session,

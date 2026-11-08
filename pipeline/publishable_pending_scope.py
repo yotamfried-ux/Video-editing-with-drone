@@ -5,6 +5,7 @@ import collections
 import contextvars
 import os
 import threading
+import uuid
 from collections import deque
 from typing import Any
 
@@ -40,9 +41,11 @@ def create_pending_scope(sport: str, athlete_label: str, *, invocation_id: str |
     ident = _identity(sport, athlete_label)
     with _PENDING_LOCK:
         _COUNTER += 1
-        token = f"publishable_{ident}::{os.getpid()}::{_COUNTER}"
-        if invocation_id:
+        token = f"publishable_{ident}::{uuid.uuid4().hex}::{os.getpid()}::{_COUNTER}"
+        if invocation_id is not None:
             inv_str = str(invocation_id)
+            if not inv_str or inv_str in _SCOPES_BY_INVOCATION_ID:
+                raise RuntimeError(f"duplicate or blank render invocation_id: {inv_str!r}")
             _SCOPES_BY_INVOCATION_ID[inv_str] = token
             _INVOCATION_BY_TOKEN[token] = inv_str
         _PENDING_TOKENS.setdefault(ident, deque()).append(token)
@@ -55,6 +58,13 @@ def bind_invocation_id(token: str, invocation_id: str) -> None:
         raise ValueError("scope token and invocation_id are required")
     with _PENDING_LOCK:
         inv_str = str(invocation_id)
+        mapped = _SCOPES_BY_INVOCATION_ID.get(inv_str)
+        if mapped == token and _INVOCATION_BY_TOKEN.get(token) == inv_str:
+            return
+        if mapped is not None or token in _INVOCATION_BY_TOKEN:
+            raise RuntimeError("render invocation ID or token already bound to another scope")
+        if not any(token in queue for queue in _PENDING_TOKENS.values()):
+            raise RuntimeError("cannot bind a token that is not pending")
         _SCOPES_BY_INVOCATION_ID[inv_str] = token
         _INVOCATION_BY_TOKEN[token] = inv_str
 
@@ -83,17 +93,21 @@ def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | 
     ident = _identity(sport, athlete_label)
     with _PENDING_LOCK:
         token: str | None = None
-        if invocation_id and str(invocation_id) in _SCOPES_BY_INVOCATION_ID:
-            token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id))
+        if invocation_id is not None:
+            # An explicit ID must NEVER fall back to a label-derived queue.
+            # Missing/foreign IDs signal a broken render-to-QA contract.
+            inv_str = str(invocation_id)
+            token = _SCOPES_BY_INVOCATION_ID.get(inv_str)
+            if token is None:
+                raise RuntimeError(f"unknown render invocation_id: {inv_str}")
+            queue = _PENDING_TOKENS.get(ident)
+            if queue is None or token not in queue:
+                raise RuntimeError(f"render invocation_id belongs to another athlete/sport: {inv_str}")
+            queue.remove(token)
+            if not queue:
+                _PENDING_TOKENS.pop(ident, None)
+            _SCOPES_BY_INVOCATION_ID.pop(inv_str, None)
             _INVOCATION_BY_TOKEN.pop(token, None)
-            # Remove from FIFO queue as well to avoid leaks or double consumption
-            for pending_key, queue in list(_PENDING_TOKENS.items()):
-                try:
-                    queue.remove(token)
-                except ValueError:
-                    pass
-                if not queue:
-                    _PENDING_TOKENS.pop(pending_key, None)
         else:
             queue = _PENDING_TOKENS.get(ident)
             if queue:

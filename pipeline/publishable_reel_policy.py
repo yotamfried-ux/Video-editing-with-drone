@@ -66,9 +66,98 @@ def _manifest_path() -> Path:
     return Path(os.getenv("TMP_DIR", "/tmp/dtor")) / "publishable_reel_manifest.json"
 
 
+def _current_pipeline_run_id() -> str:
+    return os.getenv("PIPELINE_RUN_ID", "").strip() or os.getenv("GITHUB_RUN_ID", "").strip() or "local_run"
+
+
+def _remote_checkpoint_enabled() -> bool:
+    """Use the existing SportReel R2 bucket only for stable, tracked R2 runs."""
+    return (
+        os.getenv("STORAGE_BACKEND", "drive").strip().lower() == "r2"
+        and bool(os.getenv("PIPELINE_RUN_ID", "").strip())
+        and os.getenv("SPORTREEL_REMOTE_MANIFEST_CHECKPOINT", "1").strip().lower()
+        not in {"0", "false", "no", "off"}
+    )
+
+
+def _checkpoint_key() -> str:
+    """Path-safe, non-PII key in the EXISTING R2 bucket."""
+    run_id = os.getenv("PIPELINE_RUN_ID", "").strip()
+    if not run_id:
+        raise RuntimeError("R2 manifest checkpoint requires a stable PIPELINE_RUN_ID")
+    fingerprint = hashlib.sha256(run_id.encode("utf-8")).hexdigest()
+    return f"metadata/pipeline_checkpoints/{fingerprint}.json"
+
+
+def _load_remote_manifest() -> dict[str, Any] | None:
+    from botocore.exceptions import ClientError
+    from integrations import r2_storage as r2
+
+    try:
+        response = r2._client().get_object(Bucket=r2._bucket(), Key=_checkpoint_key())
+    except ClientError as exc:
+        code = str(exc.response.get("Error", {}).get("Code", ""))
+        if code in {"404", "NoSuchKey", "NotFound"}:
+            return None
+        raise  # A transient/auth failure must never silently reset the run.
+    data = json.loads(response["Body"].read())
+    if not isinstance(data, dict) or data.get("schema_version") != MANIFEST_SCHEMA_VERSION:
+        raise RuntimeError("R2 manifest checkpoint corrupt or wrong schema")
+    if str(data.get("pipeline_run_id") or "") != _current_pipeline_run_id():
+        raise RuntimeError("R2 manifest checkpoint belongs to a different run")
+    if not isinstance(data.get("athletes"), list):
+        raise RuntimeError("R2 manifest checkpoint athletes array is invalid")
+    return data
+
+
+def _store_remote_manifest(payload: dict[str, Any]) -> None:
+    from integrations import r2_storage as r2
+
+    serialized = json.dumps(payload, indent=2, ensure_ascii=False).encode("utf-8")
+    r2._client().put_object(
+        Bucket=r2._bucket(), Key=_checkpoint_key(),
+        Body=serialized, ContentType="application/json",
+    )
+
+
+def _write_local_manifest(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(path)
+
+
+def initialize_manifest() -> Path:
+    """Restore same-run checkpoint across runner restarts; never erase blindly."""
+    path = _manifest_path()
+    with _MANIFEST_LOCK:
+        if _remote_checkpoint_enabled():
+            # Remote checkpoint is authoritative: a runner can lose its /tmp disk,
+            # or crash between a successful R2 write and local atomic replace.
+            recovered = _load_remote_manifest()
+            if recovered is not None:
+                _write_local_manifest(path, recovered)
+                return path
+        if path.exists():
+            try:
+                data = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, ValueError):
+                data = None
+            if (
+                isinstance(data, dict)
+                and data.get("schema_version") == MANIFEST_SCHEMA_VERSION
+                and data.get("pipeline_run_id") == _current_pipeline_run_id()
+                and isinstance(data.get("athletes"), list)
+            ):
+                return path
+        _atomic_write(path, _empty_manifest())
+    return path
+
+
 def _empty_manifest() -> dict[str, Any]:
     return {
         "schema_version": MANIFEST_SCHEMA_VERSION,
+        "pipeline_run_id": _current_pipeline_run_id(),
         "business_contract": "one_primary_publishable_reel_per_eligible_athlete_v1",
         "athletes": [],
         "summary": {
@@ -82,10 +171,11 @@ def _empty_manifest() -> dict[str, Any]:
 
 
 def _atomic_write(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_suffix(path.suffix + ".tmp")
-    tmp.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(path)
+    # Persist remote checkpoint FIRST. If the process dies after R2 acknowledges
+    # the write, initialize_manifest restores the newest authoritative state.
+    if _remote_checkpoint_enabled():
+        _store_remote_manifest(payload)
+    _write_local_manifest(path, payload)
 
 
 def reset_manifest() -> Path:
@@ -734,6 +824,44 @@ def record_athlete_outcome(
     return row
 
 
+def previously_uploaded_draft(draft_path: str, draft_name: str) -> str | None:
+    """Idempotent upload guard: only reuse a proven, identical, approved artifact.
+
+    The local file is rehashed on resume; a stale name or a changed EDL cannot
+    incorrectly suppress an upload. R2 object existence is checked as well.
+    """
+    with _MANIFEST_LOCK:
+        matched = _find_upload_part(_read_manifest(), draft_path)
+        if matched is None:
+            return None
+        _row, part = matched
+        key = str(part.get("storage_object_id") or "")
+        if not key or part.get("state") != STATE_UPLOADED:
+            return None
+        if not part.get("uploaded_to_review") or part.get("upload_error"):
+            return None
+        if not (part.get("qa_passed") and part.get("qa_evidence_recorded")):
+            return None
+        if part.get("authoritative_publishability_required") and not part.get("authoritative_publishability_persisted"):
+            return None
+        if str(part.get("review_draft_name") or "") != str(draft_name):
+            return None
+        expected_hash = str(part.get("content_sha256") or "")
+        if len(expected_hash) != 64 or not os.path.isfile(draft_path):
+            return None
+        digest = hashlib.sha256()
+        with open(draft_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1048576), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_hash:
+            return None
+    if os.getenv("STORAGE_BACKEND", "drive").strip().lower() == "r2":
+        from integrations import r2_storage as r2
+        if not key.startswith(r2.REVIEW_PREFIX) or r2._head(key) is None:
+            return None
+    return key
+
+
 def mark_upload_result(
     draft_path: str,
     draft_name: str,
@@ -857,14 +985,16 @@ def _patch_analyzer_contract() -> None:
     setattr(analyzer, _ANALYZER_FLAG, True)
 
 
-def _stamp_render_invocation(selected_events: list, scope_token: str) -> list:
-    """Carry an exact invocation ID from the editor wrapper into QA's EDL."""
+def _stamp_render_invocation(
+    selected_events: list, scope_token: str, *, invocation_id: str | None = None
+) -> list:
+    """Preserve ONE stable invocation ID throughout render, EDL, QA and upload."""
     if not str(scope_token).startswith("publishable_"):
-        # Legacy direct-module callers may not have installed pending_scope.
         return selected_events
-    from pipeline.publishable_pending_scope import bind_invocation_id
-    invocation_id = f"render_{uuid.uuid4().hex}"
-    bind_invocation_id(scope_token, invocation_id)
+    if invocation_id is None:
+        from pipeline.publishable_pending_scope import bind_invocation_id
+        invocation_id = f"render_{uuid.uuid4().hex}"
+        bind_invocation_id(scope_token, invocation_id)
     return [
         (path, [{**event, "_render_invocation_id": invocation_id}
                 for event in (events or [])])
@@ -882,6 +1012,10 @@ def _patch_editor_outputs() -> None:
 
     def create_reel(video_path, events, sport="", athlete_label="", _events_out=None, **kwargs):
         raw_events_out: list[tuple[str, list[dict[str, Any]]]] = []
+        # An invocation ID is pipeline metadata; the physical editor does not
+        # accept this keyword. Passing it through previously raised TypeError,
+        # triggering a legacy retry without scope correlation.
+        inv_id = kwargs.pop("invocation_id", None)
         raw_reels = original_create_reel(
             video_path,
             events,
@@ -890,13 +1024,12 @@ def _patch_editor_outputs() -> None:
             _events_out=raw_events_out,
             **kwargs,
         )
-        inv_id = kwargs.get("invocation_id")
         key = _pending_key(sport, athlete_label, invocation_id=inv_id)
         _PENDING_EVENT_LINEAGE[key] = _flatten_events(raw_events_out) or [
             dict(event) for event in events or [] if isinstance(event, dict) and not event.get("_teaser")
         ]
         selected, selected_events, failures = canonicalize_publishable_variants(raw_reels, raw_events_out)
-        selected_events = _stamp_render_invocation(selected_events, key)
+        selected_events = _stamp_render_invocation(selected_events, key, invocation_id=inv_id)
         _PENDING_VARIANT_FAILURES[key] = failures
         if _events_out is not None:
             _events_out.extend(selected_events)
@@ -904,6 +1037,7 @@ def _patch_editor_outputs() -> None:
 
     def compile_multi_source_reel(appearances, sport="", athlete_label="", _events_out=None, **kwargs):
         raw_events_out: list[tuple[str, list[dict[str, Any]]]] = []
+        inv_id = kwargs.pop("invocation_id", None)
         raw_reels = original_compile_multi(
             appearances,
             sport=sport,
@@ -911,7 +1045,6 @@ def _patch_editor_outputs() -> None:
             _events_out=raw_events_out,
             **kwargs,
         )
-        inv_id = kwargs.get("invocation_id")
         key = _pending_key(sport, athlete_label, invocation_id=inv_id)
         input_events = [
             dict(event)
@@ -921,7 +1054,7 @@ def _patch_editor_outputs() -> None:
         ]
         _PENDING_EVENT_LINEAGE[key] = _flatten_events(raw_events_out) or input_events
         selected, selected_events, failures = canonicalize_publishable_variants(raw_reels, raw_events_out)
-        selected_events = _stamp_render_invocation(selected_events, key)
+        selected_events = _stamp_render_invocation(selected_events, key, invocation_id=inv_id)
         _PENDING_VARIANT_FAILURES[key] = failures
         if _events_out is not None:
             _events_out.extend(selected_events)
@@ -979,6 +1112,10 @@ def _patch_orchestrator_contract() -> None:
             original_upload = orchestrator.upload_draft
 
             def upload_with_manifest(draft_path: str, draft_name: str):
+                existing = previously_uploaded_draft(draft_path, draft_name)
+                if existing is not None:
+                    logger.info("Restored uploaded reel without duplicate upload: %s", draft_name)
+                    return existing
                 try:
                     result = original_upload(draft_path, draft_name)
                 except Exception as exc:
@@ -1008,7 +1145,7 @@ def install() -> None:
     global _INSTALL_DONE
     if _INSTALL_DONE:
         return
-    reset_manifest()
+    initialize_manifest()
     _patch_analyzer_contract()
     _patch_editor_outputs()
     _patch_orchestrator_contract()

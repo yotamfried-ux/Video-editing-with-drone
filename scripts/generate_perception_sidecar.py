@@ -334,7 +334,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
             tracker=tracker,
             device=device,
             fps=fps or 30.0,
-            weak_windows=[{"start": 0.0, "end": 99999.0}],
+            weak_windows=[{"start_sec": 0.0, "end_sec": frame_cnt / (fps or 30.0)}],
             target_classes=target_classes,
             escalation_stride=dense_stride,
             escalation_imgsz=1280,
@@ -349,8 +349,15 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
                 "escalated_frames_count": esc_frames,
             })
         else:
-            empty_scene_verified = True
-            classification = "empty_scene"
+            # A detector miss is NOT independent evidence that a readable scene
+            # contains no athlete. Keep this source reviewable and do not silently
+            # discard possible surfers (especially tiny/distant/occluded people).
+            empty_scene_verified = False
+            classification = "review_required"
+            adaptive_meta.update({
+                "zero_detection_unresolved": True,
+                "zero_detection_escalated_frames": esc_frames,
+            })
 
     source_sha = _llm_cache.file_sha256(args.video_path) if os.path.exists(args.video_path) else None
     payload: dict[str, Any] = {
@@ -359,7 +366,8 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
         "status": "ok",
         "classification": classification,
         "empty_scene_verified": empty_scene_verified,
-        "reason": ("no_person_detected_after_dense_scan" if empty_scene_verified else None),
+        "review_required": classification == "review_required",
+        "reason": ("zero_person_detections_unverified" if classification == "review_required" else None),
         "backend": "ultralytics",
         "model": model,
         "tracker": tracker,

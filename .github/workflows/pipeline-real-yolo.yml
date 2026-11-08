@@ -5,6 +5,8 @@ on:
     paths:
       - '.github/workflows/pipeline-real-yolo.yml'
       - 'scripts/test_pipeline_real_yolo_tracking.py'
+      - 'scripts/preflight_yolo_weights.py'
+      - 'scripts/test_preflight_yolo_weights_contract.py'
       - 'pipeline/perception/**'
   workflow_dispatch:
 
@@ -31,6 +33,11 @@ jobs:
           python -m pip install --quiet --upgrade pip
           python -m pip install --quiet torch torchvision --index-url https://download.pytorch.org/whl/cpu
           python -m pip install --quiet ultralytics python-dotenv
+      - name: Verify and cache pinned YOLO weights (independent of GitHub release 504)
+        timeout-minutes: 5
+        run: |
+          python scripts/test_preflight_yolo_weights_contract.py
+          python scripts/preflight_yolo_weights.py --model yolo11n.pt
       - name: Run real detector and tracker against isolated MP4
         env:
           PYTHONPATH: .

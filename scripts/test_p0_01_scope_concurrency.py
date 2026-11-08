@@ -25,6 +25,7 @@ class TestP001ScopeConcurrency(unittest.TestCase):
         with scope._PENDING_LOCK:
             scope._PENDING_TOKENS.clear()
             scope._SCOPES_BY_INVOCATION_ID.clear()
+            scope._INVOCATION_BY_TOKEN.clear()
         scope._ACTIVE_TOKEN.set(None)
         scope._ACTIVE_IDENTITY.set(None)
 
@@ -32,6 +33,7 @@ class TestP001ScopeConcurrency(unittest.TestCase):
         with scope._PENDING_LOCK:
             scope._PENDING_TOKENS.clear()
             scope._SCOPES_BY_INVOCATION_ID.clear()
+            scope._INVOCATION_BY_TOKEN.clear()
         scope._ACTIVE_TOKEN.set(None)
         scope._ACTIVE_IDENTITY.set(None)
 
@@ -132,6 +134,30 @@ class TestP001ScopeConcurrency(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             scope.activate_next_scope("surfing", "athlete", invocation_id=inv_id)
 
+    def test_unknown_explicit_id_never_consumes_same_label_fifo(self):
+        token = scope.create_pending_scope("surfing", "identical label", invocation_id="valid-1")
+        with self.assertRaises(RuntimeError):
+            scope.activate_next_scope("surfing", "identical label", invocation_id="unknown-2")
+        self.assertEqual(scope.activate_next_scope("surfing", "identical label", invocation_id="valid-1"), token)
+        scope.release_scope(token)
+
+    def test_duplicate_id_cannot_override_another_pending_render(self):
+        first = scope.create_pending_scope("surfing", "person-a", invocation_id="dup-id")
+        with self.assertRaises((ValueError, RuntimeError)):
+            scope.create_pending_scope("surfing", "person-b", invocation_id="dup-id")
+        self.assertEqual(scope.activate_next_scope("surfing", "person-a", invocation_id="dup-id"), first)
+        scope.release_scope(first)
+
+    def test_render_stamp_keeps_one_explicit_identity_not_aliases(self):
+        token = scope.create_pending_scope("surfing", "person-a", invocation_id="run-scope-1")
+        evs = [("draft.mp4", [{"type": "ride", "start": 1.0, "end": 5.0}])]
+        stamped = policy._stamp_render_invocation(evs, token, invocation_id="run-scope-1")
+        self.assertEqual(stamped[0][1][0]["_render_invocation_id"], "run-scope-1")
+        self.assertEqual(scope._SCOPES_BY_INVOCATION_ID, {"run-scope-1": token})
+        scope.release_scope(scope.activate_next_scope("surfing", "person-a", invocation_id="run-scope-1"))
+        self.assertFalse(scope._SCOPES_BY_INVOCATION_ID)
+        self.assertFalse(scope._INVOCATION_BY_TOKEN)
+
     def test_100_concurrent_simulations_zero_leaks_or_collisions(self):
         """GATE-03 requirement: 100 concurrent simulation runs without scope collision."""
         success_count = 0
@@ -173,6 +199,7 @@ class TestP001ScopeConcurrency(unittest.TestCase):
         self.assertEqual(success_count, 100)
         self.assertEqual(len(scope._SCOPES_BY_INVOCATION_ID), 0, "No leaked scopes in _SCOPES_BY_INVOCATION_ID")
         self.assertEqual(len(scope._PENDING_TOKENS), 0, "No leaked scopes in _PENDING_TOKENS")
+        self.assertEqual(len(scope._INVOCATION_BY_TOKEN), 0, "No reverse map leaks")
 
 
 if __name__ == "__main__":
