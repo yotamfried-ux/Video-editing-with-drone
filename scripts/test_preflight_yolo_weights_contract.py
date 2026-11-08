@@ -3,11 +3,14 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from scripts import preflight_yolo_weights as w
 
 
