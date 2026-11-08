@@ -405,7 +405,9 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
         "SPORTREEL_PERCEPTION_OUTPUT": str(output),
     }
     try:
-        subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
+        from integrations.stage_timer import timed
+        with timed("yolo_perception", source=Path(video_path).name):
+            subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
     except Exception as exc:
         message = _producer_failure_message(exc)
         if perception_required():
