@@ -199,6 +199,7 @@ class TestP001ScopeConcurrency(unittest.TestCase):
         self.assertEqual(success_count, 100)
         self.assertEqual(len(scope._SCOPES_BY_INVOCATION_ID), 0, "No leaked scopes in _SCOPES_BY_INVOCATION_ID")
         self.assertEqual(len(scope._PENDING_TOKENS), 0, "No leaked scopes in _PENDING_TOKENS")
+        self.assertEqual(len(scope._INVOCATION_BY_TOKEN), 0, "No reverse map leaks")
 
 
 if __name__ == "__main__":
