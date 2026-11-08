@@ -34,8 +34,8 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
         self.assertTrue(rt._is_reusable_sidecar({"status": "ok", "detection_count": 15}))
         # Unverified zero -> False
         self.assertFalse(rt._is_reusable_sidecar({"status": "ok", "detection_count": 0}))
-        # Verified empty scene -> True
-        self.assertTrue(rt._is_reusable_sidecar({
+        # An asserted empty flag without independent evidence is not reusable.
+        self.assertFalse(rt._is_reusable_sidecar({
             "status": "ok",
             "detection_count": 0,
             "classification": "empty_scene",
@@ -67,7 +67,8 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
 
             enriched = rt.enrich_session_with_sidecar(empty_session, video_path)
             self.assertEqual(enriched.get("persons"), [])
-            self.assertEqual(enriched.get("perception_evidence_status"), "empty_scene")
+            self.assertEqual(enriched.get("perception_evidence_status"), "review_required")
+            self.assertFalse(enriched.get("empty_scene_verified"))
 
     def test_unconfirmed_zero_detection_preserves_audit_and_prevents_false_empty(self):
         from pipeline.perception.runtime import enrich_session_with_sidecar
