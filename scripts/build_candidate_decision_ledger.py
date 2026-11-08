@@ -201,8 +201,10 @@ def _normalized_upstream_candidates(upstream: dict[str, Any]) -> list[dict[str, 
         if selected and discarded:
             discarded = False
         discard_cause = raw.get("discard_cause")
+        # Never invent an editorial rejection cause for missing upstream data.
+        # Missing evidence is an audit gap, not proof that the action was useless.
         if discarded and not discard_cause:
-            discard_cause = "not_a_useful_action"
+            discard_cause = None
         out.append({
             "candidate_id": raw.get("candidate_id") or _candidate_id(str(raw.get("draft_id") or raw.get("person_id") or "upstream"), idx, window),
             "draft_id": raw.get("draft_id"),
@@ -337,7 +339,10 @@ def build_ledger(trace_path: Path, upstream_path: Path | None = None) -> dict[st
         for item in candidates
         if item.get("selected") and item.get("person_id") and item.get("athlete_id") and item.get("source_video")
     )
-    discard_causes_available = discarded_count > 0 and all(item.get("discard_cause") for item in candidates if item.get("discarded"))
+    unexplained_discard_count = sum(
+        1 for item in candidates if item.get("discarded") and not item.get("discard_cause")
+    )
+    discard_causes_available = unexplained_discard_count == 0 and discarded_count > 0
     return {
         "schema_version": "sportreel.candidate_decision_ledger.v1",
         "source": {
@@ -353,8 +358,18 @@ def build_ledger(trace_path: Path, upstream_path: Path | None = None) -> dict[st
         "selected_lineage_incomplete_count": max(0, selected_count - selected_lineage_complete_count),
         "unmatched_selector_selected_count": unmatched_selector_selected_count,
         "discard_causes_available": discard_causes_available,
-        "recall_status": "selected_and_discarded" if selected_count > 0 and discard_causes_available else "selected_only",
-        "known_gap": None if selected_count > 0 and discard_causes_available else "discarded candidates are not yet emitted by the upstream selector",
+        "unexplained_discard_count": unexplained_discard_count,
+        "recall_status": (
+            "incomplete" if unexplained_discard_count or unmatched_selector_selected_count
+            else "selected_and_discarded" if selected_count and discard_causes_available
+            else "selected_only"
+        ),
+        "known_gap": (
+            "missing upstream discard reasons or unmatched selected actions"
+            if unexplained_discard_count or unmatched_selector_selected_count
+            else None if selected_count > 0 and discard_causes_available
+            else "no evidence of both selected and discarded candidates"
+        ),
         "detected_athlete_registry": [
             dict(row) for row in upstream.get("detected_athlete_registry", []) or []
             if isinstance(row, dict)
