@@ -241,5 +241,30 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
                                "the high-resolution rescue must read real frames, not swallow KeyError")
 
 
+
+    def test_legacy_empty_claim_without_independent_evidence_is_never_verified(self):
+        """An old or forged sidecar flag cannot erase manually identified surfers."""
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "surfer_missed_by_yolo.mp4"
+            source.write_bytes(b"validity placeholder")
+            sidecar = rt.sidecar_output_path(str(source))
+            sidecar.write_text(json.dumps({
+                "source_video": str(source), "status": "ok",
+                "classification": "empty_scene", "empty_scene_verified": True,
+                "reason": "no_person_detected_after_dense_scan",
+                "detections": [],
+            }), encoding="utf-8")
+            summary = rt.validate_sidecar(str(source), sidecar)
+            self.assertEqual(summary["classification"], "review_required")
+            self.assertFalse(summary["empty_scene_verified"])
+            source_session = {"persons": [{"id": "p1", "events": [
+                {"type": "surf_ride", "start": 3, "end": 7},
+            ]}]}
+            enriched = rt.enrich_session_with_sidecar(source_session, str(source))
+            self.assertEqual(enriched["perception_evidence_status"], "review_required")
+            self.assertFalse(enriched["empty_scene_verified"])
+            self.assertEqual(len(enriched["persons"][0]["unverified_events"]), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
