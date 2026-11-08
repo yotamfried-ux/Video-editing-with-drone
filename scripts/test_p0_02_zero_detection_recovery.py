@@ -267,5 +267,68 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
             self.assertEqual(len(enriched["persons"][0]["unverified_events"]), 1)
 
 
+
+    @patch("cv2.VideoCapture")
+    def test_07_zero_detection_rescue_is_bounded_and_spread_across_long_video(self, mock_vc):
+        """No second whole-video 1280px track pass or unbounded dense recovery."""
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (True, MagicMock())
+        cap.get.return_value = 18000  # 10 min at 30 fps
+        mock_vc.return_value = cap
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "long_4k.mp4"
+            video.write_bytes(b"video data")
+            args = MagicMock(
+                video_path=str(video), output_path=str(Path(tmp) / "long.perception.json"),
+                ultralytics_model="yolo11n.pt", ultralytics_tracker="botsort.yaml",
+                ultralytics_vid_stride="5", ultralytics_imgsz="640",
+                ultralytics_device="cpu", fps="30",
+            )
+            model = MagicMock()
+            model.track.return_value = []
+            with patch("ultralytics.YOLO", return_value=model):
+                with patch("scripts.generate_perception_sidecar._run_targeted_window_escalation", return_value=([], 12)) as rescue:
+                    payload = _fast_ultralytics_sidecar(args)
+            self.assertEqual(payload["classification"], "review_required")
+            self.assertEqual(model.track.call_count, 1, "whole-video YOLO must run just once at base resolution")
+            self.assertEqual(rescue.call_count, 1, "one bounded high-resolution rescue, not repeated full scans")
+            kwargs = rescue.call_args.kwargs
+            windows = kwargs["weak_windows"]
+            self.assertGreater(len(windows), 1, "include multiple time regions, not just the beginning")
+            self.assertLess(windows[0]["start_sec"], 1.0)
+            self.assertGreater(windows[-1]["end_sec"], 500.0)
+            fps = kwargs["fps"]
+            stride = kwargs["escalation_stride"]
+            estimated_frames = sum(
+                1 + max(0, int(round((w["end_sec"] - w["start_sec"]) * fps / stride)))
+                for w in windows
+            )
+            self.assertLessEqual(estimated_frames, 96, "CPU-bound 1280px rescue must have a strict frame budget")
+
+    @patch("cv2.VideoCapture")
+    def test_08_high_resolution_scanner_exceptions_fail_loudly(self, mock_vc):
+        """A CUDA/YOLO/tracker crash must not be disguised as a valid zero detection."""
+        from scripts.generate_perception_sidecar import _run_targeted_window_escalation
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.read.return_value = (True, MagicMock())
+        cap.get.return_value = 30
+        mock_vc.return_value = cap
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "broken_detector.mp4"
+            video.write_bytes(b"video data")
+            model = MagicMock()
+            model.track.side_effect = RuntimeError("YOLO backend failed")
+            with patch("ultralytics.YOLO", return_value=model):
+                with self.assertRaisesRegex(RuntimeError, "high-resolution.*failed"):
+                    _run_targeted_window_escalation(
+                        str(video), model_name="yolo11n.pt", tracker="botsort.yaml",
+                        device="cpu", fps=30.0,
+                        weak_windows=[{"start_sec": 0.0, "end_sec": 1.0}],
+                        target_classes=[0], escalation_stride=2,
+                    )
+
+
 if __name__ == "__main__":
     unittest.main()
