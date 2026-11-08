@@ -704,7 +704,11 @@ def _analysis_progress_update(
             source_failed=failed, analysis_elapsed_seconds=round(elapsed_seconds, 1),
         )
     except Exception as exc:
-        logger.warning("Nonblocking analysis progress update failed: %s", exc)
+        # Telemetry is observational; tests may stub logger and Supabase may be
+        # temporarily unavailable. Never fail media processing on this path.
+        warning = getattr(logger, "warning", None)
+        if callable(warning):
+            warning("Nonblocking analysis progress update failed: %s", exc)
 
 
 def _analyze_downloaded(downloaded: list[dict]) -> list[dict]:
