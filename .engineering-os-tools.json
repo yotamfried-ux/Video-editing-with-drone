@@ -7,6 +7,7 @@
     "graphify",
     "maestro",
     "playwright-mcp",
-    "chrome-devtools-mcp"
+    "chrome-devtools-mcp",
+    "mcp-video-analyzer"
   ]
 }
