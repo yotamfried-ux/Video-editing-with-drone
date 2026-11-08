@@ -164,8 +164,21 @@ jobs:
         with:
           path: |
             ~/.cache/huggingface
+            yolo11n.pt
             yolo11s.pt
           key: models-v1-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+
+      - name: Verify YOLO weight preflight contract
+        run: python scripts/test_preflight_yolo_weights_contract.py
+
+      - name: Preflight actual YOLO model weights
+        timeout-minutes: 5
+        env:
+          # A custom producer can override the model through --ultralytics-model;
+          # prewarm that exact asset once, not once per parallel worker.
+          SPORTREEL_PERCEPTION_COMMAND: ${{ secrets.SPORTREEL_PERCEPTION_COMMAND || vars.SPORTREEL_PERCEPTION_COMMAND || '' }}
+          SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+        run: python scripts/preflight_yolo_weights.py
 
       - name: Write credential files from secrets
         env:
@@ -341,6 +354,7 @@ jobs:
         with:
           path: |
             ~/.cache/huggingface
+            yolo11n.pt
             yolo11s.pt
           key: models-v1-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
 
