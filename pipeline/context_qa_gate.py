@@ -258,12 +258,45 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         def _finish_cluster(cluster: dict, reels: list[str], events_out: list, source_video: str,
                             source_quality: dict, all_events: list[dict]) -> tuple[list, list]:
             """QA gate + draft naming for one rendered cluster. Runs on the QA worker while the next cluster renders."""
+            inv_id = str(cluster.get("invocation_id") or "")
             def _recompile(evs: list[dict], out: list) -> list[str]:
-                result = orchestrator.compile_multi_source_reel(orchestrator._group_appearances(evs), sport=activity, athlete_label=cluster.get("description", ""), _events_out=out)
+                try:
+                    result = orchestrator.compile_multi_source_reel(
+                        orchestrator._group_appearances(evs),
+                        sport=activity,
+                        athlete_label=cluster.get("description", ""),
+                        _events_out=out,
+                        invocation_id=inv_id,
+                    )
+                except TypeError:
+                    result = orchestrator.compile_multi_source_reel(
+                        orchestrator._group_appearances(evs),
+                        sport=activity,
+                        athlete_label=cluster.get("description", ""),
+                        _events_out=out,
+                    )
                 out[:] = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in out]
                 return result
 
-            reels, events_by_reel, flagged = _qa_gate_with_edit_context(orchestrator, reels, events_out, activity, cluster.get("description", ""), _recompile)
+            try:
+                reels, events_by_reel, flagged = _qa_gate_with_edit_context(
+                    orchestrator,
+                    reels,
+                    events_out,
+                    activity,
+                    cluster.get("description", ""),
+                    _recompile,
+                    invocation_id=inv_id,
+                )
+            except TypeError:
+                reels, events_by_reel, flagged = _qa_gate_with_edit_context(
+                    orchestrator,
+                    reels,
+                    events_out,
+                    activity,
+                    cluster.get("description", ""),
+                    _recompile,
+                )
             flagged_set = set(flagged or [])
             for reel in reels:
                 reel_events = _annotate_subject_gates(events_by_reel.get(reel, all_events), source_video, str(cluster.get("description", "")))
@@ -307,8 +340,25 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 source_video = str(first_path or "")
                 source_quality = orchestrator._get_source_info(first_path) if first_path else {}
                 all_events = [ev for app in cluster.get("appearances", []) for ev in app.get("events", [])]
+                import uuid as _uuid
+                inv_id = str(cluster.get("invocation_id") or f"inv_{ci}_{_uuid.uuid4().hex[:8]}")
+                cluster["invocation_id"] = inv_id
                 events_out: list[tuple[str, list[dict]]] = []
-                reels = orchestrator.compile_multi_source_reel(cluster.get("appearances", []), sport=activity, athlete_label=cluster.get("description", ""), _events_out=events_out)
+                try:
+                    reels = orchestrator.compile_multi_source_reel(
+                        cluster.get("appearances", []),
+                        sport=activity,
+                        athlete_label=cluster.get("description", ""),
+                        _events_out=events_out,
+                        invocation_id=inv_id,
+                    )
+                except TypeError:
+                    reels = orchestrator.compile_multi_source_reel(
+                        cluster.get("appearances", []),
+                        sport=activity,
+                        athlete_label=cluster.get("description", ""),
+                        _events_out=events_out,
+                    )
                 events_out = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in events_out]
                 args = (cluster, reels, events_out, source_video, source_quality, all_events)
                 if qa_pool is None:

@@ -23,6 +23,14 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 MANIFEST_SCHEMA_VERSION = "sportreel.publishable_reel_manifest.v1"
+STATE_RENDERED = "RENDERED"
+STATE_QA_PENDING = "QA_PENDING"
+STATE_QA_PASSED = "QA_PASSED"
+STATE_UPLOAD_PENDING = "UPLOAD_PENDING"
+STATE_UPLOADED = "UPLOADED"
+STATE_QA_FAILED = "QA_FAILED"
+STATE_UPLOAD_FAILED = "UPLOAD_FAILED"
+STATE_REVIEW_REQUIRED = "REVIEW_REQUIRED"
 MAX_PUBLISHABLE_SECONDS = 90.0
 MIN_PUBLISHABLE_HEIGHT = 1280
 _INSTALLED_FLAG = "_sportreel_publishable_reel_policy_installed"
@@ -245,8 +253,11 @@ def _one_reel_per_athlete() -> bool:
 def social_ready_issues(specs: dict[str, Any]) -> list[str]:
     """Return deterministic reasons that a rendered file is not directly publishable."""
     issues: list[str] = []
-    if not specs.get("has_audio"):
-        issues.append("missing_audio")
+    audio_state = specs.get("has_audio")
+    if audio_state is True:
+        issues.append("unexpected_audio")
+    elif audio_state is not False:
+        issues.append("audio_state_unknown")
     try:
         duration = float(specs.get("duration"))
     except (TypeError, ValueError):
@@ -592,8 +603,54 @@ def record_athlete_outcome(
         name = Path(path).name
         if not render_ready:
             blocking_reasons.extend(f"{issue}:{name}" for issue in issues)
+        if not qa_passed:
+            part_state = STATE_QA_FAILED
+            failure_reason = "final_qa_failed"
+        elif issues:
+            part_state = STATE_REVIEW_REQUIRED if any("review" in str(i).lower() for i in issues) else STATE_QA_FAILED
+            failure_reason = ";".join(str(i) for i in issues)
+        elif render_ready:
+            part_state = STATE_UPLOAD_PENDING
+            failure_reason = None
+        else:
+            part_state = STATE_RENDERED
+            failure_reason = None
+
+        content_sha256 = ""
+        try:
+            if Path(path).exists() and Path(path).is_file():
+                h = hashlib.sha256()
+                with open(path, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                content_sha256 = h.hexdigest()
+        except Exception:
+            pass
+        if not content_sha256:
+            content_sha256 = _media_specs_revision(specs)
+
+        ath_key = athlete_key(sport, athlete_label, events_by_reel)
+        product_id = f"reel_{ath_key[:16]}_{index}_{content_sha256[:12]}"
+        run_id = os.getenv("RUN_ID") or os.getenv("GITHUB_RUN_ID") or "local_run"
+        ath_ids = _athlete_ids(events_by_reel)
+        athlete_id = ath_ids[0] if ath_ids else ath_key
+
         parts.append({
             "part_index": index,
+            "product_id": product_id,
+            "athlete_id": athlete_id,
+            "run_id": run_id,
+            "content_sha256": content_sha256,
+            "state": part_state,
+            "attempts": 1,
+            "attempt_history": [
+                {
+                    "state": part_state,
+                    "failure_reason": failure_reason,
+                    "run_id": run_id,
+                }
+            ],
+            "failure_reason": failure_reason,
             "local_path": path,
             "local_file_name": name,
             "file_name": None,
@@ -642,6 +699,19 @@ def record_athlete_outcome(
                       for part in prior.get("parts", [])
                       if isinstance(part, dict) and part.get("local_path")}
             for part in row["parts"]:
+                prev = merged.get(str(part["local_path"]))
+                if prev and prev.get("state") == STATE_UPLOADED and prev.get("content_sha256") == part.get("content_sha256"):
+                    part["state"] = STATE_UPLOADED
+                    part["uploaded_to_review"] = True
+                    part["review_draft_name"] = prev.get("review_draft_name")
+                    part["file_name"] = prev.get("file_name")
+                    part["storage_object_id"] = prev.get("storage_object_id")
+                    part["attempts"] = prev.get("attempts", 1)
+                    part["attempt_history"] = prev.get("attempt_history", [])
+                    part["failure_reason"] = None
+                elif prev and prev.get("attempts"):
+                    part["attempts"] = prev["attempts"] + 1
+                    part["attempt_history"] = list(prev.get("attempt_history", [])) + part.get("attempt_history", [])
                 merged[str(part["local_path"])] = part
             row["parts"] = list(merged.values())
             for index, part in enumerate(row["parts"], start=1):
@@ -688,6 +758,15 @@ def mark_upload_result(
         part["upload_error"] = str(error) if error else None
         part["uploaded_to_review"] = error is None
         if error is None:
+            part["state"] = STATE_UPLOADED
+            part["failure_reason"] = None
+            history = list(part.get("attempt_history", []))
+            history.append({
+                "state": STATE_UPLOADED,
+                "failure_reason": None,
+                "step": "upload_success",
+            })
+            part["attempt_history"] = history
             part["review_draft_name"] = draft_name
             part["file_name"] = draft_name
             part["uploaded_local_path"] = os.path.abspath(str(draft_path))
@@ -702,6 +781,15 @@ def mark_upload_result(
                     draft_name=draft_name,
                 )
         else:
+            part["state"] = STATE_UPLOAD_FAILED
+            part["failure_reason"] = str(error)
+            history = list(part.get("attempt_history", []))
+            history.append({
+                "state": STATE_UPLOAD_FAILED,
+                "failure_reason": str(error),
+                "step": "upload_error",
+            })
+            part["attempt_history"] = history
             reasons = list(row.get("blocking_reasons") or [])
             reasons.append(f"review_upload_failed:{Path(draft_path).name}:{error}")
             row["blocking_reasons"] = sorted(set(reasons))
@@ -792,7 +880,7 @@ def _patch_editor_outputs() -> None:
     original_create_reel = editor.create_reel
     original_compile_multi = editor.compile_multi_source_reel
 
-    def create_reel(video_path, events, sport="", athlete_label="", _events_out=None):
+    def create_reel(video_path, events, sport="", athlete_label="", _events_out=None, **kwargs):
         raw_events_out: list[tuple[str, list[dict[str, Any]]]] = []
         raw_reels = original_create_reel(
             video_path,
@@ -800,8 +888,10 @@ def _patch_editor_outputs() -> None:
             sport=sport,
             athlete_label=athlete_label,
             _events_out=raw_events_out,
+            **kwargs,
         )
-        key = _pending_key(sport, athlete_label)
+        inv_id = kwargs.get("invocation_id")
+        key = _pending_key(sport, athlete_label, invocation_id=inv_id)
         _PENDING_EVENT_LINEAGE[key] = _flatten_events(raw_events_out) or [
             dict(event) for event in events or [] if isinstance(event, dict) and not event.get("_teaser")
         ]
@@ -812,15 +902,17 @@ def _patch_editor_outputs() -> None:
             _events_out.extend(selected_events)
         return selected
 
-    def compile_multi_source_reel(appearances, sport="", athlete_label="", _events_out=None):
+    def compile_multi_source_reel(appearances, sport="", athlete_label="", _events_out=None, **kwargs):
         raw_events_out: list[tuple[str, list[dict[str, Any]]]] = []
         raw_reels = original_compile_multi(
             appearances,
             sport=sport,
             athlete_label=athlete_label,
             _events_out=raw_events_out,
+            **kwargs,
         )
-        key = _pending_key(sport, athlete_label)
+        inv_id = kwargs.get("invocation_id")
+        key = _pending_key(sport, athlete_label, invocation_id=inv_id)
         input_events = [
             dict(event)
             for appearance in appearances or []

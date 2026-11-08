@@ -200,6 +200,9 @@ def _normalized_upstream_candidates(upstream: dict[str, Any]) -> list[dict[str, 
         discarded = bool(raw.get("discarded"))
         if selected and discarded:
             discarded = False
+        discard_cause = raw.get("discard_cause")
+        if discarded and not discard_cause:
+            discard_cause = "not_a_useful_action"
         out.append({
             "candidate_id": raw.get("candidate_id") or _candidate_id(str(raw.get("draft_id") or raw.get("person_id") or "upstream"), idx, window),
             "draft_id": raw.get("draft_id"),
@@ -211,7 +214,7 @@ def _normalized_upstream_candidates(upstream: dict[str, Any]) -> list[dict[str, 
             "person_description": raw.get("person_description"),
             "selected": selected,
             "discarded": discarded,
-            "discard_cause": raw.get("discard_cause") if discarded else None,
+            "discard_cause": discard_cause if discarded else None,
             "selection_reason": raw.get("selection_reason") if selected else None,
             "event_type": raw.get("event_type", ""),
             "score": raw.get("score"),

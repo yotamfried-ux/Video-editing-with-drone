@@ -2,6 +2,13 @@
 """Contract for REAL-TRACE-001 and REAL-VALUE-001 candidate ledger."""
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from pipeline.candidate_ledger import (
     OPERATOR_FEEDBACK_EVENTS,
     VALUE_LABELS,

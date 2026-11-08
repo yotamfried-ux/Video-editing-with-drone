@@ -107,7 +107,8 @@ def install() -> None:
             detection_count = int(summary.get("detection_count") or 0)
         except (TypeError, ValueError):
             detection_count = 0
-        return original_reusable(summary) and detection_count > 0
+        is_empty = bool(summary.get("empty_scene_verified") or summary.get("classification") == "empty_scene")
+        return original_reusable(summary) and (detection_count > 0 or is_empty)
 
     runtime._is_reusable_sidecar = reusable_with_detections
 
@@ -115,6 +116,8 @@ def install() -> None:
 
     def enrich_and_require(session: dict[str, Any], video_path: str) -> dict[str, Any]:
         enriched = original_enrich(session, video_path)
+        if enriched.get("empty_scene_verified") or enriched.get("perception_evidence_status") == "empty_scene":
+            return enriched
         missing: list[str] = []
         valid_event_count = 0
         updated_persons: list[dict[str, Any]] = []

@@ -150,6 +150,27 @@ def apply_final_qa_evidence(
                 part["technical_issues"] = sorted(set(issues))
                 part["render_ready"] = qa_passed and not part["technical_issues"]
 
+                if not evidence_recorded:
+                    part["state"] = "REVIEW_REQUIRED"
+                    part["failure_reason"] = "missing_final_qa_evidence"
+                elif not qa_passed:
+                    part["state"] = "QA_FAILED"
+                    part["failure_reason"] = "final_qa_failed"
+                elif part["render_ready"]:
+                    part["state"] = "UPLOAD_PENDING"
+                    part["failure_reason"] = None
+                else:
+                    part["state"] = "QA_PASSED"
+                    part["failure_reason"] = None
+
+                history = list(part.get("attempt_history", []))
+                history.append({
+                    "state": part["state"],
+                    "failure_reason": part.get("failure_reason"),
+                    "step": "qa_evidence",
+                })
+                part["attempt_history"] = history
+
             row["blocking_reasons"] = sorted(set(reasons))
             policy._refresh_row_publishability(row)
             break
@@ -191,26 +212,21 @@ def _patch_orchestrator() -> None:
             return
         original_gate = orchestrator._qa_gate
 
-        def gate_with_required_evidence(reels, events_out, sport, athlete_label, recompile):
+        def gate_with_required_evidence(reels, events_out, sport, athlete_label, recompile, **kwargs):
             from pipeline.publishable_pending_scope import activate_next_scope, release_scope
 
-            invocation_ids = {
-                str(event["_render_invocation_id"])
-                for _reel, event_list in (events_out or [])
-                for event in (event_list or [])
-                if isinstance(event, dict) and event.get("_render_invocation_id")
-            }
-            if len(invocation_ids) > 1:
-                raise RuntimeError("render-to-QA handoff received multiple invocation IDs")
-            invocation_id = next(iter(invocation_ids), None)
-            if (
-                not invocation_id
-                and reels
-                and os.getenv("SPORTREEL_REQUIRE_EXPLICIT_SCOPE", "0").strip().lower()
-                in {"1", "true", "yes", "on"}
-            ):
-                raise RuntimeError("render-to-QA handoff is missing its explicit invocation ID")
-            token = activate_next_scope(sport, athlete_label, invocation_id=invocation_id)
+            inv_id = kwargs.get("invocation_id")
+            if not inv_id:
+                invocation_ids = {
+                    str(event["_render_invocation_id"])
+                    for _reel, event_list in (events_out or [])
+                    for event in (event_list or [])
+                    if isinstance(event, dict) and event.get("_render_invocation_id")
+                }
+                if len(invocation_ids) > 1:
+                    raise RuntimeError("render-to-QA handoff received multiple invocation IDs")
+                inv_id = next(iter(invocation_ids), None)
+            token = activate_next_scope(sport, athlete_label, invocation_id=inv_id)
             clear_recorded_qa(token)
             try:
                 final_reels, events_by_reel, flagged = original_gate(

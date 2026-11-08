@@ -193,7 +193,11 @@ def _is_reusable_sidecar(summary: dict[str, Any]) -> bool:
 
 
 def _non_reusable_error(summary: dict[str, Any]) -> str:
-    message = f"Perception producer did not create a reusable sidecar: status={summary.get('status')} reason={summary.get('reason')}"
+    status = summary.get('status')
+    reason = summary.get('reason')
+    if summary.get('technical_failure'):
+        return f"Perception producer encountered a technical failure: status={status} reason={reason}"
+    message = f"Perception producer did not create a reusable sidecar: status={status} reason={reason}"
     if "frames_processed" in summary:
         raw = summary.get("raw_person_boxes")
         message += (
@@ -270,6 +274,9 @@ def validate_sidecar(video_path: str, sidecar_path: Path | None = None) -> dict[
         "status": str(payload.get("status") or "ok"),
         "reason": payload.get("reason"),
         "detection_count": len(detections),
+        "classification": payload.get("classification"),
+        "empty_scene_verified": bool(payload.get("empty_scene_verified")),
+        "technical_failure": bool(payload.get("technical_failure")),
     }
     # Detector-side counters written by scripts/generate_perception_sidecar.py (absent in older sidecars).
     for key in _DETECTOR_STAT_KEYS:
@@ -656,6 +663,20 @@ def enrich_session_with_sidecar(session: dict[str, Any], video_path: str) -> dic
         logger.warning("Skipping invalid perception sidecar during enrichment for %s: %s", video_path, exc)
         return {**session, "perception_evidence_source": "tracker_sidecar_error", "perception_evidence_error": str(exc)}
     if not detections:
+        sidecar_p = _sidecar_path(video_path)
+        if sidecar_p and sidecar_p.exists():
+            try:
+                summary = validate_sidecar(video_path, sidecar_p)
+                if summary.get("empty_scene_verified") or summary.get("classification") == "empty_scene":
+                    return {
+                        **session,
+                        "persons": [],
+                        "perception_evidence_source": "empty_scene",
+                        "perception_evidence_status": "empty_scene",
+                        "empty_scene_verified": True,
+                    }
+            except Exception:
+                pass
         return session
     refine = _window_refiner()
     sidecar_ctx = load_sidecar_context(video_path)

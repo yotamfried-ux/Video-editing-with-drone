@@ -177,7 +177,7 @@ def _apply_qa_fixes(ordered_events: list[dict], defects: list[dict]) -> tuple[li
 
 
 def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
-             recompile) -> tuple[list[str], dict, set[str]]:
+             recompile, **kwargs) -> tuple[list[str], dict, set[str]]:
     """QA every clean reel; critical FAILs trigger automatic re-edit + re-check.
 
     recompile(events, new_events_out) → list[str] rebuilds a reel (and its music
@@ -262,9 +262,9 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
 _raw_qa_gate = _qa_gate
 
 
-def _qa_gate(reels, events_out, sport, athlete_label, recompile):  # noqa: F811
+def _qa_gate(reels, events_out, sport, athlete_label, recompile, **kwargs):  # noqa: F811
     with _timed("qa_gate", athlete=athlete_label):
-        return _raw_qa_gate(reels, events_out, sport, athlete_label, recompile)
+        return _raw_qa_gate(reels, events_out, sport, athlete_label, recompile, **kwargs)
 
 
 def _group_appearances(events: list[dict]) -> list[dict]:

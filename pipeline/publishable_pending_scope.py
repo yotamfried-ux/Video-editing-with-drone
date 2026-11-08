@@ -1,56 +1,51 @@
-"""Scope temporary editor-to-QA state by an invocation-unique token."""
+"""Thread-safe context management for publishable reel render/QA invocations."""
 from __future__ import annotations
 
+import collections
 import contextvars
-import re
+import os
 import threading
-import uuid
 from collections import deque
 from typing import Any
 
-_INSTALLED_FLAG = "_sportreel_publishable_pending_scope_installed"
-_PENDING_LOCK = threading.RLock()
-_PENDING_TOKENS: dict[tuple[int, str, str], deque[str]] = {}
-_SCOPES_BY_INVOCATION_ID: dict[str, str] = {}
 _ACTIVE_TOKEN: contextvars.ContextVar[str | None] = contextvars.ContextVar(
-    "sportreel_publishable_invocation_token",
-    default=None,
+    "_sportreel_active_publishable_token", default=None
 )
-_ACTIVE_IDENTITY: contextvars.ContextVar[tuple[str, str] | None] = contextvars.ContextVar(
-    "sportreel_publishable_invocation_identity",
-    default=None,
+_ACTIVE_IDENTITY: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_sportreel_active_publishable_identity", default=None
 )
+_PENDING_LOCK = threading.RLock()
+_PENDING_TOKENS: dict[str, deque[str]] = {}
+_SCOPES_BY_INVOCATION_ID: dict[str, str] = {}
+_INVOCATION_BY_TOKEN: dict[str, str] = {}
+_COUNTER = 0
 
 
-def _normal(value: Any) -> str:
-    return re.sub(r"[^a-z0-9]+", "_", str(value or "").lower()).strip("_")
+def _identity(sport: str, athlete_label: str) -> str:
+    s = " ".join(str(sport or "sport").strip().lower().split())
+    a = " ".join(str(athlete_label or "unknown athlete").strip().lower().split())
+    return f"{s}::{a}"
 
 
-def _identity(sport: str, athlete_label: str) -> tuple[str, str]:
-    return _normal(sport), _normal(athlete_label)
-
-
-def _queue_key(sport: str, athlete_label: str) -> tuple[int, str, str]:
-    normalized_sport, normalized_label = _identity(sport, athlete_label)
-    return threading.get_ident(), normalized_sport, normalized_label
-
-
-def current_scope_token(*, required: bool = False) -> str | None:
-    """Return the active render-to-QA invocation token for this execution context."""
-    token = _ACTIVE_TOKEN.get()
-    if required and not token:
-        raise RuntimeError("publishable QA invocation scope is not active")
-    return token
+def pending_key(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
+    active = _ACTIVE_TOKEN.get()
+    if active is not None:
+        return active
+    return create_pending_scope(sport, athlete_label, invocation_id=invocation_id)
 
 
 def create_pending_scope(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
-    """Create and enqueue one unique token after an editor invocation completes."""
-    token = f"publishable_{uuid.uuid4().hex}"
-    key = _queue_key(sport, athlete_label)
+    """Register an editor invocation whose QA results will be published."""
+    global _COUNTER
+    ident = _identity(sport, athlete_label)
     with _PENDING_LOCK:
+        _COUNTER += 1
+        token = f"publishable_{ident}::{os.getpid()}::{_COUNTER}"
         if invocation_id:
-            _SCOPES_BY_INVOCATION_ID[str(invocation_id)] = token
-        _PENDING_TOKENS.setdefault(key, deque()).append(token)
+            inv_str = str(invocation_id)
+            _SCOPES_BY_INVOCATION_ID[inv_str] = token
+            _INVOCATION_BY_TOKEN[token] = inv_str
+        _PENDING_TOKENS.setdefault(ident, deque()).append(token)
     return token
 
 
@@ -59,62 +54,66 @@ def bind_invocation_id(token: str, invocation_id: str) -> None:
     if not token or not invocation_id:
         raise ValueError("scope token and invocation_id are required")
     with _PENDING_LOCK:
-        if invocation_id in _SCOPES_BY_INVOCATION_ID:
-            raise RuntimeError(f"duplicate render invocation_id: {invocation_id}")
-        if not any(token in queue for queue in _PENDING_TOKENS.values()):
-            raise RuntimeError("cannot bind a token that is not pending")
-        _SCOPES_BY_INVOCATION_ID[invocation_id] = token
+        inv_str = str(invocation_id)
+        _SCOPES_BY_INVOCATION_ID[inv_str] = token
+        _INVOCATION_BY_TOKEN[token] = inv_str
+
+
+def discard_pending_scope(*, invocation_id: str | None = None, token: str | None = None) -> None:
+    """Discard an unconsumed pending scope after a render failure or abort."""
+    with _PENDING_LOCK:
+        resolved_token = token
+        if invocation_id:
+            resolved_token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id), resolved_token)
+        if resolved_token:
+            inv_str = _INVOCATION_BY_TOKEN.pop(resolved_token, None)
+            if inv_str:
+                _SCOPES_BY_INVOCATION_ID.pop(inv_str, None)
+            for ident, q in list(_PENDING_TOKENS.items()):
+                try:
+                    q.remove(resolved_token)
+                except ValueError:
+                    pass
+                if not q:
+                    _PENDING_TOKENS.pop(ident, None)
 
 
 def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
     """Activate the matching editor invocation immediately before its QA gate."""
+    ident = _identity(sport, athlete_label)
     with _PENDING_LOCK:
-        if invocation_id is not None:
-            token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id), None)
-            if token is None:
-                raise RuntimeError(f"unknown render invocation_id: {invocation_id}")
-            # Explicit activation must remove the legacy pending queue entry too.
-            # Otherwise a subsequent label-based lookup can consume a stale token.
-            for pending_key, pending_queue in list(_PENDING_TOKENS.items()):
+        token: str | None = None
+        if invocation_id and str(invocation_id) in _SCOPES_BY_INVOCATION_ID:
+            token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id))
+            _INVOCATION_BY_TOKEN.pop(token, None)
+            # Remove from FIFO queue as well to avoid leaks or double consumption
+            for pending_key, queue in list(_PENDING_TOKENS.items()):
                 try:
-                    pending_queue.remove(token)
+                    queue.remove(token)
                 except ValueError:
-                    continue
-                if not pending_queue:
+                    pass
+                if not queue:
                     _PENDING_TOKENS.pop(pending_key, None)
-                break
-            _ACTIVE_TOKEN.set(token)
-            _ACTIVE_IDENTITY.set(_identity(sport, athlete_label))
-            return token
+        else:
+            queue = _PENDING_TOKENS.get(ident)
+            if queue:
+                token = queue.popleft()
+                if not queue:
+                    _PENDING_TOKENS.pop(ident, None)
+                if token:
+                    inv_str = _INVOCATION_BY_TOKEN.pop(token, None)
+                    if inv_str:
+                        _SCOPES_BY_INVOCATION_ID.pop(inv_str, None)
 
-        key = _queue_key(sport, athlete_label)
-        queue = _PENDING_TOKENS.get(key)
-        if not queue:
-            normalized_sport, normalized_label = _identity(sport, athlete_label)
-            for candidate_key, candidate_queue in _PENDING_TOKENS.items():
-                if (
-                    candidate_key[1] == normalized_sport
-                    and candidate_key[2] == normalized_label
-                    and candidate_queue
-                ):
-                    key = candidate_key
-                    queue = candidate_queue
-                    break
-        if not queue:
+        if not token:
             raise RuntimeError(
                 "publishable QA could not find a pending render invocation for "
                 f"{athlete_label!r} ({sport!r})"
             )
-        token = queue.popleft()
-        if not queue:
-            _PENDING_TOKENS.pop(key, None)
-        # Remove any identifier bound to this token during legacy fallback too.
-        for bound_id, bound_token in list(_SCOPES_BY_INVOCATION_ID.items()):
-            if bound_token == token:
-                _SCOPES_BY_INVOCATION_ID.pop(bound_id, None)
-    _ACTIVE_TOKEN.set(token)
-    _ACTIVE_IDENTITY.set(_identity(sport, athlete_label))
-    return token
+
+        _ACTIVE_TOKEN.set(token)
+        _ACTIVE_IDENTITY.set(ident)
+        return token
 
 
 def release_scope(token: str) -> None:
@@ -124,12 +123,24 @@ def release_scope(token: str) -> None:
         _ACTIVE_IDENTITY.set(None)
 
 
-def pending_key(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
-    """Return the active token during QA, otherwise enqueue a new render token."""
-    active = _ACTIVE_TOKEN.get()
-    if active and _ACTIVE_IDENTITY.get() == _identity(sport, athlete_label):
-        return active
-    return create_pending_scope(sport, athlete_label, invocation_id=invocation_id)
+def current_scope_token(*, required: bool = False) -> str | None:
+    """Return the currently active publishable reel invocation token, if any."""
+    tok = _ACTIVE_TOKEN.get()
+    if required and tok is None:
+        raise RuntimeError("No active publishable scope token in current context")
+    return tok
+
+
+def current_scope_identity() -> str | None:
+    """Return the normalized sport::athlete identity of the active token."""
+    return _ACTIVE_IDENTITY.get()
+
+
+def has_active_scope() -> bool:
+    """Return True when this thread is actively processing a publishable reel."""
+    return _ACTIVE_TOKEN.get() is not None
+
+_INSTALLED_FLAG = "_sportreel_publishable_pending_scope_installed"
 
 
 def install() -> None:

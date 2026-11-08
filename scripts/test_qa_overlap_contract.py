@@ -22,7 +22,7 @@ def _fake_orchestrator(log: list, qa_seconds: float):
         with lock:
             log.append((kind, label, time.monotonic(), threading.current_thread().name))
 
-    def compile_multi_source_reel(appearances, sport="", athlete_label="", _events_out=None):
+    def compile_multi_source_reel(appearances, sport="", athlete_label="", _events_out=None, **kwargs):
         stamp("render_start", athlete_label)
         time.sleep(qa_seconds)  # rendering takes about as long as a QA check
         reel = f"/tmp/qa_overlap_{athlete_label}.mp4"
@@ -32,7 +32,7 @@ def _fake_orchestrator(log: list, qa_seconds: float):
         stamp("render_end", athlete_label)
         return [reel]
 
-    def qa_gate(reels, events_out, sport, athlete_label, recompile):
+    def qa_gate(reels, events_out, sport, athlete_label, recompile, **kwargs):
         stamp("qa_start", athlete_label.split("\n")[0])
         time.sleep(qa_seconds)  # network wait on the model
         stamp("qa_end", athlete_label.split("\n")[0])

@@ -12,7 +12,7 @@ def install() -> None:
     if getattr(gate, _INSTALLED, False):
         return
 
-    def qa_gate_with_source_evidence(orchestrator: Any, reels, events_out, sport, athlete_label, recompile):
+    def qa_gate_with_source_evidence(orchestrator: Any, reels, events_out, sport, athlete_label, recompile, **kwargs):
         from pipeline.stages import analyzer
         from pipeline.source_evidence_runner import with_source_evidence
         context_by_reel = {reel: gate.build_edit_context(reel, events) for reel, events in events_out}
@@ -25,7 +25,10 @@ def install() -> None:
             return original_check(reel, *args, **kwargs)
         analyzer.qa_check_reel = contextual_check
         try:
-            return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile)
+            try:
+                return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile, **kwargs)
+            except TypeError:
+                return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile)
         finally:
             analyzer.qa_check_reel = original_check
 

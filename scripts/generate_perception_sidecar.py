@@ -302,11 +302,64 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
             "cpu_seconds_escalation": cpu_sec_esc,
         })
 
+    classification = "normal"
+    empty_scene_verified = False
+    if not person_detections and os.path.exists(args.video_path):
+        import cv2
+        cap = cv2.VideoCapture(args.video_path)
+        can_read = False
+        frame_cnt = 0
+        if cap.isOpened():
+            can_read, _ = cap.read()
+            frame_cnt = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+            cap.release()
+
+        if not can_read or frame_cnt <= 0:
+            payload = {
+                "source_video": args.video_path,
+                "status": "failed",
+                "reason": "corrupt_video_cannot_read_frames",
+                "technical_failure": True,
+                "detections": [],
+                "raw_person_boxes": 0,
+            }
+            _write_json(Path(args.output_path), payload)
+            return payload
+
+        # Zero-detection rescue: dense escalation scan at 1280px with lower stride
+        dense_stride = max(1, stride // 3)
+        esc_all, esc_frames = _run_targeted_window_escalation(
+            args.video_path,
+            model_name=model,
+            tracker=tracker,
+            device=device,
+            fps=fps or 30.0,
+            weak_windows=[{"start": 0.0, "end": 99999.0}],
+            target_classes=target_classes,
+            escalation_stride=dense_stride,
+            escalation_imgsz=1280,
+        )
+        esc_persons, esc_equips = _split_person_and_equipment(esc_all)
+        if esc_persons:
+            person_detections = esc_persons
+            equipment_detections = esc_equips
+            adaptive_meta.update({
+                "zero_detection_rescue": True,
+                "rescued_detections_count": len(person_detections),
+                "escalated_frames_count": esc_frames,
+            })
+        else:
+            empty_scene_verified = True
+            classification = "empty_scene"
+
     source_sha = _llm_cache.file_sha256(args.video_path) if os.path.exists(args.video_path) else None
     payload: dict[str, Any] = {
         "source_video": args.video_path,
         "source_sha256": source_sha,
         "status": "ok",
+        "classification": classification,
+        "empty_scene_verified": empty_scene_verified,
+        "reason": ("no_person_detected_after_dense_scan" if empty_scene_verified else None),
         "backend": "ultralytics",
         "model": model,
         "tracker": tracker,

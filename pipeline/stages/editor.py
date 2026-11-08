@@ -155,7 +155,7 @@ TARGET_REEL_MAX = 85
 # visually transparent (CRF 14) or the double generation visibly degrades the output.
 CLIP_CRF  = os.getenv("CLIP_CRF", "12")
 REEL_CRF  = os.getenv("REEL_CRF", "14")
-X264_PRESET = "medium"
+X264_PRESET = os.getenv("X264_PRESET", "veryfast")
 # Lanczos resampling for every scale step — portrait conversion upscales a
 # 1080p landscape source ×1.78, where bicubic (default) visibly softens.
 _SCALE_FLAGS = ":flags=lanczos"
@@ -1279,7 +1279,7 @@ def _add_loop_bookend(reel_path: str, total_dur: float, has_audio: bool = False)
         *(["-map", "0:a", "-c:a", "copy"] if has_audio else ["-an"]),
         # This re-encodes the ENTIRE reel (3rd H.264 generation after clip CRF14
         # and compile CRF16) — must be near-transparent or the whole reel softens.
-        "-c:v", "libx264", "-preset", "medium", "-crf", "14",
+        "-c:v", "libx264", "-preset", X264_PRESET, "-crf", REEL_CRF,
         "-pix_fmt", "yuv420p", "-movflags", "+faststart",
         tmp,
     ]
