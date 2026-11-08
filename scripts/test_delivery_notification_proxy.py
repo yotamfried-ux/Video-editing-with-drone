@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT))
 os.environ.setdefault("OWNER_EMAIL", "owner@example.com")
 
 from integrations import notifier
+from services import delivery
 
 
 class _Response:
@@ -66,6 +67,30 @@ class DeliveryNotificationProxyTest(unittest.TestCase):
         service = (ROOT / "services" / "delivery.py").read_text(encoding="utf-8")
         self.assertIn("notification_message_ids", service)
         self.assertIn("mark_delivery_run", service)
+
+    def test_preview_delivery_fails_when_required_notification_fails(self):
+        draft = {
+            "id": "approved/test.mp4",
+            "name": "test.mp4",
+            "webViewLink": "https://example.test/source.mp4",
+        }
+        with (
+            patch.object(delivery, "get_approved_drafts", return_value=[draft]),
+            patch.object(delivery, "_load_previewed", return_value=set()),
+            patch.object(delivery, "find_client", return_value=None),
+            patch.object(delivery, "download_video", return_value="/tmp/source.mp4"),
+            patch.object(delivery, "create_preview", return_value="/tmp/preview.mp4"),
+            patch.object(delivery, "upload_preview", return_value="https://example.test/preview.mp4"),
+            patch.object(delivery, "move_to_pending_payment"),
+            patch.object(delivery, "_mark_previewed"),
+            patch.object(delivery, "_load_reel_metadata", return_value=None),
+            patch.object(delivery, "_remove"),
+            patch.object(delivery, "mark_delivery_run"),
+            patch.object(delivery, "send_summary_email", side_effect=RuntimeError("provider rejected")),
+            patch("integrations.supabase_uploader.publish_reel_approved", return_value="11111111-1111-4111-8111-111111111111"),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "notification"):
+                delivery.deliver_preview()
 
 
 if __name__ == "__main__":
