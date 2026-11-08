@@ -108,7 +108,8 @@ def install() -> None:
         except (TypeError, ValueError):
             detection_count = 0
         is_empty = bool(summary.get("empty_scene_verified") or summary.get("classification") == "empty_scene")
-        return original_reusable(summary) and (detection_count > 0 or is_empty)
+        is_review = summary.get("classification") == "review_required"
+        return original_reusable(summary) and (detection_count > 0 or is_empty or is_review)
 
     runtime._is_reusable_sidecar = reusable_with_detections
 
@@ -117,6 +118,10 @@ def install() -> None:
     def enrich_and_require(session: dict[str, Any], video_path: str) -> dict[str, Any]:
         enriched = original_enrich(session, video_path)
         if enriched.get("empty_scene_verified") or enriched.get("perception_evidence_status") == "empty_scene":
+            return enriched
+        if enriched.get("perception_evidence_status") == "review_required":
+            # This is an explicit NO-PUBLISH decision for this source, NOT an
+            # empty-scene verdict. Other videos in the batch continue normally.
             return enriched
         missing: list[str] = []
         valid_event_count = 0
