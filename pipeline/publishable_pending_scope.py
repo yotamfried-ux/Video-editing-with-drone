@@ -15,6 +15,9 @@ _ACTIVE_TOKEN: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _ACTIVE_IDENTITY: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "_sportreel_active_publishable_identity", default=None
 )
+_ACTIVE_INVOCATION_ID: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "_sportreel_active_publishable_invocation_id", default=None
+)
 _PENDING_LOCK = threading.RLock()
 _PENDING_TOKENS: dict[str, deque[str]] = {}
 _SCOPES_BY_INVOCATION_ID: dict[str, str] = {}
@@ -31,6 +34,8 @@ def _identity(sport: str, athlete_label: str) -> str:
 def pending_key(sport: str, athlete_label: str, *, invocation_id: str | None = None) -> str:
     active = _ACTIVE_TOKEN.get()
     if active is not None:
+        if invocation_id is not None and str(invocation_id) != _ACTIVE_INVOCATION_ID.get():
+            raise RuntimeError("active render scope belongs to a different explicit invocation_id")
         return active
     return create_pending_scope(sport, athlete_label, invocation_id=invocation_id)
 
@@ -72,6 +77,9 @@ def bind_invocation_id(token: str, invocation_id: str) -> None:
 def discard_pending_scope(*, invocation_id: str | None = None, token: str | None = None) -> None:
     """Discard an unconsumed pending scope after a render failure or abort."""
     with _PENDING_LOCK:
+        if invocation_id is not None and token is not None:
+            if _SCOPES_BY_INVOCATION_ID.get(str(invocation_id)) != token:
+                raise RuntimeError("explicit invocation_id and token refer to different render scopes")
         resolved_token = token
         if invocation_id:
             resolved_token = _SCOPES_BY_INVOCATION_ID.pop(str(invocation_id), resolved_token)
@@ -93,6 +101,7 @@ def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | 
     ident = _identity(sport, athlete_label)
     with _PENDING_LOCK:
         token: str | None = None
+        active_invocation_id: str | None = None
         if invocation_id is not None:
             # An explicit ID must NEVER fall back to a label-derived queue.
             # Missing/foreign IDs signal a broken render-to-QA contract.
@@ -108,6 +117,7 @@ def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | 
                 _PENDING_TOKENS.pop(ident, None)
             _SCOPES_BY_INVOCATION_ID.pop(inv_str, None)
             _INVOCATION_BY_TOKEN.pop(token, None)
+            active_invocation_id = inv_str
         else:
             queue = _PENDING_TOKENS.get(ident)
             if queue:
@@ -118,6 +128,7 @@ def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | 
                     inv_str = _INVOCATION_BY_TOKEN.pop(token, None)
                     if inv_str:
                         _SCOPES_BY_INVOCATION_ID.pop(inv_str, None)
+                    active_invocation_id = inv_str
 
         if not token:
             raise RuntimeError(
@@ -127,6 +138,7 @@ def activate_next_scope(sport: str, athlete_label: str, *, invocation_id: str | 
 
         _ACTIVE_TOKEN.set(token)
         _ACTIVE_IDENTITY.set(ident)
+        _ACTIVE_INVOCATION_ID.set(active_invocation_id)
         return token
 
 
@@ -135,6 +147,7 @@ def release_scope(token: str) -> None:
     if _ACTIVE_TOKEN.get() == token:
         _ACTIVE_TOKEN.set(None)
         _ACTIVE_IDENTITY.set(None)
+        _ACTIVE_INVOCATION_ID.set(None)
 
 
 def current_scope_token(*, required: bool = False) -> str | None:
