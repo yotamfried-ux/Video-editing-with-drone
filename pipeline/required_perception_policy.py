@@ -107,9 +107,10 @@ def install() -> None:
             detection_count = int(summary.get("detection_count") or 0)
         except (TypeError, ValueError):
             detection_count = 0
-        is_empty = bool(summary.get("empty_scene_verified") or summary.get("classification") == "empty_scene")
+        # A self-asserted empty-scene flag is not independent evidence.
+        # validate_sidecar() upgrades legacy flags to review_required only.
         is_review = summary.get("classification") == "review_required"
-        return original_reusable(summary) and (detection_count > 0 or is_empty or is_review)
+        return original_reusable(summary) and (detection_count > 0 or is_review)
 
     runtime._is_reusable_sidecar = reusable_with_detections
 

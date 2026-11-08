@@ -429,5 +429,60 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
         self.assertEqual(ledger["recall_status"], "incomplete")
 
 
+
+    def test_real_child_process_restart_restores_local_checkpoint_without_reupload(self):
+        """Launch a fresh Python interpreter, not an in-process initialize mock."""
+        import subprocess
+        reel = self._create_fake_reel("cold_restart_uploaded.mp4")
+        name = "cold_restart_review.mp4"
+        old_run_id = os.environ.get("PIPELINE_RUN_ID")
+        old_backend = os.environ.get("STORAGE_BACKEND")
+        try:
+            os.environ["PIPELINE_RUN_ID"] = "real-process-restart-p0"
+            os.environ["STORAGE_BACKEND"] = "drive"
+            policy.reset_manifest()
+            policy.record_athlete_outcome(
+                sport="surfing", athlete_label="restart proof surfer",
+                final_reels=[str(reel)],
+                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8}]},
+                flagged_paths=set(),
+                specs_by_path={str(reel): {
+                    "duration": 7.0, "width": 2160, "height": 3840,
+                    "aspect": 0.5625, "has_audio": False,
+                }},
+            )
+            token = "restart-proof-qa"
+            publishable_qa_evidence.record_qa_result(
+                str(reel), {"verdict": "PASS", "engagement_score": 90,
+                            "overall": "Reviewed", "defects": []},
+                invocation_token=token,
+            )
+            publishable_qa_evidence.apply_final_qa_evidence(
+                sport="surfing", athlete_label="restart proof surfer",
+                final_reels=[str(reel)], invocation_token=token,
+            )
+            with patch.object(policy, "_persist_draft_publishability", return_value=None):
+                policy.mark_upload_result(str(reel), name, storage_object_id="review/reused")
+            self.assertEqual(policy.previously_uploaded_draft(str(reel), name), "review/reused")
+            child_code = (
+                "import sys; from pipeline import publishable_reel_policy as p; "
+                "p.initialize_manifest(); "
+                "assert p.previously_uploaded_draft(sys.argv[1],sys.argv[2]) == 'review/reused'; "
+                "assert p._read_manifest()['athletes'][0]['parts'][0]['state'] == p.STATE_UPLOADED"
+            )
+            result = subprocess.run(
+                [sys.executable, "-c", child_code, str(reel), name],
+                cwd=ROOT, env=dict(os.environ), text=True, capture_output=True,
+                timeout=30,
+            )
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        finally:
+            for key, value in (("PIPELINE_RUN_ID", old_run_id), ("STORAGE_BACKEND", old_backend)):
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+
 if __name__ == "__main__":
     unittest.main()

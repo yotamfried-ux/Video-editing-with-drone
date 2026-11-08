@@ -34,8 +34,8 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
         self.assertTrue(rt._is_reusable_sidecar({"status": "ok", "detection_count": 15}))
         # Unverified zero -> False
         self.assertFalse(rt._is_reusable_sidecar({"status": "ok", "detection_count": 0}))
-        # Verified empty scene -> True
-        self.assertTrue(rt._is_reusable_sidecar({
+        # An asserted empty flag without independent evidence is not reusable.
+        self.assertFalse(rt._is_reusable_sidecar({
             "status": "ok",
             "detection_count": 0,
             "classification": "empty_scene",
@@ -67,7 +67,8 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
 
             enriched = rt.enrich_session_with_sidecar(empty_session, video_path)
             self.assertEqual(enriched.get("persons"), [])
-            self.assertEqual(enriched.get("perception_evidence_status"), "empty_scene")
+            self.assertEqual(enriched.get("perception_evidence_status"), "review_required")
+            self.assertFalse(enriched.get("empty_scene_verified"))
 
     def test_unconfirmed_zero_detection_preserves_audit_and_prevents_false_empty(self):
         from pipeline.perception.runtime import enrich_session_with_sidecar
@@ -239,6 +240,31 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
             self.assertEqual(payload.get("classification"), "review_required")
             self.assertGreater(payload["adaptive_inference"].get("zero_detection_escalated_frames", 0), 0,
                                "the high-resolution rescue must read real frames, not swallow KeyError")
+
+
+
+    def test_legacy_empty_claim_without_independent_evidence_is_never_verified(self):
+        """An old or forged sidecar flag cannot erase manually identified surfers."""
+        with tempfile.TemporaryDirectory() as tmp:
+            source = Path(tmp) / "surfer_missed_by_yolo.mp4"
+            source.write_bytes(b"validity placeholder")
+            sidecar = rt.sidecar_output_path(str(source))
+            sidecar.write_text(json.dumps({
+                "source_video": str(source), "status": "ok",
+                "classification": "empty_scene", "empty_scene_verified": True,
+                "reason": "no_person_detected_after_dense_scan",
+                "detections": [],
+            }), encoding="utf-8")
+            summary = rt.validate_sidecar(str(source), sidecar)
+            self.assertEqual(summary["classification"], "review_required")
+            self.assertFalse(summary["empty_scene_verified"])
+            source_session = {"persons": [{"id": "p1", "events": [
+                {"type": "surf_ride", "start": 3, "end": 7},
+            ]}]}
+            enriched = rt.enrich_session_with_sidecar(source_session, str(source))
+            self.assertEqual(enriched["perception_evidence_status"], "review_required")
+            self.assertFalse(enriched["empty_scene_verified"])
+            self.assertEqual(len(enriched["persons"][0]["unverified_events"]), 1)
 
 
 if __name__ == "__main__":
