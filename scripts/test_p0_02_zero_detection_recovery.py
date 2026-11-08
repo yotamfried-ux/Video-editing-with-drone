@@ -330,5 +330,32 @@ class TestP002ZeroDetectionMatrix(unittest.TestCase):
                     )
 
 
+
+    @patch("cv2.VideoCapture")
+    def test_09_failed_frame_seek_never_assigns_wrong_video_timestamp(self, mock_vc):
+        """Do not stamp a frame with a time it was never actually decoded at."""
+        from scripts.generate_perception_sidecar import _run_targeted_window_escalation
+        cap = MagicMock()
+        cap.isOpened.return_value = True
+        cap.set.return_value = False  # decoder refused requested timestamp
+        cap.read.return_value = (True, MagicMock())
+        cap.get.return_value = 300
+        mock_vc.return_value = cap
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "seek_failure.mp4"
+            video.write_bytes(b"source")
+            model = MagicMock()
+            model.track.return_value = []
+            with patch("ultralytics.YOLO", return_value=model):
+                with self.assertRaisesRegex(RuntimeError, "high-resolution.*failed"):
+                    _run_targeted_window_escalation(
+                        str(video), model_name="yolo11n.pt", tracker="botsort.yaml",
+                        device="cpu", fps=30.0,
+                        weak_windows=[{"start_sec": 2.0, "end_sec": 2.5}],
+                        target_classes=[0], escalation_stride=2,
+                    )
+            model.track.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()
