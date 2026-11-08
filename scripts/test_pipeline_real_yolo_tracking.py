@@ -168,6 +168,32 @@ def main() -> None:
         assert len(final_row["parts"]) == 2, final_row
         assert final_manifest["summary"]["eligible_athlete_count"] == 1
         assert final_manifest["summary"]["coverage_gap_count"] == 1
+        # Exercise the actual 1280px rescue on a real encoded video with no
+        # people (not mocks); an unsuccessful detector is never proof of an
+        # empty scene or grounds to suppress a potentially missed surfer.
+        from scripts.generate_perception_sidecar import _fast_ultralytics_sidecar
+        from types import SimpleNamespace
+        empty_video = root / "blank_scene.mp4"
+        subprocess.run(
+            ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
+             "-f", "lavfi", "-i", "color=c=blue:s=320x180:r=8",
+             "-t", "2", "-c:v", "libx264", "-preset", "ultrafast",
+             "-pix_fmt", "yuv420p", str(empty_video)],
+            check=True, timeout=60,
+        )
+        empty_payload = _fast_ultralytics_sidecar(SimpleNamespace(
+            video_path=str(empty_video),
+            output_path=str(root / "blank_scene.perception.json"),
+            ultralytics_model="yolo11n.pt", ultralytics_tracker="botsort.yaml",
+            ultralytics_vid_stride="2", ultralytics_imgsz="640",
+            ultralytics_device="cpu", fps="8",
+        ))
+        assert empty_payload["status"] == "ok", empty_payload
+        assert empty_payload["classification"] == "review_required", empty_payload
+        assert empty_payload["empty_scene_verified"] is False, empty_payload
+        assert empty_payload["adaptive_inference"]["zero_detection_escalated_frames"] <= 96
+        assert empty_payload["adaptive_inference"]["zero_rescue_windows_count"] >= 1
+
         report = {
             "result": "PASS",
             "scope": "real YOLO11n + BoT-SORT on public person video fixture",
