@@ -47,10 +47,10 @@ FOLLOW_SMOOTH_SEC = 1.5
 FOLLOW_MAX_KEYFRAMES = 40
 FOLLOW_MIN_INSIDE_RATIO = 0.9
 # Quality at a fixed CRF is set by the CRF, not the preset: a slower preset only squeezes the file a
-# little more. `medium` encodes the same CRF 4K 9:16 clip about 2.5x faster than `slow` at the same file
+# little more. `medium` can encode substantially more slowly than `veryfast` at the same CRF / size
 # size (measured), and the 2026-10-21 production run spent ~94 of its 177 minutes in these two encodes
 # (cut + compile, both previously `slow`). Override with X264_PRESET (e.g. `slow` to restore).
-RENDER_X264_PRESET = os.getenv("X264_PRESET", "medium").strip() or "medium"
+RENDER_X264_PRESET = os.getenv("X264_PRESET", "veryfast").strip() or "veryfast"
 TRACK_CROP_PADDING_RATIO = 0.015
 _INSTALLED = False
 _DECISION_LOCK = threading.Lock()
