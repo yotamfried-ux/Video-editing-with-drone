@@ -29,7 +29,7 @@ def test_render_uses_the_fast_preset_for_cut_and_compile_and_can_be_overridden()
     os.environ.pop("X264_PRESET", None)
     import pipeline.quality_preserving_framing as framing
     framing = importlib.reload(framing)
-    assert framing.RENDER_X264_PRESET == "medium"
+    assert framing.RENDER_X264_PRESET == "veryfast"
     source = (ROOT / "pipeline" / "quality_preserving_framing.py").read_text()
     assert '"-preset", RENDER_X264_PRESET' in source and "editor.X264_PRESET = RENDER_X264_PRESET" in source
     assert '"slow"' not in source.split("def install")[1] and '"-preset", "slow"' not in source
