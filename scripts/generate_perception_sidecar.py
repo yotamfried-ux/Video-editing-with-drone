@@ -334,7 +334,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
             tracker=tracker,
             device=device,
             fps=fps or 30.0,
-            weak_windows=[{"start": 0.0, "end": 99999.0}],
+            weak_windows=[{"start_sec": 0.0, "end_sec": frame_cnt / (fps or 30.0)}],
             target_classes=target_classes,
             escalation_stride=dense_stride,
             escalation_imgsz=1280,
