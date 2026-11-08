@@ -824,6 +824,44 @@ def record_athlete_outcome(
     return row
 
 
+def previously_uploaded_draft(draft_path: str, draft_name: str) -> str | None:
+    """Idempotent upload guard: only reuse a proven, identical, approved artifact.
+
+    The local file is rehashed on resume; a stale name or a changed EDL cannot
+    incorrectly suppress an upload. R2 object existence is checked as well.
+    """
+    with _MANIFEST_LOCK:
+        matched = _find_upload_part(_read_manifest(), draft_path)
+        if matched is None:
+            return None
+        _row, part = matched
+        key = str(part.get("storage_object_id") or "")
+        if not key or part.get("state") != STATE_UPLOADED:
+            return None
+        if not part.get("uploaded_to_review") or part.get("upload_error"):
+            return None
+        if not (part.get("qa_passed") and part.get("qa_evidence_recorded")):
+            return None
+        if part.get("authoritative_publishability_required") and not part.get("authoritative_publishability_persisted"):
+            return None
+        if str(part.get("review_draft_name") or "") != str(draft_name):
+            return None
+        expected_hash = str(part.get("content_sha256") or "")
+        if len(expected_hash) != 64 or not os.path.isfile(draft_path):
+            return None
+        digest = hashlib.sha256()
+        with open(draft_path, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1048576), b""):
+                digest.update(chunk)
+        if digest.hexdigest() != expected_hash:
+            return None
+    if os.getenv("STORAGE_BACKEND", "drive").strip().lower() == "r2":
+        from integrations import r2_storage as r2
+        if not key.startswith(r2.REVIEW_PREFIX) or r2._head(key) is None:
+            return None
+    return key
+
+
 def mark_upload_result(
     draft_path: str,
     draft_name: str,
@@ -1074,6 +1112,10 @@ def _patch_orchestrator_contract() -> None:
             original_upload = orchestrator.upload_draft
 
             def upload_with_manifest(draft_path: str, draft_name: str):
+                existing = previously_uploaded_draft(draft_path, draft_name)
+                if existing is not None:
+                    logger.info("Restored uploaded reel without duplicate upload: %s", draft_name)
+                    return existing
                 try:
                     result = original_upload(draft_path, draft_name)
                 except Exception as exc:
