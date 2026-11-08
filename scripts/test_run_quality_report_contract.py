@@ -253,7 +253,7 @@ def main() -> int:
         require(ledger["discarded_count"] == 3, "ledger discarded count missing")
         require(ledger["unmatched_selector_selected_count"] == 1, "unmatched selector selected count missing")
         require(ledger["discard_causes_available"] is True, "ledger discard causes should be complete")
-        require(ledger["recall_status"] == "selected_and_discarded", "ledger should report measurable selected and discarded candidates")
+        require(ledger["recall_status"] == "incomplete", "unmatched selector selection must leave recall evidence incomplete")
         all_discard_causes = {item["discard_cause"] for item in ledger["candidates"] if item.get("discarded")}
         require("selected_by_selector_not_emitted_as_draft" in all_discard_causes, "unmatched selector selection discard cause missing")
         trace = json.loads(trace_path.read_text(encoding="utf-8"))
@@ -305,7 +305,7 @@ def main() -> int:
         require(report["metrics"]["candidate_discarded_count"] == 3, "candidate discarded metric missing")
         require(report["metrics"]["candidate_unmatched_selector_selected_count"] == 1, "unmatched selector selected metric missing")
         require(report["metrics"]["candidate_discard_cause_coverage_rate"] == 1.0, "candidate discard cause coverage missing")
-        require(report["candidate_decision_ledger"]["recall_status"] == "selected_and_discarded", "candidate ledger recall status missing")
+        require(report["candidate_decision_ledger"]["recall_status"] == "incomplete", "run quality report must expose unresolved selected actions")
         require(report["implementation_gaps"]["candidate_decision_ledger_present"] is True, "candidate ledger presence missing")
         require(report["implementation_gaps"]["candidate_discarded_causes_present"] is True, "candidate discarded cause coverage gap should be closed")
         require(report["implementation_gaps"]["unmatched_selector_selection_metric_ready"] is True, "unmatched selector metric readiness missing")
