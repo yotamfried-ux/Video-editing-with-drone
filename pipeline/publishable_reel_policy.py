@@ -857,14 +857,16 @@ def _patch_analyzer_contract() -> None:
     setattr(analyzer, _ANALYZER_FLAG, True)
 
 
-def _stamp_render_invocation(selected_events: list, scope_token: str) -> list:
-    """Carry an exact invocation ID from the editor wrapper into QA's EDL."""
+def _stamp_render_invocation(
+    selected_events: list, scope_token: str, *, invocation_id: str | None = None
+) -> list:
+    """Preserve ONE stable invocation ID throughout render, EDL, QA and upload."""
     if not str(scope_token).startswith("publishable_"):
-        # Legacy direct-module callers may not have installed pending_scope.
         return selected_events
-    from pipeline.publishable_pending_scope import bind_invocation_id
-    invocation_id = f"render_{uuid.uuid4().hex}"
-    bind_invocation_id(scope_token, invocation_id)
+    if invocation_id is None:
+        from pipeline.publishable_pending_scope import bind_invocation_id
+        invocation_id = f"render_{uuid.uuid4().hex}"
+        bind_invocation_id(scope_token, invocation_id)
     return [
         (path, [{**event, "_render_invocation_id": invocation_id}
                 for event in (events or [])])
@@ -882,6 +884,10 @@ def _patch_editor_outputs() -> None:
 
     def create_reel(video_path, events, sport="", athlete_label="", _events_out=None, **kwargs):
         raw_events_out: list[tuple[str, list[dict[str, Any]]]] = []
+        # An invocation ID is pipeline metadata; the physical editor does not
+        # accept this keyword. Passing it through previously raised TypeError,
+        # triggering a legacy retry without scope correlation.
+        inv_id = kwargs.pop("invocation_id", None)
         raw_reels = original_create_reel(
             video_path,
             events,
@@ -890,13 +896,12 @@ def _patch_editor_outputs() -> None:
             _events_out=raw_events_out,
             **kwargs,
         )
-        inv_id = kwargs.get("invocation_id")
         key = _pending_key(sport, athlete_label, invocation_id=inv_id)
         _PENDING_EVENT_LINEAGE[key] = _flatten_events(raw_events_out) or [
             dict(event) for event in events or [] if isinstance(event, dict) and not event.get("_teaser")
         ]
         selected, selected_events, failures = canonicalize_publishable_variants(raw_reels, raw_events_out)
-        selected_events = _stamp_render_invocation(selected_events, key)
+        selected_events = _stamp_render_invocation(selected_events, key, invocation_id=inv_id)
         _PENDING_VARIANT_FAILURES[key] = failures
         if _events_out is not None:
             _events_out.extend(selected_events)
@@ -904,6 +909,7 @@ def _patch_editor_outputs() -> None:
 
     def compile_multi_source_reel(appearances, sport="", athlete_label="", _events_out=None, **kwargs):
         raw_events_out: list[tuple[str, list[dict[str, Any]]]] = []
+        inv_id = kwargs.pop("invocation_id", None)
         raw_reels = original_compile_multi(
             appearances,
             sport=sport,
@@ -911,7 +917,6 @@ def _patch_editor_outputs() -> None:
             _events_out=raw_events_out,
             **kwargs,
         )
-        inv_id = kwargs.get("invocation_id")
         key = _pending_key(sport, athlete_label, invocation_id=inv_id)
         input_events = [
             dict(event)
@@ -921,7 +926,7 @@ def _patch_editor_outputs() -> None:
         ]
         _PENDING_EVENT_LINEAGE[key] = _flatten_events(raw_events_out) or input_events
         selected, selected_events, failures = canonicalize_publishable_variants(raw_reels, raw_events_out)
-        selected_events = _stamp_render_invocation(selected_events, key)
+        selected_events = _stamp_render_invocation(selected_events, key, invocation_id=inv_id)
         _PENDING_VARIANT_FAILURES[key] = failures
         if _events_out is not None:
             _events_out.extend(selected_events)
