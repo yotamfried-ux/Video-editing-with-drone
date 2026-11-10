@@ -98,6 +98,22 @@ def main() -> None:
         n = frames(reel)
         if abs(n - want) > 1:
             fail(f"reel must have the timeline's frame count ({want}), got {n}")
+        # 2b. the QA proxy comes out of the same pass, bound to this exact reel
+        qa = q.premade_qa_proxy(reel)
+        if not qa or not os.path.exists(qa):
+            fail("the single pass must also write the 1080x1920 QA proxy for this reel")
+        size = subprocess.run(["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                               "stream=width,height", "-of", "csv=p=0", qa], capture_output=True, text=True).stdout.strip()
+        if size != "1080,1920" or abs(frames(qa) - n) > 1:
+            fail(f"QA proxy must be 1080x1920 with the reel's frames ({n}), got {size} / {frames(qa)}")
+        from pipeline.stages import analyzer as real_analyzer
+
+        if real_analyzer._make_qa_proxy(reel) != qa:
+            fail("analyzer._make_qa_proxy must reuse the proxy written by the single pass")
+        os.utime(reel, ns=(os.stat(reel).st_atime_ns, os.stat(reel).st_mtime_ns + 1_000_000_000))
+        if q.premade_qa_proxy(reel) is not None:
+            fail("a QA proxy must never be reused for a reel file that changed after it was written")
+
         # 3. registry emptied
         if any(q.virtual_clip(c) for c in clips):
             fail("deferred clips must be forgotten after compile")

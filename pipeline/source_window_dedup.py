@@ -86,6 +86,9 @@ def dedupe_source_window_events(
                 break
         if duplicate_of is not None:
             dropped_event = dict(event)
+            # Carry the owning person so the selector candidate ledger can record WHY this event has no draft
+            # (run 42814819534 failed accountability because the drop reason never reached the ledger).
+            dropped_event.setdefault("person_id", str(out[person_index].get("id") or out[person_index].get("person_id") or ""))
             dropped_event["selected"] = False
             dropped_event["discarded"] = True
             dropped_event["discard_cause"] = "source_window_overlap_lower_priority"

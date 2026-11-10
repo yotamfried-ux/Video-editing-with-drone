@@ -208,6 +208,23 @@ def _read_frames_sequentially(cap: Any, targets: list[int], *, seek_gap: int):
         yield f_idx, frame
 
 
+def _escalation_stride(primary_stride: int) -> int:
+    """Frame stride of the 1280 px escalation pass (default: half the primary stride, unchanged).
+
+    Escalation is the largest perception cost: on a 20 s 4K60 clip whose weak window was the whole clip it ran
+    600 frames in 56 s of 117 s. ``SPORTREEL_ESCALATION_STRIDE`` exists only to A/B a sparser pass against human
+    Ground Truth (scripts/ab_perception_decode.py); stride 5 there took 27 s but produced fewer detections, so
+    it must not become the default without that evidence.
+    """
+    value = os.getenv("SPORTREEL_ESCALATION_STRIDE", "").strip()
+    if value:
+        try:
+            return max(1, int(value))
+        except ValueError:
+            pass
+    return max(1, primary_stride // 2)
+
+
 def _run_targeted_window_escalation(
     video_path: str,
     model_name: str,
@@ -381,7 +398,7 @@ def _ultralytics_sidecar_from_frames(args: argparse.Namespace, decode: dict[str,
             fps=fps or 30.0,
             weak_windows=selected_windows,
             target_classes=target_classes,
-            escalation_stride=max(1, stride // 2),
+            escalation_stride=_escalation_stride(stride),
             escalation_imgsz=1280,
         )
         cpu_sec_esc = round(time.monotonic() - t0_esc, 3)

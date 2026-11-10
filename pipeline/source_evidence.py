@@ -10,6 +10,13 @@ from typing import Any
 MAX_WINDOWS = 4
 PAD_BEFORE = 2.0
 PAD_AFTER = 4.0
+# Evidence clip path -> the source window it shows. The QA runner labels each uploaded video with this, so the
+# model can tell the draft from the un-cropped source footage (pipeline.source_evidence_runner).
+_CLIP_WINDOWS: dict[str, dict[str, Any]] = {}
+
+
+def clip_window(path: str) -> dict[str, Any] | None:
+    return _CLIP_WINDOWS.get(os.path.abspath(str(path)))
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -30,17 +37,44 @@ def make_source_clips(context: dict[str, Any], tmp_dir: str | None = None) -> li
         start = max(0.0, _num(win.get("source_start")) - PAD_BEFORE)
         end = max(start + 0.5, _num(win.get("source_end")) + PAD_AFTER)
         out = os.path.join(tmp_dir, f"qa_src_{Path(src).stem}_{idx:02d}.mp4")
+        # The perception single decode left a near-transparent 1280 px copy of exactly this source file:
+        # cutting from it avoids decoding the 4K window again while the next reel renders. Same filter and
+        # encoder settings as below, so the evidence clip is the same size and quality.
+        try:
+            from pipeline.perception.single_decode import evidence_copy_for
+
+            cut_from = evidence_copy_for(src) or src
+        except Exception:
+            cut_from = src
+        def _small_reencode(input_path: str) -> None:
+            # Small re-encode (<=1280px wide, silent) so the upload is a few MB, not the 4K window.
+            subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", input_path, "-t", str(end - start),
+                            "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
+                            "-crf", "26", "-pix_fmt", "yuv420p", "-an", out],
+                           capture_output=True, timeout=180, check=True)
+
         try:
             try:
-                # Small re-encode (<=1280px wide, silent) so the upload is a few MB, not the 4K window.
-                subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", src, "-t", str(end - start),
-                                "-vf", "scale='min(1280,iw)':-2", "-c:v", "libx264", "-preset", "veryfast",
-                                "-crf", "26", "-pix_fmt", "yuv420p", "-an", out],
-                               capture_output=True, timeout=180, check=True)
+                try:
+                    _small_reencode(cut_from)
+                except Exception:
+                    if cut_from == src:
+                        raise
+                    _small_reencode(src)  # evidence copy unusable: the original 4K path
             except Exception:
                 subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", src, "-t", str(end - start), "-c", "copy", out], capture_output=True, timeout=120, check=True)
             if os.path.exists(out):
                 clips.append(out)
+                _CLIP_WINDOWS[os.path.abspath(out)] = {
+                    "window_index": idx,
+                    "source": Path(src).name,
+                    "source_start": _num(win.get("source_start")),
+                    "source_end": _num(win.get("source_end")),
+                    "clip_start": round(start, 2),
+                    "clip_end": round(end, 2),
+                    "rendered_timeline_start": win.get("rendered_timeline_start"),
+                    "rendered_timeline_end": win.get("rendered_timeline_end"),
+                }
         except Exception:
             try:
                 os.remove(out)

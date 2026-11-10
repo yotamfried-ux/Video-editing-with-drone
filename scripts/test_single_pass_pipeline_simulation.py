@@ -75,7 +75,10 @@ def main() -> None:
                     "bbox_xyxy": [820.0, 300.0, 1100.0, 820.0], "perception_frame_width": 1920,
                     "perception_frame_height": 1080, "visible_ratio": 1.0}
         events = [
+            # e1 carries the analyzer's boundary evidence (end = observed ride end); e2 is a legacy event without it.
             {"event_id": "e1", "type": "wave_catch", "start": 2.0, "end": 7.0, "score": 8, "crop_x": 0.5, "crop_y": 0.6,
+             "outcome_end": None, "timing_precise": True,
+             "timing_evidence": "start 2.0s: pops up on the board; end 7.0s: falls as the wave closes out",
              "edit": {"transition_out": "slide"}, **evidence},
             {"event_id": "e2", "type": "turn", "start": 18.0, "end": 24.0, "score": 9, "crop_x": 0.5, "crop_y": 0.6,
              "edit": {"transition_out": "cut"}, **evidence},
@@ -111,6 +114,16 @@ def main() -> None:
         duration = float(info["format"]["duration"])
         if abs(duration - timeline_end) > 0.1:
             fail(f"reel duration {duration:.3f}s must match the rendered timeline {timeline_end:.3f}s given to QA")
+        # Run 42814819534: every evidence-backed ride end still reached QA as a blocking RIDE_BOUNDARY_UNCERTAIN.
+        from pipeline.context_qa_gate import build_edit_context
+        from pipeline.source_evidence_runner import _context_defects
+
+        by_id = {ev.get("event_id"): ev for ev in ordered}
+        blocking = {eid: {d["type"] for d in _context_defects(build_edit_context(reel, [ev]))} for eid, ev in by_id.items()}
+        if "RIDE_BOUNDARY_UNCERTAIN" in blocking.get("e1", set()):
+            fail(f"the evidence-backed ride end of e1 must not block QA, got {blocking}")
+        if "RIDE_BOUNDARY_UNCERTAIN" not in blocking.get("e2", set()):
+            fail(f"a ride end without evidence must stay a blocking QA defect, got {blocking}")
         stamped = {ev.get("_render_invocation_id") for ev in ordered}
         if stamped != {inv_id}:
             fail(f"events must carry the explicit invocation_id, got {stamped}")
@@ -125,7 +138,7 @@ def main() -> None:
             fail("the reel EDL must still be written for Ground-Truth evaluation")
 
     print(f"single-pass pipeline simulation ok (1 render pass, {duration:.2f}s 4K/30 silent reel = rendered timeline, "
-          f"invocation scope activated, EDL written)")
+          f"invocation scope activated, EDL written, ride-end evidence reaches QA)")
 
 
 if __name__ == "__main__":

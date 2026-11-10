@@ -746,7 +746,63 @@ def expand_single_pass(cmd: list[str]) -> list[str]:
     if "-maxrate" not in out_cmd and "-crf" in out_cmd:
         at = out_cmd.index("-crf")
         out_cmd[at:at] = list(_SINGLE_PASS_RATE_CAP)
-    return out_cmd
+    return _with_qa_proxy_output(out_cmd)
+
+
+def qa_proxy_path_for(reel_path: str) -> str:
+    """Same path ``analyzer._make_qa_proxy`` writes to."""
+    return os.path.join(os.getenv("TMP_DIR", "/tmp/dtor"), f"qa_proxy_{Path(reel_path).stem}.mp4")
+
+
+def _qa_proxy_enabled() -> bool:
+    return os.getenv("QA_PROXY", "1").strip().lower() not in {"0", "false", "no", "off"} and OUTPUT_HEIGHT > 1920
+
+
+def _with_qa_proxy_output(cmd: list[str]) -> list[str]:
+    """Also write the 1080x1920 QA proxy from the same pass (``analyzer._make_qa_proxy`` settings).
+
+    Before, QA decoded the finished 4K reel again to make this proxy while the next reel was rendering.
+    """
+    if not _qa_proxy_enabled() or "-map" not in cmd:
+        return cmd
+    map_at = cmd.index("-map") + 1
+    label = cmd[map_at]
+    if not (label.startswith("[") and label.endswith("]")):
+        return cmd
+    reel_path = cmd[-1]
+    base = label[1:-1]
+    fc_at = cmd.index("-filter_complex") + 1
+    out = list(cmd)
+    out[fc_at] = (f"{cmd[fc_at]};[{base}]split=2[{base}_reel][{base}_qa];"
+                  f"[{base}_qa]scale=-2:1920,format=yuv420p[{base}_qaproxy]")
+    out[map_at] = f"[{base}_reel]"
+    out += ["-map", f"[{base}_qaproxy]", "-an", "-c:v", "libx264", "-preset", "veryfast", "-crf", "24",
+            "-pix_fmt", "yuv420p", qa_proxy_path_for(reel_path)]
+    return out
+
+
+def premade_qa_proxy(reel_path: str) -> str | None:
+    """The QA proxy written by the single pass for exactly this reel file, else None."""
+    proxy = qa_proxy_path_for(reel_path)
+    marker = proxy + ".premade.json"
+    try:
+        with open(marker, encoding="utf-8") as handle:
+            recorded = json.load(handle)
+        st = os.stat(reel_path)
+        if recorded != {"reel": os.path.abspath(reel_path), "size": st.st_size, "mtime_ns": st.st_mtime_ns}:
+            return None
+        return proxy if os.path.getsize(proxy) > 0 else None
+    except (OSError, ValueError):
+        return None
+
+
+def _mark_qa_proxy(reel_path: str) -> None:
+    proxy = qa_proxy_path_for(reel_path)
+    if not os.path.exists(proxy) or not os.path.exists(reel_path):
+        return
+    st = os.stat(reel_path)
+    with open(proxy + ".premade.json", "w", encoding="utf-8") as handle:
+        json.dump({"reel": os.path.abspath(reel_path), "size": st.st_size, "mtime_ns": st.st_mtime_ns}, handle)
 
 
 def materialize_virtual_clips(paths: list[str]) -> list[str] | None:
@@ -844,6 +900,10 @@ def install() -> None:
                     result = original_compile_reel(*mutable_args, **kwargs)
             if result:
                 _export_edl_reel(original_compile_reel, mutable_args, kwargs)
+                try:
+                    _mark_qa_proxy(str(result))
+                except OSError:
+                    pass
             return result
         finally:
             _forget_virtual_clips(clip_paths)

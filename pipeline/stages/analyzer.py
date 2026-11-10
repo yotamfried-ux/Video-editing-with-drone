@@ -395,6 +395,16 @@ def _make_qa_proxy(reel_path: str) -> str | None:
              "-of", "csv=p=0", reel_path], capture_output=True, text=True, timeout=30)
         if probe.returncode != 0 or int(probe.stdout.strip().split(",")[0] or 0) <= 1920:
             return None
+        try:
+            # Written by the single-pass render from the same frames (same scale/encoder settings), bound to
+            # this exact reel file: no second decode of the 4K reel while the next reel renders.
+            from pipeline.quality_preserving_framing import premade_qa_proxy
+
+            premade = premade_qa_proxy(reel_path)
+        except Exception:
+            premade = None
+        if premade:
+            return premade
         out = os.path.join(config.TMP_DIR, f"qa_proxy_{Path(reel_path).stem}.mp4")
         os.makedirs(config.TMP_DIR, exist_ok=True)
         subprocess.run(

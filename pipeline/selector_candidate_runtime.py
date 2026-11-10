@@ -96,6 +96,64 @@ def _append_payload_locked(path: Path, payload: dict[str, Any]) -> None:
     write_selector_candidate_events(path, merged)
 
 
+def _window_bounds(item: dict[str, Any]) -> tuple[float, float] | None:
+    window = item.get("source_window") if isinstance(item.get("source_window"), dict) else item
+    try:
+        start, end = float(window.get("start")), float(window.get("end"))
+    except (TypeError, ValueError, AttributeError):
+        return None
+    return (start, end) if end > start else None
+
+
+def record_source_window_dedup_discards(payload: dict[str, Any], dropped_events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Mark selector candidates removed by source-window dedup as explicitly discarded.
+
+    Candidates are captured from the raw parse, BEFORE ``dedupe_session`` removes duplicate source windows.
+    Without this, a candidate dropped as a duplicate stayed "selected" with no draft, and the coverage report
+    counted it as an unexplained gap (run 42814819534: 0095::person_B, accountability 0.979 -> run failed).
+    A dropped event is matched to the same person's selected candidate with the largest window overlap.
+    """
+    candidates = [item for item in payload.get("candidates", []) or [] if isinstance(item, dict)]
+    for dropped in dropped_events or []:
+        if not isinstance(dropped, dict):
+            continue
+        dropped_window = _window_bounds(dropped)
+        if dropped_window is None:
+            continue
+        person_id = str(dropped.get("person_id") or "")
+        best, best_overlap = None, 0.0
+        for candidate in candidates:
+            if not candidate.get("selected"):
+                continue
+            cand_person = str(candidate.get("person_id") or "")
+            if person_id and not (cand_person == person_id or cand_person.endswith(":" + person_id)):
+                continue
+            window = _window_bounds(candidate)
+            if window is None:
+                continue
+            overlap = max(0.0, min(window[1], dropped_window[1]) - max(window[0], dropped_window[0]))
+            shorter = min(window[1] - window[0], dropped_window[1] - dropped_window[0])
+            ratio = overlap / shorter if shorter > 0 else 0.0
+            if ratio >= 0.5 and overlap > best_overlap:
+                best, best_overlap = candidate, overlap
+        if best is None:
+            continue
+        best.update({
+            "selected": False,
+            "discarded": True,
+            "selection_reason": None,
+            "discard_cause": "duplicate_source_window_before_render",
+            "duplicate_of_source_window": dropped.get("duplicate_of_source_window"),
+        })
+    payload["candidates"] = candidates
+    payload["selected_count"] = sum(1 for item in candidates if item.get("selected"))
+    payload["discarded_count"] = sum(1 for item in candidates if item.get("discarded"))
+    payload["discard_causes_available"] = payload["discarded_count"] > 0 and all(
+        item.get("discard_cause") for item in candidates if item.get("discarded")
+    )
+    return payload
+
+
 def install() -> None:
     """Patch analyzer.analyze_session to emit normalized selector diagnostics."""
     import pipeline.stages.analyzer as analyzer
@@ -157,6 +215,9 @@ def install() -> None:
                 source_video=source_video,
                 segment_sec=float(getattr(analyzer, "_CHUNK_MAX_MINUTES", 8)) * 60.0,
                 source_duration_sec=duration,
+            )
+            payload = record_source_window_dedup_discards(
+                payload, result.get("diagnostics", {}).get("source_window_dedup_dropped_events", []) or []
             )
             _append_payload(path, payload)
             logger.info(

@@ -384,6 +384,23 @@ def _sidecar_cache_key(video_path: str, command: str) -> str | None:
         return None
 
 
+def _log_producer_breakdown(video_path: str, output: Path) -> None:
+    """One log line per producer run: where its time went (observability only, never raises)."""
+    try:
+        payload = json.loads(output.read_text(encoding="utf-8"))
+        decode = payload.get("decode") or {}
+        adaptive = payload.get("adaptive_inference") or {}
+        print(
+            f"🔬 Perception breakdown '{Path(video_path).name}': runtime={payload.get('inference_runtime')} "
+            f"decode={decode.get('mode')}:{decode.get('seconds')}s primary={adaptive.get('cpu_seconds_primary')}s "
+            f"escalation={adaptive.get('cpu_seconds_escalation')}s ({adaptive.get('escalated_frames_count')} frames) "
+            f"rescue={adaptive.get('cpu_seconds_zero_rescue', 0)}s frames={payload.get('frames_processed')} "
+            f"stride={payload.get('vid_stride')} size={payload.get('frame_width')}x{payload.get('frame_height')}"
+        )
+    except Exception:
+        pass
+
+
 def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
     """Run the configured pre-analysis producer when a sidecar is missing.
 
@@ -455,6 +472,7 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
         _write_status_sidecar(video_path, output, "failed", message)
         return {"path": str(output), "producer_status": "failed", "detection_count": 0}
 
+    _log_producer_breakdown(video_path, output)
     try:
         summary = validate_sidecar(video_path, output)
     except Exception as exc:

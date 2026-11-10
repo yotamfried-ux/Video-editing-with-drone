@@ -7,3 +7,4 @@ jobs:
       - uses: actions/checkout@v4
       - run: python3 scripts/test_surf_ride_continuity_contract.py
       - run: python3 scripts/test_surf_ride_qa_contract.py
+      - run: python3 scripts/test_ride_boundary_evidence_contract.py
