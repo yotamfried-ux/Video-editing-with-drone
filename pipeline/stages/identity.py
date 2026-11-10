@@ -877,10 +877,19 @@ def _top_colors_compatible(a: str | None, b: str | None) -> bool:
     return False
 
 
+# Labels that describe the same long-sleeved wetsuit coverage. From a drone, "a black long-sleeved wetsuit top and
+# dark shorts" and "a black wetsuit" are the same silhouette: runs 42814819534 and 42857524999 split one surfer
+# (0074 / 0151, confirmed by the operator) because the parser labelled them long_sleeve and full_wetsuit. Every
+# other difference (shirtless, swimwear, sleeveless, short-sleeved shirt) stays a hard conflict.
+_SAME_COVERAGE = ({"long_sleeve", "full_wetsuit"},)
+
+
 def _sleeve_styles_compatible(a: str | None, b: str | None) -> bool:
     if a is None or b is None:
         return True
-    return a == b
+    if a == b:
+        return True
+    return any({a, b} <= group for group in _SAME_COVERAGE)
 
 
 def structured_attributes_compatible(attr_a: dict, attr_b: dict) -> tuple[bool, float]:
