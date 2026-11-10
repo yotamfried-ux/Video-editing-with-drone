@@ -3,7 +3,7 @@
 
 * The reel encode timeout scales with the reel: a 53 s reel took 469 s and a 69 s reel 448 s, so the fixed
   600 s limit would have killed a reel near the 90 s maximum.
-* Runner disk cleanup (2m04s per run) runs in the background and is awaited before "Run pipeline".
+* Runner disk cleanup (2m04s inline, ~6 min in the background) is skipped when >= 40 GB are free.
 * The escalation stride default is unchanged; the env knob only enables a Ground-Truth A/B.
 """
 from __future__ import annotations
@@ -34,11 +34,10 @@ def main() -> int:
     names = [b.split("\n", 1)[0].strip() for b in blocks]
     body = dict(zip(names, blocks))
     free = body["Free runner disk space"]
-    if "setsid nohup" not in free or "/tmp/runner-disk-freed" not in free or "< /dev/null &" not in free:
-        raise SystemExit("disk cleanup must run in the background and leave a completion marker")
-    wait_at, run_at = names.index("Wait for runner disk cleanup"), names.index("Run pipeline")
-    if not wait_at < run_at or "/tmp/runner-disk-freed" not in body["Wait for runner disk cleanup"]:
-        raise SystemExit("the pipeline must wait for the disk cleanup before downloading sources")
+    if "MIN_FREE_GB" not in free or "exit 0" not in free or free.index("exit 0") > free.index("sudo rm -rf"):
+        raise SystemExit("disk cleanup must be skipped when the runner already has enough free space")
+    if "nohup" in free or "&\n" in free or "Wait for runner disk cleanup" in names:
+        raise SystemExit("background cleanup slowed every setup step and still had to be awaited (run 42857524999)")
 
     os.environ.pop("SPORTREEL_ESCALATION_STRIDE", None)
     import generate_perception_sidecar as gps

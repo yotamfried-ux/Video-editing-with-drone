@@ -57,18 +57,23 @@ jobs:
         # A run downloads every admitted RAW source (about 7 GB for 24 drone clips) before
         # analysis, on top of the Python/torch install, and failed with "Disk quota exceeded"
         # on a stock runner. Remove preinstalled toolchains this job never uses (never the
-        # hosted Python toolcache).
-        # The deletion took 2m04s of every run (run 42814819534) and no setup step before the pipeline needs the
-        # space, so it runs in the background while the next ~2.5 min of setup proceeds; "Wait for runner disk
-        # cleanup" blocks until it has finished, before any RAW source is downloaded.
+        # hosted Python toolcache) -- but only when the disk is actually short: the current
+        # ubuntu-24.04 image starts with ~86 GB free (run 42857524999), and the deletion cost
+        # 2m04s inline (run 42814819534) or ~6 min in the background, where it also slowed every
+        # other setup step (run 42857524999).
+        env:
+          MIN_FREE_GB: '40'
         run: |
           df -h / | tail -1
-          rm -f /tmp/runner-disk-freed
-          sudo setsid nohup bash -c '
-            rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
-              /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true
-            docker image prune --all --force >/dev/null 2>&1 || true
-            touch /tmp/runner-disk-freed' >/tmp/runner-disk-free.log 2>&1 < /dev/null &
+          free_gb=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')
+          if [ "${free_gb:-0}" -ge "$MIN_FREE_GB" ]; then
+            echo "disk cleanup skipped: ${free_gb} GB free >= ${MIN_FREE_GB} GB"
+            exit 0
+          fi
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \
+            /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true
+          sudo docker image prune --all --force >/dev/null 2>&1 || true
+          df -h / | tail -1
 
       # ---- Installs are cached between runs (operator, 2026-11-06): a run only re-installs what changed. ----
       # ffmpeg: the .deb files are cached once and installed offline with dpkg, so a hanging apt mirror
@@ -298,14 +303,6 @@ jobs:
           key: llm-analysis-cache-v1-${{ github.run_id }}
           restore-keys: |
             llm-analysis-cache-v1-
-
-      - name: Wait for runner disk cleanup
-        timeout-minutes: 10
-        run: |
-          start=$(date +%s)
-          until [ -f /tmp/runner-disk-freed ]; do sleep 2; done
-          echo "disk cleanup finished (waited $(( $(date +%s) - start ))s)"
-          df -h / | tail -1
 
       - name: Run pipeline
         timeout-minutes: 300
