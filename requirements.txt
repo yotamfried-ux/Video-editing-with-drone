@@ -20,5 +20,7 @@ lap>=0.5.12
 transformers>=5.10.0
 supervision>=0.29.0,<0.30.0
 ultralytics>=8.3.0
+# Same YOLO weights run through OpenVINO on CPU runners: 3-4x faster inference (pipeline/perception/cpu_runtime.py).
+openvino>=2024.6.0
 
 # ffmpeg must be installed separately by the system package manager.

@@ -21,6 +21,13 @@ on:
       - 'pipeline/perception/single_decode.py'
       - 'scripts/generate_perception_sidecar.py'
       - 'scripts/test_single_decode_perception_contract.py'
+      - 'scripts/test_single_pass_render_contract.py'
+      - 'scripts/test_single_pass_pipeline_simulation.py'
+      - 'pipeline/perception/cpu_runtime.py'
+      - 'scripts/test_cpu_runtime_contract.py'
+      - 'requirements.txt'
+      - 'pipeline/bootstrap.py'
+      - 'pipeline/stages/editor.py'
       - 'pipeline/context_qa_gate.py'
       - 'pipeline/source_evidence_patch.py'
       - 'pipeline/teaser_policy_runtime.py'
@@ -93,3 +100,15 @@ jobs:
           command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
           python -m pip install --disable-pip-version-check opencv-python-headless numpy
           python scripts/test_single_decode_perception_contract.py
+      - name: Single-pass render (one ffmpeg run / one lossy encode per reel, exact timeline, safe fallback)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_single_pass_render_contract.py
+      - name: Pipeline simulation (bootstrap stack -> compile_multi_source_reel -> one 4K/30 render pass + QA scope)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_single_pass_pipeline_simulation.py
+      - name: OpenVINO CPU runtime (cached full-precision conversion, PyTorch fallback)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_cpu_runtime_contract.py

@@ -26,6 +26,7 @@ from pipeline.perception.equipment_association import (
     is_equipment_class,
 )
 from pipeline.perception import single_decode
+from pipeline.perception.cpu_runtime import resolve_model
 from pipeline.perception.producer import _tensor_values, detections_from_ultralytics_result, generate_sidecar
 from pipeline.perception.track_stitching import stitch_sidecar_payload
 
@@ -173,6 +174,13 @@ def _zero_detection_rescue_windows(
     return result
 
 
+def _load_yolo(yolo_cls: Any, model_path: str) -> Any:
+    """OpenVINO exports are directories and need the task stated; .pt weights load exactly as before."""
+    if os.path.isdir(model_path):
+        return yolo_cls(model_path, task="detect")
+    return yolo_cls(model_path)
+
+
 def _read_frames_sequentially(cap: Any, targets: list[int], *, seek_gap: int):
     """Yield ``(frame_index, frame)`` for ``targets`` in the given order, decoding forward instead of seeking.
 
@@ -228,7 +236,7 @@ def _run_targeted_window_escalation(
     frames_evaluated = 0
     try:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
-        model_obj = YOLO(model_name)
+        model_obj = _load_yolo(YOLO, model_name)
         targets: list[int] = []
         for win in weak_windows:
             start_frame = max(0, int(round(float(win["start_sec"]) * fps)))
@@ -293,6 +301,7 @@ def _ultralytics_sidecar_from_frames(args: argparse.Namespace, decode: dict[str,
     model = (args.ultralytics_model or os.getenv("SPORTREEL_ULTRALYTICS_MODEL", "")).strip()
     if not model:
         return generate_sidecar(args.video_path, args.output_path, backend="ultralytics")
+    runtime_model, runtime = resolve_model(model)
     tracker = (args.ultralytics_tracker or os.getenv("SPORTREEL_ULTRALYTICS_TRACKER", "")).strip() or _DEFAULT_TRACKER
     stride = _positive_int(args.ultralytics_vid_stride or os.getenv("SPORTREEL_ULTRALYTICS_VID_STRIDE", ""), _DEFAULT_VID_STRIDE, "vid_stride")
     imgsz = _positive_int(args.ultralytics_imgsz or os.getenv("SPORTREEL_ULTRALYTICS_IMGSZ", ""), _DEFAULT_IMGSZ, "imgsz")
@@ -320,7 +329,7 @@ def _ultralytics_sidecar_from_frames(args: argparse.Namespace, decode: dict[str,
         if device:
             track_kwargs["device"] = device
 
-        model_obj = YOLO(model)
+        model_obj = _load_yolo(YOLO, runtime_model)
         pass_detections: list[dict[str, Any]] = []
         pass_seen = _DetectorStats()
         for result_index, result in enumerate(model_obj.track(**track_kwargs)):
@@ -366,7 +375,7 @@ def _ultralytics_sidecar_from_frames(args: argparse.Namespace, decode: dict[str,
         t0_esc = time.monotonic()
         esc_all, esc_frames = _run_targeted_window_escalation(
             frames_path,
-            model_name=model,
+            model_name=runtime_model,
             tracker=tracker,
             device=device,
             fps=fps or 30.0,
@@ -420,7 +429,7 @@ def _ultralytics_sidecar_from_frames(args: argparse.Namespace, decode: dict[str,
         t0_rescue = time.monotonic()
         esc_all, esc_frames = _run_targeted_window_escalation(
             frames_path,
-            model_name=model,
+            model_name=runtime_model,
             tracker=tracker,
             device=device,
             fps=fps or 30.0,
@@ -465,6 +474,7 @@ def _ultralytics_sidecar_from_frames(args: argparse.Namespace, decode: dict[str,
         "reason": ("zero_person_detections_unverified" if classification == "review_required" else None),
         "backend": "ultralytics",
         "model": model,
+        "inference_runtime": runtime,
         "tracker": tracker,
         "vid_stride": stride,
         "imgsz": imgsz,
