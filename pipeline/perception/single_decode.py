@@ -25,6 +25,7 @@ Boxes are mapped back to source pixels so sidecars keep the source frame dimensi
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shutil
@@ -96,18 +97,64 @@ def evidence_enabled() -> bool:
     return os.getenv(_EVIDENCE_ENV, "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
+def _persistent_evidence_path(video_path: str) -> str | None:
+    """Evidence copy kept in the LLM cache dir (persisted between runs), keyed by the source CONTENT and the
+    evidence encoding. A run whose perception comes from the sidecar cache never decodes the source, so without
+    this QA re-cut every evidence window from the 4K source while the next reel rendered (run 42857524999):
+    28.2 s vs 4.5 s per 19 s window on 4 vCPU. Same bytes as a fresh single decode would write."""
+    if not evidence_enabled() or os.getenv("SPORTREEL_PERSIST_EVIDENCE", "1").strip().lower() in {"0", "false", "no", "off"}:
+        return None
+    try:
+        from integrations import llm_cache
+
+        sha = llm_cache.file_sha256(video_path)
+        settings = hashlib.sha256(json.dumps([EVIDENCE_SCALE_FILTER, _EVIDENCE_ENCODE_ARGS]).encode("utf-8")).hexdigest()[:12]
+        return os.path.join(llm_cache.cache_dir(), "qa-evidence", f"{sha}_{settings}.mp4")
+    except Exception:
+        return None
+
+
+def persist_evidence_copy(video_path: str, evidence: str) -> None:
+    target = _persistent_evidence_path(video_path)
+    if not target or not os.path.exists(evidence) or os.path.exists(target):
+        return
+    try:
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        tmp = f"{target}.{os.getpid()}.tmp"
+        shutil.copyfile(evidence, tmp)
+        os.replace(tmp, target)
+    except OSError:
+        pass
+
+
+def _restore_persisted_evidence(video_path: str) -> str | None:
+    source = _persistent_evidence_path(video_path)
+    if not source or not os.path.exists(source) or os.path.getsize(source) <= 0:
+        return None
+    path = evidence_path_for(video_path)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        shutil.copyfile(source, path)
+        os.utime(source)  # last use: the workflow prunes copies unused for 14 days before saving the cache
+        with open(path + _MARKER_SUFFIX, "w", encoding="utf-8") as handle:
+            json.dump(_evidence_fingerprint(video_path), handle)
+        return path
+    except OSError:
+        return None
+
+
 def evidence_copy_for(video_path: str) -> str | None:
-    """The 1280 px evidence copy made by the single decode for exactly this source file, else None."""
+    """The 1280 px evidence copy for exactly this source file (this run's single decode or the persisted copy)."""
     path = evidence_path_for(video_path)
     try:
         if not (os.path.exists(path) and os.path.getsize(path) > 0):
-            return None
+            return _restore_persisted_evidence(video_path)
         with open(path + _MARKER_SUFFIX, encoding="utf-8") as handle:
             if json.load(handle) != _evidence_fingerprint(video_path):
-                return None
+                return _restore_persisted_evidence(video_path)
         return path
     except (OSError, ValueError):
-        return None
+        return _restore_persisted_evidence(video_path)
 
 
 def claim_premade_proxy(video_path: str) -> str | None:
@@ -258,6 +305,7 @@ def prepare_single_decode(video_path: str, work_dir: str, *, write_proxy: bool =
     if evidence and os.path.exists(evidence):
         with open(evidence + _MARKER_SUFFIX, "w", encoding="utf-8") as handle:
             json.dump(_evidence_fingerprint(video_path), handle)
+        persist_evidence_copy(video_path, evidence)
     return {
         "frames_path": intermediate,
         "intermediate": intermediate,

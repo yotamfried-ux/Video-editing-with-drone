@@ -9,6 +9,7 @@ or impossible clusters instead of guessing.
 """
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 import logging
 import os
 import re
@@ -495,12 +496,19 @@ def _try_visual_cluster(descriptions: list[dict], clip_analyses: list[dict]) -> 
 
     uploaded: list[dict] = []
     try:
-        for (ci, pid), thumb_path in thumb_map.items():
+        # Uploads (and the deletes in `finally`) are network waits; one at a time they cost run 42857524999
+        # ~2.5 min of the critical path before rendering (23 thumbnails). Run them concurrently but keep the
+        # original order, so Gemini receives exactly the same request.
+        def _upload(item):
+            (ci, pid), thumb_path = item
             try:
-                gfile = genai.upload_file(path=thumb_path, mime_type="image/jpeg")
-                uploaded.append({"clip_index": ci, "person_id": pid, "file": gfile})
+                return {"clip_index": ci, "person_id": pid, "file": genai.upload_file(path=thumb_path, mime_type="image/jpeg")}
             except Exception as e:
                 logger.debug("Thumbnail upload failed for clip %d %s: %s", ci, pid, e)
+                return None
+
+        with ThreadPoolExecutor(max_workers=_FILES_API_WORKERS) as pool:
+            uploaded = [u for u in pool.map(_upload, list(thumb_map.items())) if u is not None]
 
         if not uploaded:
             return None
@@ -524,11 +532,22 @@ def _try_visual_cluster(descriptions: list[dict], clip_analyses: list[dict]) -> 
         return _build_clusters_from_data(data, clip_analyses)
 
     finally:
-        for uf in uploaded:
-            try:
-                genai.delete_file(uf["file"].name)
-            except Exception:
-                pass
+        _delete_files_concurrently([uf["file"] for uf in uploaded])
+
+
+_FILES_API_WORKERS = 8
+
+
+def _delete_files_concurrently(files: list) -> None:
+    def _delete(gfile):
+        try:
+            genai.delete_file(gfile.name)
+        except Exception:
+            pass
+
+    if files:
+        with ThreadPoolExecutor(max_workers=_FILES_API_WORKERS) as pool:
+            list(pool.map(_delete, files))
 
 
 # ── Tier 2: Gemini text-only clustering ──────────────────────────────────────

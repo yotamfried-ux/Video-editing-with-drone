@@ -42,6 +42,36 @@ def _remove_local(path: str | None) -> None:
         logger.warning("Could not remove local dedup staging file %s", path, exc_info=True)
 
 
+def _download_workers() -> int:
+    try:
+        return max(1, int(os.getenv("SPORTREEL_DOWNLOAD_WORKERS", "4")))
+    except ValueError:
+        return 4
+
+
+def _download_in_order(videos: list[dict[str, Any]], download_one: Callable[[dict[str, Any]], dict[str, Any] | None]):
+    """Download up to SPORTREEL_DOWNLOAD_WORKERS sources at once, yielding results in the input order.
+
+    The admission decisions below stay sequential and in order (the first copy of duplicate bytes is the
+    canonical one); only the network transfers overlap. Run 42857524999 spent 3.5 min downloading 29 sources
+    (~7 GB) one after another before analysis could start.
+    """
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    workers = min(_download_workers(), max(1, len(videos)))
+    started = time.monotonic()
+    if workers <= 1:
+        for video in videos:
+            yield download_one(video)
+    else:
+        with ThreadPoolExecutor(max_workers=workers, thread_name_prefix="source-download") as pool:
+            futures = [pool.submit(download_one, video) for video in videos]
+            for future in futures:
+                yield future.result()
+    print(f"⏱️  download_sources took {time.monotonic() - started:.1f}s sources={len(videos)} workers={workers}")
+
+
 def prepare_canonical_sources(
     videos: list[dict[str, Any]],
     download_one: Callable[[dict[str, Any]], dict[str, Any] | None],
@@ -87,8 +117,7 @@ def prepare_canonical_sources(
     prepared_by_key: dict[str, dict[str, Any]] = {}
     order: list[str] = []
 
-    for video in videos:
-        downloaded = download_one(video)
+    for downloaded in _download_in_order(videos, download_one):
         if downloaded is None:
             continue
         path = str(downloaded["path"])
@@ -138,7 +167,10 @@ def prepare_canonical_sources(
                 f"R2 source {key} changed after verification: verified={verified_size}, downloaded={actual_size}"
             )
 
-        content_sha256 = sha256_file(path)
+        # Memoized: perception's sidecar key, the analysis cache key and the evidence cache hash the same file.
+        from integrations import llm_cache
+
+        content_sha256 = llm_cache.file_sha256(path)
         decision = resolve_duplicate(upload_id, content_sha256)
         canonical = decision["canonical"]
         canonical_key = str(canonical.get("storage_key") or "")

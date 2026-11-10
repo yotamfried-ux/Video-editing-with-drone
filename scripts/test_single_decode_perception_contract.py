@@ -90,6 +90,9 @@ def main() -> None:
             source_evidence.subprocess.run = real_run
 
         # 2. The proxy is bound to this exact source; a modified source must not reuse it.
+        # (the evidence copy is also persisted by source CONTENT, so the modification has to change the bytes)
+        with open(src, "ab") as handle:
+            handle.write(b"\0")
         os.utime(src, ns=(os.stat(src).st_atime_ns, os.stat(src).st_mtime_ns + 1_000_000_000))
         if sd.claim_premade_proxy(src) is not None:
             fail("a proxy made for a different source version must never be claimed")
