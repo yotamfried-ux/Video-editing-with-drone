@@ -41,9 +41,9 @@ def make_source_clips(context: dict[str, Any], tmp_dir: str | None = None) -> li
         # cutting from it avoids decoding the 4K window again while the next reel renders. Same filter and
         # encoder settings as below, so the evidence clip is the same size and quality.
         try:
-            from pipeline.perception.single_decode import evidence_copy_for
+            from pipeline.perception.single_decode import ensure_evidence_copy
 
-            cut_from = evidence_copy_for(src) or src
+            cut_from = ensure_evidence_copy(src) or src
         except Exception:
             cut_from = src
         def _small_reencode(input_path: str) -> None:

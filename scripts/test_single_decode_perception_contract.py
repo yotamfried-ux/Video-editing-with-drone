@@ -37,6 +37,7 @@ def main() -> None:
     from pipeline.perception import single_decode as sd
 
     with tempfile.TemporaryDirectory(prefix="sportreel-single-decode-") as tmp:
+        os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, "llm-cache")  # persisted evidence copies stay in the test
         os.environ["TMP_DIR"] = os.path.join(tmp, "dtor")
         src = os.path.join(tmp, "DJI_test_0001_D.MP4")
         # 2560x1440 (wider than the 1280 intermediate), long GOP + B-frames like drone footage, 90 frames.

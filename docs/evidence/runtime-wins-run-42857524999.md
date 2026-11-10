@@ -31,6 +31,10 @@ Run 42857524999 took 38 min in "Run pipeline" with every analysis cached. Timeli
    - Before, such a run had no evidence copy, so QA cut every evidence window from the 4K source while the next reel
      rendered.
    - Copies unused for 14 days are pruned before the cache is saved.
+   - **Sources whose perception was cached before this change** never run the single decode. The first QA cut
+     for such a source therefore encodes its copy from the whole source once (`ensure_evidence_copy`, same settings,
+     PSNR-checked against the single-decode copy) and persists it. That costs about one 4K window cut, and every
+     later window, reel and run cuts from the copy.
    - Test: `scripts/test_persisted_qa_evidence_contract.py`. The restored copy is byte-identical, and QA demonstrably
      cuts from it, not from the source. `test_single_decode_perception_contract.py` now modifies the source bytes
      (not only the mtime), because the persisted copy is content-addressed.
