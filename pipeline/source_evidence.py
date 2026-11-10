@@ -10,6 +10,13 @@ from typing import Any
 MAX_WINDOWS = 4
 PAD_BEFORE = 2.0
 PAD_AFTER = 4.0
+# Evidence clip path -> the source window it shows. The QA runner labels each uploaded video with this, so the
+# model can tell the draft from the un-cropped source footage (pipeline.source_evidence_runner).
+_CLIP_WINDOWS: dict[str, dict[str, Any]] = {}
+
+
+def clip_window(path: str) -> dict[str, Any] | None:
+    return _CLIP_WINDOWS.get(os.path.abspath(str(path)))
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -58,6 +65,16 @@ def make_source_clips(context: dict[str, Any], tmp_dir: str | None = None) -> li
                 subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", src, "-t", str(end - start), "-c", "copy", out], capture_output=True, timeout=120, check=True)
             if os.path.exists(out):
                 clips.append(out)
+                _CLIP_WINDOWS[os.path.abspath(out)] = {
+                    "window_index": idx,
+                    "source": Path(src).name,
+                    "source_start": _num(win.get("source_start")),
+                    "source_end": _num(win.get("source_end")),
+                    "clip_start": round(start, 2),
+                    "clip_end": round(end, 2),
+                    "rendered_timeline_start": win.get("rendered_timeline_start"),
+                    "rendered_timeline_end": win.get("rendered_timeline_end"),
+                }
         except Exception:
             try:
                 os.remove(out)

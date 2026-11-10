@@ -1307,6 +1307,21 @@ def _finalize_compile_command(cmd: list[str]) -> list[str]:
     return cmd
 
 
+# Seconds of render wall time allowed per second of reel. Run 42814819534 (4 vCPU, QA running alongside)
+# needed up to 8.8 s per reel second (a 53 s reel took 469 s, a 69 s reel 448 s); a fixed 600 s limit would have
+# killed a reel near the 90 s maximum and dropped it to the much slower per-clip fallback.
+_COMPILE_TIMEOUT_PER_REEL_SEC = 15.0
+_COMPILE_TIMEOUT_MIN_SEC = 600
+
+
+def _compile_timeout(total_dur: float) -> int:
+    """Hang guard for the reel encode, scaled to the reel length (never below the old 600 s)."""
+    try:
+        return int(max(_COMPILE_TIMEOUT_MIN_SEC, 120 + _COMPILE_TIMEOUT_PER_REEL_SEC * max(0.0, float(total_dur))))
+    except (TypeError, ValueError):
+        return _COMPILE_TIMEOUT_MIN_SEC
+
+
 def compile_reel(
     clip_paths: list[str],
     logo_path: str,
@@ -1470,7 +1485,8 @@ def compile_reel(
 
     print(f"🎬 Compiling: {n} clip(s), {total_dur:.0f}s → {Path(output_path).name}{music_tag}")
     try:
-        r = subprocess.run(_finalize_compile_command(cmd), capture_output=True, text=True, timeout=600)
+        r = subprocess.run(_finalize_compile_command(cmd), capture_output=True, text=True,
+                           timeout=_compile_timeout(total_dur))
         if r.returncode != 0:
             logger.error("Reel compile: %s", r.stderr[-2000:])
             print(f"❌ Compile failed: {r.stderr[-400:]}")

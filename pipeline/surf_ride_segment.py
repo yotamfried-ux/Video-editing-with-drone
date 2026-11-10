@@ -56,6 +56,26 @@ def _has_explicit_end(event: dict[str, Any]) -> bool:
     return event.get("ride_end") is not None or event.get("outcome_end") is not None or event.get("landing_time") is not None or event.get("exit_time") is not None or event.get("kickout_time") is not None
 
 
+def _has_evidence_backed_end(event: dict[str, Any]) -> bool:
+    """`end` is the observed ride end when the analyzer named what is visible there.
+
+    The analyzer contract (pipeline/stages/analyzer.py) makes `end` the last readable second of the ride,
+    requires `timing_evidence` for both boundaries, and tells the model to OMIT outcome_end unless it is
+    distinct from `end`. pipeline.cut_window_guard already treats such an event as exact (no tail padding);
+    treating the same end as "missing" here put a blocking RIDE_BOUNDARY_UNCERTAIN on 11 of 12 reels in run
+    42814819534. The evidence no longer applies once window refinement moved `end` to where the track was
+    lost, or when the end is tail padding.
+    """
+    if event.get("timing_precise") is not True or not str(event.get("timing_evidence") or "").strip():
+        return False
+    if event.get("cut_window_evidence_status") == "inferred_tail_padding":
+        return False
+    refinement = event.get("window_refinement")
+    if isinstance(refinement, dict) and "track_lost_before_end" in (refinement.get("reasons") or []):
+        return False
+    return True
+
+
 def _has_tail_inferred_end(event: dict[str, Any]) -> bool:
     return event.get("cut_window_evidence_status") == "inferred_tail_padding" and event.get("outcome_end") is not None
 
@@ -79,13 +99,18 @@ def _merge_group(group: list[dict[str, Any]], sport: str) -> dict[str, Any]:
     end = max(_end(e) for e in group)
     peak = max(group, key=lambda e: _num(e.get("score"), 0))
     tracks = {t for t in (_track(e) for e in group) if t}
-    explicit_end = any(_has_explicit_end(e) for e in group)
+    # Evidence-backed `end` counts only for the fragment that defines the merged ride's end.
+    end_fragment = max(group, key=_end)
+    evidence_end = not any(_has_explicit_end(e) for e in group) and _has_evidence_backed_end(end_fragment)
+    explicit_end = evidence_end or any(_has_explicit_end(e) for e in group)
     tail_inferred_end = any(_has_tail_inferred_end(e) for e in group)
     identity_uncertain = len(tracks) != 1
     merged = {**first, "start": start, "end": end, "ride_start": start, "takeoff_time": start, "peak_time": _peak(peak), "source": _src(first), "_src": _src(first), "type": "surf_ride", "score": max(_num(e.get("score"), 0) for e in group), "ride_segment": True, "ride_fragment_count": len(group), "ride_boundary_uncertain": not explicit_end, "identity_uncertain": identity_uncertain}
     if explicit_end:
         merged["ride_end"] = end
         merged["outcome_end"] = end
+        if evidence_end:
+            merged["ride_end_evidence"] = "timing_evidence"
     elif tail_inferred_end:
         merged["outcome_end"] = end
         merged["cut_window_evidence_status"] = "inferred_tail_padding"

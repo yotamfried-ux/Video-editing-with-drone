@@ -26,6 +26,11 @@ on:
       - 'pipeline/perception/cpu_runtime.py'
       - 'scripts/test_cpu_runtime_contract.py'
       - 'scripts/test_source_window_dedup_accountability_contract.py'
+      - 'scripts/test_ride_boundary_evidence_contract.py'
+      - 'scripts/test_qa_evidence_video_labels_contract.py'
+      - 'scripts/test_runtime_setup_contract.py'
+      - 'pipeline/surf_ride_segment.py'
+      - 'pipeline/wave_completion.py'
       - 'pipeline/source_window_dedup.py'
       - 'pipeline/selector_candidate_runtime.py'
       - 'pipeline/source_evidence.py'
@@ -124,3 +129,17 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_source_window_dedup_accountability_contract.py
+      - name: Evidence-backed ride ends are not "inferred from fragments" (run 42814819534 regression)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_ride_boundary_evidence_contract.py
+      - name: Source-evidence QA labels the draft and each source video (run 42814819534 regression)
+        env:
+          PYTHONPATH: .
+        run: |
+          command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
+          python scripts/test_qa_evidence_video_labels_contract.py
+      - name: Render timeout scales with the reel; disk cleanup overlaps setup
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_runtime_setup_contract.py

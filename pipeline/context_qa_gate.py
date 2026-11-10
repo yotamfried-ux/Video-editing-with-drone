@@ -107,6 +107,8 @@ def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str
             "source_end": event.get("end"),
             "final_cut_start": event.get("final_cut_start"),
             "final_cut_end": event.get("final_cut_end"),
+            "rendered_timeline_start": event.get("rendered_timeline_start"),
+            "rendered_timeline_end": event.get("rendered_timeline_end"),
             "track_id": event.get("track_id"),
             "identity_gate": event.get("identity_gate"),
             "multi_person_clip_gate": event.get("multi_person_clip_gate"),
