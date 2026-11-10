@@ -90,5 +90,6 @@ jobs:
         env:
           PYTHONPATH: .
         run: |
+          command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
           python -m pip install --disable-pip-version-check opencv-python-headless numpy
           python scripts/test_single_decode_perception_contract.py
