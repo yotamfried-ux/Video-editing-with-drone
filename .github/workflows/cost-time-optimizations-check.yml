@@ -31,6 +31,8 @@ on:
       - 'scripts/test_runtime_setup_contract.py'
       - 'scripts/test_qa_fallback_specs_contract.py'
       - 'scripts/test_recording_end_tail_contract.py'
+      - 'scripts/test_wetsuit_coverage_identity_contract.py'
+      - 'pipeline/identity_decision_engine.py'
       - 'pipeline/complete_action_window_policy.py'
       - 'integrations/ffmpeg.py'
       - 'pipeline/tiered_qa_gate.py'
@@ -160,3 +162,7 @@ jobs:
         run: |
           command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
           python scripts/test_recording_end_tail_contract.py
+      - name: A wetsuit top and a black wetsuit are not an identity conflict (runs 42814819534/42857524999)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_wetsuit_coverage_identity_contract.py
