@@ -143,6 +143,45 @@ def _restore_persisted_evidence(video_path: str) -> str | None:
         return None
 
 
+_EVIDENCE_LOCKS: dict[str, Any] = {}
+
+
+def ensure_evidence_copy(video_path: str, timeout: int = 600) -> str | None:
+    """The evidence copy for this source, encoding it from the source once when none exists.
+
+    A source whose perception comes from the sidecar cache never goes through the single decode, so without
+    this it would never get a copy and QA would keep cutting every window from 4K. Encoding the whole source
+    costs about one 4K window cut; every later window, reel and run then cuts from the copy. Same filter and
+    encoder settings as the single decode, persisted the same way.
+    """
+    existing = evidence_copy_for(video_path)
+    if existing or not evidence_enabled() or shutil.which("ffmpeg") is None:
+        return existing
+    import threading
+
+    lock = _EVIDENCE_LOCKS.setdefault(os.path.abspath(video_path), threading.Lock())
+    with lock:
+        existing = evidence_copy_for(video_path)
+        if existing:
+            return existing
+        path = evidence_path_for(video_path)
+        tmp = f"{path}.{os.getpid()}.tmp.mp4"
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            subprocess.run(["ffmpeg", "-y", "-v", "error", "-i", video_path, "-vf", EVIDENCE_SCALE_FILTER,
+                            *_EVIDENCE_ENCODE_ARGS, tmp], capture_output=True, text=True, timeout=timeout, check=True)
+            os.replace(tmp, path)
+            with open(path + _MARKER_SUFFIX, "w", encoding="utf-8") as handle:
+                json.dump(_evidence_fingerprint(video_path), handle)
+            persist_evidence_copy(video_path, path)
+            return path
+        except Exception:
+            for leftover in (tmp,):
+                if os.path.exists(leftover):
+                    os.remove(leftover)
+            return None
+
+
 def evidence_copy_for(video_path: str) -> str | None:
     """The 1280 px evidence copy for exactly this source file (this run's single decode or the persisted copy)."""
     path = evidence_path_for(video_path)

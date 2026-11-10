@@ -64,6 +64,42 @@ def main() -> int:
         if not clips or inputs != [restored]:
             raise SystemExit(f"QA must cut from the restored evidence copy, not the source; ffmpeg inputs: {inputs}")
 
+        # A source whose perception was cached BEFORE copies were persisted has no copy at all: the first QA cut
+        # creates it once (whole source, single-decode settings) and persists it; the next cut reuses it.
+        os.environ["TMP_DIR"] = os.path.join(tmp, "run3")
+        os.makedirs(os.environ["TMP_DIR"])
+        cold = os.path.join(tmp, "dl3", "DJI_0153_D.MP4")
+        os.makedirs(os.path.dirname(cold))
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=30:duration=4",
+                        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", cold], check=True)
+        if sd.evidence_copy_for(cold) is not None:
+            raise SystemExit("fixture: the cold source must start without an evidence copy")
+        calls = []
+
+        def count(cmd, *a, **k):
+            if isinstance(cmd, list) and cmd and cmd[0] == "ffmpeg":
+                calls.append(cmd[cmd.index("-i") + 1])
+            return real_run(cmd, *a, **k)
+
+        se.subprocess.run = count
+        sd.subprocess.run = count
+        ctx = {"source_windows": [{"source": cold, "source_start": 0.5, "source_end": 2.0}]}
+        first = se.make_source_clips(ctx)
+        second = se.make_source_clips(ctx)
+        se.subprocess.run = real_run
+        sd.subprocess.run = real_run
+        made = sd.evidence_copy_for(cold)
+        if not first or not second or not made or not os.path.exists(sd._persistent_evidence_path(cold) or ""):
+            raise SystemExit("the first QA cut must create and persist the evidence copy")
+        if calls.count(cold) != 1 or calls.count(made) != 2:
+            raise SystemExit(f"the 4K source must be decoded once (for the copy), every cut from the copy: {calls}")
+        ref_decode = sd.prepare_single_decode(cold, os.path.join(tmp, "ref"), write_proxy=False)
+        psnr = subprocess.run(["ffmpeg", "-i", made, "-i", ref_decode["evidence"], "-lavfi", "psnr", "-f", "null", "-"],
+                              capture_output=True, text=True).stderr
+        avg = float(psnr.rsplit("average:", 1)[1].split()[0]) if "average:" in psnr else 0.0
+        if avg < 45.0 and "inf" not in psnr.rsplit("average:", 1)[-1][:8]:
+            raise SystemExit(f"the on-demand copy must match the single-decode copy, PSNR {avg:.1f} dB")
+
         other = os.path.join(tmp, "dl2", "DJI_0152_D.MP4")
         subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=1920x1080:rate=25:duration=3",
                         "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p", other], check=True)
