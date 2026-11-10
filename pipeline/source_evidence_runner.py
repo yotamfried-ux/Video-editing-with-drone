@@ -73,6 +73,16 @@ def _labeled_parts(uploaded: list[Any], clips: list[str], draft_duration: Any) -
                 where += (f", at draft time {_fmt(meta.get('rendered_timeline_start'))}-"
                           f"{_fmt(meta.get('rendered_timeline_end'))}")
             where += "." + _camera_clock(meta.get("source", ""), meta.get("source_start"), meta.get("source_end"))
+            recording_end = meta.get("recording_end")
+            if recording_end:
+                where += f" The recording itself ends at {_fmt(recording_end)}."
+                try:
+                    if float(meta.get("source_end")) >= float(recording_end) - 0.15:
+                        where += (" The draft already uses this window up to the last recorded frame: nothing exists "
+                                  "after it, so a ride that is still going there was cut by the camera, not by the "
+                                  "edit. Report that at most as a minor PREMATURE_CUT.")
+                except (TypeError, ValueError):
+                    pass
         parts += [
             f"VIDEO {number} of {total} - SOURCE EVIDENCE, NOT PART OF THE REEL.{where} It is un-cropped, so it "
             "shows a wider view and other people. Use it only to judge the draft: whether a cut ends a ride early, "

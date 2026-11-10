@@ -4,6 +4,12 @@ from __future__ import annotations
 from typing import Any
 
 _INSTALLED_FLAG = "_sportreel_complete_action_window_policy_installed"
+# A complete action that ends this close to the end of the recording is extended to it. The bound is final QA's
+# own DEAD_TIME definition ("more than ~2 seconds with no meaningful action", analyzer._QA_REEL_PROMPT), so the
+# extension can never add what QA calls dead time. Run 42857524999: drone files stop recording right after the
+# ride; the cut ended 0.2-1.6 s before the file end on 15 of 22 catalogued sources, and final QA reported the
+# missing fall/exit as PREMATURE_CUT ("just before the fall", "rides the whitewater for another second").
+RECORDING_END_TAIL_MAX_SEC = 2.0
 
 
 def _is_complete_performance_action(event: dict[str, Any]) -> bool:
@@ -12,7 +18,41 @@ def _is_complete_performance_action(event: dict[str, Any]) -> bool:
     )
 
 
-def normalize_complete_action_event(event: dict[str, Any]) -> dict[str, Any]:
+def _source_path(event: dict[str, Any], video_path: str | None) -> str | None:
+    return video_path or event.get("_src") or event.get("source_video") or event.get("source") or None
+
+
+def _recording_duration(path: str | None) -> float | None:
+    if not path:
+        return None
+    try:
+        from pipeline.stages import editor
+
+        duration = float(editor._get_duration(str(path)))
+    except Exception:
+        return None
+    return duration if 0 < duration < float("inf") else None
+
+
+def extend_to_recording_end(event: dict[str, Any], duration: float | None) -> dict[str, Any]:
+    """Let an action that ends within RECORDING_END_TAIL_MAX_SEC of the recording's end run to that end."""
+    if duration is None or event.get("_teaser"):
+        return event
+    refinement = event.get("window_refinement")
+    if isinstance(refinement, dict) and "track_lost_before_end" in (refinement.get("reasons") or []):
+        return event  # the athlete's track ended there: the tail may show nobody (or someone else)
+    try:
+        end = float(event.get("end"))
+    except (TypeError, ValueError):
+        return event
+    remaining = duration - end
+    if not (0.0 < remaining <= RECORDING_END_TAIL_MAX_SEC):
+        return event
+    return {**event, "end": round(duration, 3), "end_before_recording_tail": round(end, 3),
+            "recording_end_tail_sec": round(remaining, 3)}
+
+
+def normalize_complete_action_event(event: dict[str, Any], video_path: str | None = None) -> dict[str, Any]:
     """Persist the exact full action window used by the renderer and final QA.
 
     This normalization is intentionally applied both before cutting and when
@@ -20,7 +60,11 @@ def normalize_complete_action_event(event: dict[str, Any]) -> dict[str, Any]:
     identity/continuity gates later derive evidence from the persisted event.
     """
     effective = dict(event)
-    if not _is_complete_performance_action(effective) or effective.get("_teaser"):
+    if effective.get("_teaser"):
+        return effective
+    # Every sport, not only the surf contract below: the bound comes from QA's generic DEAD_TIME rule.
+    effective = extend_to_recording_end(effective, _recording_duration(_source_path(effective, video_path)))
+    if not _is_complete_performance_action(effective):
         return effective
     effective.pop("_cap_dur", None)
     effective.pop("_single_clip_cap", None)
@@ -57,7 +101,7 @@ def install() -> None:
         session_peak: int = 10,
         target_fps: int | None = None,
     ):
-        effective = normalize_complete_action_event(event)
+        effective = normalize_complete_action_event(event, video_path)
         return original_cut_clip(
             video_path,
             effective,
