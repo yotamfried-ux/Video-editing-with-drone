@@ -87,6 +87,8 @@ def main() -> int:
             raise SystemExit(f"the draft label must name the draft and its length: {draft_label!r}")
         if "NOT PART OF THE REEL" not in source_label or "3.0s-8.0s" not in source_label or "0.0s-5.0s" not in source_label:
             raise SystemExit(f"the source label must say it is evidence and which window/draft time it covers: {source_label!r}")
+        if "The recording itself ends at 12.0s." not in source_label or "cut by the camera" in source_label:
+            raise SystemExit(f"the label must give the recording end (and not call a mid-file cut the camera's): {source_label!r}")
         if "16:47:37.0-16:47:42.0 (camera clock)" not in source_label:
             raise SystemExit(f"a DJI window must carry its capture time so two similar waves are not one ride: {source_label!r}")
 

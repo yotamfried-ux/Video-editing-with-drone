@@ -30,6 +30,8 @@ on:
       - 'scripts/test_qa_evidence_video_labels_contract.py'
       - 'scripts/test_runtime_setup_contract.py'
       - 'scripts/test_qa_fallback_specs_contract.py'
+      - 'scripts/test_recording_end_tail_contract.py'
+      - 'pipeline/complete_action_window_policy.py'
       - 'integrations/ffmpeg.py'
       - 'pipeline/tiered_qa_gate.py'
       - 'pipeline/surf_ride_segment.py'
@@ -152,3 +154,9 @@ jobs:
         run: |
           command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
           python scripts/test_qa_fallback_specs_contract.py
+      - name: Actions ending within 2 s of the recording end run to it (run 42857524999 QA PREMATURE_CUT)
+        env:
+          PYTHONPATH: .
+        run: |
+          command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
+          python scripts/test_recording_end_tail_contract.py

@@ -65,7 +65,16 @@ def make_source_clips(context: dict[str, Any], tmp_dir: str | None = None) -> li
                 subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", src, "-t", str(end - start), "-c", "copy", out], capture_output=True, timeout=120, check=True)
             if os.path.exists(out):
                 clips.append(out)
+                try:
+                    from integrations.ffmpeg import get_duration
+
+                    recording_end = float(get_duration(src))
+                    if not 0 < recording_end < float("inf"):
+                        recording_end = None
+                except Exception:
+                    recording_end = None
                 _CLIP_WINDOWS[os.path.abspath(out)] = {
+                    "recording_end": round(recording_end, 2) if recording_end else None,
                     "window_index": idx,
                     "source": Path(src).name,
                     "source_start": _num(win.get("source_start")),
