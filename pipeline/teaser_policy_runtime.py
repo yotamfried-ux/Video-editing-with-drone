@@ -47,16 +47,19 @@ def install() -> None:
             return None
         return original_cut_clip_with_qa(video_path, event, index, *args, **kwargs)
 
-    def create_reel_without_teasers(video_path, events, sport="", athlete_label="", _events_out=None):
+    # **kwargs MUST be forwarded: this wrapper installs after publishable_reel_policy, so it is the outermost
+    # editor entry point. Dropping `invocation_id` raised TypeError, the caller silently re-rendered without the
+    # ID, and the QA gate then crashed with "unknown render invocation_id" (run 42474968394).
+    def create_reel_without_teasers(video_path, events, sport="", athlete_label="", _events_out=None, **kwargs):
         start_index = len(_events_out) if isinstance(_events_out, list) else 0
-        reels = original_create_reel(video_path, events, sport=sport, athlete_label=athlete_label, _events_out=_events_out)
+        reels = original_create_reel(video_path, events, sport=sport, athlete_label=athlete_label, _events_out=_events_out, **kwargs)
         if isinstance(_events_out, list):
             strip_teasers_from_events_out(_events_out, start_index)
         return reels
 
-    def compile_multi_source_reel_without_teasers(appearances, sport="", athlete_label="", _events_out=None):
+    def compile_multi_source_reel_without_teasers(appearances, sport="", athlete_label="", _events_out=None, **kwargs):
         start_index = len(_events_out) if isinstance(_events_out, list) else 0
-        reels = original_compile_multi_source_reel(appearances, sport=sport, athlete_label=athlete_label, _events_out=_events_out)
+        reels = original_compile_multi_source_reel(appearances, sport=sport, athlete_label=athlete_label, _events_out=_events_out, **kwargs)
         if isinstance(_events_out, list):
             strip_teasers_from_events_out(_events_out, start_index)
         return reels

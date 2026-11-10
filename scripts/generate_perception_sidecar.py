@@ -25,6 +25,7 @@ from pipeline.perception.equipment_association import (
     classify_track_activity_profiles,
     is_equipment_class,
 )
+from pipeline.perception import single_decode
 from pipeline.perception.producer import _tensor_values, detections_from_ultralytics_result, generate_sidecar
 from pipeline.perception.track_stitching import stitch_sidecar_payload
 
@@ -172,6 +173,33 @@ def _zero_detection_rescue_windows(
     return result
 
 
+def _read_frames_sequentially(cap: Any, targets: list[int], *, seek_gap: int):
+    """Yield ``(frame_index, frame)`` for ``targets`` in the given order, decoding forward instead of seeking.
+
+    A ``CAP_PROP_POS_FRAMES`` seek on long-GOP H.264/HEVC re-decodes from the previous keyframe, so the old
+    seek-per-sampled-frame loop cost ~1.2-1.7 s per frame on 4K sources (722 s of a 770 s, 20 s clip). Here we
+    only seek for backward jumps or forward gaps larger than ``seek_gap``; otherwise ``grab()`` skips frames
+    without colour conversion. Same frames, same order as before, so tracker state evolves identically.
+    """
+    import cv2  # type: ignore
+
+    pos: int | None = None  # index of the frame the next read() returns
+    for f_idx in targets:
+        if pos is None or f_idx < pos or f_idx - pos > seek_gap:
+            if not cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx):
+                raise RuntimeError(f"decoder seek failed at frame={f_idx}")
+            pos = f_idx
+        while pos < f_idx:
+            if not cap.grab():
+                raise RuntimeError(f"decoder grab failed at frame={pos}")
+            pos += 1
+        ok, frame = cap.read()
+        if not ok or frame is None:
+            raise RuntimeError(f"decoder read failed at frame={f_idx}")
+        pos = f_idx + 1
+        yield f_idx, frame
+
+
 def _run_targeted_window_escalation(
     video_path: str,
     model_name: str,
@@ -201,32 +229,29 @@ def _run_targeted_window_escalation(
     try:
         total_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
         model_obj = YOLO(model_name)
+        targets: list[int] = []
         for win in weak_windows:
             start_frame = max(0, int(round(float(win["start_sec"]) * fps)))
             end_frame = int(round(float(win["end_sec"]) * fps))
             if total_frames > 0:
                 end_frame = min(total_frames - 1, end_frame)
-            for f_idx in range(start_frame, end_frame + 1, max(1, escalation_stride)):
-                if not cap.set(cv2.CAP_PROP_POS_FRAMES, f_idx):
-                    raise RuntimeError(f"decoder seek failed at frame={f_idx}")
-                ok, frame = cap.read()
-                if not ok or frame is None:
-                    raise RuntimeError(f"decoder read failed at frame={f_idx}")
-                frames_evaluated += 1
-                track_kwargs: dict[str, Any] = {
-                    "source": frame,
-                    "tracker": tracker,
-                    "persist": True,
-                    "verbose": False,
-                    "imgsz": escalation_imgsz,
-                    "conf": 0.18,
-                    "classes": target_classes,
-                }
-                if device:
-                    track_kwargs["device"] = device
-                results = model_obj.track(**track_kwargs)
-                for res in results or []:
-                    escalated.extend(detections_from_ultralytics_result(res, frame_index=f_idx, fps=fps))
+            targets.extend(range(start_frame, end_frame + 1, max(1, escalation_stride)))
+        for f_idx, frame in _read_frames_sequentially(cap, targets, seek_gap=max(1, int(round(fps * 4)))):
+            frames_evaluated += 1
+            track_kwargs: dict[str, Any] = {
+                "source": frame,
+                "tracker": tracker,
+                "persist": True,
+                "verbose": False,
+                "imgsz": escalation_imgsz,
+                "conf": 0.18,
+                "classes": target_classes,
+            }
+            if device:
+                track_kwargs["device"] = device
+            results = model_obj.track(**track_kwargs)
+            for res in results or []:
+                escalated.extend(detections_from_ultralytics_result(res, frame_index=f_idx, fps=fps))
     except Exception as exc:
         raise RuntimeError(f"high-resolution perception escalation failed: {exc}") from exc
     finally:
@@ -235,6 +260,36 @@ def _run_targeted_window_escalation(
 
 
 def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
+    """Decode the source once (near-lossless 1280px intermediate + Gemini proxy), then run every YOLO pass on it."""
+    model = (args.ultralytics_model or os.getenv("SPORTREEL_ULTRALYTICS_MODEL", "")).strip()
+    if not model:
+        return generate_sidecar(args.video_path, args.output_path, backend="ultralytics")
+    t0 = time.monotonic()
+    decode = single_decode.prepare_single_decode(
+        args.video_path,
+        str(Path(args.output_path).resolve().parent),
+        write_proxy=os.getenv("SPORTREEL_PERCEPTION_WRITE_PROXY", "1").strip().lower() not in {"0", "false", "no", "off"},
+    )
+    decode_seconds = round(time.monotonic() - t0, 3)
+    try:
+        payload = _ultralytics_sidecar_from_frames(args, decode)
+        if isinstance(payload, dict) and payload.get("status") == "ok":
+            payload["decode"] = {
+                "mode": decode.get("mode"),
+                "reason": decode.get("reason"),
+                "intermediate_width": decode.get("intermediate_width"),
+                "intermediate_height": decode.get("intermediate_height"),
+                "proxy_premade": bool(decode.get("proxy")),
+                "seconds": decode_seconds,
+            }
+            _write_json(Path(args.output_path), payload)
+        return payload
+    finally:
+        single_decode.cleanup(decode)
+
+
+def _ultralytics_sidecar_from_frames(args: argparse.Namespace, decode: dict[str, Any]) -> dict[str, Any]:
+    frames_path = str(decode.get("frames_path") or args.video_path)
     model = (args.ultralytics_model or os.getenv("SPORTREEL_ULTRALYTICS_MODEL", "")).strip()
     if not model:
         return generate_sidecar(args.video_path, args.output_path, backend="ultralytics")
@@ -251,7 +306,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
     def _run_track_pass(current_stride: int, current_imgsz: int, conf_override: float | None = None) -> tuple[list[dict[str, Any]], _DetectorStats]:
         stride = current_stride
         track_kwargs: dict[str, Any] = {
-            "source": args.video_path,
+            "source": frames_path,
             "tracker": tracker,
             "persist": True,
             "stream": True,
@@ -273,7 +328,9 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
             pass_detections.extend(
                 detections_from_ultralytics_result(result, frame_index=result_index * stride, fps=fps)
             )
-        return pass_detections, pass_seen
+        if decode.get("mode") == "single_decode":
+            pass_seen.width, pass_seen.height = int(decode["source_width"]), int(decode["source_height"])
+        return single_decode.to_source_coordinates(pass_detections, decode), pass_seen
 
     t0_primary = time.monotonic()
     raw_all, seen = _run_track_pass(stride, imgsz)
@@ -308,7 +365,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
     if do_escalate and selected_windows and os.path.exists(args.video_path):
         t0_esc = time.monotonic()
         esc_all, esc_frames = _run_targeted_window_escalation(
-            args.video_path,
+            frames_path,
             model_name=model,
             tracker=tracker,
             device=device,
@@ -319,7 +376,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
             escalation_imgsz=1280,
         )
         cpu_sec_esc = round(time.monotonic() - t0_esc, 3)
-        esc_persons, esc_equips = _split_person_and_equipment(esc_all)
+        esc_persons, esc_equips = _split_person_and_equipment(single_decode.to_source_coordinates(esc_all, decode))
         person_detections, merge_stats = merge_escalated_detections(person_detections, esc_persons, selected_windows)
         if esc_equips:
             equipment_detections, _ = merge_escalated_detections(equipment_detections, esc_equips, selected_windows)
@@ -362,7 +419,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
         )
         t0_rescue = time.monotonic()
         esc_all, esc_frames = _run_targeted_window_escalation(
-            args.video_path,
+            frames_path,
             model_name=model,
             tracker=tracker,
             device=device,
@@ -377,7 +434,7 @@ def _fast_ultralytics_sidecar(args: argparse.Namespace) -> dict[str, Any]:
             "zero_rescue_windows_count": len(rescue_windows),
             "cpu_seconds_zero_rescue": round(time.monotonic() - t0_rescue, 3),
         })
-        esc_persons, esc_equips = _split_person_and_equipment(esc_all)
+        esc_persons, esc_equips = _split_person_and_equipment(single_decode.to_source_coordinates(esc_all, decode))
         if esc_persons:
             person_detections = esc_persons
             equipment_detections = esc_equips

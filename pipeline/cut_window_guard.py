@@ -73,9 +73,10 @@ def _patch_editor(editor: Any) -> None:
             pass
         return original_cut(video_path, event, index, slowmo, sport, source_info, session_peak, target_fps)
 
-    def compile_guarded(appearances, sport="", athlete_label="", _events_out=None):
+    def compile_guarded(appearances, sport="", athlete_label="", _events_out=None, **kwargs):
+        # Forward **kwargs (e.g. invocation_id) so wrapper order can never turn metadata into a TypeError.
         guarded = apply_to_appearances(appearances, sport, editor._get_duration)
-        return original_compile(guarded, sport, athlete_label, _events_out)
+        return original_compile(guarded, sport, athlete_label, _events_out, **kwargs)
 
     editor.cut_clip = cut_clip_guarded
     editor.compile_multi_source_reel = compile_guarded

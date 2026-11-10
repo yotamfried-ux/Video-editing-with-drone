@@ -18,6 +18,15 @@ on:
       - 'pipeline/source_evidence_runner.py'
       - 'scripts/ab_action_selection.py'
       - 'scripts/test_cost_time_optimizations_contract.py'
+      - 'pipeline/perception/single_decode.py'
+      - 'scripts/generate_perception_sidecar.py'
+      - 'scripts/test_single_decode_perception_contract.py'
+      - 'pipeline/context_qa_gate.py'
+      - 'pipeline/source_evidence_patch.py'
+      - 'pipeline/teaser_policy_runtime.py'
+      - 'pipeline/surf_ride_gate.py'
+      - 'pipeline/cut_window_guard.py'
+      - 'scripts/test_render_invocation_scope_contract.py'
       - 'scripts/test_verified_cluster_merge_contract.py'
       - 'scripts/test_ab_action_selection_contract.py'
       - 'scripts/test_render_reset_diagnostics_contract.py'
@@ -77,3 +86,9 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_follow_crop_simulation.py
+      - name: Single-decode perception (real ffmpeg + OpenCV, frame-exact intermediate, bound Gemini proxy)
+        env:
+          PYTHONPATH: .
+        run: |
+          python -m pip install --disable-pip-version-check opencv-python-headless numpy
+          python scripts/test_single_decode_perception_contract.py
