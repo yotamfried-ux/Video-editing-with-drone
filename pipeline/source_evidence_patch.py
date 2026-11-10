@@ -25,10 +25,8 @@ def install() -> None:
             return original_check(reel, *args, **kwargs)
         analyzer.qa_check_reel = contextual_check
         try:
-            try:
-                return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile, **kwargs)
-            except TypeError:
-                return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile)
+            # No TypeError retry: it re-ran the whole QA (model calls) without the invocation_id and hid real bugs.
+            return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile, **kwargs)
         finally:
             analyzer.qa_check_reel = original_check
 

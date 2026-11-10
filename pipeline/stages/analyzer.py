@@ -111,16 +111,24 @@ def _make_proxy(video_path: str) -> str | None:
     if width <= _PROXY_MAX_WIDTH:
         return None
 
-    stem = Path(video_path).stem
+    from pipeline.perception import single_decode as _single_decode
+
+    # The perception producer already decoded this source once and wrote the proxy from that same decode
+    # (identical filter/encoder settings, bound to this exact file). Reuse it instead of decoding 4K again.
+    premade = _single_decode.claim_premade_proxy(video_path)
+    if premade:
+        mb = Path(premade).stat().st_size / 1024 / 1024
+        print(f"♻️  Proxy reused from the single-decode perception pass: {Path(premade).name} ({mb:.1f} MB)")
+        return premade
+
     os.makedirs(config.TMP_DIR, exist_ok=True)
-    proxy_path = os.path.join(config.TMP_DIR, f"proxy_{stem}.mp4")
+    proxy_path = _single_decode.proxy_path_for(video_path)
     from integrations.stage_timer import timed
     with timed("analysis_proxy_encode", source=Path(video_path).name):
         subprocess.run([
             "ffmpeg", "-y", "-i", video_path,
-            "-vf", f"scale={_PROXY_MAX_WIDTH}:-2",
-            "-c:v", "libx264", "-crf", "28", "-preset", "veryfast",
-            "-an",
+            "-vf", _single_decode.PROXY_SCALE_FILTER,
+            *_single_decode.PROXY_ENCODE_ARGS,
             proxy_path,
         ], capture_output=True, timeout=300, check=True)
     mb = Path(proxy_path).stat().st_size / 1024 / 1024
@@ -1036,6 +1044,13 @@ def analyze_session(video_path: str) -> dict:
                 _delete_video(vf)
             if proxy_path and os.path.exists(proxy_path):
                 os.remove(proxy_path)
+            # A proxy pre-made by the perception single-decode pass is unused on a cache hit or when the
+            # activity-window video was uploaded instead; never leave it behind in TMP_DIR.
+            try:
+                from pipeline.perception.single_decode import discard_premade_proxy
+                discard_premade_proxy(chunk_path)
+            except Exception:
+                pass
 
     try:
         if not is_chunked:

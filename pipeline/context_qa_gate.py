@@ -122,7 +122,7 @@ def _context_prompt(context: dict[str, Any]) -> str:
     return "\nEDIT_SOURCE_CONTEXT_JSON:\n" + compact + "\nJudge the final draft against these source windows: identity continuity, early cuts, repeated source windows, and subject isolation."
 
 
-def _qa_gate_with_edit_context(orchestrator: Any, reels, events_out, sport, athlete_label, recompile):
+def _qa_gate_with_edit_context(orchestrator: Any, reels, events_out, sport, athlete_label, recompile, **kwargs):
     from pipeline.stages import analyzer
     context_by_reel = {reel: build_edit_context(reel, events) for reel, events in events_out}
     events_map = {reel: list(events or []) for reel, events in events_out}
@@ -162,7 +162,8 @@ def _qa_gate_with_edit_context(orchestrator: Any, reels, events_out, sport, athl
 
     analyzer.qa_check_reel = contextual_check
     try:
-        return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile)
+        # Forward invocation_id so QA activates exactly the scope its render registered.
+        return orchestrator._qa_gate(reels, events_out, sport, athlete_label, recompile, **kwargs)
     finally:
         analyzer.qa_check_reel = original_check
 
@@ -259,44 +260,29 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                             source_quality: dict, all_events: list[dict]) -> tuple[list, list]:
             """QA gate + draft naming for one rendered cluster. Runs on the QA worker while the next cluster renders."""
             inv_id = str(cluster.get("invocation_id") or "")
+            # No `except TypeError` legacy retries here: every editor wrapper forwards **kwargs, and a retry
+            # without invocation_id re-rendered the whole reel and broke the render-to-QA scope contract
+            # (run 42474968394: "unknown render invocation_id").
             def _recompile(evs: list[dict], out: list) -> list[str]:
-                try:
-                    result = orchestrator.compile_multi_source_reel(
-                        orchestrator._group_appearances(evs),
-                        sport=activity,
-                        athlete_label=cluster.get("description", ""),
-                        _events_out=out,
-                        invocation_id=inv_id,
-                    )
-                except TypeError:
-                    result = orchestrator.compile_multi_source_reel(
-                        orchestrator._group_appearances(evs),
-                        sport=activity,
-                        athlete_label=cluster.get("description", ""),
-                        _events_out=out,
-                    )
+                result = orchestrator.compile_multi_source_reel(
+                    orchestrator._group_appearances(evs),
+                    sport=activity,
+                    athlete_label=cluster.get("description", ""),
+                    _events_out=out,
+                    invocation_id=inv_id,
+                )
                 out[:] = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in out]
                 return result
 
-            try:
-                reels, events_by_reel, flagged = _qa_gate_with_edit_context(
-                    orchestrator,
-                    reels,
-                    events_out,
-                    activity,
-                    cluster.get("description", ""),
-                    _recompile,
-                    invocation_id=inv_id,
-                )
-            except TypeError:
-                reels, events_by_reel, flagged = _qa_gate_with_edit_context(
-                    orchestrator,
-                    reels,
-                    events_out,
-                    activity,
-                    cluster.get("description", ""),
-                    _recompile,
-                )
+            reels, events_by_reel, flagged = _qa_gate_with_edit_context(
+                orchestrator,
+                reels,
+                events_out,
+                activity,
+                cluster.get("description", ""),
+                _recompile,
+                invocation_id=inv_id,
+            )
             flagged_set = set(flagged or [])
             for reel in reels:
                 reel_events = _annotate_subject_gates(events_by_reel.get(reel, all_events), source_video, str(cluster.get("description", "")))
@@ -344,21 +330,13 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 inv_id = str(cluster.get("invocation_id") or f"inv_{ci}_{_uuid.uuid4().hex[:8]}")
                 cluster["invocation_id"] = inv_id
                 events_out: list[tuple[str, list[dict]]] = []
-                try:
-                    reels = orchestrator.compile_multi_source_reel(
-                        cluster.get("appearances", []),
-                        sport=activity,
-                        athlete_label=cluster.get("description", ""),
-                        _events_out=events_out,
-                        invocation_id=inv_id,
-                    )
-                except TypeError:
-                    reels = orchestrator.compile_multi_source_reel(
-                        cluster.get("appearances", []),
-                        sport=activity,
-                        athlete_label=cluster.get("description", ""),
-                        _events_out=events_out,
-                    )
+                reels = orchestrator.compile_multi_source_reel(
+                    cluster.get("appearances", []),
+                    sport=activity,
+                    athlete_label=cluster.get("description", ""),
+                    _events_out=events_out,
+                    invocation_id=inv_id,
+                )
                 events_out = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in events_out]
                 args = (cluster, reels, events_out, source_video, source_quality, all_events)
                 if qa_pool is None:

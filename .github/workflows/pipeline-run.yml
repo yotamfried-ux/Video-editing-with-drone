@@ -277,6 +277,15 @@ jobs:
           RAW_BATCH_ID: ${{ github.event.client_payload.batch_id || inputs.batch_id || '' }}
         run: python scripts/preflight_frozen_inputs.py --phase run
 
+      # The YOLO weights converted to OpenVINO once (pipeline/perception/cpu_runtime.py): 3-4x faster CPU
+      # inference with the same FP32 weights. A miss only costs a ~15 s one-time export.
+      - name: Restore OpenVINO model export
+        id: openvino-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/sportreel/openvino
+          key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+
       - name: Restore LLM analysis cache
         uses: actions/cache/restore@v4
         with:
@@ -357,6 +366,14 @@ jobs:
             yolo11n.pt
             yolo11s.pt
           key: models-v1-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+
+      - name: Save OpenVINO model export
+        if: always() && steps.openvino-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/sportreel/openvino
+          key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
 
       - name: Save LLM analysis cache
         # Saved even when the run fails: the analysis is the expensive part and stays valid.

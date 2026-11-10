@@ -34,6 +34,8 @@ import math
 import os
 import shlex
 import subprocess
+import threading
+import time
 from pathlib import Path
 from typing import Any
 
@@ -103,6 +105,30 @@ def _num(value: Any, default: float = 0.0) -> float:
         return float(value)
     except (TypeError, ValueError):
         return default
+
+
+_CONCURRENCY_ENV = "SPORTREEL_PERCEPTION_CONCURRENCY"
+_PRODUCER_SLOTS: threading.BoundedSemaphore | None = None
+_PRODUCER_SLOTS_LOCK = threading.Lock()
+
+
+def _producer_slots() -> threading.BoundedSemaphore:
+    """Process-wide cap on concurrent CPU-bound perception producers.
+
+    Each producer already saturates every core (multi-threaded 4K decode + torch inference). With
+    ANALYSIS_WORKERS=3 on a 4-vCPU runner, three producers at once oversubscribed the CPU so badly that
+    three clips took longer than running them one after another. Analysis workers still overlap their
+    Gemini uploads/calls (network waits) while one producer owns the CPU.
+    """
+    global _PRODUCER_SLOTS
+    with _PRODUCER_SLOTS_LOCK:
+        if _PRODUCER_SLOTS is None:
+            try:
+                n = max(1, int(os.getenv(_CONCURRENCY_ENV, "1")))
+            except ValueError:
+                n = 1
+            _PRODUCER_SLOTS = threading.BoundedSemaphore(n)
+        return _PRODUCER_SLOTS
 
 
 def _timeout_sec() -> int:
@@ -413,8 +439,14 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
     }
     try:
         from integrations.stage_timer import timed
-        with timed("yolo_perception", source=Path(video_path).name):
-            subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
+        waited = time.monotonic()
+        with _producer_slots():
+            waited = time.monotonic() - waited
+            if waited >= 1.0:
+                print(f"⏳ Perception slot acquired for '{Path(video_path).name}' after {waited:.0f}s (one CPU-bound producer at a time)")
+            # The timeout bounds the producer itself, never time spent waiting for a slot.
+            with timed("yolo_perception", source=Path(video_path).name):
+                subprocess.run(args, check=True, capture_output=True, text=True, timeout=_timeout_sec(), env=env)
     except Exception as exc:
         message = _producer_failure_message(exc)
         if perception_required():

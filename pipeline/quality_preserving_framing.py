@@ -503,35 +503,33 @@ def _even(value: float, minimum: int = 2) -> int:
     return result if result % 2 == 0 else result - 1
 
 
-def _render_clip(
-    video_path: str,
+def _clip_filter_graph(
     event: dict[str, Any],
-    index: int,
+    start: float,
     decision: FramingDecision,
-) -> str | None:
-    from pipeline.stages import editor
+    *,
+    src: str = "0:v",
+    out: str = "out",
+    tag: str = "",
+) -> str:
+    """The framing filter graph for one clip, from input stream ``[src]`` to ``[out]``.
 
-    clamped = editor._clamp(event["start"], event["end"], video_path)
-    if clamped is None:
-        return None
-    start, end = clamped
-    duration = max(0.0, end - start)
-    if duration <= 0:
-        return None
-
+    Shared by the per-clip encode (``_render_clip``) and single-pass compile (``expand_single_pass``), so
+    both paths frame a clip identically. ``tag`` makes internal labels unique inside a combined graph.
+    """
     if decision.mode == "contain":
         filter_complex = (
-            f"[0:v]split[bg_in][fg_in];"
+            f"[{src}]split[bg_in{tag}][fg_in{tag}];"
             # The backdrop is blurred anyway, so blur a 1/8-scale copy (sigma 30/8) and scale it back up:
             # visually the same, but the single-threaded 4K gaussian blur no longer gates the encoder.
-            f"[bg_in]scale={OUTPUT_WIDTH // _BG_DOWNSCALE}:{OUTPUT_HEIGHT // _BG_DOWNSCALE}:"
+            f"[bg_in{tag}]scale={OUTPUT_WIDTH // _BG_DOWNSCALE}:{OUTPUT_HEIGHT // _BG_DOWNSCALE}:"
             "force_original_aspect_ratio=increase:flags=bilinear,"
             f"crop={OUTPUT_WIDTH // _BG_DOWNSCALE}:{OUTPUT_HEIGHT // _BG_DOWNSCALE},"
             f"gblur=sigma={30 / _BG_DOWNSCALE:g}:steps=2,"
-            f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=bicubic[bg];"
-            f"[fg_in]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
-            "force_original_aspect_ratio=decrease:flags=lanczos[fg];"
-            "[bg][fg]overlay=(W-w)/2:(H-h)/2,format=yuv420p[out]"
+            f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=bicubic[bg{tag}];"
+            f"[fg_in{tag}]scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:"
+            f"force_original_aspect_ratio=decrease:flags=lanczos[fg{tag}];"
+            f"[bg{tag}][fg{tag}]overlay=(W-w)/2:(H-h)/2,format=yuv420p[{out}]"
         )
     elif decision.mode == "follow_crop" and decision.path:
         frame_w, frame_h = decision.frame_width, decision.frame_height
@@ -541,9 +539,9 @@ def _render_clip(
         x_expr = follow_expression(decision.path, 1, start)
         y_expr = follow_expression(decision.path, 2, start)
         filter_complex = (
-            f"[0:v]crop={crop_w}:{crop_h}:x='{x_expr}':y='{y_expr}':exact=1,"
+            f"[{src}]crop={crop_w}:{crop_h}:x='{x_expr}':y='{y_expr}':exact=1,"
             f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos,"
-            "format=yuv420p[out]"
+            f"format=yuv420p[{out}]"
         )
     else:
         frame_w = _number(event.get("perception_frame_width") or event.get("frame_width"))
@@ -560,16 +558,46 @@ def _render_clip(
         x = max(0, min(_even(frame_w - crop_w, 0), int(round(center_x - crop_w / 2))))
         y = max(0, min(_even(frame_h - crop_h, 0), int(round(center_y - crop_h / 2))))
         filter_complex = (
-            f"[0:v]crop={crop_w}:{crop_h}:{x}:{y},"
+            f"[{src}]crop={crop_w}:{crop_h}:{x}:{y},"
             f"scale={OUTPUT_WIDTH}:{OUTPUT_HEIGHT}:flags=lanczos,"
-            "format=yuv420p[out]"
+            f"format=yuv420p[{out}]"
         )
+    return filter_complex
+
+
+def _render_clip(
+    video_path: str,
+    event: dict[str, Any],
+    index: int,
+    decision: FramingDecision,
+    *,
+    defer: bool = False,
+) -> str | None:
+    """Render one clip file; with ``defer`` (production cut path, single pass) return a render spec instead."""
+    from pipeline.stages import editor
+
+    clamped = editor._clamp(event["start"], event["end"], video_path)
+    if clamped is None:
+        return None
+    start, end = clamped
+    duration = max(0.0, end - start)
+    if duration <= 0:
+        return None
+
+    filter_complex = _clip_filter_graph(event, start, decision)
 
     os.makedirs(os.getenv("TMP_DIR", "/tmp/dtor"), exist_ok=True)
     out = os.path.join(
         os.getenv("TMP_DIR", "/tmp/dtor"),
         f"{Path(video_path).stem}_clip{index:02d}.mp4",
     )
+    if defer:
+        return _defer_clip(out, video_path, event, index, decision, start, duration)
+    return _encode_clip(out, video_path, start, duration, filter_complex)
+
+
+def _encode_clip(out: str, video_path: str, start: float, duration: float, filter_complex: str) -> str | None:
+    """Per-clip encode (the pre-single-pass path; still used as the single-pass fallback)."""
     command = [
         "ffmpeg", "-y",
         "-ss", str(start),
@@ -608,6 +636,136 @@ def _render_clip(
     return out
 
 
+# ---------------------------------------------------------------- single-pass rendering
+# Each clip used to be a full lossy 4K x264 encode (CRF 12, capped at 45 Mb/s) that compile_reel then decoded
+# and encoded AGAIN (CRF 14). With single pass, a clip is a render spec ("virtual clip") and compile_reel's one
+# ffmpeg run reads the sources directly: one decode of each source window, one lossy encode per reel.
+# Measured on a 3-clip 4K vertical reel (4 vCPU): 112 s -> 68 s, SSIM vs a lossless render 0.833 -> 0.840 at a
+# third of the file size (same 45 Mb/s cap the intermediate clips had). See
+# docs/evidence/run-42474968394-failure-and-runtime.md.
+_SINGLE_PASS_ENV = "SPORTREEL_SINGLE_PASS_RENDER"
+_SINGLE_PASS_RATE_CAP = ["-maxrate", "45M", "-bufsize", "90M"]
+_VIRTUAL_CLIPS: dict[str, dict[str, Any]] = {}
+_VIRTUAL_LOCK = threading.Lock()
+
+
+def single_pass_enabled() -> bool:
+    """Single pass needs no per-clip file; per-clip QA (QA_CROP_CHECK) inspects real clip files, so it opts out."""
+    if os.getenv(_SINGLE_PASS_ENV, "1").strip().lower() in {"0", "false", "no", "off"}:
+        return False
+    try:
+        import config
+
+        if bool(getattr(config, "QA_CROP_CHECK", False)):
+            return False
+    except Exception:
+        pass
+    return True
+
+
+def _virtual_frames(duration: float) -> int:
+    return max(1, int(round(duration * OUTPUT_FPS)))
+
+
+def _defer_clip(out: str, video_path: str, event: dict[str, Any], index: int, decision: FramingDecision,
+                start: float, duration: float) -> str:
+    frames = _virtual_frames(duration)
+    with _VIRTUAL_LOCK:
+        _VIRTUAL_CLIPS[os.path.abspath(out)] = {
+            "source": video_path,
+            "event": dict(event),
+            "index": index,
+            "decision": decision,
+            "start": float(start),
+            "duration": float(duration),
+            "frames": frames,
+        }
+    return out
+
+
+def virtual_clip(path: str) -> dict[str, Any] | None:
+    with _VIRTUAL_LOCK:
+        return _VIRTUAL_CLIPS.get(os.path.abspath(str(path)))
+
+
+def _forget_virtual_clips(paths: list[str]) -> None:
+    with _VIRTUAL_LOCK:
+        for path in paths or []:
+            _VIRTUAL_CLIPS.pop(os.path.abspath(str(path)), None)
+
+
+def virtual_duration(path: str) -> float | None:
+    """Exact duration of a deferred clip: the graph emits exactly ``frames`` frames at OUTPUT_FPS."""
+    spec = virtual_clip(path)
+    return None if spec is None else spec["frames"] / float(OUTPUT_FPS)
+
+
+def expand_single_pass(cmd: list[str]) -> list[str]:
+    """Rewrite a compile_reel command whose clip inputs are virtual into one pass over the sources.
+
+    Input k ``-i <virtual clip>`` becomes ``-ss start -t dur -i <source>`` (input count and order unchanged,
+    so the logo/music indices in compile's graph stay valid), the clip's framing graph is prepended, and every
+    ``[k:v]`` reference in compile's graph is pointed at that clip's output. Each clip is forced to exactly
+    ``frames`` frames at OUTPUT_FPS (fps + tpad clone + trim), matching the duration the timeline was built on.
+    """
+    if "-filter_complex" not in cmd:
+        return cmd
+    out_cmd: list[str] = []
+    clip_graphs: list[str] = []
+    virtual_inputs: dict[int, str] = {}
+    input_index = 0
+    i = 0
+    while i < len(cmd):
+        token = cmd[i]
+        if token == "-i" and i + 1 < len(cmd):
+            spec = virtual_clip(cmd[i + 1])
+            if spec is not None:
+                label = f"vclip{input_index}"
+                out_cmd += ["-ss", str(spec["start"]), "-t", str(spec["duration"]), "-i", spec["source"]]
+                graph = _clip_filter_graph(spec["event"], spec["start"], spec["decision"],
+                                           src=f"{input_index}:v", out=f"{label}raw", tag=str(input_index))
+                clip_graphs.append(
+                    f"{graph};[{label}raw]fps={OUTPUT_FPS},tpad=stop_mode=clone:stop_duration=2,"
+                    f"trim=end_frame={spec['frames']},setpts=PTS-STARTPTS[{label}]"
+                )
+                virtual_inputs[input_index] = label
+            else:
+                out_cmd += [token, cmd[i + 1]]
+            input_index += 1
+            i += 2
+            continue
+        out_cmd.append(token)
+        i += 1
+    if not virtual_inputs:
+        return cmd
+    fc_at = out_cmd.index("-filter_complex") + 1
+    graph = out_cmd[fc_at]
+    for k, label in virtual_inputs.items():
+        graph = graph.replace(f"[{k}:v]", f"[{label}]")
+    out_cmd[fc_at] = ";".join(clip_graphs + [graph])
+    if "-maxrate" not in out_cmd and "-crf" in out_cmd:
+        at = out_cmd.index("-crf")
+        out_cmd[at:at] = list(_SINGLE_PASS_RATE_CAP)
+    return out_cmd
+
+
+def materialize_virtual_clips(paths: list[str]) -> list[str] | None:
+    """Fallback: encode each deferred clip to a real file (the pre-single-pass path). None if any fails."""
+    real: list[str] = []
+    for path in paths:
+        spec = virtual_clip(path)
+        if spec is None:
+            real.append(path)
+            continue
+        graph = _clip_filter_graph(spec["event"], spec["start"], spec["decision"])
+        clip = _encode_clip(path, spec["source"], spec["start"], spec["duration"], graph)
+        if clip is None:
+            return None
+        real.append(clip)
+    _forget_virtual_clips(paths)
+    return real
+
+
 def quality_output_issues(specs: dict[str, Any], base_issues: list[str]) -> list[str]:
     issues = list(base_issues)
     try:
@@ -642,6 +800,7 @@ def install() -> None:
 
     original_cut_clip = editor.cut_clip
     original_compile_reel = editor.compile_reel
+    original_get_duration = editor._get_duration
     original_specs = ffmpeg_helpers.get_reel_specs
     original_issues = publishable_reel_policy.social_ready_issues
 
@@ -659,7 +818,7 @@ def install() -> None:
         decision = decide_framing(event, sport=sport, source_info=source_info)
         decision = _resolve_track_safe_decision(video_path, event, decision)
         _record_decision(video_path, {**event, "sport": sport}, decision)
-        clip = _render_clip(video_path, event, index, decision)
+        clip = _render_clip(video_path, event, index, decision, defer=single_pass_enabled())
         if clip:
             _export_edl_clip(video_path, event, decision, clip)
         return clip
@@ -670,10 +829,28 @@ def install() -> None:
             mutable_args[8] = OUTPUT_FPS
         else:
             kwargs["fps"] = OUTPUT_FPS
-        result = original_compile_reel(*mutable_args, **kwargs)
-        if result:
-            _export_edl_reel(original_compile_reel, mutable_args, kwargs)
-        return result
+        clip_paths = list(_compile_reel_arguments(mutable_args, kwargs).get("clip_paths") or [])
+        try:
+            result = original_compile_reel(*mutable_args, **kwargs)
+            if not result and any(virtual_clip(p) for p in clip_paths):
+                # A single-pass failure must never cost the reel: render the clips the old way and retry once.
+                logger.warning("Single-pass compile failed; falling back to per-clip encode for %d clip(s)", len(clip_paths))
+                real = materialize_virtual_clips(clip_paths)
+                if real is not None:
+                    if "clip_paths" in kwargs:
+                        kwargs["clip_paths"] = real
+                    else:
+                        mutable_args[0] = real
+                    result = original_compile_reel(*mutable_args, **kwargs)
+            if result:
+                _export_edl_reel(original_compile_reel, mutable_args, kwargs)
+            return result
+        finally:
+            _forget_virtual_clips(clip_paths)
+
+    def duration_with_virtual_clips(path: str) -> float:
+        virtual = virtual_duration(path)
+        return virtual if virtual is not None else original_get_duration(path)
 
     def specs_with_fps(path: str) -> dict[str, Any]:
         specs = original_specs(path)
@@ -684,6 +861,8 @@ def install() -> None:
 
     editor.cut_clip = quality_cut_clip
     editor.compile_reel = compile_4k_30
+    editor._get_duration = duration_with_virtual_clips
+    editor._finalize_compile_command = expand_single_pass
     ffmpeg_helpers.get_reel_specs = specs_with_fps
     publishable_reel_policy.social_ready_issues = publishable_issues
     silent_output_policy.silent_social_ready_issues = publishable_issues

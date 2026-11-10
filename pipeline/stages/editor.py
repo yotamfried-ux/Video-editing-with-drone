@@ -1298,6 +1298,15 @@ def _add_loop_bookend(reel_path: str, total_dur: float, has_audio: bool = False)
             pass
 
 
+def _finalize_compile_command(cmd: list[str]) -> list[str]:
+    """Seam for pipeline.quality_preserving_framing: expands deferred (single-pass) clip inputs.
+
+    Identity by default. With single-pass rendering the clip "files" are render specs, and this turns
+    the compile into ONE ffmpeg pass that reads the sources directly (one lossy encode per reel).
+    """
+    return cmd
+
+
 def compile_reel(
     clip_paths: list[str],
     logo_path: str,
@@ -1461,7 +1470,7 @@ def compile_reel(
 
     print(f"🎬 Compiling: {n} clip(s), {total_dur:.0f}s → {Path(output_path).name}{music_tag}")
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+        r = subprocess.run(_finalize_compile_command(cmd), capture_output=True, text=True, timeout=600)
         if r.returncode != 0:
             logger.error("Reel compile: %s", r.stderr[-2000:])
             print(f"❌ Compile failed: {r.stderr[-400:]}")

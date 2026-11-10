@@ -14,17 +14,18 @@ def _patch_editor(editor: Any) -> None:
     original_create = editor.create_reel
     original_multi = editor.compile_multi_source_reel
 
-    def create_reel_with_rides(video_path, events, sport="", athlete_label="", _events_out=None):
+    # Forward **kwargs (e.g. invocation_id) so wrapper order can never turn pipeline metadata into a TypeError.
+    def create_reel_with_rides(video_path, events, sport="", athlete_label="", _events_out=None, **kwargs):
         rides = normalize_surf_rides(events, sport)
-        return original_create(video_path, rides, sport, athlete_label, _events_out)
+        return original_create(video_path, rides, sport, athlete_label, _events_out, **kwargs)
 
-    def compile_multi_with_rides(appearances, sport="", athlete_label="", _events_out=None):
+    def compile_multi_with_rides(appearances, sport="", athlete_label="", _events_out=None, **kwargs):
         guarded = []
         for app in appearances or []:
             events = [{**event, "_src": app.get("path")} for event in app.get("events", [])]
             rides = normalize_surf_rides(events, sport)
             guarded.append({**app, "events": rides})
-        return original_multi(guarded, sport, athlete_label, _events_out)
+        return original_multi(guarded, sport, athlete_label, _events_out, **kwargs)
 
     editor.create_reel = create_reel_with_rides
     editor.compile_multi_source_reel = compile_multi_with_rides

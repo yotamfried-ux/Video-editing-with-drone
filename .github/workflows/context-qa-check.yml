@@ -10,6 +10,14 @@ on:
       - 'scripts/sitecustomize.py'
       - 'scripts/test_context_qa_gate_contract.py'
       - 'scripts/test_qa_overlap_contract.py'
+      - 'scripts/test_render_invocation_scope_contract.py'
+      - 'pipeline/source_evidence_patch.py'
+      - 'pipeline/teaser_policy_runtime.py'
+      - 'pipeline/surf_ride_gate.py'
+      - 'pipeline/cut_window_guard.py'
+      - 'pipeline/publishable_pending_scope.py'
+      - 'pipeline/publishable_qa_evidence.py'
+      - 'pipeline/bootstrap.py'
       - 'scripts/test_production_qa_failure_modes.py'
       - 'scripts/test_production_qa_manifest_coverage_simulation.py'
       - 'pipeline/source_evidence_runner.py'
@@ -35,3 +43,7 @@ jobs:
         run: PYTHONPATH=. python scripts/test_production_qa_failure_modes.py
       - name: Production QA manifest coverage simulation
         run: PYTHONPATH=. python scripts/test_production_qa_manifest_coverage_simulation.py
+      - name: Render invocation ID survives the real bootstrap wrapper stack (run 42474968394 regression)
+        run: |
+          python -m pip install --disable-pip-version-check google-genai langsmith httplib2 google-api-python-client google-auth-oauthlib
+          PYTHONPATH=. python scripts/test_render_invocation_scope_contract.py
