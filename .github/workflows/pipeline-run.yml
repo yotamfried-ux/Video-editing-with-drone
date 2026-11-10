@@ -385,6 +385,16 @@ jobs:
           path: ~/.cache/sportreel/openvino
           key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
 
+      - name: Prune QA evidence copies unused for 14 days
+        # pipeline/perception/single_decode.py keeps each source's 1280 px QA evidence copy in the LLM cache so
+        # a run with cached perception never re-decodes 4K for QA; a copy's mtime is refreshed on every use.
+        if: always()
+        run: |
+          if [ -d /tmp/llm-cache/qa-evidence ]; then
+            find /tmp/llm-cache/qa-evidence -type f -mtime +14 -delete || true
+            du -sh /tmp/llm-cache/qa-evidence || true
+          fi
+
       - name: Save LLM analysis cache
         # Saved even when the run fails: the analysis is the expensive part and stays valid.
         if: always()
