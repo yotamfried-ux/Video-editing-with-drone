@@ -59,10 +59,42 @@ def main() -> None:
         if not proxy or not os.path.exists(proxy) or os.path.basename(proxy) != "proxy_DJI_test_0001_D.mp4":
             fail(f"Gemini proxy must be written from the same decode under the analyzer's name, got {proxy!r}")
 
+        # 1b. The QA evidence copy (1280 px, native fps) comes from the same decode; QA cuts its windows from it.
+        evidence = sd.evidence_copy_for(src)
+        if not evidence:
+            fail("the single decode must also write the 1280 px QA evidence copy, bound to its source")
+        from pipeline import source_evidence
+
+        ran: list[list[str]] = []
+        real_run = source_evidence.subprocess.run
+
+        def spy(cmd, *a, **k):
+            ran.append(cmd)
+            return real_run(cmd, *a, **k)
+
+        source_evidence.subprocess.run = spy
+        try:
+            ctx = {"source_windows": [{"source": src, "source_start": 2.5, "source_end": 3.0}]}
+            got = source_evidence.make_source_clips(ctx, os.path.join(tmp, "qa"))
+            if not got or ran[0][ran[0].index("-i") + 1] != evidence:
+                fail("QA source evidence must be cut from the evidence copy, not the original 4K source")
+            ref = os.path.join(tmp, "ref_qa.mp4")
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-ss", "0.5", "-i", src, "-t", "4.5", "-vf", "scale='min(1280,iw)':-2",
+                            "-c:v", "libx264", "-preset", "veryfast", "-crf", "26", "-pix_fmt", "yuv420p", "-an", ref], check=True)
+            psnr = subprocess.run(["ffmpeg", "-i", got[0], "-i", ref, "-lavfi", "psnr", "-f", "null", "-"],
+                                  capture_output=True, text=True).stderr
+            avg = float(psnr.rsplit("average:", 1)[1].split()[0]) if "average:" in psnr else 0.0
+            if avg < 38.0:
+                fail(f"evidence clip from the copy must match the 4K-cut clip closely, PSNR {avg:.1f} dB")
+        finally:
+            source_evidence.subprocess.run = real_run
+
         # 2. The proxy is bound to this exact source; a modified source must not reuse it.
         os.utime(src, ns=(os.stat(src).st_atime_ns, os.stat(src).st_mtime_ns + 1_000_000_000))
         if sd.claim_premade_proxy(src) is not None:
             fail("a proxy made for a different source version must never be claimed")
+        if sd.evidence_copy_for(src) is not None:
+            fail("an evidence copy made for a different source version must never be used")
         decode2 = sd.prepare_single_decode(src, os.path.join(tmp, "work"))
         if sd.claim_premade_proxy(src) != decode2.get("proxy"):
             fail("the proxy made for this exact source must be claimable once")

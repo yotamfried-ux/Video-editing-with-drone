@@ -49,6 +49,14 @@ _INTERMEDIATE_ENCODE_ARGS = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", 
 _DISK_FACTOR = 4.0
 _DISK_RESERVE_BYTES = 3 * 1024 ** 3
 _MARKER_SUFFIX = ".premade.json"
+
+# QA source-evidence copy. pipeline.source_evidence cuts its <=1280 px, CRF 26 windows from the 4K source; while
+# rendering, that re-decoded the same 4K windows for every reel (run 42814819534: ~14 s per window, competing with
+# the renderer for the CPU). The single decode also writes a near-transparent 1280 px copy (CRF 18, native frame
+# rate, same bicubic scale as the evidence clips) that QA cuts from instead. One more decode avoided per window.
+EVIDENCE_SCALE_FILTER = "scale=1280:-2"
+_EVIDENCE_ENCODE_ARGS = ["-c:v", "libx264", "-preset", "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", "-an"]
+_EVIDENCE_ENV = "SPORTREEL_EVIDENCE_PROXY"
 _DISABLE_ENV = "SPORTREEL_SINGLE_DECODE"
 
 
@@ -74,6 +82,32 @@ def _source_fingerprint(video_path: str) -> dict[str, Any]:
         "scale": PROXY_SCALE_FILTER,
         "encode": PROXY_ENCODE_ARGS,
     }
+
+
+def evidence_path_for(video_path: str) -> str:
+    return os.path.join(_tmp_dir(), f"qa_evidence_{Path(video_path).stem}.mp4")
+
+
+def _evidence_fingerprint(video_path: str) -> dict[str, Any]:
+    return {**_source_fingerprint(video_path), "scale": EVIDENCE_SCALE_FILTER, "encode": _EVIDENCE_ENCODE_ARGS}
+
+
+def evidence_enabled() -> bool:
+    return os.getenv(_EVIDENCE_ENV, "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def evidence_copy_for(video_path: str) -> str | None:
+    """The 1280 px evidence copy made by the single decode for exactly this source file, else None."""
+    path = evidence_path_for(video_path)
+    try:
+        if not (os.path.exists(path) and os.path.getsize(path) > 0):
+            return None
+        with open(path + _MARKER_SUFFIX, encoding="utf-8") as handle:
+            if json.load(handle) != _evidence_fingerprint(video_path):
+                return None
+        return path
+    except (OSError, ValueError):
+        return None
 
 
 def claim_premade_proxy(video_path: str) -> str | None:
@@ -175,25 +209,32 @@ def prepare_single_decode(video_path: str, work_dir: str, *, write_proxy: bool =
     # MP4 stores an exact frame count (MKV only lets OpenCV estimate it), which the exactness check needs.
     intermediate = os.path.join(work_dir, f"perception_{Path(video_path).stem}_{os.getpid()}.mp4")
     proxy = proxy_path_for(video_path) if write_proxy else None
-    if proxy:
-        os.makedirs(os.path.dirname(proxy), exist_ok=True)
+    evidence = evidence_path_for(video_path) if evidence_enabled() else None
+    for path in (proxy, evidence):
+        if path:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
 
+    branches = [("perc", f"scale={INTERMEDIATE_WIDTH}:-2:flags=area,format=yuv444p")]
     if proxy:
-        graph = (
-            f"[0:v]split=2[p][g];"
-            f"[p]scale={INTERMEDIATE_WIDTH}:-2:flags=area,format=yuv444p[perc];"
-            f"[g]{PROXY_SCALE_FILTER}[prox]"
-        )
+        branches.append(("prox", PROXY_SCALE_FILTER))
+    if evidence:
+        branches.append(("evid", EVIDENCE_SCALE_FILTER))
+    if len(branches) == 1:
+        graph = f"[0:v]{branches[0][1]}[{branches[0][0]}]"
     else:
-        graph = f"[0:v]scale={INTERMEDIATE_WIDTH}:-2:flags=area,format=yuv444p[perc]"
+        graph = f"[0:v]split={len(branches)}" + "".join(f"[{name}_in]" for name, _ in branches) + ";" + ";".join(
+            f"[{name}_in]{flt}[{name}]" for name, flt in branches
+        )
     cmd = ["ffmpeg", "-y", "-v", "error", "-i", video_path, "-filter_complex", graph,
            "-map", "[perc]", "-fps_mode", "passthrough", *_INTERMEDIATE_ENCODE_ARGS, intermediate]
     if proxy:
         cmd += ["-map", "[prox]", *PROXY_ENCODE_ARGS, proxy]
+    if evidence:
+        cmd += ["-map", "[evid]", *_EVIDENCE_ENCODE_ARGS, evidence]
     try:
         subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=True)
     except Exception as exc:  # noqa: BLE001 - fall back to the direct (slower) path, never fail perception here
-        for path in (intermediate, proxy):
+        for path in (intermediate, proxy, evidence):
             if path and os.path.exists(path):
                 os.remove(path)
         detail = getattr(exc, "stderr", "") or str(exc)
@@ -205,18 +246,23 @@ def prepare_single_decode(video_path: str, work_dir: str, *, write_proxy: bool =
     int_info = _probe(intermediate) or {}
     if not src_frames or not int_frames or src_frames != int_frames or not int_info.get("width"):
         os.remove(intermediate)
-        if proxy and os.path.exists(proxy):
-            os.remove(proxy)
+        for path in (proxy, evidence):
+            if path and os.path.exists(path):
+                os.remove(path)
         return {**direct, "source_width": src_w, "source_height": src_h,
                 "reason": f"frame_count_mismatch source={src_frames} intermediate={int_frames}"}
 
     if proxy:
         with open(proxy + _MARKER_SUFFIX, "w", encoding="utf-8") as handle:
             json.dump(_source_fingerprint(video_path), handle)
+    if evidence and os.path.exists(evidence):
+        with open(evidence + _MARKER_SUFFIX, "w", encoding="utf-8") as handle:
+            json.dump(_evidence_fingerprint(video_path), handle)
     return {
         "frames_path": intermediate,
         "intermediate": intermediate,
         "proxy": proxy,
+        "evidence": evidence,
         "mode": "single_decode",
         "source_width": src_w,
         "source_height": src_h,

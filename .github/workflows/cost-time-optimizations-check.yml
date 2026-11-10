@@ -25,6 +25,14 @@ on:
       - 'scripts/test_single_pass_pipeline_simulation.py'
       - 'pipeline/perception/cpu_runtime.py'
       - 'scripts/test_cpu_runtime_contract.py'
+      - 'scripts/test_source_window_dedup_accountability_contract.py'
+      - 'pipeline/source_window_dedup.py'
+      - 'pipeline/selector_candidate_runtime.py'
+      - 'pipeline/source_evidence.py'
+      - 'pipeline/quality_preserving_framing.py'
+      - 'pipeline/perception/runtime.py'
+      - 'scripts/build_candidate_decision_ledger.py'
+      - 'scripts/build_athlete_coverage_report.py'
       - 'requirements.txt'
       - 'pipeline/bootstrap.py'
       - 'pipeline/stages/editor.py'
@@ -112,3 +120,7 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_cpu_runtime_contract.py
+      - name: Source-window dedup is accounted for (run 42814819534 regression)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_source_window_dedup_accountability_contract.py
