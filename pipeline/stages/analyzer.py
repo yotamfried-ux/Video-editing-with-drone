@@ -506,14 +506,29 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "", even
     return result
 
 
+_TRANSIENT_STATUS = re.compile(r"\b(429|500|502|503|504)\b")
+_TRANSIENT_WORDS = ("quota", "unavailable", "resource exhausted", "internal", "deadline exceeded", "overloaded")
+
+
+def _is_transient_gemini_error(exc: Exception) -> bool:
+    """Server-side and rate-limit errors are retried; client errors (400/403/404) are not.
+
+    Run 42857524999 lost the QA of one reel to a single "ServerError: 500 INTERNAL ... Failed to convert server
+    response to JSON": 500 was not in the list, so it raised on the first attempt.
+    """
+    if type(exc).__name__ in {"ServerError", "InternalServerError", "ServiceUnavailable", "DeadlineExceeded", "TooManyRequests"}:
+        return True
+    text = str(exc).lower()
+    return bool(_TRANSIENT_STATUS.search(text)) or any(word in text for word in _TRANSIENT_WORDS)
+
+
 def _with_retry(fn, attempts: int = 3, base_delay: int = 4):
-    """Retry fn() on transient Gemini errors (429 / quota / 503) with exponential back-off."""
+    """Retry fn() on transient Gemini errors (429 / 5xx / quota) with exponential back-off."""
     for attempt in range(1, attempts + 1):
         try:
             return fn()
         except Exception as e:
-            transient = any(x in str(e).lower()
-                            for x in ["429", "quota", "503", "unavailable", "resource exhausted"])
+            transient = _is_transient_gemini_error(e)
             if not transient or attempt == attempts:
                 raise
             delay = base_delay * (2 ** (attempt - 1))   # 4s, 8s, 16s

@@ -205,9 +205,17 @@ def get_reel_specs(path: str) -> dict:
     except Exception as exc:
         logger.warning("Audio ffprobe unavailable for %s: %s", path, exc)
     w, h = info["width"], info["height"]
+    # fps is part of the spec the 4K/30 publishable policy checks. Without it here, every caller that imported
+    # this function directly (analyzer._check_technical_compliance) handed the policy fps=0, and the tiered QA
+    # rejected a real 30 fps reel as TECHNICAL_FRAME_RATE_NOT_30FPS (run 42857524999).
+    try:
+        fps = get_source_fps(path)
+    except Exception:
+        fps = None
     return {
         "width": w, "height": h,
         "aspect": round(w / h, 3) if h else 0,
         "duration": None if dur == float("inf") else round(dur, 1),
         "has_audio": has_audio,
+        "fps": fps,
     }
