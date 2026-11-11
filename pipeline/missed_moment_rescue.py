@@ -33,6 +33,10 @@ MIN_SPAN_SEC = 6.0
 MIN_TRAVEL_FRAMES = 0.5
 MAX_COVERED = 0.4
 MIN_SCORE = 6
+# Only what the analyzer's single-athlete contract cannot see is added. An ordinary ride the analyzer already looked
+# at and rejected stays rejected: run 43031447052 added 0155 (catalogued as a failed take-off with no meaningful
+# action) and 0152 (most likely the athlete already covered) as "ride", while the tandem in 0094 was the real find.
+RESCUED_KINDS = {"tandem_ride", "notable_moment"}
 _PAD_SEC = 1.0
 _calls_lock = threading.Lock()
 _calls_made = 0
@@ -118,6 +122,30 @@ def _track_center(detections: list, track_id: str, start: float, end: float) -> 
     return round(xs[len(xs) // 2], 4), round(ys[len(ys) // 2], 4)
 
 
+def _bind_to_track(event: dict[str, Any], detections: list, track_id: str) -> dict[str, Any] | None:
+    """Attach the same tracker evidence every analyzer event gets (bbox, track_id, visible tracks), from the
+    rescued track only. Framing refuses an event without it: run 43031447052 crashed in the cut step on the first
+    rescued event, which had a target track but none of this evidence."""
+    from pipeline.perception.runtime import enrich_event
+
+    own = [d for d in detections or [] if str(getattr(d, "tracker_id", None)) == str(track_id)]
+    if not own:
+        return None
+    enriched = enrich_event(event, own)
+    if enriched.get("perception_evidence_status") != "tracker_sidecar" or enriched.get("track_id") is None:
+        return None
+    if str(enriched.get("target_track_id")) != str(track_id):
+        return None
+    try:
+        others = sorted({str(d.tracker_id) for d in detections or [] if d.tracker_id is not None
+                         and float(event["start"]) <= float(d.time_sec) <= float(event["end"])})
+    except (TypeError, ValueError, KeyError):
+        others = []
+    if others:  # the framing decision must see everyone in the window, not only the rescued track
+        enriched.update({"visible_track_ids": others, "all_visible_track_ids": others, "source_window_track_ids": others})
+    return enriched
+
+
 def _cut_window(video_path: str, start: float, end: float) -> str | None:
     out = tempfile.NamedTemporaryFile(prefix="missed_moment_", suffix=".mp4", delete=False).name
     cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.2f}", "-to", f"{end:.2f}", "-i", str(video_path),
@@ -181,6 +209,11 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
     except Exception:
         duration = None
     covered = [p for p in people if p.get("events")]
+    kept_tracks = {str(e.get("target_track_id") or e.get("track_id")) for p in covered for e in p["events"]
+                   if e.get("target_track_id") is not None or e.get("track_id") is not None}
+    windows = [w for w in windows if str(w["track_id"]) not in kept_tracks]
+    if not windows:
+        return []
     def windows_of(person: dict[str, Any]) -> str:
         spans = []
         for ev in person.get("events", []):
@@ -245,7 +278,11 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
             end = lo + float(answer.get("end"))
         except (TypeError, ValueError):
             score, start, end = 0, 0.0, 0.0
-        found = bool(answer.get("moment")) and score >= MIN_SCORE and end - start >= 2.0 and description
+        kind = str(answer.get("kind") or "none")
+        found = bool(answer.get("moment")) and score >= MIN_SCORE and end - start >= 2.0 and bool(description)
+        if found and kind not in RESCUED_KINDS:
+            found = False
+            answer["reason"] = f"an ordinary {kind}: the analyzer's decision stands. {answer.get('reason', '')}"
         if found and _is_covered_athlete(description, covered):
             found = False
             answer["reason"] = f"same athlete as an existing highlight: {answer.get('reason', '')}"
@@ -256,7 +293,6 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
             continue
         end = min(end, duration) if duration else end
         center = _track_center(detections, str(win["track_id"]), start, end) or (0.5, 0.5)
-        kind = str(answer.get("kind") or "notable_moment")
         surf = any(term in (activity or "").lower() for term in ("surf", "wave"))
         event = {
             "type": "wave_catch" if surf and kind in {"ride", "tandem_ride"} else "notable_moment",
@@ -271,6 +307,11 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
         }
         if surf and "surf" not in description.lower() and kind in {"ride", "tandem_ride"}:
             event["sport"] = "surfing"
+        event = _bind_to_track(event, detections, str(win["track_id"]))
+        if event is None:
+            print(f"   🛟 missed-moment check (not added): {name} {lo:.1f}-{hi:.1f}s — no tracker evidence for track "
+                  f"{win['track_id']} in the moment's window")
+            continue
         rescued.append({"id": f"rescued_track_{win['track_id']}", "description": description, "events": [event],
                         "rescued_by": RESCUE_PROMPT_VERSION})
     return rescued

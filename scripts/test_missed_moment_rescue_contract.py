@@ -73,7 +73,7 @@ def main() -> int:
     tmp = tempfile.mkdtemp(prefix="missed-moment-")
     os.environ["TMP_DIR"] = tmp
     os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, "llm-cache")
-    os.environ["SPORTREEL_MISSED_MOMENT_MAX_CALLS"] = "8"
+    os.environ["SPORTREEL_MISSED_MOMENT_MAX_CALLS"] = "20"
     _install_fake_gemini()
     import config
     config.TMP_DIR = tmp
@@ -123,6 +123,16 @@ def main() -> int:
         fail(f"the model's clip-relative times must map back to the source: {event['start']}-{event['end']}")
     if (rescued[0].get("identity_evidence") or {}).get("kind") != "track_bbox_sheet":
         fail(f"the rescued person gets the same tracked contact sheet as everyone else: {rescued[0].get('identity_evidence')}")
+    # Run 43031447052 crashed in the cut step: a rescued event had a target track but no tracker evidence.
+    if event.get("perception_evidence_status") != "tracker_sidecar" or str(event.get("track_id")) != "162":
+        fail(f"the rescued event must carry the same tracker evidence as every analyzer event: {event.get('perception_evidence_status')}")
+    if not event.get("bbox_xyxy") or "162" not in (event.get("visible_track_ids") or []):
+        fail("the framing step must see the rescued track's box and everyone else visible in the window")
+    from pipeline.quality_preserving_framing import decide_framing
+    try:
+        decide_framing(event, sport="surfing")
+    except RuntimeError as exc:
+        fail(f"framing must accept a rescued event: {exc}")
     if "tandem" not in rescued[0]["description"]:
         fail("the description carries 'tandem' so identity treats the pair as one subject, never as a solo surfer")
     if len(CALLS) != 1 or CALLS[0]["model"] != "gemini-2.5-flash":
@@ -152,11 +162,25 @@ def main() -> int:
         ({**ANSWER, "moment": False}, "no moment"),
         ({**ANSWER, "end": 4.5}, "a 1-second moment"),
         ({**ANSWER, "description": "surfer with long dark hair in a black tank top on a white longboard"}, "the covered athlete again"),
+        ({**ANSWER, "kind": "ride", "description": "surfer in a black sleeveless top on a white longboard"},
+         "an ordinary ride the analyzer already rejected (0155: a catalogued failed take-off)"),
     ):
         ANSWER = answer
         os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, f"cache-{len(CALLS)}")
         if rescue.rescue_missed_moments(video, people, cand, detections, "surfing"):
             fail(f"{why} must add nothing")
+
+    os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, "cache-kept-track")
+    before = len(CALLS)
+    kept_track = [{"id": "person_A", "description": "x", "events": [{"start": 0.0, "end": 9.0, "target_track_id": "162"}]}]
+    if rescue.rescue_missed_moments(video, kept_track, cand, detections, "surfing") or len(CALLS) != before:
+        fail("a window on a track a kept highlight already follows is the same person: no call, nothing added")
+    no_dets = [d for d in detections if str(d.tracker_id) != "162"]
+    ANSWER = {"moment": True, "kind": "tandem_ride", "start": 3.5, "end": 23.0, "people": 2,
+              "description": "adult and child riding tandem on a turquoise longboard", "score": 9, "reason": "tandem"}
+    os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, "cache-no-dets")
+    if rescue.rescue_missed_moments(video, people, cand, no_dets, "surfing"):
+        fail("a moment whose track has no detections cannot be framed and must not be added")
 
     windows = rescue.select_windows([
         {"track_id": "a", "start": 0.0, "end": 8.8, "span": 8.8, "travel_frames": 0.83, "covered": 0.27},
