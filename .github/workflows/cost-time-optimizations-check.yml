@@ -31,6 +31,8 @@ on:
       - 'scripts/test_qa_recording_limited_contract.py'
       - 'scripts/test_qa_deliverable_standard_contract.py'
       - 'scripts/test_identity_merge_check_contract.py'
+      - 'scripts/test_missed_moment_rescue_contract.py'
+      - 'pipeline/missed_moment_rescue.py'
       - 'pipeline/stages/identity.py'
       - 'pipeline/window_refinement.py'
       - 'pipeline/stages/analyzer.py'
@@ -174,6 +176,13 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_identity_merge_check_contract.py
+      - name: People who moved but got no event get a second look; unusual moments (tandem, child) count
+        env:
+          PYTHONPATH: .
+        run: |
+          command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
+          python -m pip install --disable-pip-version-check "Pillow>=12.3.0"
+          python scripts/test_missed_moment_rescue_contract.py
       - name: Render timeout scales with the reel; disk cleanup overlaps setup
         env:
           PYTHONPATH: .

@@ -443,9 +443,23 @@ def _patch_prompt_and_filters() -> None:
         try:
             if detections is None:
                 detections = runtime_quality._load_detections(video_path)
-            report_ride_coverage(video_path, hardened_people, detections)
+            candidates = report_ride_coverage(video_path, hardened_people, detections)
         except Exception as exc:  # a report must never fail the analysis
             logger.debug("ride coverage report unavailable: %s", exc)
+            candidates = []
+        try:
+            from pipeline.missed_moment_rescue import rescue_missed_moments
+
+            for person in rescue_missed_moments(video_path, hardened_people, candidates, detections or [], activity):
+                events = [e for e in (runtime_quality._normalize_event_crop(ev) for ev in person["events"]) if e]
+                if not events or not any(keep_event_for_performance_reel(e, activity) for e in events):
+                    continue
+                hardened_people.append(runtime_quality.attach_identity_image(
+                    video_path, {**person, "events": events}, detections or []))
+                _funnel.record("missed_moment_rescued", source=Path(video_path).name, person_id=person["id"],
+                               start=events[0].get("start"), end=events[0].get("end"), kind=events[0].get("moment_kind"))
+        except Exception as exc:  # a second look must never fail the analysis
+            logger.warning("missed-moment rescue unavailable: %s", exc)
         if dropped_events or dropped_people:
             print(
                 "🧹 Performance coverage guard: dropped "
