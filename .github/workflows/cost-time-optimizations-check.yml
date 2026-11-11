@@ -30,6 +30,9 @@ on:
       - 'scripts/test_qa_evidence_video_labels_contract.py'
       - 'scripts/test_qa_recording_limited_contract.py'
       - 'scripts/test_qa_deliverable_standard_contract.py'
+      - 'scripts/test_identity_merge_check_contract.py'
+      - 'pipeline/stages/identity.py'
+      - 'pipeline/window_refinement.py'
       - 'pipeline/stages/analyzer.py'
       - 'pipeline/tiered_qa_gate.py'
       - 'pipeline/render_qa_cache.py'
@@ -167,6 +170,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_qa_deliverable_standard_contract.py
+      - name: Athletes split across clips with agreeing descriptions get a side-by-side merge check
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_identity_merge_check_contract.py
       - name: Render timeout scales with the reel; disk cleanup overlaps setup
         env:
           PYTHONPATH: .

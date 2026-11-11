@@ -1165,6 +1165,157 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
 
     return verified
 
+_MERGE_CHECK_PROMPT = """\
+Image A and Image B each show one tracked person from a different drone clip of the same surf/sports session.
+Each image may be a contact sheet of up to 4 crops (2x2 grid) of that one person at different moments.
+
+Are A and B the SAME athlete?
+
+DRONE/AERIAL footage: do not rely on faces. Compare build, clothing (top-down view of torso, shorts, sleeves),
+hair, and equipment shape. Board and clothing colors shift with backlight, glare and distance: a board that looks
+white in one clip and light blue in another, or a dark silhouette against bright water, is NOT a difference by
+itself. A real difference is one that lighting cannot explain (a shirt vs. no shirt, long vs. short sleeves, a
+clearly different board shape or size, adult vs. child, two people vs. one).
+
+Return ONLY valid JSON, no markdown:
+{"same_person": true|false, "confidence": "high|medium|low", "reason": "short visual explanation"}
+"""
+# At most this many pairs are checked per run (each is one Gemini Flash call with two images).
+_MERGE_CHECK_MAX_PAIRS = 8
+# Lowest structured score (analyzer descriptions) for a pair to be worth a visual check: compatible, no conflict.
+_MERGE_CHECK_MIN_SCORE = 0.70
+
+
+def _lighting_proof_traits_agree(desc_a: str, desc_b: str) -> bool:
+    """Traits light cannot change, read from the visual descriptions: sex, sleeves/shirtless, solo/tandem.
+
+    Colors are left out on purpose (they are what backlight changes). In run 43013005072 the analyzer's
+    descriptions of a woman in a bikini (0165) carried no sex, so without this a man and a woman would be sent.
+    """
+    a = extract_structured_attributes(desc_a)
+    b = extract_structured_attributes(desc_b)
+    if a.get("empty") or b.get("empty"):
+        return False
+    if a.get("companion") != b.get("companion"):
+        return False
+    if a.get("gender_age") and b.get("gender_age") and a.get("gender_age") != b.get("gender_age"):
+        return False
+    if not _sleeve_styles_compatible(a.get("sleeve_style"), b.get("sleeve_style")):
+        return False
+    # The parser files "long-sleeved swimsuit" under swimwear, like a bikini; long sleeves against bare arms is
+    # still a difference light cannot make.
+    def long_sleeved(text: str) -> bool:
+        return bool(re.search(r"long[- ]sleeve", str(text or "").lower()))
+
+    def bare_armed(text: str, attrs: dict) -> bool:
+        return attrs.get("sleeve_style") in {"shirtless", "sleeveless"} or " bikini" in " " + str(text or "").lower()
+
+    if (long_sleeved(desc_a) and bare_armed(desc_b, b)) or (long_sleeved(desc_b) and bare_armed(desc_a, a)):
+        return False
+    return True
+
+
+def _merge_check_pairs(clusters: list[dict]) -> list[tuple[float, int, int]]:
+    """Pairs of clusters that may be one athlete: no shared source, and the analyzer's own descriptions of every
+    appearance pair are compatible (no hard conflict) but not strong enough to merge on text alone."""
+    from pipeline.identity_decision_engine import IdentityDecisionEngine
+
+    engine = IdentityDecisionEngine()
+    pairs: list[tuple[float, int, int]] = []
+    for i in range(len(clusters)):
+        for j in range(i + 1, len(clusters)):
+            a_apps = clusters[i].get("appearances", []) or []
+            b_apps = clusters[j].get("appearances", []) or []
+            if not a_apps or not b_apps:
+                continue
+            a_src = {x.get("_clip_index", x.get("path")) for x in a_apps}
+            b_src = {x.get("_clip_index", x.get("path")) for x in b_apps}
+            if a_src & b_src:
+                continue
+            scores: list[float] = []
+            ok = True
+            for x in a_apps:
+                for y in b_apps:
+                    decision = engine.evaluate_pair(x, y)
+                    if decision.decision == "NO_MATCH":
+                        ok = False
+                        break
+                    scores.append(decision.score)
+                if not ok:
+                    break
+            if ok and scores and min(scores) >= _MERGE_CHECK_MIN_SCORE and _lighting_proof_traits_agree(
+                    clusters[i].get("description", ""), clusters[j].get("description", "")):
+                pairs.append((min(scores), i, j))
+    return sorted(pairs, reverse=True)[:_MERGE_CHECK_MAX_PAIRS]
+
+
+def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
+    """Second look at athletes split across clips whose descriptions agree.
+
+    The visual clusterer sees one image per person and reads colors as they look in that clip. Run 43013005072:
+    with 4-crop contact sheets for both, it still described one backlit surfer as "silhouetted shirtless man on a
+    light blue longboard" (0097) and "shirtless man in patterned shorts on a white surfboard" (0115), and made two
+    reels; the analyzer, which watched each whole clip, called both "on a light blue longboard". Nothing re-checked
+    a pair like that: the existing verifier only splits groups. Here such a pair is shown side by side to a model
+    told that lighting shifts colors, and merged only on a confident "same athlete". Every merge is printed.
+    """
+    pairs = _merge_check_pairs(clusters)
+    if not pairs:
+        return clusters
+    merged_into: dict[int, int] = {}
+    checked = 0
+    for score, i, j in pairs:
+        root_i = merged_into.get(i, i)
+        root_j = merged_into.get(j, j)
+        if root_i == root_j or j in merged_into:
+            continue
+        a, b = clusters[root_i], clusters[j]
+        a_src = {x.get("_clip_index", x.get("path")) for x in a.get("appearances", [])}
+        b_src = {x.get("_clip_index", x.get("path")) for x in b.get("appearances", [])}
+        if a_src & b_src:
+            continue
+        thumb_a = next((x.get("thumbnail") for x in a.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))), None)
+        thumb_b = next((x.get("thumbnail") for x in b.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))), None)
+        if not thumb_a or not thumb_b:
+            continue
+        uploaded: list = []
+        checked += 1
+        try:
+            content: list = []
+            for label, path in (("A", thumb_a), ("B", thumb_b)):
+                gfile = genai.upload_file(path=path, mime_type="image/jpeg")
+                uploaded.append(gfile)
+                content += [f"[Image {label}]:", gfile]
+            content.append(_MERGE_CHECK_PROMPT)
+            model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+            raw = _retry_gemini(lambda: model.generate_content(content, request_options={"timeout": 60}).text.strip())
+            parsed = _parse_json_response(raw)
+        except Exception as exc:
+            logger.debug("merge check skipped (%s)", exc)
+            continue
+        finally:
+            for gfile in uploaded:
+                try:
+                    genai.delete_file(gfile.name)
+                except Exception:
+                    pass
+        same = parsed.get("same_person") is True and str(parsed.get("confidence", "")).lower() == "high"
+        verdict = "MERGED" if same else "kept apart"
+        print(f"  🔍 Identity merge check ({verdict}, text score {score:.2f}): '{str(a.get('description', '?'))[:40]}' + "
+              f"'{str(b.get('description', '?'))[:40]}' — {str(parsed.get('reason', ''))[:120]}")
+        identity_trace.record_metadata(f"merge_check_{checked}", {
+            "a": str(a.get("description", ""))[:80], "b": str(b.get("description", ""))[:80], "text_score": score,
+            "same_person": parsed.get("same_person"), "confidence": parsed.get("confidence"), "merged": same})
+        if not same:
+            continue
+        a["appearances"] = list(a.get("appearances", [])) + list(b.get("appearances", []))
+        a["_visual_verified"] = True
+        merged_into[j] = root_i
+        for key, value in list(merged_into.items()):
+            if value == j:
+                merged_into[key] = root_i
+    return [cluster for index, cluster in enumerate(clusters) if index not in merged_into]
+
 
 def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
     """Apply deterministic no-guessing safeguards before expensive verification."""
@@ -1226,6 +1377,8 @@ def _post_process_clusters_inner(clusters: list[dict], clip_analyses: list[dict]
     clusters = _split_impossible_clusters(clusters)
     clusters = _verify_multi_clusters(clusters)
     clusters = _merge_compatible_structured_clusters(clusters)
+    clusters = _split_impossible_clusters(clusters)
+    clusters = _verify_merge_candidates(clusters)
     clusters = _split_impossible_clusters(clusters)
     try:
         from pipeline.identity_decision_engine import IdentityDecisionEngine
