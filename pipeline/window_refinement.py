@@ -16,6 +16,32 @@ DEFAULT_LOST_TOLERANCE_SEC = 1.5
 DEFAULT_PAD_START_SEC = 0.5
 DEFAULT_PAD_END_SEC = 1.0
 DEFAULT_MIN_WINDOW_SEC = 5.0
+# A fall is where an athlete's track is expected to end: they go under the whitewater and the detector loses them.
+# When the analyzer says the action ends in a fall, a track lost up to this long before that end is the fall
+# itself, not a sign the window ran past the athlete. Run 43013005072, 0160: the analyzer ended the ride at 10.8 s
+# "falls off the board into the water", the track was lost 2.1 s earlier, refinement cut to 9.7 s, and final QA
+# rejected the reel: "the source shows the ride continuing and ending in a fall".
+FALL_TRACK_LOSS_MAX_SEC = 2.5
+_FALL_TERMS = (
+    "falls", "fall ", "fell", "wipeout", "wipe out", "wipes out", "wiped out", "loses balance", "lost balance",
+    "loses his balance", "loses her balance", "knocked off", "bails", "goes under",
+)
+
+
+def ends_in_fall(event: dict[str, Any]) -> bool:
+    """True when the analyzer's own account of the action's end is a fall (wipeout), for any sport.
+
+    Reads the part of `timing_evidence` that describes the end ("...; end 5.0s: athlete falls into the
+    whitewater"); without timing evidence, the event description.
+    """
+    evidence = str(event.get("timing_evidence") or "").lower()
+    if evidence:
+        marker = evidence.rfind("end ")
+        text = evidence[marker:] if marker >= 0 else evidence
+    else:
+        text = str(event.get("description") or "").lower()
+    text = " " + text + " "
+    return any(term in text for term in _FALL_TERMS)
 MIN_TRACK_DETECTIONS = 3
 
 
@@ -85,9 +111,15 @@ def refine_event_window(
     if first - start > tolerance:
         new_start = max(start, first - pad_start)
         reasons.append("athlete_not_in_frame_at_start")
+    fall_kept = False
     if end - last > tolerance:
-        new_end = min(end, last + pad_end)
-        reasons.append("track_lost_before_end")
+        if end - last <= FALL_TRACK_LOSS_MAX_SEC and ends_in_fall(event):
+            fall_kept = True  # the athlete went under: the fall is the end of the action, keep it
+        else:
+            new_end = min(end, last + pad_end)
+            reasons.append("track_lost_before_end")
+    if fall_kept:
+        measured = {**measured, "track_lost_in_fall_kept": True}
     if not reasons:
         return {**event, "window_refinement": {"status": "unchanged", "first_track_sec": round(first, 2), "last_track_sec": round(last, 2), **measured}}
     if new_end - new_start < min_window:

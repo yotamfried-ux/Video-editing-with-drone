@@ -63,11 +63,41 @@ def ends_with_recording(event: dict[str, Any], video_path: str | None = None) ->
     duration = _recording_duration(_source_path(event, video_path))
     if duration is None:
         return None
-    cut = extend_to_recording_end(extend_to_outcome(event, duration), duration)
+    cut = extend_to_recording_end(extend_through_fall(extend_to_outcome(event, duration), duration), duration)
     try:
         return float(cut.get("end")) >= duration - 0.15
     except (TypeError, ValueError):
         return None
+
+
+# Seconds a fall takes to resolve on screen: hitting the water, the board, the athlete surfacing. The analyzer
+# marks the second the athlete starts to fall as the end; final QA asks for the fall itself ("cut while still
+# surfing ... ending in a fall", run 43013005072). Below QA's 2-second DEAD_TIME rule, so the tail cannot add dead
+# time. Not tuned on the catalog.
+FALL_OUTCOME_TAIL_SEC = 1.5
+
+
+def extend_through_fall(event: dict[str, Any], duration: float | None) -> dict[str, Any]:
+    """Keep the fall in the cut when the analyzer says the action ends in one, clamped to the recording."""
+    if event.get("_teaser"):
+        return event
+    from pipeline.window_refinement import ends_in_fall
+
+    if not ends_in_fall(event):
+        return event
+    refinement = event.get("window_refinement")
+    if isinstance(refinement, dict) and "track_lost_before_end" in (refinement.get("reasons") or []):
+        return event  # the window was cut where the athlete's track was lost long before the fall
+    try:
+        end = float(event.get("end"))
+    except (TypeError, ValueError):
+        return event
+    new_end = end + FALL_OUTCOME_TAIL_SEC
+    if duration is not None:
+        new_end = min(new_end, duration)
+    if not new_end > end:
+        return event
+    return {**event, "end": round(new_end, 3), "end_before_fall_tail": round(end, 3)}
 
 
 def extend_to_outcome(event: dict[str, Any], duration: float | None) -> dict[str, Any]:
@@ -108,6 +138,7 @@ def normalize_complete_action_event(event: dict[str, Any], video_path: str | Non
     # comes from QA's generic DEAD_TIME rule.
     duration = _recording_duration(_source_path(effective, video_path))
     effective = extend_to_outcome(effective, duration)
+    effective = extend_through_fall(effective, duration)
     effective = extend_to_recording_end(effective, duration)
     if not _is_complete_performance_action(effective):
         return effective

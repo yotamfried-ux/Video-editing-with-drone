@@ -167,3 +167,36 @@ Each analysed source now prints, in the log:
 
 The next run's log will show whether the father-and-child ride appears as an uncovered track, and whether other
 sources have the same gap.
+
+## 7. Run 43013005072 (main@090c97f, after #363)
+
+Success, 34 min. 10 of 12 reels pass final QA (was 7 of 12); 20 camera-limited endings became notes. Every
+single-ride reel passed, with deliverable scores 75-88.
+
+**Still failing or blocked: three real cuts.**
+
+| reel | finding | cause | fix |
+|---|---|---|---|
+| 0074 + 0151 (passed, approval-blocked) | 0151 cut 2.6 s before its wipeout ends | The analyzer ends the ride where the athlete starts to fall ("end 5.0s: falls into the whitewater"). | Fall tail (below). 5.0 → 6.5 s, then within 2 s of the 7.6 s recording end, so to the end. |
+| 0160 + 0163 (failed) | "ride continuing ... ending in a fall" | Analyzer end 10.8 s "falls off the board into the water"; the track was lost 2.1 s earlier and window refinement cut to 9.7 s. | A track lost up to 2.5 s before a fall ending is the fall itself: no trim. |
+| 4-clip reel ending in 0094 (failed) | last clip ends while "the athlete is still riding" | The 0094 window (3.5-22.5 s) runs past the athlete's catalogued ride (ends 13.2 s) into the father-and-child ride. | Not fixed: needs the footage to tell which surfer the window follows. |
+
+Fall rule (`window_refinement.ends_in_fall`, `complete_action_window_policy.extend_through_fall`): when the
+end clause of the analyzer's `timing_evidence` describes a fall, the cut keeps 1.5 s more, clamped to the
+recording. 1.5 s is below QA's 2-second DEAD_TIME rule and was not tuned on the catalog.
+
+**Still one surfer, two reels (0097 / 0115).** The contact sheets ran this time (`track_bbox_sheetx4` for both).
+The visual clusterer still described 0097 as "silhouetted shirtless man on a light blue longboard" and 0115 as
+"shirtless man in patterned shorts on a white surfboard". The analyzer, which watched each whole clip, called both
+"on a light blue longboard": compatible (score 0.75) but below the 0.85 needed to merge on text. No step re-checked
+such a pair; the existing verifier only splits.
+
+Fix (`identity._verify_merge_candidates`): clusters from different sources whose analyzer descriptions agree with no
+hard conflict, and whose visual descriptions agree on traits light cannot change (sex, sleeves or bare arms,
+solo or tandem), are shown side by side to Gemini Flash. The prompt says backlight shifts colors. A pair merges
+only on `same_person: true` with high confidence, and every check is printed. On this run's descriptions exactly one
+pair qualifies: 0097 + 0115. At most 8 checks per run.
+
+**Missed waves.** The new report caught the catalogued miss: 0094 "track 162 13.8-36.6 s, 38% inside kept rides"
+is the father-and-child ride (catalog 16.9-36.7 s); the analyzer listed them as two people with
+`no_complete_action`. The analysis prompt is unchanged at the operator's request, so this stays visible, not fixed.

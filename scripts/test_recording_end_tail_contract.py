@@ -63,6 +63,48 @@ def main() -> int:
     if normalize_complete_action_event(landing).get("end") != 8.5:
         fail("the outcome must reach the event the renderer and QA use (no source file: length unknown)")
 
+    # A ride that ends in a fall keeps the fall (run 43013005072: 0151 and 0160 were rejected by final QA,
+    # "cut while still surfing ... ending in a fall"). Values are the run's own analyzer and track numbers.
+    from pipeline.complete_action_window_policy import extend_through_fall, FALL_OUTCOME_TAIL_SEC
+    from pipeline.window_refinement import ends_in_fall, refine_event_window
+
+    fall_0151 = {"start": 0.0, "end": 5.0,
+                 "timing_evidence": "start 0.0s: athlete is already up and riding; end 5.0s: athlete falls into the whitewater as the wave ends."}
+    if not ends_in_fall(fall_0151):
+        fail("the analyzer's 'falls into the whitewater' end is a fall")
+    if ends_in_fall({"timing_evidence": "start 2.8s: falls back then stands; end 20.5s: the ride on the whitewater has lost its power"}):
+        fail("only the end clause counts: a fall at the start is not a fall ending")
+    if ends_in_fall({"timing_evidence": "end 18.2s: steps off the board as the ride finishes in the shallows"}):
+        fail("stepping off in the shallows is a finish, not a fall")
+    extended = extend_through_fall(fall_0151, 7.61)
+    if extended.get("end") != 5.0 + FALL_OUTCOME_TAIL_SEC or extended.get("end_before_fall_tail") != 5.0:
+        fail(f"a fall ending keeps {FALL_OUTCOME_TAIL_SEC}s of the fall: {extended}")
+    if extend_through_fall(fall_0151, 5.8).get("end") != 5.8:
+        fail("the fall tail never passes the end of the recording")
+    if extend_through_fall({**fall_0151, "timing_evidence": "end 5.0s: rides out of the wave"}, 7.61).get("end") != 5.0:
+        fail("a ride that does not end in a fall gets no tail")
+    if normalize_complete_action_event({**fall_0151, "_src": "nowhere.mp4"}).get("end") != 5.0 + FALL_OUTCOME_TAIL_SEC:
+        fail("the fall tail must reach the event the renderer and QA use")
+
+    # 0160: the analyzer ended at 10.8 s "falls off the board into the water"; the track was lost at 8.74 s.
+    class Det:
+        def __init__(self, t):
+            self.time_sec, self.tracker_id, self.class_name = t, 4, "person"
+            self.xyxy, self.frame_width, self.frame_height = (100, 100, 160, 200), 1920, 1080
+
+    dets = [Det(3.5 + 0.2 * i) for i in range(0, 27)]  # 3.5 .. 8.7 s
+    fall_0160 = {"start": 3.5, "end": 10.8, "target_track_id": "4", "outcome_end": 10.8,
+                 "timing_evidence": "start 3.5s: begins to pop up; end 10.8s: falls off the board into the water."}
+    refined = refine_event_window(fall_0160, dets)
+    if refined.get("end") != 10.8 or not (refined.get("window_refinement") or {}).get("track_lost_in_fall_kept"):
+        fail(f"a track lost in the fall must not trim the fall away: {refined.get('end')} {refined.get('window_refinement')}")
+    ridden_off = {**fall_0160, "timing_evidence": "start 3.5s: pops up; end 10.8s: kicks out over the back of the wave"}
+    if refine_event_window(ridden_off, dets).get("end") == 10.8:
+        fail("without a fall, a track lost 2 s before the end still trims the window")
+    far = {**fall_0160, "end": 14.0, "timing_evidence": "end 14.0s: falls"}
+    if refine_event_window(far, dets).get("end") == 14.0:
+        fail("a track lost long before a claimed fall still trims the window")
+
     with tempfile.TemporaryDirectory(prefix="rec-tail-") as tmp:
         os.environ.update({"TMP_DIR": tmp, "SPORTREEL_EXPORT_EDL": "1", "SPORTREEL_REQUIRE_EXPLICIT_SCOPE": "1",
                            "PUBLISHABLE_REEL_MANIFEST_FILE": os.path.join(tmp, "manifest.json")})
