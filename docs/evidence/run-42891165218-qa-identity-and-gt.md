@@ -200,3 +200,25 @@ pair qualifies: 0097 + 0115. At most 8 checks per run.
 **Missed waves.** The new report caught the catalogued miss: 0094 "track 162 13.8-36.6 s, 38% inside kept rides"
 is the father-and-child ride (catalog 16.9-36.7 s); the analyzer listed them as two people with
 `no_complete_action`. The analysis prompt is unchanged at the operator's request, so this stays visible, not fixed.
+
+## 8. Why the father and child got no reel, and the second look (operator, 2026-11-11)
+
+The analysis prompt builds every event around ONE target athlete performing a complete action, scored on how well
+it is performed (`PRIMARY-ATHLETE CONTINUITY POLICY`, "score>=6 action"). It has no notion of two people sharing a
+board, or of a moment worth watching that is not a feat. The analyzer listed the father and the child as two
+people ("light blue top", "yellow top", same turquoise longboard), neither of them an athlete with a complete ride.
+
+The operator's rule stands: the analysis prompt (and so its cache) is unchanged. Instead
+(`pipeline/missed_moment_rescue.py`), each window the coverage report flags as long (6 s+), moving (half a frame
+width+) and mostly outside kept rides (40% or less) is cut from the source (720p, 10 fps) and shown to Gemini Flash.
+The model is told which athletes are already covered (with their windows) and who was noticed without a ride, and
+asked for a moment by anyone else, counting unusual ones: two people on one board, a child, a pet, funny or touching
+moments, unusual craft. Skill is not required.
+
+A moment with score 6+, 2 s+, by someone not already covered (the answer is also checked against the covered
+athletes' descriptions) becomes a new person with one event bound to that track. It gets the tracked contact sheet,
+then the normal identity, cut and QA path. Answers are cached per source and window. At most 8 calls per run
+(`SPORTREEL_MISSED_MOMENT_MAX_CALLS`); off with `SPORTREEL_MISSED_MOMENT_RESCUE=0`.
+
+On run 43013005072's report, 0094 track 162 (13.8-36.6 s) qualifies. Not verified until the next run: whether Flash
+confirms the tandem ride, and which other windows it adds or rejects.
