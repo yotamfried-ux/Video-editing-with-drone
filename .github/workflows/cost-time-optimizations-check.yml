@@ -179,7 +179,10 @@ jobs:
       - name: People who moved but got no event get a second look; unusual moments (tandem, child) count
         env:
           PYTHONPATH: .
-        run: python scripts/test_missed_moment_rescue_contract.py
+        run: |
+          command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
+          python -m pip install --disable-pip-version-check "Pillow>=12.3.0"
+          python scripts/test_missed_moment_rescue_contract.py
       - name: Render timeout scales with the reel; disk cleanup overlaps setup
         env:
           PYTHONPATH: .
