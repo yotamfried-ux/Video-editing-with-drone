@@ -10,6 +10,7 @@ on:
       - 'scripts/eval_identity_trace.py'
       - 'pipeline/identity_trace.py'
       - 'pipeline/runtime_quality.py'
+      - 'pipeline/performance_reel_policy.py'
       - 'pipeline/stages/identity.py'
       - 'pipeline/context_qa_gate.py'
 

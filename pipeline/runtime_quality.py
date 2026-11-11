@@ -256,7 +256,22 @@ def _harden_person(video_path: str, person: dict, detections: list | None = None
     if not events:
         return None
 
-    hardened = {**person, "events": events}
+    return attach_identity_image(video_path, {**person, "events": events}, detections or [])
+
+
+def attach_identity_image(video_path: str, person: dict, detections: list) -> dict:
+    """Give a person with kept events the identity image the cross-clip matcher sees, and record its kind.
+
+    The image is a contact sheet of the person's own tracked box at several moments; without track detections
+    it is one crop around the best event's crop point. Every production hardening path must end here: run
+    42891165218 clustered all 23 persons from single crop-point thumbnails because
+    `performance_reel_policy` replaces `_harden_session_result` and built only that one crop, so one surfer
+    read as "dark one-piece" in one file and "shirtless" in another became two athletes (0097 / 0115).
+    """
+    events = list(person.get("events", []) or [])
+    hardened = dict(person)
+    if not events:
+        return hardened
     best = max(events, key=_score)
     try:
         mid = (float(best["start"]) + float(best["end"])) / 2.0

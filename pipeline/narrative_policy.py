@@ -5,6 +5,9 @@ from typing import Any
 
 MIN_CLIMAX_QUALITY = 6.5
 MIN_VISIBLE_RATIO = 0.35
+# quality_score weighs the analyzer's 1-10 score by 0.6, and that score is an integer: two clips closer than one
+# score point are a tie as far as the analyzer can tell, so a measured fact may break it.
+SCORE_POINT = 0.6
 
 
 def _num(value: Any, default: float = 0.0) -> float:
@@ -48,11 +51,31 @@ def quality_score(event: dict[str, Any]) -> float:
     return score * 0.6 + visible * 1.6 + perception * 1.0 + track_bonus + action_bonus + window_bonus + identity_bonus + evidence_penalty
 
 
+def _ends_with_recording(event: dict[str, Any]) -> bool | None:
+    try:
+        from pipeline.complete_action_window_policy import ends_with_recording
+
+        return ends_with_recording(event)
+    except Exception:  # ordering must never fail on a measurement
+        return None
+
+
 def choose_climax(events: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The clip that closes the reel: the best one, and among ties one whose action ends inside its recording.
+
+    Run 42891165218: 19 of 22 final-QA findings were a ride still going when the camera stopped, and payoff /
+    loopability were the weak dimensions on every failed reel. A reel that closes on such a clip ends mid-action
+    whatever the edit does; when an equally rated clip shows its ride resolving, that one closes the reel instead.
+    """
     qualified = [event for event in events if has_quality_evidence(event) and quality_score(event) >= MIN_CLIMAX_QUALITY]
     if not qualified:
         return None
-    return max(qualified, key=quality_score)
+    best = max(qualified, key=quality_score)
+    if _ends_with_recording(best) is not True:
+        return best
+    tied = [event for event in qualified
+            if quality_score(best) - quality_score(event) < SCORE_POINT and _ends_with_recording(event) is False]
+    return max(tied, key=quality_score) if tied else best
 
 
 def order_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:

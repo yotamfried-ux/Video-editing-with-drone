@@ -13,6 +13,15 @@ BLOCKING_CONTEXT_TYPES = {"RIDE_BOUNDARY_UNCERTAIN", "MID_RIDE_CUT", "RIDE_SPLIT
 _QA_RESPONSE_ATTEMPTS = 2
 # A defect timestamped this far past the draft's end cannot describe the draft.
 _OUT_OF_DRAFT_TOLERANCE_SEC = 1.0
+# A cut finding on a clip whose window already reaches the last recorded frame. The edit cannot add footage the
+# camera never recorded, so this is reported for information and never blocks approval or starts a re-edit.
+# Run 42891165218: every one of 12 reels was "QA failed - re-edit required / approval blocked" for PREMATURE_CUT,
+# and QA's own notes said "due to the camera recording ending, not an editing choice" on 19 of 22 findings.
+RECORDING_LIMITED_TYPE = "RECORDING_ENDS_MID_ACTION"
+_CUT_DEFECT_TYPES = {"PREMATURE_CUT", "CUT_TOO_EARLY"}
+_RECORDING_END_EPS_SEC = 0.15
+# QA timestamps a cut at roughly the second it happens; whole seconds on a clip boundary need this slack.
+_CLIP_BOUNDARY_TOLERANCE_SEC = 1.0
 
 
 def _fmt(value: Any) -> str:
@@ -80,7 +89,7 @@ def _labeled_parts(uploaded: list[Any], clips: list[str], draft_duration: Any) -
                     if float(meta.get("source_end")) >= float(recording_end) - 0.15:
                         where += (" The draft already uses this window up to the last recorded frame: nothing exists "
                                   "after it, so a ride that is still going there was cut by the camera, not by the "
-                                  "edit. Report that at most as a minor PREMATURE_CUT.")
+                                  f"edit. Report that as {RECORDING_LIMITED_TYPE}, never as PREMATURE_CUT.")
                 except (TypeError, ValueError):
                     pass
         parts += [
@@ -113,6 +122,171 @@ def _split_out_of_draft(defects: list[dict[str, Any]], draft_duration: Any) -> t
         else:
             kept.append(defect)
     return kept, out
+
+
+def _to_float(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    return number if number == number and abs(number) != float("inf") else None
+
+
+def _recording_end_of(source: str, known: dict[str, float]) -> float | None:
+    """Length of a source recording: from the evidence clips already measured, else probed once."""
+    name = os.path.basename(str(source or ""))
+    if name in known:
+        return known[name]
+    if not source or not os.path.exists(str(source)):
+        return None
+    try:
+        from integrations.ffmpeg import get_duration
+
+        duration = _to_float(get_duration(str(source)))
+    except Exception:
+        duration = None
+    if duration is not None and duration > 0:
+        known[name] = duration
+        return duration
+    return None
+
+
+def draft_clip_facts(context: dict[str, Any], clips: list[str] | None = None) -> list[dict[str, Any]]:
+    """What is known, without a model, about every clip of the draft: its place on the draft timeline, its
+    source window, where its recording ends and whether the window already reaches that end.
+
+    Covers every source window of the draft, not only the first `MAX_WINDOWS` that get an evidence video.
+    """
+    known: dict[str, float] = {}
+    for clip in clips or []:
+        meta = clip_window(clip) or {}
+        end = _to_float(meta.get("recording_end"))
+        if meta.get("source") and end:
+            known[str(meta["source"])] = end
+    facts: list[dict[str, Any]] = []
+    for index, win in enumerate(context.get("source_windows", []) or []):
+        if not isinstance(win, dict):
+            continue
+        source_end = _to_float(win.get("source_end"))
+        recording_end = _recording_end_of(str(win.get("source") or ""), known)
+        facts.append({
+            "clip_index": index + 1,
+            "source": os.path.basename(str(win.get("source") or "")),
+            "draft_start": _to_float(win.get("rendered_timeline_start")),
+            "draft_end": _to_float(win.get("rendered_timeline_end")),
+            "source_start": _to_float(win.get("source_start")),
+            "source_end": source_end,
+            "recording_end": recording_end,
+            "reaches_recording_end": bool(source_end is not None and recording_end is not None
+                                          and source_end >= recording_end - _RECORDING_END_EPS_SEC),
+        })
+    return facts
+
+
+def _clip_of_cut(at_seconds: Any, facts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The draft clip a cut finding at `at_seconds` refers to, or None when that cannot be told."""
+    if not facts:
+        return None
+    if len(facts) == 1:
+        return facts[0]
+    if all(fact["reaches_recording_end"] for fact in facts):
+        return facts[0]  # whichever clip it is, the answer is the same
+    at = _to_float(at_seconds)
+    timed = [f for f in facts if f["draft_start"] is not None and f["draft_end"] is not None]
+    if at is None or len(timed) != len(facts):
+        return None
+    inside = [f for f in timed if f["draft_start"] - _CLIP_BOUNDARY_TOLERANCE_SEC < at <= f["draft_end"] + _CLIP_BOUNDARY_TOLERANCE_SEC]
+    if not inside:
+        return None
+    # A cut is reported where the clip ends, so the clip whose end is nearest is the one meant.
+    return min(inside, key=lambda f: abs(f["draft_end"] - at))
+
+
+def reclassify_recording_limited(defects: list[dict[str, Any]], facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Turn cut findings on clips that already run to the last recorded frame into a non-blocking note.
+
+    Decided from the windows, not from the model's wording: the model may or may not say "the camera stopped".
+    A cut finding on a clip that ends before its recording does is left exactly as it was.
+    """
+    out: list[dict[str, Any]] = []
+    for defect in defects:
+        dtype = str(defect.get("type", "")).upper()
+        if dtype not in _CUT_DEFECT_TYPES and dtype != RECORDING_LIMITED_TYPE:
+            out.append(defect)
+            continue
+        clip = _clip_of_cut(defect.get("at_seconds"), facts)
+        limited = clip is not None and clip["reaches_recording_end"]
+        if dtype == RECORDING_LIMITED_TYPE and not limited:
+            # The reviewer blamed the camera, but footage exists after this cut (or the clip is unknown): that is
+            # an ordinary cut finding and must keep blocking.
+            out.append({**defect, "type": "PREMATURE_CUT", "reported_type": RECORDING_LIMITED_TYPE})
+            continue
+        if not limited:
+            out.append(defect)
+            continue
+        out.append({**defect, "type": RECORDING_LIMITED_TYPE, "severity": "info", "original_type": dtype,
+                    "original_severity": str(defect.get("severity", "")).lower(), "actionable": False,
+                    "clip_index": clip["clip_index"], "source": clip["source"],
+                    "recording_end": clip["recording_end"]})
+    return out
+
+
+def _clip_facts_prompt(facts: list[dict[str, Any]]) -> str:
+    """Tell the reviewer, per draft clip, what the edit could and could not have done, and ask for a verdict on
+    each clip's opening and ending. The verdicts are stored for measurement; they do not gate anything."""
+    if not facts:
+        return ""
+    lines = ["", "DRAFT CLIPS (facts measured from the files, not opinions):"]
+    for fact in facts:
+        span = ""
+        if fact["draft_start"] is not None and fact["draft_end"] is not None:
+            span = f" draft {_fmt(fact['draft_start'])}-{_fmt(fact['draft_end'])};"
+        line = (f"- clip {fact['clip_index']}:{span} source {fact['source']} "
+                f"{_fmt(fact['source_start'])}-{_fmt(fact['source_end'])}")
+        if fact["recording_end"] is not None:
+            line += f"; the recording ends at {_fmt(fact['recording_end'])}"
+            if fact["reaches_recording_end"]:
+                line += " = this clip ALREADY RUNS TO THE LAST RECORDED FRAME"
+            else:
+                line += f" ({_fmt(fact['recording_end'] - fact['source_end'])} of footage exists after the cut)"
+        lines.append(line)
+    lines += [
+        "A clip that already runs to the last recorded frame cannot be extended. If its action is still going at",
+        f"the end, report {RECORDING_LIMITED_TYPE} (severity \"minor\") for it and NOT PREMATURE_CUT. Use",
+        "PREMATURE_CUT only when footage exists after the cut and the action continues in it.",
+        "Add to your JSON a \"clips\" array with one entry per draft clip, in order:",
+        "  {\"clip_index\": <number>, \"opens_on_action\": true|false, \"seconds_to_first_action\": <number>,",
+        "   \"ending\": \"complete\"|\"cut_by_edit\"|\"cut_by_camera\", \"dead_seconds\": <number>}",
+        "opens_on_action: the athlete is already performing within the clip's first second. ending: \"complete\"",
+        "when the action resolves in the clip (ride finishes, fall, kick-out). dead_seconds: total time in the",
+        "clip with no meaningful action by the athlete.",
+    ]
+    return "\n".join(lines)
+
+
+def _clip_reviews(parsed: dict[str, Any], facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The reviewer's per-clip verdicts, corrected where they contradict the measured windows."""
+    by_index = {fact["clip_index"]: fact for fact in facts}
+    reviews: list[dict[str, Any]] = []
+    for item in parsed.get("clips") or []:
+        if not isinstance(item, dict):
+            continue
+        try:
+            index = int(item.get("clip_index"))
+        except (TypeError, ValueError):
+            continue
+        fact = by_index.get(index)
+        if fact is None:
+            continue
+        ending = str(item.get("ending") or "").lower()
+        review = {"clip_index": index, "source": fact["source"], "opens_on_action": item.get("opens_on_action"),
+                  "seconds_to_first_action": _to_float(item.get("seconds_to_first_action")),
+                  "ending": ending, "dead_seconds": _to_float(item.get("dead_seconds")),
+                  "reaches_recording_end": fact["reaches_recording_end"]}
+        if ending == "cut_by_edit" and fact["reaches_recording_end"]:
+            review.update({"ending": "cut_by_camera", "ending_corrected_from": "cut_by_edit"})
+        reviews.append(review)
+    return reviews
 
 
 def _context_defects(context: dict[str, Any]) -> list[dict[str, Any]]:
@@ -188,7 +362,8 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
         prompt = analyzer._QA_REEL_PROMPT + getattr(analyzer, "_QA_LAYOUT_NOTE", "")
         if sport:
             prompt += "\nSport context: " + sport
-        prompt += "\nAthlete: " + label + source_evidence_prompt(context)
+        facts = draft_clip_facts(context, clips)
+        prompt += "\nAthlete: " + label + source_evidence_prompt(context) + _clip_facts_prompt(facts)
         model = analyzer.genai.GenerativeModel(model_name=analyzer._QA_REEL_MODEL)
         parsed = None
         last_error = None
@@ -208,14 +383,18 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
         model_defects, out_of_draft = _split_out_of_draft(
             [d for d in (parsed.get("defects") or []) if isinstance(d, dict)],
             specs.get("duration") if isinstance(specs, dict) else None)
-        defects = model_defects + _context_defects(context)
+        defects = reclassify_recording_limited(model_defects, facts) + _context_defects(context)
+        for item in defects:
+            if item.get("type") == RECORDING_LIMITED_TYPE:
+                print(f"     ⚪ {item.get('original_type')} @{item.get('at_seconds')}s is the end of the recording "
+                      f"({item.get('source')}), not an edit: kept as a note, not blocking")
         for item in out_of_draft:
             print(f"     ⚪ QA finding outside the {float(item['draft_duration']):.1f}s draft ignored: "
                   f"{item.get('type')} @{item.get('at_seconds')}s — {str(item.get('note', ''))[:120]}")
         critical = [d for d in defects if str(d.get("severity", "")).lower() == "critical"]
         score = int(parsed.get("engagement_score", 0))
         threshold = int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60"))
-        result = {"verdict": "PASS" if tech_ok and score >= threshold and not critical else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": bool(critical), "out_of_draft_defects": out_of_draft}
+        result = {"verdict": "PASS" if tech_ok and score >= threshold and not critical else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": bool(critical), "out_of_draft_defects": out_of_draft, "clip_reviews": _clip_reviews(parsed, facts), "draft_clip_facts": facts}
         analyzer._persist_qa_result(result, reel_path, sport)
         return _remember_final_qa(reel_path, result)
     except Exception as exc:

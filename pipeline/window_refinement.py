@@ -44,6 +44,15 @@ def _sampling_gap(times: list[float]) -> float:
     return median(gaps) if gaps else 0.0
 
 
+def _largest_gap(times: list[float]) -> tuple[float, float | None]:
+    """Longest stretch inside the track with no detection: (length, second it starts at)."""
+    best, at = 0.0, None
+    for a, b in zip(times, times[1:]):
+        if b - a > best:
+            best, at = b - a, a
+    return round(best, 2), (round(at, 2) if at is not None else None)
+
+
 def refine_event_window(
     event: dict[str, Any],
     detections: list[Any],
@@ -66,6 +75,11 @@ def refine_event_window(
 
     tolerance = max(lost_tolerance, 3.0 * _sampling_gap(times))
     first, last = times[0], times[-1]
+    # Measured, not acted on: a track that vanishes for seconds and "returns" inside the window may be another
+    # person picked up under the same id (run 42891165218, 0094: the window ran 9 s past the athlete's ride into
+    # another surfer's). The trace prints this so the next run shows whether such gaps separate the two.
+    gap, gap_at = _largest_gap(times)
+    measured = {"max_track_gap_sec": gap, "max_track_gap_start_sec": gap_at}
     new_start, new_end = start, end
     reasons: list[str] = []
     if first - start > tolerance:
@@ -75,9 +89,9 @@ def refine_event_window(
         new_end = min(end, last + pad_end)
         reasons.append("track_lost_before_end")
     if not reasons:
-        return {**event, "window_refinement": {"status": "unchanged", "first_track_sec": round(first, 2), "last_track_sec": round(last, 2)}}
+        return {**event, "window_refinement": {"status": "unchanged", "first_track_sec": round(first, 2), "last_track_sec": round(last, 2), **measured}}
     if new_end - new_start < min_window:
-        return {**event, "window_refinement": {"status": "skipped_too_short", "first_track_sec": round(first, 2), "last_track_sec": round(last, 2)}}
+        return {**event, "window_refinement": {"status": "skipped_too_short", "first_track_sec": round(first, 2), "last_track_sec": round(last, 2), **measured}}
 
     refined = {
         **event,
@@ -106,5 +120,6 @@ def refine_event_window(
         "start_shift": round(new_start - start, 2),
         "end_shift": round(new_end - end, 2),
         "clamped_phase_times": clamped,
+        **measured,
     }
     return refined

@@ -337,6 +337,7 @@ def _patch_prompt_and_filters() -> None:
         hardened_people: list[dict[str, Any]] = []
         dropped_events = 0
         dropped_people = 0
+        detections: list | None = None  # loaded once, only when a person keeps events
         for person in result.get("persons", []) or []:
             events: list[dict[str, Any]] = []
             for event in list(person.get("events", []) or []):
@@ -361,16 +362,10 @@ def _patch_prompt_and_filters() -> None:
                     "no_output_reason": reason,
                 })
                 continue
-            hardened = {**person, "events": events}
-            best = max(events, key=runtime_quality._score)
-            midpoint = (_number(best.get("start")) + _number(best.get("end"))) / 2.0
-            if midpoint >= 0:
-                old_thumb = hardened.get("thumbnail") or ""
-                focused = runtime_quality._extract_identity_thumbnail(video_path, best, midpoint)
-                if focused:
-                    if old_thumb and old_thumb != focused:
-                        runtime_quality._safe_remove(old_thumb)
-                    hardened["thumbnail"] = focused
+            if detections is None:
+                detections = runtime_quality._load_detections(video_path)
+            # Same identity image as the base hardening (contact sheet of the tracked box, else one crop).
+            hardened = runtime_quality.attach_identity_image(video_path, {**person, "events": events}, detections)
             hardened_people.append(hardened)
         if dropped_events or dropped_people:
             print(

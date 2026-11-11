@@ -44,6 +44,25 @@ def main() -> int:
     if extend_to_recording_end({"start": 1.0, "end": 16.4}, 16.4).get("end") != 16.4:
         fail("an end already at the recording end is unchanged")
 
+    # The analyzer's own "outcome resolves here" second is part of the action (its prompt calls it a firm
+    # claim). The production cut chain dropped it: the wrapper that applied it (window_policy) is not on the
+    # path quality_preserving_framing installs.
+    from pipeline.complete_action_window_policy import extend_to_outcome, normalize_complete_action_event
+
+    landing = {"start": 2.0, "end": 6.0, "outcome_end": 8.5}
+    if extend_to_outcome(landing, 30.0).get("end") != 8.5:
+        fail("an outcome reported after `end` must be inside the cut")
+    if extend_to_outcome(landing, 7.0).get("end") != 7.0:
+        fail("an outcome past the end of the recording is clamped to it")
+    if extend_to_outcome({"start": 2.0, "end": 6.0, "outcome_end": 5.0}, 30.0).get("end") != 6.0:
+        fail("an outcome before `end` never shortens the cut")
+    if extend_to_outcome({"start": 2.0, "end": 6.0, "outcome_end": None}, 30.0).get("end") != 6.0:
+        fail("no reported outcome: the cut is unchanged")
+    if extend_to_outcome({**landing, "_teaser": True}, 30.0).get("end") != 6.0:
+        fail("a teaser keeps its window")
+    if normalize_complete_action_event(landing).get("end") != 8.5:
+        fail("the outcome must reach the event the renderer and QA use (no source file: length unknown)")
+
     with tempfile.TemporaryDirectory(prefix="rec-tail-") as tmp:
         os.environ.update({"TMP_DIR": tmp, "SPORTREEL_EXPORT_EDL": "1", "SPORTREEL_REQUIRE_EXPLICIT_SCOPE": "1",
                            "PUBLISHABLE_REEL_MANIFEST_FILE": os.path.join(tmp, "manifest.json")})
