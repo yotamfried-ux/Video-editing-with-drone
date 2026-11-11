@@ -222,3 +222,27 @@ then the normal identity, cut and QA path. Answers are cached per source and win
 
 On run 43013005072's report, 0094 track 162 (13.8-36.6 s) qualifies. Not verified until the next run: whether Flash
 confirms the tandem ride, and which other windows it adds or rejects.
+
+## 9. Run 43031447052 failed (main@e113950, after #365)
+
+The run crashed in the cut step: `RuntimeError: Framing requires tracker_sidecar evidence`, and no reel was
+uploaded. Events added by the second look were created after perception had bound every analyzer event to its
+track, so they had a `target_track_id` but no tracker evidence (bbox, `track_id`, visible tracks). The framing step
+refuses such an event, and a single failed clip aborts the whole compile.
+
+The second look added three moments:
+- 0094 tandem ride (adult and child on one board): the intended find.
+- 0155, "ride, score 7": the catalog has it as a failed take-off with no meaningful action, the analyzer agreed,
+  and it would have joined the 0094 athlete's reel (the catalog confirms it is the same surfer).
+- 0152, "ride, score 8": most likely the athlete already covered in that clip.
+
+Fix (`pipeline/missed_moment_rescue.py`):
+- A rescued event is bound to its track through the same `perception.runtime.enrich_event` every analyzer event
+  goes through, using only that track's detections, with everyone visible in the window recorded. If it cannot be
+  bound, it is not added. The test now runs the framing decision on it.
+- Only what the analyzer's single-athlete contract cannot see is added (`tandem_ride`, `notable_moment`). An
+  ordinary `ride` the analyzer already rejected stays rejected and is logged.
+- A window on a track that a kept highlight already follows is skipped without a call.
+
+Status updates to Supabase failed with "Server disconnected" during the run; they are logged and skipped and did
+not cause the failure.
