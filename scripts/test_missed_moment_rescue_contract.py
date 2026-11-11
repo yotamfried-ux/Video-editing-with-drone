@@ -121,6 +121,14 @@ def main() -> int:
         fail(f"the moment is a surf event bound to the uncovered track: {event}")
     if not (16.0 <= event["start"] <= 16.6 and 35.5 <= event["end"] <= 36.1):  # window 12.8 s + 3.5 / + 23.0
         fail(f"the model's clip-relative times must map back to the source: {event['start']}-{event['end']}")
+    # Run 43031447052: a rescued event without sidecar evidence crashed framing and failed the whole run.
+    if event.get("perception_evidence_status") != "tracker_sidecar" or str(event.get("track_id")) != "162":
+        fail(f"the rescued event carries the bound track's sidecar evidence: {event}")
+    from pipeline.quality_preserving_framing import decide_framing
+    try:
+        decide_framing(event, sport="surfing")
+    except RuntimeError as exc:
+        fail(f"the rescued event must be frameable: {exc}")
     if (rescued[0].get("identity_evidence") or {}).get("kind") != "track_bbox_sheet":
         fail(f"the rescued person gets the same tracked contact sheet as everyone else: {rescued[0].get('identity_evidence')}")
     if "tandem" not in rescued[0]["description"]:
@@ -157,6 +165,14 @@ def main() -> int:
         os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, f"cache-{len(CALLS)}")
         if rescue.rescue_missed_moments(video, people, cand, detections, "surfing"):
             fail(f"{why} must add nothing")
+
+    # A confirmed moment whose track has no detection in its window cannot be framed: it is not added.
+    ANSWER = {**answer, "description": "adult and child riding tandem on a turquoise longboard", "score": 9,
+              "moment": True, "end": 23.0}
+    os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, "cache-untracked")
+    untracked = [d for d in detections if d.tracker_id != 162]
+    if rescue.rescue_missed_moments(video, people, cand, untracked, "surfing"):
+        fail("a moment with no tracked detections of its track must add nothing (framing would fail the run)")
 
     windows = rescue.select_windows([
         {"track_id": "a", "start": 0.0, "end": 8.8, "span": 8.8, "travel_frames": 0.83, "covered": 0.27},

@@ -118,6 +118,30 @@ def _track_center(detections: list, track_id: str, start: float, end: float) -> 
     return round(xs[len(xs) // 2], 4), round(ys[len(ys) // 2], 4)
 
 
+def _bind_tracker_evidence(event: dict[str, Any], detections: list, track_id: str) -> dict[str, Any] | None:
+    """Attach the bound track's sidecar evidence, as analyzer events get it before hardening.
+
+    Run 43031447052: rescued events carried only crop hints, so framing raised
+    "Framing requires tracker_sidecar evidence" and the whole run failed. Only the rescued track's
+    detections are offered, so the binding cannot move to another person. Returns None when that
+    track has no detection inside the moment's window (the clip could not be framed).
+    """
+    from pipeline.perception.runtime import enrich_event
+
+    def tracker(det):
+        return det.get("tracker_id") if isinstance(det, dict) else getattr(det, "tracker_id", None)
+
+    own = [d for d in detections or [] if not isinstance(d, dict) and str(tracker(d)) == str(track_id)]
+    if not own:
+        return None
+    enriched = enrich_event(event, own)
+    if enriched.get("perception_evidence_status") != "tracker_sidecar" or not enriched.get("perception_detection_count"):
+        return None
+    if enriched.get("track_id") is None:
+        return None
+    return enriched
+
+
 def _cut_window(video_path: str, start: float, end: float) -> str | None:
     out = tempfile.NamedTemporaryFile(prefix="missed_moment_", suffix=".mp4", delete=False).name
     cmd = ["ffmpeg", "-v", "error", "-y", "-ss", f"{start:.2f}", "-to", f"{end:.2f}", "-i", str(video_path),
@@ -271,6 +295,11 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
         }
         if surf and "surf" not in description.lower() and kind in {"ride", "tandem_ride"}:
             event["sport"] = "surfing"
+        event = _bind_tracker_evidence(event, detections, str(win["track_id"]))
+        if event is None:
+            print(f"   🛟 missed-moment check (not added): {name} {start:.1f}-{end:.1f}s has no tracked "
+                  f"detections of track {win['track_id']} to frame it")
+            continue
         rescued.append({"id": f"rescued_track_{win['track_id']}", "description": description, "events": [event],
                         "rescued_by": RESCUE_PROMPT_VERSION})
     return rescued
