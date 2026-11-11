@@ -181,9 +181,16 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
     except Exception:
         duration = None
     covered = [p for p in people if p.get("events")]
-    covered_text = "\n".join(
-        f"- {p.get('description')} (highlight {', '.join(f'{float(e['start']):.1f}-{float(e['end']):.1f}s' for e in p['events'] if 'start' in e and 'end' in e)})"
-        for p in covered) or "- none"
+    def windows_of(person: dict[str, Any]) -> str:
+        spans = []
+        for ev in person.get("events", []):
+            try:
+                spans.append("%.1f-%.1fs" % (float(ev["start"]), float(ev["end"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return ", ".join(spans)
+
+    covered_text = "\n".join(f"- {p.get('description')} (highlight {windows_of(p)})" for p in covered) or "- none"
     noticed = "; ".join(str(p.get("description")) for p in people if not p.get("events")) or "none"
     name = Path(str(video_path)).name
     rescued: list[dict[str, Any]] = []
