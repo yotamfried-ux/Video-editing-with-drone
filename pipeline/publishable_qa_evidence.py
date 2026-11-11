@@ -144,6 +144,7 @@ def apply_final_qa_evidence(
                 part["qa_evidence_recorded"] = evidence_recorded
                 part["qa_verdict"] = verdict or None
                 part["qa_engagement_score"] = (result or {}).get("engagement_score")
+                part["qa_deliverable_score"] = (result or {}).get("deliverable_score")
                 part["qa_overall"] = overall or None
                 part["qa_defects"] = copy.deepcopy((result or {}).get("defects") or [])
                 part["qa_passed"] = qa_passed

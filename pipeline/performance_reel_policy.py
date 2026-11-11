@@ -123,6 +123,79 @@ def _no_output_reason_for_person(person: dict[str, Any], activity: str) -> str:
     return "quality_below_threshold"
 
 
+# A tracked person whose track lasts this long, moves this far across the frame and is mostly outside every ride
+# the analyzer returned is reported as a possible missed ride. Measurement only: nothing is added or removed.
+_MISSED_RIDE_MIN_SPAN_SEC = 4.0
+_MISSED_RIDE_MIN_TRAVEL_FRAMES = 0.25
+_MISSED_RIDE_MAX_COVERED = 0.5
+
+
+def _det_field(det: Any, name: str) -> Any:
+    return det.get(name) if isinstance(det, dict) else getattr(det, name, None)
+
+
+def missed_ride_candidates(people: list[dict[str, Any]], detections: list) -> list[dict[str, Any]]:
+    """Tracked people the analyzer gave no ride to, as evidence for "does the analysis miss waves?".
+
+    Run 42891165218: the analyzer listed 33 people with no event (`no_complete_action` 27) and none was reported
+    by name. The catalog shows one of them rode a full wave (0094, a father and child, 19.8 s) and no reel had it.
+    Returns, per long moving track outside every kept ride: track id, span, travel in frame widths, coverage.
+    """
+    windows: list[tuple[float, float]] = []
+    for person in people:
+        for event in person.get("events", []) or []:
+            try:
+                windows.append((float(event["start"]), float(event["end"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+    tracks: dict[Any, list[tuple[float, float, float]]] = {}
+    for det in detections or []:
+        track = _det_field(det, "tracker_id")
+        name = str(_det_field(det, "class_name") or "person").lower()
+        if track is None or name not in {"person", "athlete"}:
+            continue
+        try:
+            t = float(_det_field(det, "time_sec"))
+            x1, _y1, x2, _y2 = (float(v) for v in _det_field(det, "xyxy"))
+            width = float(_det_field(det, "frame_width") or 0) or 1.0
+        except (TypeError, ValueError):
+            continue
+        tracks.setdefault(track, []).append((t, (x1 + x2) / 2.0, width))
+    out: list[dict[str, Any]] = []
+    for track, points in tracks.items():
+        points.sort()
+        start, end = points[0][0], points[-1][0]
+        span = end - start
+        if span < _MISSED_RIDE_MIN_SPAN_SEC:
+            continue
+        travel = sum(abs(b[1] - a[1]) / b[2] for a, b in zip(points, points[1:]))
+        if travel < _MISSED_RIDE_MIN_TRAVEL_FRAMES:
+            continue
+        covered = sum(max(0.0, min(end, b) - max(start, a)) for a, b in windows)
+        share = min(1.0, covered / span) if span > 0 else 1.0
+        if share > _MISSED_RIDE_MAX_COVERED:
+            continue
+        out.append({"track_id": str(track), "start": round(start, 1), "end": round(end, 1),
+                    "span": round(span, 1), "travel_frames": round(travel, 2), "covered": round(share, 2)})
+    return sorted(out, key=lambda c: -c["span"])
+
+
+def report_ride_coverage(video_path: str, people: list[dict[str, Any]], detections: list) -> list[dict[str, Any]]:
+    """Print who the analyzer saw but gave no ride to, and long moving tracks outside every ride."""
+    name = Path(str(video_path)).name
+    for person in people:
+        if person.get("events"):
+            continue
+        print(f"   👤 no ride from the analyzer: {name} {person.get('id')} "
+              f"\"{str(person.get('description') or '')[:70]}\" reason={person.get('no_output_reason')}")
+    candidates = missed_ride_candidates(people, detections)
+    for cand in candidates[:3]:
+        print(f"   🔎 possible missed ride: {name} track {cand['track_id']} {cand['start']}-{cand['end']}s "
+              f"(moved {cand['travel_frames']} frame widths, {int(cand['covered'] * 100)}% inside kept rides)")
+        _funnel.record("possible_missed_ride", source=name, **cand)
+    return candidates
+
+
 def filter_session_result_for_performance_reel(result: dict[str, Any]) -> dict[str, Any]:
     """Preserve every detected athlete while filtering only their event list.
 
@@ -367,6 +440,12 @@ def _patch_prompt_and_filters() -> None:
             # Same identity image as the base hardening (contact sheet of the tracked box, else one crop).
             hardened = runtime_quality.attach_identity_image(video_path, {**person, "events": events}, detections)
             hardened_people.append(hardened)
+        try:
+            if detections is None:
+                detections = runtime_quality._load_detections(video_path)
+            report_ride_coverage(video_path, hardened_people, detections)
+        except Exception as exc:  # a report must never fail the analysis
+            logger.debug("ride coverage report unavailable: %s", exc)
         if dropped_events or dropped_people:
             print(
                 "🧹 Performance coverage guard: dropped "

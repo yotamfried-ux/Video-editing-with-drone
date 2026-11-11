@@ -30,7 +30,7 @@ from integrations import llm_cache as _llm_cache
 logger = logging.getLogger(__name__)
 
 RENDER_CODE_VERSION = "render-v2"
-QA_POLICY_VERSION = "qa-policy-v2"
+QA_POLICY_VERSION = "qa-policy-v3-deliverable"
 _CACHE_LOCK = threading.RLock()
 
 
@@ -227,8 +227,9 @@ def compute_qa_signature(
         "qa_policy_version": qa_policy_version,
         "pipeline_code_version": os.getenv("GITHUB_SHA") or RENDER_CODE_VERSION,
         "qa_model": os.getenv("SPORTREEL_REEL_QA_MODEL", "gemini-2.5-flash"),
-        "qa_prompt_version": os.getenv("SPORTREEL_QA_PROMPT_VERSION", "qa-prompt-2026-11-07"),
+        "qa_prompt_version": os.getenv("SPORTREEL_QA_PROMPT_VERSION", "qa-prompt-2026-11-11-deliverable"),
         "engagement_threshold": int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60")),
+        "deliverable_threshold": os.getenv("QA_DELIVERABLE_THRESHOLD", ""),
         "one_reel_per_athlete": os.getenv("SPORTREEL_ONE_REEL_PER_ATHLETE", "1").strip().lower(),
         "reel_file_sha256": reel_sha,
         "sport": str(sport or "").strip().lower(),

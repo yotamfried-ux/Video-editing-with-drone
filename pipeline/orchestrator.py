@@ -75,6 +75,8 @@ _FILENAME_SPORT_HINTS: dict[str, str] = {
 def _print_qa_result(reel: str, qa: dict) -> None:
     verdict = qa.get("verdict", "PASS")
     score   = qa.get("engagement_score", "?")
+    if qa.get("deliverable_score") is not None:
+        score = f"{score} deliverable={qa.get('deliverable_score')}"
     overall = qa.get("overall", "")
     name    = Path(reel).name
     if verdict == "FAIL":

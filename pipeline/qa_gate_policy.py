@@ -31,6 +31,39 @@ _INSTALLED_FLAG = "_sportreel_qa_gate_policy_installed"
 _FINDER_FLAG = "_sportreel_qa_gate_import_hook_installed"
 
 
+# The score that decides whether a reel passes final QA. A reel is a product the athlete pays for: the record of
+# their own ride(s) from the session. `deliverable_score` is the reviewer's answer to "would this athlete happily
+# pay for this reel?"; `engagement_score` (a social-media virality estimate) is kept for ranking and reports.
+# Run 42891165218: 5 reels with one or two clean rides failed on engagement 45-55 because a single uninterrupted
+# ride scores low on loopability and cut pacing by construction, not because anything was wrong with them.
+GATE_SCORE_KEY = "deliverable_score"
+
+
+def qa_pass_threshold() -> int:
+    for name in ("QA_DELIVERABLE_THRESHOLD", "QA_ENGAGEMENT_THRESHOLD"):
+        raw = os.getenv(name)
+        if raw not in (None, ""):
+            try:
+                return int(raw)
+            except ValueError:
+                continue
+    return 60
+
+
+def qa_gate_score(qa: dict[str, Any] | None) -> int:
+    """The score final QA passes on: the deliverable score, or the engagement score when the reviewer gave none."""
+    qa = qa or {}
+    for key in (GATE_SCORE_KEY, "engagement_score"):
+        value = qa.get(key)
+        if isinstance(value, bool) or value in (None, ""):
+            continue
+        try:
+            return int(float(value))
+        except (TypeError, ValueError):
+            continue
+    return 0
+
+
 def defect_type(defect: dict[str, Any]) -> str:
     return str(defect.get("type", "")).upper()
 
@@ -115,6 +148,8 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
         "defects": defects,
         "overall": qa.get("overall", ""),
         "engagement_score": qa.get("engagement_score"),
+        "deliverable_score": qa.get(GATE_SCORE_KEY),
+        "gate_score": qa_gate_score(qa),
     }
 
 

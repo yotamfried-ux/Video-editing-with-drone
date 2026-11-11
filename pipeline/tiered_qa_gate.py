@@ -189,7 +189,9 @@ def run_tier3_exception_audit(
     """Layer 3 exception audit for borderline scores, compound minor defects, or low-visibility windows."""
     result = dict(qa_result)
     defects = [dict(d) for d in (result.get("defects") or []) if isinstance(d, Mapping)]
-    score = int(_num(result.get("engagement_score"), 0))
+    from pipeline.qa_gate_policy import qa_gate_score
+
+    score = qa_gate_score(result)
     non_teaser = [ev for ev in (events or []) if isinstance(ev, Mapping) and not ev.get("_teaser")]
 
     minor_defects = [d for d in defects if str(d.get("severity") or "").lower() == "minor"]

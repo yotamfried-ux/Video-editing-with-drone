@@ -200,15 +200,23 @@ _QA_REASON_CODES = ("PASS", "POOR_CLOSEUP", "MOTION_BLUR", "FRAMING", "LIGHTING"
 _QA_REEL_MODEL = "gemini-2.5-flash"
 
 _QA_REEL_PROMPT = """\
-You are an independent short-form social-media reviewer (TikTok / Instagram Reels).
+You are an independent reviewer of personal sports reels.
 You have NOT seen the original editing instructions. Judge ONLY the final reel.
 
-Apply documented short-form best practices:
-- HOOK: the first 1-2 seconds must stop the scroll (motion, peak action, or intrigue).
-- PACING: fast cuts, no dead time; momentum sustained throughout.
-- PAYOFF: a clear standout peak moment the viewer waits for.
-- CLARITY: the subject is always readable; vertical 9:16 framing respected.
-- LOOPABILITY: the ending flows back into the start (seamless replay).
+PRODUCT: this reel is bought by the athlete in it, as the record of their own
+ride(s) from the session, to keep and to post. A reel may hold one ride. A single
+clear, complete, well-framed ride is a complete product the athlete pays for:
+never mark a reel down for having one clip, few cuts, or a modest wave.
+
+Score these dimensions (0-10):
+- HOOK: the athlete is visibly in action within the first 1-2 seconds.
+- PACING: no dead time; the action keeps going. An uninterrupted ride is action
+  for its whole length: its duration is not slow pacing and needs no cuts.
+- PAYOFF: the ride has a moment worth watching (a turn, a long line, the finish,
+  a fall). For a single ride, the ride itself is the payoff.
+- CLARITY: the athlete is always readable; vertical 9:16 framing respected.
+- LOOPABILITY: the ending flows back into the start. Informational only: a reel
+  that does not loop is not worse for the athlete who buys it.
 
 Additionally scan the FULL reel for production defects. Report EVERY occurrence
 with its approximate timestamp in seconds:
@@ -230,7 +238,8 @@ with its approximate timestamp in seconds:
 - NO_VISIBLE_ACTION — a clip where nothing meaningful is actually visible: a wave
                       with no readable ride, an athlete too small/far to see, or a
                       moment so short (1-2s of content) that no action registers
-- DEAD_TIME         — more than ~2 seconds with no meaningful action
+- DEAD_TIME         — more than ~2 seconds with no meaningful action (riding the
+                      wave, even an easy section of it, is action)
 - BAD_FIRST_CLIP    — the opening clip contains no real action (empty water,
                       paddling only, subject barely visible)
 
@@ -249,11 +258,18 @@ Return JSON only (no markdown fences):
     {"type": "<code from the list above>", "severity": "critical|minor",
      "at_seconds": <number>, "note": "<short explanation>"}
   ],
+  "deliverable_score": 0-100,
   "engagement_score": 0-100,
   "overall": "<one sentence summary>"
 }
 
 defects must be an empty list when the reel is clean.
+deliverable_score: would the athlete happily pay for this reel as the record of
+their ride(s)? 70+ = the athlete is clear, the action is complete and readable,
+nothing distracting; 50-69 = usable but with a visible problem (hard to see the
+athlete for a while, a clumsy cut, dead time); below 50 = the athlete cannot be
+followed, the action is unreadable, or a defect spoils it. One good ride scores
+the same as several good rides.
 engagement_score is your heuristic estimate of social-media performance.
 Be strict and calibrated — reserve 80+ for genuinely scroll-stopping reels.\
 """
@@ -465,8 +481,10 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "", even
                     text = re.sub(r"^```[a-z]*\n?", "", text).rstrip("`").strip()
                 parsed = json.loads(text)
 
+                from pipeline.qa_gate_policy import qa_gate_score, qa_pass_threshold
+
                 engagement = int(parsed.get("engagement_score", 0))
-                engagement_ok = engagement >= config.QA_ENGAGEMENT_THRESHOLD
+                engagement_ok = qa_gate_score(parsed) >= qa_pass_threshold()
                 defects = [d for d in (parsed.get("defects") or []) if isinstance(d, dict)]
                 critical = [d for d in defects
                             if str(d.get("severity", "")).lower() == "critical"]
@@ -477,6 +495,7 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "", even
                     "content": parsed.get("content", {}),
                     "defects": defects,
                     "engagement_score": engagement,
+                    "deliverable_score": parsed.get("deliverable_score"),
                     "overall": parsed.get("overall", ""),
                 }
             finally:
@@ -491,6 +510,8 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "", even
                 except OSError:
                     pass
 
+    from pipeline.qa_gate_policy import qa_pass_threshold
+
     specs, technical_pass, tech_issues = _check_technical_compliance(reel_path)
     result = evaluate_reel_tiered_qa(
         reel_path,
@@ -499,7 +520,7 @@ def qa_check_reel(reel_path: str, sport: str = "", athlete_label: str = "", even
         athlete_label=athlete_label,
         content_qa_fn=_live_gemini_content_qa,
         specs={"pass": technical_pass, "issues": tech_issues, **specs},
-        engagement_threshold=int(getattr(config, "QA_ENGAGEMENT_THRESHOLD", 60)),
+        engagement_threshold=qa_pass_threshold(),
         single_reel_per_athlete=True,
     )
     _persist_qa_result(result, reel_path, sport)

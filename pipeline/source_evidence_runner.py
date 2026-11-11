@@ -392,9 +392,11 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
             print(f"     ⚪ QA finding outside the {float(item['draft_duration']):.1f}s draft ignored: "
                   f"{item.get('type')} @{item.get('at_seconds')}s — {str(item.get('note', ''))[:120]}")
         critical = [d for d in defects if str(d.get("severity", "")).lower() == "critical"]
+        from pipeline.qa_gate_policy import qa_gate_score, qa_pass_threshold
+
         score = int(parsed.get("engagement_score", 0))
-        threshold = int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60"))
-        result = {"verdict": "PASS" if tech_ok and score >= threshold and not critical else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": bool(critical), "out_of_draft_defects": out_of_draft, "clip_reviews": _clip_reviews(parsed, facts), "draft_clip_facts": facts}
+        gate = qa_gate_score(parsed)
+        result = {"verdict": "PASS" if tech_ok and gate >= qa_pass_threshold() and not critical else "FAIL", "technical": {"pass": tech_ok, "issues": issues, **specs}, "content": parsed.get("content", {}), "defects": defects, "engagement_score": score, "deliverable_score": parsed.get("deliverable_score"), "gate_score": gate, "overall": parsed.get("overall", ""), "source_evidence_clip_count": len(clips), "source_evidence_visual_uploaded": True, "qa_review_required": bool(critical), "out_of_draft_defects": out_of_draft, "clip_reviews": _clip_reviews(parsed, facts), "draft_clip_facts": facts}
         analyzer._persist_qa_result(result, reel_path, sport)
         return _remember_final_qa(reel_path, result)
     except Exception as exc:

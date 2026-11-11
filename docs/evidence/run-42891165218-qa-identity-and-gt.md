@@ -140,3 +140,30 @@ track second, longest track gap). The rows marked "not verified" above can be se
 3. **Reel length.** The 4- and 5-clip reels run 55-71 s with 19 s rides; QA marks pacing 4-5 on them. The contract
    today is "every usable wave, complete".
 4. **A pipeline run** to verify the identity fix and collect the new trace fields.
+
+## 6. Follow-up (operator, 2026-11-11): one good ride is a reel; are waves missed?
+
+**QA standard.** The operator's rule: the analysis prompt stays as it is, a single-wave reel must not fail, and
+QA must reflect that an athlete pays for one good wave.
+
+- The final QA prompt (Gemini Flash, not the analysis prompt) now states the product: the athlete buys the record of
+  their own ride(s); one clear, complete ride is a complete product. Pacing no longer asks for fast cuts, an
+  uninterrupted ride counts as action for its whole length, and loopability is informational.
+- The reviewer returns `deliverable_score` ("would the athlete happily pay for this?") next to `engagement_score`.
+  Final QA passes on `deliverable_score` (threshold `QA_DELIVERABLE_THRESHOLD`, else `QA_ENGAGEMENT_THRESHOLD`,
+  default 60). Without it the engagement score decides, as before. Critical defects still fail any reel.
+- The QA cache policy version changed, so the next run reviews every reel again (Flash only; the analysis cache is
+  untouched).
+- Not verified: how the reviewer scores the 5 withheld reels under the new standard. That needs the run.
+
+**Missed waves.** Against the catalog, one catalogued ride has no reel: 0094's second athlete (father and child,
+16.9-36.7 s). The analyzer listed 5 people in 0094 and returned a ride for one; the other 4 came back with no event
+and were dropped as `no_complete_action` (33 such people in the whole run). That drop was only counted, never named.
+
+Each analysed source now prints, in the log:
+- every person the analyzer saw but gave no ride to, with its description and reason;
+- up to 3 tracked people whose track lasts 4 s or more, moves at least a quarter of the frame width, and is mostly
+  outside every kept ride (`possible missed ride`). This is a report only: nothing is added or removed.
+
+The next run's log will show whether the father-and-child ride appears as an uncovered track, and whether other
+sources have the same gap.
