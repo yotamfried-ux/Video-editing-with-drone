@@ -130,6 +130,53 @@ def check_identity_sheet() -> None:
         os.environ.pop("SPORTREEL_IDENTITY_CROPS")
 
 
+def check_production_hardening_builds_sheet() -> None:
+    """The hardening that production actually runs must build the contact sheet too.
+
+    `performance_reel_policy.install()` replaces `runtime_quality._harden_session_result` (bootstrap order:
+    runtime_quality, then performance_reel_policy). Its replacement built one crop-point thumbnail, so run
+    42891165218 clustered every person from a single frame (trace: evidence=crop_point_thumbnailx1 for 23/23)
+    and split one surfer into two athletes (0097 / 0115). The base-path check above passed all along.
+    """
+    import config
+    config.TMP_DIR = str(TMP)
+    gemini = sys.modules["integrations.gemini"]  # the stub above; the analyzer imports two more names from it
+    gemini.upload_video = getattr(gemini, "upload_video", lambda path: path)
+    gemini.delete_video = getattr(gemini, "delete_video", lambda item: None)
+    from pipeline import performance_reel_policy, runtime_quality as rq
+    from pipeline.perception.schema import PerceptionDetection
+    rq.install()
+    performance_reel_policy.install()
+    video = TMP / "DJI_20260720161907_0115_D.MP4"
+    _video(video)
+    dets = [PerceptionDetection(source_video=str(video), frame_index=int(t * 30), time_sec=t,
+                                xyxy=(800 + 20 * t, 400, 900 + 20 * t, 560), frame_width=1920, frame_height=1080,
+                                confidence=0.9, class_id=0, class_name="person", tracker_id=3)
+            for t in [0.5 * i for i in range(1, 12)]]
+    original_load = rq._load_detections
+    rq._load_detections = lambda _path: dets
+    try:
+        result = {"activity": "surfing", "persons": [
+            {"id": "person_A", "description": "surfer in dark shorts on a light blue longboard", "events": [
+                {"type": "wave_catch", "description": "rides a wave down the line", "start": 0.5, "end": 5.6,
+                 "score": 8, "target_track_id": "3", "crop_x": 0.45, "crop_y": 0.45}]},
+            {"id": "person_B", "description": "surfer far away", "events": [
+                {"type": "wave_catch", "description": "rides a wave", "start": 0.5, "end": 5.6, "score": 8,
+                 "crop_x": 0.2, "crop_y": 0.5}]}]}
+        hardened = rq._harden_session_result(str(video), result)
+    finally:
+        rq._load_detections = original_load
+    people = {p["id"]: p for p in hardened["persons"]}
+    assert people["person_A"]["events"], "the tracked person's ride must survive the performance filter"
+    ev = people["person_A"].get("identity_evidence") or {}
+    assert ev.get("kind") == "track_bbox_sheet" and ev.get("crops") == 4 and ev.get("track_ids") == ["3"], (
+        f"production hardening must build the tracked contact sheet, got {ev}")
+    assert os.path.exists(people["person_A"]["thumbnail"]), "the sheet is the person's identity image"
+    if people["person_B"]["events"]:
+        fallback = people["person_B"].get("identity_evidence") or {}
+        assert fallback.get("kind") == "crop_point_thumbnail" and fallback.get("sheet_unavailable") == "no_track_detections", fallback
+
+
 def check_evaluator() -> None:
     sys.path.insert(0, str(ROOT / "scripts"))
     import eval_identity_trace as ev
@@ -174,6 +221,7 @@ def check_evaluator() -> None:
 def main() -> int:
     check_trace_through_clustering()
     check_identity_sheet()
+    check_production_hardening_builds_sheet()
     check_evaluator()
     print("identity trace contract ok")
     return 0

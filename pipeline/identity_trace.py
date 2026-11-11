@@ -49,6 +49,28 @@ def _num(value: Any) -> float | None:
         return None
 
 
+def _event_timing(ev: dict) -> dict[str, Any]:
+    """What the analyzer claimed about one event's boundaries and what window refinement did with it.
+
+    Until run 42891165218 the log only had the final window, so "the analyzer ended the ride early" could not
+    be told from "the pipeline trimmed it" (0151 ended 2.6 s before its wipeout finished, 0115 started 6.4 s
+    into the catalogued ride). Empty values are omitted to keep the trace line short.
+    """
+    refinement = ev.get("window_refinement") if isinstance(ev.get("window_refinement"), dict) else {}
+    fields = {
+        "type": ev.get("type"), "score": ev.get("score"),
+        "llm_start": _num(ev.get("llm_start")), "llm_end": _num(ev.get("llm_end")),
+        "setup_start": _num(ev.get("setup_start")), "peak_time": _num(ev.get("peak_time")),
+        "outcome_end": _num(ev.get("outcome_end")),
+        "evidence": str(ev.get("timing_evidence") or "")[:140] or None,
+        "refine": refinement.get("status"), "refine_reasons": refinement.get("reasons") or None,
+        "track_first": refinement.get("first_track_sec"), "track_last": refinement.get("last_track_sec"),
+        "track_gap": refinement.get("max_track_gap_sec") or None,
+        "track_gap_at": refinement.get("max_track_gap_start_sec") if refinement.get("max_track_gap_sec") else None,
+    }
+    return {key: value for key, value in fields.items() if value is not None}
+
+
 def _keys_of(cluster: dict) -> list[str]:
     keys: set[str] = set()
     for app in cluster.get("appearances", []) or []:
@@ -88,6 +110,7 @@ def record_persons(clip_analyses: list[dict]) -> None:
                         "person_id": str(person.get("id", "")),
                         "description": str(person.get("description", ""))[:160],
                         "windows": [[_num(ev.get("start")), _num(ev.get("end"))] for ev in events],
+                        "timing": [_event_timing(ev) for ev in events],
                         "track_ids": sorted({str(ev.get("target_track_id") or ev.get("track_id"))
                                              for ev in events if (ev.get("target_track_id") or ev.get("track_id")) is not None}),
                         "track_binding": sorted({str(ev.get("track_binding_source")) for ev in events if ev.get("track_binding_source")}),

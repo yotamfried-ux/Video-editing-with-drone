@@ -530,9 +530,13 @@ def qa_note_reasons(part: dict[str, Any], limit: int = 6) -> list[str]:
     if str(part.get("qa_verdict") or "").upper() != "FAIL":
         return []
     out: list[str] = []
-    score = part.get("qa_engagement_score")
+    from pipeline.qa_gate_policy import qa_pass_threshold
+
+    score = part.get("qa_deliverable_score")
+    if not isinstance(score, (int, float)) or isinstance(score, bool):
+        score = part.get("qa_engagement_score")
     if isinstance(score, (int, float)) and not isinstance(score, bool):
-        out.append(f"qa_score:{int(score)}/{os.getenv('QA_ENGAGEMENT_THRESHOLD', '60')}")
+        out.append(f"qa_score:{int(score)}/{qa_pass_threshold()}")
     overall = str(part.get("qa_overall") or "").strip()
     if overall:
         out.append(f"qa_summary:{overall[:160]}")

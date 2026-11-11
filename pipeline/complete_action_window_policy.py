@@ -52,6 +52,48 @@ def extend_to_recording_end(event: dict[str, Any], duration: float | None) -> di
             "recording_end_tail_sec": round(remaining, 3)}
 
 
+def ends_with_recording(event: dict[str, Any], video_path: str | None = None) -> bool | None:
+    """True when this event's clip will end on the last recorded frame (so its action may be cut by the camera),
+    False when the action ends inside the recording, None when the recording's length is unknown.
+
+    Uses the same rules as the cut itself, so ordering decisions made before cutting agree with what is rendered.
+    """
+    if event.get("_teaser"):
+        return None
+    duration = _recording_duration(_source_path(event, video_path))
+    if duration is None:
+        return None
+    cut = extend_to_recording_end(extend_to_outcome(event, duration), duration)
+    try:
+        return float(cut.get("end")) >= duration - 0.15
+    except (TypeError, ValueError):
+        return None
+
+
+def extend_to_outcome(event: dict[str, Any], duration: float | None) -> dict[str, Any]:
+    """Run an action to the second the analyzer says its outcome resolves, when that is after `end`.
+
+    The analyzer reports `end` (last readable second of the action) and, separately, `outcome_end` ("where the
+    outcome fully resolves: landing complete, wave ridden out or athlete falls"), which the prompt calls a firm
+    claim. `window_policy.resolve_window` used to apply it, but that cut-clip wrapper is no longer on the
+    production path (`quality_preserving_framing.install()` replaces `editor.cut_clip`), so a reported outcome
+    after `end` was silently dropped and the fall/exit was cut. Window refinement already clamps `outcome_end`
+    to the tracked span, so this never reaches past where the athlete's track was lost.
+    """
+    if event.get("_teaser"):
+        return event
+    try:
+        end = float(event.get("end"))
+        outcome = float(event.get("outcome_end"))
+    except (TypeError, ValueError):
+        return event
+    if duration is not None:
+        outcome = min(outcome, duration)
+    if not outcome > end:
+        return event
+    return {**event, "end": round(outcome, 3), "end_before_outcome": round(end, 3)}
+
+
 def normalize_complete_action_event(event: dict[str, Any], video_path: str | None = None) -> dict[str, Any]:
     """Persist the exact full action window used by the renderer and final QA.
 
@@ -62,8 +104,11 @@ def normalize_complete_action_event(event: dict[str, Any], video_path: str | Non
     effective = dict(event)
     if effective.get("_teaser"):
         return effective
-    # Every sport, not only the surf contract below: the bound comes from QA's generic DEAD_TIME rule.
-    effective = extend_to_recording_end(effective, _recording_duration(_source_path(effective, video_path)))
+    # Every sport, not only the surf contract below: the outcome is the analyzer's own claim, and the tail bound
+    # comes from QA's generic DEAD_TIME rule.
+    duration = _recording_duration(_source_path(effective, video_path))
+    effective = extend_to_outcome(effective, duration)
+    effective = extend_to_recording_end(effective, duration)
     if not _is_complete_performance_action(effective):
         return effective
     effective.pop("_cap_dur", None)
