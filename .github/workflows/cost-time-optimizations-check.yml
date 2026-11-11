@@ -101,18 +101,19 @@ jobs:
           python-version: '3.11'
       - name: Install minimal dependencies (no detector, no network)
         run: python -m pip install --disable-pip-version-check python-dotenv google-genai langsmith httplib2 google-api-python-client google-auth-oauthlib
-      - name: Install ffmpeg once (apt with a time limit, else the static build)
-        # 2026-11-11: the runner's Ubuntu mirrors failed ("Temporary failure"), apt-get hung and the job timed out.
+      - name: Install ffmpeg once (runner mirror with a time limit, else archive.ubuntu.com directly)
+        # 2026-11-11: the runner's apt mirror list failed ("Temporary failure"), apt-get hung and the job timed out.
+        # The fallback reads the same noble packages (ffmpeg 6.1, as in production) straight from Ubuntu.
         # Every later step skips its own install when ffmpeg is already present.
         run: |
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            if ! { timeout 120 sudo apt-get update -qq -o Acquire::Retries=1 -o Acquire::http::Timeout=20 \
-                   && timeout 180 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }; then
-              echo "apt unavailable; using the static ffmpeg build"
-              curl -fsSL --retry 3 https://johnvansickle.com/ffmpeg/releases/ffmpeg-release-amd64-static.tar.xz -o /tmp/ffmpeg.tar.xz
-              mkdir -p /tmp/ffmpeg && tar -xJf /tmp/ffmpeg.tar.xz -C /tmp/ffmpeg --strip-components=1
-              sudo install -m 0755 /tmp/ffmpeg/ffmpeg /tmp/ffmpeg/ffprobe /usr/local/bin/
-            fi
+          apt_install() {
+            timeout 150 sudo apt-get update -qq -o Acquire::Retries=2 -o Acquire::http::Timeout=20 \
+              && timeout 240 sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg
+          }
+          if ! command -v ffmpeg >/dev/null 2>&1 && ! apt_install; then
+            echo "runner apt mirror unavailable; using archive.ubuntu.com directly"
+            sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|g' /etc/apt/sources.list.d/*.sources /etc/apt/sources.list 2>/dev/null || true
+            apt_install
           fi
           ffmpeg -version | head -1
       - name: Cost/time optimizations contract
