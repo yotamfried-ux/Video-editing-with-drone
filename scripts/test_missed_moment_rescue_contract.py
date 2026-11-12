@@ -111,7 +111,8 @@ def main() -> int:
 
     ANSWER = {"moment": True, "kind": "tandem_ride", "start": 3.5, "end": 23.0, "people": 2,
               "description": "adult in a light blue top and a child in a yellow top riding tandem on a turquoise longboard",
-              "score": 9, "reason": "a father and child ride one board together the whole wave"}
+              "score": 9, "reason": "a father and child ride one board together the whole wave",
+              "start_evidence": "both stand up together on the board", "end_evidence": "both step off as the wave dies"}
     hardened = rq._harden_session_result(video, result)
     rescued = [p for p in hardened["persons"] if p.get("rescued_by")]
     if len(rescued) != 1:
@@ -142,6 +143,25 @@ def main() -> int:
     lineage = enrich_metadata_entry({"draft_name": "DRAFT_tandem"}, [{**event, "athlete_id": "ath_test"}])
     if lineage["identity_lineage_status"] != "complete" or lineage["person_id"] != "rescued_track_162":
         fail(f"a draft of the rescued event must have complete identity lineage: {lineage['identity_lineage_status']}")
+    # Run 43203677423: the tandem ride had no timing contract, so its single-fragment ride end counted as inferred
+    # and the reel was blocked (RIDE_BOUNDARY_UNCERTAIN). Boundary evidence from the model makes it exact.
+    from pipeline.surf_ride_segment import normalize_surf_rides
+
+    def boundary_defects(ev):
+        return [d["type"] for r in normalize_surf_rides([dict(ev)], "surfing") for d in r.get("ride_qa_defects", [])]
+
+    if event.get("timing_precise") is not True or "both step off" not in str(event.get("timing_evidence")):
+        fail(f"named boundaries give the rescued event the analyzer's timing contract: {event.get('timing_evidence')}")
+    if "RIDE_BOUNDARY_UNCERTAIN" in boundary_defects(event):
+        fail("a rescued ride with named boundaries is not an inferred ride end")
+    vague = {k: v for k, v in event.items() if k not in {"timing_precise", "outcome_end", "ride_end_evidence"}}
+    if "RIDE_BOUNDARY_UNCERTAIN" not in boundary_defects(vague):
+        fail("without boundary evidence the end stays uncertain (the QA gate still asks for review)")
+    at_end = rescue._timing_contract({}, 27.8, 36.9, recording_end=True)
+    if at_end.get("outcome_end") != 36.9 or "RIDE_BOUNDARY_UNCERTAIN" in boundary_defects({**vague, **at_end}):
+        fail(f"a moment that runs into the end of the recording ends there, observed: {at_end}")
+    if rescue._timing_contract({"start_evidence": "stands"}, 1.0, 5.0, recording_end=False):
+        fail("one named boundary is not enough for exact timing")
     if "tandem" not in rescued[0]["description"]:
         fail("the description carries 'tandem' so identity treats the pair as one subject, never as a solo surfer")
     if len(CALLS) != 1 or CALLS[0]["model"] != "gemini-2.5-flash":

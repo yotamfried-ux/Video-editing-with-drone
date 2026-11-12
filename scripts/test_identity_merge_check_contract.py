@@ -89,6 +89,19 @@ def main() -> int:
         if [(i, j) for _s, i, j in pairs] != [(0, 1)]:
             fail(f"a man and a woman, or shirtless and long-sleeved, are never sent even when colors match: {pairs}")
 
+        # Run 43203677423: the clusterer hedged on 0097's backlit outfit ("a dark one-piece or wetsuit"). Read as a
+        # one-piece, that made him female in swimwear, so 0097/0115 was never checked and he got two reels again.
+        hedged = {"description": "Silhouette of a surfer in a dark one-piece or wetsuit on a light blue longboard",
+                  "appearances": s0097["appearances"]}
+        shorts = {"description": "Silhouette of a shirtless surfer in dark shorts on a white or light blue surfboard",
+                  "appearances": s0115["appearances"]}
+        if [(i, j) for _s, i, j in identity._merge_check_pairs([hedged, shorts])] != [(0, 1)]:
+            fail("a hedged garment ('one-piece or wetsuit') is no reading of sex or sleeves: 0097/0115 must be checked")
+        bikini = {"description": "Woman in a dark green bikini on a white surfboard",
+                  "appearances": [app(tmp, "DJI_0160_D", "surfer in a dark top on a white board")]}
+        if identity._merge_check_pairs([bikini, shorts]):
+            fail("an unhedged bikini against a shirtless man is still never sent")
+
         out, fake = run(identity, [s0097, s0115, wetsuit],
                         {"same_person": True, "confidence": "high", "reason": "same build, board color shifts with backlight"})
         merged = [c for c in out if len(c["appearances"]) == 2]

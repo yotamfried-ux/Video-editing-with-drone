@@ -733,11 +733,19 @@ def _merge_duplicate_clusters(clusters: list[dict]) -> list[dict]:
     return [merged[k] for k in order]
 
 
+_GARMENT_WORD = r"(?:one-piece|swimsuit|bikini|wetsuit(?:\s+top)?|rash\s+guard|shorts|trunks|boardshorts)"
+_HEDGED_GARMENT = re.compile(rf"\b{_GARMENT_WORD}(?:\s+or\s+(?:an?\s+)?|\s*/\s*){_GARMENT_WORD}\b")
+
+
 def extract_structured_attributes(description: str) -> dict:
     """Extract normalized multi-sport athlete & equipment attributes from an aerial/sports description."""
     text = " " + re.sub(r"[^a-z0-9/-]+", " ", str(description or "").lower()).strip() + " "
     if " no surfer visible " in text or " empty wave " in text or text.strip() in {"", "unknown athlete"}:
         return {"empty": True}
+    # A garment the describer could not tell apart ("a dark one-piece or wetsuit", "one-piece/wetsuit") is not a
+    # reading of either. Run 43203677423: a backlit shirtless man (0097) was described that way; "one-piece" made
+    # him female in swimwear, so he was never compared with his own other clip (0115) and got a second reel.
+    text = _HEDGED_GARMENT.sub(" ", text)
 
     numbers = set(
         re.findall(
