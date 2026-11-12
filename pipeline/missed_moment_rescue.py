@@ -27,7 +27,7 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-RESCUE_PROMPT_VERSION = "missed-moment-v1"
+RESCUE_PROMPT_VERSION = "missed-moment-v2"
 # A window is worth a model call only when it is long, the person travels, and almost all of it is outside rides.
 MIN_SPAN_SEC = 6.0
 MIN_TRAVEL_FRAMES = 0.5
@@ -61,6 +61,8 @@ waiting in the lineup, a failed take-off with nothing else, or a person too smal
 Return ONLY JSON, no markdown:
 {{"moment": true|false, "kind": "ride|tandem_ride|notable_moment|none",
   "start": <seconds from the start of THIS clip>, "end": <seconds from the start of THIS clip>,
+  "start_evidence": "<what is visible at the start second, e.g. pops up to stand>",
+  "end_evidence": "<what is visible at the end second, e.g. both step off as the wave dies>",
   "people": <number of people performing it>,
   "description": "<who: clothing, hair, board color; write 'tandem' when two people share one board>",
   "score": <1-10, how much a viewer would enjoy watching it>,
@@ -120,6 +122,30 @@ def _track_center(detections: list, track_id: str, start: float, end: float) -> 
         return None
     xs.sort(); ys.sort()
     return round(xs[len(xs) // 2], 4), round(ys[len(ys) // 2], 4)
+
+
+# A moment that runs into the last frames of the source ends where the recording does: an observed boundary.
+_RECORDING_END_TOLERANCE_SEC = 0.3
+
+
+def _timing_contract(answer: dict[str, Any], start: float, end: float, recording_end: bool) -> dict[str, Any]:
+    """The analyzer's timing contract for a rescued moment (pipeline.stages.analyzer._timing_fields).
+
+    Run 43203677423: the tandem ride carried only the model's reason as timing evidence and no timing_precise, so
+    pipeline.surf_ride_segment treated its end as inferred and blocked the reel (RIDE_BOUNDARY_UNCERTAIN), although
+    the ride ran to the end of the recording. A moment is exact when the model names what is visible at both
+    boundaries; an end at the recording end is observed whatever the model says.
+    """
+    start_ev = " ".join(str(answer.get("start_evidence") or "").split())[:120]
+    end_ev = " ".join(str(answer.get("end_evidence") or "").split())[:120]
+    fields: dict[str, Any] = {}
+    if start_ev and end_ev:
+        fields["timing_evidence"] = f"start {start:.1f}s: {start_ev}; end {end:.1f}s: {end_ev}"
+        fields["timing_precise"] = True
+    if recording_end:
+        fields["outcome_end"] = round(end, 2)
+        fields["ride_end_evidence"] = "recording_end"
+    return fields
 
 
 def _bind_to_track(event: dict[str, Any], detections: list, track_id: str) -> dict[str, Any] | None:
@@ -291,6 +317,7 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
               f"score={answer.get('score')} \"{description[:70]}\" — {str(answer.get('reason', ''))[:100]}")
         if not found:
             continue
+        recording_end = bool(duration) and end >= float(duration) - _RECORDING_END_TOLERANCE_SEC
         end = min(end, duration) if duration else end
         center = _track_center(detections, str(win["track_id"]), start, end) or (0.5, 0.5)
         surf = any(term in (activity or "").lower() for term in ("surf", "wave"))
@@ -299,6 +326,7 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
             "description": description, "start": round(start, 2), "end": round(end, 2), "score": score,
             "target_track_id": str(win["track_id"]), "crop_x": center[0], "crop_y": center[1],
             "timing_evidence": f"start {start:.1f}s; end {end:.1f}s: {answer.get('reason', '')}",
+            **_timing_contract(answer, start, end, recording_end),
             "ride_completed": True, "moment_kind": kind, "rescued_by": RESCUE_PROMPT_VERSION,
             "primary_actor_clear": True, "primary_actor_confidence": 0.8, "identity_continuity": "stable",
             "background_people_present": True, "competing_active_subjects": False,
