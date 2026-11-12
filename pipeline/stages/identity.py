@@ -904,11 +904,13 @@ def _top_colors_compatible(a: str | None, b: str | None) -> bool:
     return False
 
 
-# Labels that describe the same long-sleeved wetsuit coverage. From a drone, "a black long-sleeved wetsuit top and
-# dark shorts" and "a black wetsuit" are the same silhouette: runs 42814819534 and 42857524999 split one surfer
-# (0074 / 0151, confirmed by the operator) because the parser labelled them long_sleeve and full_wetsuit. Every
-# other difference (shirtless, swimwear, sleeveless, short-sleeved shirt) stays a hard conflict.
-_SAME_COVERAGE = ({"long_sleeve", "full_wetsuit"},)
+# Sleeve labels that describe the same coverage. #360 grouped long_sleeve with full_wetsuit to merge 0074 ("black
+# long-sleeved wetsuit top and dark shorts") with 0151 ("black wetsuit") on a reported operator confirmation. The
+# manual catalog (ground_truth) has them as two athletes ("black, white shorts, blond" / "shorts with a black
+# shirt"), and run 43203677423 put 0151 into 0074's reel. A stranger in an athlete's reel is worse than a split, so
+# a long-sleeved top against a full wetsuit is a conflict again; the visual merge check can still join a split
+# athlete whose descriptions do not conflict.
+_SAME_COVERAGE: tuple[set[str], ...] = ()
 
 
 def _sleeve_styles_compatible(a: str | None, b: str | None) -> bool:
