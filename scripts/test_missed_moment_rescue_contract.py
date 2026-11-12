@@ -133,6 +133,15 @@ def main() -> int:
         decide_framing(event, sport="surfing")
     except RuntimeError as exc:
         fail(f"framing must accept a rescued event: {exc}")
+    # Run 43079298706: the publishable gate needs person lineage on every selected window; the rescued tandem ride
+    # had none (lineage 0.958). Identity clustering adds athlete_id later; the rest must already be there.
+    if event.get("person_id") != "rescued_track_162" or event.get("source_video") != os.path.basename(video):
+        fail(f"the rescued event carries its person lineage: person_id={event.get('person_id')} "
+             f"source_video={event.get('source_video')}")
+    from pipeline.draft_identity_metadata import enrich_metadata_entry
+    lineage = enrich_metadata_entry({"draft_name": "DRAFT_tandem"}, [{**event, "athlete_id": "ath_test"}])
+    if lineage["identity_lineage_status"] != "complete" or lineage["person_id"] != "rescued_track_162":
+        fail(f"a draft of the rescued event must have complete identity lineage: {lineage['identity_lineage_status']}")
     if "tandem" not in rescued[0]["description"]:
         fail("the description carries 'tandem' so identity treats the pair as one subject, never as a solo surfer")
     if len(CALLS) != 1 or CALLS[0]["model"] != "gemini-2.5-flash":

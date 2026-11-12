@@ -312,6 +312,13 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
             print(f"   🛟 missed-moment check (not added): {name} {lo:.1f}-{hi:.1f}s — no tracker evidence for track "
                   f"{win['track_id']} in the moment's window")
             continue
-        rescued.append({"id": f"rescued_track_{win['track_id']}", "description": description, "events": [event],
+        person_id = f"rescued_track_{win['track_id']}"
+        # Analyzer events get their person lineage when chunk results are merged; a rescued person is added after
+        # that, so it is stamped here. Run 43079298706 failed the publishable gate on exactly this: the tandem
+        # ride's selected window had no person_id ("selected identity lineage completeness must be 1.0, got 0.958").
+        event.update({"person_id": person_id, "chunk_person_id": person_id, "source_person_id": person_id,
+                      "source_video": name})
+        rescued.append({"id": person_id, "source_person_id": person_id, "chunk_person_id": person_id,
+                        "source_video": name, "description": description, "events": [event],
                         "rescued_by": RESCUE_PROMPT_VERSION})
     return rescued
