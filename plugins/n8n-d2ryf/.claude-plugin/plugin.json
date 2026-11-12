@@ -1,0 +1,7 @@
+{
+  "name": "n8n-d2ryf",
+  "version": "0.1.0",
+  "description": "Use the self-hosted n8n instance at n8n.d2ryf.com from Claude Code: discover, inspect and execute workflows through n8n's MCP server.",
+  "author": { "name": "Yotam Friedman" },
+  "keywords": ["n8n", "automation", "workflows", "mcp"]
+}

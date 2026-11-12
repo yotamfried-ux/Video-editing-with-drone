@@ -1,0 +1,13 @@
+{
+  "name": "video-editing-with-drone",
+  "owner": { "name": "Yotam Friedman" },
+  "metadata": { "description": "Claude Code plugins for the drone video-editing project" },
+  "plugins": [
+    {
+      "name": "n8n-d2ryf",
+      "source": "./plugins/n8n-d2ryf",
+      "description": "Connects Claude Code to the self-hosted n8n instance (n8n.d2ryf.com) over MCP with OAuth, plus a skill and commands for finding and running workflows.",
+      "category": "automation"
+    }
+  ]
+}
