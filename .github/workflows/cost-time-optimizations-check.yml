@@ -43,6 +43,7 @@ on:
       - 'scripts/test_runtime_setup_contract.py'
       - 'scripts/test_qa_fallback_specs_contract.py'
       - 'scripts/test_recording_end_tail_contract.py'
+      - 'scripts/test_setup_lead_in_contract.py'
       - 'scripts/test_wetsuit_coverage_identity_contract.py'
       - 'scripts/test_parallel_source_download_contract.py'
       - 'scripts/test_persisted_qa_evidence_contract.py'
@@ -214,7 +215,11 @@ jobs:
         run: |
           command -v ffmpeg >/dev/null 2>&1 || { sudo apt-get update -qq && sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends ffmpeg; }
           python scripts/test_recording_end_tail_contract.py
-      - name: A wetsuit top and a black wetsuit are not an identity conflict (runs 42814819534/42857524999)
+      - name: A ride's cut opens on the catch and pop-up (setup_start), not on a standing athlete (catalog, run 43203677423)
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_setup_lead_in_contract.py
+      - name: A long-sleeved wetsuit top and a full wetsuit are two athletes (catalog 0074/0151, run 43203677423)
         env:
           PYTHONPATH: .
         run: python scripts/test_wetsuit_coverage_identity_contract.py

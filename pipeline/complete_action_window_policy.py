@@ -124,6 +124,43 @@ def extend_to_outcome(event: dict[str, Any], duration: float | None) -> dict[str
     return {**event, "end": round(outcome, 3), "end_before_outcome": round(end, 3)}
 
 
+# Longest lead-in a cut opens with before the analyzer's `start` (the athlete standing up). Final QA's DEAD_TIME
+# rule ("more than ~2 seconds with no meaningful action") bounds it, like the tails above.
+SETUP_LEAD_IN_MAX_SEC = 2.0
+# Open at most this far before the first frame the athlete's track is seen: the follow crop needs them in frame.
+SETUP_TRACK_MARGIN_SEC = 0.3
+
+
+def extend_to_setup(event: dict[str, Any]) -> dict[str, Any]:
+    """Open the cut on the catch and pop-up the analyzer reported as `setup_start`.
+
+    `window_policy.resolve_window` used to apply setup_start, but it left the production path with the cut-clip
+    wrapper (see extend_to_outcome), so every ride has opened on an athlete already standing. Against the manual
+    catalog (run 43203677423, 22 sources) cuts started a median 1.6 s after the catalogued ride start and lost
+    40.7 s of usable ride starts; setup_start capped at SETUP_LEAD_IN_MAX_SEC recovers 19 s of it with no second
+    outside the catalogued ride. The cut never opens before the athlete's track is seen (window refinement
+    measures it), and without that evidence it does not move.
+    """
+    if event.get("_teaser") or event.get("start_before_setup_lead_in") is not None:
+        return event  # normalization runs before the cut and again for the timeline: apply the lead-in once
+    try:
+        start = float(event.get("start"))
+        setup = float(event.get("setup_start"))
+    except (TypeError, ValueError):
+        return event
+    refinement = event.get("window_refinement")
+    if not isinstance(refinement, dict) or "athlete_not_in_frame_at_start" in (refinement.get("reasons") or []):
+        return event
+    try:
+        first_seen = float(refinement.get("setup_first_track_sec"))
+    except (TypeError, ValueError):
+        return event
+    new_start = max(setup, start - SETUP_LEAD_IN_MAX_SEC, first_seen - SETUP_TRACK_MARGIN_SEC, 0.0)
+    if not new_start < start - 0.05:
+        return event
+    return {**event, "start": round(new_start, 3), "start_before_setup_lead_in": round(start, 3)}
+
+
 def normalize_complete_action_event(event: dict[str, Any], video_path: str | None = None) -> dict[str, Any]:
     """Persist the exact full action window used by the renderer and final QA.
 
@@ -137,6 +174,7 @@ def normalize_complete_action_event(event: dict[str, Any], video_path: str | Non
     # Every sport, not only the surf contract below: the outcome is the analyzer's own claim, and the tail bound
     # comes from QA's generic DEAD_TIME rule.
     duration = _recording_duration(_source_path(effective, video_path))
+    effective = extend_to_setup(effective)
     effective = extend_to_outcome(effective, duration)
     effective = extend_through_fall(effective, duration)
     effective = extend_to_recording_end(effective, duration)

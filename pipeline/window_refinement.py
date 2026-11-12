@@ -106,6 +106,14 @@ def refine_event_window(
     # another surfer's). The trace prints this so the next run shows whether such gaps separate the two.
     gap, gap_at = _largest_gap(times)
     measured = {"max_track_gap_sec": gap, "max_track_gap_start_sec": gap_at}
+    # Where the athlete is first tracked between the analyzer's setup_start and start: the earliest second a cut
+    # can open on them (pipeline.complete_action_window_policy.extend_to_setup). `first` cannot answer this, it
+    # only looks 1 s before start.
+    setup = _num(event.get("setup_start"))
+    if setup is not None and setup < start:
+        lead = _track_times(detections, str(track_id), max(0.0, setup - 0.5), start)
+        if lead:
+            measured["setup_first_track_sec"] = round(lead[0], 2)
     new_start, new_end = start, end
     reasons: list[str] = []
     if first - start > tolerance:
