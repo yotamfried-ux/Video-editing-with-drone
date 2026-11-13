@@ -10,6 +10,8 @@ TERMS = {"surf", "surfing", "surfer", "wave", "longboard", "cutback", "carve", "
 
 
 def _num(value: Any, default: float = 0.0) -> float:
+    if isinstance(value, bool):
+        return default
     try:
         return float(value)
     except (TypeError, ValueError):
