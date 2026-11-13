@@ -66,19 +66,39 @@ investigation host.
 
 | remark | right? | owner |
 |---|---|---|
-| `PREMATURE_CUT` on the father and child reel | yes: cut 25.8–33.8, catalog 16.9–36.7, recording ends 36.7 | pipeline. The rescue accepts the model's 8 s answer inside a 13.8–36.6 s track; the log shows `ADDED … 12.8-36.7s` for the clip it looked at. Not fixed: a window rule needs the tracker detections |
+| `PREMATURE_CUT` on the father and child reel | yes: cut 25.8–33.8, catalog 16.9–36.7, recording ends 36.7 | pipeline. The model saw the 12.8–36.7 s clip (track 162 13.8–36.6 s) and ended the moment at 33.8 s. End fixed in §3a; the start (25.8 s against 16.9 s) is not |
 | `NO_VISIBLE_ACTION` (critical) on the red-board man, clip 5 = 0140 | label wrong: the catalog has a ride 1.8–10.5 and the cut is 1.5–11.4. QA quoted the pipeline's "primary continuity 0.415" (policy threshold 0.50) | QA agent (should say `PRIMARY_ACTOR_UNCLEAR`) and pipeline (0140 track 2 continuity; tracks 4, 10001, 1 move in 0–4.5 s). *Not verified* without detections |
 | `DEAD_TIME` 2.1 s paddling at the start of 0140 | yellow, non-blocking. The catalog counts the catch as part of the ride | QA agent: allow ~2 s of catch before the stand |
 | `RECORDING_ENDS_MID_ACTION` on 13 reels | true, and reported twice (grey note and yellow finding), the yellow one lowers the score | QA agent prompt: end of recording is expected |
 
 Also observed: three drafts were blocked by the primary-actor policy (`review_required=3`, three active qa_gate re-edit
-tasks) while the manifest lists two of them (long hair 0094, patterned 0097/0115) as `PASS`, `publishable=True`. The
-business gate reports 13/14 published. Worth a separate look at what `publishable` means next to a policy block.
+tasks) while `public.draft_publishability` for this run has only the red-board reel unpublishable
+(`final_qa_failed`, `qa_critical:NO_VISIBLE_ACTION`); the long-hair (0094) and patterned (0097/0115) reels are
+`publishable=true` with `approval_blocked_reasons=[]`. The business gate reports 13/14 published. Worth a separate look at what `publishable` means next to a policy block.
+
+## 3a. Second fix: the rescued tandem ride ends where the tracker still follows it
+
+Log: `missed-moment check (ADDED): … 12.8-36.7s kind=tandem_ride` (the clip the model saw), `possible missed ride … track
+162 13.8-36.6s (moved 0.99 frame widths)`, rescued window `25.8-33.8` in the draft trace, recording 36.7 s, catalog ride
+16.9–36.7 s, QA `PREMATURE_CUT @8s` ("cut just before the natural completion").
+
+`missed_moment_rescue.rescue_missed_moments` took the model's end as given. It now moves the end to the recording's end
+when the rescued track is seen without a gap longer than `max(1 s, 3 × sampling)` from the model's end to the end of
+the recording, still travels (≥ 0.05 frame widths), and the tail is at most 4 s. It is then an observed boundary
+(`outcome_end`, `ride_end_evidence=recording_end`, `end_before_track_extension` keeps the model's second). A lost track,
+a track standing still, or a tail longer than 4 s leaves the model's end alone. On the run's numbers (33.8 → 36.7 s) the
+end meets the catalog's.
+
+Evidence level: `scripts/test_missed_moment_rescue_contract.py` replays these numbers with synthetic tracks (36.7 s
+source, track 13.8–36.6 s, model end 33.8 s) and four negatives; it fails on the previous code (`(25.8, 33.8)`). The
+run's real detections were not available, so the rule is not validated on the real track 162.
+
+Not fixed: the start. The model started the moment at 25.8 s; the catalog ride starts at 16.9 s, the track at 13.8 s.
+The lead-in policy (`extend_to_setup`, ≤ 2 s) cannot close 9 s, and nothing in the log says what happens in 16.9–25.8 s.
 
 ## 4. Not changed, proposed
 
-- Tandem rescue: extend the end to the rescued track's observed end when it is still moving at the model's end and the
-  recording continues; needs detections to qualify.
+- Tandem rescue start: needs the real detections (and a look at 16.9–25.8 s) to tell paddling into the wave from a ride.
 - 0094 long hair: the analyzer's `outcome_end` 22.5 s and track 42 (3.5–23.4 s, no gap) run into the father-and-child
   ride; the catalog ride ends at 13.2 s. The tracker did not separate them.
 - 0143 / 0152: the board colour is wrong at the analyzer; a text rule cannot separate them.

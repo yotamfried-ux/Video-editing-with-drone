@@ -124,6 +124,53 @@ def _track_center(detections: list, track_id: str, start: float, end: float) -> 
     return round(xs[len(xs) // 2], 4), round(ys[len(ys) // 2], 4)
 
 
+# The model picks the moment's end from a clip it was shown once. When the rescued track is still seen, moving, from that
+# second until the recording ends, the ride has not been shown to its outcome: the end is the recording's, an observed
+# boundary, like the analyzer's own outcome_end. Run 43303438106, 0094: the model ended the tandem ride at 33.8 s,
+# track 162 was tracked to 36.6 s of a 36.7 s file, the catalog ride ends at 36.7 s, and final QA reported
+# PREMATURE_CUT at the reel's end. A longer tail than this is not claimed: the track may be wading ashore.
+_END_EXTENSION_MAX_SEC = 4.0
+_END_EXTENSION_MIN_TRAVEL = 0.05  # frame widths the track must still move between the model's end and the recording's
+
+
+def _track_runs_to_recording_end(detections: list, track_id: str, start: float, end: float,
+                                 duration: float | None) -> float | None:
+    """Return the recording end when the track is seen, moving, from `end` to it; otherwise None."""
+    if not duration or end >= duration - _RECORDING_END_TOLERANCE_SEC:
+        return None
+    samples: list[tuple[float, float]] = []
+    for det in detections or []:
+        get = det.get if isinstance(det, dict) else (lambda k, d=det: getattr(d, k, None))
+        if str(get("tracker_id")) != str(track_id):
+            continue
+        try:
+            t = float(get("time_sec"))
+            x1, _y1, x2, _y2 = (float(v) for v in get("xyxy"))
+            w = float(get("frame_width"))
+        except (TypeError, ValueError):
+            continue
+        if w > 0:
+            samples.append((t, (x1 + x2) / 2.0 / w))
+    samples.sort()
+    inside = [t for t, _ in samples if start <= t <= end]
+    gaps = sorted(b - a for a, b in zip(inside, inside[1:]) if b > a)
+    tolerance = max(1.0, 3.0 * (gaps[len(gaps) // 2] if gaps else 0.0))
+    tail = [(t, x) for t, x in samples if t >= end - 1e-6]
+    if not tail:
+        return None
+    last_t, last_x = tail[0]
+    first_x = last_x
+    for t, x in tail[1:]:
+        if t - last_t > tolerance:
+            break
+        last_t, last_x = t, x
+    if duration - last_t > tolerance or duration - end > _END_EXTENSION_MAX_SEC:
+        return None
+    if abs(last_x - first_x) < _END_EXTENSION_MIN_TRAVEL:
+        return None
+    return float(duration)
+
+
 # A moment that runs into the last frames of the source ends where the recording does: an observed boundary.
 _RECORDING_END_TOLERANCE_SEC = 0.3
 
@@ -317,6 +364,13 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
               f"score={answer.get('score')} \"{description[:70]}\" — {str(answer.get('reason', ''))[:100]}")
         if not found:
             continue
+        model_end = None
+        extended = _track_runs_to_recording_end(detections, str(win["track_id"]), start, end, duration)
+        if extended is not None:
+            print(f"   🛟 missed-moment end moved {end:.1f}s -> {extended:.1f}s: track {win['track_id']} is still moving "
+                  f"until the recording ends")
+            model_end = round(end, 2)
+            end = extended
         recording_end = bool(duration) and end >= float(duration) - _RECORDING_END_TOLERANCE_SEC
         end = min(end, duration) if duration else end
         center = _track_center(detections, str(win["track_id"]), start, end) or (0.5, 0.5)
@@ -333,6 +387,8 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
             "target_occluded_at_key_moment": False,
             "primary_actor_reason": "second-look check: the moment's people are the tracked subject",
         }
+        if model_end is not None:
+            event["end_before_track_extension"] = model_end
         if surf and "surf" not in description.lower() and kind in {"ride", "tandem_ride"}:
             event["sport"] = "surfing"
         event = _bind_to_track(event, detections, str(win["track_id"]))
