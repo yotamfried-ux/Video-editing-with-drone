@@ -45,6 +45,9 @@ on:
       - 'scripts/test_recording_end_tail_contract.py'
       - 'scripts/test_setup_lead_in_contract.py'
       - 'scripts/test_wetsuit_coverage_identity_contract.py'
+      - 'scripts/test_generic_top_identity_contract.py'
+      - 'scripts/eval_identity_vs_catalog.py'
+      - 'docs/evidence/run-43303438106-identity-descriptions.json'
       - 'scripts/test_parallel_source_download_contract.py'
       - 'scripts/test_persisted_qa_evidence_contract.py'
       - 'scripts/test_identity_files_api_concurrency_contract.py'
@@ -223,6 +226,10 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_wetsuit_coverage_identity_contract.py
+      - name: An unnamed top is no sleeve conflict (catalog 0070/0108, run 43303438106)
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_generic_top_identity_contract.py
       - name: Sources download concurrently, admitted in order
         env:
           PYTHONPATH: .

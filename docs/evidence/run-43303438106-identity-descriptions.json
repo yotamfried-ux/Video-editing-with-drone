@@ -1,0 +1,150 @@
+{
+ "run": 43303438106,
+ "head": "041eadb",
+ "persons": [
+  {
+   "source": "0070",
+   "person": "person_A",
+   "description": "surfer in grey long-sleeve top and reddish bottoms on a light blue longboard",
+   "catalog_athlete": "catalog:blue-board-woman"
+  },
+  {
+   "source": "0074",
+   "person": "person_A",
+   "description": "surfer in a black long-sleeved wetsuit top on a light-colored surfboard",
+   "catalog_athlete": "catalog:black-white-shorts-blond"
+  },
+  {
+   "source": "0094",
+   "person": "person_A",
+   "description": "surfer with long dark hair, black sleeveless top, and black shorts on a white longboard",
+   "catalog_athlete": "catalog:black-longboard"
+  },
+  {
+   "source": "0094",
+   "person": "rescued_track_162",
+   "description": "Tandem: child in a yellow top and adult in a pink top on a lime green surfboard.",
+   "catalog_athlete": "catalog:father-and-child"
+  },
+  {
+   "source": "0095",
+   "person": "person_B",
+   "description": "Stand-up paddleboarder in a white long-sleeve shirt on a light-colored board.",
+   "catalog_athlete": "catalog:EXCLUDED-0095"
+  },
+  {
+   "source": "0097",
+   "person": "person_A",
+   "description": "surfer in black wetsuit on a light blue surfboard",
+   "catalog_athlete": "catalog:local-blue-shorts"
+  },
+  {
+   "source": "0108",
+   "person": "person_A",
+   "description": "surfer in grey top on a turquoise surfboard",
+   "catalog_athlete": "catalog:blue-board-woman"
+  },
+  {
+   "source": "0112",
+   "person": "person_A",
+   "description": "surfer on a red surfboard, wearing a dark top and dark shorts",
+   "catalog_athlete": "catalog:red-board-man"
+  },
+  {
+   "source": "0115",
+   "person": "person_A",
+   "description": "surfer wearing dark shorts on a light blue longboard",
+   "catalog_athlete": "catalog:local-blue-shorts"
+  },
+  {
+   "source": "0118",
+   "person": "person_A",
+   "description": "surfer in black tank top and black shorts on a white longboard",
+   "catalog_athlete": "catalog:black-longboard"
+  },
+  {
+   "source": "0126",
+   "person": "person_A",
+   "description": "surfer on a pink/red board, wearing a grey top and dark shorts",
+   "catalog_athlete": "catalog:red-board-man"
+  },
+  {
+   "source": "0130",
+   "person": "person_A",
+   "description": "surfer in red hooded rash guard on a tan longboard",
+   "catalog_athlete": "catalog:red-helmet-child"
+  },
+  {
+   "source": "0131",
+   "person": "person_A",
+   "description": "surfer in a grey-green shirt and dark shorts on a red longboard",
+   "catalog_athlete": "catalog:red-board-man"
+  },
+  {
+   "source": "0140",
+   "person": "person_A",
+   "description": "surfer with red surfboard and green/teal t-shirt",
+   "catalog_athlete": "catalog:red-board-man"
+  },
+  {
+   "source": "0142",
+   "person": "person_A",
+   "description": "surfer with long hair and beard in black sleeveless wetsuit on a white longboard",
+   "catalog_athlete": "catalog:black-longboard"
+  },
+  {
+   "source": "0143",
+   "person": "person_A",
+   "description": "surfer on a pink surfboard with a light-colored top and dark shorts",
+   "catalog_athlete": "catalog:pink-board"
+  },
+  {
+   "source": "0104",
+   "person": "person_A",
+   "description": "surfer in light blue-grey top and dark shorts on a red longboard",
+   "catalog_athlete": "catalog:red-board-man"
+  },
+  {
+   "source": "0146",
+   "person": "person_A",
+   "description": "surfer in black tank top on a white longboard",
+   "catalog_athlete": "catalog:black-longboard"
+  },
+  {
+   "source": "0151",
+   "person": "person_B",
+   "description": "shirtless surfer in pinkish shorts on a light-colored board",
+   "catalog_athlete": "catalog:black-shirt-shorts"
+  },
+  {
+   "source": "0152",
+   "person": "person_A",
+   "description": "surfer in white shirt and black shorts on a pink surfboard",
+   "catalog_athlete": "catalog:white-shirt-white-board"
+  },
+  {
+   "source": "0160",
+   "person": "person_A",
+   "description": "surfer in dark bikini on a cream/yellow longboard",
+   "catalog_athlete": "catalog:woman-2"
+  },
+  {
+   "source": "0162",
+   "person": "person_A",
+   "description": "surfer with red board and black wetsuit",
+   "catalog_athlete": "catalog:black-top-red-board"
+  },
+  {
+   "source": "0163",
+   "person": "person_A",
+   "description": "surfer in dark two-piece swimsuit on a white longboard",
+   "catalog_athlete": "catalog:woman-2"
+  },
+  {
+   "source": "0165",
+   "person": "person_A",
+   "description": "surfer in a dark one-piece swimsuit on a turquoise longboard",
+   "catalog_athlete": "catalog:woman-1"
+  }
+ ]
+}

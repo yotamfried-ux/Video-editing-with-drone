@@ -211,6 +211,41 @@ def main() -> int:
     if rescue.rescue_missed_moments(video, people, cand, no_dets, "surfing"):
         fail("a moment whose track has no detections cannot be framed and must not be added")
 
+    # Run 43303438106, 0094: the model ended the tandem ride at 33.8 s; track 162 was tracked, moving, to 36.6 s of a
+    # 36.7 s file; the catalog ride ends at 36.7 s and final QA reported PREMATURE_CUT at the reel's end. The end of a
+    # ride the tracker still follows to the end of the recording is the recording's. Lost, still or long tails are not.
+    video2 = os.path.join(tmp, "DJI_20260720160337_0094_D_end.MP4")
+    _source(video2, 36.7)
+    cand2 = [{"track_id": "162", "start": 13.8, "end": 36.6, "span": 22.8, "travel_frames": 0.99, "covered": 0.38}]
+    ANSWER = {"moment": True, "kind": "tandem_ride", "start": 13.0, "end": 21.0, "people": 2,
+              "description": "adult in a pink top and child in a yellow top riding tandem on a lime green surfboard",
+              "score": 9, "reason": "tandem", "start_evidence": "both stand up", "end_evidence": "still riding"}
+
+    def run_end_case(name, track):
+        os.environ["LLM_CACHE_DIR"] = os.path.join(tmp, f"cache-end-{name}")
+        found = rescue.rescue_missed_moments(video2, people, cand2, track, "surfing")
+        return found[0]["events"][0] if found else None
+
+    moving = [det(162, 13.8 + 0.2 * i, 1100 - 8 * i) for i in range(0, 115)]  # 13.8-36.6 s, travelling
+    ev = run_end_case("moving", moving)
+    if ev is None or not 36.5 <= ev["end"] <= 36.7 or ev.get("end_before_track_extension") != 33.8:
+        fail(f"a ride the tracker follows to the end of the recording ends there: {ev and (ev['start'], ev['end'])}")
+    if ev.get("outcome_end") != ev["end"] or ev.get("ride_end_evidence") != "recording_end":
+        fail(f"the extended end is an observed recording end: {ev.get('outcome_end')} {ev.get('ride_end_evidence')}")
+    lost = [d for d in moving if d.time_sec <= 34.0]  # tracked until 34.0 s: no claim about the rest
+    ev = run_end_case("lost", lost)
+    if ev is None or ev["end"] > 34.1 or "end_before_track_extension" in ev:
+        fail(f"a track lost before the recording's end does not move the end: {ev and ev['end']}")
+    still = [d for d in moving if d.time_sec <= 33.8] + [
+        det(162, 33.8 + 0.2 * i, 300) for i in range(1, 15)]  # standing in the shallows to the end
+    ev = run_end_case("still", still)
+    if ev is None or "end_before_track_extension" in ev:
+        fail("a track that stopped moving after the model's end is not the ride continuing")
+    ANSWER = {**ANSWER, "end": 15.0}  # model end 27.8 s: 8.9 s of track left, more than a ride's tail
+    ev = run_end_case("long-tail", moving)
+    if ev is None or "end_before_track_extension" in ev:
+        fail("a long tail after the model's end is not claimed")
+
     windows = rescue.select_windows([
         {"track_id": "a", "start": 0.0, "end": 8.8, "span": 8.8, "travel_frames": 0.83, "covered": 0.27},
         {"track_id": "b", "start": 1.0, "end": 7.5, "span": 6.5, "travel_frames": 0.91, "covered": 0.16},

@@ -818,8 +818,12 @@ def extract_structured_attributes(description: str) -> dict:
         sleeve_style = "long_sleeve"
     elif is_full_wetsuit:
         sleeve_style = "full_wetsuit"
-    elif any(k in apparel_text for k in (" t-shirt ", " short-sleeve ", " short-sleeved ", " shirt ", " top ")):
+    elif any(k in apparel_text for k in (" t-shirt ", " short-sleeve ", " short-sleeved ")):
         sleeve_style = "shirt_top"
+    elif any(k in apparel_text for k in (" shirt ", " top ")):
+        # "grey top" / "white shirt" name no sleeve length. It is a reading of less detail, not a different
+        # garment (see _sleeve_styles_compatible).
+        sleeve_style = "covered_top"
 
     top_color = None
     if sleeve_style == "shirtless":
@@ -913,10 +917,21 @@ def _top_colors_compatible(a: str | None, b: str | None) -> bool:
 _SAME_COVERAGE: tuple[set[str], ...] = ()
 
 
+# "covered_top" is a top whose sleeves the description did not name ("grey top", "white shirt"). It cannot
+# contradict a described sleeve length, so it is compatible with every garment that has a top. It is not compatible
+# with what is bare or a different cut (shirtless, sleeveless, swimwear) nor with a full wetsuit: a stranger in an
+# athlete's reel is worse than a split (#371, 0074 / 0151). Run 43303438106: the analyzer wrote "grey long-sleeve
+# top" for 0070 and "grey top" for 0108 (one woman in the catalog); the parser filed them under long_sleeve and
+# shirt_top, the engine called it a hard wetsuit_vs_bare_or_swimsuit_conflict, and one athlete got two reels.
+_TOP_WITH_SLEEVES = {"long_sleeve", "shirt_top", "covered_top"}
+
+
 def _sleeve_styles_compatible(a: str | None, b: str | None) -> bool:
     if a is None or b is None:
         return True
     if a == b:
+        return True
+    if "covered_top" in (a, b) and {a, b} <= _TOP_WITH_SLEEVES:
         return True
     return any({a, b} <= group for group in _SAME_COVERAGE)
 
