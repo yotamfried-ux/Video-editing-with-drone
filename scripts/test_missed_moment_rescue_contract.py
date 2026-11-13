@@ -246,6 +246,55 @@ def main() -> int:
     if ev is None or "end_before_track_extension" in ev:
         fail("a long tail after the model's end is not claimed")
 
+    # Run 43397405813 (same source, same model answer) did not extend and logged nothing about why; final QA saw the
+    # child fall and the adult ride on to the shore. The tracker restarts a subject it lost under a new id: a fragment
+    # that starts where and when the old track stopped is followed, and every kept end says why it was kept.
+    ANSWER = {**ANSWER, "end": 21.0}
+    restarted = [d for d in moving if d.time_sec <= 34.41] + [
+        det(300, 13.8 + 0.2 * i, 1100 - 8 * i) for i in range(104, 115)]  # new id from 34.6 s, same place, moving
+    ev = run_end_case("restarted", restarted)
+    if ev is None or not 36.5 <= ev["end"] <= 36.7 or ev.get("continuation_track_ids") != ["300"]:
+        fail(f"a subject the tracker restarted under a new id is still the subject: {ev and (ev['end'], ev.get('continuation_track_ids'))}")
+    if "joined 300" not in str(ev.get("end_extension_reason")):
+        fail(f"the event says why its end moved: {ev.get('end_extension_reason')}")
+    far = [d for d in moving if d.time_sec <= 34.41] + [
+        det(301, 13.8 + 0.2 * i, 1100 - 8 * i + 600) for i in range(104, 115)]  # a new id 600 px away
+    ev = run_end_case("far", far)
+    if ev is None or "end_before_track_extension" in ev or "lost at 34.4" not in str(ev.get("end_extension_reason")):
+        fail(f"a new track elsewhere in the frame is another person: {ev and ev.get('end_extension_reason')}")
+    covered = [d for d in moving if d.time_sec <= 34.41] + [
+        det(1, 13.8 + 0.2 * i, 1100 - 8 * i) for i in range(104, 115)]  # the covered athlete's own track
+    ev = run_end_case("covered", covered)
+    if ev is None or "end_before_track_extension" in ev:
+        fail("a track another highlight follows is never joined to the rescued subject")
+    if "still" not in str(run_end_case("still-reason", still).get("end_extension_reason")):
+        fail("a kept end names why it was kept")
+
+    # The joined fragment is followed by the crop and counts for the subject's continuity.
+    ANSWER = {**ANSWER, "end": 21.0}
+    ev = run_end_case("restarted-2", restarted)
+    from pipeline import quality_preserving_framing as qpf
+    from pipeline.perception import runtime as perception_runtime
+    from pipeline.subject_gate_policy import build_subject_gate
+    original_loader = perception_runtime.load_sidecar_detections
+    perception_runtime.load_sidecar_detections = lambda _path: restarted
+    try:
+        samples = qpf._track_trajectory(video2, ev)
+    finally:
+        perception_runtime.load_sidecar_detections = original_loader
+    if not samples or max(x["time_sec"] for x in samples) < 36.4:
+        fail(f"the crop must follow the subject on its continuation track to the end: {samples and samples[-1]}")
+    import dataclasses
+    in_file = [dataclasses.replace(d, source_video=video2) for d in restarted]
+    in_file += [dataclasses.replace(det(7, 26.0 + 0.4 * i, 200), source_video=video2) for i in range(0, 25)]  # bystander
+    gate = build_subject_gate(ev, in_file, 0, source_video=video2)
+    if gate is None or gate["primary_track_continuity_ratio"] < 0.9:
+        fail(f"the continuation track counts as the subject in the continuity gate: {gate and gate['primary_track_continuity_ratio']}")
+    bare = {k: v for k, v in ev.items() if k != "continuation_track_ids"}
+    gate_bare = build_subject_gate(bare, in_file, 0, source_video=video2)
+    if gate_bare is not None and gate_bare["primary_track_continuity_ratio"] >= gate["primary_track_continuity_ratio"]:
+        fail("without the continuation the same window must read as less continuous (the fixture exercises the case)")
+
     windows = rescue.select_windows([
         {"track_id": "a", "start": 0.0, "end": 8.8, "span": 8.8, "travel_frames": 0.83, "covered": 0.27},
         {"track_id": "b", "start": 1.0, "end": 7.5, "span": 6.5, "travel_frames": 0.91, "covered": 0.16},

@@ -124,51 +124,106 @@ def _track_center(detections: list, track_id: str, start: float, end: float) -> 
     return round(xs[len(xs) // 2], 4), round(ys[len(ys) // 2], 4)
 
 
-# The model picks the moment's end from a clip it was shown once. When the rescued track is still seen, moving, from that
-# second until the recording ends, the ride has not been shown to its outcome: the end is the recording's, an observed
-# boundary, like the analyzer's own outcome_end. Run 43303438106, 0094: the model ended the tandem ride at 33.8 s,
-# track 162 was tracked to 36.6 s of a 36.7 s file, the catalog ride ends at 36.7 s, and final QA reported
-# PREMATURE_CUT at the reel's end. A longer tail than this is not claimed: the track may be wading ashore.
+# The model picks the moment's end from a clip it was shown once. When the rescued subject is still seen, moving, from
+# that second until the recording ends, the ride has not been shown to its outcome: the end is the recording's, an
+# observed boundary, like the analyzer's own outcome_end. Run 43303438106, 0094: the model ended the tandem ride at
+# 33.8 s, track 162 was tracked to 36.6 s of a 36.7 s file, the catalog ride ends at 36.7 s, and final QA reported
+# PREMATURE_CUT at the reel's end. A longer tail than this is not claimed: the subject may be wading ashore.
 _END_EXTENSION_MAX_SEC = 4.0
-_END_EXTENSION_MIN_TRAVEL = 0.05  # frame widths the track must still move between the model's end and the recording's
+_END_EXTENSION_MIN_TRAVEL = 0.05  # frame widths the subject must still move between the model's end and the recording's
+# Run 43397405813 (same source, same model answer) did not extend: final QA saw "the child falls off the board later
+# and the adult continues the ride to the shore". When the tracker loses a subject it restarts it under a new id; a
+# fragment that starts where and when the old one stopped is the same subject. Bounded so a passer-by is not taken.
+_JOIN_MAX_GAP_SEC = 1.0
+_JOIN_MAX_DIST = 0.12  # frame widths/heights between the lost box centre and the new fragment's first one
+_JOIN_MAX_FRAGMENTS = 3
 
 
-def _track_runs_to_recording_end(detections: list, track_id: str, start: float, end: float,
-                                 duration: float | None) -> float | None:
-    """Return the recording end when the track is seen, moving, from `end` to it; otherwise None."""
-    if not duration or end >= duration - _RECORDING_END_TOLERANCE_SEC:
-        return None
-    samples: list[tuple[float, float]] = []
+def _track_samples(detections: list) -> dict[str, list[tuple[float, float, float]]]:
+    """Per track id: (time, centre x, centre y) normalised by frame size, sorted by time."""
+    out: dict[str, list[tuple[float, float, float]]] = {}
     for det in detections or []:
         get = det.get if isinstance(det, dict) else (lambda k, d=det: getattr(d, k, None))
-        if str(get("tracker_id")) != str(track_id):
+        tid = get("tracker_id")
+        if tid is None:
             continue
         try:
             t = float(get("time_sec"))
-            x1, _y1, x2, _y2 = (float(v) for v in get("xyxy"))
-            w = float(get("frame_width"))
+            x1, y1, x2, y2 = (float(v) for v in get("xyxy"))
+            w, h = float(get("frame_width")), float(get("frame_height"))
         except (TypeError, ValueError):
             continue
-        if w > 0:
-            samples.append((t, (x1 + x2) / 2.0 / w))
-    samples.sort()
-    inside = [t for t, _ in samples if start <= t <= end]
+        if w > 0 and h > 0:
+            out.setdefault(str(tid), []).append((t, (x1 + x2) / 2.0 / w, (y1 + y2) / 2.0 / h))
+    for samples in out.values():
+        samples.sort()
+    return out
+
+
+def extend_end_on_track(detections: list, track_id: str, start: float, end: float, duration: float | None,
+                        exclude_tracks: set[str] | None = None) -> dict[str, Any]:
+    """Decide whether the rescued moment's end moves to the recording's end, and say why.
+
+    Returns {"end": new end or None, "reason": str, "continuation_track_ids": [...]}. The subject is followed from
+    the model's end on its own track and, where that track stops, on a fragment that starts within
+    _JOIN_MAX_GAP_SEC and _JOIN_MAX_DIST of it (never a track another highlight follows).
+    """
+    result: dict[str, Any] = {"end": None, "reason": "", "continuation_track_ids": []}
+    if not duration:
+        result["reason"] = "recording duration unknown"
+        return result
+    if end >= duration - _RECORDING_END_TOLERANCE_SEC:
+        result["reason"] = "already ends at the recording end"
+        return result
+    if duration - end > _END_EXTENSION_MAX_SEC:
+        result["reason"] = f"{duration - end:.1f}s left after the model's end, more than {_END_EXTENSION_MAX_SEC:.0f}s"
+        return result
+    tracks = _track_samples(detections)
+    own = tracks.get(str(track_id), [])
+    inside = [t for t, _x, _y in own if start <= t <= end]
     gaps = sorted(b - a for a, b in zip(inside, inside[1:]) if b > a)
     tolerance = max(1.0, 3.0 * (gaps[len(gaps) // 2] if gaps else 0.0))
-    tail = [(t, x) for t, x in samples if t >= end - 1e-6]
+    tail = [p for p in own if p[0] >= end - 1e-6]
     if not tail:
-        return None
-    last_t, last_x = tail[0]
-    first_x = last_x
-    for t, x in tail[1:]:
-        if t - last_t > tolerance:
+        result["reason"] = f"track {track_id} not seen after {end:.1f}s"
+        return result
+    excluded = {str(t) for t in (exclude_tracks or set())} | {str(track_id)}
+    first_x = tail[0][1]
+    last_t, last_x, last_y = tail[0]
+    current, chain = str(track_id), []
+    while True:
+        for t, x, y in [p for p in tracks.get(current, []) if p[0] > last_t]:
+            if t - last_t > tolerance:
+                break
+            last_t, last_x, last_y = t, x, y
+        if duration - last_t <= tolerance or len(chain) >= _JOIN_MAX_FRAGMENTS:
             break
-        last_t, last_x = t, x
-    if duration - last_t > tolerance or duration - end > _END_EXTENSION_MAX_SEC:
-        return None
+        best = None
+        for tid, samples in tracks.items():
+            if tid in excluded or tid in chain:
+                continue
+            t0, x0, y0 = samples[0]
+            if not (last_t - 0.25 <= t0 <= last_t + _JOIN_MAX_GAP_SEC):
+                continue
+            dist = max(abs(x0 - last_x), abs(y0 - last_y))
+            if dist <= _JOIN_MAX_DIST and (best is None or dist < best[0]):
+                best = (dist, tid, samples[0])
+        if best is None:
+            break
+        current = best[1]
+        chain.append(current)
+        last_t, last_x, last_y = best[2]
+    result["continuation_track_ids"] = chain
+    if duration - last_t > tolerance:
+        joined = f" (joined {', '.join(chain)})" if chain else ""
+        result["reason"] = f"subject lost at {last_t:.1f}s{joined}, {duration - last_t:.1f}s before the recording end"
+        return result
     if abs(last_x - first_x) < _END_EXTENSION_MIN_TRAVEL:
-        return None
-    return float(duration)
+        result["reason"] = f"subject moved {abs(last_x - first_x):.2f} frame widths after the model's end (still)"
+        return result
+    result["end"] = float(duration)
+    result["reason"] = "still moving until the recording ends" + (f" (joined {', '.join(chain)})" if chain else "")
+    return result
 
 
 # A moment that runs into the last frames of the source ends where the recording does: an observed boundary.
@@ -365,12 +420,13 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
         if not found:
             continue
         model_end = None
-        extended = _track_runs_to_recording_end(detections, str(win["track_id"]), start, end, duration)
-        if extended is not None:
-            print(f"   🛟 missed-moment end moved {end:.1f}s -> {extended:.1f}s: track {win['track_id']} is still moving "
-                  f"until the recording ends")
+        extension = extend_end_on_track(detections, str(win["track_id"]), start, end, duration, kept_tracks)
+        if extension["end"] is not None:
+            print(f"   🛟 missed-moment end moved {end:.1f}s -> {extension['end']:.1f}s: {extension['reason']}")
             model_end = round(end, 2)
-            end = extended
+            end = extension["end"]
+        elif extension["reason"] != "already ends at the recording end":
+            print(f"   🛟 missed-moment end kept at {end:.1f}s: {extension['reason']}")
         recording_end = bool(duration) and end >= float(duration) - _RECORDING_END_TOLERANCE_SEC
         end = min(end, duration) if duration else end
         center = _track_center(detections, str(win["track_id"]), start, end) or (0.5, 0.5)
@@ -389,6 +445,9 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
         }
         if model_end is not None:
             event["end_before_track_extension"] = model_end
+            if extension["continuation_track_ids"]:
+                event["continuation_track_ids"] = list(extension["continuation_track_ids"])
+        event["end_extension_reason"] = extension["reason"]
         if surf and "surf" not in description.lower() and kind in {"ride", "tandem_ride"}:
             event["sport"] = "surfing"
         event = _bind_to_track(event, detections, str(win["track_id"]))

@@ -206,10 +206,25 @@ def _track_trajectory(video_path: str, event: dict[str, Any]) -> list[dict[str, 
         logger.warning("Could not load track trajectory for %s: %s", video_path, exc)
         return []
 
+    # A rescued moment whose subject the tracker restarted under new ids carries them, in order, as
+    # continuation_track_ids (pipeline.missed_moment_rescue.extend_end_on_track); each is followed only after the
+    # previous id was last seen, so the crop keeps panning with the subject instead of holding the lost box.
+    chain = [selected_track] + [str(t) for t in (event.get("continuation_track_ids") or []) if str(t).strip()]
+    last_seen: dict[str, float] = {}
     for detection in detections:
-        if str(detection.tracker_id) != selected_track:
+        tid = str(detection.tracker_id)
+        if tid in chain and start <= detection.time_sec <= end:
+            last_seen[tid] = max(last_seen.get(tid, float("-inf")), float(detection.time_sec))
+    after = {chain[0]: float("-inf")}
+    for prev, nxt in zip(chain, chain[1:]):
+        after[nxt] = last_seen.get(prev, after.get(prev, float("-inf")))
+    for detection in detections:
+        tid = str(detection.tracker_id)
+        if tid not in after:
             continue
         if not start <= detection.time_sec <= end:
+            continue
+        if tid != selected_track and float(detection.time_sec) <= after[tid]:
             continue
         frame_w = float(detection.frame_width)
         frame_h = float(detection.frame_height)
