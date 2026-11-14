@@ -24,12 +24,15 @@ If you grant notification permission, we may store your device's Expo push token
 2e. Sports Footage and Generated Reels
 Operators upload sports footage for processing. The production pipeline may detect and track people within that footage to keep one featured athlete continuous during editing, prevent identity switches, and produce the requested Reel. Tracking identifiers are production-run evidence; they are not linked to an app user's face or facial template.
 
+2f. Athlete Identifier and Follow Notifications
+Each Reel is linked to an athlete identifier: a random ID together with a text description of what the athlete wears and rides in that footage. It contains no face image and no biometric template. Reels of the same athlete from one recording session are linked automatically; athletes from different sessions are linked only when an operator confirms they are the same person. If you buy a Reel you can choose to be notified when more Reels of that athlete are published. We then store that choice with your account and use your push token to notify you. You can turn it off on the Reel screen at any time, and it is deleted with your account.
+
 3. HOW WE USE YOUR DATA
 - Account Data: to authenticate you, maintain your profile, display purchases, and contact you when necessary.
 - Payment Records: to fulfill purchases and provide authorized viewing or download access.
 - Sports Footage: to analyze, edit, quality-check, deliver, and troubleshoot Reels.
 - Usage Analytics: to understand product performance and improve the experience.
-- Push Tokens: to send service updates you have allowed.
+- Push Tokens: to send service updates you have allowed, including new Reels of an athlete you chose to follow.
 
 4. DATA SHARING
 We do not sell your data. We share data only with service providers required to operate SportReel, such as:

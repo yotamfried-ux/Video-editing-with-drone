@@ -41,17 +41,20 @@ export async function GET(req: NextRequest) {
 
   const { data: reel } = await supabaseAdmin
     .from('reels')
-    .select('storage_path,status')
+    .select('full_storage_path,status')
     .eq('id', reelId)
     .single();
 
-  if (!reel?.storage_path || reel.status !== 'sold') {
+  // The product is the clean full-length reel. The Discover preview (storage_path) is watermarked and must
+  // never be handed out as the purchase; a reel without a stored full file is "not ready", not "here is the
+  // preview".
+  if (!reel?.full_storage_path || reel.status !== 'sold') {
     return NextResponse.json({ status: purchase.status, paid: true, delivery_ready: false });
   }
 
   const { data: signed } = await supabaseAdmin.storage
     .from('reels')
-    .createSignedUrl(reel.storage_path, 900);
+    .createSignedUrl(reel.full_storage_path, 900);
 
   if (!signed?.signedUrl) {
     return NextResponse.json({ error: 'Could not generate download URL' }, { status: 500 });

@@ -569,7 +569,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 orchestrator._save_reel_metadata(name, activity, events, source_quality)
                 args = name_sources.get(name)
                 if args:
-                    orchestrator._record_draft_sources(*args)
+                    orchestrator._record_draft_sources(*args[:4], orchestrator.athlete_key_of(events))
                 drafts += 1
             except Exception:
                 orchestrator.logger.exception("Draft upload failed for %s", name)

@@ -11,6 +11,7 @@ const TABS = [
   { id: 'analytics', label: 'Analytics', path: '/(operator)/analytics' },
   { id: 'pricing', label: 'Pricing', path: '/(operator)/pricing' },
   { id: 'reels', label: 'Reels', path: '/(operator)/reels' },
+  { id: 'athletes', label: 'Athletes', path: '/(operator)/athletes' },
   { id: 'support', label: 'Support', path: '/(operator)/support' },
   { id: 'settings', label: 'Settings', path: '/(operator)/settings' },
 ] as const;

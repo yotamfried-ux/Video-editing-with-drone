@@ -1697,46 +1697,70 @@ def compile_multi_source_reel(appearances: list[dict], sport: str = "",
     return reels
 
 
+# Discover preview: a short, small, watermarked excerpt. The customer must not be able to keep the reel
+# without buying it, so the preview is never the whole clip, never full resolution, and carries a watermark
+# across the whole frame for its whole length. The clean full-length file is stored separately and is
+# handed out only after a verified payment.
+PREVIEW_FRACTION = float(os.getenv("PREVIEW_FRACTION", "0.4"))
+PREVIEW_MAX_SEC = float(os.getenv("PREVIEW_MAX_SEC", "12"))
+PREVIEW_MIN_SEC = float(os.getenv("PREVIEW_MIN_SEC", "3"))
+PREVIEW_MAX_FRACTION = 0.6  # a very short reel still keeps part of itself back
+PREVIEW_WIDTH = int(os.getenv("PREVIEW_WIDTH", "720"))
+
+
+def probe_duration(path: str) -> float:
+    out = subprocess.check_output(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", path],
+        text=True, timeout=30)
+    return float(out.strip())
+
+
+def preview_seconds(full_duration: float) -> float:
+    """Length of the Discover preview for a reel of `full_duration` seconds: PREVIEW_FRACTION of it, at most
+    PREVIEW_MAX_SEC, at least PREVIEW_MIN_SEC, and never more than PREVIEW_MAX_FRACTION of the reel."""
+    if not full_duration or full_duration <= 0:
+        raise ValueError("preview needs a positive reel duration")
+    wanted = min(max(full_duration * PREVIEW_FRACTION, PREVIEW_MIN_SEC), PREVIEW_MAX_SEC)
+    return round(min(wanted, full_duration * PREVIEW_MAX_FRACTION), 2)
+
+
+def _preview_watermark_filter(athlete_label: str) -> str:
+    """Tiled diagonal-looking PREVIEW marks over the whole frame plus a centre banner."""
+    safe = re.sub(r"[^A-Za-z0-9 #.,_-]", "", athlete_label)[:40].strip()
+    tiles = []
+    for row, y in enumerate(("0.10", "0.28", "0.46", "0.64", "0.82")):
+        for x in (("0.04", "0.54") if row % 2 == 0 else ("0.28", "0.76")):
+            tiles.append(
+                "drawtext=text='PREVIEW':fontsize=h/26:fontcolor=white@0.42:"
+                f"x=w*{x}:y=h*{y}:shadowcolor=black@0.45:shadowx=2:shadowy=2")
+    banner = (
+        "drawtext=text='PREVIEW - BUY FOR THE FULL CLIP':fontsize=h/36:fontcolor=white@0.9:"
+        "x=(w-text_w)/2:y=h*0.93:box=1:boxcolor=black@0.55:boxborderw=10")
+    parts = tiles + [banner]
+    if safe:
+        parts.append(
+            f"drawtext=text='{safe}':fontsize=h/44:fontcolor=white@0.75:"
+            "x=(w-text_w)/2:y=h*0.045:box=1:boxcolor=black@0.4:boxborderw=6")
+    return ",".join(parts)
+
+
 def create_preview(reel_path: str, athlete_label: str = "") -> str:
     """
-    Generate a full-quality watermarked preview from an approved reel.
-
-    Resolution, frame-rate and audio are preserved exactly.  Only a
-    PREVIEW ONLY watermark (+ optional athlete name) is burned in via
-    drawtext so the video is clearly not the paid deliverable.
+    Generate the Discover preview of an approved reel: the first `preview_seconds()` of it, scaled to
+    PREVIEW_WIDTH, silent, with a watermark burned over the whole frame.
 
     Returns the path of the generated preview file (same dir, _preview suffix).
     """
     out = reel_path.replace(".mp4", "_preview.mp4")
-
-    # Strip FFmpeg drawtext metacharacters from the label
-    safe = re.sub(r"[^A-Za-z0-9 #.,_-]", "", athlete_label)[:40].strip()
-
-    dt_top = (
-        "drawtext=text='PREVIEW ONLY':"
-        "fontsize=h/8:"
-        "fontcolor=white@0.85:"
-        "x=(w-text_w)/2:y=(h/2 - text_h - 8):"
-        "box=1:boxcolor=black@0.5:boxborderw=14:"
-        "shadowx=2:shadowy=2"
-    )
-    if safe:
-        dt_name = (
-            f"drawtext=text='{safe}':"
-            "fontsize=h/16:"
-            "fontcolor=white@0.75:"
-            "x=(w-text_w)/2:y=(h/2 + 8):"
-            "box=1:boxcolor=black@0.4:boxborderw=8"
-        )
-        vf = f"{dt_top},{dt_name}"
-    else:
-        vf = dt_top
-
+    seconds = preview_seconds(probe_duration(reel_path))
+    vf = f"scale={PREVIEW_WIDTH}:-2:flags=lanczos,{_preview_watermark_filter(athlete_label)}"
     cmd = [
         "ffmpeg", "-y", "-i", reel_path,
+        "-t", f"{seconds:.2f}",
         "-vf", vf,
-        "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-        "-c:a", "copy",
+        "-an",
+        "-c:v", "libx264", "-crf", "27", "-preset", "fast", "-pix_fmt", "yuv420p",
+        "-movflags", "+faststart",
         out,
     ]
     result = subprocess.run(cmd, capture_output=True, timeout=300)

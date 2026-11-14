@@ -81,3 +81,42 @@ as a direct dependency, which the local `sportreel-source-reader` module uses).
    token, purchase records, usage events — see the privacy policy), support URL.
 6. No password reset flow exists in the app. Not a store requirement; worth adding before public launch.
 7. The legal texts were not reviewed for legal adequacy in this change; only the account-deletion sentence was added.
+
+## 6. Discover: preview, paid full clip, and following an athlete
+
+Checked path: Review approval → `deliver.py` → `reels` row + storage → `/api/sessions` → `/api/stream/:token` →
+player → checkout → download.
+
+| requirement | before | now |
+|---|---|---|
+| Discover shows only part of the clip | the preview was the whole reel at full resolution with one centre text | first 40 % of the reel, at most 12 s (never more than 60 %), 720 px wide, silent (`editor.create_preview`) |
+| Watermark | one "PREVIEW ONLY" box in the centre | "PREVIEW" tiled over the whole frame plus a "buy for the full clip" banner, burned into the file; the app overlay stays on top |
+| Clear that it is partial and what buying gives | only a "Buy This Clip" button | "Preview · 10s of 25s" chip and "This is a short, watermarked preview. Buy to get the full … clip in full quality, without the watermark." |
+| Buying gives the full clip | **the paid download was the watermarked preview** (`reels.storage_path`); the clean file never reached an app buyer | the clean full reel is stored at `reels.full_storage_path` at approval and is the only thing the paid download signs; a reel without it is "not ready", never the preview |
+| Discover metadata | delivery runs in another job than the pipeline, so `reels_metadata.json` was absent and reels were published as sport `unknown` with no description | delivery reads the pipeline's `drafts` row |
+| "Tell me about more clips of this athlete" | no athlete id was stored anywhere | below |
+
+Athlete identity (non-biometric): the pipeline's per-run athlete id travels `drafts.athlete_key` → `reels.athlete_key`
+(`<recording date>:<id>`) → `reels.athlete_id` → `athletes`. Reels of one athlete in one session share the athlete
+automatically. Across sessions nothing is merged automatically (clothes and boards change): Operator → Athletes lists
+pairs with similar descriptions from different dates, and the operator confirms a merge.
+
+Following: a signed-in buyer's purchase is recorded with their user id; on a clip they bought they can switch on
+"Tell me about more clips of this athlete" (`athlete_follows`, only with a paid purchase by the same user). A new reel
+of that athlete, or an operator merge that brings reels in, sends one push per follower and reel
+(`athlete_follow_notifications`); tapping it opens the clip.
+
+Verified: `scripts/test_discover_preview_contract.py` (real ffmpeg: 25 s reel → 10 s, 720×1280, video only, watermark
+measured against the clean frame; two storage objects; durations; athlete linking; one notification per follower and
+reel), `web-api/scripts/athletes.test.ts`, mobile `previewInfo.test.ts`, type-checks, `next build`, `expo export`, and
+HTTP against the built server (ownership/follow without a token → 401, operator athletes without the secret → 401).
+
+Not verified: a real delivery run, a real purchase and download, and a real push. Discover is empty in production
+(`reels` has no rows), so there is nothing to backfill.
+
+**Must be applied before this is deployed:** `supabase/migrations/20261114_discover_preview_and_athlete_follow.sql`
+(additive columns and tables). Until then the stream route falls back to the old columns and the paid download
+answers "not ready".
+
+Left as is: `anon`/`authenticated` can still read every `reels` column through the `token_access` policy (paths, not
+URLs; the bucket is private). Tightening it changes grants other clients may rely on and is a separate decision.

@@ -5,6 +5,10 @@ interface StreamData {
   streamUrl: string;
   expiresAt: string;
   watermarkSuffix: string;
+  /** Discover streams a preview only; these say how much of the full clip it is. */
+  previewSeconds?: number | null;
+  fullSeconds?: number | null;
+  sold?: boolean;
 }
 
 export function useReelStream(token: string) {

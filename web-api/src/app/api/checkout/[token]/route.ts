@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase-admin';
 import { enforceRateLimit } from '@/lib/ratelimit';
 import { activeProvider } from '@/lib/payments/registry';
 import { PaymentProviderNotConfiguredError } from '@/lib/payments/types';
+import { userIdFromRequest } from '@/lib/user-auth';
 
 const PUBLIC_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
 
@@ -79,6 +80,7 @@ export async function POST(
   }
 
   const amount = await getPrice(reel.sport);
+  const buyerId = await userIdFromRequest(req);
   const { data: purchase, error: purchaseError } = await supabaseAdmin
     .from('purchases')
     .insert({
@@ -88,6 +90,9 @@ export async function POST(
       amount_ils: amount,
       currency: 'ils',
       metadata: { source: 'discover', provider: provider.id },
+      // A signed-in buyer is recorded so the app can show them their purchase and let them follow the
+      // athlete. Anonymous checkout stays possible.
+      ...(buyerId ? { user_id: buyerId } : {}),
     })
     .select('id')
     .single();

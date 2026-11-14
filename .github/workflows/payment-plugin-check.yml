@@ -9,6 +9,8 @@ on:
       - 'web-api/src/app/api/account/**'
       - 'web-api/src/content/**'
       - 'web-api/scripts/payments-plugin.test.ts'
+      - 'web-api/scripts/athletes.test.ts'
+      - 'web-api/src/lib/athletes.ts'
       - 'mobile/src/shared/legal/**'
       - 'scripts/sync_legal_text.py'
       - '.github/workflows/payment-plugin-check.yml'
@@ -35,4 +37,4 @@ jobs:
         run: npm ci --no-audit --no-fund
       - name: Payment provider plugin tests
         working-directory: web-api
-        run: npx -y tsx@4.20.6 --test scripts/payments-plugin.test.ts
+        run: npx -y tsx@4.20.6 --test scripts/payments-plugin.test.ts scripts/athletes.test.ts

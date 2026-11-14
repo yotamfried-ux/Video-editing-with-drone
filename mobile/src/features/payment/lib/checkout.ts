@@ -1,4 +1,5 @@
 import { apiFetch } from '@/shared/lib/api';
+import { accessToken } from '@/shared/lib/authedFetch';
 
 /**
  * Provider-neutral checkout contract with the web API (`POST /api/checkout/:token`).
@@ -17,17 +18,14 @@ export interface CheckoutSession {
   currency: string;
 }
 
-export function createCheckout(reelToken: string): Promise<CheckoutSession> {
-  return apiFetch<CheckoutSession>(`/api/checkout/${encodeURIComponent(reelToken)}`, { method: 'POST' });
+export async function createCheckout(reelToken: string): Promise<CheckoutSession> {
+  // A signed-in buyer is recorded with the purchase, so the app can show it as theirs and let them follow
+  // the athlete. Checkout still works signed out.
+  const token = await accessToken();
+  return apiFetch<CheckoutSession>(`/api/checkout/${encodeURIComponent(reelToken)}`, {
+    method: 'POST',
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
 }
 
-/** A hosted payment page is only ever opened over https. */
-export function isSafeCheckoutUrl(url: string | null | undefined): url is string {
-  if (!url) return false;
-  return /^https:\/\/[^\s/?#]+/i.test(url);
-}
-
-export function formatIls(agorot: number): string {
-  const shekels = agorot / 100;
-  return `₪${Number.isInteger(shekels) ? shekels.toFixed(0) : shekels.toFixed(2)}`;
-}
+export { formatIls, isSafeCheckoutUrl } from './checkoutFormat';

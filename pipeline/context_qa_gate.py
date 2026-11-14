@@ -318,7 +318,7 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 reel_events = events_by_reel.get(reel, all_events)
                 out_pending.append((reel, name))
                 out_meta.append((reel, name, reel_events, source_quality))
-                orchestrator._record_draft_sources(name, sources, activity, str(cluster.get("description", "")))
+                orchestrator._record_draft_sources(name, sources, activity, str(cluster.get("description", "")), orchestrator.athlete_key_of(reel_events))
             return out_pending, out_meta
 
         # Reel QA is a network wait on the model (little CPU); rendering is CPU-bound ffmpeg. With QA_OVERLAP on

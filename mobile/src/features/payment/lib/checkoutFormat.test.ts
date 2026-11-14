@@ -1,4 +1,4 @@
-import { formatIls, isSafeCheckoutUrl } from './checkout';
+import { formatIls, isSafeCheckoutUrl } from './checkoutFormat';
 
 describe('checkout helpers', () => {
   it('opens only https payment pages', () => {
