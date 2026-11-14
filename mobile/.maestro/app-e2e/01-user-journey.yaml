@@ -119,6 +119,12 @@ tags: [app-full, user]
     visible: "Profile"
     timeout: 30000
 - tapOn: "Profile"
+# Profile scrolls: Sign Out sits below the Support and Legal cards.
+- scrollUntilVisible:
+    element:
+      id: "profile-sign-out"
+    direction: DOWN
+    timeout: 20000
 - assertVisible:
     id: "profile-sign-out"
 
