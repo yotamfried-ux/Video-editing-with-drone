@@ -118,3 +118,9 @@ def install() -> None:
 
     orchestrator._save_reel_metadata = save_with_identity
     setattr(orchestrator, _INSTALL_FLAG, True)
+
+
+def athlete_key_of(events: list[dict] | None) -> str | None:
+    """The run's athlete id when every event of a reel belongs to one athlete; None when unknown or mixed."""
+    ids = {str(e.get("athlete_id")) for e in (events or []) if e.get("athlete_id") and not e.get("_teaser")}
+    return next(iter(ids)) if len(ids) == 1 else None

@@ -79,7 +79,7 @@ def main() -> int:
     sys.modules["supabase"] = stub
     from integrations import supabase_uploader
     from integrations.athlete_follow import notify_athlete_followers
-    from pipeline.orchestrator import athlete_key_of
+    from pipeline.draft_identity_metadata import athlete_key_of
     from pipeline.stages import editor
 
     for full, want in ((5.3, 3.0), (8.0, 3.2), (25.0, 10.0), (57.8, 12.0), (200.0, 12.0), (2.0, 1.2)):

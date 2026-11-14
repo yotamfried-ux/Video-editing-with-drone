@@ -381,10 +381,7 @@ def _save_reel_metadata(draft_name: str, sport: str,
         logger.warning("Failed to save reel metadata for %s: %s", draft_name, e)
 
 
-def athlete_key_of(events: list[dict] | None) -> str | None:
-    """The run's athlete id when every event of a reel belongs to one athlete; None when unknown or mixed."""
-    ids = {str(e.get("athlete_id")) for e in (events or []) if e.get("athlete_id") and not e.get("_teaser")}
-    return next(iter(ids)) if len(ids) == 1 else None
+from pipeline.draft_identity_metadata import athlete_key_of  # noqa: E402,F401  (re-exported)
 
 
 def _record_draft_sources(draft_name: str, sources: list[dict],
