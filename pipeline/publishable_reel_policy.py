@@ -875,6 +875,68 @@ def previously_uploaded_draft(draft_path: str, draft_name: str) -> str | None:
     return key
 
 
+QA_GATE_BLOCK_ISSUE = "qa_gate_review_required"
+
+
+def qa_gate_block_reasons(events: list[dict[str, Any]] | None) -> list[str]:
+    """Reasons the draft's own QA gate blocks approval, read from the events the draft is built from.
+
+    The final-QA verdict is one input of that gate. The primary-actor and multi-person policies add their
+    findings after the verdict, and an always-blocking finding (a premature cut) blocks a PASS verdict too.
+    """
+    reasons: list[str] = []
+    for event in events or []:
+        gate = event.get("qa_gate") if isinstance(event, dict) else None
+        if not isinstance(gate, dict):
+            continue
+        blocked = (
+            gate.get("decision") == "blocked_review_required"
+            or gate.get("qa_review_required") is True
+            or bool(gate.get("approval_blocked_reasons"))
+        )
+        if not blocked:
+            continue
+        found = [str(item) for item in gate.get("approval_blocked_reasons") or [] if str(item).strip()]
+        found = found or [str(item) for item in gate.get("review_required_reasons") or [] if str(item).strip()]
+        reasons.extend(found or ["QA_REVIEW_REQUIRED"])
+    return list(dict.fromkeys(reasons))
+
+
+def mark_qa_gate_blocked(draft_path: str, reasons: list[str]) -> bool:
+    """Record that the QA gate blocks this rendered draft, before it is uploaded.
+
+    Run 43583126199: two drafts carried `qa_gate.decision = blocked_review_required` (primary actor unclear;
+    premature cut) while the manifest and `draft_publishability` said publishable, because only the final-QA
+    verdict reached the manifest. A blocked gate is never publishable.
+    """
+    with _MANIFEST_LOCK:
+        payload = _read_manifest()
+        matched_pair = _find_upload_part(payload, draft_path)
+        if matched_pair is None:
+            logger.warning("Publishable manifest could not match QA-gate-blocked draft path %s", draft_path)
+            return False
+        row, part = matched_pair
+        issues = [str(item) for item in part.get("technical_issues") or []]
+        if QA_GATE_BLOCK_ISSUE not in issues:
+            issues.append(QA_GATE_BLOCK_ISSUE)
+        part["technical_issues"] = issues
+        part["qa_passed"] = False
+        part["render_ready"] = False
+        part["state"] = STATE_REVIEW_REQUIRED
+        part["failure_reason"] = QA_GATE_BLOCK_ISSUE
+        part["qa_gate_block_reasons"] = [str(item) for item in reasons or []]
+        name = Path(str(part.get("local_path") or draft_path)).name
+        blocking = list(row.get("blocking_reasons") or [])
+        blocking.append(f"{QA_GATE_BLOCK_ISSUE}:{name}")
+        blocking.extend(f"qa_gate:{str(item)[:200]}" for item in reasons or [])
+        row["blocking_reasons"] = sorted(set(blocking))
+        _refresh_row_publishability(row)
+        _recompute_summary(payload)
+        _atomic_write(_manifest_path(), payload)
+    print(f"  ⛔ QA gate blocks {Path(str(draft_path)).name}: not publishable ({'; '.join(str(r)[:80] for r in reasons or [])})")
+    return True
+
+
 def mark_upload_result(
     draft_path: str,
     draft_name: str,

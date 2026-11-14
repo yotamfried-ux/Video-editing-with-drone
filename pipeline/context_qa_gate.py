@@ -317,6 +317,12 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 qa_label = " QA-FLAGGED" if reel in flagged else ""
                 name = orchestrator._safe_draft_name(str(cluster.get("description", "")) + part_label + music_label + qa_label)
                 reel_events = events_by_reel.get(reel, all_events)
+                # The subject gates above run after the manifest recorded the final-QA verdict. A draft the gate
+                # blocks must reach the manifest (and draft_publishability) as not publishable, before upload.
+                from pipeline.publishable_reel_policy import mark_qa_gate_blocked, qa_gate_block_reasons
+                gate_reasons = qa_gate_block_reasons(reel_events)
+                if gate_reasons or reel in flagged:
+                    mark_qa_gate_blocked(reel, gate_reasons or ["QA_FLAGGED"])
                 out_pending.append((reel, name))
                 out_meta.append((reel, name, reel_events, source_quality))
                 orchestrator._record_draft_sources(name, sources, activity, str(cluster.get("description", "")), athlete_key_of(reel_events))

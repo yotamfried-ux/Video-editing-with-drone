@@ -1023,6 +1023,34 @@ def _cluster_structured_verified(cluster: dict) -> bool:
     return True
 
 
+def _cluster_descriptions_conflict(desc_a: str, desc_b: str) -> bool:
+    """True when the model's own descriptions of two clusters name a difference clothing cannot bridge.
+
+    The clustering model saw both athletes and described each cluster; those descriptions are often more
+    specific than the per-clip ones ("white short-sleeve shirt" against "white long-sleeve shirt", where
+    both clips only said "white shirt"). In run 43583126199 the per-clip texts agreed, the clusters were
+    merged, and two athletes (0143, 0152) shared one reel. A stated conflict keeps the model's split.
+    """
+    a = extract_structured_attributes(str(desc_a or ""))
+    b = extract_structured_attributes(str(desc_b or ""))
+    if a.get("empty") or b.get("empty"):
+        return False
+    nums_a, nums_b = a.get("numbers") or set(), b.get("numbers") or set()
+    if nums_a and nums_b:
+        return nums_a.isdisjoint(nums_b)
+    if a.get("companion") != b.get("companion"):
+        return True
+    ga, gb = a.get("gender_age"), b.get("gender_age")
+    if ga and gb and ga != gb:
+        return True
+    if not _sleeve_styles_compatible(a.get("sleeve_style"), b.get("sleeve_style")):
+        return True
+    if not _top_colors_compatible(a.get("top_color"), b.get("top_color")):
+        return True
+    ea, eb = a.get("equip_type"), b.get("equip_type")
+    return bool(ea and eb and ea != eb)
+
+
 def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
     """Merge fragmented clusters when full-video structured attributes strongly match without conflict.
 
@@ -1048,6 +1076,12 @@ def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
                 "appearances": t_apps + c_apps,
             }
             if _cluster_has_same_clip_conflict(combined) or _cluster_has_number_conflict(combined):
+                continue
+            if _cluster_descriptions_conflict(target.get("description", ""), candidate.get("description", "")):
+                print(
+                    f"  🚫 Kept apart: the cluster descriptions conflict ('{str(target.get('description','?'))[:50]}' "
+                    f"vs '{str(candidate.get('description','?'))[:50]}')"
+                )
                 continue
             from pipeline.identity_decision_engine import IdentityDecisionEngine
             engine = IdentityDecisionEngine()
