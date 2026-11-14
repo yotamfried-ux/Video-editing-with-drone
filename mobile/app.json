@@ -19,7 +19,8 @@
       "infoPlist": {
         "NSCameraUsageDescription": "Used when an operator captures sports media for upload.",
         "NSPhotoLibraryUsageDescription": "Used when an operator selects sports videos for upload.",
-        "NSFaceIDUsageDescription": "Used to secure operator access."
+        "NSFaceIDUsageDescription": "Used to secure operator access.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {

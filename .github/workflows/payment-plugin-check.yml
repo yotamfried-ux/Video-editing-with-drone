@@ -1,0 +1,38 @@
+name: Payment Plugin and Store Readiness Check
+
+on:
+  pull_request:
+    paths:
+      - 'web-api/src/lib/payments/**'
+      - 'web-api/src/app/api/payments/**'
+      - 'web-api/src/app/api/checkout/**'
+      - 'web-api/src/app/api/account/**'
+      - 'web-api/src/content/**'
+      - 'web-api/scripts/payments-plugin.test.ts'
+      - 'mobile/src/shared/legal/**'
+      - 'scripts/sync_legal_text.py'
+      - '.github/workflows/payment-plugin-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: web-api/package-lock.json
+      - name: Legal text shown on the web matches the app
+        run: python3 scripts/sync_legal_text.py --check
+      - name: Install web-api dependencies
+        working-directory: web-api
+        run: npm ci --no-audit --no-fund
+      - name: Payment provider plugin tests
+        working-directory: web-api
+        run: npx -y tsx@4.20.6 --test scripts/payments-plugin.test.ts

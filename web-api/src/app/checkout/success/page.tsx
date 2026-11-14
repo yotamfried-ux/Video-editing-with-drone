@@ -7,9 +7,12 @@ export default function CheckoutSuccessPage() {
   const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    const sessionId = new URLSearchParams(window.location.search).get('session_id');
+    const query = new URLSearchParams(window.location.search);
+    const sessionId = query.get('session_id');
     if (!sessionId) { setMessage('Missing checkout session.'); return; }
-    fetch(`/api/checkout/session?session_id=${encodeURIComponent(sessionId)}`)
+    const provider = query.get('provider');
+    const providerQuery = provider ? `&provider=${encodeURIComponent(provider)}` : '';
+    fetch(`/api/checkout/session?session_id=${encodeURIComponent(sessionId)}${providerQuery}`)
       .then(async (res) => ({ ok: res.ok, body: await res.json() }))
       .then(({ ok, body }) => {
         if (!ok) throw new Error(body.error || 'Could not verify payment');
@@ -25,7 +28,8 @@ export default function CheckoutSuccessPage() {
   return (
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 560 }}>
       <h1>SportReel</h1><p>{message}</p>
-      {downloadUrl && <a href={downloadUrl}>Download reel</a>}
+      {downloadUrl && <p><a href={downloadUrl}>Download reel</a></p>}
+      <p><a href="sportreel://">Back to the SportReel app</a></p>
     </main>
   );
 }

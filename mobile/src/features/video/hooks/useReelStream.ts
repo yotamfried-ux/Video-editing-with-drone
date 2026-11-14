@@ -13,11 +13,20 @@ export function useReelStream(token: string) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!token) return;
-    apiFetch<StreamData>(`/api/stream/${token}`)
-      .then(setData)
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
+    if (!token) {
+      // No token in the route (a malformed deep link): show "unavailable" instead of loading forever.
+      setError('Clip unavailable');
+      setLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    apiFetch<StreamData>(`/api/stream/${encodeURIComponent(token)}`)
+      .then((stream) => { if (!cancelled) setData(stream); })
+      .catch((e) => { if (!cancelled) setError(e instanceof Error ? e.message : 'Clip unavailable'); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [token]);
 
   return { data, loading, error };

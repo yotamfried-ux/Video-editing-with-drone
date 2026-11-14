@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { enforceRateLimit } from '@/lib/ratelimit';
-import { stripe } from '@/lib/stripe';
+import { activeProvider } from '@/lib/payments/registry';
+import { PaymentProviderNotConfiguredError } from '@/lib/payments/types';
 
 const PUBLIC_ID_RE = /^[A-Za-z0-9_-]{8,80}$/;
 
@@ -14,7 +15,7 @@ function baseUrl(req: NextRequest): string {
       ? configured.replace(/\/$/, '')
       : `https://${configured.replace(/\/$/, '')}`;
     // Only use an explicitly configured domain when it is actually the host serving this app.
-    // This prevents successful Stripe checkouts from redirecting to a stale/unrouted domain.
+    // This prevents successful checkouts from redirecting to a stale/unrouted domain.
     if (new URL(normalized).host === req.nextUrl.host) return normalized;
   }
   return req.nextUrl.origin.replace(/\/$/, '');
@@ -67,6 +68,16 @@ export async function POST(
     return NextResponse.json({ error: 'File not available' }, { status: 404 });
   }
 
+  let provider;
+  try {
+    provider = activeProvider();
+  } catch (err) {
+    if (err instanceof PaymentProviderNotConfiguredError) {
+      return NextResponse.json({ error: 'Payments are not available right now' }, { status: 503 });
+    }
+    throw err;
+  }
+
   const amount = await getPrice(reel.sport);
   const { data: purchase, error: purchaseError } = await supabaseAdmin
     .from('purchases')
@@ -76,7 +87,7 @@ export async function POST(
       status: 'checkout_created',
       amount_ils: amount,
       currency: 'ils',
-      metadata: { source: 'discover' },
+      metadata: { source: 'discover', provider: provider.id },
     })
     .select('id')
     .single();
@@ -88,37 +99,36 @@ export async function POST(
     );
   }
 
-  const session = await stripe.checkout.sessions.create({
-    mode: 'payment',
-    client_reference_id: reel.id,
-    line_items: [
-      {
-        quantity: 1,
-        price_data: {
-          currency: 'ils',
-          unit_amount: amount,
-          product_data: {
-            name: `${reel.sport || 'Sport'} reel`,
-            description: reel.athlete_desc || 'SportReel clip purchase',
-          },
-        },
-      },
-    ],
-    metadata: { purchase_id: purchase.id, reel_id: reel.id, token },
-    success_url: `${baseUrl(req)}/checkout/success?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url: `${baseUrl(req)}/checkout/cancel?token=${encodeURIComponent(token)}`,
-  });
+  let session;
+  try {
+    session = await provider.createCheckout({
+      purchaseId: purchase.id,
+      reelId: reel.id,
+      token,
+      amount,
+      currency: 'ils',
+      productName: `${reel.sport || 'Sport'} reel`,
+      description: reel.athlete_desc || 'SportReel clip purchase',
+      baseUrl: baseUrl(req),
+    });
+  } catch {
+    // The customer never saw a payment page: close the row so it is not left pending.
+    await supabaseAdmin.from('purchases').update({ status: 'failed' }).eq('id', purchase.id);
+    return NextResponse.json({ error: 'Could not start checkout' }, { status: 502 });
+  }
 
+  // The session-id column predates the plugin layer; it holds the active provider's session id.
   const { error: updateError } = await supabaseAdmin
     .from('purchases')
-    .update({ stripe_checkout_session_id: session.id })
+    .update({ stripe_checkout_session_id: session.sessionId })
     .eq('id', purchase.id);
 
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });
 
   return NextResponse.json({
+    provider: provider.id,
     checkout_url: session.url,
-    session_id: session.id,
+    session_id: session.sessionId,
     purchase_id: purchase.id,
     amount_ils: amount,
     currency: 'ils',
