@@ -13,7 +13,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import { supabase } from '@/shared/lib/supabase';
 import { useAuthStore } from '@/shared/hooks/useAuth';
 import { registerPushToken } from '@/shared/lib/notifications';
@@ -92,14 +91,8 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StripeProvider
-          publishableKey={
-            process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''
-          }
-        >
-          <CrashContextSync />
-          <Stack screenOptions={{ headerShown: false }} />
-        </StripeProvider>
+        <CrashContextSync />
+        <Stack screenOptions={{ headerShown: false }} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

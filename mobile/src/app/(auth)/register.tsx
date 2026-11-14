@@ -66,6 +66,17 @@ export default function RegisterScreen() {
             {reg.error && <Text variant="caption" color={Colors.danger}>{reg.error}</Text>}
             <Spacer size={Spacing.md} />
             <Button testID="register-continue" label="Continue" onPress={reg.submitCredentials} loading={reg.loading} />
+            <Text variant="caption" color={Colors.textSecondary} style={{ textAlign: 'center' }}>
+              By continuing you agree to our{' '}
+              <Text testID="register-terms" variant="caption" color={Colors.accent} onPress={() => router.push('/legal/terms')}>
+                Terms of Service
+              </Text>{' '}
+              and{' '}
+              <Text testID="register-privacy" variant="caption" color={Colors.accent} onPress={() => router.push('/legal/privacy')}>
+                Privacy Policy
+              </Text>
+              .
+            </Text>
             <Button
               testID="register-have-account"
               label="Already have an account?"

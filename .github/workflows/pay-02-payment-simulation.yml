@@ -7,6 +7,7 @@ on:
     paths:
       - 'web-api/src/app/api/checkout/**'
       - 'web-api/src/app/api/payments/webhook/**'
+      - 'web-api/src/lib/payments/**'
       - '.github/workflows/pay-02-payment-simulation.yml'
 
 permissions:
@@ -47,18 +48,20 @@ jobs:
           const header = stripe.webhooks.generateTestHeaderString({payload, secret});
           const parsed = stripe.webhooks.constructEvent(payload, header, secret);
           if (parsed.type !== 'checkout.session.completed' || parsed.data.object.payment_status !== 'paid') process.exit(1);
-          const webhook = fs.readFileSync('web-api/src/app/api/payments/webhook/route.ts','utf8');
+          const plugin = fs.readFileSync('web-api/src/lib/payments/providers/stripe.ts','utf8');
+          const store = fs.readFileSync('web-api/src/lib/payments/supabase-purchase-store.ts','utf8');
+          const fulfillment = fs.readFileSync('web-api/src/lib/payments/fulfillment.ts','utf8');
           const result = fs.readFileSync('web-api/src/app/api/checkout/session/route.ts','utf8');
+          for (const [text, needle] of [
+            [plugin, "stripe.webhooks.constructEvent(rawBody, signature, signingKey)"],
+            [plugin, "checkout.sessions.retrieve(sessionId)"],
+            [plugin, "session.payment_status !== 'paid'"],
+            [store, ".eq('stripe_checkout_session_id', sessionId)"],
+            [store, ".eq('status', 'checkout_created')"],
+            [fulfillment, "duplicate: true"]
+          ]) if (!text.includes(needle)) throw new Error('missing webhook contract: '+needle);
           for (const needle of [
-            "stripe.webhooks.constructEvent(body, signature, signingKey)",
-            ".eq('stripe_checkout_session_id', session.id)",
-            ".eq('status', 'checkout_created')",
-            "duplicate: true"
-          ]) if (!webhook.includes(needle)) throw new Error('missing webhook contract: '+needle);
-          for (const needle of [
-            "checkout.sessions.retrieve(sessionId)",
-            "session.payment_status !== 'paid'",
-            "purchase.status !== 'paid'",
+            "!session.paid || purchase.status !== 'paid'",
             "reel.status !== 'sold'",
             "createSignedUrl"
           ]) if (!result.includes(needle)) throw new Error('missing fulfillment contract: '+needle);

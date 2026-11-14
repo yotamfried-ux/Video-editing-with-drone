@@ -57,7 +57,7 @@ Subject to applicable law, you may request:
 - information about processing and service providers;
 - objection or restriction where the law provides that right.
 
-SportReel does not require biometric consent because the app does not collect or process facial biometric templates for account identification. To exercise your rights, use Contact Support in the Profile screen.
+SportReel does not require biometric consent because the app does not collect or process facial biometric templates for account identification. You can delete your account at any time from Profile > Delete Account. To exercise your other rights, use Contact Support in the Profile screen.
 
 7. SECURITY
 We use technical and organizational safeguards appropriate to the service, including:
