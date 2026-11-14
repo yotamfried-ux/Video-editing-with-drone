@@ -118,5 +118,6 @@ Not verified: a real delivery run, a real purchase and download, and a real push
 (additive columns and tables). Until then the stream route falls back to the old columns and the paid download
 answers "not ready".
 
-Left as is: `anon`/`authenticated` can still read every `reels` column through the `token_access` policy (paths, not
-URLs; the bucket is private). Tightening it changes grants other clients may rely on and is a separate decision.
+Closed by `supabase/migrations/20261114_security_hardening.sql` (written, not applied): `anon`/`authenticated`
+could read every `reels` column through the `token_access` policy (paths, not URLs; the bucket is private). No client
+reads the table directly, so the migration drops that policy.

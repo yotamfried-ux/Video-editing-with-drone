@@ -761,8 +761,17 @@ def record_athlete_outcome(
             "height": specs.get("height"),
             "aspect": specs.get("aspect"),
             "has_audio": specs.get("has_audio") if isinstance(specs.get("has_audio"), bool) else None,
+            "fps": specs.get("fps"),
             "media_specs_revision": _media_specs_revision(specs),
         })
+        # The measured ffprobe values, in the run log and the manifest, so the delivery contract
+        # (2160x3840, 30 fps, silent, <=90 s) can be audited per reel and not only inferred from
+        # an empty issue list.
+        print(
+            f"📐 Delivery specs {name}: {specs.get('width')}x{specs.get('height')} "
+            f"fps={specs.get('fps')} duration={specs.get('duration')}s "
+            f"has_audio={specs.get('has_audio')} issues={issues or 'none'}"
+        )
 
     row = {
         "athlete_key": athlete_key(sport, athlete_label, events_by_reel),
