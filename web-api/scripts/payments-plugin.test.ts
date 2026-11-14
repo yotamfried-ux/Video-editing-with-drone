@@ -39,6 +39,8 @@ function fakeStore(rows: Record<string, { status: string; sessionId: string; ree
       const row = rows[purchaseId];
       if (row && row.sessionId === sessionId && row.status === 'checkout_created') { row.status = 'expired'; calls.push('expired'); }
     },
+    async markRefunded() { return null; },
+    async releaseReelIfUnsold() {},
     async recordPurchaseEvent() { calls.push('event'); },
   };
   return { store, calls, rows };

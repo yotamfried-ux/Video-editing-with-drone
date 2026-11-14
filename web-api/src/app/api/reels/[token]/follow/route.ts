@@ -5,7 +5,11 @@ import { userIdFromRequest } from '@/lib/user-auth';
 
 const PUBLIC_TOKEN_RE = /^[A-Za-z0-9_-]{8,80}$/;
 
-async function resolve(req: NextRequest, token: string) {
+type Resolved =
+  | { error: NextResponse }
+  | { error?: undefined; userId: string; reel: { id: string; athlete_id: string | null } };
+
+async function resolve(req: NextRequest, token: string): Promise<Resolved> {
   if (!PUBLIC_TOKEN_RE.test(token)) return { error: NextResponse.json({ error: 'Not found' }, { status: 404 }) };
   const userId = await userIdFromRequest(req);
   if (!userId) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) };
@@ -30,7 +34,7 @@ export async function POST(
   if (limited) return limited;
   const { token } = await params;
   const resolved = await resolve(req, token);
-  if ('error' in resolved) return resolved.error;
+  if (resolved.error) return resolved.error;
   const { userId, reel } = resolved;
 
   if (!reel.athlete_id) {
@@ -66,7 +70,7 @@ export async function DELETE(
   if (limited) return limited;
   const { token } = await params;
   const resolved = await resolve(req, token);
-  if ('error' in resolved) return resolved.error;
+  if (resolved.error) return resolved.error;
   const { userId, reel } = resolved;
   if (reel.athlete_id) {
     const { error } = await supabaseAdmin

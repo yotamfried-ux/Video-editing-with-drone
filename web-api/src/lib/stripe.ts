@@ -7,7 +7,16 @@ let _stripe: Stripe | null = null;
 
 function client(): Stripe {
   if (!_stripe) {
-    _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+    // Tests point the SDK at a local fake (NODE_ENV=test only); production always talks to Stripe.
+    const testHost = process.env.NODE_ENV === 'test' ? process.env.STRIPE_TEST_API_HOST : undefined;
+    _stripe = testHost
+      ? new Stripe(process.env.STRIPE_SECRET_KEY!, {
+          host: testHost,
+          port: Number(process.env.STRIPE_TEST_API_PORT),
+          protocol: 'http',
+          maxNetworkRetries: 0,
+        })
+      : new Stripe(process.env.STRIPE_SECRET_KEY!);
   }
   return _stripe;
 }

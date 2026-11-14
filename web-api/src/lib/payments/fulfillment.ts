@@ -20,6 +20,13 @@ export interface PurchaseStore {
   markReelSold(reelId: string): Promise<void>;
   /** checkout_created -> expired for the matching row; a paid purchase is never expired. */
   markExpired(input: { purchaseId: string; sessionId: string; provider: ProviderId }): Promise<void>;
+  /**
+   * paid -> refunded for the purchase with this payment reference. Returns the reel it was for, or null when
+   * no paid purchase matched (replay, unknown reference).
+   */
+  markRefunded(input: { paymentReference: string; provider: ProviderId }): Promise<string | null>;
+  /** Put a reel back on sale when no paid purchase of it remains. */
+  releaseReelIfUnsold(reelId: string): Promise<void>;
   recordPurchaseEvent(input: { purchaseId: string; reelId: string; sessionId: string; provider: ProviderId }): Promise<void>;
 }
 
@@ -42,6 +49,13 @@ export async function applyPaymentEvent(
       sessionId: event.sessionId,
       provider,
     });
+    return { received: true };
+  }
+  if (event.type === 'refunded') {
+    // A refunded buyer no longer owns the reel: every download path requires status 'paid'.
+    const reelId = await store.markRefunded({ paymentReference: event.paymentReference, provider });
+    if (!reelId) return { received: true, duplicate: true };
+    await store.releaseReelIfUnsold(reelId);
     return { received: true };
   }
   if (event.type === 'expired') {

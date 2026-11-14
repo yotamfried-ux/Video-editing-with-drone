@@ -10,6 +10,10 @@ on:
       - 'web-api/src/content/**'
       - 'web-api/scripts/payments-plugin.test.ts'
       - 'web-api/scripts/athletes.test.ts'
+      - 'web-api/scripts/entitlement-adversarial.test.ts'
+      - 'web-api/src/app/api/reels/**'
+      - 'web-api/src/app/api/stream/**'
+      - 'web-api/src/lib/stripe.ts'
       - 'web-api/src/lib/athletes.ts'
       - 'mobile/src/shared/legal/**'
       - 'scripts/sync_legal_text.py'
@@ -38,3 +42,8 @@ jobs:
       - name: Payment provider plugin tests
         working-directory: web-api
         run: npx -y tsx@4.20.6 --test scripts/payments-plugin.test.ts scripts/athletes.test.ts
+      - name: Adversarial entitlement tests (preview, payment, refund, download)
+        working-directory: web-api
+        env:
+          NODE_ENV: test
+        run: npx -y tsx@4.20.6 --test scripts/entitlement-adversarial.test.ts

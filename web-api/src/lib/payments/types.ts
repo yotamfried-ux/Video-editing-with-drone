@@ -54,6 +54,8 @@ export type PaymentEvent =
       customerEmail: string | null;
     }
   | { type: 'expired'; purchaseId: string; sessionId: string }
+  /** The provider returned the money in full. Matched by the payment reference stored when it was paid. */
+  | { type: 'refunded'; paymentReference: string }
   | { type: 'ignored' };
 
 export interface WebhookRequest {

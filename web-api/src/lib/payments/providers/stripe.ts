@@ -78,6 +78,14 @@ export const stripeProvider: PaymentProvider = {
       return { type: 'expired', purchaseId, sessionId: session.id };
     }
 
+    if (event.type === 'charge.refunded') {
+      const charge = event.data.object as Stripe.Charge;
+      // Only a full refund takes the reel back; a partial refund is a price adjustment.
+      const reference = typeof charge.payment_intent === 'string' ? charge.payment_intent : null;
+      if (!charge.refunded || !reference) return { type: 'ignored' };
+      return { type: 'refunded', paymentReference: reference };
+    }
+
     return { type: 'ignored' };
   },
 

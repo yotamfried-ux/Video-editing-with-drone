@@ -42,6 +42,35 @@ export const supabasePurchaseStore: PurchaseStore = {
     if (error) throw new Error(error.message);
   },
 
+  async markRefunded({ paymentReference, provider }) {
+    const { data, error } = await supabaseAdmin
+      .from('purchases')
+      .update({ status: 'refunded', metadata: { provider, provider_status: 'refunded' } })
+      .eq('stripe_payment_intent_id', paymentReference)
+      .eq('status', 'paid')
+      .select('reel_id')
+      .maybeSingle();
+    if (error) throw new Error(error.message);
+    return data?.reel_id ?? null;
+  },
+
+  async releaseReelIfUnsold(reelId) {
+    const { data: stillPaid, error } = await supabaseAdmin
+      .from('purchases')
+      .select('id')
+      .eq('reel_id', reelId)
+      .eq('status', 'paid')
+      .limit(1);
+    if (error) throw new Error(error.message);
+    if (stillPaid?.length) return;
+    const { error: reelError } = await supabaseAdmin
+      .from('reels')
+      .update({ status: 'published' })
+      .eq('id', reelId)
+      .eq('status', 'sold');
+    if (reelError) throw new Error(reelError.message);
+  },
+
   async recordPurchaseEvent({ purchaseId, reelId, sessionId, provider }) {
     await supabaseAdmin.from('analytics_events').insert({
       event_type: 'reel_purchased',
