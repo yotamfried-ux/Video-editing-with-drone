@@ -33,14 +33,15 @@ def needs_cut_window_guard(event: dict[str, Any], sport: str = "") -> bool:
     return not event.get("_teaser") and not _has(event, "outcome_end", "landing_time") and _match(event, sport)
 
 
-def apply_cut_window_guard(event: dict[str, Any], source_duration: float, sport: str = "") -> dict[str, Any]:
+def apply_cut_window_guard(event: dict[str, Any], source_duration: float, sport: str = "", tail_pad: float = TAIL_PAD) -> dict[str, Any]:
     if not needs_cut_window_guard(event, sport):
         return event
     start = _num(event.get("start"))
     end = _num(event.get("end"), start)
     if end <= start:
         return event
-    guarded_end = min(source_duration, end + TAIL_PAD)
+    tail_pad = max(tail_pad, 0.0)
+    guarded_end = min(source_duration, end + tail_pad)
     if guarded_end <= end:
         return {**event, "cut_window_evidence_status": "outcome_missing_no_tail_available", "window_uncertain": True}
     return {**event, "original_end_before_cut_guard": round(end, 2), "outcome_end": round(guarded_end, 2), "cut_window_evidence_status": "inferred_tail_padding", "cut_window_guard_reason": "missing_outcome_evidence", "window_uncertain": True}
