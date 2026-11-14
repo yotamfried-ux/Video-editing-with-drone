@@ -96,6 +96,35 @@ run's real detections were not available, so the rule is not validated on the re
 Not fixed: the start. The model started the moment at 25.8 s; the catalog ride starts at 16.9 s, the track at 13.8 s.
 The lead-in policy (`extend_to_setup`, ≤ 2 s) cannot close 9 s, and nothing in the log says what happens in 16.9–25.8 s.
 
+## 3b. Run 43397405813 (main@6362b1b): the end rule did not fire; it now says why and follows a restarted track
+
+The run reused the cached analysis (analyzer windows identical) and re-ran identity, cut and QA.
+
+- §2 confirmed in production: 0070 + 0108 are one athlete (`Woman in a grey long-sleeve swimsuit…`, 2 sources, one
+  reel, QA PASS 70). Clusters against the catalog: all right except 0143 + 0152 and the 0095 reel, as in §1.
+- §3a did not act: no `missed-moment end moved` line, the tandem window stayed 25.8–33.8 s. Nothing in the log said
+  which condition failed. Final QA, on the same 8 s cut, turned `PREMATURE_CUT` from yellow (run 43303438106) into a red,
+  blocking finding: *"the child falls off the board later in the original footage, and the adult continues the ride to
+  the shore"*. The likely cause: when the child falls the tracker loses track 162 and restarts the adult under a new id,
+  so "one track to the recording end" never holds. *Not verified*: detections were not available.
+
+Change (`pipeline/missed_moment_rescue.extend_end_on_track`):
+
+1. Every rescued moment whose end stays before the recording end logs why (`end kept at …: subject lost at …`,
+   `… still`, `… more than 4s`, `track … not seen after …`) and stores it as `end_extension_reason`.
+2. Where the rescued track stops, a fragment that starts within 1.0 s and 0.12 frame widths/heights of the lost box is
+   the same subject (at most 3 fragments; never a track another highlight follows). The fragments are stored as
+   `continuation_track_ids`.
+3. The follow crop (`quality_preserving_framing._track_trajectory`) pans on each continuation track after the
+   previous id was last seen, and the primary-actor continuity (`subject_gate_policy._continuity_ratio`) counts them as
+   the subject, so the extended tail is neither left uncropped nor read as a lost athlete.
+
+`scripts/test_missed_moment_rescue_contract.py` adds a restarted-track case (track 162 to 34.4 s, a new id from 34.6 s
+in the same place, moving to 36.6 s → end 36.7 s, `continuation_track_ids=["300"]`), a fragment 600 px away (not
+joined; `subject lost at 34.4s`), the covered athlete's track (never joined), the crop following the continuation to
+the end, and continuity ≥ 0.9 with the continuation against lower without it. It fails on main@6362b1b. The next run's
+log shows which case the real track 162 is.
+
 ## 4. Not changed, proposed
 
 - Tandem rescue start: needs the real detections (and a look at 16.9–25.8 s) to tell paddling into the wave from a ride.

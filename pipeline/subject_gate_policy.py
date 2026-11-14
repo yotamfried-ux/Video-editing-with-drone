@@ -153,12 +153,15 @@ def _requested_track(event: dict[str, Any], counts: Counter[str]) -> str | None:
     return declared if declared in counts else None
 
 
-def _continuity_ratio(track_id: str, detections: list[Any]) -> float:
+def _continuity_ratio(track_id: str, detections: list[Any], continuation: tuple[str, ...] = ()) -> float:
+    """Share of the window's frames in which the primary athlete is seen: on its track or, for a rescued moment
+    the tracker restarted under new ids, on those continuation tracks (pipeline.missed_moment_rescue)."""
+    ids = {track_id, *continuation}
     all_times = {round(t, 3) for item in detections if (t := _time_sec(item)) is not None}
     primary_times = {
         round(t, 3)
         for item in detections
-        if _track_id(item) == track_id and (t := _time_sec(item)) is not None
+        if _track_id(item) in ids and (t := _time_sec(item)) is not None
     }
     return len(primary_times) / len(all_times) if all_times else 0.0
 
@@ -186,7 +189,10 @@ def build_subject_gate(event: dict[str, Any], detections: list[Any], index: int,
         primary_track = _requested_track(event, counts) or counts.most_common(1)[0][0]
         primary_count = counts[primary_track]
         dominance = primary_count / total if total else 0.0
-        continuity = _continuity_ratio(primary_track, window_detections)
+        continuation = tuple(str(t) for t in (event.get("continuation_track_ids") or []))
+        if primary_track != declared_track:
+            continuation = ()
+        continuity = _continuity_ratio(primary_track, window_detections, continuation)
 
     social = is_intentional_social_moment(event)
     start, end = effective_cut_window(event)
