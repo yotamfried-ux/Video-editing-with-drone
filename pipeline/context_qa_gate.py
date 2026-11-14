@@ -95,6 +95,14 @@ def build_qa_package(reel_path: str, draft_name: str, events: list[dict[str, Any
     }
 
 
+def _lead_in_seconds(event: dict[str, Any]) -> float | None:
+    try:
+        lead = float(event.get("start_before_setup_lead_in")) - float(event.get("start"))
+    except (TypeError, ValueError):
+        return None
+    return round(lead, 2) if lead > 0.05 else None
+
+
 def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str, Any]:
     windows = []
     for idx, event in enumerate(events or []):
@@ -107,6 +115,8 @@ def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str
             "source_end": event.get("end"),
             "final_cut_start": event.get("final_cut_start"),
             "final_cut_end": event.get("final_cut_end"),
+            # Seconds of catch/pop-up the cut opens with before the athlete stands (extend_to_setup).
+            "setup_lead_in_sec": _lead_in_seconds(event),
             "rendered_timeline_start": event.get("rendered_timeline_start"),
             "rendered_timeline_end": event.get("rendered_timeline_end"),
             "track_id": event.get("track_id"),

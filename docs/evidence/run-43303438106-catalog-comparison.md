@@ -125,6 +125,28 @@ joined; `subject lost at 34.4s`), the covered athlete's track (never joined), th
 the end, and continuity ≥ 0.9 with the continuation against lower without it. It fails on main@6362b1b. The next run's
 log shows which case the real track 162 is.
 
+## 3c. Run 43583126199 (main@7d6b544)
+
+Same cached analysis; 13 athletes, 12 published, 1 QA-failed. Clusters and windows as in 3b (88 % / 94 %).
+
+- The rescue now explains itself: `missed-moment end kept at 33.8s: subject lost at 34.7s, 2.0s before the recording
+  end`. Track 162 stops at 34.7 s and no fragment starts within 1.0 s and 0.12 of the frame of it, so the restart
+  hypothesis of 3b is **not** confirmed with these bounds. The log line now also names the nearest fragment it refused
+  (`nearest new track … starts +X s later, Y of the frame away`), so the next run shows whether a wider bound would
+  join the adult who rides on, or nothing is tracked there at all. The tandem reel passed QA this time (75) with a
+  yellow `PREMATURE_CUT`: the same 8 s cut has now been yellow, red and yellow in three runs.
+- Long-hair reel (0094 + 0118 + 0142 + 0146) failed, score 50:
+  - `DEAD_TIME` and `BAD_FIRST_CLIP` at 35 s and 56 s ("2.8 s / 2.4 s of paddling before the athlete stands") are the
+    catch and pop-up lead-in #371 added on purpose and the catalog counts as ride. **QA agent**: the reviewer is now
+    told which clips open on the catch, and an opening finding on such a clip is a `CATCH_LEAD_IN` note
+    (`source_evidence_runner.reclassify_catch_lead_in`; contract in `test_qa_recording_limited_contract.py`).
+    Findings elsewhere in the clip, and every critical finding, are untouched.
+  - `NO_VISIBLE_ACTION` (critical) at 68 s is 12 s into the 0094 clip = source 14.5 s. The catalog ride ends at
+    13.2 s; the cut runs to 22.5 s. **Pipeline output**: the finding is real (the athlete's ride is over and the
+    frame fills with whitewater and other surfers), only its label is off. Not fixed: the analyzer's end (22.5 s)
+    and the unbroken track 42 (to 23.4 s) both disagree with the catalog, and no detections are available here.
+- Unchanged: 0143 + 0152 merged, 0095 reel, three primary-actor policy blocks that do not affect `publishable`.
+
 ## 4. Not changed, proposed
 
 - Tandem rescue start: needs the real detections (and a look at 16.9–25.8 s) to tell paddling into the wave from a ride.

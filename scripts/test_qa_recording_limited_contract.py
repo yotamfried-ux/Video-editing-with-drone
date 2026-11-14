@@ -179,6 +179,33 @@ def main() -> int:
         if [d.get("type") for d in kept] != ["PREMATURE_CUT"]:
             fail("without a draft timeline a cut on a mixed reel must stay a blocking finding")
 
+        # ── Run 43583126199: DEAD_TIME / BAD_FIRST_CLIP on the catch the pipeline itself opened the clip on ──
+        lead = {"reel": "reel2.mp4", "source_windows": [
+            {"source": sources[0], "source_start": 0.5, "source_end": 10.0, "setup_lead_in_sec": 2.0,
+             "rendered_timeline_start": 0.0, "rendered_timeline_end": 9.5},
+            {"source": sources[1], "source_start": 0.0, "source_end": 5.0,
+             "rendered_timeline_start": 9.5, "rendered_timeline_end": 14.5}]}
+        lead_facts = runner.draft_clip_facts(lead)
+        out = runner.reclassify_catch_lead_in([
+            {"type": "DEAD_TIME", "severity": "minor", "at_seconds": 0, "note": "2.8 s of paddling"},
+            {"type": "BAD_FIRST_CLIP", "severity": "minor", "at_seconds": 2, "note": "paddling before standing"},
+            {"type": "DEAD_TIME", "severity": "minor", "at_seconds": 7, "note": "nothing happens mid clip"},
+            {"type": "DEAD_TIME", "severity": "minor", "at_seconds": 10, "note": "clip 2 has no lead-in"},
+            {"type": "NO_VISIBLE_ACTION", "severity": "critical", "at_seconds": 1, "note": "athlete unreadable"}], lead_facts)
+        got = [(d.get("at_seconds"), d.get("type"), d.get("severity")) for d in out]
+        want = [(0, runner.LEAD_IN_TYPE, "info"), (2, runner.LEAD_IN_TYPE, "info"), (7, "DEAD_TIME", "minor"),
+                (10, "DEAD_TIME", "minor"), (1, "NO_VISIBLE_ACTION", "critical")]
+        if got != want:
+            fail(f"only opening findings on a clip the pipeline opened on the catch become notes: {got}")
+        if "opens 2s before the athlete stands" not in runner._clip_facts_prompt(lead_facts).replace("2.0s", "2s"):
+            fail("the reviewer must be told which clips open on the catch and pop-up")
+        from pipeline.context_qa_gate import build_edit_context
+        windows = build_edit_context("r.mp4", [
+            {"source_video": sources[0], "start": 0.5, "end": 10.0, "start_before_setup_lead_in": 2.5},
+            {"source_video": sources[1], "start": 0.0, "end": 5.0}])["source_windows"]
+        if [w.get("setup_lead_in_sec") for w in windows] != [2.0, None]:
+            fail(f"the edit context carries the lead-in the cut was opened with: {windows}")
+
     print("QA recording-limited contract ok")
     return 0
 
