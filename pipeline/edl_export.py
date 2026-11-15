@@ -237,6 +237,12 @@ def record_clip(
             "subject_track": _subject_track(source_path, event, src_fps, start, end),
             **geom,
         }
+        try:
+            from pipeline.retention_metrics import clip_event_facts
+
+            record.update(clip_event_facts(event, source_path))
+        except Exception:  # noqa: BLE001 - metrics are optional
+            pass
         with _LOCK:
             _CLIPS[os.path.abspath(clip_path)] = record
             with (export_dir() / "edl_clips.jsonl").open("a", encoding="utf-8") as handle:
@@ -351,11 +357,16 @@ def write_reel_edl(
 
         durations = [float(editor._get_duration(p)) for p in clip_paths]
         overlaps = editor._pair_transitions(len(clip_paths), transitions)
+        from pipeline import retention_metrics
+
         edl = build_reel_edl(
             clip_paths, output_path, durations, overlaps, fps, out_w, out_h,
-            run_id=os.getenv("PIPELINE_RUN_ID"), commit=os.getenv("SPORTREEL_COMMIT") or os.getenv("GITHUB_SHA"))
+            run_id=os.getenv("PIPELINE_RUN_ID"), commit=os.getenv("SPORTREEL_COMMIT") or os.getenv("GITHUB_SHA"),
+            fades=(retention_metrics.reel_fade_in_sec(), 0.40))
         target = export_dir() / f"{edl['output_id']}.edl.json"
         target.write_text(json.dumps(edl, ensure_ascii=False, indent=2), encoding="utf-8")
+        retention_metrics.write_reel_metrics(
+            edl, [_CLIPS.get(os.path.abspath(path)) for path in clip_paths], export_dir())
         return str(target)
     except Exception as exc:  # noqa: BLE001
         logger.warning("EDL write failed for %s: %s", output_path, exc)

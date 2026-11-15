@@ -1077,12 +1077,6 @@ def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
             }
             if _cluster_has_same_clip_conflict(combined) or _cluster_has_number_conflict(combined):
                 continue
-            if _cluster_descriptions_conflict(target.get("description", ""), candidate.get("description", "")):
-                print(
-                    f"  🚫 Kept apart: the cluster descriptions conflict ('{str(target.get('description','?'))[:50]}' "
-                    f"vs '{str(candidate.get('description','?'))[:50]}')"
-                )
-                continue
             from pipeline.identity_decision_engine import IdentityDecisionEngine
             engine = IdentityDecisionEngine()
             pair_scores: list[float] = []
@@ -1099,6 +1093,14 @@ def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
             if compatible and pair_scores:
                 mean_score = sum(pair_scores) / len(pair_scores)
                 if mean_score >= engine.match_threshold and mean_score > best_score:
+                    # Checked only for a pair that would otherwise merge, so the log names real decisions
+                    # (run 43710581656 printed this line for 160 pairs that were never merge candidates).
+                    if _cluster_descriptions_conflict(target.get("description", ""), candidate.get("description", "")):
+                        print(
+                            f"  🚫 Kept apart: the cluster descriptions conflict ('{str(target.get('description','?'))[:50]}' "
+                            f"vs '{str(candidate.get('description','?'))[:50]}')"
+                        )
+                        continue
                     best_score = mean_score
                     merged_into = idx
 

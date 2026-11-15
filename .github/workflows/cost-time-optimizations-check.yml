@@ -48,6 +48,10 @@ on:
       - 'scripts/test_generic_top_identity_contract.py'
       - 'scripts/test_cluster_description_conflict_contract.py'
       - 'scripts/test_qa_gate_block_not_publishable_contract.py'
+      - 'scripts/test_retention_metrics_contract.py'
+      - 'pipeline/retention_metrics.py'
+      - 'pipeline/narrative_policy.py'
+      - 'pipeline/edl_export.py'
       - 'scripts/test_discover_preview_contract.py'
       - 'integrations/supabase_uploader.py'
       - 'integrations/athlete_follow.py'
@@ -248,6 +252,10 @@ jobs:
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_qa_gate_block_not_publishable_contract.py
+      - name: Retention metrics are observational; edit changes only behind flags
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_retention_metrics_contract.py
       - name: Sources download concurrently, admitted in order
         env:
           PYTHONPATH: .
