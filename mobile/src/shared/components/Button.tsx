@@ -8,7 +8,7 @@ import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius } from '../constants/theme';
 import { Typography } from '../constants/typography';
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'danger';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'danger' | 'dangerText';
 
 interface Props {
   label: string;
@@ -39,13 +39,18 @@ const variantStyles: Record<Variant, { container: ViewStyle; text: TextStyle }> 
     container: { backgroundColor: Colors.danger },
     text: { color: Colors.textPrimary },
   },
+  // A destructive action that should not be the loudest thing on the screen.
+  dangerText: {
+    container: { backgroundColor: 'transparent' },
+    text: { color: Colors.danger },
+  },
 };
 
 export function Button({ label, onPress, variant = 'primary', loading, disabled, style, testID, icon }: Props) {
   const vs = variantStyles[variant];
   const press = () => {
     // A light tap confirms the press on the actions that change something.
-    if (variant === 'primary' || variant === 'danger') Haptics.selectionAsync().catch(() => {});
+    if (variant === 'primary' || variant === 'danger' || variant === 'dangerText') Haptics.selectionAsync().catch(() => {});
     onPress();
   };
   return (

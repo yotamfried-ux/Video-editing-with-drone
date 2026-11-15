@@ -17,6 +17,9 @@ interface Props {
   autoComplete?: 'email' | 'password' | 'new-password' | 'name' | 'off';
   returnKeyType?: 'next' | 'done' | 'go';
   onSubmitEditing?: () => void;
+  /** A tall field for free text. */
+  multiline?: boolean;
+  maxLength?: number;
 }
 
 /**
@@ -25,7 +28,7 @@ interface Props {
  */
 export function FormField({
   label, value, onChangeText, testID, hint, error, secure, keyboardType, autoCapitalize,
-  autoComplete, returnKeyType, onSubmitEditing,
+  autoComplete, returnKeyType, onSubmitEditing, multiline, maxLength,
 }: Props) {
   const [hidden, setHidden] = useState(Boolean(secure));
   const message = error || hint;
@@ -45,8 +48,11 @@ export function FormField({
         autoCorrect={false}
         returnKeyType={returnKeyType}
         onSubmitEditing={onSubmitEditing}
+        multiline={multiline}
+        numberOfLines={multiline ? 6 : undefined}
+        maxLength={maxLength}
         accessibilityLabel={label}
-        style={{ backgroundColor: Colors.card }}
+        style={[{ backgroundColor: Colors.card }, multiline ? { minHeight: 140 } : null]}
         right={secure ? (
           <TextInput.Icon
             icon={hidden ? 'eye-outline' : 'eye-off-outline'}
