@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@expo-google-fonts/plus-jakarta-sans": "^0.2.3",
+    "@expo/vector-icons": "^14.1.0",
     "@react-native-async-storage/async-storage": "2.1.2",
     "@supabase/supabase-js": "^2.47.2",
     "base64-arraybuffer": "^1.0.2",
@@ -40,6 +41,7 @@
     "react-dom": "19.0.0",
     "react-native": "0.79.6",
     "react-native-gesture-handler": "~2.24.0",
+    "react-native-paper": "^5.15.4",
     "react-native-reanimated": "~3.17.4",
     "react-native-safe-area-context": "5.4.0",
     "react-native-screens": "~4.11.1",

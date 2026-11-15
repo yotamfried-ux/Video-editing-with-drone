@@ -25,6 +25,10 @@ export function OperatorNav() {
       <View style={styles.header}>
         <Text variant="caption" color={Colors.accent}>OPERATOR · SPORTREEL</Text>
         <TouchableOpacity
+          style={styles.exit}
+          hitSlop={12}
+          accessibilityRole="button"
+          accessibilityLabel="Exit operator mode"
           onPress={() => {
             // Re-lock so the next entry requires biometric again.
             useOperatorUnlock.getState().lock();
@@ -43,6 +47,8 @@ export function OperatorNav() {
               testID={`operator-nav-${t.id}`}
               onPress={() => router.replace(t.path as never)}
               style={[styles.tab, active && styles.tabActive]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected: active }}
             >
               <Text variant="caption" color={active ? Colors.background : Colors.textSecondary}>
                 {t.label}
@@ -59,7 +65,10 @@ const styles = StyleSheet.create({
   wrap: { gap: Spacing.sm, paddingBottom: Spacing.sm },
   header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   tabs: { gap: Spacing.xs, paddingVertical: Spacing.xs },
+  exit: { minHeight: 32, justifyContent: 'center' },
   tab: {
+    justifyContent: 'center',
+    minHeight: 44,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderRadius: Radius.full,

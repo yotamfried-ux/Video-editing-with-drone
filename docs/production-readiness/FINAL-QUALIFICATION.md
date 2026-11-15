@@ -7,6 +7,17 @@ Production today: Vercel web-api = `7d6b544`; Supabase project `bcndgmymnismbxvd
 Statuses are only PASS, FAIL, UNKNOWN or BLOCKED. UNKNOWN is not PASS. Gate ids follow the specification in
 PR #383 (`docs/production-readiness/2026-11-14-gap-assessment-and-spec.md`).
 
+## Update 2026-11-15
+
+With the owner's approval both migrations were applied to production (`20261114203337`, `20261114203351`) and
+PR #382 was merged (`825bae4`), which deploys the web-api. Verified on production: `reels` has only the
+service-role policy, `anon` cannot execute `source_upload_reject_sealed_batch`, the three Ground Truth triggers
+have a pinned `search_path`, the new tables and columns exist. Android target API 36 is verified on a built APK
+(`Full Android App Qualification`, run 43637418044: build, `targetSdkVersion` check and three Maestro journeys
+green). Gates P0-02d, P0-04, P0-07a and the first two items of P1-04a are therefore PASS. The rows below are the
+assessment before that; the verdict is unchanged because identity, boundaries, store submission, live payment
+and real-device gates remain open, and the two pipeline fixes still need a production run.
+
 ## Verdict
 
 **NOT_READY**

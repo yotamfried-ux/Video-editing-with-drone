@@ -4,7 +4,6 @@ import {
   ScrollView,
   View,
   StyleSheet,
-  TextInput,
   TouchableOpacity,
 } from 'react-native';
 import { useRouter } from 'expo-router';
@@ -13,6 +12,9 @@ import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Card } from '@/shared/components/Card';
 import { Spacer } from '@/shared/components/Spacer';
+import { FormField } from '@/shared/components/FormField';
+import { ListRow } from '@/shared/components/ListRow';
+import { EmptyState } from '@/shared/components/EmptyState';
 import { useAuth } from '@/shared/hooks/useAuth';
 import { useProfile } from '@/features/profile/hooks/useProfile';
 import { supabase } from '@/shared/lib/supabase';
@@ -66,18 +68,25 @@ export default function ProfileScreen() {
     }
   };
 
+  const savedName = profile?.name ?? '';
+  const currentName = name ?? savedName;
+  const initials = (savedName.trim().split(/\s+/).map((w) => w[0]).slice(0, 2).join('') || 'SR').toUpperCase();
+
   if (!user) {
     return (
       <SafeArea>
         <View style={styles.center}>
-          <Text variant="headline">Sign in to view your profile</Text>
-          <Spacer size={Spacing.lg} />
-          <Button label="Sign In" onPress={() => router.push('/(auth)/login')} />
+          <EmptyState
+            icon="account-circle-outline"
+            title="Sign in to view your profile"
+            body="Your purchases and the athletes you follow are kept with your account."
+          />
+          <Button label="Sign In" onPress={() => router.push('/(auth)/login')} style={styles.stretch} />
           <Button
             label="Create Account"
             onPress={() => router.push('/(auth)/register')}
             variant="ghost"
-            style={{ marginTop: Spacing.sm }}
+            style={styles.stretch}
           />
         </View>
       </SafeArea>
@@ -87,66 +96,65 @@ export default function ProfileScreen() {
   return (
     <SafeArea>
       <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
-        <TouchableOpacity testID="profile-operator-entry" onPress={handleLogoTap} activeOpacity={1}>
-          <Text variant="display" style={{ textAlign: 'center' }}>SR</Text>
+        <TouchableOpacity testID="profile-operator-entry" onPress={handleLogoTap} activeOpacity={1} style={styles.avatarWrap}>
+          <View style={styles.avatar}>
+            <Text variant="display" color={Colors.background}>{initials}</Text>
+          </View>
         </TouchableOpacity>
-        <Spacer size={Spacing.xl} />
+        <Text variant="headline" style={styles.centerText}>{savedName || 'Your profile'}</Text>
+        {user.email ? (
+          <Text variant="caption" color={Colors.textSecondary} style={styles.centerText}>{user.email}</Text>
+        ) : null}
+        <Spacer size={Spacing.lg} />
 
         <Card bordered>
-          <Text variant="caption" color={Colors.textSecondary}>Name</Text>
-          <TextInput
+          <FormField
             testID="profile-name-input"
-            value={name ?? profile?.name ?? ''}
+            label="Name"
+            value={currentName}
             onChangeText={setName}
-            placeholder="Your name"
-            placeholderTextColor={Colors.textSecondary}
-            style={styles.input}
+            autoCapitalize="words"
+            autoComplete="name"
           />
+          <Spacer size={Spacing.sm} />
           <Button
             testID="profile-save-name"
             label="Save Name"
-            onPress={() => updateName(name ?? profile?.name ?? '')}
+            onPress={() => updateName(currentName)}
             variant="secondary"
+            disabled={!currentName.trim() || currentName === savedName}
           />
         </Card>
 
         <Spacer size={Spacing.md} />
         <Card bordered>
           <Text variant="title">Support</Text>
-          <Spacer size={Spacing.sm} />
-          <Button
-            testID="profile-contact-support"
-            label="Contact Support"
-            onPress={() => router.push('/support/new')}
-            variant="secondary"
-          />
-          <Spacer size={Spacing.sm} />
-          <Button
-            testID="profile-suggest"
-            label="Suggest a Clip Improvement"
-            onPress={() => router.push('/support/suggest')}
-            variant="ghost"
-          />
+          <Spacer size={Spacing.xs} />
+          <ListRow testID="profile-contact-support" icon="message-text-outline" label="Contact Support" onPress={() => router.push('/support/new')} />
+          <ListRow testID="profile-suggest" icon="lightbulb-on-outline" label="Suggest a Clip Improvement" onPress={() => router.push('/support/suggest')} />
         </Card>
 
         <Spacer size={Spacing.md} />
         <Card bordered>
           <Text variant="title">Legal</Text>
-          <Spacer size={Spacing.sm} />
-          <Button testID="profile-terms" label="Terms of Service" onPress={() => router.push('/legal/terms')} variant="ghost" />
-          <Button testID="profile-privacy" label="Privacy Policy" onPress={() => router.push('/legal/privacy')} variant="ghost" />
+          <Spacer size={Spacing.xs} />
+          <ListRow testID="profile-terms" icon="file-document-outline" label="Terms of Service" onPress={() => router.push('/legal/terms')} />
+          <ListRow testID="profile-privacy" icon="shield-lock-outline" label="Privacy Policy" onPress={() => router.push('/legal/privacy')} />
         </Card>
 
         <Spacer size={Spacing.xl} />
-        <Button testID="profile-sign-out" label="Sign Out" onPress={() => supabase.auth.signOut()} variant="ghost" />
+        <Button testID="profile-sign-out" label="Sign Out" icon="logout" onPress={() => supabase.auth.signOut()} variant="secondary" />
         <Spacer size={Spacing.sm} />
         <Button
           testID="profile-delete-account"
           label="Delete Account"
           onPress={confirmDeleteAccount}
           loading={deleting}
-          variant="danger"
+          variant="dangerText"
         />
+        <Text variant="caption" color={Colors.textSecondary} style={styles.centerText}>
+          Deleting removes your account, profile and notification settings for good.
+        </Text>
       </ScrollView>
     </SafeArea>
   );
@@ -161,12 +169,11 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     gap: Spacing.sm,
   },
-  input: {
-    color: Colors.textPrimary,
-    fontSize: 15,
-    paddingVertical: Spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: '#2D3F55',
-    marginVertical: Spacing.sm,
+  stretch: { alignSelf: 'stretch' },
+  centerText: { textAlign: 'center' },
+  avatarWrap: { alignSelf: 'center', marginBottom: Spacing.sm },
+  avatar: {
+    width: 88, height: 88, borderRadius: 44, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.accent,
   },
 });

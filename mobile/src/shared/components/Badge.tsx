@@ -20,7 +20,7 @@ function formatCountdown(expiresAt: string): string {
 export function Badge({ type, expiresAt }: Props) {
   const configs = {
     live:    { bg: Colors.danger,   text: expiresAt ? formatCountdown(expiresAt) : 'LIVE', label: '● ' },
-    sold:    { bg: Colors.success,  text: 'Purchased', label: '' },
+    sold:    { bg: Colors.cardBorder, text: 'Sold', label: '' },
     expired: { bg: Colors.card,     text: 'Expired',   label: '' },
   };
   const cfg = configs[type];

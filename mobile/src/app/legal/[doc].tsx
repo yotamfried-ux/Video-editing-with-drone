@@ -3,7 +3,7 @@ import { ScrollView, StyleSheet } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
-import { Button } from '@/shared/components/Button';
+import { ScreenHeader } from '@/shared/components/ScreenHeader';
 import { PRIVACY_POLICY } from '@/shared/legal/privacyPolicy';
 import { TERMS_OF_SERVICE } from '@/shared/legal/terms';
 import { Colors, Spacing } from '@/shared/constants/theme';
@@ -15,12 +15,10 @@ export default function LegalScreen() {
 
   return (
     <SafeArea>
-      <Button
-        testID="legal-back"
-        label="← Back"
-        onPress={() => (router.canGoBack() ? router.back() : router.replace('/'))}
-        variant="ghost"
-        style={styles.back}
+      <ScreenHeader
+        backTestID="legal-back"
+        title={doc === 'terms' ? 'Terms of Service' : 'Privacy Policy'}
+        onBack={() => (router.canGoBack() ? router.back() : router.replace('/'))}
       />
       <ScrollView contentContainerStyle={styles.content}>
         <Text testID={`legal-${doc === 'terms' ? 'terms' : 'privacy'}`} variant="body" color={Colors.textSecondary}>
@@ -32,6 +30,5 @@ export default function LegalScreen() {
 }
 
 const styles = StyleSheet.create({
-  back: { alignSelf: 'flex-start', marginLeft: Spacing.md },
-  content: { padding: Spacing.lg, paddingBottom: Spacing.xxl },
+  content: { padding: Spacing.lg, paddingTop: Spacing.sm, paddingBottom: Spacing.xxl },
 });

@@ -1,7 +1,5 @@
 import React, { useState } from 'react';
 import {
-  View,
-  TextInput,
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
@@ -11,6 +9,7 @@ import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
+import { FormField } from '@/shared/components/FormField';
 import { supabase } from '@/shared/lib/supabase';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
@@ -63,32 +62,28 @@ export default function LoginScreen() {
           Sign in to view your highlights
         </Text>
         <Spacer size={Spacing.xl} />
-        <TextInput
+        <FormField
           testID="login-email"
-          placeholder="Email"
-          placeholderTextColor={Colors.textSecondary}
+          label="Email"
           value={email}
           onChangeText={setEmail}
           keyboardType="email-address"
-          autoCapitalize="none"
-          style={styles.input}
+          autoComplete="email"
+          returnKeyType="next"
         />
-        <TextInput
+        <FormField
           testID="login-password"
-          placeholder="Password"
-          placeholderTextColor={Colors.textSecondary}
+          label="Password"
           value={password}
           onChangeText={setPassword}
-          secureTextEntry
-          style={styles.input}
+          secure
+          autoComplete="password"
+          returnKeyType="go"
+          onSubmitEditing={login}
+          error={error}
         />
-        {error && (
-          <Text variant="caption" color={Colors.danger}>
-            {error}
-          </Text>
-        )}
         <Spacer size={Spacing.md} />
-        <Button testID="login-submit" label="Sign In" onPress={login} loading={loading} />
+        <Button testID="login-submit" label="Sign In" onPress={login} loading={loading} disabled={!email.trim() || !password} />
         <Spacer size={Spacing.sm} />
         <Button
           testID="login-create-account"
@@ -107,14 +102,5 @@ const styles = StyleSheet.create({
     padding: Spacing.xl,
     justifyContent: 'center',
     gap: Spacing.sm,
-  },
-  input: {
-    backgroundColor: Colors.card,
-    color: Colors.textPrimary,
-    borderRadius: 12,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: '#2D3F55',
-    fontSize: 15,
   },
 });

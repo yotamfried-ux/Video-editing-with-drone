@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import {
   View,
   StyleSheet,
-  TextInput,
   KeyboardAvoidingView,
   Platform,
   Alert,
@@ -13,6 +12,7 @@ import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
+import { FormField } from '@/shared/components/FormField';
 import { useAuth } from '@/shared/hooks/useAuth';
 import { supabase } from '@/shared/lib/supabase';
 import { Colors, Spacing } from '@/shared/constants/theme';
@@ -52,17 +52,18 @@ export default function NewSupportTicketScreen() {
           Having an issue? Tell us what happened and we'll get back to you in the app.
         </Text>
         <Spacer size={Spacing.lg} />
-        <TextInput
+        <FormField
           testID="support-message-input"
+          label="What happened?"
           value={message}
           onChangeText={setMessage}
-          placeholder="Describe your issue…"
-          placeholderTextColor={Colors.textSecondary}
+          autoCapitalize="sentences"
           multiline
-          style={styles.input}
+          maxLength={2000}
+          hint={`${message.length} / 2000`}
         />
         <Spacer size={Spacing.lg} />
-        <Button testID="support-send" label="Send Message" onPress={submit} loading={sending} />
+        <Button testID="support-send" label="Send Message" onPress={submit} loading={sending} disabled={!message.trim()} icon="send" />
         <Spacer size={Spacing.sm} />
         <Button testID="support-cancel" label="Cancel" onPress={() => router.back()} variant="ghost" />
       </KeyboardAvoidingView>
@@ -72,15 +73,4 @@ export default function NewSupportTicketScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, padding: Spacing.xl, justifyContent: 'center' },
-  input: {
-    backgroundColor: Colors.card,
-    color: Colors.textPrimary,
-    borderRadius: 12,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-    fontSize: 15,
-    minHeight: 140,
-    textAlignVertical: 'top',
-  },
 });
