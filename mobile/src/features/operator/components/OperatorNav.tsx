@@ -1,20 +1,19 @@
 import React from 'react';
 import { View, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useRouter, usePathname } from 'expo-router';
-import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Text } from '@/shared/components/Text';
 import { useOperatorUnlock } from '@/features/operator/hooks/useOperatorUnlock';
 import { Colors, Spacing, Radius } from '@/shared/constants/theme';
 
 const TABS = [
-  { id: 'pipeline', icon: 'cog-play-outline', label: 'Pipeline', path: '/(operator)/pipeline' },
-  { id: 'review', icon: 'clipboard-check-outline', label: 'Review', path: '/(operator)/review' },
-  { id: 'analytics', icon: 'chart-line', label: 'Analytics', path: '/(operator)/analytics' },
-  { id: 'pricing', icon: 'cash-multiple', label: 'Pricing', path: '/(operator)/pricing' },
-  { id: 'reels', icon: 'filmstrip', label: 'Reels', path: '/(operator)/reels' },
-  { id: 'athletes', icon: 'account-group-outline', label: 'Athletes', path: '/(operator)/athletes' },
-  { id: 'support', icon: 'lifebuoy', label: 'Support', path: '/(operator)/support' },
-  { id: 'settings', icon: 'cog-outline', label: 'Settings', path: '/(operator)/settings' },
+  { id: 'pipeline', label: 'Pipeline', path: '/(operator)/pipeline' },
+  { id: 'review', label: 'Review', path: '/(operator)/review' },
+  { id: 'analytics', label: 'Analytics', path: '/(operator)/analytics' },
+  { id: 'pricing', label: 'Pricing', path: '/(operator)/pricing' },
+  { id: 'reels', label: 'Reels', path: '/(operator)/reels' },
+  { id: 'athletes', label: 'Athletes', path: '/(operator)/athletes' },
+  { id: 'support', label: 'Support', path: '/(operator)/support' },
+  { id: 'settings', label: 'Settings', path: '/(operator)/settings' },
 ] as const;
 
 export function OperatorNav() {
@@ -51,7 +50,6 @@ export function OperatorNav() {
               accessibilityRole="tab"
               accessibilityState={{ selected: active }}
             >
-              <MaterialCommunityIcons name={t.icon} size={16} color={active ? Colors.background : Colors.textSecondary} />
               <Text variant="caption" color={active ? Colors.background : Colors.textSecondary}>
                 {t.label}
               </Text>
@@ -69,9 +67,7 @@ const styles = StyleSheet.create({
   tabs: { gap: Spacing.xs, paddingVertical: Spacing.xs },
   exit: { minHeight: 32, justifyContent: 'center' },
   tab: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
     minHeight: 44,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,

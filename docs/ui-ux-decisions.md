@@ -41,7 +41,7 @@ them through `src/shared/constants/paperTheme.ts`.
 | Checkout | Price first, then what the purchase gives and where card details are entered; one filled button | Reduce friction on the critical path; trust information next to the action |
 | Support, suggestion | Labelled multi-line field with a character counter; send is disabled while empty | Label every field; prevent the error instead of reporting it |
 | Legal | The same header and back button as every other screen, with the document's title | Consistency; users always know where they are |
-| Operator navigation | An icon per section, 44 pt tabs, the selected tab announced to screen readers | Touch targets; do not rely on colour alone |
+| Operator navigation | 44 pt tabs, the selected tab announced to screen readers, a named exit button. Icons were tried and removed: they widened the tab strip and the Android navigation flow, which swipes it a fixed distance, could no longer reach the last tabs | Touch targets |
 
 ## Not done
 
