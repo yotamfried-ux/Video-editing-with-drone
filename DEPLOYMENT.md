@@ -111,7 +111,6 @@ the default.
 EXPO_PUBLIC_SUPABASE_URL=https://<project-ref>.supabase.co
 EXPO_PUBLIC_SUPABASE_ANON_KEY=<publishable-or-anon-key>
 EXPO_PUBLIC_API_BASE_URL=https://<vercel-deployment>
-EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY=pk_live_...
 EXPO_PUBLIC_APP_DOMAIN=sportreel.app
 ```
 

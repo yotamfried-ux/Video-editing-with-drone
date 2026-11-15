@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { apiFetch } from '@/shared/lib/api';
 
 export interface ReelItem {
@@ -42,8 +42,14 @@ export function useSessions(sport?: string) {
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
 
+  const inFlight = useRef(false);
+
   const load = async (p = 1) => {
+    // onEndReached fires repeatedly while a page is loading; one request at a time.
+    if (inFlight.current) return;
+    inFlight.current = true;
     setLoading(true);
+    setError(null);
     try {
       const qs = new URLSearchParams({ page: String(p), limit: '20' });
       if (sport) qs.set('sport', sport);
@@ -55,8 +61,9 @@ export function useSessions(sport?: string) {
       setHasMore(data.hasMore ?? data.sessions.length === 20);
       setPage(p);
     } catch (e: any) {
-      setError(e.message);
+      setError(e?.message ?? 'Could not load sessions');
     } finally {
+      inFlight.current = false;
       setLoading(false);
     }
   };

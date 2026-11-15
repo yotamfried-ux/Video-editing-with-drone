@@ -9,6 +9,9 @@ on:
       - "mobile/src/app/checkout/**"
       - "web-api/src/app/api/checkout/**"
       - "web-api/src/app/api/webhooks/**"
+      - "web-api/src/app/api/payments/**"
+      - "web-api/src/lib/payments/**"
+      - "mobile/package.json"
       - ".github/workflows/payment-single-mechanism.yml"
 
 permissions:
@@ -24,30 +27,36 @@ jobs:
           set -euo pipefail
           python - <<'PY'
           from pathlib import Path
+          # One user-facing payment mechanism: a hosted payment page chosen by the server-side provider
+          # plugin (web-api/src/lib/payments). The app and the routes never name a payment company.
           hook=Path("mobile/src/features/payment/hooks/useCheckout.ts").read_text()
-          screen=Path("mobile/src/app/checkout/[reel_id].tsx").read_text()
-          assert "createStripeCheckout" in hook and "/api/checkout/" in hook and "/api/checkout/stripe" not in hook
-          assert "createMeshulamCheckout" not in hook
-          assert "BitWebView" not in screen
-          assert "EXPO_PUBLIC_BIT_ENABLED" not in screen
-          assert "Pay with Bit" not in screen
-          assert "Pay with Card" in screen
+          client=Path("mobile/src/features/payment/lib/checkout.ts").read_text()
+          screen=Path("mobile/src/app/checkout/[token].tsx").read_text()
+          assert "/api/checkout/" in client and "createCheckout" in hook
+          for text in (hook, client.split("*/",1)[1], screen):
+              assert "stripe" not in text.lower() and "meshulam" not in text.lower() and "grow" not in text.lower(), "the app must not name a payment provider"
+          assert "BitWebView" not in screen and "EXPO_PUBLIC_BIT_ENABLED" not in screen
+          assert not Path("mobile/src/app/checkout/[reel_id].tsx").exists(), "two dynamic checkout routes collide"
+          assert "@stripe/stripe-react-native" not in Path("mobile/package.json").read_text()
           retired=[Path("web-api/src/app/api/checkout/stripe/route.ts"),Path("web-api/src/app/api/webhooks/stripe/route.ts"),Path("web-api/src/app/api/checkout/meshulam/route.ts"),Path("web-api/src/app/api/webhooks/meshulam/route.ts"),Path("web-api/src/lib/meshulam.ts"),Path("mobile/src/features/payment/components/BitWebView.tsx")]
           assert not any(p.exists() for p in retired), [str(p) for p in retired if p.exists()]
-          assert Path("web-api/src/app/api/checkout/[token]/route.ts").exists()
-          webhook=Path("web-api/src/app/api/payments/webhook/route.ts")
-          assert webhook.exists()
-          webhook_text=webhook.read_text()
-          assert ".eq('status', 'checkout_created')" in webhook_text
-          assert ".eq('stripe_checkout_session_id', session.id)" in webhook_text
-          assert "duplicate: true" in webhook_text
-          result_route=Path("web-api/src/app/api/checkout/session/route.ts")
-          assert result_route.exists()
-          result_text=result_route.read_text()
-          assert "checkout.sessions.retrieve(sessionId)" in result_text
-          assert "session.payment_status !== 'paid'" in result_text
-          assert "purchase.status !== 'paid'" in result_text
+          checkout=Path("web-api/src/app/api/checkout/[token]/route.ts").read_text()
+          assert "activeProvider()" in checkout and "provider.createCheckout(" in checkout
+          for route in ("web-api/src/app/api/checkout/[token]/route.ts","web-api/src/app/api/checkout/session/route.ts","web-api/src/app/api/payments/webhook/[provider]/route.ts"):
+              assert "@/lib/stripe" not in Path(route).read_text(), f"{route} must go through the provider plugin"
+          registry=Path("web-api/src/lib/payments/registry.ts").read_text()
+          assert "process.env.PAYMENT_PROVIDER" in registry and "requireProvider(id)" in registry
+          store=Path("web-api/src/lib/payments/supabase-purchase-store.ts").read_text()
+          assert ".eq('status', 'checkout_created')" in store
+          assert ".eq('stripe_checkout_session_id', sessionId)" in store
+          assert "duplicate: true" in Path("web-api/src/lib/payments/fulfillment.ts").read_text()
+          stripe_plugin=Path("web-api/src/lib/payments/providers/stripe.ts").read_text()
+          assert "stripe.webhooks.constructEvent(rawBody, signature, signingKey)" in stripe_plugin
+          assert "checkout.sessions.retrieve(sessionId)" in stripe_plugin
+          assert "session.payment_status !== 'paid'" in stripe_plugin
+          result_text=Path("web-api/src/app/api/checkout/session/route.ts").read_text()
+          assert "!session.paid || purchase.status !== 'paid'" in result_text
           assert "reel.status !== 'sold'" in result_text
           assert "createSignedUrl" in result_text
-          print("PAYMENT SINGLE-MECHANISM CONTRACT PASS: canonical Stripe Checkout + webhook only")
+          print("PAYMENT SINGLE-MECHANISM CONTRACT PASS: one hosted checkout through the provider plugin + verified webhook")
           PY

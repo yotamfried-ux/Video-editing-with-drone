@@ -46,6 +46,12 @@ on:
       - 'scripts/test_setup_lead_in_contract.py'
       - 'scripts/test_wetsuit_coverage_identity_contract.py'
       - 'scripts/test_generic_top_identity_contract.py'
+      - 'scripts/test_cluster_description_conflict_contract.py'
+      - 'scripts/test_qa_gate_block_not_publishable_contract.py'
+      - 'scripts/test_discover_preview_contract.py'
+      - 'integrations/supabase_uploader.py'
+      - 'integrations/athlete_follow.py'
+      - 'services/delivery.py'
       - 'scripts/eval_identity_vs_catalog.py'
       - 'docs/evidence/run-43303438106-identity-descriptions.json'
       - 'scripts/test_parallel_source_download_contract.py'
@@ -226,10 +232,22 @@ jobs:
         env:
           PYTHONPATH: .
         run: python scripts/test_wetsuit_coverage_identity_contract.py
+      - name: Discover preview is a short watermarked excerpt; the full reel is stored separately
+        env:
+          PYTHONPATH: .
+        run: python scripts/test_discover_preview_contract.py
       - name: An unnamed top is no sleeve conflict (catalog 0070/0108, run 43303438106)
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_generic_top_identity_contract.py
+      - name: Clusters the model described differently stay apart (0143 / 0152)
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_cluster_description_conflict_contract.py
+      - name: A draft its QA gate blocks is never publishable
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_qa_gate_block_not_publishable_contract.py
       - name: Sources download concurrently, admitted in order
         env:
           PYTHONPATH: .

@@ -12,12 +12,15 @@ interface Props {
   style?: TextStyle;
   numberOfLines?: number;
   testID?: string;
+  onPress?: () => void;
 }
 
-export function Text({ children, variant = 'body', color, style, numberOfLines, testID }: Props) {
+export function Text({ children, variant = 'body', color, style, numberOfLines, testID, onPress }: Props) {
   return (
     <RNText
       testID={testID}
+      onPress={onPress}
+      accessibilityRole={onPress ? 'link' : undefined}
       style={[
         Typography[variant],
         { color: color ?? Colors.textPrimary },

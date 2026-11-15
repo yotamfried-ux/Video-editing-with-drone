@@ -191,6 +191,7 @@ def extend_end_on_track(detections: list, track_id: str, start: float, end: floa
     first_x = tail[0][1]
     last_t, last_x, last_y = tail[0]
     current, chain = str(track_id), []
+    nearest = ""
     while True:
         for t, x, y in [p for p in tracks.get(current, []) if p[0] > last_t]:
             if t - last_t > tolerance:
@@ -209,6 +210,13 @@ def extend_end_on_track(detections: list, track_id: str, start: float, end: floa
             if dist <= _JOIN_MAX_DIST and (best is None or dist < best[0]):
                 best = (dist, tid, samples[0])
         if best is None:
+            # Name the nearest fragment that was refused, so a kept end shows how far the bounds are from joining.
+            later = [(samples[0][0] - last_t, max(abs(samples[0][1] - last_x), abs(samples[0][2] - last_y)), tid)
+                     for tid, samples in tracks.items()
+                     if tid not in excluded and tid not in chain and -0.25 <= samples[0][0] - last_t <= 3.0]
+            if later:
+                gap, dist, tid = min(later, key=lambda item: (item[1], item[0]))
+                nearest = f"; nearest new track {tid} starts {gap:+.1f}s later, {dist:.2f} of the frame away"
             break
         current = best[1]
         chain.append(current)
@@ -216,7 +224,8 @@ def extend_end_on_track(detections: list, track_id: str, start: float, end: floa
     result["continuation_track_ids"] = chain
     if duration - last_t > tolerance:
         joined = f" (joined {', '.join(chain)})" if chain else ""
-        result["reason"] = f"subject lost at {last_t:.1f}s{joined}, {duration - last_t:.1f}s before the recording end"
+        result["reason"] = (f"subject lost at {last_t:.1f}s{joined}, {duration - last_t:.1f}s before the recording end"
+                            f"{nearest}")
         return result
     if abs(last_x - first_x) < _END_EXTENSION_MIN_TRAVEL:
         result["reason"] = f"subject moved {abs(last_x - first_x):.2f} frame widths after the model's end (still)"

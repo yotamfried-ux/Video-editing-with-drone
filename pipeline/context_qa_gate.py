@@ -6,6 +6,7 @@ context into reel QA so the judge sees the JSON decisions behind the draft.
 from __future__ import annotations
 
 import json
+from pipeline.draft_identity_metadata import athlete_key_of
 import os
 import sys
 from concurrent.futures import ThreadPoolExecutor
@@ -95,6 +96,14 @@ def build_qa_package(reel_path: str, draft_name: str, events: list[dict[str, Any
     }
 
 
+def _lead_in_seconds(event: dict[str, Any]) -> float | None:
+    try:
+        lead = float(event.get("start_before_setup_lead_in")) - float(event.get("start"))
+    except (TypeError, ValueError):
+        return None
+    return round(lead, 2) if lead > 0.05 else None
+
+
 def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str, Any]:
     windows = []
     for idx, event in enumerate(events or []):
@@ -107,6 +116,8 @@ def build_edit_context(reel_path: str, events: list[dict[str, Any]]) -> dict[str
             "source_end": event.get("end"),
             "final_cut_start": event.get("final_cut_start"),
             "final_cut_end": event.get("final_cut_end"),
+            # Seconds of catch/pop-up the cut opens with before the athlete stands (extend_to_setup).
+            "setup_lead_in_sec": _lead_in_seconds(event),
             "rendered_timeline_start": event.get("rendered_timeline_start"),
             "rendered_timeline_end": event.get("rendered_timeline_end"),
             "track_id": event.get("track_id"),
@@ -306,9 +317,15 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 qa_label = " QA-FLAGGED" if reel in flagged else ""
                 name = orchestrator._safe_draft_name(str(cluster.get("description", "")) + part_label + music_label + qa_label)
                 reel_events = events_by_reel.get(reel, all_events)
+                # The subject gates above run after the manifest recorded the final-QA verdict. A draft the gate
+                # blocks must reach the manifest (and draft_publishability) as not publishable, before upload.
+                from pipeline.publishable_reel_policy import mark_qa_gate_blocked, qa_gate_block_reasons
+                gate_reasons = qa_gate_block_reasons(reel_events)
+                if gate_reasons or reel in flagged:
+                    mark_qa_gate_blocked(reel, gate_reasons or ["QA_FLAGGED"])
                 out_pending.append((reel, name))
                 out_meta.append((reel, name, reel_events, source_quality))
-                orchestrator._record_draft_sources(name, sources, activity, str(cluster.get("description", "")))
+                orchestrator._record_draft_sources(name, sources, activity, str(cluster.get("description", "")), athlete_key_of(reel_events))
             return out_pending, out_meta
 
         # Reel QA is a network wait on the model (little CPU); rendering is CPU-bound ffmpeg. With QA_OVERLAP on

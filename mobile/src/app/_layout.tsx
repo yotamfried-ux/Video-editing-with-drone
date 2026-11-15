@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { Platform } from 'react-native';
-import { Stack, usePathname } from 'expo-router';
+import { Stack, usePathname, useRouter } from 'expo-router';
+import * as Notifications from 'expo-notifications';
 import {
   useFonts,
   PlusJakartaSans_400Regular,
@@ -13,7 +14,6 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
-import { StripeProvider } from '@stripe/stripe-react-native';
 import { supabase } from '@/shared/lib/supabase';
 import { useAuthStore } from '@/shared/hooks/useAuth';
 import { registerPushToken } from '@/shared/lib/notifications';
@@ -58,6 +58,23 @@ function CrashContextSync() {
   return null;
 }
 
+/** Tapping "new clip of an athlete you follow" opens that clip's preview. */
+function NotificationLinks() {
+  const router = useRouter();
+  useEffect(() => {
+    const open = (response: Notifications.NotificationResponse | null) => {
+      const data = response?.notification.request.content.data as { screen?: string; token?: string } | undefined;
+      if (data?.screen === 'reel' && typeof data.token === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(data.token)) {
+        router.push(`/reel/${data.token}`);
+      }
+    };
+    Notifications.getLastNotificationResponseAsync().then(open).catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(open);
+    return () => sub.remove();
+  }, [router]);
+  return null;
+}
+
 export default function RootLayout() {
   const setSession = useAuthStore((s) => s.setSession);
 
@@ -92,14 +109,9 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StripeProvider
-          publishableKey={
-            process.env.EXPO_PUBLIC_STRIPE_PUBLISHABLE_KEY ?? ''
-          }
-        >
-          <CrashContextSync />
-          <Stack screenOptions={{ headerShown: false }} />
-        </StripeProvider>
+        <CrashContextSync />
+        <NotificationLinks />
+        <Stack screenOptions={{ headerShown: false }} />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

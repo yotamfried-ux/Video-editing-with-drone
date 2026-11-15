@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { stripe } from '@/lib/stripe';
+import { DEFAULT_PROVIDER_ID, findProvider } from '@/lib/payments/registry';
 import { supabaseAdmin } from '@/lib/supabase-admin';
 import { enforceRateLimit } from '@/lib/ratelimit';
 
@@ -8,52 +8,53 @@ export async function GET(req: NextRequest) {
   if (limited) return limited;
 
   const sessionId = req.nextUrl.searchParams.get('session_id');
-  if (!sessionId || !sessionId.startsWith('cs_')) {
+  if (!sessionId || sessionId.length > 200) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  let session;
-  try {
-    session = await stripe.checkout.sessions.retrieve(sessionId);
-  } catch {
+  // Links issued before the plugin layer carry no provider; they are Stripe sessions.
+  const provider = findProvider(req.nextUrl.searchParams.get('provider') || DEFAULT_PROVIDER_ID);
+  if (!provider || !provider.isConfigured()) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 });
   }
 
-  const purchaseId = session.metadata?.purchase_id;
-  const reelId = session.metadata?.reel_id;
-  if (!purchaseId || !reelId) {
-    return NextResponse.json({ error: 'Not found' }, { status: 404 });
-  }
+  const session = await provider.getSessionStatus(sessionId).catch(() => null);
+  if (!session) return NextResponse.json({ error: 'Not found' }, { status: 404 });
+
+  const { purchaseId, reelId } = session;
 
   const { data: purchase } = await supabaseAdmin
     .from('purchases')
     .select('id,reel_id,status,stripe_checkout_session_id')
     .eq('id', purchaseId)
     .eq('reel_id', reelId)
-    .eq('stripe_checkout_session_id', session.id)
+    .eq('stripe_checkout_session_id', session.sessionId)
     .single();
 
   if (!purchase) return NextResponse.json({ error: 'Not found' }, { status: 404 });
 
   // The webhook/database transition remains the fulfillment authority.
-  // A paid Stripe Session alone must never grant delivery before our webhook has persisted it.
-  if (session.payment_status !== 'paid' || purchase.status !== 'paid') {
+  // A paid provider session alone must never grant delivery before our webhook has persisted it.
+  if (!session.paid || purchase.status !== 'paid') {
     return NextResponse.json({ status: purchase.status, paid: false });
   }
 
   const { data: reel } = await supabaseAdmin
     .from('reels')
-    .select('storage_path,status')
+    .select('full_storage_path,status')
     .eq('id', reelId)
     .single();
 
-  if (!reel?.storage_path || reel.status !== 'sold') {
+  // The product is the clean full-length reel. The Discover preview (storage_path) is watermarked and must
+  // never be handed out as the purchase; a reel without a stored full file is "not ready", not "here is the
+  // preview".
+  if (!reel?.full_storage_path || reel.status !== 'sold') {
     return NextResponse.json({ status: purchase.status, paid: true, delivery_ready: false });
   }
 
   const { data: signed } = await supabaseAdmin.storage
     .from('reels')
-    .createSignedUrl(reel.storage_path, 900);
+    .createSignedUrl(reel.full_storage_path, 900);
 
   if (!signed?.signedUrl) {
     return NextResponse.json({ error: 'Could not generate download URL' }, { status: 500 });

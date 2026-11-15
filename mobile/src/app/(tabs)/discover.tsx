@@ -7,13 +7,14 @@ import {
 } from 'react-native';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
+import { Button } from '@/shared/components/Button';
 import { SessionCard } from '@/features/sessions/components/SessionCard';
 import { ReelThumb } from '@/features/sessions/components/ReelThumb';
 import { useSessions } from '@/features/sessions/hooks/useSessions';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function DiscoverScreen() {
-  const { sessions, loading, refresh, loadMore, hasMore } = useSessions();
+  const { sessions, loading, error, refresh, loadMore, hasMore } = useSessions();
 
   return (
     <SafeArea>
@@ -51,7 +52,18 @@ export default function DiscoverScreen() {
           </View>
         )}
         ListEmptyComponent={
-          !loading ? (
+          loading ? null : error ? (
+            // A failed request is not "no sessions": say so and offer a retry.
+            <View style={styles.empty}>
+              <Text testID="discover-error" variant="headline" color={Colors.textSecondary}>
+                Could not load sessions
+              </Text>
+              <Text variant="body" color={Colors.textSecondary}>
+                Check your connection and try again.
+              </Text>
+              <Button testID="discover-retry" label="Try Again" onPress={refresh} variant="secondary" />
+            </View>
+          ) : (
             <View style={styles.empty}>
               <Text variant="headline" color={Colors.textSecondary}>
                 No sessions yet
@@ -60,7 +72,7 @@ export default function DiscoverScreen() {
                 Check back after a session!
               </Text>
             </View>
-          ) : null
+          )
         }
       />
     </SafeArea>

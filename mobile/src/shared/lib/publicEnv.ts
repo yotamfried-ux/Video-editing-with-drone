@@ -2,8 +2,7 @@
  * Public (non-secret) client configuration.
  *
  * Every value here is safe to ship in the app bundle: the Supabase
- * publishable key and the Stripe publishable key are designed to be public,
- * and access is enforced server-side by RLS and the web-api boundary.
+ * publishable key is designed to be public, and access is enforced server-side by RLS and the web-api boundary.
  *
  * Resolution order for each value:
  *   1. `process.env.EXPO_PUBLIC_*` — set by `mobile/.env` for local runs and

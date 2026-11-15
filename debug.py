@@ -1858,7 +1858,7 @@ def test_resource_optimizations() -> None:
 
 
 def test_preview_generation() -> None:
-    section("22 / Preview generation (create_preview — 480p + watermark)")
+    section("22 / Preview generation (create_preview — short 720p excerpt + watermark)")
 
     if not Path(VIDEO_60FPS).exists():
         fail("create_preview", "60fps test video missing — run section 2 first")
@@ -1882,7 +1882,7 @@ def test_preview_generation() -> None:
         fail("create_preview", str(e))
         return
 
-    # ── output dimensions match source (no downscaling) ──
+    # ── output is scaled down: the preview is never the full-resolution reel ──
     try:
         def _wh(path: str) -> tuple[int, int]:
             out = subprocess.check_output(
@@ -1895,8 +1895,8 @@ def test_preview_generation() -> None:
 
         w_in, h_in   = _wh(VIDEO_60FPS)
         w_out, h_out = _wh(preview_out)
-        if w_in == w_out and h_in == h_out:
-            ok("create_preview — dimensions preserved (no downscaling)",
+        if w_out == 720 and w_out <= w_in:
+            ok("create_preview — scaled down to 720 wide (a preview, not the product)",
                f"{w_out}×{h_out}")
         else:
             fail("create_preview — dimensions",

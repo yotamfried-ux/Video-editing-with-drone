@@ -13,7 +13,6 @@
   "dependencies": {
     "@expo-google-fonts/plus-jakarta-sans": "^0.2.3",
     "@react-native-async-storage/async-storage": "2.1.2",
-    "@stripe/stripe-react-native": "0.45.0",
     "@supabase/supabase-js": "^2.47.2",
     "base64-arraybuffer": "^1.0.2",
     "esutils": "^2.0.3",

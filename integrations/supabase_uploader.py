@@ -29,16 +29,53 @@ def _get_drive_recording_date(file_id: str) -> str:
     return meta["createdTime"][:10]
 
 
+def _resolve_athlete(athlete_key: str | None, description: str) -> str | None:
+    """Persistent athlete id for a pipeline athlete key (`<recording date>:<run athlete id>`).
+
+    Reels cut from one session for one athlete share the key, so they share the athlete. A new key gets a
+    new athlete; joining athletes across sessions is an operator decision (web-api athletes merge), never
+    automatic: clothing and boards change between days and the product does not use biometrics.
+    """
+    if not athlete_key:
+        return None
+    known = (_supabase().table("reels").select("athlete_id").eq("athlete_key", athlete_key)
+             .not_.is_("athlete_id", "null").limit(1).execute())
+    if known.data:
+        return known.data[0]["athlete_id"]
+    athlete_id = str(uuid4())
+    _supabase().table("athletes").insert({"id": athlete_id, "label": (description or "")[:200]}).execute()
+    return athlete_id
+
+
+def lookup_draft_record(draft_name: str) -> dict:
+    """The pipeline's own record of a draft (sport, athlete description, athlete key).
+
+    Delivery runs in a different job from the pipeline, so the pipeline's local reels_metadata.json is not
+    there; without this every Discover reel was published as sport "unknown" with no description.
+    """
+    try:
+        res = (_supabase().table("drafts").select("*").eq("draft_name", draft_name).limit(1).execute())
+    except Exception as exc:
+        logger.warning("Draft record lookup failed for %s: %s", draft_name, exc)
+        return {}
+    return dict(res.data[0]) if res.data else {}
+
+
 def publish_reel_approved(
     preview_path: str,
     draft_name: str,
     drive_file_id: str,
     reel_meta: dict,
+    full_path: str | None = None,
+    preview_duration: float | None = None,
+    full_duration: float | None = None,
+    athlete_key: str | None = None,
 ) -> str:
-    """Upload 480p preview to Cloudflare Stream + Supabase Storage at approval time.
+    """Publish an approved reel to Discover at approval time. Returns the new reel_id (UUID string).
 
-    Called from Phase 2a so reels appear in Discover immediately after operator approval,
-    before payment. Returns the new reel_id (UUID string).
+    Two objects go to the private `reels` bucket:
+      - the preview (short, small, watermarked): `storage_path`, the only file Discover ever streams;
+      - the clean full-length reel (`full_path`): `full_storage_path`, signed only after a verified payment.
     """
     # R2 object keys are not Google Drive file IDs. Prefer explicit metadata,
     # then a date encoded in the draft name. Drive keeps its authoritative
@@ -46,26 +83,19 @@ def publish_reel_approved(
     if str(drive_file_id).startswith(("approved/", "pending_payment/", "review/", "processed/", "raw/")):
         from datetime import date
         import re
-        match = re.search(r"(20\d{2}-\d{2}-\d{2})", draft_name)
-        recording_date = str(
-            reel_meta.get("recording_date")
-            or (match.group(1) if match else date.today().isoformat())
-        )
+        match = re.search(r"(20\d{2}-\d{2}-\d{2})", draft_name) or re.search(r"_(20\d{2})(\d{2})(\d{2})(?:\D|$)", draft_name)
+        encoded = None
+        if match:
+            encoded = match.group(1) if match.lastindex == 1 else "-".join(match.groups())
+        recording_date = str(reel_meta.get("recording_date") or encoded or date.today().isoformat())
     else:
         recording_date = _get_drive_recording_date(drive_file_id)
     reel_id = str(uuid4())
     storage_path = f"{recording_date}/{reel_id}_preview.mp4"
+    full_storage_path = f"{recording_date}/{reel_id}_full.mp4" if full_path else None
 
-    # reels.stream_uid is UUID-typed in Supabase, while Cloudflare Stream returns
-    # an opaque provider UID (for example "pPrjRuf6Fh0"). Never write that
-    # provider identifier into the UUID column. Discover can serve the preview
-    # from Supabase Storage; Stream publication remains best-effort until the
-    # schema has a dedicated text provider-id column.
-    # Do not upload approved Discover previews to Cloudflare Stream here.
-    # The current reels.stream_uid database column is UUID-typed, while
-    # Cloudflare Stream returns opaque text UIDs. Discover's approved preview
-    # is served from Supabase Storage, so invoking Stream here is both unused
-    # and creates an incompatible identifier that must never reach this schema.
+    # reels.stream_uid is UUID-typed in Supabase, while Cloudflare Stream returns an opaque provider UID.
+    # Discover serves the preview from Supabase Storage, so Stream is not used here.
     stream_uid = None
 
     with open(preview_path, "rb") as f:
@@ -74,8 +104,15 @@ def publish_reel_approved(
             f,
             file_options={"content-type": "video/mp4"},
         )
+    if full_path:
+        with open(full_path, "rb") as f:
+            _supabase().storage.from_("reels").upload(
+                full_storage_path,
+                f,
+                file_options={"content-type": "video/mp4"},
+            )
 
-    _supabase().table("reels").insert({
+    row = {
         "id": reel_id,
         "sport": reel_meta.get("sport", "unknown"),
         "athlete_desc": reel_meta.get("description", ""),
@@ -86,8 +123,17 @@ def publish_reel_approved(
         "status": "published",
         # token is a UUID column in the production schema; let Postgres generate it.
         # Do not send token_urlsafe() text here.
-
-    }).execute()
+    }
+    if full_storage_path:
+        scoped_key = f"{recording_date}:{athlete_key}" if athlete_key else None
+        row.update({
+            "full_storage_path": full_storage_path,
+            "preview_duration_sec": preview_duration,
+            "full_duration_sec": full_duration,
+            "athlete_key": scoped_key,
+            "athlete_id": _resolve_athlete(scoped_key, str(reel_meta.get("description", ""))),
+        })
+    _supabase().table("reels").insert(row).execute()
 
     return reel_id
 
@@ -127,15 +173,23 @@ def publish_reel(local_path: str, athlete_desc: str, sport: str, drive_file_id: 
 
 
 def record_draft(draft_name: str, sources: list[dict],
-                 sport: str, athlete_desc: str) -> None:
+                 sport: str, athlete_desc: str, athlete_key: str | None = None) -> None:
     """Upsert the draft → raw-source mapping (drafts table). Enables operator
-    reprocess requests to find which raw videos produced a given draft."""
-    _supabase().table("drafts").upsert({
+    reprocess requests to find which raw videos produced a given draft, and gives delivery the draft's sport,
+    description and athlete key (delivery runs in another job)."""
+    row = {
         "draft_name":   draft_name,
         "sources":      sources,
         "sport":        sport,
         "athlete_desc": athlete_desc,
-    }).execute()
+    }
+    if athlete_key:
+        try:
+            _supabase().table("drafts").upsert({**row, "athlete_key": athlete_key}).execute()
+            return
+        except Exception as exc:  # drafts.athlete_key not migrated yet: keep the reprocess mapping working
+            logger.warning("Draft athlete key not recorded for %s: %s", draft_name, exc)
+    _supabase().table("drafts").upsert(row).execute()
 
 
 def lookup_draft_sources(draft_name: str) -> list[dict]:

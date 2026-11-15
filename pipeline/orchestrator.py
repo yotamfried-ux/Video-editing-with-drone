@@ -381,13 +381,16 @@ def _save_reel_metadata(draft_name: str, sport: str,
         logger.warning("Failed to save reel metadata for %s: %s", draft_name, e)
 
 
+from pipeline.draft_identity_metadata import athlete_key_of  # noqa: E402,F401  (re-exported)
+
+
 def _record_draft_sources(draft_name: str, sources: list[dict],
-                          sport: str, athlete_desc: str) -> None:
+                          sport: str, athlete_desc: str, athlete_key: str | None = None) -> None:
     """Persist draft → raw-source mapping in Supabase (CI runners are ephemeral;
     this is what makes operator 'reprocess this reel' possible later)."""
     try:
         from integrations.supabase_uploader import record_draft
-        record_draft(draft_name, sources, sport, athlete_desc)
+        record_draft(draft_name, sources, sport, athlete_desc, athlete_key)
     except Exception as e:
         logger.debug("Draft source recording skipped (non-critical): %s", e)
 
@@ -525,7 +528,7 @@ def _compile_clusters(clusters: list[dict], activity: str,
             reel_events = events_by_reel.get(reel, all_events)
             pending.append((reel, name))
             pending_meta.append((reel, name, reel_events, source_quality))
-            _record_draft_sources(name, sources, activity, cluster["description"])
+            _record_draft_sources(name, sources, activity, cluster["description"], athlete_key_of(reel_events))
 
     def _upload_one(args: tuple[str, str]) -> bool:
         reel_path, name = args
@@ -663,7 +666,7 @@ def _process_long_video(video_meta: dict) -> int:
                 upload_draft(reel, name)
                 _save_reel_metadata(name, activity, reel_events, source_quality)
                 _record_draft_sources(name, [{"id": file_id, "name": filename}],
-                                      activity, person["description"])
+                                      activity, person["description"], athlete_key_of(reel_events))
                 drafts += 1
             except Exception:
                 logger.exception("Draft upload failed for %s", name)

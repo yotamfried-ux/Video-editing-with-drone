@@ -20,7 +20,7 @@ from integrations.drive import (
     upload_preview,
 )
 from integrations.notifier import send_summary_email
-from pipeline.stages.editor import create_preview
+from pipeline.stages.editor import create_preview, probe_duration
 from pipeline.stages.feedback import record_approval as _record_approval
 from services.client_manager import find_client
 
@@ -121,6 +121,7 @@ def deliver_preview() -> None:
         athlete_name = client.get("name", "") if client else ""
         local_path = None
         preview_path = None
+        full_duration = preview_duration = None
         try:
             mark_delivery_run(
                 status="running",
@@ -129,6 +130,8 @@ def deliver_preview() -> None:
             )
             local_path = download_video(draft["id"], draft["name"])
             preview_path = create_preview(local_path, athlete_label=athlete_name)
+            full_duration = round(probe_duration(local_path), 2)
+            preview_duration = round(probe_duration(preview_path), 2)
         except Exception as exc:
             logger.error("Preview prep failed for '%s': %s", draft["name"], exc)
             delivery_failures.append(f"{draft['name']}: preview prep failed: {exc}")
@@ -138,9 +141,9 @@ def deliver_preview() -> None:
                 error=str(exc),
                 source_video=draft["name"],
             )
-            continue
-        finally:
             _remove(local_path)
+            _remove(preview_path)
+            continue
 
         try:
             preview_name = draft["name"].replace(".mp4", "_preview.mp4")
@@ -152,14 +155,36 @@ def deliver_preview() -> None:
                     stage="publishing_discover",
                     source_video=draft["name"],
                 )
-                from integrations.supabase_uploader import publish_reel_approved
+                from integrations.supabase_uploader import (
+                    _supabase, lookup_draft_record, publish_reel_approved)
 
+                # Delivery runs in another job than the pipeline: the local metadata file is usually absent,
+                # the pipeline's `drafts` row is not.
+                record = lookup_draft_record(draft["name"])
+                local_meta = _load_reel_metadata(draft["name"]) or {}
+                reel_meta = {
+                    "sport": local_meta.get("sport") or record.get("sport") or "unknown",
+                    "description": local_meta.get("description") or record.get("athlete_desc") or "",
+                }
+                # The clean full-length file is stored beside the preview and is only ever signed for a
+                # verified purchase; Discover streams the preview alone.
                 reel_id = publish_reel_approved(
                     preview_path=preview_path,
                     draft_name=draft["name"],
                     drive_file_id=draft["id"],
-                    reel_meta=_load_reel_metadata(draft["name"]) or {},
+                    reel_meta=reel_meta,
+                    full_path=local_path,
+                    preview_duration=preview_duration,
+                    full_duration=full_duration,
+                    athlete_key=record.get("athlete_key"),
                 )
+                try:
+                    from integrations.athlete_follow import notify_athlete_followers
+                    published = (_supabase().table("reels").select("athlete_id").eq("id", reel_id)
+                                 .limit(1).execute().data) or []
+                    notify_athlete_followers(_supabase(), reel_id, published[0].get("athlete_id") if published else None)
+                except Exception as exc:
+                    logger.warning("Follower notification skipped for '%s': %s", draft["name"], exc)
                 mark_delivery_run(
                     status="discover_published",
                     stage="discover_published",
@@ -188,6 +213,7 @@ def deliver_preview() -> None:
             continue
         finally:
             _remove(preview_path)
+            _remove(local_path)
 
         if any(item.startswith(f"{draft['name']}:") for item in delivery_failures):
             continue

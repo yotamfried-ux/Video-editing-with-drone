@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import {
+  Alert,
+  ScrollView,
   View,
   StyleSheet,
   TextInput,
@@ -16,6 +18,7 @@ import { useProfile } from '@/features/profile/hooks/useProfile';
 import { supabase } from '@/shared/lib/supabase';
 import { getOperatorSecret } from '@/features/operator/lib/operatorSecret';
 import { useOperatorUnlock } from '@/features/operator/hooks/useOperatorUnlock';
+import { deleteAccount } from '@/features/account/deleteAccount';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function ProfileScreen() {
@@ -24,6 +27,32 @@ export default function ProfileScreen() {
   const { profile, updateName } = useProfile();
   const [name, setName] = useState<string | null>(null);
   const [taps, setTaps] = useState(0);
+  const [deleting, setDeleting] = useState(false);
+
+  const confirmDeleteAccount = () => {
+    Alert.alert(
+      'Delete account?',
+      'Your account, profile and notification settings will be permanently deleted. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              await deleteAccount();
+              router.replace('/(auth)/login');
+            } catch (e) {
+              Alert.alert('Could not delete account', e instanceof Error ? e.message : 'Please try again.');
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ],
+    );
+  };
 
   const handleLogoTap = async () => {
     const next = taps + 1;
@@ -57,7 +86,7 @@ export default function ProfileScreen() {
 
   return (
     <SafeArea>
-      <View style={styles.container}>
+      <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
         <TouchableOpacity testID="profile-operator-entry" onPress={handleLogoTap} activeOpacity={1}>
           <Text variant="display" style={{ textAlign: 'center' }}>SR</Text>
         </TouchableOpacity>
@@ -100,15 +129,31 @@ export default function ProfileScreen() {
           />
         </Card>
 
+        <Spacer size={Spacing.md} />
+        <Card bordered>
+          <Text variant="title">Legal</Text>
+          <Spacer size={Spacing.sm} />
+          <Button testID="profile-terms" label="Terms of Service" onPress={() => router.push('/legal/terms')} variant="ghost" />
+          <Button testID="profile-privacy" label="Privacy Policy" onPress={() => router.push('/legal/privacy')} variant="ghost" />
+        </Card>
+
         <Spacer size={Spacing.xl} />
         <Button testID="profile-sign-out" label="Sign Out" onPress={() => supabase.auth.signOut()} variant="ghost" />
-      </View>
+        <Spacer size={Spacing.sm} />
+        <Button
+          testID="profile-delete-account"
+          label="Delete Account"
+          onPress={confirmDeleteAccount}
+          loading={deleting}
+          variant="danger"
+        />
+      </ScrollView>
     </SafeArea>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: Spacing.lg },
+  container: { padding: Spacing.lg, paddingBottom: Spacing.xxl },
   center: {
     flex: 1,
     alignItems: 'center',

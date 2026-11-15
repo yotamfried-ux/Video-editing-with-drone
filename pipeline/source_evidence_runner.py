@@ -177,6 +177,7 @@ def draft_clip_facts(context: dict[str, Any], clips: list[str] | None = None) ->
             "source_start": _to_float(win.get("source_start")),
             "source_end": source_end,
             "recording_end": recording_end,
+            "lead_in_sec": _to_float(win.get("setup_lead_in_sec")),
             "reaches_recording_end": bool(source_end is not None and recording_end is not None
                                           and source_end >= recording_end - _RECORDING_END_EPS_SEC),
         })
@@ -231,6 +232,36 @@ def reclassify_recording_limited(defects: list[dict[str, Any]], facts: list[dict
     return out
 
 
+# The cut opens on the catch and pop-up the analyzer reported (complete_action_window_policy.extend_to_setup); the
+# manual catalog counts that as part of the ride. Run 43583126199: final QA reported DEAD_TIME and BAD_FIRST_CLIP
+# ("2.8 s of paddling before the athlete stands up") on exactly those openings and scored the reel 50. A finding
+# about the opening of a clip the pipeline opened that way is a note; findings anywhere else are untouched.
+LEAD_IN_TYPE = "CATCH_LEAD_IN"
+_OPENING_DEFECT_TYPES = {"DEAD_TIME", "BAD_FIRST_CLIP"}
+_LEAD_IN_SLACK_SEC = 1.5
+
+
+def reclassify_catch_lead_in(defects: list[dict[str, Any]], facts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for defect in defects:
+        dtype = str(defect.get("type", "")).upper()
+        at = _to_float(defect.get("at_seconds"))
+        clip = None
+        if dtype in _OPENING_DEFECT_TYPES and at is not None:
+            for fact in facts:
+                lead, start = fact.get("lead_in_sec"), fact.get("draft_start")
+                if lead and start is not None and start - _CLIP_BOUNDARY_TOLERANCE_SEC <= at <= start + lead + _LEAD_IN_SLACK_SEC:
+                    clip = fact
+                    break
+        if clip is None:
+            out.append(defect)
+            continue
+        out.append({**defect, "type": LEAD_IN_TYPE, "severity": "info", "original_type": dtype,
+                    "original_severity": str(defect.get("severity", "")).lower(), "actionable": False,
+                    "clip_index": clip["clip_index"], "source": clip["source"], "lead_in_sec": clip["lead_in_sec"]})
+    return out
+
+
 def _clip_facts_prompt(facts: list[dict[str, Any]]) -> str:
     """Tell the reviewer, per draft clip, what the edit could and could not have done, and ask for a verdict on
     each clip's opening and ending. The verdicts are stored for measurement; they do not gate anything."""
@@ -249,11 +280,16 @@ def _clip_facts_prompt(facts: list[dict[str, Any]]) -> str:
                 line += " = this clip ALREADY RUNS TO THE LAST RECORDED FRAME"
             else:
                 line += f" ({_fmt(fact['recording_end'] - fact['source_end'])} of footage exists after the cut)"
+        if fact.get("lead_in_sec"):
+            line += (f"; opens {_fmt(fact['lead_in_sec'])} before the athlete stands, on the catch and pop-up, "
+                     "which is part of the ride")
         lines.append(line)
     lines += [
         "A clip that already runs to the last recorded frame cannot be extended. If its action is still going at",
         f"the end, report {RECORDING_LIMITED_TYPE} (severity \"minor\") for it and NOT PREMATURE_CUT. Use",
         "PREMATURE_CUT only when footage exists after the cut and the action continues in it.",
+        "A clip that opens on the catch and pop-up is opening on the ride: do not report DEAD_TIME or",
+        "BAD_FIRST_CLIP for that opening.",
         "Add to your JSON a \"clips\" array with one entry per draft clip, in order:",
         "  {\"clip_index\": <number>, \"opens_on_action\": true|false, \"seconds_to_first_action\": <number>,",
         "   \"ending\": \"complete\"|\"cut_by_edit\"|\"cut_by_camera\", \"dead_seconds\": <number>}",
@@ -383,8 +419,11 @@ def with_source_evidence(analyzer: Any, original, reel_path: str, *args, context
         model_defects, out_of_draft = _split_out_of_draft(
             [d for d in (parsed.get("defects") or []) if isinstance(d, dict)],
             specs.get("duration") if isinstance(specs, dict) else None)
-        defects = reclassify_recording_limited(model_defects, facts) + _context_defects(context)
+        defects = reclassify_catch_lead_in(reclassify_recording_limited(model_defects, facts), facts) + _context_defects(context)
         for item in defects:
+            if item.get("type") == LEAD_IN_TYPE:
+                print(f"     ⚪ {item.get('original_type')} @{item.get('at_seconds')}s is the catch and pop-up the cut "
+                      f"opens on ({item.get('source')}, {item.get('lead_in_sec')}s): kept as a note, not blocking")
             if item.get("type") == RECORDING_LIMITED_TYPE:
                 print(f"     ⚪ {item.get('original_type')} @{item.get('at_seconds')}s is the end of the recording "
                       f"({item.get('source')}), not an edit: kept as a note, not blocking")
