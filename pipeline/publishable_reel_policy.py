@@ -886,6 +886,13 @@ def qa_gate_block_reasons(events: list[dict[str, Any]] | None) -> list[str]:
     """
     reasons: list[str] = []
     for event in events or []:
+        identity = event.get("identity_gate") if isinstance(event, dict) else None
+        if isinstance(identity, dict) and identity.get("decision") == "kept_together_unconfirmed":
+            # One reel per athlete keeps these sources together, but nothing confirmed they show one person.
+            reasons.append(
+                "IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed "
+                f"({identity.get('reason') or 'no confirmation'})"
+            )
         gate = event.get("qa_gate") if isinstance(event, dict) else None
         if not isinstance(gate, dict):
             continue

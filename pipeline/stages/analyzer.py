@@ -1112,6 +1112,10 @@ def analyze_session(video_path: str) -> dict:
             n = len(result["persons"])
             print(f"✅ Activity: '{result['activity']}' | {n} person(s) from {len(chunks)} chunks")
 
+        # Every candidate gets its canonical id here, before any stage can revise or reorder it.
+        from pipeline.event_identity import assign_session_event_uids
+        assign_session_event_uids(result, video_path)
+
         # Reference thumbnail per person's best event (always from original video)
         for person in result.get("persons", []):
             events = person.get("events", [])

@@ -1117,7 +1117,10 @@ def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
                 f"<- '{candidate.get('description','?')[:40]}' (score={best_score:.2f})"
             )
             target["appearances"].extend(c_apps)
-            target["_visual_verified"] = True
+            # Agreement between text descriptions is a hypothesis, not a visual confirmation. The merged
+            # cluster loses any earlier confirmation and has to pass the image verifier as a whole.
+            target.pop("_visual_verified", None)
+            target["_structured_merge"] = True
         else:
             out.append(candidate)
 
@@ -1169,8 +1172,8 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
         if len(apps) < 2 or not all(t and os.path.exists(t) for t in thumbs):
             verified.append(cluster)
             continue
-        if _cluster_structured_verified(cluster):
-            verified.append({**cluster, "_visual_verified": True})
+        if cluster.get("_visual_verified") is True:
+            verified.append(cluster)  # already confirmed on images; no second call
             continue
 
         uploaded: list = []
@@ -1193,7 +1196,7 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
                    if isinstance(i, (int, float)) and 0 <= int(i) < len(apps)}
 
             if same_person and not bad:
-                verified.append(cluster)
+                verified.append({**cluster, "_visual_verified": True})
                 continue
 
             if not bad or len(bad) >= len(apps):
@@ -1439,6 +1442,8 @@ def _post_process_clusters_inner(clusters: list[dict], clip_analyses: list[dict]
     clusters = _verify_multi_clusters(clusters)
     clusters = _merge_compatible_structured_clusters(clusters)
     clusters = _split_impossible_clusters(clusters)
+    # A cluster merged on text after the first verification is checked on images too (confirmed ones are skipped).
+    clusters = _verify_multi_clusters(clusters)
     clusters = _verify_merge_candidates(clusters)
     clusters = _split_impossible_clusters(clusters)
     try:

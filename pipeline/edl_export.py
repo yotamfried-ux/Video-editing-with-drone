@@ -217,6 +217,9 @@ def record_clip(
     try:
         source = probe_source(source_path)
         duration = max(0.0, end - start)
+        # Events created after analysis (a rescued moment) reach here without an id: give them one now and say so.
+        from pipeline.event_identity import LATE, ORIGIN_KEY, UID_KEY, ensure_event_uid
+        ensure_event_uid(event, source_path, origin=LATE)
         geom = clip_geometry(decision, event, source, out_w, out_h, start, duration, out_fps)
         src_fps = source["fps"]
         record = {
@@ -225,7 +228,9 @@ def record_clip(
             "source_file": os.path.basename(source_path),
             "source_sha256": source_sha256(source_path),
             "source": {"width": source["width"], "height": source["height"], "fps": src_fps, "rotation": source["rotation"]},
-            "event_id": event.get("event_id") or event.get("id"),
+            "event_id": event.get(UID_KEY) or event.get("event_id") or event.get("id"),
+            "event_uid_origin": event.get(ORIGIN_KEY),
+            "analyzer_window": event.get("analyzer_window"),
             "event_type": event.get("type"),
             "src_start_sec": start, "src_end_sec": end,
             "src_start_frame": int(math.ceil(start * src_fps - 1e-6)),
@@ -297,6 +302,8 @@ def build_reel_edl(
             "athlete_ref": rec["athlete_ref"], "framing_reason": rec["framing_reason"],
             "source_file": rec["source_file"],
         }
+        if rec.get("event_uid_origin"):
+            shot["event_uid_origin"] = rec["event_uid_origin"]
         if rec.get("subject_track"):
             shot["subject_track"] = rec["subject_track"]
         if rec.get("keyframes"):

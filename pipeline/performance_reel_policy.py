@@ -95,16 +95,40 @@ def is_explicit_failed_takeoff(event: dict[str, Any], activity: str = "") -> boo
     return any(term in _text(event, activity) for term in _FAILED_TAKEOFF_TERMS)
 
 
-def keep_event_for_performance_reel(event: dict[str, Any], activity: str = "") -> bool:
-    """Apply coverage-first admission while preserving non-surf score policy."""
+ELIGIBLE, INELIGIBLE, UNCERTAIN = "ELIGIBLE", "INELIGIBLE", "UNCERTAIN"
+
+
+def classify_event_eligibility(event: dict[str, Any], activity: str = "") -> dict[str, str]:
+    """Why an event is or is not admitted, as a typed verdict instead of a bare boolean.
+
+    ELIGIBLE: the analyzer itself rated it a highlight (score >= 6) and stated no failed takeoff.
+    INELIGIBLE: an explicit no-ride statement, or a non-surf event below the score.
+    UNCERTAIN: a surf event admitted only by the coverage rule, with no positive rating behind it.
+
+    The verdict records what the admission rests on; it rests on the analyzer's words, not on an independent
+    check of the footage (run 43725044948: 0095 and 0155 were rated 9 and 7 and described as real rides, and
+    the human catalog excludes both).
+    """
     surf_event = is_surf_event(event, activity)
     if surf_event and is_explicit_failed_takeoff(event, activity):
-        return False
+        return {"verdict": INELIGIBLE, "basis": "explicit_no_ride_statement"}
     try:
         score = int(event.get("score", 0))
     except (TypeError, ValueError):
         score = 0
-    return score >= 6 or surf_event
+    if score >= 6:
+        return {"verdict": ELIGIBLE, "basis": "analyzer_score"}
+    if surf_event:
+        return {"verdict": UNCERTAIN, "basis": "surf_coverage_rule_without_positive_score"}
+    return {"verdict": INELIGIBLE, "basis": "score_below_threshold"}
+
+
+def keep_event_for_performance_reel(event: dict[str, Any], activity: str = "") -> bool:
+    """Apply coverage-first admission while preserving non-surf score policy. Stamps the typed verdict."""
+    eligibility = classify_event_eligibility(event, activity)
+    if isinstance(event, dict):
+        event["eligibility"] = eligibility
+    return eligibility["verdict"] != INELIGIBLE
 
 
 

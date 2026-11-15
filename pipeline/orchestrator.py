@@ -395,6 +395,24 @@ def _record_draft_sources(draft_name: str, sources: list[dict],
         logger.debug("Draft source recording skipped (non-critical): %s", e)
 
 
+# Requests this run re-queued, so the run closes exactly these and each by its own result.
+_QUEUED_REPROCESS: list[dict] = []
+
+
+def reprocess_outcomes(queued: list[dict], manifest: dict) -> dict[str, bool]:
+    """For each re-queued request: did this run produce a publishable draft from one of its sources?"""
+    publishable_sources: set[str] = set()
+    for row in (manifest or {}).get("athletes", []) or []:
+        if not isinstance(row, dict) or not row.get("primary_publishable_reel"):
+            continue
+        for item in row.get("action_lineage") or []:
+            publishable_sources.add(os.path.basename(str(item).split("|", 1)[0]))
+    return {
+        str(req.get("id")): bool({os.path.basename(name) for name in req.get("sources") or []} & publishable_sources)
+        for req in queued or [] if req.get("id")
+    }
+
+
 def _handle_reprocess_requests() -> list[str]:
     """Consume operator reprocess requests from Supabase.
 
@@ -434,6 +452,10 @@ def _handle_reprocess_requests() -> list[str]:
                 record_operator_note(key, notes)
                 note_keys.append(key)
             mark_reprocess(req_id, "queued")
+            _QUEUED_REPROCESS.append({
+                "id": req_id, "draft_name": draft_name,
+                "sources": sorted({str(src.get("name") or "") for src in sources if src.get("name")}),
+            })
         else:
             print(f"  ⚠️  '{draft_name}': source videos not found — cannot reprocess")
             mark_reprocess(req_id, "source_not_found")
@@ -884,10 +906,16 @@ def main() -> None:
         from pipeline.stages.feedback import clear_operator_note
         for key in reprocess_note_keys:
             clear_operator_note(key)
+    if _QUEUED_REPROCESS:
         try:
-            from integrations.supabase_uploader import close_queued_reprocess
-            close_queued_reprocess()
-        except Exception:
-            pass
+            from integrations.supabase_uploader import close_reprocess_requests
+            from pipeline.publishable_reel_policy import _read_manifest
+            written = close_reprocess_requests(reprocess_outcomes(_QUEUED_REPROCESS, _read_manifest()))
+            for req_id, status in written.items():
+                print(f"  🔁 reprocess request {req_id[:8]}: {status}")
+        except Exception as exc:
+            logger.warning("Reprocess requests were not closed: %s", exc)
+        finally:
+            _QUEUED_REPROCESS.clear()
 
     logger.info("Phase 1 complete. Videos: %d, Drafts: %d", len(new_videos), drafts)

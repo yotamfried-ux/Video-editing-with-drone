@@ -122,11 +122,13 @@ def _wrap_verify_multi_clusters(identity):
             if len(apps) < 2:
                 verified.append(cluster)
                 continue
-            if _cluster_has_perception_evidence(cluster) and getattr(
-                identity, "_cluster_structured_verified", lambda _c: False
-            )(cluster):
-                verified.append({**cluster, "_visual_verified": True})
+            if cluster.get("_visual_verified") is True:
+                verified.append(cluster)  # already confirmed on images
                 continue
+            # Matching text descriptions used to mark a cluster "_visual_verified" here without showing the
+            # verifier any image (run 43710581656: 0143 + 0152 passed the identity gate as
+            # "visual_verified_per_source_tracks" on description agreement alone). Text agreement is a
+            # hypothesis; only the image check below can confirm it.
             if not all(t and os.path.exists(t) for t in thumbs):
                 verified.extend(identity._split_cluster_to_singles(
                     cluster,
