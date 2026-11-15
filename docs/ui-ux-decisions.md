@@ -33,6 +33,19 @@ them through `src/shared/constants/paperTheme.ts`.
 | Feedback on press; respect reduced motion (Motion playbook) | Light haptic on primary and destructive buttons; the skeleton stays still with reduce-motion on |
 | Safe areas (Quality gate) | Reel screen controls follow the device insets instead of fixed offsets, which Android 16 edge-to-edge requires |
 
-## Not done in this pass
+## Second pass (same day): the remaining screens
 
-Operator screens, the checkout screen, RTL and Hebrew copy, dynamic type audit, a screen-reader pass on a device.
+| Screen | Change | Principle |
+|---|---|---|
+| Profile | Initials avatar, name and email; save is enabled only when the name changed; support and legal links are rows with an icon and a chevron; delete account is a quiet red text action with its consequence written under it | Destructive actions separated and never the loudest; clear current value and consequences (content playbook, profile and settings) |
+| Checkout | Price first, then what the purchase gives and where card details are entered; one filled button | Reduce friction on the critical path; trust information next to the action |
+| Support, suggestion | Labelled multi-line field with a character counter; send is disabled while empty | Label every field; prevent the error instead of reporting it |
+| Legal | The same header and back button as every other screen, with the document's title | Consistency; users always know where they are |
+| Operator navigation | An icon per section, 44 pt tabs, the selected tab announced to screen readers | Touch targets; do not rely on colour alone |
+
+## Not done
+
+The body of the operator screens (pipeline, review, reels, pricing, analytics, athletes, support, settings) keeps
+its layout: it is an internal tool whose texts the Android end-to-end flows assert on. RTL and Hebrew copy, a
+dynamic-type audit and a screen-reader pass on a device are also open. How the screens look was not reviewed
+visually from here: the CI screenshots are stored on a host this environment cannot reach.
