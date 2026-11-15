@@ -1,10 +1,11 @@
 import React, { useEffect } from 'react';
-import { View, TextInput, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { Spacer } from '@/shared/components/Spacer';
+import { FormField } from '@/shared/components/FormField';
 import { useRegistration } from '@/features/auth/hooks/useRegistration';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
@@ -43,27 +44,29 @@ export default function RegisterScreen() {
         {reg.step === 'credentials' && (
           <View style={styles.form}>
             <Text variant="display" style={{ textAlign: 'center' }}>Create Account</Text>
+            <Text variant="body" color={Colors.textSecondary} style={{ textAlign: 'center' }}>Step 1 of 2 · your sign-in details</Text>
             <Spacer size={Spacing.xl} />
-            <TextInput
+            <FormField
               testID="register-email"
-              placeholder="Email"
-              placeholderTextColor={Colors.textSecondary}
+              label="Email"
               value={reg.email}
               onChangeText={reg.setEmail}
               keyboardType="email-address"
-              autoCapitalize="none"
-              style={styles.input}
+              autoComplete="email"
+              returnKeyType="next"
             />
-            <TextInput
+            <FormField
               testID="register-password"
-              placeholder="Password (min 6 chars)"
-              placeholderTextColor={Colors.textSecondary}
+              label="Password"
+              hint="At least 6 characters"
               value={reg.password}
               onChangeText={reg.setPassword}
-              secureTextEntry
-              style={styles.input}
+              secure
+              autoComplete="new-password"
+              returnKeyType="go"
+              onSubmitEditing={reg.submitCredentials}
+              error={reg.error}
             />
-            {reg.error && <Text variant="caption" color={Colors.danger}>{reg.error}</Text>}
             <Spacer size={Spacing.md} />
             <Button testID="register-continue" label="Continue" onPress={reg.submitCredentials} loading={reg.loading} />
             <Text variant="caption" color={Colors.textSecondary} style={{ textAlign: 'center' }}>
@@ -90,16 +93,19 @@ export default function RegisterScreen() {
         {reg.step === 'profile' && (
           <View style={styles.form}>
             <Text variant="display" style={{ textAlign: 'center' }}>Your Name</Text>
+            <Text variant="body" color={Colors.textSecondary} style={{ textAlign: 'center' }}>Step 2 of 2 · shown on your profile</Text>
             <Spacer size={Spacing.xl} />
-            <TextInput
+            <FormField
               testID="register-name"
-              placeholder="Full name"
-              placeholderTextColor={Colors.textSecondary}
+              label="Full name"
               value={reg.name}
               onChangeText={reg.setName}
-              style={styles.input}
+              autoCapitalize="words"
+              autoComplete="name"
+              returnKeyType="done"
+              onSubmitEditing={reg.submitProfile}
+              error={reg.error}
             />
-            {reg.error && <Text variant="caption" color={Colors.danger}>{reg.error}</Text>}
             <Spacer size={Spacing.md} />
             <Button testID="register-finish" label="Finish" onPress={reg.submitProfile} loading={reg.loading} />
           </View>
@@ -116,13 +122,4 @@ const styles = StyleSheet.create({
   dotActive: { backgroundColor: '#00E5FF', width: 24 },
   dotDone: { backgroundColor: '#22C55E' },
   form: { flex: 1, padding: Spacing.xl, justifyContent: 'center', gap: Spacing.sm },
-  input: {
-    backgroundColor: '#1E293B',
-    color: '#FFFFFF',
-    borderRadius: 12,
-    padding: Spacing.md,
-    borderWidth: 1,
-    borderColor: '#2D3F55',
-    fontSize: 15,
-  },
 });

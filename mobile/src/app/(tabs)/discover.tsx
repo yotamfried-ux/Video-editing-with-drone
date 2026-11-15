@@ -7,7 +7,8 @@ import {
 } from 'react-native';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
-import { Button } from '@/shared/components/Button';
+import { EmptyState } from '@/shared/components/EmptyState';
+import { Skeleton } from '@/shared/components/Skeleton';
 import { SessionCard } from '@/features/sessions/components/SessionCard';
 import { ReelThumb } from '@/features/sessions/components/ReelThumb';
 import { useSessions } from '@/features/sessions/hooks/useSessions';
@@ -21,7 +22,7 @@ export default function DiscoverScreen() {
       <View style={styles.header}>
         <Text variant="display">SportReel</Text>
         <Text variant="caption" color={Colors.textSecondary}>
-          Catch your moments
+          Your clips from the water, ready to watch
         </Text>
       </View>
       <FlatList
@@ -52,26 +53,31 @@ export default function DiscoverScreen() {
           </View>
         )}
         ListEmptyComponent={
-          loading ? null : error ? (
+          loading ? (
+            // The shape of what is coming, so the screen does not jump when it arrives.
+            <View testID="discover-loading">
+              <Skeleton style={styles.skeletonTitle} />
+              <View style={styles.grid}>
+                {[0, 1, 2, 3].map((i) => <Skeleton key={i} style={styles.skeletonThumb} />)}
+              </View>
+            </View>
+          ) : error ? (
             // A failed request is not "no sessions": say so and offer a retry.
-            <View style={styles.empty}>
-              <Text testID="discover-error" variant="headline" color={Colors.textSecondary}>
-                Could not load sessions
-              </Text>
-              <Text variant="body" color={Colors.textSecondary}>
-                Check your connection and try again.
-              </Text>
-              <Button testID="discover-retry" label="Try Again" onPress={refresh} variant="secondary" />
-            </View>
+            <EmptyState
+              testID="discover-error"
+              icon="wifi-off"
+              title="Could not load sessions"
+              body="Check your connection and try again."
+              actionLabel="Try Again"
+              actionTestID="discover-retry"
+              onAction={refresh}
+            />
           ) : (
-            <View style={styles.empty}>
-              <Text variant="headline" color={Colors.textSecondary}>
-                No sessions yet
-              </Text>
-              <Text variant="body" color={Colors.textSecondary}>
-                Check back after a session!
-              </Text>
-            </View>
+            <EmptyState
+              icon="video-outline"
+              title="No sessions yet"
+              body="Clips appear here after a filmed session. Pull down to refresh."
+            />
           )
         }
       />
@@ -87,11 +93,6 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     justifyContent: 'space-between',
   },
-  empty: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: Spacing.xxl,
-    gap: Spacing.sm,
-  },
+  skeletonTitle: { height: 22, width: '55%', margin: Spacing.md },
+  skeletonThumb: { width: '48%', aspectRatio: 9 / 16, marginBottom: Spacing.sm },
 });

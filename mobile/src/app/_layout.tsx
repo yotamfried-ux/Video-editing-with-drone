@@ -14,6 +14,8 @@ import * as SplashScreen from 'expo-splash-screen';
 import * as Updates from 'expo-updates';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PaperProvider } from 'react-native-paper';
+import { paperTheme } from '@/shared/constants/paperTheme';
 import { supabase } from '@/shared/lib/supabase';
 import { useAuthStore } from '@/shared/hooks/useAuth';
 import { registerPushToken } from '@/shared/lib/notifications';
@@ -109,9 +111,11 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <CrashContextSync />
-        <NotificationLinks />
-        <Stack screenOptions={{ headerShown: false }} />
+        <PaperProvider theme={paperTheme}>
+          <CrashContextSync />
+          <NotificationLinks />
+          <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: paperTheme.colors.background } }} />
+        </PaperProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );
