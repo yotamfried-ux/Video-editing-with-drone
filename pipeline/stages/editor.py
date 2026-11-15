@@ -1375,11 +1375,13 @@ def compile_reel(
 
     # Reel-level fade in/out — applied ONCE here instead of per-clip, so joins
     # stay clean (no double dip-to-black at every transition).
-    _reel_fade_in  = 0.25
+    # 0.25 s unless a controlled A/B sets SPORTREEL_REEL_FADE_IN_SEC (retention audit 2026-11-15).
+    from pipeline.retention_metrics import reel_fade_in_sec
+    _reel_fade_in  = reel_fade_in_sec(0.25)
     _reel_fade_out = 0.40
     xfade_f += (
-        f";[xfout]fade=t=in:st=0:d={_reel_fade_in},"
-        f"fade=t=out:st={max(0.0, total_dur - _reel_fade_out):.3f}:d={_reel_fade_out}[faded]"
+        (f";[xfout]fade=t=in:st=0:d={_reel_fade_in}," if _reel_fade_in > 0 else ";[xfout]")
+        + f"fade=t=out:st={max(0.0, total_dur - _reel_fade_out):.3f}:d={_reel_fade_out}[faded]"
     )
 
     if has_logo:

@@ -86,9 +86,31 @@ def order_events(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         return sorted(events, key=quality_score)
     rest = [event for event in events if event is not climax]
     rest_desc = sorted(rest, key=quality_score, reverse=True)
-    opener = rest_desc[0] if rest_desc else None
-    middle = sorted(rest_desc[1:], key=quality_score)
+    opener = choose_opener(rest_desc)
+    middle = sorted([event for event in rest_desc if event is not opener], key=quality_score)
     return ([opener] if opener else []) + middle + [climax]
+
+
+def complete_opener_enabled() -> bool:
+    """Off unless `SPORTREEL_HOOK_COMPLETE_OPENER` is set: the retention audit of 2026-11-15 asks for a blind
+    human review of real proxies before an ordering change becomes the default."""
+    import os
+
+    return os.getenv("SPORTREEL_HOOK_COMPLETE_OPENER", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def choose_opener(rest_desc: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The clip that opens the reel: the best of the rest. With the flag on, among clips rated within one point
+    of it, one whose ride resolves inside its recording opens instead of one the camera cut. No clip is dropped,
+    shortened or repeated: only the order of complete rides changes."""
+    if not rest_desc:
+        return None
+    best = rest_desc[0]
+    if not complete_opener_enabled() or _ends_with_recording(best) is not True:
+        return best
+    tied = [event for event in rest_desc
+            if quality_score(best) - quality_score(event) < SCORE_POINT and _ends_with_recording(event) is False]
+    return max(tied, key=quality_score) if tied else best
 
 
 def install() -> None:
