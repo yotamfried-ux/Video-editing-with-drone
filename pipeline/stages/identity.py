@@ -1372,8 +1372,15 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
             "same_person": parsed.get("same_person"), "confidence": parsed.get("confidence"), "merged": same})
         if not same:
             continue
+        # One image of each cluster was compared. That confirms the merged cluster only when each side was a
+        # single appearance; with more members the whole cluster goes back to the image verifier.
+        pair_covers_all = len(a.get("appearances", []) or []) == 1 and len(b.get("appearances", []) or []) == 1
         a["appearances"] = list(a.get("appearances", [])) + list(b.get("appearances", []))
-        a["_visual_verified"] = True
+        if pair_covers_all:
+            a["_visual_verified"] = True
+        else:
+            a.pop("_visual_verified", None)
+            a["_merge_check_pair_only"] = True
         merged_into[j] = root_i
         for key, value in list(merged_into.items()):
             if value == j:
@@ -1446,6 +1453,8 @@ def _post_process_clusters_inner(clusters: list[dict], clip_analyses: list[dict]
     clusters = _verify_multi_clusters(clusters)
     clusters = _verify_merge_candidates(clusters)
     clusters = _split_impossible_clusters(clusters)
+    # Every merge above ends here: a cluster that is not confirmed as a whole is verified as a whole.
+    clusters = _verify_multi_clusters(clusters)
     try:
         from pipeline.identity_decision_engine import IdentityDecisionEngine
         engine = IdentityDecisionEngine()

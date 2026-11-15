@@ -400,17 +400,29 @@ _QUEUED_REPROCESS: list[dict] = []
 
 
 def reprocess_outcomes(queued: list[dict], manifest: dict) -> dict[str, bool]:
-    """For each re-queued request: did this run produce a publishable draft from one of its sources?"""
-    publishable_sources: set[str] = set()
+    """For each re-queued request: is its re-edit verified?
+
+    A source can hold several athletes, so "some publishable reel came from this source" proves nothing about
+    the athlete the request was about. A request is verified only when this run produced at least one reel from
+    its sources and **every** reel that uses any of them is publishable (final QA passed, no gate block). One
+    reel from those sources still blocked leaves the request unverified. This is stricter than naming the exact
+    athlete, which a request cannot do yet: athlete ids are re-derived on every run.
+    """
+    by_source: dict[str, list[bool]] = {}
     for row in (manifest or {}).get("athletes", []) or []:
-        if not isinstance(row, dict) or not row.get("primary_publishable_reel"):
+        if not isinstance(row, dict):
             continue
+        parts = [part for part in row.get("parts", []) or [] if isinstance(part, dict)]
+        ok = bool(row.get("primary_publishable_reel")) and bool(parts) and all(part.get("publishable") is True for part in parts)
         for item in row.get("action_lineage") or []:
-            publishable_sources.add(os.path.basename(str(item).split("|", 1)[0]))
-    return {
-        str(req.get("id")): bool({os.path.basename(name) for name in req.get("sources") or []} & publishable_sources)
-        for req in queued or [] if req.get("id")
-    }
+            by_source.setdefault(os.path.basename(str(item).split("|", 1)[0]), []).append(ok)
+    outcomes: dict[str, bool] = {}
+    for req in queued or []:
+        if not req.get("id"):
+            continue
+        verdicts = [ok for name in req.get("sources") or [] for ok in by_source.get(os.path.basename(name), [])]
+        outcomes[str(req["id"])] = bool(verdicts) and all(verdicts)
+    return outcomes
 
 
 def _handle_reprocess_requests() -> list[str]:

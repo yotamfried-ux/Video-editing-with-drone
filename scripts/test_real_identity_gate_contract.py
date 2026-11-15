@@ -38,12 +38,27 @@ def main() -> int:
     # SPORTREEL_ONE_REEL_PER_ATHLETE=0 restores the split-to-single identity gate checked below.
     os.environ["SPORTREEL_ONE_REEL_PER_ATHLETE"] = "0"
 
-    stable = [{"description": "same surfer", "appearances": [app("a.mp4", "a1", "t7"), app("b.mp4", "b1", "t7")]}]
+    # One track followed through two events of the SAME source is continuity evidence.
+    stable = [{"description": "same surfer", "appearances": [app("a.mp4", "a1", "t7"), app("a.mp4", "a2", "t7")]}]
     out = enforce_identity_gate(stable)
     if len(out) != 1 or out[0].get("_identity_gate") != "pass":
-        raise SystemExit("stable track cluster should pass")
+        raise SystemExit("one track inside one source should pass")
     if out[0]["appearances"][0]["events"][0].get("identity_gate", {}).get("stable_track_id") != "t7":
         raise SystemExit("stable track evidence was not persisted")
+
+    # Tracker ids are numbered per video: the same number in two sources is two unrelated tracks. This case was
+    # asserted to pass until the review of PR #388; it let two different surfers through as one.
+    cross = [{"description": "two surfers, both t7", "appearances": [app("a.mp4", "a1", "t7"), app("b.mp4", "b1", "t7")]}]
+    out = enforce_identity_gate(cross)
+    if any(c.get("_identity_gate") == "pass" for c in out):
+        raise SystemExit("the same track number in two different sources must not pass the identity gate")
+    if not all(c.get("_identity_gate_reason") == "same_track_id_across_sources_is_not_evidence" for c in out):
+        raise SystemExit(f"the reason must say why: {[c.get('_identity_gate_reason') for c in out]}")
+    os.environ.pop("SPORTREEL_ONE_REEL_PER_ATHLETE", None)
+    kept = enforce_identity_gate(cross)
+    if len(kept) != 1 or kept[0].get("_identity_gate") != "kept_together_unconfirmed":
+        raise SystemExit("with one reel per athlete the pair stays together as unconfirmed, never as pass")
+    os.environ["SPORTREEL_ONE_REEL_PER_ATHLETE"] = "0"
 
     conflicting = [{"description": "mixed surfer", "appearances": [app("a.mp4", "a1", "t1"), app("b.mp4", "b1", "t2")]}]
     out = enforce_identity_gate(conflicting)

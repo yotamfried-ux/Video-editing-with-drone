@@ -14,6 +14,20 @@ document names, and offline replays. No video was watched.
 | M5 | `close_queued_reprocess` set **every** `queued` request to `done`, and only when a note existed. Requests of other runs and failed re-edits were closed as repaired | The run remembers the requests it re-queued and closes exactly those: `done` only if it produced a publishable draft from that request's sources, otherwise `reprocessed_unverified`. A call without ids changes nothing | Contract test with a recording fake: every update names one id and filters on `queued` |
 | M1 | Admission was a bare boolean | `classify_event_eligibility`: ELIGIBLE / INELIGIBLE / UNCERTAIN with the basis, stamped on the event. Admission itself is unchanged | Contract test |
 
+## Second pass: four gaps found in review of this PR
+
+| # | Gap | Fix | Proof |
+|---|---|---|---|
+| P0 | `real_identity_gate._stable_track` passed a multi-source cluster when every source had the same tracker number. Tracker ids are numbered per video, so two different surfers can both be `t7`. The existing contract test asserted that this case passes | A shared track id is evidence only inside one source. Across sources the reason is `same_track_id_across_sources_is_not_evidence` and the cluster is unconfirmed (blocked) or split | `test_real_identity_gate_contract.py`: the old assertion is replaced; red on the previous commit |
+| P0 | `_verify_merge_candidates` compared one image of each cluster and then marked the whole merged cluster `_visual_verified`, also when a side had several members that were never shown | The pair check confirms only a merge of two single appearances. Any larger merge is labelled `_merge_check_pair_only`, loses the flag, and the whole cluster goes through the image verifier, which now runs once more at the end of post-processing | `test_root_cause_fixes_contract.py`: red on the previous commit |
+| P1 | A reprocess request was `done` when *any* publishable reel came from one of its sources, although a source can hold several athletes | A request is verified only when the run produced reels from its sources and **every** reel using any of them is publishable. One blocked reel from those sources leaves it `reprocessed_unverified` | Contract test with two athletes sharing a source |
+| P1 | `event_uid` was built from the file name and windows rounded to two decimals: two files with one name, or two events with equal rounded windows, collided | The id is built from the source's content SHA-256, the person and the event's ordinal within that person, plus a schema version (`v2`). No timestamp takes part. An event created later uses its exact window, type and track | Contract test: same name with different bytes differs, same bytes under another name matches, equal rounded windows differ, stable across a window change and a re-run |
+
+Limit of the reprocess fix, stated plainly: it does not bind a request to one athlete, one defect and one output
+hash. Athlete ids are re-derived on every run and a request carries only a draft name, so the rule used is the
+stricter one above. It can leave a request unverified because another athlete in the same source is blocked; it
+cannot close a request whose own athlete is still blocked.
+
 ## A correction to what I reported earlier
 
 After run 43710581656 I wrote that three independent views (analyzer, clustering model, visual verifier) agreed
@@ -35,8 +49,8 @@ this change it runs, so the next run gives a real answer.
 - A frozen-GT evaluator that writes `evaluation_runs` in production: it writes production data and needs approval.
 - Actor-fenced intervals and appearance-based track stitching (M3): no evidence here that a specific stitch was
   wrong, and no video to validate a change against.
-- Per-request re-QA of the exact repaired output hash (M5, full form): the fix here scopes closure by id and by
-  publishable outcome; binding to an output hash needs the request to carry the athlete key.
+- Binding a reprocess request to one athlete, one defect and one output hash (M5, full form): needs a
+  persistent athlete id on the request. See the limit stated above.
 
 ## What the next run should show
 

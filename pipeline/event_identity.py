@@ -17,21 +17,39 @@ ANALYZER = "analyzer"
 LATE = "assigned_late"
 
 
-def _fmt(value: Any) -> str:
-    try:
-        return f"{float(value):.2f}"
-    except (TypeError, ValueError):
-        return "na"
+UID_SCHEMA = "v2"
+_SOURCE_REF_CACHE: dict[str, tuple[str, str]] = {}
 
 
-def compute_event_uid(source: str, person_id: str, start: Any, end: Any, event_type: Any) -> str:
-    payload = "|".join([
-        os.path.basename(str(source or "")), str(person_id or ""), _fmt(start), _fmt(end), str(event_type or ""),
-    ])
-    return "ev_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:16]
+def source_ref(source: str) -> tuple[str, str]:
+    """(kind, value) naming the source video: its content SHA-256, or its file name when it cannot be read.
+
+    Two files with the same name are different sources, and one file under two names is the same source.
+    """
+    key = os.path.abspath(str(source or ""))
+    if key not in _SOURCE_REF_CACHE:
+        try:
+            from pipeline.edl_export import source_sha256
+
+            _SOURCE_REF_CACHE[key] = ("sha256", source_sha256(key))
+        except Exception:  # noqa: BLE001 - unreadable or absent file
+            _SOURCE_REF_CACHE[key] = ("name", os.path.basename(key))
+    return _SOURCE_REF_CACHE[key]
 
 
-def ensure_event_uid(event: dict[str, Any], source: str, person_id: str = "", *, origin: str = ANALYZER) -> str:
+def compute_event_uid(source: str, person_id: str, local_key: str) -> str:
+    """Id from the source's content, the person and a key that is unique inside that person's events.
+
+    No timestamp takes part, so two events whose rounded windows coincide stay distinct and a revised window
+    cannot change the id.
+    """
+    kind, value = source_ref(source)
+    payload = "|".join([UID_SCHEMA, kind, value, str(person_id or ""), str(local_key)])
+    return f"ev{UID_SCHEMA[1:]}_" + hashlib.sha256(payload.encode("utf-8")).hexdigest()[:20]
+
+
+def ensure_event_uid(event: dict[str, Any], source: str, person_id: str = "", *, origin: str = ANALYZER,
+                     local_key: str | None = None) -> str:
     """Give the event its id once. An event that already has one keeps it, whatever its window is now."""
     existing = event.get(UID_KEY)
     if existing:
@@ -42,11 +60,17 @@ def ensure_event_uid(event: dict[str, Any], source: str, person_id: str = "", *,
         event[UID_KEY] = str(given)
         event.setdefault(ORIGIN_KEY, "provided")
         return str(given)
-    uid = compute_event_uid(source, person_id or str(event.get("person_id") or ""), event.get("start"), event.get("end"), event.get("type"))
+    if local_key is None:
+        # An event created after analysis has no ordinal: its own exact window, type and track name it.
+        local_key = "late|{!r}|{!r}|{}|{}".format(
+            event.get("start"), event.get("end"), event.get("type"), event.get("track_id"))
+    uid = compute_event_uid(source, person_id or str(event.get("person_id") or ""), local_key)
     event[UID_KEY] = uid
     event[ORIGIN_KEY] = origin
+    event["event_uid_schema"] = UID_SCHEMA
+    event["event_source_ref"] = ":".join(source_ref(source))
     event.setdefault("event_id", uid)
-    # The window the id was computed from, so a revised window can always be traced back.
+    # The window the analyzer gave, so a revised window can always be traced back.
     event.setdefault("analyzer_window", {"start": event.get("start"), "end": event.get("end")})
     return uid
 
@@ -55,8 +79,10 @@ def assign_session_event_uids(session: dict[str, Any], source: str) -> int:
     """Assign ids to every event of an analyzed session. Returns how many events now carry one."""
     count = 0
     for person in (session or {}).get("persons", []) or []:
+        ordinal = 0
         for event in person.get("events", []) or []:
             if isinstance(event, dict):
-                ensure_event_uid(event, source, str(person.get("id") or ""))
+                ordinal += 1
+                ensure_event_uid(event, source, str(person.get("id") or ""), local_key=f"ordinal|{ordinal}")
                 count += 1
     return count

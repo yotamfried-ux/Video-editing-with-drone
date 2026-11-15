@@ -7,7 +7,10 @@ M2  A cluster is "_visual_verified" only when the image verifier confirmed it. A
     verifier was never shown an image of the pair.
 M2  A multi-source cluster the gate keeps together without confirmation is not publishable.
 M4  Every event gets a canonical id when it is created; a later window change does not change it.
-M5  A run closes only the reprocess requests it consumed, each by its own result. Nothing is closed globally.
+M2  The same tracker number in two sources is not identity evidence (tested in test_real_identity_gate_contract).
+M2  A merge decided on one image per cluster does not confirm a cluster with more members.
+M5  A run closes only the reprocess requests it consumed. A request is verified only when every reel from its
+    sources is publishable, so a good reel of another athlete in the same source does not close it.
 M1  Admission is a typed verdict that names what it rests on.
 """
 from __future__ import annotations
@@ -61,6 +64,43 @@ def main() -> int:
     if any(c.get("_visual_verified") for c in out):
         raise SystemExit("no image was checked, so nothing may be marked visually verified")
 
+    # ---- M2: a check of two images does not confirm a merged cluster with more members
+    import os as _os
+    import tempfile as _tempfile
+
+    with _tempfile.TemporaryDirectory() as folder:
+        def with_thumb(name: str, description: str, track: int) -> dict:
+            thumb = _os.path.join(folder, name + ".jpg")
+            open(thumb, "wb").write(b"jpg")
+            return {**app(name, description, track), "thumbnail": thumb}
+
+        answers = iter(['{"same_person": true, "confidence": "high", "reason": "same board"}'])
+        identity.genai = types.SimpleNamespace(
+            upload_file=lambda **_k: types.SimpleNamespace(name="f"),
+            delete_file=lambda *_a, **_k: None,
+            GenerativeModel=lambda **_k: types.SimpleNamespace(
+                generate_content=lambda *_a, **_k: types.SimpleNamespace(text=next(answers))),
+        )
+        identity._retry_gemini = lambda fn: fn()
+        identity._merge_check_pairs = lambda _clusters: [(0.8, 0, 1)]
+        d = "Shirtless surfer in dark shorts on a light blue longboard."
+        two_plus_one = identity._verify_merge_candidates([
+            {"description": d, "_visual_verified": True, "appearances": [
+                with_thumb("DJI_0097_D.MP4", d, 1), with_thumb("DJI_0115_D.MP4", d, 2)]},
+            {"description": d, "appearances": [with_thumb("DJI_0130_D.MP4", d, 3)]},
+        ])
+        if len(two_plus_one) != 1 or len(two_plus_one[0]["appearances"]) != 3:
+            raise SystemExit("fixture: the pair check merges the two clusters")
+        if two_plus_one[0].get("_visual_verified"):
+            raise SystemExit("one image per cluster was compared; a three-member cluster is not confirmed by that")
+        answers = iter(['{"same_person": true, "confidence": "high", "reason": "same board"}'])
+        one_plus_one = identity._verify_merge_candidates([
+            {"description": d, "appearances": [with_thumb("DJI_0097_D.MP4", d, 1)]},
+            {"description": d, "appearances": [with_thumb("DJI_0115_D.MP4", d, 2)]},
+        ])
+        if one_plus_one[0].get("_visual_verified") is not True:
+            raise SystemExit("two single appearances compared directly are confirmed by that comparison")
+
     # ---- M2: unconfirmed identity blocks publication
     from pipeline import publishable_reel_policy as policy
 
@@ -71,25 +111,40 @@ def main() -> int:
     if policy.qa_gate_block_reasons([{"identity_gate": {"decision": "pass"}}]):
         raise SystemExit("a confirmed identity is not a block")
 
-    # ---- M4: canonical event id
-    from pipeline.event_identity import assign_session_event_uids, ensure_event_uid
+    # ---- M4: canonical event id (content hash + ordinal + schema; no timestamps)
+    import tempfile
+    from pipeline.event_identity import UID_SCHEMA, assign_session_event_uids, ensure_event_uid
 
-    session = {"persons": [{"id": "person_A", "events": [
-        {"type": "wave_catch", "start": 0.5, "end": 7.4, "score": 9},
-        {"type": "wave_catch", "start": 9.0, "end": 15.0, "score": 7}]}]}
-    if assign_session_event_uids(session, "/tmp/x/DJI_0151_D.MP4") != 2:
-        raise SystemExit("every analyzed event must get an id")
-    first, second = session["persons"][0]["events"]
-    if not first["event_uid"].startswith("ev_") or first["event_uid"] == second["event_uid"]:
-        raise SystemExit("ids must exist and differ per event")
-    uid = first["event_uid"]
-    revised = {**first, "start": 0.5, "end": 6.13}          # window refinement shortens the event
-    if ensure_event_uid(revised, "/elsewhere/DJI_0151_D.MP4") != uid or revised["analyzer_window"] != {"start": 0.5, "end": 7.4}:
-        raise SystemExit("a revised window must keep the id and the analyzer's original window")
-    again = {"persons": [{"id": "person_A", "events": [{"type": "wave_catch", "start": 0.5, "end": 7.4, "score": 9}]}]}
-    assign_session_event_uids(again, "DJI_0151_D.MP4")
-    if again["persons"][0]["events"][0]["event_uid"] != uid:
-        raise SystemExit("the id must be the same on a re-run of the same analysis")
+    with tempfile.TemporaryDirectory() as folder:
+        one, two, renamed = (Path(folder) / n for n in ("a/DJI_0151_D.MP4", "b/DJI_0151_D.MP4", "c/other_name.MP4"))
+        for path, data in ((one, b"video-one"), (two, b"video-two"), (renamed, b"video-one")):
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+
+        def analyzed(path: Path) -> list[dict]:
+            # Two events of one person whose windows are equal after rounding to two decimals.
+            session = {"persons": [{"id": "person_A", "events": [
+                {"type": "wave_catch", "start": 0.501, "end": 7.401, "score": 9},
+                {"type": "wave_catch", "start": 0.499, "end": 7.399, "score": 7}]}]}
+            if assign_session_event_uids(session, str(path)) != 2:
+                raise SystemExit("every analyzed event must get an id")
+            return session["persons"][0]["events"]
+
+        first, second = analyzed(one)
+        if first["event_uid"] == second["event_uid"]:
+            raise SystemExit("two events with the same rounded window must get different ids")
+        if first["event_uid_schema"] != UID_SCHEMA or not first["event_source_ref"].startswith("sha256:"):
+            raise SystemExit("the id must carry its schema version and the source's content hash")
+        if analyzed(two)[0]["event_uid"] == first["event_uid"]:
+            raise SystemExit("two different videos with the same file name must not share event ids")
+        if analyzed(renamed)[0]["event_uid"] != first["event_uid"]:
+            raise SystemExit("the same video under another name is the same source")
+        if analyzed(one)[0]["event_uid"] != first["event_uid"]:
+            raise SystemExit("the id must be the same on a re-run of the same analysis")
+        uid = first["event_uid"]
+        revised = {**first, "start": 0.5, "end": 6.13}      # window refinement shortens the event
+        if ensure_event_uid(revised, str(two)) != uid or revised["analyzer_window"] != {"start": 0.501, "end": 7.401}:
+            raise SystemExit("a revised window must keep the id and the analyzer's original window")
     given = {"event_id": "evt-7", "start": 0, "end": 1}
     if ensure_event_uid(given, "x.mp4") != "evt-7":
         raise SystemExit("an id set upstream is kept")
@@ -97,13 +152,22 @@ def main() -> int:
     # ---- M5: reprocess requests close by id and by result
     from pipeline import orchestrator
 
-    queued = [{"id": "req-pass", "sources": ["DJI_0112_D.MP4"]}, {"id": "req-fail", "sources": ["DJI_0151_D.MP4"]}]
-    manifest = {"athletes": [
-        {"primary_publishable_reel": "DRAFT_a.mp4", "action_lineage": ["/tmp/DJI_0112_D.MP4|1.500|19.500|wave_catch"]},
-        {"primary_publishable_reel": None, "action_lineage": ["/tmp/DJI_0151_D.MP4|0.500|6.134|wave_catch"]}]}
+    def row(source: str, publishable: bool) -> dict:
+        return {"primary_publishable_reel": "DRAFT.mp4" if publishable else None,
+                "parts": [{"publishable": publishable}],
+                "action_lineage": [f"/tmp/{source}|1.000|9.000|wave_catch"]}
+
+    queued = [{"id": "req-pass", "sources": ["DJI_0112_D.MP4"]},
+              {"id": "req-fail", "sources": ["DJI_0151_D.MP4"]},
+              # Two athletes share this source: one reel is fine, the other is still blocked.
+              {"id": "req-shared", "sources": ["DJI_0094_D.MP4"]},
+              {"id": "req-no-output", "sources": ["DJI_0999_D.MP4"]}]
+    manifest = {"athletes": [row("DJI_0112_D.MP4", True), row("DJI_0151_D.MP4", False),
+                             row("DJI_0094_D.MP4", True), row("DJI_0094_D.MP4", False)]}
     outcomes = orchestrator.reprocess_outcomes(queued, manifest)
-    if outcomes != {"req-pass": True, "req-fail": False}:
-        raise SystemExit(f"each request is judged by its own sources: {outcomes}")
+    if outcomes != {"req-pass": True, "req-fail": False, "req-shared": False, "req-no-output": False}:
+        raise SystemExit(f"a request is verified only when every reel from its sources is publishable: {outcomes}")
+    outcomes = {"req-pass": True, "req-fail": False}
 
     updates: list[tuple[dict, list[tuple[str, str]]]] = []
 
