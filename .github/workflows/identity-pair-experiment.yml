@@ -1,0 +1,70 @@
+name: Identity Pair Experiment (read-only, manual, capped)
+
+# Evaluation only. Reads compressed proxies from R2 (read-only), cuts crops in memory, asks Gemini with inline bytes,
+# compares with the frozen GT. The result artifact is JSON verdicts/counts ONLY: this repository is public, so no
+# image, crop or video is ever written to disk outside the job temp dir or uploaded. Never dispatches the pipeline,
+# never writes R2/Supabase. Manual trigger only (each run spends model budget).
+on:
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'dev (tune) or holdout (run once with the frozen rule)'
+        required: true
+        type: choice
+        options: [dev, holdout]
+      budget_usd:
+        description: 'Hard cap for this run (USD, model cost estimate)'
+        required: true
+        default: '0.9'
+      m4_threshold:
+        description: 'holdout only: colour threshold frozen from the dev run'
+        required: false
+        default: ''
+      diagnostics_run:
+        description: 'Run Pipeline run id whose diagnostics artifact supplies tracks'
+        required: true
+        default: '43920602179'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  experiment:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --disable-pip-version-check google-genai boto3 pillow numpy
+      - name: Download run diagnostics (tracks only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.diagnostics_run }}
+        run: gh run download "$RUN_ID" -n "pipeline-diagnostics-$RUN_ID" -D "$RUNNER_TEMP/diag"
+      - name: Run experiment
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BATCH_ID: batch_2026-10-03T12-19-52_ttgvat95
+          PHASE: ${{ inputs.phase }}
+          BUDGET: ${{ inputs.budget_usd }}
+          M4: ${{ inputs.m4_threshold }}
+        run: |
+          ARGS=""
+          if [ -n "$M4" ]; then ARGS="--m4-threshold $M4"; fi
+          python scripts/identity_pair_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+            --out "$RUNNER_TEMP/result.json" --phase "$PHASE" --budget-usd "$BUDGET" $ARGS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: identity-pair-experiment-${{ inputs.phase }}
+          path: ${{ runner.temp }}/result.json
+          retention-days: 30
