@@ -153,11 +153,9 @@ def _wrap_verify_multi_clusters(identity):
                     content, request_options={"timeout": 60}
                 ).text.strip())
                 parsed = identity._parse_json_response(raw)
-                same_person = bool(parsed.get("same_person", not parsed.get("mismatched_indices")))
-                bad = {
-                    int(i) for i in parsed.get("mismatched_indices", [])
-                    if isinstance(i, (int, float)) and 0 <= int(i) < len(apps)
-                }
+                same_person, bad, verdict_problem = identity_evidence.parse_verifier_verdict(parsed, len(apps))
+                if verdict_problem:
+                    print(f"  [IDENTITY] verifier answer rejected ({verdict_problem}): cluster not confirmed")
 
                 if same_person and not bad:
                     # Positive visual confirmation: the real identity gate may keep these

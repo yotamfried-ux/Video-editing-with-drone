@@ -174,19 +174,23 @@ def main() -> int:
     class Query:
         def __init__(self, payload): self.payload, self.filters = payload, []
         def eq(self, key, value): self.filters.append((key, value)); return self
-        def execute(self): updates.append((self.payload, self.filters)); return types.SimpleNamespace(data=[])
+        def execute(self):
+            updates.append((self.payload, self.filters))
+            f = dict(self.filters)
+            return types.SimpleNamespace(data=[{"id": f.get("id"), "last_pipeline_run_id": f.get("last_pipeline_run_id"),
+                                                **self.payload}])
 
     fake = types.SimpleNamespace(table=lambda _n: types.SimpleNamespace(update=lambda payload: Query(payload)))
     sys.modules.setdefault("supabase", types.SimpleNamespace(create_client=lambda *_a, **_k: fake, Client=object))
     from integrations import supabase_uploader as up
 
     up._supabase = lambda: fake
-    written = up.close_reprocess_requests(outcomes)
+    written = up.close_reprocess_requests(outcomes, "run-1")
     if written != {"req-pass": "done", "req-fail": "reprocessed_unverified"}:
         raise SystemExit(f"a re-edit that did not pass is not 'done': {written}")
     for payload, filters in updates:
         ids = [value for key, value in filters if key == "id"]
-        if len(ids) != 1 or ("status", "queued") not in filters:
+        if len(ids) != 1 or ("status", "queued") not in filters or ("last_pipeline_run_id", "run-1") not in filters:
             raise SystemExit(f"every update must name one request id and only touch queued rows: {filters}")
     before = len(updates)
     up.close_queued_reprocess()

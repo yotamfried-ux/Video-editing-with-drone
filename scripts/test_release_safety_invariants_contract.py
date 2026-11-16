@@ -9,6 +9,9 @@ Identity
      the same or different tracker numbers passes through its image evidence.
  I4  Several people in one source never form one cluster; a missing source or missing tracks never passes.
  I5  A chain A~B, B~C with a hard conflict between A and C is split, whatever the cluster order.
+ I6  Both image verifiers (stages.identity and the production failsafe) confirm identity only on an explicit
+     `"same_person": true` with no mismatched image; an empty, truncated, mistyped or contradictory answer
+     never stamps evidence.
 Event lineage
  E1  Two distinct late events with identical window, type and track get different ids.
  E2  A reel with an event lacking a canonical id, or two shots claiming one id, is not publishable; the
@@ -17,6 +20,8 @@ Event lineage
 Reprocess lifecycle
  R1  A request is claimed atomically: a second worker cannot claim it.
  R2  A request closes only under the run that claimed it; a failed write closes nothing else.
+ R4  A closure is reported only when the update returned that row owned by this run: an update matching zero
+     rows is `close_not_applied`, and without a run id nothing is claimed or closed.
  R3  `done` needs every reel from its sources publishable and none still carrying the request's defect type;
      an unrelated publishable reel or a repaired co-athlete does not close it.
 """
@@ -116,6 +121,42 @@ def identity() -> None:
         check(len(out) == 3, f"I5: chain with an A/C conflict was not split for order {[x['path'] for x in order]}")
 
 
+def verifier_answers() -> None:
+    import pipeline.identity_failsafe as failsafe
+    import pipeline.stages.identity as identity
+    from pipeline import identity_evidence as ev
+
+    original = identity._verify_multi_clusters
+    production = failsafe._wrap_verify_multi_clusters(identity)
+    thumb = str(Path(__file__).resolve())  # any existing file stands in for a thumbnail
+
+    def run(verifier, answer: str):
+        model = types.SimpleNamespace(generate_content=lambda *a, **k: types.SimpleNamespace(text=answer))
+        genai = types.SimpleNamespace(upload_file=lambda **k: types.SimpleNamespace(name="f"),
+                                      delete_file=lambda n: None, GenerativeModel=lambda model_name=None: model)
+        saved = (identity.genai, identity._retry_gemini)
+        identity.genai, identity._retry_gemini = genai, lambda fn, *a, **k: fn()
+        apps = [dict(app("a.mp4", "person_A", "7"), thumbnail=thumb), dict(app("b.mp4", "person_B", "3"), thumbnail=thumb)]
+        try:
+            return verifier([{"description": "x", "appearances": apps}])
+        finally:
+            identity.genai, identity._retry_gemini = saved
+
+    invalid = ('{}', '{"mismatched_indices": []}', '{"same_person": null}', '{"same_person": "true"}',
+               '{"same_person": 1}', '[]', '{"same_person": true, "mismatched_indices": [1]}',
+               '{"same_person": true, "mismatched_indices": "0"}', '{"same_person": true, "mismatched_indices": [5]}',
+               '{"same_person": true, "mismatched_indices": [true]}', '{"confidence": "high"}')
+    for name, verifier in (("stages.identity", original), ("identity_failsafe", production)):
+        for answer in invalid:
+            out = run(verifier, answer)
+            check(not any(ev.covers(c) or c.get("_visual_verified") for c in out),
+                  f"I6 {name}: verifier answer {answer} was read as an identity confirmation")
+        out = run(verifier, '{"same_person": true, "mismatched_indices": []}')
+        check(len(out) == 1 and ev.covers(out[0]), f"I6 {name}: an explicit confirmation must stamp evidence")
+    check(ev.parse_verifier_verdict({"same_person": False, "mismatched_indices": [1]}, 3) == (False, {1}, ""),
+          "I6: a valid partial mismatch must still name the mismatched image")
+
+
 def lineage() -> None:
     from pipeline import event_identity as ei
 
@@ -177,7 +218,7 @@ def reprocess() -> None:
             if row is None or any(row.get(k) != v for k, v in self.filters if k != "id"):
                 return types.SimpleNamespace(data=[])
             row.update(self.payload)
-            return types.SimpleNamespace(data=[row])
+            return types.SimpleNamespace(data=[dict(row, id=rid)])
 
     fake = types.SimpleNamespace(table=lambda _n: types.SimpleNamespace(update=lambda p: Q(p)))
     up._supabase = lambda: fake
@@ -191,8 +232,24 @@ def reprocess() -> None:
     written = up.close_reprocess_requests({"r1": True, "r3": False}, "run-A")
     check(written["r1"] == "close_failed" and table["r3"]["status"] == "reprocessed_unverified",
           "R2: a failed write must not stop or corrupt the other closures")
-    up.close_reprocess_requests({"r3": True}, "run-A")
+    again = up.close_reprocess_requests({"r3": True}, "run-A")
     check(table["r3"]["status"] == "reprocessed_unverified", "a terminal request is not reopened or re-closed")
+
+    # R4: a write that changed no row is not reported as a closure
+    check(again == {"r3": "close_not_applied"}, f"R4: re-closing a terminal request was reported as {again}")
+    other = up.close_reprocess_requests({"r2": True}, "run-A")
+    check(other == {"r2": "close_not_applied"}, f"R4: closing another run's request was reported as {other}")
+    missing = up.close_reprocess_requests({"nope": False}, "run-A")
+    check(missing == {"nope": "close_not_applied"}, f"R4: closing an unknown request was reported as {missing}")
+    table["r5"] = {"status": "queued", "last_pipeline_run_id": "run-A"}
+    no_run = up.close_reprocess_requests({"r5": True}, None)
+    check(no_run == {"r5": "close_skipped_no_run_id"} and table["r5"]["status"] == "queued",
+          f"R4: a closure without a run id must write nothing: {no_run}")
+    table["r6"] = {"status": "pending"}
+    check(up.claim_reprocess("r6", None) is False and table["r6"]["status"] == "pending",
+          "R4: a claim without a run id must not take the request")
+    fail_ids.add("r6")
+    check(up.claim_reprocess("r6", "run-A") is False, "R4: a claim whose write failed must not count as claimed")
 
     def row(source, publishable, defects=()):
         return {"primary_publishable_reel": "D.mp4" if publishable else None,
@@ -218,9 +275,10 @@ def reprocess() -> None:
 
 def main() -> int:
     identity()
+    verifier_answers()
     lineage()
     reprocess()
-    print("PASS: release-safety invariants (identity evidence, event lineage, reprocess lifecycle)")
+    print("PASS: release-safety invariants (identity evidence, verifier answers, event lineage, reprocess lifecycle)")
     return 0
 
 

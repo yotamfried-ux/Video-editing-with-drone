@@ -60,3 +60,31 @@ def covers(cluster: dict[str, Any]) -> bool:
         return False
     keys = members(cluster)
     return bool(keys) and evidence.get("members") == keys and evidence.get("members_hash") == members_hash(keys)
+
+
+def parse_verifier_verdict(parsed: Any, n_images: int) -> tuple[bool, set[int], str]:
+    """Read the image verifier's answer strictly. Returns (confirmed, mismatched_indices, problem).
+
+    Only an explicit `"same_person": true` with no mismatched image confirms identity. A missing or non-boolean
+    `same_person`, a malformed `mismatched_indices`, or a contradictory answer is reported as a problem and
+    never confirms anything. Before this, a missing `same_person` defaulted to "no mismatches listed", so an
+    empty or truncated answer (`{}`) was read as a positive identity confirmation.
+    """
+    if not isinstance(parsed, dict):
+        return False, set(), "verifier_response_not_object"
+    same = parsed.get("same_person")
+    if not isinstance(same, bool):
+        return False, set(), "verifier_same_person_missing_or_not_boolean"
+    raw = parsed.get("mismatched_indices", [])
+    if raw is None:
+        raw = []
+    if not isinstance(raw, list):
+        return False, set(), "verifier_mismatched_indices_not_list"
+    bad: set[int] = set()
+    for item in raw:
+        if isinstance(item, bool) or not isinstance(item, int) or not 0 <= item < n_images:
+            return False, set(), "verifier_mismatched_index_invalid"
+        bad.add(item)
+    if same and bad:
+        return False, set(), "verifier_response_contradictory"
+    return same, bad, ""

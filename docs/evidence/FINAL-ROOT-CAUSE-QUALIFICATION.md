@@ -22,6 +22,8 @@ was written; no pipeline was re-run.
 | **M5a** | **Two workers could process the same request** (fetch `pending`, both mark `queued`) | `_handle_reprocess_requests` | **Fixed here.** `claim_reprocess`: update matches only while the row is `pending`; the loser skips. The claiming run is written to the existing `last_pipeline_run_id` |
 | **M5b** | **A request closed under any run, and a failed write aborted the rest** | `close_reprocess_requests` | **Fixed here.** Closure filters on `status='queued'` and the claiming run id; each write is isolated (`close_failed` is reported, the others proceed) |
 | **M5c** | **`done` ignored the request's own defect** | `reprocess_outcomes` | **Fixed here.** `done` needs reels from its sources, all publishable, and none still carrying a defect type the request was opened for (read from the existing `qa_defects` / `approval_blocked_reasons`) |
+| **M2e** | **A malformed verifier answer confirmed identity**: `same_person` defaulted to "no mismatches listed", so `{}` or a truncated answer stamped image evidence | `stages/identity._verify_multi_clusters`, `identity_failsafe.verify_multi_clusters` | **Fixed here** (review of PR #389). One strict parser, `identity_evidence.parse_verifier_verdict`: only `"same_person": true` (a JSON boolean) with no mismatched image confirms; a missing / non-boolean field, malformed or out-of-range indices, or `true` plus mismatches is rejected and handled as "could not confirm" |
+| **M5e** | **A closure that changed no row was reported as done** | `close_reprocess_requests`, `claim_reprocess` | **Fixed here** (review of PR #389). A status is reported only when the update returned that row, owned by this run, with the new status; otherwise `close_not_applied`. Without a run id nothing is claimed or closed (`close_skipped_no_run_id`); a failed claim write is not a claim |
 | M5d | No binding to one athlete and one output hash | table has no columns for it | **Blocked by approval.** `supabase/migrations/20261116_reprocess_repair_evidence.sql` is written, additive, not applied |
 | M1 | Admission is the analyzer's word | `performance_reel_policy` | Typed verdict exists (#388); no independent action proof. See §9 |
 
@@ -55,6 +57,7 @@ GT disagreement below.
 | Two people of one source | split |
 | Missing source / missing tracks | not passed |
 | A~B, B~C, A/C conflict, all 6 orders | split into 3 |
+| Verifier answers `{}`, `{"mismatched_indices": []}`, `null` / `"true"` / `1` for `same_person`, a list, `true` with a mismatch, string or out-of-range indices (both verifiers) | nothing stamped, not passed (I6) |
 
 ## 5. Event ids
 
@@ -81,8 +84,16 @@ event id, media specs) becomes a technical issue or block reason on that row, so
 
 - New: `test_release_safety_invariants_contract.py` (red on `main` at I2; lineage and reprocess sections red
   because the behaviour does not exist there), `test_gt_review_package_contract.py`.
+- Review follow-up: I6 (verifier answers) and R4 (closure reporting) are red on `b746205` —
+  "I6 stages.identity: verifier answer {} was read as an identity confirmation" and
+  "R4: re-closing a terminal request was reported as {'r3': 'done'}" — and green after the fix.
+  `test_root_cause_fixes_contract.py` asserted `done` from an update that returned no row; its fake now returns
+  the updated row and the closure carries a run id.
 - Updated fixtures (not checks): four contracts now give their fixture events an `event_uid` and stamp real
   evidence instead of a bare flag.
+- 61 of 63 contracts that touch identity, the gate, the uploader, reprocess, orchestrator or bootstrap pass
+  locally after the follow-up; the other two need `supervision` / `boto3`, missing here, and fail identically
+  without this change.
 - 71 identity / gate / EDL / manifest / QA / lifecycle / rescue / draft contracts pass locally. CI: see the PR.
 - `test_real_r2_multipart_upload.py` fails locally only for a missing `boto3`; not touched.
 
