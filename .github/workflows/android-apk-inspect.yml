@@ -1,0 +1,49 @@
+name: Android APK Inspect
+
+# Read-only diagnosis of an already built phone-ready APK: Android's own parser (aapt2), signature and alignment
+# checks. Starts no EAS build. Input: the run id of an "Android Phone-ready Build" run whose artifact to inspect.
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Run id of the Android Phone-ready Build run
+        required: true
+  pull_request:
+    paths:
+      - '.github/workflows/android-apk-inspect.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      BUILD_RUN_ID: ${{ inputs.build_run_id || '43918805844' }}
+    steps:
+      - name: Download phone-ready artifact
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.BUILD_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: apk
+          pattern: sportreel-phone-ready-*
+          merge-multiple: true
+
+      - name: Inspect APK
+        run: |
+          set -u
+          APK=apk/sportreel-phone-ready.apk
+          ls -l apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          echo "build-tools: $BT"
+          sha256sum "$APK"
+          echo "== zip integrity"; unzip -tq "$APK" | tail -n 3
+          echo "== aapt2 badging"; "$BT/aapt2" dump badging "$APK" 2>&1 | head -n 40
+          echo "== aapt2 manifest (head)"; "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>&1 | head -n 60
+          echo "== aapt (legacy parser) badging"; "$BT/aapt" dump badging "$APK" 2>&1 | head -n 15 || true
+          echo "== apksigner"; "$BT/apksigner" verify --verbose --print-certs "$APK" 2>&1 | head -n 25
+          echo "== zipalign"; "$BT/zipalign" -c -P 16 -v 4 "$APK" 2>&1 | tail -n 5
+          echo "== evidence"; cat apk/eas-build-evidence.json || true
