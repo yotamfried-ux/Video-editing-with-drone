@@ -24,6 +24,10 @@ _EVENT_KEYS = (
     "setup_start", "peak_time", "outcome_end", "selection_rescue", "qa_gate",
     "subject_isolation_gate", "multi_person_clip_gate", "identity_gate", "eligibility",
     "event_id", "event_uid", "event_uid_origin", "event_uid_schema", "event_source_ref", "analyzer_window",
+    # Evidence read by pipeline.output_qualification, kept so every verdict can be audited after the run.
+    "perception_evidence_status", "athlete_activity_state", "athlete_activity_score",
+    "equipment_association_ratio", "window_refinement", "recording_end_tail_sec", "llm_start", "llm_end",
+    "action_eligibility",
     "_qa_reedit_allow_long_cut",
     "_qa_reedit_selector_start", "_qa_reedit_selector_end",
     "_qa_reedit_original_start", "_qa_reedit_original_end",

@@ -29,6 +29,8 @@ if str(ROOT) not in sys.path:
 
 from pipeline import publishable_qa_evidence, publishable_reel_policy as policy
 from scripts import build_candidate_decision_ledger as ledger_builder
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _qualification_fixture import qualify_map  # noqa: E402
 
 
 class TestP03P04LifecycleAndLedger(unittest.TestCase):
@@ -61,7 +63,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             sport="surfing",
             athlete_label="Surfer in red shorts",
             final_reels=[str(reel_path)],
-            events_by_reel={str(reel_path): events},
+            events_by_reel=qualify_map({str(reel_path): events}),
             flagged_paths=set(),
             specs_by_path={
                 str(reel_path): {
@@ -132,7 +134,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             sport="surfing",
             athlete_label="Surfer B",
             final_reels=[str(reel_path_b)],
-            events_by_reel={str(reel_path_b): events},
+            events_by_reel=qualify_map({str(reel_path_b): events}),
             flagged_paths=set(),
             specs_by_path={
                 str(reel_path_b): {
@@ -153,7 +155,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             sport="surfing",
             athlete_label="Surfer C",
             final_reels=[str(reel_path_c)],
-            events_by_reel={str(reel_path_c): events},
+            events_by_reel=qualify_map({str(reel_path_c): events}),
             flagged_paths={str(reel_path_c)},
             specs_by_path={
                 str(reel_path_c): {
@@ -190,7 +192,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             sport="surfing",
             athlete_label="Surfer D",
             final_reels=[str(reel_path)],
-            events_by_reel={str(reel_path): events},
+            events_by_reel=qualify_map({str(reel_path): events}),
             flagged_paths=set(),
             specs_by_path={
                 str(reel_path): {"duration": 13.0, "width": 2160, "height": 3840, "aspect": 0.5625, "has_audio": False}
@@ -204,7 +206,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             sport="surfing",
             athlete_label="Surfer D",
             final_reels=[str(reel_path)],
-            events_by_reel={str(reel_path): events},
+            events_by_reel=qualify_map({str(reel_path): events}),
             flagged_paths=set(),
             specs_by_path={
                 str(reel_path): {"duration": 13.0, "width": 2160, "height": 3840, "aspect": 0.5625, "has_audio": False}
@@ -226,7 +228,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             policy.record_athlete_outcome(
                 sport="surfing", athlete_label="Surfer D",
                 final_reels=[str(reel)],
-                events_by_reel={str(reel): [{"type": "surf_ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_4"}]},
+                events_by_reel=qualify_map({str(reel): [{"type": "surf_ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_4"}]}),
                 flagged_paths=set(),
                 specs_by_path={str(reel): {
                     "duration": 7.0, "width": 2160, "height": 3840,
@@ -287,7 +289,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
                         policy.record_athlete_outcome(
                             sport="surfing", athlete_label="Surfer-R",
                             final_reels=[str(reel)],
-                            events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_5"}]},
+                            events_by_reel=qualify_map({str(reel): [{"type": "ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_5"}]}),
                             flagged_paths=set(),
                             specs_by_path={str(reel): {
                                 "duration": 7, "width": 2160, "height": 3840,
@@ -313,7 +315,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             policy.record_athlete_outcome(
                 sport="surfing", athlete_label="Approved athlete",
                 final_reels=[str(reel)],
-                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 7, "event_uid": "ev2_fixture_6"}]},
+                events_by_reel=qualify_map({str(reel): [{"type": "ride", "start": 1, "end": 7, "event_uid": "ev2_fixture_6"}]}),
                 flagged_paths=set(),
                 specs_by_path={str(reel): {
                     "duration": 6.0, "width": 2160, "height": 3840,
@@ -444,7 +446,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             policy.record_athlete_outcome(
                 sport="surfing", athlete_label="restart proof surfer",
                 final_reels=[str(reel)],
-                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_7"}]},
+                events_by_reel=qualify_map({str(reel): [{"type": "ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_7"}]}),
                 flagged_paths=set(),
                 specs_by_path={str(reel): {
                     "duration": 7.0, "width": 2160, "height": 3840,

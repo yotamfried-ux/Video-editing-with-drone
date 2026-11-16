@@ -20,6 +20,8 @@ import os
 import sys
 import tempfile
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _qualification_fixture import qualify_map  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -62,7 +64,7 @@ def main() -> int:
                 event["qa_gate"] = gate
             policy.record_athlete_outcome(
                 sport="surfing", athlete_label=label, final_reels=[path],
-                events_by_reel={path: [event]}, flagged_paths=set(), specs_by_path={path: SPECS})
+                events_by_reel=qualify_map({path: [event]}), flagged_paths=set(), specs_by_path={path: SPECS})
             token = "gate-" + label
             record_qa_result(path, {"verdict": "PASS", "overall": "verified fixture"}, invocation_token=token)
             if apply_final_qa_evidence(sport="surfing", athlete_label=label, final_reels=[path], invocation_token=token):

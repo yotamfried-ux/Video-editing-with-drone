@@ -259,7 +259,31 @@ def _timing_contract(answer: dict[str, Any], start: float, end: float, recording
     return fields
 
 
-def _bind_to_track(event: dict[str, Any], detections: list, track_id: str) -> dict[str, Any] | None:
+def _measure_actor_span(event: dict[str, Any], detections: list, track_id: str) -> dict[str, Any]:
+    """Record the verified actor span of a rescued event without moving its window.
+
+    The rescue already chose its window from track evidence, including a continuation track that starts where
+    and when the subject's track stopped (a tracker restart). The span is measured over the subject's track and
+    those continuation tracks only - never over other people - so pipeline.output_qualification can check the
+    rendered window against it. Without detections the span stays unvalidated, which withholds publication.
+    """
+    try:
+        from pipeline import window_refinement
+        start, end = float(event["start"]), float(event["end"])
+        ids = [str(track_id), *[str(t) for t in event.get("continuation_track_ids") or []]]
+        times = sorted(t for tid in ids for t in window_refinement._track_times(detections, tid, start - 1.0, end + 1.0))
+        if len(times) < window_refinement.MIN_TRACK_DETECTIONS:
+            return event
+        gap, gap_at = window_refinement._largest_gap(times)
+        return {**event, "window_refinement": {"status": "measured_only", "first_track_sec": round(times[0], 2),
+                                               "last_track_sec": round(times[-1], 2), "max_track_gap_sec": gap,
+                                               "max_track_gap_start_sec": gap_at, "measured_track_ids": ids}}
+    except Exception:  # unmeasured: the actor span stays unvalidated
+        return event
+
+
+def _bind_to_track(event: dict[str, Any], detections: list, track_id: str,
+                   video_path: str | None = None) -> dict[str, Any] | None:
     """Attach the same tracker evidence every analyzer event gets (bbox, track_id, visible tracks), from the
     rescued track only. Framing refuses an event without it: run 43031447052 crashed in the cut step on the first
     rescued event, which had a target track but none of this evidence."""
@@ -268,9 +292,20 @@ def _bind_to_track(event: dict[str, Any], detections: list, track_id: str) -> di
     own = [d for d in detections or [] if str(getattr(d, "tracker_id", None)) == str(track_id)]
     if not own:
         return None
-    enriched = enrich_event(event, own)
+    # The same measured evidence an analyzer event gets: the track's CV activity profile from the sidecar and the
+    # actor-span window refinement. The asserted fields above (primary_actor_clear, identity_continuity) are not
+    # evidence; pipeline.output_qualification ignores them and requires these measurements instead.
+    context = None
+    if video_path:
+        try:
+            from pipeline.perception.runtime import load_sidecar_context
+            context = load_sidecar_context(str(video_path))
+        except Exception:  # a missing sidecar leaves the activity unmeasured (UNCERTAIN), never invented
+            context = None
+    enriched = enrich_event(event, own, sidecar_context=context)
     if enriched.get("perception_evidence_status") != "tracker_sidecar" or enriched.get("track_id") is None:
         return None
+    enriched = _measure_actor_span(enriched, detections, track_id)
     if str(enriched.get("target_track_id")) != str(track_id):
         return None
     try:
@@ -459,7 +494,7 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
         event["end_extension_reason"] = extension["reason"]
         if surf and "surf" not in description.lower() and kind in {"ride", "tandem_ride"}:
             event["sport"] = "surfing"
-        event = _bind_to_track(event, detections, str(win["track_id"]))
+        event = _bind_to_track(event, detections, str(win["track_id"]), str(video_path))
         if event is None:
             print(f"   🛟 missed-moment check (not added): {name} {lo:.1f}-{hi:.1f}s — no tracker evidence for track "
                   f"{win['track_id']} in the moment's window")

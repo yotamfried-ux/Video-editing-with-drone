@@ -56,8 +56,12 @@ def main() -> None:
         assert len(tracked) >= 2, "no tracked people found; tracker integration not proven"
         loaded = _detections_from_payload(str(source), sidecar)
         assert len(loaded) == len(sidecar["detections"])
-        event = {"start": 0, "end": 3, "crop_x": .5, "crop_y": .5}
-        enriched = enrich_event(event, loaded)
+        event = {"start": 0, "end": 3, "crop_x": .5, "crop_y": .5, "score": 8, "type": "wave_catch"}
+        # As in production (perception.runtime): the sidecar's CV activity profiles and the actor-span refinement.
+        from pipeline.perception.runtime import load_sidecar_context
+        from pipeline import window_refinement
+        enriched = enrich_event(event, loaded, sidecar_context=load_sidecar_context(str(source)))
+        enriched = window_refinement.refine_event_window(enriched, loaded)
         assert enriched["perception_evidence_status"] == "tracker_sidecar", enriched
         assert enriched.get("target_track_id") is not None, enriched
         # Continue the SAME real detector event into the production FFmpeg editor.
@@ -114,8 +118,19 @@ def main() -> None:
         assert len(manifest["athletes"]) == 1, manifest
         part = manifest["athletes"][0]["parts"][0]
         assert part["qa_verdict"] == "PASS" and part["qa_evidence_recorded"], part
-        assert part["render_ready"] is True, part
-        assert not part["technical_issues"], part
+        # The output qualification judged this real event from measured evidence: the tracker binding, the
+        # canonical lineage and the actor span must be present; whether the reel is ready then depends only on
+        # the CV activity measured for this (synthetic) footage - never on a missing measurement.
+        inputs = part["qualification_inputs"]
+        shot = inputs["events"][0]
+        assert "target_actor_tracked" in shot["eligibility"]["positive"], shot
+        assert "actor_span_unvalidated" not in shot["interval"]["issues"], shot
+        assert not [i for i in inputs["issues"] if "lineage" in i], inputs
+        if shot["eligibility"]["verdict"] == "VALID_COMPLETE_ACTION" and not inputs["issues"]:
+            assert part["render_ready"] is True and not part["technical_issues"], part
+        else:
+            assert part["render_ready"] is False and all(i.startswith("qualification:") for i in part["technical_issues"]), part
+            print(f"real YOLO event withheld by qualification (measured): {inputs['issues']}")
         assert part["event_uids"] and part["event_uids"][0].startswith("ev2_"), part
         assert manifest["summary"]["publishable_athlete_count"] == 0, manifest
         assert manifest["summary"]["coverage_gap_count"] == 1, manifest

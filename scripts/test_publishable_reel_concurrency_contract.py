@@ -9,6 +9,9 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _qualification_fixture import qualify_map  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 POLICY_PATH = ROOT / "pipeline/publishable_reel_policy.py"
@@ -72,12 +75,15 @@ def main() -> int:
 
         part1 = str(tmp / "parallel_p1.mp4")
         part2 = str(tmp / "parallel_p2.mp4")
+        # Rendered parts exist on disk, so the manifest hashes their bytes (a specs digest is never publishable).
+        Path(part1).write_bytes(b"rendered part 1")
+        Path(part2).write_bytes(b"rendered part 2")
         spec_map = {part1: specs(70.0), part2: specs(32.0)}
         policy.record_athlete_outcome(
             sport="surfing",
             athlete_label="surfer on orange board",
             final_reels=[part1, part2],
-            events_by_reel={part1: [event(1)], part2: [event(2)]},
+            events_by_reel=qualify_map({part1: [event(1)], part2: [event(2)]}),
             flagged_paths=set(),
             specs_getter=lambda path: spec_map[path],
         )
