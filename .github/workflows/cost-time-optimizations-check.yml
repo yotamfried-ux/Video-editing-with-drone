@@ -54,6 +54,8 @@ on:
       - 'scripts/test_reprocess_binding_contract.py'
       - 'scripts/test_output_qualification_contract.py'
       - 'scripts/gt_scorecard.py'
+      - 'scripts/boundary_experiment.py'
+      - 'scripts/test_boundary_experiment_contract.py'
       - 'scripts/test_identity_consensus_integration_contract.py'
       - 'scripts/test_identity_pair_experiment_contract.py'
       - 'scripts/_consensus_fixture.py'
@@ -317,6 +319,7 @@ jobs:
         run: |
           python scripts/test_identity_consensus_integration_contract.py
           python scripts/test_identity_pair_experiment_contract.py
+          python scripts/test_boundary_experiment_contract.py
           python scripts/test_verified_cluster_merge_contract.py
           python scripts/test_identity_merge_check_contract.py
       - name: Batch qualification separates execution from product state
