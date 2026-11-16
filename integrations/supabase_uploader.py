@@ -386,6 +386,8 @@ def claim_reprocess(req_id: str, run_id: str | None = None) -> bool:
         # Without a run id the claim could never be tied to this run, so no run could later close it safely.
         logger.warning("reprocess request %s not claimed: no PIPELINE_RUN_ID", req_id)
         return False
+    from pipeline.repair_lifecycle import check_transition
+    check_transition("pending", "queued")
     payload: dict = {"status": "queued", "processed_at": datetime.now(timezone.utc).isoformat(),
                      "last_pipeline_run_id": run_id}
     try:
@@ -425,6 +427,8 @@ def close_reprocess_requests(outcomes: dict[str, Any], run_id: str | None = None
         verdict = outcome if isinstance(outcome, dict) else None
         verified = (verdict.get("verified") if verdict is not None else outcome) is True
         status = REPROCESS_DONE if verified else REPROCESS_UNVERIFIED
+        from pipeline.repair_lifecycle import check_transition
+        check_transition("queued", status)
         payload: dict[str, Any] = {"status": status, "processed_at": datetime.now(timezone.utc).isoformat()}
         if verdict is not None:
             payload["repair_attempt_id"] = run_id
@@ -499,6 +503,8 @@ def recover_stale_reprocess(current_run_id: str | None, *, now=None) -> dict[str
         attempts = int(row.get("attempt_count") or 0)
         limit = int(row.get("max_attempts") or 3)
         target = "pending" if attempts < limit else "failed_max_attempts"
+        from pipeline.repair_lifecycle import check_transition
+        check_transition("queued", target)
         payload = {
             "status": target,
             "processed_at": now.isoformat(),

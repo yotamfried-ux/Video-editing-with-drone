@@ -114,6 +114,9 @@ export type ReprocessRow = {
   last_pipeline_run_id?: string | null;
   created_at: string;
   processed_at?: string | null;
+  repair_attempt_id?: string | null;
+  repair_output_sha256?: string | null;
+  repair_verdict?: unknown;
 };
 
 // GET /api/operator/drafts
@@ -167,6 +170,8 @@ export type ApproveDraftResponse = {
 // GET /api/operator/reprocess
 export type ReprocessListResponse = {
   requests: ReprocessRow[];
+  page?: { limit: number; offset: number; total: number | null };
+  summary?: { total: number; by_status: Record<string, number>; qa_blocked_never_attempted: number };
 };
 
 // POST /api/operator/reprocess
