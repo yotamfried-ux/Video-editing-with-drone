@@ -296,7 +296,7 @@ def ask(client: Any, types: Any, budget: Budget, prompt: str, images: list[bytes
     parts.append(prompt)
     response = client.models.generate_content(
         model=MODEL, contents=parts,
-        config=types.GenerateContentConfig(temperature=0, response_mime_type="application/json"))
+        config=types.GenerateContentConfig(temperature=0))
     budget.add(getattr(response, "usage_metadata", None))
     return parse_json(getattr(response, "text", "") or "")
 
