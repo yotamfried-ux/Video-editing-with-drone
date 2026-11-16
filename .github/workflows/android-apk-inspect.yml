@@ -1,12 +1,15 @@
 name: Android APK Inspect
 
-# Read-only diagnosis of an already built phone-ready APK: Android's own parser (aapt2), signature and alignment
-# checks. Starts no EAS build. Input: the run id of an "Android Phone-ready Build" run whose artifact to inspect.
+# Read-only diagnosis of already built phone-ready APKs: Android's own parser (aapt2), signature and alignment,
+# and a side-by-side diff of a build that installs on the phone against one that does not. Starts no EAS build.
 on:
   workflow_dispatch:
     inputs:
-      build_run_id:
-        description: Run id of the Android Phone-ready Build run
+      good_run_id:
+        description: Run id of an Android Phone-ready Build whose APK installs
+        required: true
+      bad_run_id:
+        description: Run id of an Android Phone-ready Build whose APK does not install
         required: true
   pull_request:
     paths:
@@ -19,31 +22,74 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     env:
-      BUILD_RUN_ID: ${{ inputs.build_run_id || '43918805844' }}
+      # Defaults: 2026-10-21 build (installed on the owner's phone) vs 2026-11-16 build (parse error on the phone).
+      GOOD_RUN_ID: ${{ inputs.good_run_id || '39559911241' }}
+      BAD_RUN_ID: ${{ inputs.bad_run_id || '43918805844' }}
     steps:
-      - name: Download phone-ready artifact
+      - name: Download good APK
         uses: actions/download-artifact@v4
         with:
-          run-id: ${{ env.BUILD_RUN_ID }}
+          run-id: ${{ env.GOOD_RUN_ID }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          path: apk
+          path: good
           pattern: sportreel-phone-ready-*
           merge-multiple: true
 
-      - name: Inspect APK
+      - name: Download bad APK
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.BAD_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: bad
+          pattern: sportreel-phone-ready-*
+          merge-multiple: true
+
+      - name: Describe both APKs
         run: |
           set -u
-          APK=apk/sportreel-phone-ready.apk
-          ls -l apk
           BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
           echo "build-tools: $BT"
-          sha256sum "$APK"
-          echo "== zip integrity"; unzip -tq "$APK" | tail -n 3
-          echo "== aapt2 badging"; "$BT/aapt2" dump badging "$APK" 2>&1 | head -n 40
-          echo "== aapt2 manifest (head)"; "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" 2>&1 | head -n 60
-          echo "== aapt (legacy parser) badging"; "$BT/aapt" dump badging "$APK" 2>&1 | head -n 15 || true
-          echo "== apksigner"; "$BT/apksigner" verify --verbose --print-certs "$APK" 2>&1 | head -n 25
-          echo "== zipalign"; "$BT/zipalign" -c -P 16 -v 4 "$APK" 2>&1 | tail -n 5
-          echo "== evidence"; cat apk/eas-build-evidence.json || true
+          for side in good bad; do
+            APK=$side/sportreel-phone-ready.apk
+            mkdir -p out/$side
+            ls -l "$APK"
+            unzip -tq "$APK" > out/$side/zip-test.txt 2>&1
+            unzip -Z1 "$APK" | sort > out/$side/files.txt
+            unzip -v "$APK" | awk 'NR>3 && NF>=8 {print $NF" "$2}' | sort > out/$side/compression.txt
+            "$BT/aapt2" dump badging "$APK" > out/$side/badging.txt 2>&1
+            "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" > out/$side/manifest.txt 2>&1
+            "$BT/apksigner" verify --verbose --print-certs "$APK" 2>/dev/null | grep -v '^WARNING' > out/$side/signing.txt
+            "$BT/zipalign" -c -P 16 4 "$APK" > out/$side/zipalign.txt 2>&1; echo "zipalign exit $?" >> out/$side/zipalign.txt
+            unzip -Z1 "$APK" | grep '^lib/' | cut -d/ -f2 | sort | uniq -c > out/$side/abis.txt
+            unzip -l "$APK" | tail -n 1 > out/$side/total.txt
+            cp $side/eas-build-evidence.json out/$side/ 2>/dev/null || true
+          done
+
+      - name: Compare
+        run: |
+          set -u
+          for f in badging signing zipalign abis total zip-test; do
+            echo "================ $f"
+            diff out/good/$f.txt out/bad/$f.txt && echo "(identical)"
+          done
+          echo "================ manifest (diff)"
+          diff out/good/manifest.txt out/bad/manifest.txt | head -n 200
+          echo "================ files only in good (first 80)"
+          comm -23 out/good/files.txt out/bad/files.txt | head -n 80
+          echo "================ files only in bad (first 80)"
+          comm -13 out/good/files.txt out/bad/files.txt | head -n 80
+          echo "================ compression of special entries"
+          grep -E '^(AndroidManifest.xml|resources.arsc) ' out/good/compression.txt; grep '\.so ' out/good/compression.txt | awk '{print $2}' | sort | uniq -c
+          echo "---- bad"
+          grep -E '^(AndroidManifest.xml|resources.arsc) ' out/bad/compression.txt; grep '\.so ' out/bad/compression.txt | awk '{print $2}' | sort | uniq -c
+          echo "================ evidence"
+          cat out/good/eas-build-evidence.json out/bad/eas-build-evidence.json 2>/dev/null || true
+
+      - name: Keep the comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-comparison
+          path: out
+          retention-days: 14
