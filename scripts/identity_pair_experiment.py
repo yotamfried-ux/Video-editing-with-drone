@@ -362,9 +362,24 @@ def main(argv: list[str] | None = None) -> int:
                 if sha not in key_of or sha not in sidecars:
                     continue
                 dest = os.path.join(tmp, f"{sha[:12]}.mp4")
-                r2_storage.download_object(processed_key_for(key_of[sha]), dest)
+                raw_key = key_of[sha]
+                name = raw_key.rsplit("/", 1)[-1]
+                # same lookup chain as scripts/audit_batch_storage.py; compressed copies first
+                found = next((c for c in (processed_key_for(raw_key), "processed/" + name, raw_key, "raw/" + name)
+                              if r2_storage._head(c) is not None), None)
+                if found is None:
+                    report.setdefault("sources_unavailable", []).append(sha[:12])
+                    continue
+                r2_storage.download_object(found, dest)
                 videos[sha] = dest
-            crops = appearance_crops(a, sidecars[sha], videos[sha], tmp, CROPS_M1)
+                report.setdefault("source_tier", {})[sha[:12]] = found.split("/", 1)[0]
+            if sha not in videos:
+                continue
+            try:
+                crops = appearance_crops(a, sidecars[sha], videos[sha], tmp, CROPS_M1)
+            except Exception as exc:                      # one unreadable clip must not void the experiment
+                report.setdefault("crop_errors", []).append(f"{sha[:12]}#{a['track_id']}: {type(exc).__name__}")
+                continue
             if len(crops) >= 3:
                 media[i] = {"sheet6": _sheet(crops, 3), "sheet4": _sheet(crops[:: max(1, len(crops) // CROPS_M0)][:CROPS_M0], 2),
                             "sig": color_signature(crops), "crops": len(crops)}
