@@ -51,6 +51,8 @@ on:
       - 'scripts/test_retention_metrics_contract.py'
       - 'scripts/test_root_cause_fixes_contract.py'
       - 'scripts/test_release_safety_invariants_contract.py'
+      - 'scripts/test_reprocess_binding_contract.py'
+      - 'pipeline/reprocess_binding.py'
       - 'scripts/test_gt_review_package_contract.py'
       - 'scripts/build_gt_review_package.py'
       - 'pipeline/identity_evidence.py'
@@ -277,6 +279,10 @@ jobs:
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_release_safety_invariants_contract.py
+      - name: Reprocess requests are bound to one athlete and one output
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_reprocess_binding_contract.py
       - name: GT review package classifies disagreements offline
         env:
           PYTHONPATH: scripts:.

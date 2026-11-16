@@ -46,6 +46,7 @@ Apply this migration in the real Supabase project before validating GAP-012 agai
 
 ```text
 supabase/migrations/20260708_qa_reedit_tasks.sql
+supabase/migrations/20261116_reprocess_repair_evidence.sql
 ```
 
 The real environment must expose these `public.reprocess_requests` columns through Supabase REST/PostgREST:
@@ -56,6 +57,8 @@ The real environment must expose these `public.reprocess_requests` columns throu
 - `attempt_count`
 - `max_attempts`
 - `last_pipeline_run_id`
+- `target_athlete_key`, `original_output_sha256` (written by the QA gate: the athlete binding)
+- `repair_attempt_id`, `repair_output_sha256`, `repair_verdict` (written by the run that closes the request)
 
 It must also include the active-task uniqueness invariant:
 

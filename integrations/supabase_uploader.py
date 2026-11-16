@@ -1,6 +1,7 @@
 """Supabase integration — publish reels and track pipeline status."""
 
 import logging
+from typing import Any
 from pathlib import Path
 from secrets import token_urlsafe
 from uuid import uuid4
@@ -286,7 +287,8 @@ def _active_reedit_task(draft_name: str) -> dict | None:
     return None
 
 
-def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int = 3) -> None:
+def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int = 3,
+                          binding: dict | None = None) -> None:
     """Create or refresh an operator-visible QA re-edit task for a blocked draft.
 
     The task starts as status='qa_blocked'. It is intentionally not consumed by
@@ -310,6 +312,11 @@ def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int =
         "approval_blocked_reasons": [str(item) for item in reasons if str(item).strip()],
         "max_attempts": max_attempts,
     }
+    # Athlete and output binding (pipeline.reprocess_binding): lets the repair run close the request only
+    # against this athlete's re-rendered output. Absent when the manifest could not identify the draft.
+    for column in ("target_athlete_key", "original_output_sha256"):
+        if (binding or {}).get(column):
+            payload[column] = binding[column]
     existing = _active_reedit_task(draft_name)
     if existing:
         if existing.get("status") == "qa_blocked":
@@ -378,11 +385,13 @@ def claim_reprocess(req_id: str, run_id: str | None = None) -> bool:
                and str(r.get("last_pipeline_run_id")) == str(run_id) for r in rows)
 
 
-def close_reprocess_requests(outcomes: dict[str, bool], run_id: str | None = None) -> dict[str, str]:
+def close_reprocess_requests(outcomes: dict[str, Any], run_id: str | None = None) -> dict[str, str]:
     """Close exactly the reprocess requests this run claimed, each by its own result.
 
-    `outcomes` maps a request id to whether the run produced a publishable draft from that request's sources.
-    A request whose re-edit did not pass is `reprocessed_unverified`, never `done`. Nothing else is touched.
+    `outcomes` maps a request id to its repair verdict (`pipeline.reprocess_binding.judge`: a dict with
+    `verified`, `repair_output_sha256`, ...) or, for older callers, to a bare bool. A request whose re-edit did
+    not pass is `reprocessed_unverified`, never `done`. With a verdict, the same update records the repair
+    evidence: `repair_attempt_id` (this run), `repair_output_sha256` and `repair_verdict`.
 
     A request is reported closed only when the update returned that very row, still owned by `run_id`. An update
     that matched no row (already closed, claimed by another run, wrong id) is `close_not_applied`; a write error
@@ -392,18 +401,23 @@ def close_reprocess_requests(outcomes: dict[str, bool], run_id: str | None = Non
     from datetime import datetime, timezone
 
     written: dict[str, str] = {}
-    for req_id, verified in (outcomes or {}).items():
+    for req_id, outcome in (outcomes or {}).items():
         if not req_id:
             continue
         if not run_id:
             logger.warning("reprocess request %s not closed: no PIPELINE_RUN_ID", req_id)
             written[req_id] = REPROCESS_CLOSE_SKIPPED
             continue
-        status = REPROCESS_DONE if verified is True else REPROCESS_UNVERIFIED
-        query = (_supabase().table("reprocess_requests").update({
-            "status":       status,
-            "processed_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", req_id).eq("status", "queued").eq("last_pipeline_run_id", run_id))
+        verdict = outcome if isinstance(outcome, dict) else None
+        verified = (verdict.get("verified") if verdict is not None else outcome) is True
+        status = REPROCESS_DONE if verified else REPROCESS_UNVERIFIED
+        payload: dict[str, Any] = {"status": status, "processed_at": datetime.now(timezone.utc).isoformat()}
+        if verdict is not None:
+            payload["repair_attempt_id"] = run_id
+            payload["repair_output_sha256"] = verdict.get("repair_output_sha256") or None
+            payload["repair_verdict"] = verdict
+        query = (_supabase().table("reprocess_requests").update(payload)
+                 .eq("id", req_id).eq("status", "queued").eq("last_pipeline_run_id", run_id))
         try:
             res = query.execute()
         except Exception as exc:  # one failed write must not close or skip the others

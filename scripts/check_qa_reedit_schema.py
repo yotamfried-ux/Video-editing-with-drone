@@ -15,6 +15,12 @@ REEDIT_REQUIRED_COLUMNS = (
     "attempt_count",
     "max_attempts",
     "last_pipeline_run_id",
+    # Repair evidence: written by the QA gate (binding) and the closing run (verdict).
+    "target_athlete_key",
+    "original_output_sha256",
+    "repair_attempt_id",
+    "repair_output_sha256",
+    "repair_verdict",
 )
 REEDIT_SELECT_COLUMNS = ",".join((
     "id",
@@ -40,6 +46,7 @@ PUBLISHABILITY_SELECT_COLUMNS = ",".join((
 ))
 REEDIT_MIGRATION_PATH = "supabase/migrations/20260708_qa_reedit_tasks.sql"
 PUBLISHABILITY_MIGRATION_PATH = "supabase/migrations/20260717_draft_publishability_authority.sql"
+REPAIR_EVIDENCE_MIGRATION_PATH = "supabase/migrations/20261116_reprocess_repair_evidence.sql"
 
 
 def _error(message: str) -> None:
@@ -56,7 +63,7 @@ def _schema_failure_message(original_error: str) -> str:
         - reprocess_requests columns required for QA repair: {columns};
         - draft_publishability, the authoritative server-side approval contract.
 
-        Apply {REEDIT_MIGRATION_PATH} and {PUBLISHABILITY_MIGRATION_PATH} in the
+        Apply {REEDIT_MIGRATION_PATH}, {REPAIR_EVIDENCE_MIGRATION_PATH} and {PUBLISHABILITY_MIGRATION_PATH} in the
         real Supabase project before running the pipeline or deploying the operator
         approval API. If migrations were applied but PostgREST still returns
         PGRST204/PGRST205, reload the Supabase API schema cache and retry.
@@ -73,7 +80,8 @@ def main() -> int:
     if not url or not service_key:
         _error("SUPABASE_URL and SUPABASE_SERVICE_KEY are required for schema preflight")
         print(
-            f"Required migrations: {REEDIT_MIGRATION_PATH}, {PUBLISHABILITY_MIGRATION_PATH}",
+            f"Required migrations: {REEDIT_MIGRATION_PATH}, {REPAIR_EVIDENCE_MIGRATION_PATH}, "
+            f"{PUBLISHABILITY_MIGRATION_PATH}",
             file=sys.stderr,
         )
         return 2

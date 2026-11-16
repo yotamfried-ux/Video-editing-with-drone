@@ -29,13 +29,13 @@ QA-blocked drafts are not terminal. The required loop is:
 4. The Review screen alerts the operator, blocks approval, pre-fills QA notes, and shows a Send QA notes to re-edit action.
 5. `POST /api/operator/reprocess` promotes the existing task to `pending`, increments `attempt_count`, creates a durable `pipeline_runs` row, and dispatches `.github/workflows/pipeline-run.yml`.
 6. The pipeline consumes `pending` requests, re-queues the original source videos, injects the QA/operator notes into the next analysis run, and runs QA again.
-7. If the regenerated draft passes QA, it appears as a normal approvable draft. If it fails, the pipeline creates a new `qa_blocked` task. After `max_attempts`, the API returns a manual-review/reject error instead of silently retrying forever.
+7. The request is closed by the run that claimed it: `done` only when the bound athlete (found by overlap with the actions recorded in `target_athlete_key`) has a publishable reel without the requested defect types and with a content hash different from `original_output_sha256`; otherwise `reprocessed_unverified`. The verdict is stored in `repair_verdict`. Requests without a binding use the source-wide rule. If the regenerated draft passes QA, it appears as a normal approvable draft. If it fails, the pipeline creates a new `qa_blocked` task. After `max_attempts`, the API returns a manual-review/reject error instead of silently retrying forever.
 
 The app must never allow approval while `approval_blocked` or `reedit_task` is present.
 
 ## QA-blocked draft re-edit loop preflight
 
-The persistent repair loop depends on the real Supabase project having `supabase/migrations/20260708_qa_reedit_tasks.sql` applied and visible through Supabase REST/PostgREST.
+The persistent repair loop depends on the real Supabase project having `supabase/migrations/20260708_qa_reedit_tasks.sql` and `supabase/migrations/20261116_reprocess_repair_evidence.sql` applied and visible through Supabase REST/PostgREST.
 
 `.github/workflows/pipeline-run.yml` must run this before expensive video processing:
 
@@ -43,7 +43,7 @@ The persistent repair loop depends on the real Supabase project having `supabase
 python scripts/check_qa_reedit_schema.py
 ```
 
-The preflight must fail when `reprocess_requests` is missing any required QA re-edit columns, including `approval_blocked_reasons`, `qa_defects`, `attempt_count`, `max_attempts`, `origin`, or `last_pipeline_run_id`. A missing migration or stale schema cache must be reported as an actionable environment failure, not hidden behind a green pipeline run with skipped task persistence.
+The preflight must fail when `reprocess_requests` is missing any required QA re-edit columns, including `approval_blocked_reasons`, `qa_defects`, `attempt_count`, `max_attempts`, `origin`, `last_pipeline_run_id`, or the repair-evidence columns (`target_athlete_key`, `original_output_sha256`, `repair_attempt_id`, `repair_output_sha256`, `repair_verdict`). A missing migration or stale schema cache must be reported as an actionable environment failure, not hidden behind a green pipeline run with skipped task persistence.
 
 ## QA-blocked draft task persistence verification
 

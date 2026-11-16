@@ -254,12 +254,23 @@ def _augment_metadata_file(meta_file: str, draft_name: str, qa_gate: dict[str, A
     os.replace(tmp, meta_file)
 
 
+def _reedit_binding(draft_name: str) -> dict[str, Any]:
+    """The uploaded draft's athlete actions and content hash, read from this run's manifest; {} if unknown."""
+    try:
+        from pipeline.publishable_reel_policy import _read_manifest
+        from pipeline.reprocess_binding import build_binding
+        return build_binding(_read_manifest(), draft_name)
+    except Exception as exc:
+        print(f"  ⚠️  QA re-edit binding unavailable for {draft_name}: {exc}")
+        return {}
+
+
 def _persist_qa_reedit_task(draft_name: str, qa_gate: dict[str, Any]) -> None:
     if not qa_gate.get("qa_review_required"):
         return
     try:
         from integrations.supabase_uploader import upsert_qa_reedit_task
-        upsert_qa_reedit_task(draft_name, qa_gate)
+        upsert_qa_reedit_task(draft_name, qa_gate, binding=_reedit_binding(draft_name))
     except Exception as exc:
         print(f"  ⚠️  QA re-edit task persistence skipped for {draft_name}: {exc}")
 
