@@ -4,7 +4,13 @@ name: Identity Pair Experiment (read-only, manual, capped)
 # compares with the frozen GT. The result artifact is JSON verdicts/counts ONLY: this repository is public, so no
 # image, crop or video is ever written to disk outside the job temp dir or uploaded. Never dispatches the pipeline,
 # never writes R2/Supabase. Manual trigger only (each run spends model budget).
+# Triggers: workflow_dispatch (once this file is on the default branch) or the label `idexp-dev` / `idexp-holdout`
+# added to a pull request (works from a branch; a push alone never spends anything).
 on:
+  pull_request:
+    types: [labeled]
+    paths:
+      - '.github/workflows/identity-pair-experiment.yml'
   workflow_dispatch:
     inputs:
       phase:
@@ -31,6 +37,7 @@ permissions:
 
 jobs:
   experiment:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'idexp-dev' || github.event.label.name == 'idexp-holdout'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -42,7 +49,7 @@ jobs:
       - name: Download run diagnostics (tracks only)
         env:
           GH_TOKEN: ${{ github.token }}
-          RUN_ID: ${{ inputs.diagnostics_run }}
+          RUN_ID: ${{ inputs.diagnostics_run || '43920602179' }}
         run: gh run download "$RUN_ID" -n "pipeline-diagnostics-$RUN_ID" -D "$RUNNER_TEMP/diag"
       - name: Run experiment
         env:
@@ -55,16 +62,17 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           BATCH_ID: batch_2026-10-03T12-19-52_ttgvat95
-          PHASE: ${{ inputs.phase }}
-          BUDGET: ${{ inputs.budget_usd }}
+          PHASE: ${{ inputs.phase || (github.event.label.name == 'idexp-holdout' && 'holdout' || 'dev') }}
+          BUDGET: ${{ inputs.budget_usd || '0.9' }}
           M4: ${{ inputs.m4_threshold }}
         run: |
+          if [ -z "$M4" ] && [ "$PHASE" = "holdout" ] && [ -f evaluation/identity/m4_threshold.txt ]; then M4=$(cat evaluation/identity/m4_threshold.txt); fi
           ARGS=""
           if [ -n "$M4" ]; then ARGS="--m4-threshold $M4"; fi
           python scripts/identity_pair_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
             --out "$RUNNER_TEMP/result.json" --phase "$PHASE" --budget-usd "$BUDGET" $ARGS
       - uses: actions/upload-artifact@v4
         with:
-          name: identity-pair-experiment-${{ inputs.phase }}
+          name: identity-pair-experiment-${{ inputs.phase || (github.event.label.name == 'idexp-holdout' && 'holdout' || 'dev') }}
           path: ${{ runner.temp }}/result.json
           retention-days: 30
