@@ -5,6 +5,7 @@
 **Repository baseline inspected:** main at a11b4012296c2ecb967f37280952c35598b66677 (PR #390 merged).  
 **Scope:** Android client, account/auth, operator UI, approved-reel delivery to Discover, preview, payment, entitlement, customer support, release and store compliance.  
 **Out of scope for this register:** CV accuracy, segmentation, identity inference, render/pipeline algorithms and their separate RC-01–RC-10 qualification. The app still depends on a safe publishability decision from those systems.
+**Separate pipeline quality gaps and 20-run regression analysis:** [PIPELINE-QUALITY-GAP-REGISTER.md](./PIPELINE-QUALITY-GAP-REGISTER.md).
 
 ## Reading this document
 
