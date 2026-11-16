@@ -436,3 +436,4 @@ rollback_sha: ""
 | Date | Cycle | Gaps | Status | Evidence |
 |---|---|---|---|---|
 | 2026-11-16 | 1 | PQ-07, 08, 16, 21, 36 | PATCHED / TESTED / REPLAYED (artifacts, no media) | [CYCLE-01-MEASUREMENT-REPORT.md](./CYCLE-01-MEASUREMENT-REPORT.md); `scripts/gt_scorecard.py`; `scripts/test_gt_scorecard_contract.py`; baselines under `evaluation/ground_truth/baselines/` |
+| 2026-11-16 | 2 | PQ-10, PQ-23, **PQ-40 (new, P0)** | REPRODUCED (artifact replay); NO-GO for #391 key change alone | [CYCLE-02-IDENTITY-RELEASE-ANALYSIS.md](./CYCLE-02-IDENTITY-RELEASE-ANALYSIS.md). PQ-40: the image verifier confirms 0143+0152 (A8 ≠ A10) at score 1.0; the `_clip_index` key mismatch currently blocks it by accident. Exit: calibrated pairwise crops (4–6 per appearance), 0 false merges on held-out pairs. |
