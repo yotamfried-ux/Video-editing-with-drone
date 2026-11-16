@@ -6,7 +6,7 @@ real-video evidence that exists, and what remains blocked. Writes release_matrix
 every result refers to one code revision. A test id passes only if all of its contracts pass on this revision; real
 video is reported separately and never inferred from contracts.
 
-usage: run_release_matrix.py [--out FILE]
+usage: run_release_matrix.py [--out FILE] [--node-suite DIR:TEST]
 """
 from __future__ import annotations
 
@@ -64,8 +64,10 @@ MATRIX: dict[str, dict] = {
                           "test_pipeline_logical_consistency_integration.py"],
             "real_video": "none", "limitation": "registry artifact first produced by the next real run"},
     "T12": {"name": "GT integrity", "fixture": "frozen GT-v1 (24 sources)",
-            "contracts": ["test_gt_evidence_levels_contract.py"], "node": ["annotation-studio", "tests/evaluate_offline.test.mjs"],
-            "real_video": "offline evaluation of both runs, deterministic digests", "limitation": "box GT is UNVERIFIED_GT"},
+            "contracts": ["test_gt_evidence_levels_contract.py"], "node": True,
+            "real_video": "offline evaluation of both runs, deterministic digests",
+            "limitation": "box GT is UNVERIFIED_GT; the evaluator's own tests run in the GT Studio CI workflow "
+                          "(pipeline code may not reference the Studio), or here with --node-suite DIR:TEST"},
     "T13": {"name": "media contract", "fixture": "2160x3840 30 fps silent",
             "contracts": ["test_silent_output_policy_contract.py", "test_quality_first_4k_media_contract.py"],
             "real_video": "previous runs (ffprobe in manifest)", "limitation": "encoded quality judged visually"},
@@ -91,6 +93,8 @@ def run(cmd: list[str], cwd: Path) -> tuple[bool, str]:
 def main() -> int:
     out = Path(sys.argv[sys.argv.index("--out") + 1]) if "--out" in sys.argv else ROOT / "release_matrix.json"
     commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=ROOT, capture_output=True, text=True).stdout.strip()
+    # The GT Studio is isolated from pipeline code: its evaluator suite is passed in, never named here.
+    node_suite = sys.argv[sys.argv.index("--node-suite") + 1] if "--node-suite" in sys.argv else ""
     cache: dict[str, tuple[bool, str]] = {}
     rows = {}
     for tid, spec in MATRIX.items():
@@ -99,8 +103,8 @@ def main() -> int:
             if name not in cache:
                 cache[name] = run([sys.executable, f"scripts/{name}"], ROOT)
             results[name] = {"pass": cache[name][0], "last_line": cache[name][1]}
-        if spec.get("node"):
-            folder, test = spec["node"]
+        if spec.get("node") and node_suite:
+            folder, test = node_suite.split(":", 1)
             key = f"{folder}/{test}"
             if key not in cache:
                 cache[key] = run(["node", "--disable-warning=ExperimentalWarning", "--test", test], ROOT / folder)
