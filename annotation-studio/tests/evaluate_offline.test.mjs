@@ -53,3 +53,18 @@ test('traceability is required and nothing is written to a database', () => {
   assert.equal(readdirSync('.').sort().join(), before, 'the offline evaluator must not create files or databases');
   assert.ok(!existsSync('./data.db'));
 });
+
+test('contiguous manoeuvre segments of one athlete count as one physical ride; excluded frames are contamination', () => {
+  const gt = { reviewed_ranges: [{ start_frame: 0, end_frame: 2000 }], segments: [
+    { id: 's1', start_frame: 0, end_frame: 300, decision: 'include', athlete_id: 'a' },
+    { id: 's2', start_frame: 300, end_frame: 700, decision: 'include', athlete_id: 'a' },
+    { id: 's3', start_frame: 702, end_frame: 900, decision: 'include', athlete_id: 'a' },
+    { id: 's4', start_frame: 900, end_frame: 1000, decision: 'include', athlete_id: 'b' },
+    { id: 'x1', start_frame: 1500, end_frame: 1600, decision: 'exclude' }] };
+  return import('../scripts/evaluate-offline.mjs').then(({ physicalRides }) => {
+    const r = physicalRides(gt, [{ start_frame: 0, end_frame: 900 }, { start_frame: 1550, end_frame: 1700 }]);
+    assert.equal(r.rides.length, 2, 'three contiguous segments of athlete a are one ride; athlete b is another');
+    assert.deepEqual(r.rides.map(x => x.covered), [true, false]);
+    assert.deepEqual(r.contamination.map(c => [c.segment_id, c.selected_frames]), [['x1', 50]]);
+  });
+});

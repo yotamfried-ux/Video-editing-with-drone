@@ -25,6 +25,39 @@ function arg(name) {
   return process.argv[i + 1];
 }
 
+/**
+ * Physical rides vs manoeuvres: GT-v1 often splits one ride into contiguous segments of the same athlete (one per
+ * manoeuvre). Segment-level IoU then counts a prediction covering the whole ride as several misses. Here contiguous
+ * (gap <= RIDE_GAP_FRAMES) include segments of one athlete form one physical ride; a ride is covered when selected
+ * predictions cover >= RIDE_MIN_COVERAGE of its frames. Selected frames inside an excluded GT segment are contamination.
+ */
+export const RIDE_GAP_FRAMES = 3;
+export const RIDE_MIN_COVERAGE = 0.5;
+export function physicalRides(gt, selected) {
+  const inc = (gt.segments ?? []).filter(s => s.decision === 'include')
+    .sort((a, b) => a.start_frame - b.start_frame);
+  const rides = [];
+  for (const s of inc) {
+    const last = rides[rides.length - 1];
+    if (last && last.athlete_id === s.athlete_id && s.start_frame - last.end_frame <= RIDE_GAP_FRAMES) {
+      last.end_frame = Math.max(last.end_frame, s.end_frame); last.segment_ids.push(s.id);
+    } else rides.push({ athlete_id: s.athlete_id, start_frame: s.start_frame, end_frame: s.end_frame, segment_ids: [s.id] });
+  }
+  const covered = (a, b) => {
+    let n = 0;
+    for (let f = a; f < b; f++) if (selected.some(p => f >= p.start_frame && f < p.end_frame)) n++;
+    return n;
+  };
+  for (const r of rides) {
+    r.coverage = Math.round(covered(r.start_frame, r.end_frame) / Math.max(1, r.end_frame - r.start_frame) * 1e4) / 1e4;
+    r.covered = r.coverage >= RIDE_MIN_COVERAGE;
+  }
+  const excluded = (gt.segments ?? []).filter(s => s.decision === 'exclude');
+  const contamination = excluded.map(x => ({ segment_id: x.id, selected_frames: covered(x.start_frame, x.end_frame),
+    frames: x.end_frame - x.start_frame })).filter(x => x.selected_frames > 0);
+  return { rides, contamination };
+}
+
 export function evaluateOffline(dataset, v1, params = {}) {
   if (!dataset || !Array.isArray(dataset.members) || !dataset.dataset_id) throw new Error('invalid frozen dataset export');
   if (v1?.schema !== 'predictions/v1') throw new Error('predictions/v1 expected');
@@ -47,7 +80,15 @@ export function evaluateOffline(dataset, v1, params = {}) {
     prediction_manifest_sha256: pr.digest, evaluator_version: EVALUATOR_VERSION, evaluator_config_sha256: sha(p),
     event_matching_config_version: MATCHING_VERSION, metric_tolerance_version: METRIC_TOLERANCE_VERSION };
   const report = buildEvaluationReport({ ds, pr, members, params: p, identity });
-  return { ...report, mode: 'offline_read_only', unmatched_prediction_sources: unmatched, report_digest: sha(report) };
+  const bySha = new Map(sources.map(x => [x.source_sha256, x.events]));
+  const physical = members.map(m => ({ sha256: m.sha256, ...physicalRides(JSON.parse(m.content), bySha.get(m.sha256) ?? []) }));
+  const rides = physical.flatMap(x => x.rides);
+  const physical_summary = { ride_count: rides.length, covered: rides.filter(r => r.covered).length,
+    ride_recall: rides.length ? Math.round(rides.filter(r => r.covered).length / rides.length * 1e6) / 1e6 : null,
+    contaminated_excluded_segments: physical.reduce((n, x) => n + x.contamination.length, 0),
+    gap_frames: RIDE_GAP_FRAMES, min_coverage: RIDE_MIN_COVERAGE };
+  const full = { ...report, physical_rides: { summary: physical_summary, per_source: physical } };
+  return { ...full, mode: 'offline_read_only', unmatched_prediction_sources: unmatched, report_digest: sha(full) };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
