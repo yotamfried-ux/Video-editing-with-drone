@@ -421,6 +421,8 @@ def main(argv: list[str] | None = None) -> int:
                       "pairs_not_evaluated": sum(1 for r in rows if r.get("M2") is None)}
     args.out.write_text(json.dumps(report, indent=1), encoding="utf-8")
     print(json.dumps({"cost": report["cost"], "metrics": report["metrics"]}, indent=1))
+    for r in rows:                                   # compact per-pair log (ids and verdicts only; no media)
+        print("PAIR " + json.dumps({k: r.get(k) for k in ("a", "b", "same", "hard", "color_distance", "M0", "M1", "M2")}))
     return 0
 
 
