@@ -133,3 +133,27 @@ No filename or catalog label is added to inference.
   GT excludes) need adjudication on video.
 - Release: **BLOCKED_BY_EXTERNAL_APPROVAL** — the controlled run itself. (The repair-evidence migration, M5d, was
   approved and applied on 2026-11-16; its code is in place.)
+
+## 12. Full remediation mandate (PR #390, 2026-11-16)
+
+Traceability for RC-01…RC-10, T01…T15 and GATE-A…H: `docs/evidence/FULL-PIPELINE-IMPLEMENTATION-AUDIT.md`.
+Baseline and case evidence: `docs/evidence/CONTROLLED-E2E-QUALIFICATION-REPORT.md`. Blockers:
+`docs/plans/REMAINING-BLOCKERS.md`.
+
+Defects of the first PR #390 head (`19aa3d7`), each reproduced against that commit before the fix (`881cb57`):
+
+| Defect | Reproduction on `19aa3d7` | Fix |
+|---|---|---|
+| P0-A invalid binding → legacy `done` | `target_athlete_key="athlete_A"` → basis `source_wide_legacy`, verified **True** | explicit binding modes; only a valid binding can be `done`; legacy → manual reconciliation |
+| P0-B overlap-only matching | another actor's longer action (5–20 s) matched a short original (10–12 s): verified **True** | same source content (sha256) + STRONG/MEDIUM links, track contradictions, ambiguity |
+| P0-B name-only matching | same file name, different content: verified **True** | content-addressed source reference required |
+| P1-C stale binding | `upsert_qa_reedit_task` skipped empty binding columns (kept the old revision's) | binding or explicit marker always written, CAS on `qa_blocked` |
+| P1-D hash proof | any non-original string (e.g. specs digest) accepted as repaired output: verified **True** | `content_sha256_kind="bytes"` required on the linked part, plus QA PASS and publishable |
+| P1-E stale queued | no recovery path | `recover_stale_reprocess` (pending/failed_max_attempts under CAS) |
+
+## 13. Verdict (supersedes §11)
+
+- **NOT_READY.** Every code-verifiable requirement of RC-01…RC-10 is implemented and covered by red/green contracts
+  through production functions or the real bootstrap; all T01…T15 contracts pass on the final commit
+  (`scripts/run_release_matrix.py`). No real video has been processed by this code: GATE-A/C/G wait for an approved
+  controlled run, GATE-B/D for visual adjudication, GATE-E/F/H for runtime evidence. PR #390 stays a draft.
