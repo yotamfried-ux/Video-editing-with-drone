@@ -159,5 +159,17 @@ def verify_multi_clusters(clusters: list[dict[str, Any]], *, ask: Ask, split_to_
         elif result["verdict"] == "NO_MATCH":
             out.extend(split_to_singles(cluster, "pairwise consensus: a pair is a different athlete"))
         else:
-            out.append(dict(cluster, _identity_review=result["reason"] or "pairwise consensus not reached"))
+            # REVIEW: a structured request for the owner; the cluster stays together, unconfirmed and withheld.
+            from pipeline import identity_review as review
+
+            request = review.build_request(cluster, result, model=model, prompt=M1_PROMPT)
+            decision = review.resolve(cluster, request)
+            if decision == "APPROVED":
+                approved = review.load_decisions()[request["request_id"]]
+                out.append(ev.stamp_operator_review(dict(cluster), approved, request_id=request["request_id"]))
+            elif decision == "REJECTED":
+                out.extend(split_to_singles(cluster, "owner rejected the review request"))
+            else:
+                review.record_request(request)
+                out.append(dict(cluster, _identity_review=request["request_id"]))
     return out

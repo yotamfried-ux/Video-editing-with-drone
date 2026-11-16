@@ -21,7 +21,10 @@ PAIR_CHECK_SINGLETONS = "pair_check_singletons"
 # The only accepted method: every cross-source pair examined in BOTH image orders, both orders agreeing on MATCH with
 # >= 2 specific features and no contradiction (pipeline.identity_pair_consensus). Each edge carries both response digests.
 PAIRWISE_CONSENSUS = "pairwise_consensus"
-ACCEPTED_METHODS = {PAIRWISE_CONSENSUS}
+# An explicit decision of the system owner on a REVIEW request (pipeline.identity_review): bound to the exact sources of
+# the cluster, never to model output, never written automatically.
+OPERATOR_REVIEW = "operator_review"
+ACCEPTED_METHODS = {PAIRWISE_CONSENSUS, OPERATOR_REVIEW}
 
 
 def member_key(app: dict[str, Any]) -> str:
@@ -148,6 +151,29 @@ def stamp_pairwise(cluster: dict[str, Any], results: list[dict[str, Any]], *, mo
     return cluster
 
 
+def stamp_operator_review(cluster: dict[str, Any], decision: dict[str, Any], *, request_id: str) -> dict[str, Any]:
+    """Record the owner's APPROVED decision on a REVIEW request for exactly the cluster's current members."""
+    keys = members(cluster)
+    if decision.get("decision") != "APPROVED" or len(set(keys)) != len(keys) or len(str(request_id)) != 64:
+        return clear(cluster)
+    record = {
+        "schema": "sportreel.identity_evidence.v3",
+        "method": OPERATOR_REVIEW,
+        "members": keys,
+        "members_hash": members_hash(keys),
+        "request_id": request_id,
+        "decision": "APPROVED",
+        "reviewer": str(decision.get("reviewer") or ""),
+        "decided_at": str(decision.get("decided_at") or ""),
+        "note": str(decision.get("note") or "")[:300],
+        "scope": "operator",
+    }
+    record["evidence_digest"] = _evidence_digest(record)
+    cluster[EVIDENCE_KEY] = record
+    cluster["_visual_verified"] = True
+    return cluster
+
+
 def clear(cluster: dict[str, Any]) -> dict[str, Any]:
     cluster.pop(EVIDENCE_KEY, None)
     cluster.pop("_visual_verified", None)
@@ -168,6 +194,11 @@ def coverage_problem(cluster: dict[str, Any]) -> str:
         return "evidence_does_not_cover_current_members"
     if evidence.get("evidence_digest") != _evidence_digest(evidence):
         return "evidence_record_altered"
+    if evidence.get("method") == OPERATOR_REVIEW:
+        if evidence.get("decision") != "APPROVED" or not evidence.get("reviewer") or not evidence.get("decided_at") \
+                or len(str(evidence.get("request_id") or "")) != 64:
+            return "operator_decision_incomplete"
+        return ""
     hashes = evidence.get("image_sha256") if isinstance(evidence.get("image_sha256"), dict) else {}
     if any(len(str(hashes.get(key) or "")) != 64 for key in keys):
         return "image_not_examined_for_every_member"

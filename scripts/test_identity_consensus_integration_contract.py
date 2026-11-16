@@ -13,7 +13,7 @@ C5  The legacy group-call route is dead: `stamp()` evidence (IMAGE_VERIFIER / PA
     multi-source cluster; the old group prompt is never sent by any verifier path; no file upload.
 C6  member_key is stable before/after strip and independent of `_clip_index`; two members with one key are never covered.
 C7  Evidence tampering (membership change, edited digest, missing order) -> not covered.
-C8  Structural: ACCEPTED_METHODS == {pairwise_consensus}; nothing but identity_evidence sets `_visual_verified = True`.
+C8  Structural: ACCEPTED_METHODS == {pairwise_consensus, operator_review (owner decision)}; nothing but identity_evidence sets `_visual_verified = True`.
 C9  A cluster whose verification was already stamped for exactly its members is not re-asked (no extra cost).
 C10 A failure of the model call is REVIEW, not a split and not a merge.
 """
@@ -239,7 +239,8 @@ def c7():
 
 
 def c8():
-    check(ev.ACCEPTED_METHODS == {ev.PAIRWISE_CONSENSUS}, f"C8 accepted methods {ev.ACCEPTED_METHODS}")
+    check(ev.ACCEPTED_METHODS == {ev.PAIRWISE_CONSENSUS, ev.OPERATOR_REVIEW}, f"C8 accepted methods {ev.ACCEPTED_METHODS}")
+    # the owner's decision is the only other proof; it is covered by scripts/test_identity_review_contract.py
     writers = []
     for folder in ("pipeline", "integrations", "scripts"):
         for f in (ROOT / folder).rglob("*.py"):
