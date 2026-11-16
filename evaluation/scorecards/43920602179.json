@@ -1,0 +1,528 @@
+{
+ "schema": "sportreel.gt_scorecard.v1",
+ "run_id": "366fe9c0-a160-49b4-865f-eefea65c8573",
+ "gt_dataset_id": "ae844a94-b425-4f0a-8e4f-56034ab83425",
+ "gt_digest": "b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9",
+ "ride_unit": "HEURISTIC_same_athlete_include_gap_le_3_frames",
+ "metrics": {
+  "gt_rides": 24,
+  "rides_any_selected": 24,
+  "rides_ge50_selected": 24,
+  "rides_ge95_selected": 9,
+  "rides_full_selected": 7,
+  "rides_recalled_published_full": 0,
+  "missing_seconds_total": 26.1,
+  "duplicate_ride_frames": 0,
+  "nonride_windows": 2,
+  "excluded_frames_selected": 999,
+  "boundary_max_error_sec": 4.44,
+  "boundary_p95_error_sec": 2.0,
+  "boundary_over_tolerance": 17,
+  "reels": 14,
+  "mixed_reels": 2,
+  "wrong_actor_reels": 2,
+  "split_athletes": 2,
+  "published": 5,
+  "published_correct": 4,
+  "published_wrong_identity": 0,
+  "published_nonride": 1,
+  "correct_reels_withheld": 6,
+  "blocked_windows": 0,
+  "unknown_source_windows": 0
+ },
+ "rides": [
+  {
+   "ride_uid": "207fe17c86b1#R0",
+   "source_sha256": "207fe17c86b15b7310d5cd44d5bad4ce404436d3946854fea5f1b2ce6d5a5ec6",
+   "athlete_id": "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c",
+   "frames": 636,
+   "covered_frames": 548,
+   "missing_sec": 1.47,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 1.47,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "250c3592fd87#R0",
+   "source_sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "frames": 793,
+   "covered_frames": 673,
+   "missing_sec": 2.0,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 2.0,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "250c3592fd87#R1",
+   "source_sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "athlete_id": "d805a9b1-5786-43e8-b968-a078f77ac32e",
+   "frames": 1189,
+   "covered_frames": 920,
+   "missing_sec": 4.49,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "2c7c9ee430b5#R0",
+   "source_sha256": "2c7c9ee430b5106722a9179db47b19592bc3d15c5a36c9f70706cfee4e2132de",
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "frames": 1088,
+   "covered_frames": 1028,
+   "missing_sec": 1.0,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 1.0,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "3095fb74eca2#R0",
+   "source_sha256": "3095fb74eca2f5ce2104929fc9033f4b86bcbf87e0192e5d69d278f80ea0ac43",
+   "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "frames": 552,
+   "covered_frames": 552,
+   "missing_sec": 0.0,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": true
+  },
+  {
+   "ride_uid": "3311db2ed35d#R0",
+   "source_sha256": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+   "athlete_id": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+   "frames": 368,
+   "covered_frames": 338,
+   "missing_sec": 0.5,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 0.5,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "3f1f5e846b33#R0",
+   "source_sha256": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "frames": 409,
+   "covered_frames": 349,
+   "missing_sec": 1.0,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 1.0,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "41e2f8bb26a3#R0",
+   "source_sha256": "41e2f8bb26a39969955d1ee18d6e73d643229af68df2af9eb8592f9499c8c229",
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "frames": 562,
+   "covered_frames": 508,
+   "missing_sec": 0.9,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 0.9,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "4e84086f72c6#R0",
+   "source_sha256": "4e84086f72c62e4a35c369d14b1280ec495c5860546924debc6f705f4bf84e23",
+   "athlete_id": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+   "frames": 496,
+   "covered_frames": 496,
+   "missing_sec": 0.0,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": true
+  },
+  {
+   "ride_uid": "548cf4ffb308#R0",
+   "source_sha256": "548cf4ffb308cb65628cb2c5209027f65587f1d926a798a021038c097c2784eb",
+   "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "frames": 608,
+   "covered_frames": 548,
+   "missing_sec": 1.0,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 1.0,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "575a812da943#R0",
+   "source_sha256": "575a812da943d8dd8222f33d48a681d3de25896e458c1620e5b9888bd15f0c58",
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "frames": 836,
+   "covered_frames": 788,
+   "missing_sec": 0.8,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 0.8,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "575a812da943#R1",
+   "source_sha256": "575a812da943d8dd8222f33d48a681d3de25896e458c1620e5b9888bd15f0c58",
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "frames": 125,
+   "covered_frames": 125,
+   "missing_sec": 0.0,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": true
+  },
+  {
+   "ride_uid": "58a990e5355d#R0",
+   "source_sha256": "58a990e5355da9960447a491ff08e3c8cbf496851e5efa2443049991fed9c160",
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "frames": 1196,
+   "covered_frames": 1166,
+   "missing_sec": 0.5,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.5,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "5f7ba69f1c3f#R0",
+   "source_sha256": "5f7ba69f1c3f6535279b28f08b1e278b95a31b014ea773cc1d4473528c322165",
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "frames": 924,
+   "covered_frames": 775,
+   "missing_sec": 2.49,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 2.49,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "82dd734957da#R0",
+   "source_sha256": "82dd734957da17b9f0b0da309465cc7ba86e5c9aaf2f60bbe82b5ed5d4e903c6",
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "frames": 579,
+   "covered_frames": 579,
+   "missing_sec": 0.0,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": true
+  },
+  {
+   "ride_uid": "85aedb594ab7#R0",
+   "source_sha256": "85aedb594ab72a923b000b0142665fdf0238a08cb848b7e8883cd6e70213c4ed",
+   "athlete_id": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+   "frames": 471,
+   "covered_frames": 406,
+   "missing_sec": 1.08,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 1.08,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "8a01bba486b2#R0",
+   "source_sha256": "8a01bba486b2aaeb8614ca7d399645cd930aedc51420d0301427849131428b2d",
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "frames": 1179,
+   "covered_frames": 1179,
+   "missing_sec": 0.0,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": true
+  },
+  {
+   "ride_uid": "a1adfdae432f#R0",
+   "source_sha256": "a1adfdae432f595944026a75f772839c97df297cdcd568616750f2f1c4b7870e",
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "frames": 1372,
+   "covered_frames": 1300,
+   "missing_sec": 1.2,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 1.2,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "a683559526f1#R0",
+   "source_sha256": "a683559526f1b7274fce93336c96886a6429a29653444160c90b6953dd173cea",
+   "athlete_id": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+   "frames": 517,
+   "covered_frames": 487,
+   "missing_sec": 0.5,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 0.5,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "b62c8aa0cb14#R0",
+   "source_sha256": "b62c8aa0cb140b103e40a2518c41c33f2081da41f0b7e0fe8b07405a41000740",
+   "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "frames": 978,
+   "covered_frames": 712,
+   "missing_sec": 4.44,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 4.44,
+   "end_error_sec": 0.0,
+   "full": false
+  },
+  {
+   "ride_uid": "bfd005ab7787#R0",
+   "source_sha256": "bfd005ab7787c08afb9cd2c56116639a2c9f85206cf402709f8c389e7eae742d",
+   "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "frames": 864,
+   "covered_frames": 864,
+   "missing_sec": 0.0,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": true
+  },
+  {
+   "ride_uid": "c241b723fce2#R0",
+   "source_sha256": "c241b723fce2bd93881085b895b599ffc29424eb897f33f21e31e712e8b3d618",
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "frames": 468,
+   "covered_frames": 468,
+   "missing_sec": 0.0,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.0,
+   "end_error_sec": 0.0,
+   "full": true
+  },
+  {
+   "ride_uid": "e01a614de605#R0",
+   "source_sha256": "e01a614de6057284637f598c74004859ca144c9a3a8dea77c0ac64c466fd1da8",
+   "athlete_id": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+   "frames": 456,
+   "covered_frames": 338,
+   "missing_sec": 1.97,
+   "any": true,
+   "ge50": true,
+   "ge95": false,
+   "start_error_sec": 0.5,
+   "end_error_sec": 1.47,
+   "full": false
+  },
+  {
+   "ride_uid": "f6ac72f8aeb5#R0",
+   "source_sha256": "f6ac72f8aeb5311993f61a78a55061506eae450fab15906815e9eca5f03ab74f",
+   "athlete_id": "6e81fe5b-0bf7-472d-aa61-15e863a8938a",
+   "frames": 1304,
+   "covered_frames": 1256,
+   "missing_sec": 0.8,
+   "any": true,
+   "ge50": true,
+   "ge95": true,
+   "start_error_sec": 0.8,
+   "end_error_sec": 0.0,
+   "full": false
+  }
+ ],
+ "blocked": [],
+ "reels": [
+  {
+   "key": "athlete_0564ae81f72cae84#1",
+   "publishable": false,
+   "athletes": [
+    "144c217d-76be-4bf5-a494-0b3ac822b15d"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 144,
+   "correct": false
+  },
+  {
+   "key": "athlete_b5a02a81f8ee2933#1",
+   "publishable": false,
+   "athletes": [
+    "6e81fe5b-0bf7-472d-aa61-15e863a8938a"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_a5739f677a93ddac#1",
+   "publishable": false,
+   "athletes": [
+    "8627f3bf-0ecb-4515-b156-52463a43ac41"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_04e119ca818b1a1e#1",
+   "publishable": false,
+   "athletes": [
+    "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+    "d805a9b1-5786-43e8-b968-a078f77ac32e"
+   ],
+   "mixed": true,
+   "nonride_windows": 1,
+   "excluded_frames": 476,
+   "correct": false
+  },
+  {
+   "key": "athlete_c12bcb92d95090d1#1",
+   "publishable": true,
+   "athletes": [],
+   "mixed": false,
+   "nonride_windows": 1,
+   "excluded_frames": 379,
+   "correct": false
+  },
+  {
+   "key": "athlete_802f77aca7207728#1",
+   "publishable": false,
+   "athletes": [
+    "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+    "42f8772b-6a6c-4e0d-af77-9d48f128c24d"
+   ],
+   "mixed": true,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": false
+  },
+  {
+   "key": "athlete_f968e2fa1f3e674b#1",
+   "publishable": false,
+   "athletes": [
+    "6c84aed0-b734-42c4-8775-a8dceb7b5242"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_09f0105db0da9f88#1",
+   "publishable": false,
+   "athletes": [
+    "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_05dac9c02c2d2963#1",
+   "publishable": false,
+   "athletes": [
+    "d805a9b1-5786-43e8-b968-a078f77ac32e"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_c3fdd6372f6a12b8#1",
+   "publishable": true,
+   "athletes": [
+    "c53ef74d-1937-47c6-bb9c-406c3e41b26e"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_b53c501f3e28412e#1",
+   "publishable": false,
+   "athletes": [
+    "c53ef74d-1937-47c6-bb9c-406c3e41b26e"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_a97279bdad592282#1",
+   "publishable": true,
+   "athletes": [
+    "8ef1161d-667c-44dd-acd8-852e3919d7a7"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_b8aaf04e7134b1c4#1",
+   "publishable": true,
+   "athletes": [
+    "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  },
+  {
+   "key": "athlete_c5cc86dd0320faf2#1",
+   "publishable": true,
+   "athletes": [
+    "b9818a21-b0b4-47e8-88c8-3c3c9de66a53"
+   ],
+   "mixed": false,
+   "nonride_windows": 0,
+   "excluded_frames": 0,
+   "correct": true
+  }
+ ]
+}

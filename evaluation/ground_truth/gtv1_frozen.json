@@ -1,0 +1,798 @@
+{
+ "dataset_id": "ae844a94-b425-4f0a-8e4f-56034ab83425",
+ "digest": "b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9",
+ "members": [
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 638,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c",
+      "decision": "include",
+      "end_frame": 638,
+      "id": "b9870bb7-67ab-4b10-860b-17b26c61dd65",
+      "resolved_sport_id": "surfing",
+      "start_frame": 2
+     }
+    ]
+   },
+   "revision_id": "a59b8cf6-8f38-4c0f-a9ff-1f4f923cc4b5",
+   "sha256": "207fe17c86b15b7310d5cd44d5bad4ce404436d3946854fea5f1b2ce6d5a5ec6",
+   "split": "test"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 2199,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 793,
+      "id": "626ec97e-4377-45b1-93d6-09aff0ea2d9b",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "d805a9b1-5786-43e8-b968-a078f77ac32e",
+      "decision": "include",
+      "end_frame": 2199,
+      "id": "5b9c278c-f1bf-4bd6-967d-32827b275d9e",
+      "resolved_sport_id": "surfing",
+      "start_frame": 1010
+     }
+    ]
+   },
+   "revision_id": "6796eb4c-7efb-4545-bd9a-5d82081f1dde",
+   "sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "split": "validation"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 1088,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 289,
+      "id": "0c3cfcd3-6338-451d-9732-6cc7f23ebb77",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 897,
+      "id": "b882ae62-5335-4228-a902-5302db9be463",
+      "resolved_sport_id": "surfing",
+      "start_frame": 291
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 1088,
+      "id": "56868915-40c9-4b2d-be86-64cc0fd83863",
+      "resolved_sport_id": "surfing",
+      "start_frame": 900
+     }
+    ]
+   },
+   "revision_id": "4166447f-1460-4956-86e9-2b834e149e65",
+   "sha256": "2c7c9ee430b5106722a9179db47b19592bc3d15c5a36c9f70706cfee4e2132de",
+   "split": "validation"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 679,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+      "decision": "include",
+      "end_frame": 521,
+      "id": "183cf7ed-ebb9-40cf-8662-d25383657fd1",
+      "resolved_sport_id": "surfing",
+      "start_frame": 127
+     },
+     {
+      "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+      "decision": "include",
+      "end_frame": 679,
+      "id": "45d568eb-a656-4711-b3e9-cd292dac1c7a",
+      "resolved_sport_id": "surfing",
+      "start_frame": 521
+     }
+    ]
+   },
+   "revision_id": "17f511af-fc76-40bb-9b3a-654a65e17a14",
+   "sha256": "3095fb74eca2f5ce2104929fc9033f4b86bcbf87e0192e5d69d278f80ea0ac43",
+   "split": "test"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 368,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+      "decision": "include",
+      "end_frame": 311,
+      "id": "3a12fafe-633b-42eb-bf68-ca9474070c8a",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+      "decision": "include",
+      "end_frame": 368,
+      "id": "adc9aaa1-24b9-43b7-8585-fe31c420ff24",
+      "resolved_sport_id": "surfing",
+      "start_frame": 312
+     }
+    ]
+   },
+   "revision_id": "7967165d-467c-4417-a4f3-498b62fd1b3d",
+   "sha256": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+   "split": "test"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 553,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+      "decision": "include",
+      "end_frame": 409,
+      "id": "667017cb-104f-4a1e-a608-96f43ac76091",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+      "decision": "exclude",
+      "end_frame": 553,
+      "id": "0f2e2704-2de1-4be5-94ff-8393a320cabb",
+      "resolved_sport_id": "surfing",
+      "start_frame": 409
+     }
+    ]
+   },
+   "revision_id": "cb5a0a11-d5a2-417c-bc44-022cca73b129",
+   "sha256": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 562,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 353,
+      "id": "2d6a4131-8920-4e0c-a29e-7d743595c0d1",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 562,
+      "id": "69fc9143-fbab-4b90-a389-3f52ffc5ae4a",
+      "resolved_sport_id": "surfing",
+      "start_frame": 353
+     }
+    ]
+   },
+   "revision_id": "dd5cb678-8a0b-4fef-9e4b-14061421385d",
+   "sha256": "41e2f8bb26a39969955d1ee18d6e73d643229af68df2af9eb8592f9499c8c229",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 496,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+      "decision": "include",
+      "end_frame": 427,
+      "id": "3f306e60-4115-4ef0-855b-553a87e79e4c",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+      "decision": "include",
+      "end_frame": 496,
+      "id": "20b4b12e-ab38-4dd4-8f01-c48f4022f080",
+      "resolved_sport_id": "surfing",
+      "start_frame": 427
+     }
+    ]
+   },
+   "revision_id": "bf1ad2b4-eaee-4ff1-b23e-a08ad80f0f1e",
+   "sha256": "4e84086f72c62e4a35c369d14b1280ec495c5860546924debc6f705f4bf84e23",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 608,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+      "decision": "include",
+      "end_frame": 608,
+      "id": "02834ba8-8ddb-4147-b3fe-e4291b6eee4c",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     }
+    ]
+   },
+   "revision_id": "84bb62f9-30e9-4caa-8e8a-38932111f8c0",
+   "sha256": "548cf4ffb308cb65628cb2c5209027f65587f1d926a798a021038c097c2784eb",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 1128,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+      "decision": "include",
+      "end_frame": 836,
+      "id": "c69401d9-26f2-4411-9073-799f31bc25cd",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+      "decision": "include",
+      "end_frame": 1128,
+      "id": "e206f639-cbb6-483a-a8c4-b3c589c76cc8",
+      "resolved_sport_id": "surfing",
+      "start_frame": 1003
+     }
+    ]
+   },
+   "revision_id": "b6b9346c-845e-4821-a64a-22ca2059e9a3",
+   "sha256": "575a812da943d8dd8222f33d48a681d3de25896e458c1620e5b9888bd15f0c58",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 1196,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 280,
+      "id": "bada8d74-4114-4f98-aacf-3d6873a492ba",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 1078,
+      "id": "4f3af1ad-221e-4bfe-af09-1417b6d97c01",
+      "resolved_sport_id": "surfing",
+      "start_frame": 280
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 1196,
+      "id": "e762cce0-fae7-4a69-90c2-2e559b5eeb4f",
+      "resolved_sport_id": "surfing",
+      "start_frame": 1078
+     }
+    ]
+   },
+   "revision_id": "951952b9-779a-4a4f-a45b-94c891f09b56",
+   "sha256": "58a990e5355da9960447a491ff08e3c8cbf496851e5efa2443049991fed9c160",
+   "split": "validation"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 925,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 788,
+      "id": "43ff4e0f-d89b-49a4-a9dd-f9a15fed5afb",
+      "resolved_sport_id": "surfing",
+      "start_frame": 1
+     },
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 925,
+      "id": "0e3c0171-9524-438b-8288-633a74721d8a",
+      "resolved_sport_id": "surfing",
+      "start_frame": 788
+     }
+    ]
+   },
+   "revision_id": "f79411ea-d1c8-4a1a-b1d3-4de46d033c70",
+   "sha256": "5f7ba69f1c3f6535279b28f08b1e278b95a31b014ea773cc1d4473528c322165",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 379,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "exclude",
+      "end_frame": 379,
+      "id": "a4588a37-0e07-4776-a76f-1384cf09a534",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     }
+    ]
+   },
+   "revision_id": "89a229db-e83d-4564-a8eb-7570b93b5acd",
+   "sha256": "6d57d3835262b3486fd8f750e7da8eb5f90d153623dcf0edf5f73cccb314770d",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 685,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 628,
+      "id": "3f290be9-e740-48ae-b050-787eef0b9b5a",
+      "resolved_sport_id": "surfing",
+      "start_frame": 106
+     },
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 685,
+      "id": "6ed3e139-ccd9-4977-862f-e7a73be65211",
+      "resolved_sport_id": "surfing",
+      "start_frame": 628
+     }
+    ]
+   },
+   "revision_id": "06e9c722-9ad5-4f3f-b8f9-405d9b462670",
+   "sha256": "82dd734957da17b9f0b0da309465cc7ba86e5c9aaf2f60bbe82b5ed5d4e903c6",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 676,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+      "decision": "include",
+      "end_frame": 524,
+      "id": "5d05b345-f360-4df1-8615-a92597e55b13",
+      "resolved_sport_id": "surfing",
+      "start_frame": 205
+     },
+     {
+      "athlete_id": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+      "decision": "include",
+      "end_frame": 676,
+      "id": "f8fbb2ab-89d3-4f09-81e1-d0d8e81642aa",
+      "resolved_sport_id": "surfing",
+      "start_frame": 526
+     }
+    ]
+   },
+   "revision_id": "6066d1de-5c11-42ea-ac4d-17198ba3d2a1",
+   "sha256": "85aedb594ab72a923b000b0142665fdf0238a08cb848b7e8883cd6e70213c4ed",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 1214,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 1179,
+      "id": "b3c15790-e6fe-471e-bc4b-6644a8379c2c",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     }
+    ]
+   },
+   "revision_id": "c54f47b0-32ad-4036-88d9-7cd991057bc7",
+   "sha256": "8a01bba486b2aaeb8614ca7d399645cd930aedc51420d0301427849131428b2d",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 476,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "exclude",
+      "end_frame": 476,
+      "id": "cdd68602-1e7e-46f5-89b3-075817cb6c3f",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     }
+    ]
+   },
+   "revision_id": "108891f0-76fe-41cd-a59d-d2f1a65070d7",
+   "sha256": "a10e4151734f76ce2ea37df28e35262658029940e38642eb9d45efab8eb51b6a",
+   "split": "validation"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 1372,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 346,
+      "id": "c5f7c510-227f-4081-9466-1e3231de7bf5",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 773,
+      "id": "eabc1d33-bc4e-4a99-a416-c8cf320bfdc7",
+      "resolved_sport_id": "surfing",
+      "start_frame": 346
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 1083,
+      "id": "1145aced-0e4e-4dc0-be2a-4c024d823f6c",
+      "resolved_sport_id": "surfing",
+      "start_frame": 773
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 1270,
+      "id": "6596eda0-bb42-40b4-9faf-2adb0937bd58",
+      "resolved_sport_id": "surfing",
+      "start_frame": 1083
+     },
+     {
+      "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+      "decision": "include",
+      "end_frame": 1372,
+      "id": "afdcbeaf-78c1-4e62-ba32-a2424adff842",
+      "resolved_sport_id": "surfing",
+      "start_frame": 1270
+     }
+    ]
+   },
+   "revision_id": "6afce893-6c66-407c-bda7-cb8e55318321",
+   "sha256": "a1adfdae432f595944026a75f772839c97df297cdcd568616750f2f1c4b7870e",
+   "split": "validation"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 517,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+      "decision": "include",
+      "end_frame": 442,
+      "id": "54dc5cec-8e3f-4deb-930b-797579da954d",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+      "decision": "include",
+      "end_frame": 517,
+      "id": "c07af405-bdcd-4fd3-afb1-d0c60cdfdf34",
+      "resolved_sport_id": "surfing",
+      "start_frame": 442
+     }
+    ]
+   },
+   "revision_id": "98a53057-9a9c-481f-bc3a-f0e94fc9def8",
+   "sha256": "a683559526f1b7274fce93336c96886a6429a29653444160c90b6953dd173cea",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 982,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+      "decision": "include",
+      "end_frame": 810,
+      "id": "6a5f9a25-560c-413f-8a4f-ace54ef8757f",
+      "resolved_sport_id": "surfing",
+      "start_frame": 4
+     },
+     {
+      "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+      "decision": "include",
+      "end_frame": 982,
+      "id": "e75b213e-8155-4a91-86ff-b04770df9615",
+      "resolved_sport_id": "surfing",
+      "start_frame": 810
+     }
+    ]
+   },
+   "revision_id": "79d03cec-b71f-47b2-9a2b-d65f723808d1",
+   "sha256": "b62c8aa0cb140b103e40a2518c41c33f2081da41f0b7e0fe8b07405a41000740",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 864,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+      "decision": "include",
+      "end_frame": 864,
+      "id": "57a6d7f0-ab04-4601-b367-4cc3040f4172",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     }
+    ]
+   },
+   "revision_id": "6de132de-3934-48f9-b2ab-eb1d9f419982",
+   "sha256": "bfd005ab7787c08afb9cd2c56116639a2c9f85206cf402709f8c389e7eae742d",
+   "split": "test"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 468,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+      "decision": "include",
+      "end_frame": 468,
+      "id": "b0b457ea-c044-40fd-85bc-b132d5b2607d",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     }
+    ]
+   },
+   "revision_id": "6905a991-542b-49a9-b9c2-abde119469ae",
+   "sha256": "c241b723fce2bd93881085b895b599ffc29424eb897f33f21e31e712e8b3d618",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 456,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+      "decision": "include",
+      "end_frame": 287,
+      "id": "fde9aa07-83ff-4277-8847-5a465c530179",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     },
+     {
+      "athlete_id": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+      "decision": "include",
+      "end_frame": 456,
+      "id": "8c47a27e-00a3-4985-8833-109300d000ac",
+      "resolved_sport_id": "surfing",
+      "start_frame": 288
+     }
+    ]
+   },
+   "revision_id": "2968fdd2-dc87-41a6-8f68-22226624edf8",
+   "sha256": "e01a614de6057284637f598c74004859ca144c9a3a8dea77c0ac64c466fd1da8",
+   "split": "train"
+  },
+  {
+   "content": {
+    "fps_den": 1001,
+    "fps_num": 60000,
+    "reviewed_ranges": [
+     {
+      "end_frame": 1304,
+      "start_frame": 0
+     }
+    ],
+    "schema": "gt-revision",
+    "segments": [
+     {
+      "athlete_id": "6e81fe5b-0bf7-472d-aa61-15e863a8938a",
+      "decision": "include",
+      "end_frame": 1304,
+      "id": "cde1d19e-c25f-47ad-9df8-0813f9d8acd2",
+      "resolved_sport_id": "surfing",
+      "start_frame": 0
+     }
+    ]
+   },
+   "revision_id": "e0f4de25-b853-4b2c-85d7-324dd082f0c4",
+   "sha256": "f6ac72f8aeb5311993f61a78a55061506eae450fab15906815e9eca5f03ab74f",
+   "split": "train"
+  }
+ ]
+}

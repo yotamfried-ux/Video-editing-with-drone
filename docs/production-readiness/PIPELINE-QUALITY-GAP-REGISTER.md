@@ -430,3 +430,9 @@ rollback_sha: ""
 ```
 
 **Durable final qualification:** the latest run's real artifacts and manifest must match the reviewed source/actor wave inventory; final-QA approval reasons must be consistent across scripts/API; every evaluated render independently viewed by frame slices; no blocked high-risk cases; protected metrics no worse than replayed best baseline; exact merged `main` SHA re-verified; final owner GO is separately recorded. **A green GitHub Actions run is not a pipeline qualification certificate.**
+
+## 11. Remediation history (append-only)
+
+| Date | Cycle | Gaps | Status | Evidence |
+|---|---|---|---|---|
+| 2026-11-16 | 1 | PQ-07, 08, 16, 21, 36 | PATCHED / TESTED / REPLAYED (artifacts, no media) | [CYCLE-01-MEASUREMENT-REPORT.md](./CYCLE-01-MEASUREMENT-REPORT.md); `scripts/gt_scorecard.py`; `scripts/test_gt_scorecard_contract.py`; baselines under `evaluation/ground_truth/baselines/` |
