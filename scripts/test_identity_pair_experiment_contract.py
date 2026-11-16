@@ -102,7 +102,16 @@ def i7():
     check("media_in_result" in src, "I7 flag")
 
 
-for case in (i1, i2, i3, i4, i5, i6, i7):
+def i8():
+    good = [{"t": 1.0, "w": 150, "conf": 0.8}, {"t": 3.0, "w": 160, "conf": 0.7}, {"t": 5.5, "w": 140, "conf": 0.9}]
+    q = ex.crop_quality(good)
+    check(q["distinct_times"] and q["min_gap_sec"] == 2.0 and q["span_sec"] == 4.5 and q["median_target_width_px"] == 150, f"I8 {q}")
+    bad = ex.crop_quality([{"t": 1.0, "w": 20, "conf": 0.3}, {"t": 1.0, "w": 22, "conf": 0.4}])
+    check(not bad["distinct_times"] and bad["median_target_width_px"] <= 22, f"I8 duplicate times must be visible: {bad}")
+    check(ex.crop_quality([])["n"] == 0, "I8 empty")
+
+
+for case in (i1, i2, i3, i4, i5, i6, i7, i8):
     try:
         case()
     except Exception as exc:

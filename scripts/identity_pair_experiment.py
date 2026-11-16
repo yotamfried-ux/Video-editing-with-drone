@@ -35,6 +35,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 from typing import Any
 
@@ -183,7 +184,8 @@ def _pick(dets: list[dict[str, Any]], n: int) -> list[dict[str, Any]]:
     return [dets[round(k * (len(dets) - 1) / (n - 1))] for k in range(n)]
 
 
-def appearance_crops(app: dict[str, Any], sidecar: dict[str, Any], video: str, tmp: str, n: int) -> list[Any]:
+def appearance_crops(app: dict[str, Any], sidecar: dict[str, Any], video: str, tmp: str, n: int,
+                     meta: list[dict[str, Any]] | None = None) -> list[Any]:
     a, b = app["window_sec"]
     dets = [d for d in sidecar.get("detections") or []
             if str(d.get("track_id")) == app["track_id"] and a <= float(d["time_sec"]) <= b]
@@ -197,7 +199,22 @@ def appearance_crops(app: dict[str, Any], sidecar: dict[str, Any], video: str, t
         box = (max(0, (x0 - pad * w) * sx), max(0, (y0 - pad * h) * sy),
                min(frame.width, (x1 + pad * w) * sx), min(frame.height, (y1 + pad * h) * sy))
         crops.append(frame.crop(tuple(int(v) for v in box)))
+        if meta is not None:
+            meta.append({"t": round(float(d["time_sec"]), 2), "w": int(w * sx), "h": int(h * sy),
+                         "conf": round(float(d.get("confidence") or 0), 2)})
     return crops
+
+
+def crop_quality(meta: list[dict[str, Any]]) -> dict[str, Any]:
+    """Were the crops taken at different times, and is the target big enough to show clothing / board? (no GT, no model)"""
+    times = sorted(m["t"] for m in meta)
+    gaps = [b - a for a, b in zip(times, times[1:])]
+    widths = sorted(m["w"] for m in meta)
+    return {"n": len(meta), "span_sec": round(times[-1] - times[0], 2) if times else 0.0,
+            "min_gap_sec": round(min(gaps), 2) if gaps else None,
+            "distinct_times": len(set(times)) == len(times),
+            "median_target_width_px": widths[len(widths) // 2] if widths else None,
+            "median_conf": sorted(m["conf"] for m in meta)[len(meta) // 2] if meta else None}
 
 
 def color_signature(crops: list[Any]):
@@ -349,6 +366,9 @@ def main(argv: list[str] | None = None) -> int:
                     help="clusters: run the PRODUCTION verifier (identity_pair_consensus.verify_cluster) on the real "
                          "multi-source clusters of the diagnostics run and compare with GT")
     ap.add_argument("--budget-usd", type=float, default=0.9)
+    ap.add_argument("--m2-crops", type=int, choices=[4, 6], default=6,
+                    help="crops per appearance sheet used by M1/M2 (controlled 4-vs-6 comparison; M0 keeps its 4-crop sheet)")
+    ap.add_argument("--only-m2", action="store_true", help="skip M0/M1 (cost): only the order-symmetric consensus")
     ap.add_argument("--m4-threshold", type=float, help="holdout: threshold frozen from the dev run (never fit on holdout)")
     ap.add_argument("--dry-run", action="store_true", help="appearances, split and pair counts only; no media, no model")
     args = ap.parse_args(argv)
@@ -429,6 +449,7 @@ def main(argv: list[str] | None = None) -> int:
                             "sig": color_signature(crops), "crops": len(crops)}
         for i, m in media.items():
             report["appearances"][i]["crops"] = m["crops"]
+            report["appearances"][i]["crop_quality"] = m["quality"]
         usable = {i: apps[i] for i in media}
         sub = [a for i, a in enumerate(apps) if i in usable]
         remap = {i: k for k, i in enumerate(sorted(usable))}
@@ -437,16 +458,21 @@ def main(argv: list[str] | None = None) -> int:
         pairs = make_pairs(sub, athletes, args.phase, hard_rank)
         inv = {k: i for i, k in remap.items()}
         rows = []
+        latencies: list[float] = []
         for p in pairs:
             i, j = inv[p["i"]], inv[p["j"]]
             row = dict(p, a=apps[i]["source_sha256"][:12] + "#" + apps[i]["track_id"],
                        b=apps[j]["source_sha256"][:12] + "#" + apps[j]["track_id"],
                        color_distance=round(hard_rank[(p["i"], p["j"])], 4))
-            r0 = ask(client, types, budget, prod_prompt, [media[i]["sheet4"], media[j]["sheet4"]])
-            row["M0"] = m0_decision(r0) if r0 is not None else None
-            f = ask(client, types, budget, M1_PROMPT, [media[i]["sheet6"], media[j]["sheet6"]])
+            key = "sheet6" if args.m2_crops == 6 else "sheet4"
+            if not args.only_m2:
+                r0 = ask(client, types, budget, prod_prompt, [media[i]["sheet4"], media[j]["sheet4"]])
+                row["M0"] = m0_decision(r0) if r0 is not None else None
+            t0 = time.time()
+            f = ask(client, types, budget, M1_PROMPT, [media[i][key], media[j][key]])
             row["M1"] = single_verdict(f) if f is not None else None
-            bwd = ask(client, types, budget, M1_PROMPT, [media[j]["sheet6"], media[i]["sheet6"]])
+            bwd = ask(client, types, budget, M1_PROMPT, [media[j][key], media[i][key]])
+            latencies.append(round(time.time() - t0, 1))
             row["M2"] = consensus(f, bwd) if f is not None and bwd is not None else None
             row["M1_features"] = {"matching": _features(f, "matching_features")[:4], "contradicting": _features(f, "contradicting_features")[:4]}
             rows.append(row)
@@ -459,10 +485,12 @@ def main(argv: list[str] | None = None) -> int:
     report["M4_threshold"] = thr
     for r in rows:
         r["M4"] = None if thr is None else ("MATCH" if r["color_distance"] <= thr else "NO_MATCH")
-    report["metrics"] = {m: score_pairs(rows, m) for m in ("M0", "M1", "M2", "M4")}
+    report["m2_crops"] = args.m2_crops
+    report["metrics"] = {m: score_pairs(rows, m) for m in ("M0", "M1", "M2", "M4") if not (args.only_m2 and m in ("M0", "M4"))}
     report["cost"] = {"model": MODEL, "calls": budget.calls, "tokens_in": budget.tokens_in, "tokens_out": budget.tokens_out,
                       "estimated_usd": round(budget.spent, 4), "cap_usd": args.budget_usd,
-                      "pairs_not_evaluated": sum(1 for r in rows if r.get("M2") is None)}
+                      "pairs_not_evaluated": sum(1 for r in rows if r.get("M2") is None),
+                      "mean_pair_latency_sec": round(sum(latencies) / len(latencies), 1) if latencies else None}
     args.out.write_text(json.dumps(report, indent=1), encoding="utf-8")
     print(json.dumps({"cost": report["cost"], "metrics": report["metrics"]}, indent=1))
     for r in rows:                                   # compact per-pair log (ids and verdicts only; no media)
