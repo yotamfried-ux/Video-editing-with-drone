@@ -199,4 +199,3 @@ def install_post_orchestrator_patches() -> None:
     from pipeline.runtime_policy_registry import record_and_enforce
 
     record_and_enforce()
-
