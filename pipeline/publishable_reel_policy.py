@@ -690,6 +690,10 @@ def record_athlete_outcome(
         if _one_reel_per_athlete() and len(final_reels or []) == 1 and len(events) > 1:
             specs["single_reel_per_athlete"] = True
         issues = social_ready_issues(specs)
+        # Every published shot must name the event it came from (event_identity); none may be claimed twice.
+        from pipeline.event_identity import lineage_issues
+        issues = [*issues, *lineage_issues(events)]
+        event_uids = [str(e.get("event_uid") or e.get("event_id")) for e in events if e.get("event_uid") or e.get("event_id")]
         qa_passed = path not in set(flagged_paths or set())
         if not qa_passed:
             issues = [*issues, "final_qa_failed"]
@@ -762,6 +766,7 @@ def record_athlete_outcome(
             "aspect": specs.get("aspect"),
             "has_audio": specs.get("has_audio") if isinstance(specs.get("has_audio"), bool) else None,
             "fps": specs.get("fps"),
+            "event_uids": event_uids,
             "media_specs_revision": _media_specs_revision(specs),
         })
         # The measured ffprobe values, in the run log and the manifest, so the delivery contract

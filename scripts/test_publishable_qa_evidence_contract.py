@@ -33,6 +33,7 @@ def specs() -> dict[str, Any]:
 
 def event() -> dict[str, Any]:
     return {
+        "event_uid": "ev2_fixture_qa_7",
         "athlete_id": "athlete_qa_7",
         "type": "goal",
         "sport": "football",

@@ -270,6 +270,8 @@ def _strip_internal_fields(clusters: list[dict]) -> list[dict]:
             }
             if cluster.get("_visual_verified"):
                 item["_visual_verified"] = True
+            if cluster.get("_identity_evidence"):
+                item["_identity_evidence"] = cluster["_identity_evidence"]
             clean.append(item)
     return clean
 
@@ -1120,6 +1122,7 @@ def _merge_compatible_structured_clusters(clusters: list[dict]) -> list[dict]:
             # Agreement between text descriptions is a hypothesis, not a visual confirmation. The merged
             # cluster loses any earlier confirmation and has to pass the image verifier as a whole.
             target.pop("_visual_verified", None)
+            target.pop("_identity_evidence", None)
             target["_structured_merge"] = True
         else:
             out.append(candidate)
@@ -1172,9 +1175,11 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
         if len(apps) < 2 or not all(t and os.path.exists(t) for t in thumbs):
             verified.append(cluster)
             continue
-        if cluster.get("_visual_verified") is True:
-            verified.append(cluster)  # already confirmed on images; no second call
+        from pipeline import identity_evidence
+        if identity_evidence.covers(cluster):
+            verified.append(cluster)  # already confirmed on images for exactly these members
             continue
+        cluster = identity_evidence.clear(dict(cluster))
 
         uploaded: list = []
         try:
@@ -1196,7 +1201,7 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
                    if isinstance(i, (int, float)) and 0 <= int(i) < len(apps)}
 
             if same_person and not bad:
-                verified.append({**cluster, "_visual_verified": True})
+                verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER))
                 continue
 
             if not bad or len(bad) >= len(apps):
@@ -1376,10 +1381,11 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
         # single appearance; with more members the whole cluster goes back to the image verifier.
         pair_covers_all = len(a.get("appearances", []) or []) == 1 and len(b.get("appearances", []) or []) == 1
         a["appearances"] = list(a.get("appearances", [])) + list(b.get("appearances", []))
+        from pipeline import identity_evidence
         if pair_covers_all:
-            a["_visual_verified"] = True
+            identity_evidence.stamp(a, identity_evidence.PAIR_CHECK_SINGLETONS, str(parsed.get("reason", "")))
         else:
-            a.pop("_visual_verified", None)
+            identity_evidence.clear(a)
             a["_merge_check_pair_only"] = True
         merged_into[j] = root_i
         for key, value in list(merged_into.items()):

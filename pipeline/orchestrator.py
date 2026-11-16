@@ -399,29 +399,58 @@ def _record_draft_sources(draft_name: str, sources: list[dict],
 _QUEUED_REPROCESS: list[dict] = []
 
 
+def _request_defect_types(req: dict) -> list[str]:
+    """The defect codes the request was opened for (qa_defects, else the code before ':' in its reasons)."""
+    codes: set[str] = set()
+    for defect in req.get("qa_defects") or []:
+        if isinstance(defect, dict) and defect.get("type"):
+            codes.add(str(defect["type"]).upper())
+    if not codes:
+        for reason in req.get("approval_blocked_reasons") or []:
+            head = str(reason).split(":", 1)[0].strip().upper()
+            if head and head.replace("_", "").isalnum():
+                codes.add(head)
+    return sorted(codes)
+
+
+def _part_defect_types(part: dict) -> set[str]:
+    codes = {str(d.get("type")).upper() for d in part.get("qa_defects") or [] if isinstance(d, dict) and d.get("type")}
+    for reason in [*(part.get("qa_gate_block_reasons") or []), *(part.get("technical_issues") or [])]:
+        codes.add(str(reason).split(":", 1)[0].strip().upper())
+    return codes
+
+
 def reprocess_outcomes(queued: list[dict], manifest: dict) -> dict[str, bool]:
     """For each re-queued request: is its re-edit verified?
 
-    A source can hold several athletes, so "some publishable reel came from this source" proves nothing about
-    the athlete the request was about. A request is verified only when this run produced at least one reel from
-    its sources and **every** reel that uses any of them is publishable (final QA passed, no gate block). One
-    reel from those sources still blocked leaves the request unverified. This is stricter than naming the exact
-    athlete, which a request cannot do yet: athlete ids are re-derived on every run.
+    A source can hold several athletes and a request carries no athlete id, so the rule is conservative:
+    verified only when this run produced reels from the request's sources, **every** reel using any of them is
+    publishable (final QA passed, no gate block), and none of those reels still carries a defect type the
+    request was opened for. Anything less is `reprocessed_unverified`. Binding to one athlete and one output
+    hash needs columns the table does not have (see supabase/migrations/*_reprocess_repair_evidence.sql).
     """
-    by_source: dict[str, list[bool]] = {}
+    by_source: dict[str, list[tuple[bool, set[str]]]] = {}
     for row in (manifest or {}).get("athletes", []) or []:
         if not isinstance(row, dict):
             continue
         parts = [part for part in row.get("parts", []) or [] if isinstance(part, dict)]
         ok = bool(row.get("primary_publishable_reel")) and bool(parts) and all(part.get("publishable") is True for part in parts)
+        defects: set[str] = set()
+        for part in parts:
+            defects |= _part_defect_types(part)
         for item in row.get("action_lineage") or []:
-            by_source.setdefault(os.path.basename(str(item).split("|", 1)[0]), []).append(ok)
+            by_source.setdefault(os.path.basename(str(item).split("|", 1)[0]), []).append((ok, defects))
     outcomes: dict[str, bool] = {}
     for req in queued or []:
         if not req.get("id"):
             continue
-        verdicts = [ok for name in req.get("sources") or [] for ok in by_source.get(os.path.basename(name), [])]
-        outcomes[str(req["id"])] = bool(verdicts) and all(verdicts)
+        wanted = {str(code).upper() for code in req.get("defect_types") or []}
+        rows = [entry for name in req.get("sources") or [] for entry in by_source.get(os.path.basename(name), [])]
+        outcomes[str(req["id"])] = (
+            bool(rows)
+            and all(ok for ok, _ in rows)
+            and not any(wanted & defects for _, defects in rows)
+        )
     return outcomes
 
 
@@ -434,7 +463,8 @@ def _handle_reprocess_requests() -> list[str]:
     run (they are reprocess-specific and must not leak into future sessions).
     """
     try:
-        from integrations.supabase_uploader import (fetch_pending_reprocess,
+        from integrations.supabase_uploader import (claim_reprocess,
+                                                    fetch_pending_reprocess,
                                                     lookup_draft_sources,
                                                     mark_reprocess)
         requests = fetch_pending_reprocess()
@@ -452,6 +482,10 @@ def _handle_reprocess_requests() -> list[str]:
         req_id     = req.get("id", "")
         draft_name = req.get("draft_name", "") or ""
         notes      = (req.get("notes") or "").strip()
+        # Claim before any work: a request another worker already claimed is skipped, not processed twice.
+        if not claim_reprocess(req_id, os.getenv("PIPELINE_RUN_ID") or None):
+            print(f"  ↪️  reprocess request {req_id[:8]} already claimed elsewhere — skipped")
+            continue
         sources    = lookup_draft_sources(draft_name) if draft_name else []
         requeued   = 0
         for src in sources:
@@ -463,10 +497,10 @@ def _handle_reprocess_requests() -> list[str]:
                 key = f"reprocess_{req_id[:8]}"
                 record_operator_note(key, notes)
                 note_keys.append(key)
-            mark_reprocess(req_id, "queued")
             _QUEUED_REPROCESS.append({
                 "id": req_id, "draft_name": draft_name,
                 "sources": sorted({str(src.get("name") or "") for src in sources if src.get("name")}),
+                "defect_types": _request_defect_types(req),
             })
         else:
             print(f"  ⚠️  '{draft_name}': source videos not found — cannot reprocess")
@@ -922,7 +956,8 @@ def main() -> None:
         try:
             from integrations.supabase_uploader import close_reprocess_requests
             from pipeline.publishable_reel_policy import _read_manifest
-            written = close_reprocess_requests(reprocess_outcomes(_QUEUED_REPROCESS, _read_manifest()))
+            written = close_reprocess_requests(reprocess_outcomes(_QUEUED_REPROCESS, _read_manifest()),
+                                               os.getenv("PIPELINE_RUN_ID") or None)
             for req_id, status in written.items():
                 print(f"  🔁 reprocess request {req_id[:8]}: {status}")
         except Exception as exc:

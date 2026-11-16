@@ -57,7 +57,7 @@ def main() -> int:
         for label, gate in (("clean surfer", None), ("tandem surfers", BLOCKED_GATE)):
             path = str(folder / f"{label.replace(' ', '_')}.mp4")
             Path(path).write_bytes(label.encode())
-            event = {"start": 0, "end": 8, "type": "surf_ride", "athlete_id": label}
+            event = {"start": 0, "end": 8, "type": "surf_ride", "athlete_id": label, "event_uid": f"ev2_{label.replace(' ', '_')}"}
             if gate:
                 event["qa_gate"] = gate
             policy.record_athlete_outcome(

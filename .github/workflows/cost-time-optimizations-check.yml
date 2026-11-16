@@ -50,6 +50,13 @@ on:
       - 'scripts/test_qa_gate_block_not_publishable_contract.py'
       - 'scripts/test_retention_metrics_contract.py'
       - 'scripts/test_root_cause_fixes_contract.py'
+      - 'scripts/test_release_safety_invariants_contract.py'
+      - 'scripts/test_gt_review_package_contract.py'
+      - 'scripts/build_gt_review_package.py'
+      - 'pipeline/identity_evidence.py'
+      - 'pipeline/missed_moment_rescue.py'
+      - 'pipeline/draft_identity_metadata.py'
+      - 'integrations/supabase_uploader.py'
       - 'pipeline/event_identity.py'
       - 'pipeline/identity_failsafe.py'
       - 'pipeline/real_identity_gate.py'
@@ -266,6 +273,14 @@ jobs:
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_root_cause_fixes_contract.py
+      - name: Release-safety invariants (identity evidence coverage, event lineage, reprocess lifecycle)
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_release_safety_invariants_contract.py
+      - name: GT review package classifies disagreements offline
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_gt_review_package_contract.py
       - name: Sources download concurrently, admitted in order
         env:
           PYTHONPATH: .

@@ -54,7 +54,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
     def test_p03_lifecycle_state_machine_happy_path(self):
         """Verify RENDERED -> QA_PASSED / UPLOAD_PENDING -> UPLOADED transitions and metadata."""
         reel_path = self._create_fake_reel()
-        events = [{"type": "cutback", "start": 10.0, "end": 20.0, "source": "drone1.mp4"}]
+        events = [{"type": "cutback", "start": 10.0, "end": 20.0, "source": "drone1.mp4", "event_uid": "ev2_fixture_1"}]
 
         # 1. Record athlete outcome after render
         row = policy.record_athlete_outcome(
@@ -125,7 +125,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
         """Verify QA_FAILED, UPLOAD_FAILED, and REVIEW_REQUIRED branches."""
         reel_path_b = self._create_fake_reel("failed_reel_b.mp4")
         reel_path_c = self._create_fake_reel("failed_reel_c.mp4")
-        events = [{"type": "cutback", "start": 5.0, "end": 15.0}]
+        events = [{"type": "cutback", "start": 5.0, "end": 15.0, "event_uid": "ev2_fixture_2"}]
 
         # Case A: Technical defect (audio stream present) -> QA_FAILED
         row = policy.record_athlete_outcome(
@@ -183,7 +183,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
     def test_p03_checkpoint_resumption_no_duplicate_upload(self):
         """Verify resuming a run does not re-upload or invalidate an already uploaded reel."""
         reel_path = self._create_fake_reel("resumed_reel.mp4")
-        events = [{"type": "barrel", "start": 5.0, "end": 18.0}]
+        events = [{"type": "barrel", "start": 5.0, "end": 18.0, "event_uid": "ev2_fixture_3"}]
 
         # 1. Complete initial render & upload
         policy.record_athlete_outcome(
@@ -226,7 +226,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             policy.record_athlete_outcome(
                 sport="surfing", athlete_label="Surfer D",
                 final_reels=[str(reel)],
-                events_by_reel={str(reel): [{"type": "surf_ride", "start": 1, "end": 8}]},
+                events_by_reel={str(reel): [{"type": "surf_ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_4"}]},
                 flagged_paths=set(),
                 specs_by_path={str(reel): {
                     "duration": 7.0, "width": 2160, "height": 3840,
@@ -287,7 +287,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
                         policy.record_athlete_outcome(
                             sport="surfing", athlete_label="Surfer-R",
                             final_reels=[str(reel)],
-                            events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8}]},
+                            events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_5"}]},
                             flagged_paths=set(),
                             specs_by_path={str(reel): {
                                 "duration": 7, "width": 2160, "height": 3840,
@@ -313,7 +313,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             policy.record_athlete_outcome(
                 sport="surfing", athlete_label="Approved athlete",
                 final_reels=[str(reel)],
-                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 7}]},
+                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 7, "event_uid": "ev2_fixture_6"}]},
                 flagged_paths=set(),
                 specs_by_path={str(reel): {
                     "duration": 6.0, "width": 2160, "height": 3840,
@@ -444,7 +444,7 @@ class TestP03P04LifecycleAndLedger(unittest.TestCase):
             policy.record_athlete_outcome(
                 sport="surfing", athlete_label="restart proof surfer",
                 final_reels=[str(reel)],
-                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8}]},
+                events_by_reel={str(reel): [{"type": "ride", "start": 1, "end": 8, "event_uid": "ev2_fixture_7"}]},
                 flagged_paths=set(),
                 specs_by_path={str(reel): {
                     "duration": 7.0, "width": 2160, "height": 3840,

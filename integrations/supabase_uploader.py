@@ -349,7 +349,23 @@ REPROCESS_DONE = "done"
 REPROCESS_UNVERIFIED = "reprocessed_unverified"
 
 
-def close_reprocess_requests(outcomes: dict[str, bool]) -> dict[str, str]:
+def claim_reprocess(req_id: str, run_id: str | None = None) -> bool:
+    """Move one request from 'pending' to 'queued' for this run, atomically.
+
+    The update matches only while the row is still 'pending', so of two workers that fetched the same request
+    exactly one claims it; the other gets no row back and must not process it. The claiming run is recorded in
+    last_pipeline_run_id so only that run can close the request.
+    """
+    from datetime import datetime, timezone
+
+    payload: dict = {"status": "queued", "processed_at": datetime.now(timezone.utc).isoformat()}
+    if run_id:
+        payload["last_pipeline_run_id"] = run_id
+    res = _supabase().table("reprocess_requests").update(payload).eq("id", req_id).eq("status", "pending").execute()
+    return bool(getattr(res, "data", None))
+
+
+def close_reprocess_requests(outcomes: dict[str, bool], run_id: str | None = None) -> dict[str, str]:
     """Close exactly the reprocess requests this run consumed, each by its own result.
 
     `outcomes` maps a request id to whether the run produced a publishable draft from that request's sources.
@@ -365,11 +381,20 @@ def close_reprocess_requests(outcomes: dict[str, bool]) -> dict[str, str]:
         if not req_id:
             continue
         status = REPROCESS_DONE if verified is True else REPROCESS_UNVERIFIED
-        _supabase().table("reprocess_requests").update({
+        query = _supabase().table("reprocess_requests").update({
             "status":       status,
             "processed_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", req_id).eq("status", "queued").execute()
-        written[req_id] = status
+        }).eq("id", req_id).eq("status", "queued")
+        if run_id:
+            # Only the run that claimed the request may close it.
+            query = query.eq("last_pipeline_run_id", run_id)
+        try:
+            res = query.execute()
+        except Exception as exc:  # one failed write must not close or skip the others
+            logger.warning("reprocess request %s not closed: %s", req_id, exc)
+            written[req_id] = "close_failed"
+            continue
+        written[req_id] = status if getattr(res, "data", None) is not None else status
     return written
 
 

@@ -470,6 +470,10 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
         # ride's selected window had no person_id ("selected identity lineage completeness must be 1.0, got 0.958").
         event.update({"person_id": person_id, "chunk_person_id": person_id, "source_person_id": person_id,
                       "source_video": name})
+        # Created after analysis: its canonical id is assigned here, from the source's content, the rescued
+        # person and its own window, with a run-wide uniqueness guard (pipeline.event_identity).
+        from pipeline.event_identity import RESCUE, ensure_event_uid
+        ensure_event_uid(event, str(video_path), person_id, origin=RESCUE)
         rescued.append({"id": person_id, "source_person_id": person_id, "chunk_person_id": person_id,
                         "source_video": name, "description": description, "events": [event],
                         "rescued_by": RESCUE_PROMPT_VERSION})

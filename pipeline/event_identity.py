@@ -15,10 +15,20 @@ UID_KEY = "event_uid"
 ORIGIN_KEY = "event_uid_origin"
 ANALYZER = "analyzer"
 LATE = "assigned_late"
+RESCUE = "rescue"
 
 
 UID_SCHEMA = "v2"
 _SOURCE_REF_CACHE: dict[str, tuple[str, str]] = {}
+# Every id computed in this process (one pipeline run) and the key it was computed from. A second, different
+# event that would compute an already issued id (a late event with the same window, type and track as another)
+# gets a salted id instead of silently sharing it.
+_ISSUED: dict[str, str] = {}
+
+
+def reset_for_tests() -> None:
+    _ISSUED.clear()
+    _SOURCE_REF_CACHE.clear()
 
 
 def source_ref(source: str) -> tuple[str, str]:
@@ -64,7 +74,17 @@ def ensure_event_uid(event: dict[str, Any], source: str, person_id: str = "", *,
         # An event created after analysis has no ordinal: its own exact window, type and track name it.
         local_key = "late|{!r}|{!r}|{}|{}".format(
             event.get("start"), event.get("end"), event.get("type"), event.get("track_id"))
-    uid = compute_event_uid(source, person_id or str(event.get("person_id") or ""), local_key)
+    person = person_id or str(event.get("person_id") or "")
+    uid = compute_event_uid(source, person, local_key)
+    issued_key = f"{source_ref(source)}|{person}|{local_key}"
+    if origin != ANALYZER:
+        # Analyzer ids are keyed by ordinal and are the same on a re-run by design. A late event's key is its
+        # window; two distinct late events can share it, so each one after the first gets a counter.
+        n = 1
+        while uid in _ISSUED:
+            n += 1
+            uid = compute_event_uid(source, person, f"{local_key}|n{n}")
+    _ISSUED.setdefault(uid, issued_key)
     event[UID_KEY] = uid
     event[ORIGIN_KEY] = origin
     event["event_uid_schema"] = UID_SCHEMA
@@ -86,3 +106,21 @@ def assign_session_event_uids(session: dict[str, Any], source: str) -> int:
                 ensure_event_uid(event, source, str(person.get("id") or ""), local_key=f"ordinal|{ordinal}")
                 count += 1
     return count
+
+
+def lineage_issues(events: list[dict[str, Any]]) -> list[str]:
+    """Provenance problems in the events of one reel: an event without a canonical id, or two shots of one reel
+    claiming the same id. Teasers are excluded (they repeat a moment on purpose and are never published)."""
+    issues: list[str] = []
+    seen: set[str] = set()
+    for event in events or []:
+        if not isinstance(event, dict) or event.get("_teaser"):
+            continue
+        uid = event.get(UID_KEY) or event.get("event_id")
+        if not uid:
+            issues.append("missing_event_provenance")
+            continue
+        if str(uid) in seen:
+            issues.append("duplicate_event_uid")
+        seen.add(str(uid))
+    return sorted(set(issues))

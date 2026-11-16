@@ -19,7 +19,10 @@ def app(path, event_id, *track_ids):
 def cluster(*apps, verified=False):
     item = {"description": "man in black top", "appearances": list(apps)}
     if verified:
-        item["_visual_verified"] = True
+        # A positive image verification records the exact members it covered (pipeline.identity_evidence);
+        # the release gate reads that evidence, not the bare flag.
+        from pipeline import identity_evidence
+        identity_evidence.stamp(item, identity_evidence.IMAGE_VERIFIER)
     return item
 
 
