@@ -447,7 +447,12 @@ def _handle_reprocess_requests() -> list[str]:
         from integrations.supabase_uploader import (claim_reprocess,
                                                     fetch_pending_reprocess,
                                                     lookup_draft_sources,
-                                                    mark_reprocess)
+                                                    mark_reprocess,
+                                                    recover_stale_reprocess)
+        # Requests a crashed or finished run left `queued` go back to `pending` (bounded by max_attempts) or to
+        # `failed_max_attempts`, before this run looks for work.
+        for req_id, state in recover_stale_reprocess(os.getenv("PIPELINE_RUN_ID") or None).items():
+            print(f"  🔁 stale reprocess request {str(req_id)[:8]}: {state}")
         requests = fetch_pending_reprocess()
     except Exception as e:
         logger.debug("Reprocess check skipped: %s", e)

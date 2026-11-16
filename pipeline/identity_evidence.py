@@ -39,10 +39,63 @@ def members_hash(keys: list[str]) -> str:
     return hashlib.sha256(json.dumps(sorted(keys)).encode("utf-8")).hexdigest()[:16]
 
 
-def stamp(cluster: dict[str, Any], method: str, detail: str = "") -> dict[str, Any]:
-    """Record a positive verification that covered exactly the cluster's current members."""
+def _file_sha256(path: Any) -> str:
+    try:
+        digest = hashlib.sha256()
+        with open(str(path), "rb") as handle:
+            while chunk := handle.read(65536):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except (OSError, TypeError):
+        return ""
+
+
+def _source_of(key: str) -> str:
+    return key.split("::", 1)[0]
+
+
+def _required_pairs(keys: list[str]) -> list[list[str]]:
+    """Every pair of members from different source files: each needs a MATCH edge."""
+    return [[a, b] for index, a in enumerate(keys) for b in keys[index + 1:] if _source_of(a) != _source_of(b)]
+
+
+def _evidence_digest(record: dict[str, Any]) -> str:
+    body = {k: v for k, v in record.items() if k != "evidence_digest"}
+    return hashlib.sha256(json.dumps(body, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+def stamp(cluster: dict[str, Any], method: str, detail: str = "", *, images: list[Any] | None = None,
+          model: str = "", raw_response: str = "", member_images: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Record a positive image verification that covered exactly the cluster's current members.
+
+    The record names what was examined: the SHA-256 of the image shown for every member, the model, a digest of
+    the model's answer, a timestamp, and a MATCH edge for every cross-source pair (one group-wide call that saw all
+    members' images, or one pairwise call for two singletons). Without an image for every member the record is
+    still written - so the trace shows the attempt - but `covers` rejects it.
+    """
+    from datetime import datetime, timezone
+
+    apps = list(cluster.get("appearances", []) or [])
+    if member_images is None:
+        member_images = {member_key(app): (images[i] if images and i < len(images) else app.get("thumbnail"))
+                         for i, app in enumerate(apps)}
     keys = members(cluster)
-    cluster[EVIDENCE_KEY] = {"method": method, "members": keys, "members_hash": members_hash(keys), "detail": detail[:200]}
+    image_hashes = {key: _file_sha256(member_images.get(key)) for key in keys}
+    record = {
+        "schema": "sportreel.identity_evidence.v2",
+        "method": method,
+        "members": keys,
+        "members_hash": members_hash(keys),
+        "image_sha256": image_hashes,
+        "model": str(model or ""),
+        "response_sha256": hashlib.sha256(str(raw_response or "").encode("utf-8")).hexdigest() if raw_response else "",
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "scope": "group" if method == IMAGE_VERIFIER else "pair",
+        "pairwise": [{"a": a, "b": b, "verdict": "MATCH"} for a, b in _required_pairs(keys)],
+        "detail": detail[:200],
+    }
+    record["evidence_digest"] = _evidence_digest(record)
+    cluster[EVIDENCE_KEY] = record
     cluster["_visual_verified"] = True
     return cluster
 
@@ -53,13 +106,35 @@ def clear(cluster: dict[str, Any]) -> dict[str, Any]:
     return cluster
 
 
-def covers(cluster: dict[str, Any]) -> bool:
-    """True only when recorded image evidence covers every current member and nothing else."""
+def coverage_problem(cluster: dict[str, Any]) -> str:
+    """Why the recorded evidence does not prove the cluster's identity, or "" when it does."""
     evidence = cluster.get(EVIDENCE_KEY)
-    if not isinstance(evidence, dict) or evidence.get("method") not in ACCEPTED_METHODS:
-        return False
+    if not isinstance(evidence, dict):
+        return "no_identity_evidence"
+    if evidence.get("method") not in ACCEPTED_METHODS:
+        return "unaccepted_method"
     keys = members(cluster)
-    return bool(keys) and evidence.get("members") == keys and evidence.get("members_hash") == members_hash(keys)
+    if not keys or evidence.get("members") != keys or evidence.get("members_hash") != members_hash(keys):
+        return "evidence_does_not_cover_current_members"
+    if evidence.get("evidence_digest") != _evidence_digest(evidence):
+        return "evidence_record_altered"
+    hashes = evidence.get("image_sha256") if isinstance(evidence.get("image_sha256"), dict) else {}
+    if any(len(str(hashes.get(key) or "")) != 64 for key in keys):
+        return "image_not_examined_for_every_member"
+    if not evidence.get("model") or len(str(evidence.get("response_sha256") or "")) != 64:
+        return "verifier_call_not_recorded"
+    if evidence.get("method") == PAIR_CHECK_SINGLETONS and len(keys) != 2:
+        return "pair_check_cannot_cover_more_than_two_members"
+    edges = {(e.get("a"), e.get("b")) for e in evidence.get("pairwise") or []
+             if isinstance(e, dict) and e.get("verdict") == "MATCH"}
+    if any((a, b) not in edges for a, b in _required_pairs(keys)):
+        return "cross_source_pair_without_match_edge"
+    return ""
+
+
+def covers(cluster: dict[str, Any]) -> bool:
+    """True only when recorded image evidence proves every current member and nothing else."""
+    return coverage_problem(cluster) == ""
 
 
 def parse_verifier_verdict(parsed: Any, n_images: int) -> tuple[bool, set[int], str]:

@@ -254,15 +254,18 @@ def _augment_metadata_file(meta_file: str, draft_name: str, qa_gate: dict[str, A
     os.replace(tmp, meta_file)
 
 
-def _reedit_binding(draft_name: str) -> dict[str, Any]:
-    """The uploaded draft's athlete actions and content hash, read from this run's manifest; {} if unknown."""
+def _reedit_binding(draft_name: str, qa_gate: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The uploaded draft's athlete/action evidence and byte hash from this run's manifest, or an explicit
+    `binding_missing` marker saying why it could not be bound."""
+    from pipeline.reprocess_binding import build_binding, missing_marker
+    run_id = os.getenv("PIPELINE_RUN_ID") or None
+    defect_types = [str(d.get("type")) for d in (qa_gate or {}).get("defects") or [] if isinstance(d, dict) and d.get("type")]
     try:
         from pipeline.publishable_reel_policy import _read_manifest
-        from pipeline.reprocess_binding import build_binding
-        return build_binding(_read_manifest(), draft_name)
+        return build_binding(_read_manifest(), draft_name, defect_types=defect_types, run_id=run_id)
     except Exception as exc:
         print(f"  ⚠️  QA re-edit binding unavailable for {draft_name}: {exc}")
-        return {}
+        return missing_marker(draft_name, f"binding_error:{type(exc).__name__}", run_id)
 
 
 def _persist_qa_reedit_task(draft_name: str, qa_gate: dict[str, Any]) -> None:
@@ -270,7 +273,7 @@ def _persist_qa_reedit_task(draft_name: str, qa_gate: dict[str, Any]) -> None:
         return
     try:
         from integrations.supabase_uploader import upsert_qa_reedit_task
-        upsert_qa_reedit_task(draft_name, qa_gate, binding=_reedit_binding(draft_name))
+        upsert_qa_reedit_task(draft_name, qa_gate, binding=_reedit_binding(draft_name, qa_gate))
     except Exception as exc:
         print(f"  ⚠️  QA re-edit task persistence skipped for {draft_name}: {exc}")
 

@@ -1201,7 +1201,8 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
                 print(f"  [IDENTITY] verifier answer rejected ({verdict_problem}): cluster not confirmed")
 
             if same_person and not bad:
-                verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER))
+                verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER,
+                    images=thumbs, model="gemini-2.5-flash", raw_response=raw))
                 continue
 
             if not bad or len(bad) >= len(apps):
@@ -1383,7 +1384,11 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
         a["appearances"] = list(a.get("appearances", [])) + list(b.get("appearances", []))
         from pipeline import identity_evidence
         if pair_covers_all:
-            identity_evidence.stamp(a, identity_evidence.PAIR_CHECK_SINGLETONS, str(parsed.get("reason", "")))
+            a_key = identity_evidence.member_key(a["appearances"][0])
+            b_key = identity_evidence.member_key(a["appearances"][1])
+            identity_evidence.stamp(a, identity_evidence.PAIR_CHECK_SINGLETONS, str(parsed.get("reason", "")),
+                                    model="gemini-2.5-flash", raw_response=raw,
+                                    member_images={a_key: thumb_a, b_key: thumb_b})
         else:
             identity_evidence.clear(a)
             a["_merge_check_pair_only"] = True

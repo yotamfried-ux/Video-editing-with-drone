@@ -684,6 +684,30 @@ def _lineage_issues(events: list[dict[str, Any]]) -> list[str]:
     return lineage_issues(events)
 
 
+def _action_evidence(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per shot: what identifies the action independently of run-local athlete ids.
+
+    The event id, the source (name and content reference, `sha256:<hex>` when the file was readable), the
+    analyzer window, the action type and the source-local tracker id of the target actor.
+    """
+    out: list[dict[str, Any]] = []
+    for event in events or []:
+        if not isinstance(event, dict) or event.get("_teaser"):
+            continue
+        source, start, end, event_type = _event_identity(event)
+        track = event.get("target_track_id") or event.get("primary_track_id") or event.get("track_id")
+        out.append({
+            "event_uid": str(event.get("event_uid") or event.get("event_id") or "") or None,
+            "source": os.path.basename(source) or None,
+            "source_ref": str(event.get("event_source_ref") or "") or None,
+            "start": start,
+            "end": end,
+            "type": event_type or None,
+            "track": str(track) if track not in (None, "") else None,
+        })
+    return out
+
+
 def record_athlete_outcome(
     *,
     sport: str,
@@ -740,6 +764,9 @@ def record_athlete_outcome(
                 content_sha256 = h.hexdigest()
         except Exception:
             pass
+        # The kind says what the hash proves: "bytes" is SHA-256 of the rendered file; "specs_digest" is only a
+        # digest of its media specs (file unreadable) and proves nothing about the video content.
+        content_sha256_kind = "bytes" if content_sha256 else "specs_digest"
         if not content_sha256:
             content_sha256 = _media_specs_revision(specs)
 
@@ -755,6 +782,8 @@ def record_athlete_outcome(
             "athlete_id": athlete_id,
             "run_id": run_id,
             "content_sha256": content_sha256,
+            "content_sha256_kind": content_sha256_kind,
+            "action_evidence": _action_evidence(events),
             "state": part_state,
             "attempts": 1,
             "attempt_history": [

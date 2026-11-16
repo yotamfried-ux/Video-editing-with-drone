@@ -312,17 +312,31 @@ def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int =
         "approval_blocked_reasons": [str(item) for item in reasons if str(item).strip()],
         "max_attempts": max_attempts,
     }
-    # Athlete and output binding (pipeline.reprocess_binding): lets the repair run close the request only
-    # against this athlete's re-rendered output. Absent when the manifest could not identify the draft.
-    for column in ("target_athlete_key", "original_output_sha256"):
-        if (binding or {}).get(column):
-            payload[column] = binding[column]
+    # Athlete and output binding (pipeline.reprocess_binding). Always written - a valid binding or an explicit
+    # `binding_missing` marker - so a refreshed task can never keep the binding of an earlier output revision.
+    if not (binding or {}).get("target_athlete_key"):
+        from pipeline.reprocess_binding import missing_marker
+        binding = missing_marker(draft_name, "binding_not_supplied")
+    payload["target_athlete_key"] = binding["target_athlete_key"]
+    payload["original_output_sha256"] = binding.get("original_output_sha256") or None
     existing = _active_reedit_task(draft_name)
     if existing:
         if existing.get("status") == "qa_blocked":
-            _supabase().table("reprocess_requests").update(payload).eq("id", existing["id"]).execute()
+            # Compare-and-swap: refresh only while the task is still qa_blocked (not promoted meanwhile).
+            (_supabase().table("reprocess_requests").update(payload)
+             .eq("id", existing["id"]).eq("status", "qa_blocked").execute())
         return
-    _supabase().table("reprocess_requests").insert(payload).execute()
+    try:
+        _supabase().table("reprocess_requests").insert(payload).execute()
+    except Exception as exc:
+        # reprocess_requests_active_qa_block_idx allows one active task per draft: a concurrent writer won.
+        # Refresh that task under the same compare-and-swap instead of failing or duplicating it.
+        if "duplicate" not in str(exc).lower() and "23505" not in str(exc):
+            raise
+        existing = _active_reedit_task(draft_name)
+        if existing and existing.get("status") == "qa_blocked":
+            (_supabase().table("reprocess_requests").update(payload)
+             .eq("id", existing["id"]).eq("status", "qa_blocked").execute())
 
 
 def fetch_recent_draft_feedback(limit: int = 500) -> list[dict]:
@@ -432,6 +446,82 @@ def close_reprocess_requests(outcomes: dict[str, Any], run_id: str | None = None
             logger.warning("reprocess request %s not closed: no row of this run matched", req_id)
         written[req_id] = status if applied else REPROCESS_CLOSE_NOT_APPLIED
     return written
+
+
+REPROCESS_STALE_LEASE_HOURS = 6
+_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "no_input", "no_reviewable_drafts", "dispatch_failed", "cancelled"}
+
+
+def recover_stale_reprocess(current_run_id: str | None, *, now=None) -> dict[str, str]:
+    """Return requests a crashed or finished run left `queued` to a durable state; report each by id.
+
+    A request stays `queued` when its claiming run died after the claim (before or after rendering) or failed
+    to write its closure. It is recovered only when that run is provably over: its pipeline_runs row is
+    terminal, absent, or silent for longer than the lease. Under compare-and-swap on (id, queued, owner):
+    back to `pending` while attempts remain (counted here), else `failed_max_attempts`. The reason and the old
+    owner are recorded in repair_verdict. Requests of a live run, and of this run, are not touched.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = now or datetime.now(timezone.utc)
+    report: dict[str, str] = {}
+    try:
+        rows = (_supabase().table("reprocess_requests")
+                .select("id,status,attempt_count,max_attempts,last_pipeline_run_id")
+                .eq("status", "queued").execute().data or [])
+    except Exception as exc:
+        logger.warning("stale reprocess recovery skipped: %s", exc)
+        return report
+    for row in rows:
+        req_id, owner = row.get("id"), row.get("last_pipeline_run_id")
+        if not req_id or (current_run_id and str(owner) == str(current_run_id)):
+            continue
+        run = None
+        if owner:
+            try:
+                found = (_supabase().table("pipeline_runs").select("id,status,updated_at")
+                         .eq("id", owner).limit(1).execute().data or [])
+                run = found[0] if found else None
+            except Exception as exc:
+                logger.warning("stale reprocess %s: owner run lookup failed: %s", req_id, exc)
+                report[str(req_id)] = "owner_unknown_skipped"
+                continue
+        status = str((run or {}).get("status") or "")
+        updated = (run or {}).get("updated_at")
+        try:
+            silent = bool(updated) and now - datetime.fromisoformat(str(updated).replace("Z", "+00:00")) > timedelta(
+                hours=REPROCESS_STALE_LEASE_HOURS)
+        except ValueError:
+            silent = False
+        if run is not None and status not in _TERMINAL_RUN_STATUSES and not silent:
+            report[str(req_id)] = "owner_still_running"
+            continue
+        attempts = int(row.get("attempt_count") or 0)
+        limit = int(row.get("max_attempts") or 3)
+        target = "pending" if attempts < limit else "failed_max_attempts"
+        payload = {
+            "status": target,
+            "processed_at": now.isoformat(),
+            "repair_verdict": {"verified": False, "reason": "claiming_run_ended_without_closure",
+                               "previous_run_id": owner, "previous_run_status": status or None,
+                               "previous_run_silent": silent, "recovered_by_run_id": current_run_id,
+                               "checked_at": now.isoformat()},
+        }
+        if target == "pending":
+            payload["attempt_count"] = attempts + 1
+        query = (_supabase().table("reprocess_requests").update(payload)
+                 .eq("id", req_id).eq("status", "queued"))
+        query = query.eq("last_pipeline_run_id", owner) if owner else query
+        try:
+            res = query.execute()
+        except Exception as exc:
+            logger.warning("stale reprocess %s not recovered: %s", req_id, exc)
+            report[str(req_id)] = REPROCESS_CLOSE_FAILED
+            continue
+        applied = any(isinstance(r, dict) and str(r.get("id")) == str(req_id) and r.get("status") == target
+                      for r in (getattr(res, "data", None) or []))
+        report[str(req_id)] = target if applied else REPROCESS_CLOSE_NOT_APPLIED
+    return report
 
 
 def close_queued_reprocess(request_ids: list[str] | None = None) -> None:

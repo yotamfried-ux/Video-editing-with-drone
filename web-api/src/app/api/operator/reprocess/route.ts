@@ -185,6 +185,9 @@ export async function POST(req: NextRequest) {
         origin: 'operator',
         attempt_count: 1,
         max_attempts: 3,
+        // No athlete/output evidence is available here: record that explicitly so the pipeline never treats
+        // this new request as a historical (legacy) row. It cannot be closed as `done` automatically.
+        target_athlete_key: JSON.stringify({ v: 2, mode: 'binding_missing', reason: 'operator_request_without_output_evidence', draft_name: draftName }),
       })
       .select('id')
       .single();
