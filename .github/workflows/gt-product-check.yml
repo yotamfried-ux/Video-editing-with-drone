@@ -1,0 +1,95 @@
+name: GT Product Check
+
+# Compares every finished pipeline run with the owner's frozen Ground Truth (evaluation/ground_truth/gtv1_frozen.json)
+# at product level: rides covered, non-ride selections, mixed reels, split athletes, correct / wrong / non-ride
+# publishable reels. Fails when the run is worse than evaluation/ground_truth/baseline.json on any regression key.
+# Read-only: downloads the run's diagnostics artifact, writes a report artifact and the job summary. No paid calls.
+on:
+  workflow_run:
+    workflows: ["Run Pipeline"]
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      run_id:
+        description: GitHub run id of a "Run Pipeline" run
+        required: true
+  pull_request:
+    paths:
+      - 'scripts/gt_product_check.py'
+      - 'scripts/test_gt_product_check_contract.py'
+      - 'evaluation/ground_truth/**'
+      - '.github/workflows/gt-product-check.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contract:
+    if: ${{ github.event_name == 'pull_request' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: GT product check contract
+        run: PYTHONPATH=scripts:. python scripts/test_gt_product_check_contract.py
+
+  check-run:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event_name == 'workflow_run' && github.event.workflow_run.conclusion == 'success') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      RUN_ID: ${{ inputs.run_id || github.event.workflow_run.id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Download the run's diagnostics
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          name: pipeline-diagnostics-${{ env.RUN_ID }}
+          path: diag
+      - name: Compare with GT and the baseline
+        id: gt
+        run: |
+          set -o pipefail
+          python scripts/gt_product_check.py --diagnostics diag --baseline evaluation/ground_truth/baseline.json \
+            --out gt_product_check.json | tee gt_check.txt
+      - name: Job summary
+        if: always()
+        run: |
+          {
+            echo "### GT product check — run ${RUN_ID}"
+            echo '```'
+            cat gt_check.txt 2>/dev/null || echo "no report"
+            echo '```'
+            python - <<'PY'
+          import json
+          try:
+              r = json.load(open("gt_product_check.json"))
+          except Exception:
+              raise SystemExit(0)
+          b = (r.get("baseline") or {}).get("metrics") or {}
+          print("| metric | baseline | this run |\n|---|---|---|")
+          for k, v in r["metrics"].items():
+              print(f"| {k} | {b.get(k, '')} | {v} |")
+          print("\n| reel | publishable | GT athletes | issue | windows |\n|---|---|---|---|---|")
+          for x in r["reels"]:
+              issue = "mixed" if x["mixed"] else ("non-ride" if x["nonride"] or x["excluded_frames"] else "")
+              print(f"| {x['athlete_key']} | {x['publishable']} | {len(x['gt_athletes'])} | {issue} | {' '.join(x['windows'])} |")
+          PY
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Keep the report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gt-product-check-${{ env.RUN_ID }}
+          path: gt_product_check.json
+          retention-days: 90
+          if-no-files-found: warn

@@ -21,9 +21,12 @@ ACCEPTED_METHODS = {IMAGE_VERIFIER, PAIR_CHECK_SINGLETONS}
 def member_key(app: dict[str, Any]) -> str:
     """Stable key of one appearance: its source file and the person inside it.
 
-    Works before and after `identity._strip_internal_fields` (which keeps only path and events).
+    Works before and after `identity._strip_internal_fields` (which keeps only path and events). The source is
+    the file name: `_clip_index` is a run-local integer that the strip removes, so a key built from it at
+    verification time never matched the key built from the path at the release gate (run 43920602179: all five
+    image-verified multi-source athletes were withheld as unconfirmed).
     """
-    source = os.path.basename(str(app.get("_clip_index") or app.get("path") or ""))
+    source = os.path.basename(str(app.get("path") or app.get("_clip_index") or ""))
     person = app.get("_person_id")
     if not person:
         person = next((str(e.get("person_id")) for e in app.get("events", []) or []

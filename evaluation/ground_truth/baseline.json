@@ -1,0 +1,24 @@
+{
+  "schema": "sportreel.gt_product_baseline.v1",
+  "run_id": "3eb136fd-4543-4585-b32f-7f29acbe3b90",
+  "github_run_id": "43583126199",
+  "pipeline_commit": "7d6b544bc132b61c7dd42942e43db3bea01389b7",
+  "note": "Best measured run against GT-v1 (2026-11-14). A later run must not do worse on any regression key.",
+  "gt_digest": "b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9",
+  "metrics": {
+    "gt_rides": 24,
+    "rides_covered": 24,
+    "nonride_selections": 1,
+    "excluded_frames_selected": 480,
+    "mean_start_error_frames": 128.6,
+    "mean_end_error_frames": 74.4,
+    "reels": 13,
+    "mixed_reels": 2,
+    "split_athletes": 1,
+    "published": 12,
+    "published_correct": 9,
+    "published_wrong_identity": 1,
+    "published_nonride": 2,
+    "correct_reels_withheld": 0
+  }
+}
