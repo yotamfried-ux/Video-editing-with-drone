@@ -122,9 +122,11 @@ def _wrap_verify_multi_clusters(identity):
             if len(apps) < 2:
                 verified.append(cluster)
                 continue
-            if cluster.get("_visual_verified") is True:
-                verified.append(cluster)  # already confirmed on images
+            from pipeline import identity_evidence
+            if identity_evidence.covers(cluster):
+                verified.append(cluster)  # already confirmed on images for exactly these members
                 continue
+            cluster = identity_evidence.clear(dict(cluster))
             # Matching text descriptions used to mark a cluster "_visual_verified" here without showing the
             # verifier any image (run 43710581656: 0143 + 0152 passed the identity gate as
             # "visual_verified_per_source_tracks" on description agreement alone). Text agreement is a
@@ -151,16 +153,14 @@ def _wrap_verify_multi_clusters(identity):
                     content, request_options={"timeout": 60}
                 ).text.strip())
                 parsed = identity._parse_json_response(raw)
-                same_person = bool(parsed.get("same_person", not parsed.get("mismatched_indices")))
-                bad = {
-                    int(i) for i in parsed.get("mismatched_indices", [])
-                    if isinstance(i, (int, float)) and 0 <= int(i) < len(apps)
-                }
+                same_person, bad, verdict_problem = identity_evidence.parse_verifier_verdict(parsed, len(apps))
+                if verdict_problem:
+                    print(f"  [IDENTITY] verifier answer rejected ({verdict_problem}): cluster not confirmed")
 
                 if same_person and not bad:
                     # Positive visual confirmation: the real identity gate may keep these
                     # appearances in one reel (see pipeline.real_identity_gate).
-                    verified.append({**cluster, "_visual_verified": True})
+                    verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER))
                     continue
 
                 if not bad or len(bad) >= len(apps):

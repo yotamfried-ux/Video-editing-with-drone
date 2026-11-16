@@ -347,16 +347,47 @@ def mark_reprocess(req_id: str, status: str) -> None:
 
 REPROCESS_DONE = "done"
 REPROCESS_UNVERIFIED = "reprocessed_unverified"
+REPROCESS_CLOSE_NOT_APPLIED = "close_not_applied"
+REPROCESS_CLOSE_FAILED = "close_failed"
+REPROCESS_CLOSE_SKIPPED = "close_skipped_no_run_id"
 
 
-def close_reprocess_requests(outcomes: dict[str, bool]) -> dict[str, str]:
-    """Close exactly the reprocess requests this run consumed, each by its own result.
+def claim_reprocess(req_id: str, run_id: str | None = None) -> bool:
+    """Move one request from 'pending' to 'queued' for this run, atomically.
+
+    The update matches only while the row is still 'pending', so of two workers that fetched the same request
+    exactly one claims it; the other gets no row back and must not process it. The claiming run is recorded in
+    last_pipeline_run_id so only that run can close the request.
+    """
+    from datetime import datetime, timezone
+
+    if not req_id or not run_id:
+        # Without a run id the claim could never be tied to this run, so no run could later close it safely.
+        logger.warning("reprocess request %s not claimed: no PIPELINE_RUN_ID", req_id)
+        return False
+    payload: dict = {"status": "queued", "processed_at": datetime.now(timezone.utc).isoformat(),
+                     "last_pipeline_run_id": run_id}
+    try:
+        res = (_supabase().table("reprocess_requests").update(payload)
+               .eq("id", req_id).eq("status", "pending").execute())
+    except Exception as exc:
+        logger.warning("reprocess request %s not claimed: %s", req_id, exc)
+        return False
+    rows = getattr(res, "data", None) or []
+    return any(isinstance(r, dict) and str(r.get("id")) == str(req_id)
+               and str(r.get("last_pipeline_run_id")) == str(run_id) for r in rows)
+
+
+def close_reprocess_requests(outcomes: dict[str, bool], run_id: str | None = None) -> dict[str, str]:
+    """Close exactly the reprocess requests this run claimed, each by its own result.
 
     `outcomes` maps a request id to whether the run produced a publishable draft from that request's sources.
     A request whose re-edit did not pass is `reprocessed_unverified`, never `done`. Nothing else is touched.
 
-    Before this, every row with status 'queued' was set to 'done' whenever any run with a reprocess note
-    finished: requests of other runs, and requests whose re-edit failed QA, were closed as repaired.
+    A request is reported closed only when the update returned that very row, still owned by `run_id`. An update
+    that matched no row (already closed, claimed by another run, wrong id) is `close_not_applied`; a write error
+    is `close_failed`; without a run id nothing is written (`close_skipped_no_run_id`), because ownership could
+    not be checked.
     """
     from datetime import datetime, timezone
 
@@ -364,12 +395,28 @@ def close_reprocess_requests(outcomes: dict[str, bool]) -> dict[str, str]:
     for req_id, verified in (outcomes or {}).items():
         if not req_id:
             continue
+        if not run_id:
+            logger.warning("reprocess request %s not closed: no PIPELINE_RUN_ID", req_id)
+            written[req_id] = REPROCESS_CLOSE_SKIPPED
+            continue
         status = REPROCESS_DONE if verified is True else REPROCESS_UNVERIFIED
-        _supabase().table("reprocess_requests").update({
+        query = (_supabase().table("reprocess_requests").update({
             "status":       status,
             "processed_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", req_id).eq("status", "queued").execute()
-        written[req_id] = status
+        }).eq("id", req_id).eq("status", "queued").eq("last_pipeline_run_id", run_id))
+        try:
+            res = query.execute()
+        except Exception as exc:  # one failed write must not close or skip the others
+            logger.warning("reprocess request %s not closed: %s", req_id, exc)
+            written[req_id] = REPROCESS_CLOSE_FAILED
+            continue
+        rows = getattr(res, "data", None) or []
+        applied = any(isinstance(r, dict) and str(r.get("id")) == str(req_id)
+                      and str(r.get("last_pipeline_run_id")) == str(run_id)
+                      and r.get("status") == status for r in rows)
+        if not applied:
+            logger.warning("reprocess request %s not closed: no row of this run matched", req_id)
+        written[req_id] = status if applied else REPROCESS_CLOSE_NOT_APPLIED
     return written
 
 

@@ -667,6 +667,23 @@ def _resolve_specs_snapshot(
     return snapshot
 
 
+def _lineage_issues(events: list[dict[str, Any]]) -> list[str]:
+    """pipeline.event_identity.lineage_issues, loaded by file path when this module was itself loaded by path
+    (some callers import it without the repository on sys.path)."""
+    try:
+        from pipeline.event_identity import lineage_issues
+    except ModuleNotFoundError:
+        import importlib.util
+
+        spec = importlib.util.spec_from_file_location(
+            "_sportreel_event_identity", Path(__file__).with_name("event_identity.py"))
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        lineage_issues = module.lineage_issues
+    return lineage_issues(events)
+
+
 def record_athlete_outcome(
     *,
     sport: str,
@@ -690,6 +707,9 @@ def record_athlete_outcome(
         if _one_reel_per_athlete() and len(final_reels or []) == 1 and len(events) > 1:
             specs["single_reel_per_athlete"] = True
         issues = social_ready_issues(specs)
+        # Every published shot must name the event it came from (event_identity); none may be claimed twice.
+        issues = [*issues, *_lineage_issues(events)]
+        event_uids = [str(e.get("event_uid") or e.get("event_id")) for e in events if e.get("event_uid") or e.get("event_id")]
         qa_passed = path not in set(flagged_paths or set())
         if not qa_passed:
             issues = [*issues, "final_qa_failed"]
@@ -762,6 +782,7 @@ def record_athlete_outcome(
             "aspect": specs.get("aspect"),
             "has_audio": specs.get("has_audio") if isinstance(specs.get("has_audio"), bool) else None,
             "fps": specs.get("fps"),
+            "event_uids": event_uids,
             "media_specs_revision": _media_specs_revision(specs),
         })
         # The measured ffprobe values, in the run log and the manifest, so the delivery contract

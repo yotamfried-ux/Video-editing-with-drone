@@ -56,7 +56,9 @@ def _verified_single_track_per_source(cluster: dict[str, Any]) -> bool:
     """
     if os.getenv("SPORTREEL_MERGE_VERIFIED_CLUSTERS", "1").strip().lower() in {"0", "false", "no"}:
         return False
-    if cluster.get("_visual_verified") is not True:
+    # The proof, not an inherited flag: recorded image evidence must cover exactly the current members.
+    from pipeline import identity_evidence
+    if cluster.get("_visual_verified") is not True or not identity_evidence.covers(cluster):
         return False
     return all(len(_track_ids(app)) <= 1 for app in cluster.get("appearances", []) or [])
 
