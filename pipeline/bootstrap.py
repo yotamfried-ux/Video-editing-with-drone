@@ -192,3 +192,11 @@ def install_post_orchestrator_patches() -> None:
     from pipeline.draft_identity_metadata import install as install_draft_identity_metadata
 
     install_draft_identity_metadata()
+
+    # RC-09: measure what is actually installed - the effective wrapper chain of every safety-critical stage and an
+    # execution probe of the identity gate and the output qualification - write it as a run artifact, and refuse to
+    # process footage when a mandatory policy is not effective. Every entrypoint calls this function.
+    from pipeline.runtime_policy_registry import record_and_enforce
+
+    record_and_enforce()
+

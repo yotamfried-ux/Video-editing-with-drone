@@ -113,13 +113,19 @@ def assert_canonical_production_bootstrap() -> None:
         "pipeline.draft_identity_metadata",
     ]
     calls: list[str] = []
-    previous = {name: sys.modules.get(name) for name in [*expected_pre, *expected_post]}
+    # The registry measures the real installed stack (scripts/test_runtime_policy_registry_contract.py); with every
+    # installer faked here it is faked too, and must run last, after all installers.
+    registry_name = "pipeline.runtime_policy_registry"
+    previous = {name: sys.modules.get(name) for name in [*expected_pre, *expected_post, registry_name]}
+    registry = types.ModuleType(registry_name)
+    registry.record_and_enforce = lambda *a, **k: calls.append(registry_name)  # type: ignore[attr-defined]
     old_backend = os.environ.get("STORAGE_BACKEND")
     old_batch = os.environ.pop("RAW_BATCH_ID", None)
     os.environ["STORAGE_BACKEND"] = "drive"
     try:
         for name in [*expected_pre, *expected_post]:
             _fake_install_module(name, calls)
+        sys.modules[registry_name] = registry
         bootstrap.install_pre_orchestrator_patches()
         bootstrap.install_post_orchestrator_patches()
     finally:
@@ -134,7 +140,7 @@ def assert_canonical_production_bootstrap() -> None:
             os.environ["STORAGE_BACKEND"] = old_backend
         if old_batch is not None:
             os.environ["RAW_BATCH_ID"] = old_batch
-    if calls != [*expected_pre, *expected_post]:
+    if calls != [*expected_pre, *expected_post, registry_name]:
         raise AssertionError(f"actual bootstrap order diverged: {calls}")
 
 
