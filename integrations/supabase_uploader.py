@@ -345,14 +345,40 @@ def mark_reprocess(req_id: str, status: str) -> None:
     }).eq("id", req_id).execute()
 
 
-def close_queued_reprocess() -> None:
-    """Mark all 'queued' requests as done — called after a successful run that
-    consumed them (their sources were processed in this run)."""
+REPROCESS_DONE = "done"
+REPROCESS_UNVERIFIED = "reprocessed_unverified"
+
+
+def close_reprocess_requests(outcomes: dict[str, bool]) -> dict[str, str]:
+    """Close exactly the reprocess requests this run consumed, each by its own result.
+
+    `outcomes` maps a request id to whether the run produced a publishable draft from that request's sources.
+    A request whose re-edit did not pass is `reprocessed_unverified`, never `done`. Nothing else is touched.
+
+    Before this, every row with status 'queued' was set to 'done' whenever any run with a reprocess note
+    finished: requests of other runs, and requests whose re-edit failed QA, were closed as repaired.
+    """
     from datetime import datetime, timezone
-    _supabase().table("reprocess_requests").update({
-        "status":       "done",
-        "processed_at": datetime.now(timezone.utc).isoformat(),
-    }).eq("status", "queued").execute()
+
+    written: dict[str, str] = {}
+    for req_id, verified in (outcomes or {}).items():
+        if not req_id:
+            continue
+        status = REPROCESS_DONE if verified is True else REPROCESS_UNVERIFIED
+        _supabase().table("reprocess_requests").update({
+            "status":       status,
+            "processed_at": datetime.now(timezone.utc).isoformat(),
+        }).eq("id", req_id).eq("status", "queued").execute()
+        written[req_id] = status
+    return written
+
+
+def close_queued_reprocess(request_ids: list[str] | None = None) -> None:
+    """Kept for callers of the old name. Without ids it does nothing: a global close is never correct."""
+    if not request_ids:
+        logger.warning("close_queued_reprocess called without request ids: nothing closed")
+        return
+    close_reprocess_requests({req_id: False for req_id in request_ids})
 
 
 def write_pipeline_status(stage: str, progress: float, **meta) -> None:

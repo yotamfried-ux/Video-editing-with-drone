@@ -395,6 +395,36 @@ def _record_draft_sources(draft_name: str, sources: list[dict],
         logger.debug("Draft source recording skipped (non-critical): %s", e)
 
 
+# Requests this run re-queued, so the run closes exactly these and each by its own result.
+_QUEUED_REPROCESS: list[dict] = []
+
+
+def reprocess_outcomes(queued: list[dict], manifest: dict) -> dict[str, bool]:
+    """For each re-queued request: is its re-edit verified?
+
+    A source can hold several athletes, so "some publishable reel came from this source" proves nothing about
+    the athlete the request was about. A request is verified only when this run produced at least one reel from
+    its sources and **every** reel that uses any of them is publishable (final QA passed, no gate block). One
+    reel from those sources still blocked leaves the request unverified. This is stricter than naming the exact
+    athlete, which a request cannot do yet: athlete ids are re-derived on every run.
+    """
+    by_source: dict[str, list[bool]] = {}
+    for row in (manifest or {}).get("athletes", []) or []:
+        if not isinstance(row, dict):
+            continue
+        parts = [part for part in row.get("parts", []) or [] if isinstance(part, dict)]
+        ok = bool(row.get("primary_publishable_reel")) and bool(parts) and all(part.get("publishable") is True for part in parts)
+        for item in row.get("action_lineage") or []:
+            by_source.setdefault(os.path.basename(str(item).split("|", 1)[0]), []).append(ok)
+    outcomes: dict[str, bool] = {}
+    for req in queued or []:
+        if not req.get("id"):
+            continue
+        verdicts = [ok for name in req.get("sources") or [] for ok in by_source.get(os.path.basename(name), [])]
+        outcomes[str(req["id"])] = bool(verdicts) and all(verdicts)
+    return outcomes
+
+
 def _handle_reprocess_requests() -> list[str]:
     """Consume operator reprocess requests from Supabase.
 
@@ -434,6 +464,10 @@ def _handle_reprocess_requests() -> list[str]:
                 record_operator_note(key, notes)
                 note_keys.append(key)
             mark_reprocess(req_id, "queued")
+            _QUEUED_REPROCESS.append({
+                "id": req_id, "draft_name": draft_name,
+                "sources": sorted({str(src.get("name") or "") for src in sources if src.get("name")}),
+            })
         else:
             print(f"  ⚠️  '{draft_name}': source videos not found — cannot reprocess")
             mark_reprocess(req_id, "source_not_found")
@@ -884,10 +918,16 @@ def main() -> None:
         from pipeline.stages.feedback import clear_operator_note
         for key in reprocess_note_keys:
             clear_operator_note(key)
+    if _QUEUED_REPROCESS:
         try:
-            from integrations.supabase_uploader import close_queued_reprocess
-            close_queued_reprocess()
-        except Exception:
-            pass
+            from integrations.supabase_uploader import close_reprocess_requests
+            from pipeline.publishable_reel_policy import _read_manifest
+            written = close_reprocess_requests(reprocess_outcomes(_QUEUED_REPROCESS, _read_manifest()))
+            for req_id, status in written.items():
+                print(f"  🔁 reprocess request {req_id[:8]}: {status}")
+        except Exception as exc:
+            logger.warning("Reprocess requests were not closed: %s", exc)
+        finally:
+            _QUEUED_REPROCESS.clear()
 
     logger.info("Phase 1 complete. Videos: %d, Drafts: %d", len(new_videos), drafts)

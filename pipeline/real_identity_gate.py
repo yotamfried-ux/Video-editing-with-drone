@@ -34,6 +34,11 @@ def _stable_track(cluster: dict[str, Any]) -> str | None:
     apps = cluster.get("appearances", []) or []
     if len(apps) <= 1:
         return None
+    # Tracker ids are numbered per video. The same number in two different sources says nothing about the
+    # person (two surfers can both be "t7"), so a shared id is evidence only inside one source.
+    sources = {str(app.get("_clip_index", app.get("path")) or "") for app in apps}
+    if len(sources) != 1 or "" in sources:
+        return None
     per_app = [_track_ids(app) for app in apps]
     if not all(len(ids) == 1 for ids in per_app):
         return None
@@ -103,6 +108,8 @@ def enforce_identity_gate(clusters: list[dict[str, Any]]) -> list[dict[str, Any]
         track_sets = [_track_ids(app) for app in apps]
         if any(track_sets) and len(set().union(*track_sets)) > 1:
             reason = "conflicting_track_ids"
+        elif all(track_sets) and len({str(app.get("_clip_index", app.get("path")) or "") for app in apps}) > 1:
+            reason = "same_track_id_across_sources_is_not_evidence"
         if _one_reel_per_athlete():
             # Tracker ids are numbered per video, so cross-source ids never match ("conflicting" is the norm for a
             # multi-video athlete). Keep the identity clustering's athlete together as ONE reel and record that
