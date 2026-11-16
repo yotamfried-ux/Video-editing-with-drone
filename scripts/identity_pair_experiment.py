@@ -439,14 +439,15 @@ def main(argv: list[str] | None = None) -> int:
                 report.setdefault("source_tier", {})[sha[:12]] = found.split("/", 1)[0]
             if sha not in videos:
                 continue
+            meta: list[dict[str, Any]] = []
             try:
-                crops = appearance_crops(a, sidecars[sha], videos[sha], tmp, CROPS_M1)
+                crops = appearance_crops(a, sidecars[sha], videos[sha], tmp, CROPS_M1, meta)
             except Exception as exc:                      # one unreadable clip must not void the experiment
                 report.setdefault("crop_errors", []).append(f"{sha[:12]}#{a['track_id']}: {type(exc).__name__}")
                 continue
             if len(crops) >= 3:
                 media[i] = {"sheet6": _sheet(crops, 3), "sheet4": _sheet(crops[:: max(1, len(crops) // CROPS_M0)][:CROPS_M0], 2),
-                            "sig": color_signature(crops), "crops": len(crops)}
+                            "sig": color_signature(crops), "crops": len(crops), "quality": crop_quality(meta)}
         for i, m in media.items():
             report["appearances"][i]["crops"] = m["crops"]
             report["appearances"][i]["crop_quality"] = m["quality"]
