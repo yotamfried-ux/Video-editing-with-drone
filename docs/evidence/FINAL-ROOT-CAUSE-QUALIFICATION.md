@@ -24,7 +24,7 @@ was written; no pipeline was re-run.
 | **M5c** | **`done` ignored the request's own defect** | `reprocess_outcomes` | **Fixed here.** `done` needs reels from its sources, all publishable, and none still carrying a defect type the request was opened for (read from the existing `qa_defects` / `approval_blocked_reasons`) |
 | **M2e** | **A malformed verifier answer confirmed identity**: `same_person` defaulted to "no mismatches listed", so `{}` or a truncated answer stamped image evidence | `stages/identity._verify_multi_clusters`, `identity_failsafe.verify_multi_clusters` | **Fixed here** (review of PR #389). One strict parser, `identity_evidence.parse_verifier_verdict`: only `"same_person": true` (a JSON boolean) with no mismatched image confirms; a missing / non-boolean field, malformed or out-of-range indices, or `true` plus mismatches is rejected and handled as "could not confirm" |
 | **M5e** | **A closure that changed no row was reported as done** | `close_reprocess_requests`, `claim_reprocess` | **Fixed here** (review of PR #389). A status is reported only when the update returned that row, owned by this run, with the new status; otherwise `close_not_applied`. Without a run id nothing is claimed or closed (`close_skipped_no_run_id`); a failed claim write is not a claim |
-| M5d | No binding to one athlete and one output hash | table has no columns for it | **Blocked by approval.** `supabase/migrations/20261116_reprocess_repair_evidence.sql` is written, additive, not applied |
+| **M5d** | **No binding to one athlete and one output hash** | `upsert_qa_reedit_task`, `reprocess_outcomes`, `close_reprocess_requests` | **Fixed.** Migration `20261116_reprocess_repair_evidence.sql` applied to production with approval (5 nullable columns; row counts unchanged). A QA task stores the draft's actions (`target_athlete_key`, versioned JSON, since athlete ids are run-local) and its `content_sha256` (`original_output_sha256`). The repair run finds the athlete as the single row overlapping an original action on the same source (≥30 % of the shorter window) and closes `done` only when that athlete is publishable, free of the requested defect types, and its output hash differs; it writes `repair_attempt_id`, `repair_output_sha256`, `repair_verdict`. Unbound requests keep the source-wide rule, marked `source_wide_legacy` (`pipeline/reprocess_binding.py`, `scripts/test_reprocess_binding_contract.py`) |
 | M1 | Admission is the analyzer's word | `performance_reel_policy` | Typed verdict exists (#388); no independent action proof. See §9 |
 
 ## 3. Run comparison (43710581656 → 43816344303)
@@ -69,8 +69,11 @@ manifest; a reel missing one or repeating one is not publishable.
 
 Production backlog (read-only, 2026-11-16): 185 `qa_blocked` (all `attempt_count=0`), 13 `cancelled`,
 3 `source_not_found`, 1 `done`. Nothing was closed or changed. Requests now: claimed atomically, closed only by
-their run, `done` only against their own defect. Remaining gap: no output-hash/athlete binding (M5d); a request
-whose closing write fails stays `queued` and is not re-fetched (only `pending` is fetched) — it needs an
+their run, `done` only against their own defect and, for tasks the QA gate creates from now on, only for their own
+athlete and a changed output (M5d); every closure records its verdict in `repair_verdict`. Limits: the 202 existing
+rows have no binding and keep the source-wide rule; operator requests created outside the QA gate have none either;
+two athletes acting in the same window of one source make the match ambiguous, so the request stays unverified. A
+request whose closing write fails stays `queued` and is not re-fetched (only `pending` is fetched) — it needs an
 operator retry, which the operator API provides.
 
 ## 7. Publication-gate bypass
@@ -128,4 +131,29 @@ No filename or catalog label is added to inference.
   regression-protected through the production wrappers.
 - Release: **BLOCKED_BY_VISUAL_EVIDENCE** — 0143 + 0152 (published, two GT athletes), 0095 and 0108 (published,
   GT excludes) need adjudication on video.
-- Release: **BLOCKED_BY_EXTERNAL_APPROVAL** — the repair-evidence migration (M5d), and the controlled run itself.
+- Release: **BLOCKED_BY_EXTERNAL_APPROVAL** — the controlled run itself. (The repair-evidence migration, M5d, was
+  approved and applied on 2026-11-16; its code is in place.)
+
+## 12. Full remediation mandate (PR #390, 2026-11-16)
+
+Traceability for RC-01…RC-10, T01…T15 and GATE-A…H: `docs/evidence/FULL-PIPELINE-IMPLEMENTATION-AUDIT.md`.
+Baseline and case evidence: `docs/evidence/CONTROLLED-E2E-QUALIFICATION-REPORT.md`. Blockers:
+`docs/plans/REMAINING-BLOCKERS.md`.
+
+Defects of the first PR #390 head (`19aa3d7`), each reproduced against that commit before the fix (`881cb57`):
+
+| Defect | Reproduction on `19aa3d7` | Fix |
+|---|---|---|
+| P0-A invalid binding → legacy `done` | `target_athlete_key="athlete_A"` → basis `source_wide_legacy`, verified **True** | explicit binding modes; only a valid binding can be `done`; legacy → manual reconciliation |
+| P0-B overlap-only matching | another actor's longer action (5–20 s) matched a short original (10–12 s): verified **True** | same source content (sha256) + STRONG/MEDIUM links, track contradictions, ambiguity |
+| P0-B name-only matching | same file name, different content: verified **True** | content-addressed source reference required |
+| P1-C stale binding | `upsert_qa_reedit_task` skipped empty binding columns (kept the old revision's) | binding or explicit marker always written, CAS on `qa_blocked` |
+| P1-D hash proof | any non-original string (e.g. specs digest) accepted as repaired output: verified **True** | `content_sha256_kind="bytes"` required on the linked part, plus QA PASS and publishable |
+| P1-E stale queued | no recovery path | `recover_stale_reprocess` (pending/failed_max_attempts under CAS) |
+
+## 13. Verdict (supersedes §11)
+
+- **NOT_READY.** Every code-verifiable requirement of RC-01…RC-10 is implemented and covered by red/green contracts
+  through production functions or the real bootstrap; all T01…T15 contracts pass on the final commit
+  (`scripts/run_release_matrix.py`). No real video has been processed by this code: GATE-A/C/G wait for an approved
+  controlled run, GATE-B/D for visual adjudication, GATE-E/F/H for runtime evidence. PR #390 stays a draft.

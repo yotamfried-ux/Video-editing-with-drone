@@ -164,9 +164,11 @@ def main() -> int:
               {"id": "req-no-output", "sources": ["DJI_0999_D.MP4"]}]
     manifest = {"athletes": [row("DJI_0112_D.MP4", True), row("DJI_0151_D.MP4", False),
                              row("DJI_0094_D.MP4", True), row("DJI_0094_D.MP4", False)]}
-    outcomes = orchestrator.reprocess_outcomes(queued, manifest)
-    if outcomes != {"req-pass": True, "req-fail": False, "req-shared": False, "req-no-output": False}:
-        raise SystemExit(f"a request is verified only when every reel from its sources is publishable: {outcomes}")
+    # Unbound (historical) requests are never closed as done automatically, even when every reel from their
+    # sources is publishable: they go to manual reconciliation (pipeline.reprocess_binding, PR #390 review).
+    verdicts = orchestrator.reprocess_verdicts(queued, manifest)
+    if any(v["verified"] or v["reason"] != "legacy_manual_reconciliation_required" for v in verdicts.values()):
+        raise SystemExit(f"an unbound request must never close as done: {verdicts}")
     outcomes = {"req-pass": True, "req-fail": False}
 
     updates: list[tuple[dict, list[tuple[str, str]]]] = []

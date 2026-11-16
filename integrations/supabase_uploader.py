@@ -1,6 +1,7 @@
 """Supabase integration — publish reels and track pipeline status."""
 
 import logging
+from typing import Any
 from pathlib import Path
 from secrets import token_urlsafe
 from uuid import uuid4
@@ -286,7 +287,8 @@ def _active_reedit_task(draft_name: str) -> dict | None:
     return None
 
 
-def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int = 3) -> None:
+def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int = 3,
+                          binding: dict | None = None) -> None:
     """Create or refresh an operator-visible QA re-edit task for a blocked draft.
 
     The task starts as status='qa_blocked'. It is intentionally not consumed by
@@ -310,12 +312,31 @@ def upsert_qa_reedit_task(draft_name: str, qa_gate: dict, *, max_attempts: int =
         "approval_blocked_reasons": [str(item) for item in reasons if str(item).strip()],
         "max_attempts": max_attempts,
     }
+    # Athlete and output binding (pipeline.reprocess_binding). Always written - a valid binding or an explicit
+    # `binding_missing` marker - so a refreshed task can never keep the binding of an earlier output revision.
+    if not (binding or {}).get("target_athlete_key"):
+        from pipeline.reprocess_binding import missing_marker
+        binding = missing_marker(draft_name, "binding_not_supplied")
+    payload["target_athlete_key"] = binding["target_athlete_key"]
+    payload["original_output_sha256"] = binding.get("original_output_sha256") or None
     existing = _active_reedit_task(draft_name)
     if existing:
         if existing.get("status") == "qa_blocked":
-            _supabase().table("reprocess_requests").update(payload).eq("id", existing["id"]).execute()
+            # Compare-and-swap: refresh only while the task is still qa_blocked (not promoted meanwhile).
+            (_supabase().table("reprocess_requests").update(payload)
+             .eq("id", existing["id"]).eq("status", "qa_blocked").execute())
         return
-    _supabase().table("reprocess_requests").insert(payload).execute()
+    try:
+        _supabase().table("reprocess_requests").insert(payload).execute()
+    except Exception as exc:
+        # reprocess_requests_active_qa_block_idx allows one active task per draft: a concurrent writer won.
+        # Refresh that task under the same compare-and-swap instead of failing or duplicating it.
+        if "duplicate" not in str(exc).lower() and "23505" not in str(exc):
+            raise
+        existing = _active_reedit_task(draft_name)
+        if existing and existing.get("status") == "qa_blocked":
+            (_supabase().table("reprocess_requests").update(payload)
+             .eq("id", existing["id"]).eq("status", "qa_blocked").execute())
 
 
 def fetch_recent_draft_feedback(limit: int = 500) -> list[dict]:
@@ -365,6 +386,8 @@ def claim_reprocess(req_id: str, run_id: str | None = None) -> bool:
         # Without a run id the claim could never be tied to this run, so no run could later close it safely.
         logger.warning("reprocess request %s not claimed: no PIPELINE_RUN_ID", req_id)
         return False
+    from pipeline.repair_lifecycle import check_transition
+    check_transition("pending", "queued")
     payload: dict = {"status": "queued", "processed_at": datetime.now(timezone.utc).isoformat(),
                      "last_pipeline_run_id": run_id}
     try:
@@ -378,11 +401,13 @@ def claim_reprocess(req_id: str, run_id: str | None = None) -> bool:
                and str(r.get("last_pipeline_run_id")) == str(run_id) for r in rows)
 
 
-def close_reprocess_requests(outcomes: dict[str, bool], run_id: str | None = None) -> dict[str, str]:
+def close_reprocess_requests(outcomes: dict[str, Any], run_id: str | None = None) -> dict[str, str]:
     """Close exactly the reprocess requests this run claimed, each by its own result.
 
-    `outcomes` maps a request id to whether the run produced a publishable draft from that request's sources.
-    A request whose re-edit did not pass is `reprocessed_unverified`, never `done`. Nothing else is touched.
+    `outcomes` maps a request id to its repair verdict (`pipeline.reprocess_binding.judge`: a dict with
+    `verified`, `repair_output_sha256`, ...) or, for older callers, to a bare bool. A request whose re-edit did
+    not pass is `reprocessed_unverified`, never `done`. With a verdict, the same update records the repair
+    evidence: `repair_attempt_id` (this run), `repair_output_sha256` and `repair_verdict`.
 
     A request is reported closed only when the update returned that very row, still owned by `run_id`. An update
     that matched no row (already closed, claimed by another run, wrong id) is `close_not_applied`; a write error
@@ -392,18 +417,25 @@ def close_reprocess_requests(outcomes: dict[str, bool], run_id: str | None = Non
     from datetime import datetime, timezone
 
     written: dict[str, str] = {}
-    for req_id, verified in (outcomes or {}).items():
+    for req_id, outcome in (outcomes or {}).items():
         if not req_id:
             continue
         if not run_id:
             logger.warning("reprocess request %s not closed: no PIPELINE_RUN_ID", req_id)
             written[req_id] = REPROCESS_CLOSE_SKIPPED
             continue
-        status = REPROCESS_DONE if verified is True else REPROCESS_UNVERIFIED
-        query = (_supabase().table("reprocess_requests").update({
-            "status":       status,
-            "processed_at": datetime.now(timezone.utc).isoformat(),
-        }).eq("id", req_id).eq("status", "queued").eq("last_pipeline_run_id", run_id))
+        verdict = outcome if isinstance(outcome, dict) else None
+        verified = (verdict.get("verified") if verdict is not None else outcome) is True
+        status = REPROCESS_DONE if verified else REPROCESS_UNVERIFIED
+        from pipeline.repair_lifecycle import check_transition
+        check_transition("queued", status)
+        payload: dict[str, Any] = {"status": status, "processed_at": datetime.now(timezone.utc).isoformat()}
+        if verdict is not None:
+            payload["repair_attempt_id"] = run_id
+            payload["repair_output_sha256"] = verdict.get("repair_output_sha256") or None
+            payload["repair_verdict"] = verdict
+        query = (_supabase().table("reprocess_requests").update(payload)
+                 .eq("id", req_id).eq("status", "queued").eq("last_pipeline_run_id", run_id))
         try:
             res = query.execute()
         except Exception as exc:  # one failed write must not close or skip the others
@@ -418,6 +450,84 @@ def close_reprocess_requests(outcomes: dict[str, bool], run_id: str | None = Non
             logger.warning("reprocess request %s not closed: no row of this run matched", req_id)
         written[req_id] = status if applied else REPROCESS_CLOSE_NOT_APPLIED
     return written
+
+
+REPROCESS_STALE_LEASE_HOURS = 6
+_TERMINAL_RUN_STATUSES = {"succeeded", "failed", "no_input", "no_reviewable_drafts", "dispatch_failed", "cancelled"}
+
+
+def recover_stale_reprocess(current_run_id: str | None, *, now=None) -> dict[str, str]:
+    """Return requests a crashed or finished run left `queued` to a durable state; report each by id.
+
+    A request stays `queued` when its claiming run died after the claim (before or after rendering) or failed
+    to write its closure. It is recovered only when that run is provably over: its pipeline_runs row is
+    terminal, absent, or silent for longer than the lease. Under compare-and-swap on (id, queued, owner):
+    back to `pending` while attempts remain (counted here), else `failed_max_attempts`. The reason and the old
+    owner are recorded in repair_verdict. Requests of a live run, and of this run, are not touched.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    now = now or datetime.now(timezone.utc)
+    report: dict[str, str] = {}
+    try:
+        rows = (_supabase().table("reprocess_requests")
+                .select("id,status,attempt_count,max_attempts,last_pipeline_run_id")
+                .eq("status", "queued").execute().data or [])
+    except Exception as exc:
+        logger.warning("stale reprocess recovery skipped: %s", exc)
+        return report
+    for row in rows:
+        req_id, owner = row.get("id"), row.get("last_pipeline_run_id")
+        if not req_id or (current_run_id and str(owner) == str(current_run_id)):
+            continue
+        run = None
+        if owner:
+            try:
+                found = (_supabase().table("pipeline_runs").select("id,status,updated_at")
+                         .eq("id", owner).limit(1).execute().data or [])
+                run = found[0] if found else None
+            except Exception as exc:
+                logger.warning("stale reprocess %s: owner run lookup failed: %s", req_id, exc)
+                report[str(req_id)] = "owner_unknown_skipped"
+                continue
+        status = str((run or {}).get("status") or "")
+        updated = (run or {}).get("updated_at")
+        try:
+            silent = bool(updated) and now - datetime.fromisoformat(str(updated).replace("Z", "+00:00")) > timedelta(
+                hours=REPROCESS_STALE_LEASE_HOURS)
+        except ValueError:
+            silent = False
+        if run is not None and status not in _TERMINAL_RUN_STATUSES and not silent:
+            report[str(req_id)] = "owner_still_running"
+            continue
+        attempts = int(row.get("attempt_count") or 0)
+        limit = int(row.get("max_attempts") or 3)
+        target = "pending" if attempts < limit else "failed_max_attempts"
+        from pipeline.repair_lifecycle import check_transition
+        check_transition("queued", target)
+        payload = {
+            "status": target,
+            "processed_at": now.isoformat(),
+            "repair_verdict": {"verified": False, "reason": "claiming_run_ended_without_closure",
+                               "previous_run_id": owner, "previous_run_status": status or None,
+                               "previous_run_silent": silent, "recovered_by_run_id": current_run_id,
+                               "checked_at": now.isoformat()},
+        }
+        if target == "pending":
+            payload["attempt_count"] = attempts + 1
+        query = (_supabase().table("reprocess_requests").update(payload)
+                 .eq("id", req_id).eq("status", "queued"))
+        query = query.eq("last_pipeline_run_id", owner) if owner else query
+        try:
+            res = query.execute()
+        except Exception as exc:
+            logger.warning("stale reprocess %s not recovered: %s", req_id, exc)
+            report[str(req_id)] = REPROCESS_CLOSE_FAILED
+            continue
+        applied = any(isinstance(r, dict) and str(r.get("id")) == str(req_id) and r.get("status") == target
+                      for r in (getattr(res, "data", None) or []))
+        report[str(req_id)] = target if applied else REPROCESS_CLOSE_NOT_APPLIED
+    return report
 
 
 def close_queued_reprocess(request_ids: list[str] | None = None) -> None:

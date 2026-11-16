@@ -476,7 +476,10 @@ def _patch_prompt_and_filters() -> None:
 
             for person in rescue_missed_moments(video_path, hardened_people, candidates, detections or [], activity):
                 events = [e for e in (runtime_quality._normalize_event_crop(ev) for ev in person["events"]) if e]
-                if not events or not any(keep_event_for_performance_reel(e, activity) for e in events):
+                # Each rescued event passes the same admission on its own (one eligible event used to carry any
+                # ineligible sibling through).
+                events = [e for e in events if keep_event_for_performance_reel(e, activity)]
+                if not events:
                     continue
                 hardened_people.append(runtime_quality.attach_identity_image(
                     video_path, {**person, "events": events}, detections or []))

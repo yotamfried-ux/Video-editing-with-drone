@@ -51,6 +51,20 @@ on:
       - 'scripts/test_retention_metrics_contract.py'
       - 'scripts/test_root_cause_fixes_contract.py'
       - 'scripts/test_release_safety_invariants_contract.py'
+      - 'scripts/test_reprocess_binding_contract.py'
+      - 'scripts/test_output_qualification_contract.py'
+      - 'scripts/_qualification_fixture.py'
+      - 'pipeline/output_qualification.py'
+      - 'pipeline/runtime_policy_registry.py'
+      - 'pipeline/bootstrap.py'
+      - 'scripts/write_batch_qualification.py'
+      - 'scripts/test_batch_qualification_contract.py'
+      - 'scripts/test_runtime_policy_registry_contract.py'
+      - 'pipeline/repair_lifecycle.py'
+      - 'scripts/test_repair_lifecycle_contract.py'
+      - 'scripts/gt_evidence_levels.py'
+      - 'scripts/test_gt_evidence_levels_contract.py'
+      - 'pipeline/reprocess_binding.py'
       - 'scripts/test_gt_review_package_contract.py'
       - 'scripts/build_gt_review_package.py'
       - 'pipeline/identity_evidence.py'
@@ -277,6 +291,30 @@ jobs:
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_release_safety_invariants_contract.py
+      - name: Reprocess requests are bound to one athlete and one output
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_reprocess_binding_contract.py
+      - name: Output qualification (typed eligibility, actor intervals, identity proof, lineage)
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_output_qualification_contract.py
+      - name: Batch qualification separates execution from product state
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_batch_qualification_contract.py
+      - name: Runtime policy registry (real bootstrap, execution probes, fail-closed)
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_runtime_policy_registry_contract.py
+      - name: QA repair lifecycle state machine
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_repair_lifecycle_contract.py
+      - name: GT evidence levels (no tracker-accuracy claim from unattributed boxes)
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_gt_evidence_levels_contract.py
       - name: GT review package classifies disagreements offline
         env:
           PYTHONPATH: scripts:.

@@ -475,6 +475,12 @@ def _refresh_row_publishability(row: dict[str, Any]) -> None:
         )
         publishable = ready and uploaded and not part.get("upload_error") and authority_ok and qa_ok
         part["publishable"] = publishable
+        # The qualification object re-derives publishability from the evidence; a part without qualification
+        # inputs (or with any failed requirement) is never publishable.
+        qualification = _load_sibling("output_qualification", "output_qualification.py").finalize(row, part)
+        part["output_qualification"] = qualification
+        publishable = publishable and qualification["publishable"] is True
+        part["publishable"] = publishable
         if publishable and part.get("review_draft_name"):
             publishable_names.append(str(part["review_draft_name"]))
     row["primary_publishable_reel"] = publishable_names[0] if publishable_names else None
@@ -667,6 +673,24 @@ def _resolve_specs_snapshot(
     return snapshot
 
 
+def _load_sibling(module_name: str, file_name: str):
+    """Import a pipeline module, also when this file was loaded by path without the package on sys.path."""
+    try:
+        import importlib
+        return importlib.import_module(f"pipeline.{module_name}")
+    except ModuleNotFoundError:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(f"_sportreel_{module_name}", Path(__file__).with_name(file_name))
+        module = importlib.util.module_from_spec(spec)
+        assert spec.loader is not None
+        spec.loader.exec_module(module)
+        return module
+
+
+def _qualification_inputs(events: list[dict[str, Any]], sport: str) -> dict[str, Any]:
+    return _load_sibling("output_qualification", "output_qualification.py").build_inputs(events, sport)
+
+
 def _lineage_issues(events: list[dict[str, Any]]) -> list[str]:
     """pipeline.event_identity.lineage_issues, loaded by file path when this module was itself loaded by path
     (some callers import it without the repository on sys.path)."""
@@ -682,6 +706,30 @@ def _lineage_issues(events: list[dict[str, Any]]) -> list[str]:
         spec.loader.exec_module(module)
         lineage_issues = module.lineage_issues
     return lineage_issues(events)
+
+
+def _action_evidence(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Per shot: what identifies the action independently of run-local athlete ids.
+
+    The event id, the source (name and content reference, `sha256:<hex>` when the file was readable), the
+    analyzer window, the action type and the source-local tracker id of the target actor.
+    """
+    out: list[dict[str, Any]] = []
+    for event in events or []:
+        if not isinstance(event, dict) or event.get("_teaser"):
+            continue
+        source, start, end, event_type = _event_identity(event)
+        track = event.get("target_track_id") or event.get("primary_track_id") or event.get("track_id")
+        out.append({
+            "event_uid": str(event.get("event_uid") or event.get("event_id") or "") or None,
+            "source": os.path.basename(source) or None,
+            "source_ref": str(event.get("event_source_ref") or "") or None,
+            "start": start,
+            "end": end,
+            "type": event_type or None,
+            "track": str(track) if track not in (None, "") else None,
+        })
+    return out
 
 
 def record_athlete_outcome(
@@ -709,6 +757,10 @@ def record_athlete_outcome(
         issues = social_ready_issues(specs)
         # Every published shot must name the event it came from (event_identity); none may be claimed twice.
         issues = [*issues, *_lineage_issues(events)]
+        # Output qualification (pipeline.output_qualification): typed action eligibility, actor-safe windows,
+        # identity verdict and lineage. Every failed requirement is a technical issue, so it withholds the part.
+        qualification_inputs = _qualification_inputs(events, sport)
+        issues = list(dict.fromkeys([*issues, *qualification_inputs["issues"]]))
         event_uids = [str(e.get("event_uid") or e.get("event_id")) for e in events if e.get("event_uid") or e.get("event_id")]
         qa_passed = path not in set(flagged_paths or set())
         if not qa_passed:
@@ -740,6 +792,9 @@ def record_athlete_outcome(
                 content_sha256 = h.hexdigest()
         except Exception:
             pass
+        # The kind says what the hash proves: "bytes" is SHA-256 of the rendered file; "specs_digest" is only a
+        # digest of its media specs (file unreadable) and proves nothing about the video content.
+        content_sha256_kind = "bytes" if content_sha256 else "specs_digest"
         if not content_sha256:
             content_sha256 = _media_specs_revision(specs)
 
@@ -755,6 +810,9 @@ def record_athlete_outcome(
             "athlete_id": athlete_id,
             "run_id": run_id,
             "content_sha256": content_sha256,
+            "content_sha256_kind": content_sha256_kind,
+            "qualification_inputs": qualification_inputs,
+            "action_evidence": _action_evidence(events),
             "state": part_state,
             "attempts": 1,
             "attempt_history": [

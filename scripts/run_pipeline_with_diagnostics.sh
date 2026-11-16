@@ -209,6 +209,13 @@ if [ "$STATUS" -eq 0 ] && [ "$BUSINESS_GATE_STATUS" -eq 0 ] && [ -f "$PUBLISHABL
   python scripts/record_publishable_business_gate_status.py "$PUBLISHABLE_GATE_RESULT_FILE" || true
 fi
 
+# Execution success and product success, kept apart (RC-07): batch_qualification.json in the diagnostics, and the
+# verdict merged into the run row meta so the operator app never shows a partial batch as complete. Observational:
+# it never changes the exit code. A frozen-GT evaluation is attached when SPORTREEL_GT_EVAL_FILE points to one.
+python scripts/write_batch_qualification.py --manifest "$PUBLISHABLE_MANIFEST_FILE" \
+  --coverage "$ATHLETE_COVERAGE_FILE" ${SPORTREEL_GT_EVAL_FILE:+--gt-eval "$SPORTREEL_GT_EVAL_FILE"} \
+  --exit-code "$STATUS" --out "$DEBUG_DIR/batch_qualification.json" --record || true
+
 # Preserve the original processing failure as the primary exit code. When the
 # renderer itself succeeded, the athlete-level business gate becomes the final
 # production result instead of allowing incomplete coverage to appear green.

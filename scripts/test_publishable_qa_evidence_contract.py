@@ -16,6 +16,8 @@ import pipeline.publishable_pending_scope as pending_scope
 import pipeline.publishable_qa_evidence as evidence
 import pipeline.publishable_reel_policy as policy
 import pipeline.silent_output_policy as silent
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from _qualification_fixture import qualify_map  # noqa: E402
 
 EVIDENCE_PATH = ROOT / "pipeline/publishable_qa_evidence.py"
 PENDING_SCOPE_PATH = ROOT / "pipeline/publishable_pending_scope.py"
@@ -87,7 +89,7 @@ def main() -> int:
             sport="football",
             athlete_label="player #7 in red",
             final_reels=[reel],
-            events_by_reel={reel: [event()]},
+            events_by_reel=qualify_map({reel: [event()]}),
             flagged_paths=set(),
             specs_getter=lambda _path: specs(),
         )

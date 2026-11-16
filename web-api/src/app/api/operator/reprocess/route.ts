@@ -48,13 +48,38 @@ export async function GET(req: NextRequest) {
   if (!requireOperator(req)) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
-  const { data, error } = await supabaseAdmin
+  // Default: the 20 newest rows (unchanged). Optional paging over the whole backlog (RC-06): ?limit=1..100,
+  // ?offset=N, ?status=qa_blocked,pending,... and ?summary=1 for counts per status across every row.
+  const params = req.nextUrl.searchParams;
+  const limit = Math.min(Math.max(parseInt(params.get('limit') ?? '20', 10) || 20, 1), 100);
+  const offset = Math.max(parseInt(params.get('offset') ?? '0', 10) || 0, 0);
+  const statuses = (params.get('status') ?? '').split(',').map((s) => s.trim()).filter(Boolean);
+  let query = supabaseAdmin
     .from('reprocess_requests')
-    .select('id, draft_name, notes, status, origin, qa_defects, approval_blocked_reasons, attempt_count, max_attempts, last_pipeline_run_id, created_at, processed_at')
+    .select('id, draft_name, notes, status, origin, qa_defects, approval_blocked_reasons, attempt_count, max_attempts, last_pipeline_run_id, created_at, processed_at, repair_attempt_id, repair_output_sha256, repair_verdict', { count: 'exact' })
     .order('created_at', { ascending: false })
-    .limit(20);
+    .range(offset, offset + limit - 1);
+  if (statuses.length) query = query.in('status', statuses);
+  const { data, error, count } = await query;
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  return NextResponse.json<ReprocessListResponse>({ requests: (data ?? []) as ReprocessRow[] });
+  const response: ReprocessListResponse = {
+    requests: (data ?? []) as ReprocessRow[],
+    page: { limit, offset, total: count ?? null },
+  };
+  if (params.get('summary') === '1') {
+    const { data: all, error: summaryError } = await supabaseAdmin
+      .from('reprocess_requests').select('status, attempt_count').range(0, 9999);
+    if (summaryError) return NextResponse.json({ error: summaryError.message }, { status: 500 });
+    const byStatus: Record<string, number> = {};
+    let neverAttempted = 0;
+    for (const row of all ?? []) {
+      const key = String((row as { status?: string }).status ?? 'unknown');
+      byStatus[key] = (byStatus[key] ?? 0) + 1;
+      if (key === 'qa_blocked' && !Number((row as { attempt_count?: number }).attempt_count ?? 0)) neverAttempted += 1;
+    }
+    response.summary = { total: (all ?? []).length, by_status: byStatus, qa_blocked_never_attempted: neverAttempted };
+  }
+  return NextResponse.json<ReprocessListResponse>(response);
 }
 
 // POST /api/operator/reprocess — operator sends a reel back for re-editing.
@@ -185,6 +210,9 @@ export async function POST(req: NextRequest) {
         origin: 'operator',
         attempt_count: 1,
         max_attempts: 3,
+        // No athlete/output evidence is available here: record that explicitly so the pipeline never treats
+        // this new request as a historical (legacy) row. It cannot be closed as `done` automatically.
+        target_athlete_key: JSON.stringify({ v: 2, mode: 'binding_missing', reason: 'operator_request_without_output_evidence', draft_name: draftName }),
       })
       .select('id')
       .single();

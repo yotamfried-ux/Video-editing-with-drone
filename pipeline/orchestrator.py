@@ -414,44 +414,25 @@ def _request_defect_types(req: dict) -> list[str]:
 
 
 def _part_defect_types(part: dict) -> set[str]:
-    codes = {str(d.get("type")).upper() for d in part.get("qa_defects") or [] if isinstance(d, dict) and d.get("type")}
-    for reason in [*(part.get("qa_gate_block_reasons") or []), *(part.get("technical_issues") or [])]:
-        codes.add(str(reason).split(":", 1)[0].strip().upper())
-    return codes
+    from pipeline.reprocess_binding import part_defect_types
+    return part_defect_types(part)
+
+
+def reprocess_verdicts(queued: list[dict], manifest: dict) -> dict[str, dict]:
+    """For each re-queued request: its repair verdict (pipeline.reprocess_binding.judge).
+
+    A request bound to an athlete and an output (`target_athlete_key`, `original_output_sha256`) is `done` only
+    when that athlete, found in this run by overlap with the original actions, has a publishable reel without the
+    request's defect types and with a different content hash. A request without a binding keeps the conservative
+    rule: every reel from its sources publishable and none still carrying a requested defect type.
+    """
+    from pipeline.reprocess_binding import judge
+    return {str(req["id"]): judge(req, manifest) for req in queued or [] if req.get("id")}
 
 
 def reprocess_outcomes(queued: list[dict], manifest: dict) -> dict[str, bool]:
-    """For each re-queued request: is its re-edit verified?
-
-    A source can hold several athletes and a request carries no athlete id, so the rule is conservative:
-    verified only when this run produced reels from the request's sources, **every** reel using any of them is
-    publishable (final QA passed, no gate block), and none of those reels still carries a defect type the
-    request was opened for. Anything less is `reprocessed_unverified`. Binding to one athlete and one output
-    hash needs columns the table does not have (see supabase/migrations/*_reprocess_repair_evidence.sql).
-    """
-    by_source: dict[str, list[tuple[bool, set[str]]]] = {}
-    for row in (manifest or {}).get("athletes", []) or []:
-        if not isinstance(row, dict):
-            continue
-        parts = [part for part in row.get("parts", []) or [] if isinstance(part, dict)]
-        ok = bool(row.get("primary_publishable_reel")) and bool(parts) and all(part.get("publishable") is True for part in parts)
-        defects: set[str] = set()
-        for part in parts:
-            defects |= _part_defect_types(part)
-        for item in row.get("action_lineage") or []:
-            by_source.setdefault(os.path.basename(str(item).split("|", 1)[0]), []).append((ok, defects))
-    outcomes: dict[str, bool] = {}
-    for req in queued or []:
-        if not req.get("id"):
-            continue
-        wanted = {str(code).upper() for code in req.get("defect_types") or []}
-        rows = [entry for name in req.get("sources") or [] for entry in by_source.get(os.path.basename(name), [])]
-        outcomes[str(req["id"])] = (
-            bool(rows)
-            and all(ok for ok, _ in rows)
-            and not any(wanted & defects for _, defects in rows)
-        )
-    return outcomes
+    """`reprocess_verdicts` reduced to verified / not verified."""
+    return {req_id: verdict["verified"] is True for req_id, verdict in reprocess_verdicts(queued, manifest).items()}
 
 
 def _handle_reprocess_requests() -> list[str]:
@@ -466,7 +447,12 @@ def _handle_reprocess_requests() -> list[str]:
         from integrations.supabase_uploader import (claim_reprocess,
                                                     fetch_pending_reprocess,
                                                     lookup_draft_sources,
-                                                    mark_reprocess)
+                                                    mark_reprocess,
+                                                    recover_stale_reprocess)
+        # Requests a crashed or finished run left `queued` go back to `pending` (bounded by max_attempts) or to
+        # `failed_max_attempts`, before this run looks for work.
+        for req_id, state in recover_stale_reprocess(os.getenv("PIPELINE_RUN_ID") or None).items():
+            print(f"  🔁 stale reprocess request {str(req_id)[:8]}: {state}")
         requests = fetch_pending_reprocess()
     except Exception as e:
         logger.debug("Reprocess check skipped: %s", e)
@@ -501,6 +487,8 @@ def _handle_reprocess_requests() -> list[str]:
                 "id": req_id, "draft_name": draft_name,
                 "sources": sorted({str(src.get("name") or "") for src in sources if src.get("name")}),
                 "defect_types": _request_defect_types(req),
+                "target_athlete_key": req.get("target_athlete_key"),
+                "original_output_sha256": req.get("original_output_sha256"),
             })
         else:
             print(f"  ⚠️  '{draft_name}': source videos not found — cannot reprocess")
@@ -956,7 +944,7 @@ def main() -> None:
         try:
             from integrations.supabase_uploader import close_reprocess_requests
             from pipeline.publishable_reel_policy import _read_manifest
-            written = close_reprocess_requests(reprocess_outcomes(_QUEUED_REPROCESS, _read_manifest()),
+            written = close_reprocess_requests(reprocess_verdicts(_QUEUED_REPROCESS, _read_manifest()),
                                                os.getenv("PIPELINE_RUN_ID") or None)
             for req_id, status in written.items():
                 print(f"  🔁 reprocess request {req_id[:8]}: {status}")

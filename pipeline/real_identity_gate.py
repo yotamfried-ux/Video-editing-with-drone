@@ -68,9 +68,13 @@ def _one_reel_per_athlete() -> bool:
 
 
 def _identity_gate(reason: str, decision: str, cluster: dict[str, Any], app: dict[str, Any]) -> dict[str, Any]:
+    evidence = cluster.get("_identity_evidence") if isinstance(cluster.get("_identity_evidence"), dict) else {}
     return {
         "decision": decision,
         "reason": reason,
+        # The image evidence a pass rests on (pipeline.identity_evidence); carried to the output qualification.
+        "evidence_digest": evidence.get("evidence_digest") if decision == "pass" else None,
+        "evidence_method": evidence.get("method") if decision == "pass" else None,
         "cluster_description": cluster.get("description", "unknown athlete"),
         "cluster_appearance_count": len(cluster.get("appearances", []) or []),
         "appearance": _appearance_summary(app),

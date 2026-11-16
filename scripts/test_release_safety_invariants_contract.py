@@ -22,8 +22,8 @@ Reprocess lifecycle
  R2  A request closes only under the run that claimed it; a failed write closes nothing else.
  R4  A closure is reported only when the update returned that row owned by this run: an update matching zero
      rows is `close_not_applied`, and without a run id nothing is claimed or closed.
- R3  `done` needs every reel from its sources publishable and none still carrying the request's defect type;
-     an unrelated publishable reel or a repaired co-athlete does not close it.
+ R3  An unbound request is never `done` automatically, whatever its sources' reels look like (manual
+     reconciliation); for bound requests the athlete/output rules live in test_reprocess_binding_contract.
 """
 from __future__ import annotations
 
@@ -46,6 +46,14 @@ def app(source: str, person: str, track: str | None, description: str = "surfer 
         event["track_id"] = track
     return {"path": source, "_clip_index": source, "_person_id": person, "description": description,
             "_description": description, "events": [event]}
+
+
+def prove(cluster: dict) -> dict:
+    """A real group verification: every member's image examined, the call recorded."""
+    from pipeline import identity_evidence as ev
+    image = str(Path(__file__).resolve())
+    return ev.stamp(cluster, ev.IMAGE_VERIFIER, images=[image] * len(cluster["appearances"]),
+                    model="test-verifier", raw_response='{"same_person": true, "mismatched_indices": []}')
 
 
 def gate(clusters, one_reel: bool):
@@ -81,25 +89,46 @@ def identity() -> None:
     # I3: verified athlete, same and different tracker numbers -> passes through evidence
     for tracks in (("7", "7"), ("7", "3")):
         c = {"description": "x", "appearances": [app("a.mp4", "person_A", tracks[0]), app("b.mp4", "person_B", tracks[1])]}
-        ev.stamp(c, ev.IMAGE_VERIFIER)
+        prove(c)
         out = gate([c], False)
         check(passed(out) and out[0].get("_identity_gate_reason") == "visual_verified_per_source_tracks",
               f"I3: a verified athlete with tracks {tracks} must pass on its image evidence")
 
     # I2: evidence for a subset / stale after a member is added
     c = {"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
-    ev.stamp(c, ev.IMAGE_VERIFIER)
+    prove(c)
     c["appearances"].append(app("c.mp4", "person_C", "5"))
     check(not ev.covers(c) and not passed(gate([c], False)), "I2: evidence that predates an added member still passed")
     c = {"description": "x", "appearances": [app("a.mp4", "person_A", "7")]}
-    ev.stamp(c, ev.IMAGE_VERIFIER)
+    prove(c)
     c["appearances"].append(app("b.mp4", "person_B", "3"))
     check(not passed(gate([c], False)), "I2: single-member evidence promoted to a two-member cluster")
+
+    # I2: a caller-supplied method without the examined images, the model call, or with an altered record fails
+    c = {"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
+    ev.stamp(c, ev.IMAGE_VERIFIER)
+    check(ev.coverage_problem(c) == "image_not_examined_for_every_member" and not passed(gate([c], False)),
+          "I2: method='image_verifier' without examined images passed")
+    c = prove({"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]})
+    c["_identity_evidence"]["model"] = ""
+    check(not ev.covers(c), "I2: a record without the verifier call passed")
+    c = prove({"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]})
+    c["_identity_evidence"]["pairwise"] = []
+    check(not ev.covers(c), "I2: a cross-source pair without a MATCH edge passed")
+    c = prove({"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]})
+    c["_identity_evidence"]["image_sha256"]["b.mp4::person_B"] = "f" * 64
+    check(ev.coverage_problem(c) == "evidence_record_altered", "I2: an altered evidence record passed")
+    c = prove({"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3"),
+                                                   app("c.mp4", "person_C", "5")]})
+    c["_identity_evidence"]["method"] = ev.PAIR_CHECK_SINGLETONS
+    c["_identity_evidence"]["evidence_digest"] = ev._evidence_digest(c["_identity_evidence"])
+    check(ev.coverage_problem(c) == "pair_check_cannot_cover_more_than_two_members",
+          "I2: a pairwise check was stretched over three members")
 
     # Evidence survives the identity module's field stripping (production hand-off to the editor)
     from pipeline.stages.identity import _strip_internal_fields
     c = {"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
-    ev.stamp(c, ev.IMAGE_VERIFIER)
+    prove(c)
     stripped = _strip_internal_fields([c])[0]
     check(ev.covers(stripped) and passed(gate([stripped], False)), "evidence must survive _strip_internal_fields")
 
@@ -267,8 +296,7 @@ def reprocess() -> None:
         {"id": "shared-source-2", "sources": ["S4.MP4"], "defect_types": ["CUT_TOO_EARLY"]},
     ]
     got = orchestrator.reprocess_outcomes(queued, manifest)
-    check(got == {"fixed": True, "co-athlete-still-blocked": False, "defect-persists": False, "no-output": False,
-                  "shared-source": True, "shared-source-2": True}, f"R3: unexpected outcomes {got}")
+    check(got == {req["id"]: False for req in queued}, f"R3: an unbound request closed as done: {got}")
     check(orchestrator._request_defect_types({"approval_blocked_reasons": ["PREMATURE_CUT: ride cut early"]}) == ["PREMATURE_CUT"],
           "R3: defect types are read from the request")
 

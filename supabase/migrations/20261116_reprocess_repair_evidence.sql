@@ -1,9 +1,10 @@
--- PREPARED, NOT APPLIED. Applying it needs the owner's approval (production schema change).
--- Lets a reprocess request be closed as `done` only against evidence for its own athlete, defect and output,
--- instead of the conservative source-wide rule the pipeline uses today. Additive and nullable: existing rows and
--- the current code are unaffected.
+-- Applied to production on 2026-11-16 with the owner's approval (migration `reprocess_repair_evidence`).
+-- Lets a reprocess request be closed as `done` only against evidence for its own athlete, defect and output
+-- (pipeline/reprocess_binding.py), instead of the source-wide rule. Additive and nullable: existing rows keep the
+-- source-wide rule. `target_athlete_key` holds a versioned JSON binding - the athlete's actions as
+-- [source, start, end, type] plus the original run's athlete key for tracing - because athlete ids are run-local.
 alter table public.reprocess_requests
-  add column if not exists target_athlete_key     text,   -- athlete the request is about (draft's athlete key)
+  add column if not exists target_athlete_key     text,   -- JSON binding: the athlete's actions in the footage
   add column if not exists original_output_sha256 text,   -- content hash of the draft the request was opened on
   add column if not exists repair_attempt_id      uuid,   -- pipeline run that attempted the repair
   add column if not exists repair_output_sha256   text,   -- content hash of the re-rendered output

@@ -22,7 +22,9 @@ def cluster(*apps, verified=False):
         # A positive image verification records the exact members it covered (pipeline.identity_evidence);
         # the release gate reads that evidence, not the bare flag.
         from pipeline import identity_evidence
-        identity_evidence.stamp(item, identity_evidence.IMAGE_VERIFIER)
+        image = str(Path(__file__).resolve())  # any readable file stands in for the thumbnail shown
+        identity_evidence.stamp(item, identity_evidence.IMAGE_VERIFIER, images=[image] * len(apps),
+                                model="test-verifier", raw_response='{"same_person": true}')
     return item
 
 

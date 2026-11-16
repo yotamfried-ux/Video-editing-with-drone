@@ -160,7 +160,8 @@ def _wrap_verify_multi_clusters(identity):
                 if same_person and not bad:
                     # Positive visual confirmation: the real identity gate may keep these
                     # appearances in one reel (see pipeline.real_identity_gate).
-                    verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER))
+                    verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER,
+                    images=thumbs, model="gemini-2.5-flash", raw_response=raw))
                     continue
 
                 if not bad or len(bad) >= len(apps):
