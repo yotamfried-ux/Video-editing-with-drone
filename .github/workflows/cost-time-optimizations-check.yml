@@ -54,6 +54,13 @@ on:
       - 'scripts/test_reprocess_binding_contract.py'
       - 'scripts/test_output_qualification_contract.py'
       - 'scripts/gt_scorecard.py'
+      - 'scripts/test_identity_consensus_integration_contract.py'
+      - 'scripts/test_identity_pair_experiment_contract.py'
+      - 'scripts/_consensus_fixture.py'
+      - 'pipeline/identity_pair_consensus.py'
+      - 'pipeline/identity_evidence.py'
+      - 'scripts/test_verified_cluster_merge_contract.py'
+      - 'scripts/test_identity_merge_check_contract.py'
       - 'scripts/test_gt_scorecard_contract.py'
       - 'evaluation/ground_truth/**'
       - 'scripts/_qualification_fixture.py'
@@ -304,6 +311,14 @@ jobs:
         run: python scripts/test_output_qualification_contract.py
       - name: Strict GT scorecard (union coverage, excluded frames, boundaries, fail-closed compare)
         run: python scripts/test_gt_scorecard_contract.py
+      - name: Pairwise-consensus identity evidence at every evidence-writing path (fake verifier)
+        env:
+          PYTHONPATH: scripts:.
+        run: |
+          python scripts/test_identity_consensus_integration_contract.py
+          python scripts/test_identity_pair_experiment_contract.py
+          python scripts/test_verified_cluster_merge_contract.py
+          python scripts/test_identity_merge_check_contract.py
       - name: Batch qualification separates execution from product state
         env:
           PYTHONPATH: scripts:.

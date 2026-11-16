@@ -114,97 +114,12 @@ def _wrap_build_clusters(identity):
 
 
 def _wrap_verify_multi_clusters(identity):
+    """Same single verifier as identity._verify_multi_clusters (pairwise consensus, fail-closed): the model access is
+    looked up on `identity` at call time so there is exactly one prompt and one decision rule in the whole pipeline."""
     def verify_multi_clusters(clusters: list[dict]) -> list[dict]:
-        verified: list[dict] = []
-        for cluster in clusters:
-            apps = cluster.get("appearances", []) or []
-            thumbs = [a.get("thumbnail", "") for a in apps]
-            if len(apps) < 2:
-                verified.append(cluster)
-                continue
-            from pipeline import identity_evidence
-            if identity_evidence.covers(cluster):
-                verified.append(cluster)  # already confirmed on images for exactly these members
-                continue
-            cluster = identity_evidence.clear(dict(cluster))
-            # Matching text descriptions used to mark a cluster "_visual_verified" here without showing the
-            # verifier any image (run 43710581656: 0143 + 0152 passed the identity gate as
-            # "visual_verified_per_source_tracks" on description agreement alone). Text agreement is a
-            # hypothesis; only the image check below can confirm it.
-            if not all(t and os.path.exists(t) for t in thumbs):
-                verified.extend(identity._split_cluster_to_singles(
-                    cluster,
-                    "missing thumbnails for identity verification",
-                ))
-                continue
-
-            uploaded: list = []
-            try:
-                content: list = []
-                for i, thumb_path in enumerate(thumbs):
-                    gfile = identity.genai.upload_file(path=thumb_path, mime_type="image/jpeg")
-                    uploaded.append(gfile)
-                    content.append(f"[Image {i}]:")
-                    content.append(gfile)
-                content.append(identity._VERIFY_PROMPT)
-
-                model = identity.genai.GenerativeModel(model_name="gemini-2.5-flash")
-                raw = identity._retry_gemini(lambda: model.generate_content(
-                    content, request_options={"timeout": 60}
-                ).text.strip())
-                parsed = identity._parse_json_response(raw)
-                same_person, bad, verdict_problem = identity_evidence.parse_verifier_verdict(parsed, len(apps))
-                if verdict_problem:
-                    print(f"  [IDENTITY] verifier answer rejected ({verdict_problem}): cluster not confirmed")
-
-                if same_person and not bad:
-                    # Positive visual confirmation: the real identity gate may keep these
-                    # appearances in one reel (see pipeline.real_identity_gate).
-                    verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER,
-                    images=thumbs, model="gemini-2.5-flash", raw_response=raw))
-                    continue
-
-                if not bad or len(bad) >= len(apps):
-                    verified.extend(identity._split_cluster_to_singles(
-                        cluster,
-                        "visual verifier could not confirm same athlete",
-                    ))
-                    continue
-
-                keep = [a for i, a in enumerate(apps) if i not in bad]
-                split = [a for i, a in enumerate(apps) if i in bad]
-                print(
-                    f"  ✂️  Identity verification split {len(split)} clip(s) out of "
-                    f"'{cluster.get('description','?')[:40]}' — different athlete detected"
-                )
-                logger.warning(
-                    "Identity verify: split %d/%d appearance(s) from '%s'",
-                    len(split), len(apps), cluster.get("description", "?"),
-                )
-                verified.append({**cluster, "appearances": keep})
-                for app in split:
-                    verified.append({
-                        "description": app.get("_description")
-                        or cluster.get("description", "unknown athlete") + " (separated)",
-                        "appearances": [app],
-                    })
-            except Exception as exc:
-                logger.warning(
-                    "Cluster verification failed (%s) — splitting risky multi-appearance cluster",
-                    exc,
-                )
-                verified.extend(identity._split_cluster_to_singles(
-                    cluster,
-                    "identity verifier error",
-                ))
-            finally:
-                for gfile in uploaded:
-                    try:
-                        identity.genai.delete_file(gfile.name)
-                    except Exception:
-                        pass
-
-        return verified
+        from pipeline import identity_pair_consensus
+        return identity_pair_consensus.verify_multi_clusters(
+            clusters, ask=identity._consensus_ask, split_to_singles=identity._split_cluster_to_singles)
 
     return verify_multi_clusters
 

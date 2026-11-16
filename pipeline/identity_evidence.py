@@ -13,17 +13,26 @@ import os
 from typing import Any
 
 EVIDENCE_KEY = "_identity_evidence"
+# LEGACY methods: one group call (or one single-order pair call) whose stamp wrote a MATCH edge for every pair it never
+# examined. Cycle 3 measured the production prompt at 3 false merges in 60 negative pairs, so these no longer prove
+# anything: they are NOT accepted (a stray legacy stamp can never pass the identity gate).
 IMAGE_VERIFIER = "image_verifier"
 PAIR_CHECK_SINGLETONS = "pair_check_singletons"
-ACCEPTED_METHODS = {IMAGE_VERIFIER, PAIR_CHECK_SINGLETONS}
+# The only accepted method: every cross-source pair examined in BOTH image orders, both orders agreeing on MATCH with
+# >= 2 specific features and no contradiction (pipeline.identity_pair_consensus). Each edge carries both response digests.
+PAIRWISE_CONSENSUS = "pairwise_consensus"
+ACCEPTED_METHODS = {PAIRWISE_CONSENSUS}
 
 
 def member_key(app: dict[str, Any]) -> str:
     """Stable key of one appearance: its source file and the person inside it.
 
-    Works before and after `identity._strip_internal_fields` (which keeps only path and events).
+    Works before and after `identity._strip_internal_fields` (which keeps only path and events). The source is the
+    file name of `path`: `_clip_index` is a run-local integer that the strip removes, so a key built from it at
+    verification time never matched the key built from the path at the release gate (run 43920602179). Two members of
+    one cluster that map to the same key are ambiguous and the cluster is never covered (see `coverage_problem`).
     """
-    source = os.path.basename(str(app.get("_clip_index") or app.get("path") or ""))
+    source = os.path.basename(str(app.get("path") or app.get("_clip_index") or ""))
     person = app.get("_person_id")
     if not person:
         person = next((str(e.get("person_id")) for e in app.get("events", []) or []
@@ -100,6 +109,45 @@ def stamp(cluster: dict[str, Any], method: str, detail: str = "", *, images: lis
     return cluster
 
 
+def stamp_pairwise(cluster: dict[str, Any], results: list[dict[str, Any]], *, model: str,
+                   member_images: dict[str, Any]) -> dict[str, Any]:
+    """Record pairwise-consensus evidence. Stamps ONLY when every required cross-source pair is a consensus MATCH.
+
+    `results` come from `identity_pair_consensus.verify_cluster`; each edge keeps the digests of both model answers.
+    Anything else (a missing pair, REVIEW, NO_MATCH) leaves the cluster WITHOUT evidence: it stays unconfirmed.
+    """
+    from datetime import datetime, timezone
+
+    keys = members(cluster)
+    required = {tuple(sorted(pair)) for pair in _required_pairs(keys)}
+    by_pair = {tuple(sorted((r.get("a"), r.get("b")))): r for r in results if isinstance(r, dict)}
+    if len(set(keys)) != len(keys) or set(by_pair) != required \
+            or any(by_pair[p].get("decision") != "MATCH" for p in required):
+        return clear(cluster)
+    record = {
+        "schema": "sportreel.identity_evidence.v3",
+        "method": PAIRWISE_CONSENSUS,
+        "members": keys,
+        "members_hash": members_hash(keys),
+        "image_sha256": {key: _file_sha256(member_images.get(key)) for key in keys},
+        "model": str(model or ""),
+        "response_sha256": hashlib.sha256("".join(sorted(
+            by_pair[p].get("forward_sha256", "") + by_pair[p].get("backward_sha256", "") for p in required
+        )).encode("utf-8")).hexdigest(),
+        "verified_at": datetime.now(timezone.utc).isoformat(),
+        "scope": "pair",
+        "pairwise": [{"a": p[0], "b": p[1], "verdict": "MATCH",
+                      "forward_sha256": by_pair[p].get("forward_sha256", ""),
+                      "backward_sha256": by_pair[p].get("backward_sha256", ""),
+                      "matching_features": list(by_pair[p].get("matching_features") or [])[:4]} for p in sorted(required)],
+        "detail": "pairwise consensus: both image orders MATCH for every cross-source pair",
+    }
+    record["evidence_digest"] = _evidence_digest(record)
+    cluster[EVIDENCE_KEY] = record
+    cluster["_visual_verified"] = True
+    return cluster
+
+
 def clear(cluster: dict[str, Any]) -> dict[str, Any]:
     cluster.pop(EVIDENCE_KEY, None)
     cluster.pop("_visual_verified", None)
@@ -114,6 +162,8 @@ def coverage_problem(cluster: dict[str, Any]) -> str:
     if evidence.get("method") not in ACCEPTED_METHODS:
         return "unaccepted_method"
     keys = members(cluster)
+    if len(set(keys)) != len(keys):
+        return "ambiguous_member_keys"          # two members share a key: evidence cannot say which one it covered
     if not keys or evidence.get("members") != keys or evidence.get("members_hash") != members_hash(keys):
         return "evidence_does_not_cover_current_members"
     if evidence.get("evidence_digest") != _evidence_digest(evidence):
@@ -123,12 +173,14 @@ def coverage_problem(cluster: dict[str, Any]) -> str:
         return "image_not_examined_for_every_member"
     if not evidence.get("model") or len(str(evidence.get("response_sha256") or "")) != 64:
         return "verifier_call_not_recorded"
-    if evidence.get("method") == PAIR_CHECK_SINGLETONS and len(keys) != 2:
-        return "pair_check_cannot_cover_more_than_two_members"
-    edges = {(e.get("a"), e.get("b")) for e in evidence.get("pairwise") or []
+    edges = {tuple(sorted((e.get("a"), e.get("b")))): e for e in evidence.get("pairwise") or []
              if isinstance(e, dict) and e.get("verdict") == "MATCH"}
-    if any((a, b) not in edges for a, b in _required_pairs(keys)):
-        return "cross_source_pair_without_match_edge"
+    for a, b in _required_pairs(keys):
+        edge = edges.get(tuple(sorted((a, b))))
+        if edge is None:
+            return "cross_source_pair_without_match_edge"
+        if any(len(str(edge.get(k) or "")) != 64 for k in ("forward_sha256", "backward_sha256")):
+            return "pair_not_examined_in_both_orders"
     return ""
 
 

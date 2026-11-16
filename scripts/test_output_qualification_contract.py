@@ -191,8 +191,8 @@ def q6_gate_carries_evidence() -> None:
              "events": [ev(person_id="p2", target_track_id="3", track_id="3")]}]
     for app in apps:
         app["events"][0]["track_id"] = app["events"][0]["target_track_id"]
-    cluster = identity_evidence.stamp({"description": "x", "appearances": apps}, identity_evidence.IMAGE_VERIFIER,
-                                      images=[image, image], model="test-verifier", raw_response='{"same_person": true}')
+    import _consensus_fixture as fx
+    cluster = fx.prove({"description": "x", "appearances": apps}, image=image)
     os.environ["SPORTREEL_ONE_REEL_PER_ATHLETE"] = "0"
     try:
         out = enforce_identity_gate([cluster])

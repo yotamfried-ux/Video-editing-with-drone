@@ -1,8 +1,8 @@
 """Pairwise cross-clip athlete identity decision rules (pure logic, no model or media access).
 
-Qualified only as an EVALUATION result so far (docs/production-readiness/CYCLE-03-IDENTITY-REPORT.md): NOT wired
-into the pipeline. Wiring it requires the coupled change described there (path-first evidence key AND pairwise
-consensus evidence together); changing only the key would release the 0143+0152 false merge.
+Cycle 3 measured this rule against GT-v1 (docs/production-readiness/CYCLE-03-IDENTITY-REPORT.md); cycle 4 wires it as
+the ONLY route that can confirm a cross-clip merge (identity_evidence.PAIRWISE_CONSENSUS), together with the path-first
+evidence key (the key fix alone would have released the 0143+0152 false merge).
 
 Rule: an automatic MATCH needs BOTH image orders to say MATCH with >= 2 specific matching features, no cited
 contradiction and not generic-only; an automatic NO_MATCH needs both orders to cite a contradiction; everything
@@ -10,9 +10,11 @@ else is REVIEW. REVIEW never merges.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
-from typing import Any
+from typing import Any, Callable
 
 M1_PROMPT = """\
 Two images follow. Each is a contact sheet of crops of ONE tracked person, cut from a drone video of a different clip.
@@ -79,3 +81,83 @@ def consensus(forward: dict[str, Any] | None, backward: dict[str, Any] | None) -
     if a == b == "NO_MATCH":
         return "NO_MATCH"
     return "REVIEW"
+
+
+# ------------------------------------------------------------------ production wiring (model access is injected)
+Ask = Callable[[str, "list[bytes]"], str]       # (prompt, [image bytes]) -> raw model text; may raise
+
+
+def _sha(text: str) -> str:
+    return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
+
+
+def verify_pair(ask: Ask, sheet_a: bytes, sheet_b: bytes) -> dict[str, Any]:
+    """Both image orders. Any error, empty or unparsable answer in either order is REVIEW, never a merge."""
+    answers = []
+    for first, second in ((sheet_a, sheet_b), (sheet_b, sheet_a)):
+        try:
+            raw = ask(M1_PROMPT, [first, second])
+        except Exception:
+            raw = ""
+        answers.append((raw, parse_json(raw)))
+    (raw_f, forward), (raw_b, backward) = answers
+    return {"decision": consensus(forward, backward), "forward_sha256": _sha(raw_f) if raw_f else "",
+            "backward_sha256": _sha(raw_b) if raw_b else "",
+            "matching_features": _features(forward, "matching_features")[:4],
+            "contradicting_features": (_features(forward, "contradicting_features")
+                                       + _features(backward, "contradicting_features"))[:4]}
+
+
+def _read(path: Any) -> bytes | None:
+    try:
+        with open(str(path), "rb") as handle:
+            return handle.read() or None
+    except (OSError, TypeError):
+        return None
+
+
+def verify_cluster(cluster: dict[str, Any], ask: Ask) -> dict[str, Any]:
+    """Check EVERY cross-source pair of the cluster (no transitive merge). verdict: MATCH only if all are MATCH,
+    NO_MATCH if any pair is a confident different-athlete, otherwise REVIEW."""
+    from pipeline import identity_evidence as ev
+
+    apps = list(cluster.get("appearances") or [])
+    keys = [ev.member_key(a) for a in apps]
+    images = {k: _read(a.get("thumbnail")) for k, a in zip(keys, apps)}
+    if len(set(keys)) != len(keys) or any(v is None for v in images.values()):
+        return {"verdict": "REVIEW", "reason": "ambiguous_member_keys_or_missing_images", "pairs": []}
+    pairs = []
+    for a, b in ev._required_pairs(sorted(keys)):
+        result = verify_pair(ask, images[a], images[b])
+        pairs.append(dict(result, a=a, b=b))
+    decisions = {p["decision"] for p in pairs}
+    verdict = "NO_MATCH" if "NO_MATCH" in decisions else ("MATCH" if pairs and decisions == {"MATCH"} else "REVIEW")
+    return {"verdict": verdict, "reason": "", "pairs": pairs}
+
+
+def verify_multi_clusters(clusters: list[dict[str, Any]], *, ask: Ask, split_to_singles: Callable[..., list],
+                          model: str = "gemini-2.5-flash") -> list[dict[str, Any]]:
+    """The one cluster verifier. MATCH -> pairwise evidence stamped; NO_MATCH -> split into single appearances;
+    REVIEW (doubt, error, missing image) -> kept together WITHOUT evidence, so the identity gate withholds it."""
+    from pipeline import identity_evidence as ev
+
+    out: list[dict[str, Any]] = []
+    for cluster in clusters:
+        apps = cluster.get("appearances") or []
+        if len(apps) < 2:
+            out.append(cluster)
+            continue
+        if ev.covers(cluster):
+            out.append(cluster)                    # already confirmed for exactly these members
+            continue
+        cluster = ev.clear(dict(cluster))
+        result = verify_cluster(cluster, ask)
+        if result["verdict"] == "MATCH":
+            keys = [ev.member_key(a) for a in apps]
+            images = {k: a.get("thumbnail") for k, a in zip(keys, apps)}
+            out.append(ev.stamp_pairwise(dict(cluster), result["pairs"], model=model, member_images=images))
+        elif result["verdict"] == "NO_MATCH":
+            out.extend(split_to_singles(cluster, "pairwise consensus: a pair is a different athlete"))
+        else:
+            out.append(dict(cluster, _identity_review=result["reason"] or "pairwise consensus not reached"))
+    return out

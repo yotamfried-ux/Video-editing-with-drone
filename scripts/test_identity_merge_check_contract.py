@@ -63,10 +63,16 @@ def app(tmp: str, source: str, description: str) -> dict:
             "thumbnail": thumb, "events": [{"type": "wave_catch", "start": 1.0, "end": 8.0, "score": 9}]}
 
 
-def run(identity, clusters: list[dict], answer: dict) -> tuple[list[dict], FakeGenai]:
-    fake = FakeGenai(answer)
-    identity.genai = fake
-    identity._retry_gemini = lambda fn, attempts=3, base_delay=4: fn()
+def run(identity, clusters: list[dict], answer) -> tuple[list[dict], FakeGenai]:
+    """`answer` is the raw consensus-verifier text returned for BOTH image orders; calls are recorded."""
+    fake = FakeGenai({})
+    text = answer if isinstance(answer, str) else json.dumps(answer)
+
+    def ask(prompt, images):
+        fake.calls.append([prompt, len(images)])
+        return text
+
+    identity._consensus_ask = ask
     return identity._verify_merge_candidates([dict(c, appearances=list(c["appearances"])) for c in clusters]), fake
 
 
@@ -102,35 +108,39 @@ def main() -> int:
         if identity._merge_check_pairs([bikini, shorts]):
             fail("an unhedged bikini against a shirtless man is still never sent")
 
-        out, fake = run(identity, [s0097, s0115, wetsuit],
-                        {"same_person": True, "confidence": "high", "reason": "same build, board color shifts with backlight"})
+        import _consensus_fixture as fx
+        out, fake = run(identity, [s0097, s0115, wetsuit], fx.MATCH_SPECIFIC)
         merged = [c for c in out if len(c["appearances"]) == 2]
         if len(out) != 2 or len(merged) != 1:
-            fail(f"a confident 'same athlete' must merge 0097 and 0115 and leave the third alone: {[len(c['appearances']) for c in out]}")
+            fail(f"a consensus MATCH must merge 0097 and 0115 and leave the third alone: {[len(c['appearances']) for c in out]}")
         if {a["_clip_index"] for a in merged[0]["appearances"]} != {"DJI_0097_D", "DJI_0115_D"}:
             fail("the merged cluster must hold exactly the two checked appearances")
-        if merged[0].get("_visual_verified") is not True:
-            fail("a merged cluster is visually verified, so the one-reel-per-athlete gate keeps it together")
-        if len(fake.calls) != 1:
-            fail(f"only the compatible pair is checked; the wetsuit athlete conflicts and must not be sent ({len(fake.calls)} calls)")
-        prompt = fake.calls[0][-1]
-        if "lighting" not in prompt.lower() or "white in one clip and light blue" not in prompt:
-            fail("the check must tell the model that light shifts colors between clips")
+        if merged[0].get("_visual_verified") is not True or merged[0].get("_identity_evidence", {}).get("method") != "pairwise_consensus":
+            fail("a merged pair carries pairwise-consensus evidence, so the one-reel-per-athlete gate keeps it together")
+        if len(fake.calls) != 2:
+            fail(f"the compatible pair is checked once in BOTH image orders (2 calls), the wetsuit athlete conflicts ({len(fake.calls)} calls)")
+        prompt = fake.calls[0][0]
+        if "NOT" not in prompt or "contradiction" not in prompt.lower():
+            fail("the check must reject generic traits and look for contradictions")
 
-        for answer in ({"same_person": True, "confidence": "medium"}, {"same_person": False, "confidence": "high"}, {}):
+        # Any doubt, a one-sided answer, a generic lookalike or a contradiction: never merged.
+        for answer in (fx.MATCH_GENERIC, fx.UNCERTAIN, fx.NO_MATCH, "", "{}", "not json"):
             out, _ = run(identity, [s0097, s0115], answer)
             if len(out) != 2:
-                fail(f"only a high-confidence 'same' merges, got a merge for {answer}")
+                fail(f"only a consensus MATCH merges, got a merge for {answer!r}")
+        answers = iter([fx.MATCH_SPECIFIC, fx.NO_MATCH])
+        identity._consensus_ask = lambda prompt, images: next(answers)
+        if len(identity._verify_merge_candidates([dict(s0097), dict(s0115)])) != 2:
+            fail("two image orders that disagree must not merge")
 
         same_clip = {"description": "second surfer", "appearances": [dict(app(tmp, "DJI_0097_D", "surfer in dark shorts on a light blue longboard"), person_id="person_B")]}
-        out, fake = run(identity, [s0097, same_clip], {"same_person": True, "confidence": "high"})
+        out, fake = run(identity, [s0097, same_clip], fx.MATCH_SPECIFIC)
         if len(out) != 2 or fake.calls:
             fail("two people from the same clip are never sent or merged")
 
         # Through the whole post-process (the order production runs).
         identity._verify_multi_clusters = lambda clusters: clusters
-        fake = FakeGenai({"same_person": True, "confidence": "high", "reason": "same surfer"})
-        identity.genai = fake
+        identity._consensus_ask = lambda prompt, images: fx.MATCH_SPECIFIC
         final = identity._post_process_clusters_inner([s0097, s0115], [])
         if len(final) != 1 or len(final[0]["appearances"]) != 2:
             fail(f"the merge must survive the safety passes after it: {[len(c['appearances']) for c in final]}")

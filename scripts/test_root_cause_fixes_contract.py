@@ -74,14 +74,8 @@ def main() -> int:
             open(thumb, "wb").write(b"jpg")
             return {**app(name, description, track), "thumbnail": thumb}
 
-        answers = iter(['{"same_person": true, "confidence": "high", "reason": "same board"}'])
-        identity.genai = types.SimpleNamespace(
-            upload_file=lambda **_k: types.SimpleNamespace(name="f"),
-            delete_file=lambda *_a, **_k: None,
-            GenerativeModel=lambda **_k: types.SimpleNamespace(
-                generate_content=lambda *_a, **_k: types.SimpleNamespace(text=next(answers))),
-        )
-        identity._retry_gemini = lambda fn: fn()
+        import _consensus_fixture as fx
+        identity._consensus_ask = lambda prompt, images: fx.MATCH_SPECIFIC
         identity._merge_check_pairs = lambda _clusters: [(0.8, 0, 1)]
         d = "Shirtless surfer in dark shorts on a light blue longboard."
         two_plus_one = identity._verify_merge_candidates([
@@ -93,7 +87,6 @@ def main() -> int:
             raise SystemExit("fixture: the pair check merges the two clusters")
         if two_plus_one[0].get("_visual_verified"):
             raise SystemExit("one image per cluster was compared; a three-member cluster is not confirmed by that")
-        answers = iter(['{"same_person": true, "confidence": "high", "reason": "same board"}'])
         one_plus_one = identity._verify_merge_candidates([
             {"description": d, "appearances": [with_thumb("DJI_0097_D.MP4", d, 1)]},
             {"description": d, "appearances": [with_thumb("DJI_0115_D.MP4", d, 2)]},
