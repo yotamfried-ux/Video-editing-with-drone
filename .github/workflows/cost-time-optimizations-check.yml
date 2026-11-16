@@ -53,6 +53,8 @@ on:
       - 'scripts/test_release_safety_invariants_contract.py'
       - 'scripts/test_reprocess_binding_contract.py'
       - 'scripts/test_output_qualification_contract.py'
+      - 'scripts/test_gt_product_check_contract.py'
+      - 'scripts/gt_product_check.py'
       - 'scripts/_qualification_fixture.py'
       - 'pipeline/output_qualification.py'
       - 'pipeline/runtime_policy_registry.py'
@@ -299,6 +301,10 @@ jobs:
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_output_qualification_contract.py
+      - name: Identity evidence survives the strip; GT product check
+        env:
+          PYTHONPATH: scripts:.
+        run: python scripts/test_gt_product_check_contract.py
       - name: Batch qualification separates execution from product state
         env:
           PYTHONPATH: scripts:.
