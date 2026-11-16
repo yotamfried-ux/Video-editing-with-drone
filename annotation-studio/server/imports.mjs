@@ -40,16 +40,15 @@ export function importEdl(db, edl) {
   return { id, duplicate: false, unresolved_sources: unresolved, sources: resolved.map(s => s.id) };
 }
 
-/** predictions/v1 -> internal prediction record (selected events are predictions; rejected ones are diagnostics only). */
-export function importPipelinePredictions(db, v1) {
-  if (v1?.schema !== 'predictions/v1' || !Array.isArray(v1.sources)) throw new ApiError('INVALID_INPUT', 'predictions/v1 expected');
-  for (const k of ['run_id', 'pipeline_commit']) {
-    if (!v1[k] || v1[k] === 'unknown') throw new ApiError('INVALID_INPUT', `traceability: ${k} is required (run and code commit must be known)`);
-  }
+/**
+ * predictions/v1 sources -> evaluator sources, pure: `catalogFps(sha)` returns {fps_num, fps_den} or null.
+ * Selected events are predictions; every other decision is a diagnostic `rejected` entry.
+ */
+export function convertPredictionsV1(v1, catalogFps) {
   const unmatched = [], sources = [];
   for (const s of v1.sources) {
     if (!SHA.test(s.source_sha256 ?? '') || !Array.isArray(s.events)) throw new ApiError('INVALID_INPUT', 'bad source entry');
-    const cat = sourceBySha(db, s.source_sha256);
+    const cat = catalogFps(s.source_sha256);
     if (!cat) unmatched.push(s.source_sha256);
     const fps = cat ? cat.fps_num / cat.fps_den : s.fps;
     const frames = e => {
@@ -66,6 +65,16 @@ export function importPipelinePredictions(db, v1) {
     }
     sources.push({ source_sha256: s.source_sha256, source_video: s.source_video, events, rejected, tracks: s.tracks ?? [] });
   }
+  return { sources, unmatched };
+}
+
+/** predictions/v1 -> internal prediction record (selected events are predictions; rejected ones are diagnostics only). */
+export function importPipelinePredictions(db, v1) {
+  if (v1?.schema !== 'predictions/v1' || !Array.isArray(v1.sources)) throw new ApiError('INVALID_INPUT', 'predictions/v1 expected');
+  for (const k of ['run_id', 'pipeline_commit']) {
+    if (!v1[k] || v1[k] === 'unknown') throw new ApiError('INVALID_INPUT', `traceability: ${k} is required (run and code commit must be known)`);
+  }
+  const { sources, unmatched } = convertPredictionsV1(v1, sha => sourceBySha(db, sha));
   const payload = { run_id: v1.run_id, pipeline_version: String(v1.pipeline_commit).slice(0, 12), sources };
   const digest = digestOf({ ...payload, export_digest: v1.digest });
   const dup = db.prepare('select id from pipeline_predictions where run_id=? and pipeline_version=?').get(payload.run_id, payload.pipeline_version);

@@ -222,6 +222,24 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
   const identityKey = digestOf(identity);
   const prior = db.prepare('select * from evaluation_runs where identity_key=?').get(identityKey);
   if (prior) return { id: prior.id, digest: prior.digest, report: JSON.parse(prior.report), idempotent_replay: true };
+  const members = db.prepare('select * from frozen_revisions where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
+  const report = buildEvaluationReport({ ds, pr, members, params: p, identity });
+  const digest = digestOf(report);
+  const id = randomUUID();
+  db.prepare('insert into evaluation_runs(id,dataset_id,prediction_id,evaluator_version,params,report,digest,created_at,identity_key,matching_version) values(?,?,?,?,?,?,?,?,?,?)')
+    .run(id, dataset_id, prediction_id, EVALUATOR_VERSION, JSON.stringify(p), JSON.stringify(report), digest, now(), identityKey, MATCHING_VERSION);
+  audit(db, 'operator', 'evaluation_run', id, { digest });
+  return { id, digest, report };
+}
+
+
+/**
+ * The evaluation report from a frozen dataset, its member revisions and a prediction manifest - pure: no database,
+ * no clock, no randomness. Used by runEvaluation (persisted) and by scripts/evaluate-offline.mjs (files only).
+ * `pr.payload` is the JSON prediction manifest; `ds.digest` and `pr.digest` identify the inputs.
+ */
+export function buildEvaluationReport({ ds, pr, members, params, identity }) {
+  const p = params;
   const predSources = JSON.parse(pr.payload).sources;
   const preds = new Map();
   const rejects = new Map();
@@ -233,7 +251,6 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
   const per = [], bySportTot = {}, identityPairs = [];
   const tot = { gt_included: 0, predictions: 0, matched: 0, missed: 0, duplicates: 0, predicted_excluded: 0, false_positives: 0,
     unreviewed_predictions: 0, uncertain_overlap: 0, missed_but_rejected: 0, attributable: 0, correct_attribution: 0, sum_abs_start_error: 0, sum_abs_end_error: 0 };
-  const members = db.prepare('select * from frozen_revisions where dataset_id=? order by sha256').all(dataset_id).filter(m => p.splits.includes(m.split));
   const missingPredictionSources = members.filter(m => !preds.has(m.sha256)).map(m => m.sha256);
   for (const m of members) {
     const gt = JSON.parse(m.content);
@@ -279,12 +296,7 @@ export function runEvaluation(db, { dataset_id, prediction_id, params = {} }) {
     sport_policy: 'no cross-sport matching; totals/metrics above are pooled counts — use by_sport for per-sport denominators',
     per_source: per,
   };
-  const digest = digestOf(report);
-  const id = randomUUID();
-  db.prepare('insert into evaluation_runs(id,dataset_id,prediction_id,evaluator_version,params,report,digest,created_at,identity_key,matching_version) values(?,?,?,?,?,?,?,?,?,?)')
-    .run(id, dataset_id, prediction_id, EVALUATOR_VERSION, JSON.stringify(p), JSON.stringify(report), digest, now(), identityKey, MATCHING_VERSION);
-  audit(db, 'operator', 'evaluation_run', id, { digest });
-  return { id, digest, report };
+  return report;
 }
 
 export function listEvaluations(db) {
