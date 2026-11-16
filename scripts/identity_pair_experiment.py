@@ -48,7 +48,7 @@ PRICE_IN_PER_M, PRICE_OUT_PER_M = 0.30, 2.50      # USD / 1M tokens (estimate; r
 HOLDOUT_ATHLETES = 4
 CROPS_M0, CROPS_M1 = 4, 6
 SEED = 20261116
-NEG_CAP = {"dev": 60, "holdout": 40}
+NEG_CAP = {"dev": 60, "holdout": 40, "clusters": 0}
 LABEL_SHARE = 0.3
 
 from pipeline.identity_pair_consensus import M1_PROMPT, consensus, parse_json, single_verdict, _features  # noqa: E402
@@ -247,11 +247,107 @@ def ask(client: Any, types: Any, budget: Budget, prompt: str, images: list[bytes
 
 
 # ------------------------------------------------------------------ run
+def run_clusters(args: argparse.Namespace, gt: dict[str, Any], manifest: dict[str, Any]) -> int:
+    """Production verifier on the real multi-source clusters of the run (evaluation only; verdicts and counts out)."""
+    from google import genai
+    from google.genai import types
+    from pipeline import identity_pair_consensus as pc
+    from pipeline.r2_batch_restore import processed_key_for
+    from integrations import r2_storage
+    import urllib.parse
+    import urllib.request
+
+    truth = sc.load_gt(gt)
+    base = os.environ["SUPABASE_URL"].rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    q = urllib.parse.urlencode({"batch_id": f"eq.{os.environ['BATCH_ID']}", "removed_at": "is.null", "superseded_at": "is.null",
+                                "select": "storage_key,content_sha256"})
+    req = urllib.request.Request(f"{base}/rest/v1/source_uploads?{q}", headers={"apikey": key, "Authorization": f"Bearer {key}"})
+    key_of = {r["content_sha256"]: r["storage_key"] for r in json.loads(urllib.request.urlopen(req, timeout=30).read())}
+    sidecars = {}
+    for f in (args.diagnostics / "sidecars").glob("*.perception.json"):
+        d = json.loads(f.read_text(encoding="utf-8"))
+        sidecars[d.get("source_sha256")] = d
+    client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    budget = Budget(args.budget_usd)
+
+    def ask_text(prompt: str, images: list[bytes]) -> str:
+        if not budget.can():
+            raise RuntimeError("budget cap reached")
+        parts: list[Any] = []
+        for k, data in enumerate(images):
+            parts += [f"[Image {k}]:", types.Part.from_bytes(data=data, mime_type="image/jpeg")]
+        parts.append(prompt)
+        response = client.models.generate_content(model=MODEL, contents=parts, config=types.GenerateContentConfig(temperature=0))
+        budget.add(getattr(response, "usage_metadata", None))
+        return getattr(response, "text", "") or ""
+
+    out_rows = []
+    with tempfile.TemporaryDirectory(prefix="idexp-") as tmp:
+        videos: dict[str, str] = {}
+        for arow in manifest.get("athletes") or []:
+            for part in arow.get("parts") or []:
+                evs = ((part.get("qualification_inputs") or {}).get("events")) or []
+                tracks: dict[tuple[str, str], list[float]] = {}
+                for ev in evs:
+                    uid = str(ev.get("actor_track_uid") or "")
+                    rng = (ev.get("interval") or {}).get("rendered_window") or ev.get("source_frame_range_sec")
+                    if "#" in uid and rng and ev.get("source_sha256") in truth:
+                        tracks.setdefault((ev["source_sha256"], uid.rsplit("#", 1)[1]), list(rng))
+                if len({sha for sha, _ in tracks}) < 2:
+                    continue
+                apps, gt_ath = [], set()
+                for (sha, track), rng in sorted(tracks.items()):
+                    if sha not in videos and sha in key_of and sha in sidecars:
+                        name = key_of[sha].rsplit("/", 1)[-1]
+                        found = next((c for c in (processed_key_for(key_of[sha]), "processed/" + name, key_of[sha], "raw/" + name)
+                                      if r2_storage._head(c) is not None), None)
+                        if found:
+                            dest = os.path.join(tmp, f"{sha[:12]}.mp4")
+                            r2_storage.download_object(found, dest)
+                            videos[sha] = dest
+                    if sha not in videos:
+                        continue
+                    fps = truth[sha]["fps"]
+                    a, b = int(round(rng[0] * fps)), int(round(rng[1] * fps))
+                    for r in truth[sha]["rides"]:
+                        if sc._overlap(a, b, r["start_frame"], r["end_frame"]) >= LABEL_SHARE * max(1, b - a):
+                            gt_ath.add(r["athlete_id"])
+                    crops = appearance_crops({"track_id": track, "window_sec": rng}, sidecars[sha], videos[sha], tmp, CROPS_M1)
+                    if len(crops) < 3:
+                        continue
+                    thumb = os.path.join(tmp, f"{sha[:12]}_{track}.jpg")
+                    Path(thumb).write_bytes(_sheet(crops, 3))
+                    apps.append({"path": f"/dtor/{sha[:12]}.MP4", "_person_id": f"t{track}", "thumbnail": thumb,
+                                 "events": [{"person_id": f"t{track}"}]})
+                if len({a["path"] for a in apps}) < 2:
+                    out_rows.append({"cluster": arow.get("athlete_key", "")[-8:], "members": len(apps), "verdict": "NOT_RUN_MEDIA_MISSING"})
+                    continue
+                result = pc.verify_cluster({"appearances": apps}, ask_text)
+                out_rows.append({"cluster": str(arow.get("athlete_key"))[-8:], "members": len(apps),
+                                 "sources": len({a["path"] for a in apps}), "gt_athletes": len(gt_ath),
+                                 "gt": "same_athlete" if len(gt_ath) == 1 else ("mixed" if gt_ath else "unlabelled"),
+                                 "production_publishable_in_run": part.get("publishable") is True,
+                                 "verdict": result["verdict"], "reason": result["reason"],
+                                 "pair_decisions": sorted(p["decision"] for p in result["pairs"])})
+    report = {"schema": "sportreel.identity_cluster_check.v1", "mode": "clusters", "model": MODEL, "media_in_result": False,
+              "note": "uses the 6-crop sheets of this script, not the pipeline's 4-crop thumbnails", "clusters": out_rows,
+              "cost": {"calls": budget.calls, "tokens_in": budget.tokens_in, "tokens_out": budget.tokens_out,
+                       "estimated_usd": round(budget.spent, 4), "cap_usd": args.budget_usd}}
+    args.out.write_text(json.dumps(report, indent=1), encoding="utf-8")
+    print(json.dumps({"cost": report["cost"]}))
+    for row in out_rows:
+        print("CLUSTER " + json.dumps(row))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--diagnostics", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
-    ap.add_argument("--phase", choices=["dev", "holdout"], required=True)
+    ap.add_argument("--phase", choices=["dev", "holdout", "clusters"], required=True,
+                    help="clusters: run the PRODUCTION verifier (identity_pair_consensus.verify_cluster) on the real "
+                         "multi-source clusters of the diagnostics run and compare with GT")
     ap.add_argument("--budget-usd", type=float, default=0.9)
     ap.add_argument("--m4-threshold", type=float, help="holdout: threshold frozen from the dev run (never fit on holdout)")
     ap.add_argument("--dry-run", action="store_true", help="appearances, split and pair counts only; no media, no model")
@@ -261,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     manifest = json.loads((args.diagnostics / "publishable_reel_manifest.json").read_text(encoding="utf-8"))
     apps = build_appearances(gt, manifest)
     dev_ath, hold_ath = athlete_split([a["athlete_id"] for a in apps])
-    athletes = dev_ath if args.phase == "dev" else hold_ath
+    athletes = dev_ath if args.phase == "dev" else hold_ath      # clusters mode ignores the split
     print(f"appearances={len(apps)} athletes dev={len(dev_ath)} holdout={len(hold_ath)} phase={args.phase}")
 
     report: dict[str, Any] = {"schema": "sportreel.identity_pair_experiment.v1", "phase": args.phase, "model": MODEL,
@@ -272,6 +368,9 @@ def main(argv: list[str] | None = None) -> int:
         pairs = make_pairs(apps, athletes, args.phase, {})
         print(f"pairs={len(pairs)} positives={sum(p['same'] for p in pairs)} negatives={sum(not p['same'] for p in pairs)}")
         return 0
+
+    if args.phase == "clusters":
+        return run_clusters(args, gt, manifest)
 
     from google import genai
     from google.genai import types

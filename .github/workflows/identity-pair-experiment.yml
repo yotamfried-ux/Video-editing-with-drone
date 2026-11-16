@@ -15,7 +15,7 @@ on:
         description: 'dev (tune) or holdout (run once with the frozen rule)'
         required: true
         type: choice
-        options: [dev, holdout]
+        options: [dev, holdout, clusters]
       budget_usd:
         description: 'Hard cap for this run (USD, model cost estimate)'
         required: true
@@ -35,7 +35,7 @@ permissions:
 
 jobs:
   experiment:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'idexp-dev' || github.event.label.name == 'idexp-holdout'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'idexp-dev' || github.event.label.name == 'idexp-holdout' || github.event.label.name == 'idexp-clusters'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -61,7 +61,7 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           BATCH_ID: batch_2026-10-03T12-19-52_ttgvat95
-          PHASE: ${{ inputs.phase || (github.event.label.name == 'idexp-holdout' && 'holdout' || 'dev') }}
+          PHASE: ${{ inputs.phase || (github.event.label.name == 'idexp-holdout' && 'holdout' || github.event.label.name == 'idexp-clusters' && 'clusters' || 'dev') }}
           BUDGET: ${{ inputs.budget_usd || '0.9' }}
           M4: ${{ inputs.m4_threshold }}
         run: |
@@ -72,6 +72,6 @@ jobs:
             --out "$RUNNER_TEMP/result.json" --phase "$PHASE" --budget-usd "$BUDGET" $ARGS
       - uses: actions/upload-artifact@v4
         with:
-          name: identity-pair-experiment-${{ inputs.phase || (github.event.label.name == 'idexp-holdout' && 'holdout' || 'dev') }}
+          name: identity-pair-experiment-${{ inputs.phase || (github.event.label.name == 'idexp-holdout' && 'holdout' || github.event.label.name == 'idexp-clusters' && 'clusters' || 'dev') }}
           path: ${{ runner.temp }}/result.json
           retention-days: 30

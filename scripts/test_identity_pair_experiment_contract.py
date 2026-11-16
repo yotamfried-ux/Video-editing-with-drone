@@ -95,8 +95,10 @@ def i6():
 
 def i7():
     src = (ROOT / "scripts" / "identity_pair_experiment.py").read_text(encoding="utf-8")
-    check("write_bytes" not in src and ".save(" in src and "BytesIO" in src, "I7 images stay in memory")
-    check(src.count("write_text") == 1, "I7 only the JSON result is written")
+    # clusters mode must hand the production verifier a thumbnail PATH: the only media write goes to the job's temp dir
+    check(src.count("write_bytes") == 1 and 'thumb = os.path.join(tmp, f"{sha[:12]}_{track}.jpg")' in src
+          and ".save(" in src and "BytesIO" in src, "I7 images stay in memory / the job temp dir")
+    check(src.count("write_text") == 2, "I7 only the two JSON results (pairs, clusters) are written")
     check("media_in_result" in src, "I7 flag")
 
 
