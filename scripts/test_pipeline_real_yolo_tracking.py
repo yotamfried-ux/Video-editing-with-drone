@@ -92,6 +92,10 @@ def main() -> None:
         from pipeline.publishable_qa_evidence import record_qa_result, apply_final_qa_evidence
         policy.reset_manifest()
         enriched["athlete_id"] = str(enriched["target_track_id"])
+        # Production events get their canonical id at the analyzer stage, which this isolated
+        # test skips; stamp it through the same API so the manifest lineage check stays strict.
+        from pipeline.event_identity import ensure_event_uid
+        ensure_event_uid(enriched, str(source), enriched["athlete_id"], local_key="ordinal|0")
         spec = {"duration": 3, "width": 1080, "height": 1920,
                 "aspect": 9 / 16, "has_audio": False}
         policy.record_athlete_outcome(
@@ -112,6 +116,7 @@ def main() -> None:
         assert part["qa_verdict"] == "PASS" and part["qa_evidence_recorded"], part
         assert part["render_ready"] is True, part
         assert not part["technical_issues"], part
+        assert part["event_uids"] and part["event_uids"][0].startswith("ev2_"), part
         assert manifest["summary"]["publishable_athlete_count"] == 0, manifest
         assert manifest["summary"]["coverage_gap_count"] == 1, manifest
         # Qualify a final compiled reel from the SAME real YOLO/BoT-SORT event.
