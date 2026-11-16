@@ -9,8 +9,6 @@ name: Identity Pair Experiment (read-only, manual, capped)
 on:
   pull_request:
     types: [labeled]
-    paths:
-      - '.github/workflows/identity-pair-experiment.yml'
   workflow_dispatch:
     inputs:
       phase:
