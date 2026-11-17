@@ -300,8 +300,37 @@ def run_clusters(args: argparse.Namespace, gt: dict[str, Any], manifest: dict[st
         return getattr(response, "text", "") or ""
 
     out_rows = []
+    singles: list = []
     with tempfile.TemporaryDirectory(prefix="idexp-") as tmp:
         videos: dict[str, str] = {}
+
+        def build_app(sha: str, track: str, rng: list[float]):
+            """One appearance with the PRODUCTION identity sheet (None when media or sheet is missing)."""
+            if sha not in videos and sha in key_of and sha in sidecars:
+                name = key_of[sha].rsplit("/", 1)[-1]
+                found = next((c for c in (processed_key_for(key_of[sha]), "processed/" + name, key_of[sha], "raw/" + name)
+                              if r2_storage._head(c) is not None), None)
+                if found:
+                    dest = os.path.join(tmp, f"{sha[:12]}.mp4")
+                    r2_storage.download_object(found, dest)
+                    videos[sha] = dest
+            if sha not in videos:
+                return None
+            try:
+                from pipeline import runtime_quality as rq
+                from pipeline.perception.runtime import _detections_from_payload
+                import config as _config
+                _config.TMP_DIR = tmp
+                dets = _detections_from_payload(videos[sha], sidecars[sha])
+                thumb, evidence = rq._identity_sheet(videos[sha], {"id": f"t{track}"}, [{"target_track_id": track, "start": rng[0], "end": rng[1]}], dets)
+            except Exception as exc:
+                print(f"production sheet failed for {sha[:12]}#{track}: {type(exc).__name__}")
+                return None
+            if not thumb:
+                return None
+            return {"path": f"/dtor/{sha[:12]}.MP4", "_person_id": f"t{track}", "thumbnail": thumb,
+                    "_sheet_crops": int(evidence.get("crops") or 0), "events": [{"person_id": f"t{track}"}]}
+
         for arow in manifest.get("athletes") or []:
             for part in arow.get("parts") or []:
                 evs = ((part.get("qualification_inputs") or {}).get("events")) or []
@@ -311,6 +340,10 @@ def run_clusters(args: argparse.Namespace, gt: dict[str, Any], manifest: dict[st
                     rng = (ev.get("interval") or {}).get("rendered_window") or ev.get("source_frame_range_sec")
                     if "#" in uid and rng and ev.get("source_sha256") in truth:
                         tracks.setdefault((ev["source_sha256"], uid.rsplit("#", 1)[1]), list(rng))
+                if getattr(args, "singleton_pairs", False):
+                    if len({sha for sha, _ in tracks}) == 1:
+                        singles.append((str(arow.get("athlete_key"))[-8:], sorted(tracks.items())[0]))
+                    continue
                 if len({sha for sha, _ in tracks}) < 2:
                     continue
                 apps, gt_ath = [], set()
@@ -367,7 +400,30 @@ def run_clusters(args: argparse.Namespace, gt: dict[str, Any], manifest: dict[st
                                  "production_publishable_in_run": part.get("publishable") is True,
                                  "verdict": result["verdict"], "reason": result["reason"],
                                  "pair_decisions": sorted(p["decision"] for p in result["pairs"])})
-    report = {"schema": "sportreel.identity_cluster_check.v1", "mode": "clusters", "model": MODEL, "media_in_result": False,
+        if getattr(args, "singleton_pairs", False):
+            import itertools
+            built = {}
+            for key, ((sha, track), rng) in singles:
+                fps = truth[sha]["fps"] if sha in truth else 59.94
+                a_, b_ = int(round(rng[0] * fps)), int(round(rng[1] * fps))
+                gt_a = {r["athlete_id"] for r in (truth.get(sha) or {}).get("rides", [])
+                        if sc._overlap(a_, b_, r["start_frame"], r["end_frame"]) >= LABEL_SHARE * max(1, b_ - a_)}
+                app = build_app(sha, track, rng)
+                built[key] = (app, gt_a, sha)
+            for (k1, (a1, g1, s1)), (k2, (a2, g2, s2)) in itertools.combinations(sorted(built.items()), 2):
+                gt_label = ("same_athlete" if g1 and g1 == g2 else ("different" if g1 and g2 else "unlabelled"))
+                row = {"pair": [k1, k2], "sources": [s1[:12], s2[:12]], "gt": gt_label}
+                if not a1 or not a2:
+                    out_rows.append(dict(row, verdict="NOT_RUN_MEDIA_MISSING")); continue
+                if not budget.can():
+                    out_rows.append(dict(row, verdict="NOT_RUN_BUDGET")); continue
+                try:
+                    result = pc.verify_cluster({"appearances": [a1, a2]}, ask_text)
+                    out_rows.append(dict(row, verdict=result["verdict"], reason=result["reason"],
+                                         pair_decisions=sorted(p["decision"] for p in result["pairs"])))
+                except Exception as exc:
+                    out_rows.append(dict(row, verdict=f"ERROR:{type(exc).__name__}"))
+    report = {"schema": "sportreel.identity_cluster_check.v1", "mode": "singleton_pairs" if getattr(args, "singleton_pairs", False) else "clusters", "model": MODEL, "media_in_result": False,
               "sheet": args.sheet, "note": ("thumbnails built by the PRODUCTION builder (pipeline.runtime_quality._identity_sheet)" if args.sheet == "production" else "6-crop sheets of this script, not the pipeline's builder"), "clusters": out_rows,
               "cost": {"calls": budget.calls, "tokens_in": budget.tokens_in, "tokens_out": budget.tokens_out,
                        "estimated_usd": round(budget.spent, 4), "cap_usd": args.budget_usd}}
@@ -382,6 +438,8 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--diagnostics", required=True, type=Path)
     ap.add_argument("--out", required=True, type=Path)
+    ap.add_argument("--singleton-pairs", action="store_true",
+                    help="with --phase clusters: verify every pair of single-source reels (EXP-08-002)")
     ap.add_argument("--phase", choices=["dev", "holdout", "clusters"], required=True,
                     help="clusters: run the PRODUCTION verifier (identity_pair_consensus.verify_cluster) on the real "
                          "multi-source clusters of the diagnostics run and compare with GT")

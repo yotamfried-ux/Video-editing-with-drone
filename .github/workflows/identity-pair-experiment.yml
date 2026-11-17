@@ -15,7 +15,7 @@ on:
         description: 'dev (tune) or holdout (run once with the frozen rule)'
         required: true
         type: choice
-        options: [dev, holdout, clusters, clusters-prod, bound-dev, bound-holdout, crops4-dev, crops4-holdout, ridevalid]
+        options: [dev, holdout, clusters, clusters-prod, bound-dev, bound-holdout, crops4-dev, crops4-holdout, ridevalid, idsingles]
       budget_usd:
         description: 'Hard cap for this run (USD, model cost estimate)'
         required: true
@@ -69,6 +69,9 @@ jobs:
           ARGS=""
           if [ -n "$M4" ]; then ARGS="--m4-threshold $M4"; fi
           case "$PHASE" in
+            idsingles)
+              SPORTREEL_IDENTITY_CROPS=6 python scripts/identity_pair_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --out "$RUNNER_TEMP/result.json" --phase clusters --sheet production --singleton-pairs --budget-usd "$BUDGET" ;;
             ridevalid)
               python scripts/ride_validity_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
                 --jobs evaluation/ride_validity/jobs_43920602179.json --reps 2 \
