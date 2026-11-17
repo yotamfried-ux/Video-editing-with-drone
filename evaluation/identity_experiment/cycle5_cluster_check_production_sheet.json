@@ -1,0 +1,58 @@
+{
+ "schema": "sportreel.identity_cluster_check_results.v2",
+ "github_run": "43984350462",
+ "model": "gemini-2.5-flash",
+ "sheet": "PRODUCTION builder pipeline.runtime_quality._identity_sheet, SPORTREEL_IDENTITY_CROPS=6 (2x3, 320 px tiles)",
+ "code_path": "pipeline.identity_pair_consensus.verify_cluster (production function, MIN_SHEET_CROPS=6)",
+ "diagnostics_run": "43920602179",
+ "clusters": [
+  {
+   "cluster": "f72cae84",
+   "sources": "0070+0108",
+   "gt": "same athlete",
+   "members": 2,
+   "verdict": "MATCH"
+  },
+  {
+   "cluster": "818b1a1e",
+   "sources": "0094,0118,0155,0146,0142",
+   "gt": "same athlete (one source is a GT non-ride)",
+   "members": 5,
+   "verdict": "MATCH (10/10 pairs)"
+  },
+  {
+   "cluster": "a7207728",
+   "sources": "0143+0152",
+   "gt": "TWO athletes",
+   "members": 2,
+   "verdict": "REVIEW"
+  },
+  {
+   "cluster": "1f3e674b",
+   "sources": "0112,0126,0131,0104,0140",
+   "gt": "same athlete",
+   "members": 5,
+   "verdict": "REVIEW (6/10 MATCH, 4 REVIEW)"
+  },
+  {
+   "cluster": "b0da9f88",
+   "sources": "0160+0163",
+   "gt": "same athlete",
+   "members": 2,
+   "verdict": "REVIEW"
+  }
+ ],
+ "summary": {
+  "false_merges_released": 0,
+  "mixed_clusters": 1,
+  "true_clusters": 4,
+  "true_auto_matched": 2,
+  "true_in_review": 2
+ },
+ "cost": {
+  "calls": 46,
+  "estimated_usd": 0.1364
+ },
+ "vs_experiment_sheets_cycle4": "0160+0163: MATCH -> REVIEW; 5-source A2 cluster: REVIEW -> MATCH. Verdicts depend on the sheet layout, so only the production builder's sheets count.",
+ "total_gemini_estimate_cycles_3_to_5_usd": 1.64
+}
