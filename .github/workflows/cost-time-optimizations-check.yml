@@ -59,6 +59,8 @@ on:
       - 'scripts/test_identity_consensus_integration_contract.py'
       - 'scripts/test_consensus_concurrency_contract.py'
       - 'scripts/test_review_replacement_invalidation_contract.py'
+      - 'scripts/test_athlete_ride_matrix_contract.py'
+      - 'scripts/athlete_ride_matrix.py'
       - 'scripts/test_identity_review_contract.py'
       - 'scripts/test_source_start_contract.py'
       - 'scripts/test_identity_gate_replay_contract.py'
@@ -331,6 +333,7 @@ jobs:
           python scripts/test_identity_consensus_integration_contract.py
           python scripts/test_consensus_concurrency_contract.py
           python scripts/test_review_replacement_invalidation_contract.py
+          python scripts/test_athlete_ride_matrix_contract.py
           python scripts/test_identity_review_contract.py
           python scripts/test_source_start_contract.py
           python scripts/test_identity_gate_replay_contract.py
