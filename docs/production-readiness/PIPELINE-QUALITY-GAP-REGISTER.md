@@ -479,7 +479,7 @@ Owner authorized **up to $2 incremental total** for the next bounded evidence-pr
 
 | Gap | Status | Evidence | Note |
 |---|---|---|---|
-| PA-11 0143+0152 false merge made publishable | MITIGATED | EVD-10-003, EVD-10-005 | FIX-PQ-10-001: model-only consensus never auto-publishes; verifier still untrusted |
+| PA-11 0143+0152 false merge made publishable | PATCHED (mitigated) | EVD-10-003, EVD-10-005 | FIX-PQ-10-001: model-only consensus never auto-publishes; verifier still untrusted |
 | PA-08 0097+0115 split | REVIEW PATH | EVD-10-005 | FIX-PQ-10-003: owner review request `758fe7783e9c`; no automatic merge |
 | PA-12 isolation retry / crash | TESTED | EVD-10-001 | Gate A run 44148876075 PASS; limits: paid retry name drift, publishable partial |
 | PA-13 paid-retry duplicate drafts | IDENTIFIED | EVD-10-001 | draft keys from model description + date |

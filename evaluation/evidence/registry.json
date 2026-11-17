@@ -214,6 +214,14 @@
    "where": "artifacts qualification-diagnostics-q10-paid-01-44166232265, qualification-reels-q10-paid-01-44166232265",
    "produced_by": "scripts/gt_scorecard.py, scripts/primary_athlete_audit.py, ffmpeg",
    "proof_scope": "RENDERED_MEDIA"
+  },
+  {
+   "id": "EVD-10-006",
+   "kind": "frame_sequence",
+   "what": "Decoded contact sheets (1-1.5 fps, reel time burnt in) of EXP-10-001 reels viewed: 0112-cluster 1ae08503dc19 (one athlete, five clips), 0160+0163 3df8c2fb84b4 (one woman), 0143+0152 30a2aed300b7 (two lookalikes, withheld). Cycle-9 sheets of the same sources (0094-cluster, 0070+0108, 0097, 0115) unchanged in content.",
+   "where": "session scratch contact sheets; reels artifact qualification-reels-q10-paid-01-44166232265",
+   "produced_by": "ffmpeg decode",
+   "proof_scope": "RENDERED_MEDIA"
   }
  ],
  "fixes": [
@@ -398,7 +406,8 @@
    "after": "EXP-10-001: 0 wrong-identity publishable; 0143+0152 rendered but withheld (viewed); correct published 4 (= q9-paid-01)",
    "evidence": [
     "EVD-10-003",
-    "EVD-10-005"
+    "EVD-10-005",
+    "EVD-10-006"
    ],
    "status": "MEDIA_VERIFIED",
    "classification": "CANDIDATE_IMPROVED",
@@ -609,7 +618,7 @@
    "product": "identity",
    "finding": "The production pairwise verifier gives a both-orders MATCH for the 0143/0152 lookalikes (GT: two athletes) at 6-crop sheets; the identity gate then passes the reel as publishable. In every earlier production run the verifier was effectively dead on the model path (sheet crop count lost), so its live precision was never measured end to end.",
    "classification": "ROOT_CAUSE_CONFIRMED",
-   "status": "MITIGATED",
+   "status": "PATCHED",
    "next": "Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run. Cycle 10: FIX-PQ-10-001 withholds model-only consensus (EXP-10-001); the verifier itself is still not trustworthy.",
    "evidence": [
     "EVD-09-003",

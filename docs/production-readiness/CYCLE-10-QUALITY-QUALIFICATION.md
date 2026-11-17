@@ -162,7 +162,7 @@ multi-source reels for review.
 | FIX-PQ-10-001 / 002 / 003 | 8992e067 (+ contract updates 5c79e59f) | `test_identity_autopublish_policy_contract.py`, `test_text_split_review_request_contract.py`, Gate C replay | 44166232265 | reels above; `qualification-diagnostics-q10-paid-01-44166232265` |
 | EXP-10-002 (rejected) | — (session replay) | board-loss replay | — | — |
 
-Registry: EVD-10-001…005, FIX-PQ-10-001…003, gaps PA-11 (mitigated), PA-12 (tested), PA-13…16 (new), BLK-10-001.
+Registry: EVD-10-001…006, FIX-PQ-10-001…003, gaps PA-11 (patched: mitigated), PA-12 (tested), PA-13…16 (new), BLK-10-001.
 Each MP4 maps back through `qualification_reels.json` (SHA-256 to key) and `publishable_reel_manifest.json` (part
 `content_sha256`, event `source_sha256`, interval) to run 44166232265, then to commit `bf9c9024`.
 
