@@ -37,7 +37,8 @@
   },
   {
    "version": "+ co-presence 25%",
-   "ambiguous": "0/166"
+   "ambiguous": "0/167"
   }
- ]
+ ],
+ "correction": "2026-11-17: history said 0/166, an addition error; windows=167 (see binding_replay_2026-11-17_reconciled.json)"
 }

@@ -73,13 +73,13 @@
     {
       "id": "EVD-07-005",
       "kind": "replay",
-      "what": "Historic binding replay across seven runs; zero reported newly ambiguous windows, but denominators conflict (artifact windows=167 vs report 166) and crop hints are proxied. Not a production or holdout proof.",
+      "what": "Historic binding replay across seven runs; zero newly ambiguous windows out of 167 (denominator reconciled 2026-11-17: the report's 166 was an arithmetic error; per-run 23+23+24+24+24+24+25=167; re-run with per-window output in binding_replay_2026-11-17_reconciled.json); crop hints are proxied. Not a production or holdout proof.",
       "where": "evaluation/evidence/binding_replay_2026-11-17.json",
       "produced_by": "replay over predictions.v1.json + sidecars of runs 42891165218 43013005072 43203677423 43303438106 43397405813 43583126199 43920602179",
       "proof_scope": "STORED_SIDECAR_REPLAY_PROXY_HINT_NOT_RENDERED_MP4",
       "producer_code_sha": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
       "artifact_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/evidence/binding_replay_2026-11-17.json",
-      "denominator_conflict": "JSON windows=167; report and history state 166 (per_run sums to 167). Must reconcile before trusting replay denominator."
+      "denominator_conflict": "RESOLVED: 167 is correct (report 166 was an addition error). Re-run EXP-08-000 at cfae2c10 (pipeline/ and scripts/ identical to 15a732d9) lists all 167 windows: 167 separable, 0 ambiguous."
     },
     {
       "id": "EVD-07-006",
@@ -102,17 +102,17 @@
       "commit": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
       "experiments": [
         "[EXP-07-001 red/green P1-P8](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/test_primary_athlete_binding_contract.py) (red 95eb149; green 15a732d)",
-        "[EXP-07-002 historical binding replay](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/evidence/binding_replay_2026-11-17.json) (denominator 167 in JSON vs 166 in report: RECONCILE)"
+        "[EXP-07-002 historical binding replay](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/evidence/binding_replay_2026-11-17.json) (denominator reconciled: 167; per-window re-run evaluation/evidence/binding_replay_2026-11-17_reconciled.json)"
       ],
       "before": "P5 bound track 1 with no flag; real windows: n/a",
-      "after": "P5 ambiguous + PRIMARY_ACTOR_UNCLEAR; P1-P4, P6-P8 unchanged; 0/166 real windows newly blocked",
+      "after": "P5 ambiguous + PRIMARY_ACTOR_UNCLEAR; P1-P4, P6-P8 unchanged; 0/167 real windows newly blocked",
       "evidence": [
         "EVD-07-004",
         "EVD-07-005"
       ],
       "status": "REPLAYED",
       "classification": "PIPELINE_DEFECT",
-      "limits": "Crop hints are not exported to diagnostics, so the replay uses the bound track's position at the event middle as the hint (proxy). The co-presence condition was added after seeing 0104 in run 43583126199: development data, not holdout. No real crossing case exists in GT-v1, so the blocking branch is synthetic-only (SIMULATED, not MEDIA_VERIFIED). IMPORTANT: Replay report 0/166 conflicts with committed JSON windows=167. No claim about exact 166/167 denominator until reconciled; the real crossing branch remains synthetic-only. No new rendered MP4 or independent holdout.",
+      "limits": "Crop hints are not exported to diagnostics, so the replay uses the bound track's position at the event middle as the hint (proxy). The co-presence condition was added after seeing 0104 in run 43583126199: development data, not holdout. No real crossing case exists in GT-v1, so the blocking branch is synthetic-only (SIMULATED, not MEDIA_VERIFIED). Denominator reconciled to 167 (EXP-08-000). the real crossing branch remains synthetic-only. No new rendered MP4 or independent holdout.",
       "code_sha": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
       "code_path": "pipeline/perception/runtime.py",
       "code_symbol": "_binding_separability and _best_primary",
@@ -243,7 +243,7 @@
         "EVD-07-004",
         "EVD-07-005"
       ],
-      "next": "Red/green test passed on FIX-PQ-07-001@15a732d9; replay count conflict 166 vs 167 must be reconciled; no decoded new render or real crossing holdout. EVD-07-004/005 only."
+      "next": "Red/green test passed on FIX-PQ-07-001@15a732d9; replay denominator reconciled (167, EXP-08-000); no decoded new render or real crossing holdout. EVD-07-004/005 only."
     },
     {
       "id": "PA-06",

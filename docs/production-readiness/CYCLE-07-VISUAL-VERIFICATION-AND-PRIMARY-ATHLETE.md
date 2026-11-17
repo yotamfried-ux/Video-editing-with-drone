@@ -44,13 +44,13 @@ when all of these hold:
 - it is as close to the hint as the bound track;
 - it is within 10% of it on the ranking.
 
-Controlled replay over every selected window of seven stored runs (166 windows):
+Controlled replay over every selected window of seven stored runs (167 windows; corrected from an earlier addition error of 166, see EXP-08-000):
 
 | Version of the rule | Real windows marked ambiguous |
 |---|---|
 | hint + ranking only | 39 / 49 (duplicate canonical/raw boxes of the same person) |
 | + same-body test | 1 / 49 (0104) |
-| + co-presence | 0 / 166 |
+| + co-presence | 0 / 167 |
 
 The co-presence condition was set after seeing 0104, so this is development evidence. The hint is a proxy because
 crop hints are not exported. The blocking branch is synthetic only, since GT-v1 has no real crossing.

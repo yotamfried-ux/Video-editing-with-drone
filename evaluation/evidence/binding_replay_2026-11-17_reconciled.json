@@ -1,0 +1,2896 @@
+{
+ "experiment": "EXP-08-000 (re-run of EXP-07-002 with per-window output)",
+ "executed_code_sha": "cfae2c10127298a61531697c18963e9e432343e8",
+ "rule": "pipeline/perception/runtime._binding_separability",
+ "hint": "PROXY: bound track centre at the event middle (crop hints not exported)",
+ "denominator": 167,
+ "status_counts": {
+  "separable": 167
+ },
+ "per_run": {
+  "42891165218": {
+   "separable": 23
+  },
+  "43013005072": {
+   "separable": 23
+  },
+  "43203677423": {
+   "separable": 24
+  },
+  "43303438106": {
+   "separable": 24
+  },
+  "43397405813": {
+   "separable": 24
+  },
+  "43583126199": {
+   "separable": 24
+  },
+  "43920602179": {
+   "separable": 25
+  }
+ },
+ "windows": [
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_a5ba3c29368",
+   "track_id": "10014",
+   "window_sec": [
+    1.8,
+    10.64
+   ],
+   "status": "separable",
+   "rebound_track": "10014",
+   "runner_up": "75",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a37c0b297da",
+   "track_id": "42",
+   "window_sec": [
+    3.5,
+    22.5
+   ],
+   "status": "separable",
+   "rebound_track": "42",
+   "runner_up": "10001",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a37c0b297da",
+   "track_id": "10001",
+   "window_sec": [
+    2.8,
+    17.8
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "7",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_a1cfa5070ca",
+   "track_id": "10003",
+   "window_sec": [
+    3.5,
+    10.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "8",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_adf1b2681e8",
+   "track_id": "10",
+   "window_sec": [
+    0.1,
+    6.0
+   ],
+   "status": "separable",
+   "rebound_track": "10",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 1
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_ad9e80ce6f3",
+   "track_id": "10009",
+   "window_sec": [
+    1.5,
+    9.0
+   ],
+   "status": "separable",
+   "rebound_track": "10009",
+   "runner_up": "8",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a19589b5016",
+   "track_id": "10007",
+   "window_sec": [
+    0.9,
+    9.38
+   ],
+   "status": "separable",
+   "rebound_track": "10007",
+   "runner_up": "8",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.0558,
+    "rank_margin": 0.0995
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a01ecd62e0f",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.1
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "30",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a4e6d8ed190",
+   "track_id": "10002",
+   "window_sec": [
+    2.0,
+    9.8
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "136",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_ad9e80ce6f3",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    18.2
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a37c0b297da",
+   "track_id": "10003",
+   "window_sec": [
+    2.0,
+    18.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a19589b5016",
+   "track_id": "10005",
+   "window_sec": [
+    2.7,
+    14.5
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 8
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_a109aa38770",
+   "track_id": "10003",
+   "window_sec": [
+    0.0,
+    5.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "10008",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1203,
+    "rank_margin": 0.0597
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a19589b5016",
+   "track_id": "4",
+   "window_sec": [
+    3.4,
+    11.2
+   ],
+   "status": "separable",
+   "rebound_track": "4",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a01ecd62e0f",
+   "track_id": "10096",
+   "window_sec": [
+    5.0,
+    10.5
+   ],
+   "status": "separable",
+   "rebound_track": "10096",
+   "runner_up": "10081",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a19589b5016",
+   "track_id": "10002",
+   "window_sec": [
+    1.5,
+    19.4
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a37c0b297da",
+   "track_id": "10001",
+   "window_sec": [
+    3.2,
+    22.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_a1552ea6f4f",
+   "track_id": "10005",
+   "window_sec": [
+    1.4,
+    8.6
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "9",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161907_0115_D_a276120c37f",
+   "track_id": "3",
+   "window_sec": [
+    6.5,
+    15.5
+   ],
+   "status": "separable",
+   "rebound_track": "3",
+   "runner_up": "10010",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_a1cfa5070ca",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.8
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "24",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a19589b5016",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "10008",
+   "evidence": {
+    "runner_up_shared_frames": 16
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_ad2c5b5faf2",
+   "track_id": "10002",
+   "window_sec": [
+    0.0,
+    5.0
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_ad2c5b5faf2",
+   "track_id": "10002",
+   "window_sec": [
+    2.8,
+    20.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "42891165218"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_ad2e85f8a8f",
+   "track_id": "10014",
+   "window_sec": [
+    1.8,
+    10.64
+   ],
+   "status": "separable",
+   "rebound_track": "10014",
+   "runner_up": "75",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a33407526b6",
+   "track_id": "42",
+   "window_sec": [
+    3.5,
+    22.5
+   ],
+   "status": "separable",
+   "rebound_track": "42",
+   "runner_up": "10001",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a33407526b6",
+   "track_id": "10001",
+   "window_sec": [
+    2.8,
+    17.8
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "7",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_acd6af66eb7",
+   "track_id": "10003",
+   "window_sec": [
+    3.5,
+    10.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "8",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_aa60b0b7c65",
+   "track_id": "10",
+   "window_sec": [
+    0.1,
+    6.0
+   ],
+   "status": "separable",
+   "rebound_track": "10",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 1
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_adc555c88fb",
+   "track_id": "10009",
+   "window_sec": [
+    1.5,
+    9.0
+   ],
+   "status": "separable",
+   "rebound_track": "10009",
+   "runner_up": "8",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a39b082645d",
+   "track_id": "10007",
+   "window_sec": [
+    0.9,
+    9.38
+   ],
+   "status": "separable",
+   "rebound_track": "10007",
+   "runner_up": "8",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.0558,
+    "rank_margin": 0.0995
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_af07e34b505",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.1
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "30",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a4d4f49b71a",
+   "track_id": "10002",
+   "window_sec": [
+    2.0,
+    9.8
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "136",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_adc555c88fb",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    18.2
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a33407526b6",
+   "track_id": "10003",
+   "window_sec": [
+    2.0,
+    18.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a39b082645d",
+   "track_id": "10005",
+   "window_sec": [
+    2.7,
+    14.5
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 8
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_a3a13cb33bc",
+   "track_id": "10003",
+   "window_sec": [
+    0.0,
+    5.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "10008",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1203,
+    "rank_margin": 0.0597
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a39b082645d",
+   "track_id": "4",
+   "window_sec": [
+    3.4,
+    11.2
+   ],
+   "status": "separable",
+   "rebound_track": "4",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_af07e34b505",
+   "track_id": "10096",
+   "window_sec": [
+    5.0,
+    10.5
+   ],
+   "status": "separable",
+   "rebound_track": "10096",
+   "runner_up": "10081",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a39b082645d",
+   "track_id": "10002",
+   "window_sec": [
+    1.5,
+    19.4
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a33407526b6",
+   "track_id": "10001",
+   "window_sec": [
+    3.2,
+    22.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_a1e4d657286",
+   "track_id": "10005",
+   "window_sec": [
+    1.4,
+    8.6
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "9",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161907_0115_D_a7042fc8fdb",
+   "track_id": "3",
+   "window_sec": [
+    6.5,
+    15.5
+   ],
+   "status": "separable",
+   "rebound_track": "3",
+   "runner_up": "10010",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_acd6af66eb7",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.8
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "24",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a39b082645d",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "10008",
+   "evidence": {
+    "runner_up_shared_frames": 16
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_af091c838dd",
+   "track_id": "10002",
+   "window_sec": [
+    0.0,
+    5.0
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_af091c838dd",
+   "track_id": "10002",
+   "window_sec": [
+    2.8,
+    20.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43013005072"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_a46197c110c",
+   "track_id": "10014",
+   "window_sec": [
+    1.8,
+    10.64
+   ],
+   "status": "separable",
+   "rebound_track": "10014",
+   "runner_up": "75",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_ab42e4523d8",
+   "track_id": "42",
+   "window_sec": [
+    3.5,
+    22.5
+   ],
+   "status": "separable",
+   "rebound_track": "42",
+   "runner_up": "10001",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a97d65879f1",
+   "track_id": "162",
+   "window_sec": [
+    27.8,
+    36.687
+   ],
+   "status": "separable",
+   "rebound_track": "162",
+   "runner_up": "377",
+   "evidence": {
+    "runner_up_shared_frames": 13
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_ab42e4523d8",
+   "track_id": "10001",
+   "window_sec": [
+    2.8,
+    17.8
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "7",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_ad97b2d55e4",
+   "track_id": "10003",
+   "window_sec": [
+    3.5,
+    10.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "8",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_a11c0befa0f",
+   "track_id": "10",
+   "window_sec": [
+    0.1,
+    6.0
+   ],
+   "status": "separable",
+   "rebound_track": "10",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 1
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a2186179d10",
+   "track_id": "10009",
+   "window_sec": [
+    1.5,
+    9.0
+   ],
+   "status": "separable",
+   "rebound_track": "10009",
+   "runner_up": "8",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a59f9c2881c",
+   "track_id": "10007",
+   "window_sec": [
+    0.9,
+    9.38
+   ],
+   "status": "separable",
+   "rebound_track": "10007",
+   "runner_up": "8",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.0558,
+    "rank_margin": 0.0995
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a93680fc121",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.1
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "30",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_aa946f3e727",
+   "track_id": "10002",
+   "window_sec": [
+    2.0,
+    9.8
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "136",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a2186179d10",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    18.2
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_ab42e4523d8",
+   "track_id": "10003",
+   "window_sec": [
+    2.0,
+    18.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a59f9c2881c",
+   "track_id": "10005",
+   "window_sec": [
+    2.7,
+    14.5
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 8
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_aee47ebe81a",
+   "track_id": "10003",
+   "window_sec": [
+    0.0,
+    5.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "10008",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1203,
+    "rank_margin": 0.0597
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a59f9c2881c",
+   "track_id": "4",
+   "window_sec": [
+    3.4,
+    11.2
+   ],
+   "status": "separable",
+   "rebound_track": "4",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a93680fc121",
+   "track_id": "10096",
+   "window_sec": [
+    5.0,
+    10.5
+   ],
+   "status": "separable",
+   "rebound_track": "10096",
+   "runner_up": "10081",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a59f9c2881c",
+   "track_id": "10002",
+   "window_sec": [
+    1.5,
+    19.4
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_ab42e4523d8",
+   "track_id": "10001",
+   "window_sec": [
+    3.2,
+    22.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_ae9ce3169f2",
+   "track_id": "10005",
+   "window_sec": [
+    1.4,
+    8.6
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "9",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161907_0115_D_a96754d89f3",
+   "track_id": "3",
+   "window_sec": [
+    6.5,
+    15.5
+   ],
+   "status": "separable",
+   "rebound_track": "3",
+   "runner_up": "10010",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_ad97b2d55e4",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.8
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "24",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a59f9c2881c",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "10008",
+   "evidence": {
+    "runner_up_shared_frames": 16
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_a01674f3bc4",
+   "track_id": "10002",
+   "window_sec": [
+    0.0,
+    5.0
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_a01674f3bc4",
+   "track_id": "10002",
+   "window_sec": [
+    2.8,
+    20.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43203677423"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_ab478795942",
+   "track_id": "10013",
+   "window_sec": [
+    1.3,
+    10.64
+   ],
+   "status": "separable",
+   "rebound_track": "10013",
+   "runner_up": "47",
+   "evidence": {
+    "runner_up_shared_frames": 1
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a44fa37aafc",
+   "track_id": "42",
+   "window_sec": [
+    4.5,
+    22.5
+   ],
+   "status": "separable",
+   "rebound_track": "42",
+   "runner_up": "10001",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a700df7e8b1",
+   "track_id": "162",
+   "window_sec": [
+    25.8,
+    33.8
+   ],
+   "status": "separable",
+   "rebound_track": "162",
+   "runner_up": "377",
+   "evidence": {
+    "runner_up_shared_frames": 4
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a44fa37aafc",
+   "track_id": "10001",
+   "window_sec": [
+    2.8,
+    17.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "7",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_a7a1c452350",
+   "track_id": "10003",
+   "window_sec": [
+    3.0,
+    11.0
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_ae47e8a23d5",
+   "track_id": "10003",
+   "window_sec": [
+    0.8,
+    5.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161251_0108_D_a617777b979",
+   "track_id": "10007",
+   "window_sec": [
+    1.5,
+    9.0
+   ],
+   "status": "separable",
+   "rebound_track": "10007",
+   "runner_up": "6",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5744c1501c",
+   "track_id": "10006",
+   "window_sec": [
+    0.8,
+    9.38
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "41",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a31199ba7a3",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a001daaee23",
+   "track_id": "2",
+   "window_sec": [
+    2.0,
+    9.5
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 20
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_aed9d5153c0",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    18.0
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a44fa37aafc",
+   "track_id": "10003",
+   "window_sec": [
+    1.7,
+    18.5
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5744c1501c",
+   "track_id": "10005",
+   "window_sec": [
+    2.8,
+    14.3
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 6
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_acbe36b2951",
+   "track_id": "10003",
+   "window_sec": [
+    0.1,
+    5.9
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "10007",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1175,
+    "rank_margin": 0.0595
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5744c1501c",
+   "track_id": "2",
+   "window_sec": [
+    3.5,
+    11.43
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "10005",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a31199ba7a3",
+   "track_id": "10046",
+   "window_sec": [
+    5.0,
+    10.5
+   ],
+   "status": "separable",
+   "rebound_track": "10046",
+   "runner_up": "49",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5744c1501c",
+   "track_id": "10002",
+   "window_sec": [
+    2.0,
+    19.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a44fa37aafc",
+   "track_id": "10001",
+   "window_sec": [
+    3.4,
+    21.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_a9d8005a85e",
+   "track_id": "10010",
+   "window_sec": [
+    0.5,
+    8.5
+   ],
+   "status": "separable",
+   "rebound_track": "10010",
+   "runner_up": "33",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a001daaee23",
+   "track_id": "10041",
+   "window_sec": [
+    6.0,
+    15.5
+   ],
+   "status": "separable",
+   "rebound_track": "10041",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_a7a1c452350",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.5
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "15",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5744c1501c",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260720164734_0151_D_a1dbe5bdb66",
+   "track_id": "10003",
+   "window_sec": [
+    0.5,
+    7.0
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "37",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_ab586f41bfe",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    21.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43303438106"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_af501867e2a",
+   "track_id": "10013",
+   "window_sec": [
+    1.3,
+    10.64
+   ],
+   "status": "separable",
+   "rebound_track": "10013",
+   "runner_up": "47",
+   "evidence": {
+    "runner_up_shared_frames": 1
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_acabb29967e",
+   "track_id": "42",
+   "window_sec": [
+    4.5,
+    22.5
+   ],
+   "status": "separable",
+   "rebound_track": "42",
+   "runner_up": "10001",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a76a3cf1770",
+   "track_id": "162",
+   "window_sec": [
+    25.8,
+    33.8
+   ],
+   "status": "separable",
+   "rebound_track": "162",
+   "runner_up": "377",
+   "evidence": {
+    "runner_up_shared_frames": 4
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_acabb29967e",
+   "track_id": "10001",
+   "window_sec": [
+    2.8,
+    17.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "7",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_a2b6d73551c",
+   "track_id": "10003",
+   "window_sec": [
+    3.0,
+    11.0
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_a90eb0a1351",
+   "track_id": "10003",
+   "window_sec": [
+    0.8,
+    5.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a3d834ee0e7",
+   "track_id": "10007",
+   "window_sec": [
+    1.5,
+    9.0
+   ],
+   "status": "separable",
+   "rebound_track": "10007",
+   "runner_up": "6",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a107351903b",
+   "track_id": "10006",
+   "window_sec": [
+    0.8,
+    9.38
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "41",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a26a8607dba",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_add695c646c",
+   "track_id": "2",
+   "window_sec": [
+    2.0,
+    9.5
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 20
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a3d834ee0e7",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    18.0
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_acabb29967e",
+   "track_id": "10003",
+   "window_sec": [
+    1.7,
+    18.5
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a107351903b",
+   "track_id": "10005",
+   "window_sec": [
+    2.8,
+    14.3
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 6
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_a68f1beb2f4",
+   "track_id": "10003",
+   "window_sec": [
+    0.1,
+    5.9
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "10007",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1175,
+    "rank_margin": 0.0595
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a107351903b",
+   "track_id": "2",
+   "window_sec": [
+    3.5,
+    11.43
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "10005",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a26a8607dba",
+   "track_id": "10046",
+   "window_sec": [
+    5.0,
+    10.5
+   ],
+   "status": "separable",
+   "rebound_track": "10046",
+   "runner_up": "49",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a107351903b",
+   "track_id": "10002",
+   "window_sec": [
+    2.0,
+    19.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_acabb29967e",
+   "track_id": "10001",
+   "window_sec": [
+    3.4,
+    21.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_a3293c3d6d9",
+   "track_id": "10010",
+   "window_sec": [
+    0.5,
+    8.5
+   ],
+   "status": "separable",
+   "rebound_track": "10010",
+   "runner_up": "33",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_add695c646c",
+   "track_id": "10041",
+   "window_sec": [
+    6.0,
+    15.5
+   ],
+   "status": "separable",
+   "rebound_track": "10041",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_a2b6d73551c",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.5
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "15",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a107351903b",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260720164734_0151_D_a1dbe5bdb66",
+   "track_id": "10003",
+   "window_sec": [
+    0.5,
+    7.0
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "37",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_aa67d333c3a",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    21.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43397405813"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_aad790cb7c0",
+   "track_id": "10013",
+   "window_sec": [
+    1.3,
+    10.64
+   ],
+   "status": "separable",
+   "rebound_track": "10013",
+   "runner_up": "47",
+   "evidence": {
+    "runner_up_shared_frames": 1
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "42",
+   "window_sec": [
+    4.5,
+    22.5
+   ],
+   "status": "separable",
+   "rebound_track": "42",
+   "runner_up": "10001",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a76a3cf1770",
+   "track_id": "162",
+   "window_sec": [
+    25.8,
+    33.8
+   ],
+   "status": "separable",
+   "rebound_track": "162",
+   "runner_up": "377",
+   "evidence": {
+    "runner_up_shared_frames": 4
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "10001",
+   "window_sec": [
+    2.8,
+    17.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "7",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_aee4f4ccb3f",
+   "track_id": "10003",
+   "window_sec": [
+    3.0,
+    11.0
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_a0fe9b960d2",
+   "track_id": "10003",
+   "window_sec": [
+    0.8,
+    5.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a16d8713aa3",
+   "track_id": "10007",
+   "window_sec": [
+    1.5,
+    9.0
+   ],
+   "status": "separable",
+   "rebound_track": "10007",
+   "runner_up": "6",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10006",
+   "window_sec": [
+    0.8,
+    9.38
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "41",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a5789171004",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a77337e7e51",
+   "track_id": "2",
+   "window_sec": [
+    2.0,
+    9.5
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 20
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a16d8713aa3",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    18.0
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "10003",
+   "window_sec": [
+    1.7,
+    18.5
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10005",
+   "window_sec": [
+    2.8,
+    14.3
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 6
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_a32b6eec78d",
+   "track_id": "10003",
+   "window_sec": [
+    0.1,
+    5.9
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "10007",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1175,
+    "rank_margin": 0.0595
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "2",
+   "window_sec": [
+    3.5,
+    11.43
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "10005",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a5789171004",
+   "track_id": "10046",
+   "window_sec": [
+    5.0,
+    10.5
+   ],
+   "status": "separable",
+   "rebound_track": "10046",
+   "runner_up": "49",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10002",
+   "window_sec": [
+    2.0,
+    19.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "10001",
+   "window_sec": [
+    3.4,
+    21.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_aa6196935aa",
+   "track_id": "10010",
+   "window_sec": [
+    0.5,
+    8.5
+   ],
+   "status": "separable",
+   "rebound_track": "10010",
+   "runner_up": "33",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a77337e7e51",
+   "track_id": "10041",
+   "window_sec": [
+    6.0,
+    15.5
+   ],
+   "status": "separable",
+   "rebound_track": "10041",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_aee4f4ccb3f",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.5
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "15",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260720164734_0151_D_a55796e31bf",
+   "track_id": "10003",
+   "window_sec": [
+    0.5,
+    7.0
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "37",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_a561fbae979",
+   "track_id": "10002",
+   "window_sec": [
+    2.5,
+    21.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43583126199"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": "ev2_db7a0428c99630c2029b",
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_a818f453c9d",
+   "track_id": "10013",
+   "window_sec": [
+    1.5,
+    10.5
+   ],
+   "status": "separable",
+   "rebound_track": "10013",
+   "runner_up": "52",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": "ev2_151af42e81389e7db2fb",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165",
+   "track_id": "37",
+   "window_sec": [
+    4.0,
+    22.0
+   ],
+   "status": "separable",
+   "rebound_track": "37",
+   "runner_up": "10001",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": "ev2_18722accd12ffe5db56b",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a7f0fe54b22",
+   "track_id": "154",
+   "window_sec": [
+    27.0,
+    35.5
+   ],
+   "status": "separable",
+   "rebound_track": "154",
+   "runner_up": "384",
+   "evidence": {
+    "runner_up_shared_frames": 5
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": "ev2_5ab45e6de1c8414eb388",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165",
+   "track_id": "10001",
+   "window_sec": [
+    3.0,
+    18.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "12",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": "ev2_05bb477c885a4afff7a6",
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_acaacb94bd1",
+   "track_id": "10003",
+   "window_sec": [
+    3.0,
+    10.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": "ev2_7b7b6e71c72c349bb62e",
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_ab735c91222",
+   "track_id": "10003",
+   "window_sec": [
+    0.5,
+    6.0
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": "ev2_a6ad36bda6895fdf29e0",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a7357710ec6",
+   "track_id": "10007",
+   "window_sec": [
+    1.7,
+    9.0
+   ],
+   "status": "separable",
+   "rebound_track": "10007",
+   "runner_up": "6",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": "ev2_bca59f94b4060ecd4e43",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5bcf5c14c5",
+   "track_id": "10005",
+   "window_sec": [
+    0.9,
+    9.38
+   ],
+   "status": "separable",
+   "rebound_track": "10005",
+   "runner_up": "42",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": "ev2_77a1731a155a64af57f3",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a1b9a3908cf",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.2
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "48",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": "ev2_8f44d0ceffba032bd05b",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a00d21827bb",
+   "track_id": "2",
+   "window_sec": [
+    2.0,
+    9.9
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 19
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": "ev2_2f9c2edc10d3a27d4352",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a7357710ec6",
+   "track_id": "10008",
+   "window_sec": [
+    2.8,
+    17.8
+   ],
+   "status": "separable",
+   "rebound_track": "10008",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": "ev2_71a31203c9b240964c3d",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165",
+   "track_id": "10003",
+   "window_sec": [
+    1.5,
+    18.5
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": "ev2_d8399ca336cb73ebb2d4",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5bcf5c14c5",
+   "track_id": "10004",
+   "window_sec": [
+    3.2,
+    14.5
+   ],
+   "status": "separable",
+   "rebound_track": "10004",
+   "runner_up": "3",
+   "evidence": {
+    "runner_up_shared_frames": 3
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": "ev2_96b619c75d2653a37501",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_ac94054ce77",
+   "track_id": "10003",
+   "window_sec": [
+    0.0,
+    5.8
+   ],
+   "status": "separable",
+   "rebound_track": "10003",
+   "runner_up": "10007",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1204,
+    "rank_margin": 0.0585
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": "ev2_651c8c21d9e5fef37d3e",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5bcf5c14c5",
+   "track_id": "2",
+   "window_sec": [
+    3.4,
+    11.2
+   ],
+   "status": "separable",
+   "rebound_track": "2",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": "ev2_32c14e7cf0b3c30022a3",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a1b9a3908cf",
+   "track_id": "10046",
+   "window_sec": [
+    5.0,
+    10.1
+   ],
+   "status": "separable",
+   "rebound_track": "10046",
+   "runner_up": "50",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": "ev2_4390b1eb8af4f85d837a",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5bcf5c14c5",
+   "track_id": "10002",
+   "window_sec": [
+    1.5,
+    19.5
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "10031",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+   "event_id": "ev2_c06b1fb8e0e6bdcd7f92",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.0
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "4",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": "ev2_b1f2ec9ea344f8a405e1",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165",
+   "track_id": "10001",
+   "window_sec": [
+    3.2,
+    22.5
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "2",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": "ev2_7a64ca1ea2e6cb3fe3d7",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_a0ea9064fef",
+   "track_id": "10010",
+   "window_sec": [
+    0.5,
+    8.62
+   ],
+   "status": "separable",
+   "rebound_track": "10010",
+   "runner_up": "33",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": "ev2_06c3abfce9e970f8c15f",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161907_0115_D_a3500dd6ebb",
+   "track_id": "10043",
+   "window_sec": [
+    6.5,
+    15.5
+   ],
+   "status": "separable",
+   "rebound_track": "10043",
+   "runner_up": "10003",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": "ev2_9fc32e9aff886be7a6e3",
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_acaacb94bd1",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.5
+   ],
+   "status": "separable",
+   "rebound_track": "10006",
+   "runner_up": "14",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": "ev2_9058d7638572b2c1e4b6",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5bcf5c14c5",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.7
+   ],
+   "status": "separable",
+   "rebound_track": "10001",
+   "runner_up": "1",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": "ev2_a87bc4b5e2b382e095e5",
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260720164734_0151_D_a041540caa3",
+   "track_id": "10002",
+   "window_sec": [
+    0.5,
+    7.4
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "10003",
+   "evidence": {
+    "hint_distance_bound": 0.0,
+    "hint_distance_runner_up": 0.1003,
+    "rank_margin": 0.0502
+   },
+   "run": "43920602179"
+  },
+  {
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": "ev2_caf063f40870e16f5ef8",
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_a49842c55a8",
+   "track_id": "10002",
+   "window_sec": [
+    2.8,
+    21.0
+   ],
+   "status": "separable",
+   "rebound_track": "10002",
+   "runner_up": "5",
+   "evidence": {
+    "runner_up_shared_frames": 0
+   },
+   "run": "43920602179"
+  }
+ ]
+}
