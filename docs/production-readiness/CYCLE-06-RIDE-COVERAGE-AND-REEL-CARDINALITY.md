@@ -51,6 +51,11 @@ Summary: `{"A_first_loss_by_stage": {"event_candidate_window": 17}, "A_rides_in_
 **C — one athlete in several reels.** Latest run: 2 split athletes (`c53ef74d`, `d805a9b1`) and 3 athletes sharing a reel with another GT athlete (`0d12c8b8`+`42f8772b` = the 0143+0152 false pair, now correctly blocked IDENTITY_UNCONFIRMED; `9524ac02`+`d805a9b1` share a 5-action reel). Best run: 1 split athlete and the same 0143+0152 reel published (false merge). The split reels are blocked for `PRIMARY_ACTOR_UNCLEAR`, `track_gap_identity_continuity_unproven` or `IDENTITY_UNCONFIRMED`, i.e. identity evidence, not packing.
 **D — athlete without a reel.** None in either run (0 silent absences). The real problem is different: in the latest run **9 of 13 athletes have only blocked reels** (4 publishable); the best run published 12 of 13 but included the false 0143+0152 merge and a non-ride reel.
 
+### 2b. Can perception separate the two excluded-only sources? (REPLAYED on the frozen sidecars of run 43920602179)
+Longest track per source (activity state / score / displacement / mean velocity / duration / main equipment / equipment association):
+`0095` (no GT ride): active / 1.00 / 0.376 / 0.110 / 6.3 s / surfboard / 0.72; `0155` (no GT ride): active / 1.00 / 0.436 / 0.138 / 7.8 s / surfboard / 0.82.
+Sources with GT rides range over active / 0.73–1.00 / 0.20–0.82 / 0.05–0.21 / 6.1–25.9 s / surfboard / 0.16–0.97. **Every value of the two negatives lies inside the range of the true-ride sources**, so no perception-derived threshold can reject them without also rejecting true rides. With two negative sources any new threshold would be fitted to them. They need a visual/semantic check (what the clip shows, and why the owner excluded it: Annotation Studio notes are not in GT-v1) or the next filming day as holdout. Not fixed, and I will not add a threshold.
+
 ## 3. Statuses so far
 | Item | Status |
 |---|---|
