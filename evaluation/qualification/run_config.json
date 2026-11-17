@@ -1,7 +1,7 @@
 {
-  "qualification_run_id": "q9-paid-03-not-authorised",
+  "qualification_run_id": "q10-paid-01",
   "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
-  "llm_budget_usd_paid": 0.0,
-  "note": "Paid runs stopped after EXP-09-002 (false merge 0143+0152 with image evidence). Spent of the $2 total: cycle 8 $0.380, q9-paid-01 $0.225, q9-paid-02 $0.469 -> remainder $0.926. A new paid run needs a reviewed commit setting llm_budget_usd_paid > 0 and a new pre-registration.",
+  "llm_budget_usd_paid": 0.4,
+  "note": "EXP-10-001 (PREREGISTRATION-EXP-10-001.md): one paid isolated run, hard cap $0.40. Spent of the $2 total before it: cycle 8 $0.380, q9-paid-01 $0.225, q9-paid-02 $0.469 = $1.074; remainder $0.926. Gate A passed (run 44148876075). No further paid run without a new decision.",
   "gate_a_run_id": "q10-gate-a2"
 }

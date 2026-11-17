@@ -44,8 +44,13 @@ def inventory(run_id: str, phase: str, exit_code: int, tmp: Path, out: Path) -> 
     kinds = collections.Counter(e["kind"] for e in led)
     writes = [e for e in led if e["kind"] == "r2_write"]
     blocked = collections.Counter(e.get("table") for e in led if e["kind"] == "supabase_write_blocked")
+    # A record that would make a draft publishable (run 44148876075: a substring match on "pass" also counted
+    # "qa_passed": false records, a false positive). Only publishable == True or qa_passed == True counts.
+    def _grants(payload):
+        rows = payload if isinstance(payload, list) else [payload]
+        return any(isinstance(r, dict) and (r.get("publishable") is True or r.get("qa_passed") is True) for r in rows)
     pass_records = [e for e in led if e["kind"] == "supabase_write_blocked" and e.get("table") == "draft_publishability"
-                    and "pass" in json.dumps(e.get("payload"), default=str).lower()]
+                    and _grants(e.get("payload"))]
     log = tmp / "pipeline-debug" / "run_tracked.log"
     text = log.read_text(errors="replace") if log.exists() else ""
     report = {
@@ -105,8 +110,18 @@ def evaluate(d: Path, out: Path) -> int:
     if "F2" in inv:
         check("A2.F2.no_outputs", inv["F2"]["counts"].get("review/", 0) == 0, f"review objects={inv['F2']['counts'].get('review/', 0)}")
     if "F3" in inv:
+        # Uploads run on up to _MAX_UL_WORKERS threads, so a hard crash at the first completed upload leaves between 1
+        # and that many objects; every one must be a non-publishable partial that the recovery run rewrites (R4 below).
+        import re as _re
+        orch = (ROOT / "pipeline" / "orchestrator.py").read_text()
+        m = _re.search(r"_MAX_UL_WORKERS\s*=\s*(\d+)", orch)
+        workers = int(m.group(1)) if m else 4
         n = inv["F3"]["counts"].get("review/", 0)
-        check("A2.F3.partial_upload_visible_and_bounded", n == 1, f"review objects after a crash at the first upload={n}")
+        check("A2.F3.partial_upload_visible_and_bounded", 1 <= n <= workers,
+              f"review objects after a crash at the first upload={n} (upload workers={workers})")
+        if r4_keys := set(_keys(inv["R4"], "review/")) if "R4" in inv else None:
+            check("A2.F3.partials_superseded_by_recovery", set(_keys(inv["F3"], "review/")) <= r4_keys,
+                  "every partial draft key is rewritten by the recovery run")
     r4, r5 = inv.get("R4"), inv.get("R5")
     if r4:
         written = {k for op, k in r4["r2_writes"] if op in ("upload_file", "put_object") and str(k).startswith("review/")}

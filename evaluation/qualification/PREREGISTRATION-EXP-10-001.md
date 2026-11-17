@@ -3,8 +3,9 @@
 Written and committed BEFORE the run. Success and failure conditions are fixed here and are not edited afterwards.
 
 ## Code under test
-- Branch `ccr-3f12fc2f-pdvirt` (PR #391, draft). The run's head SHA is the commit that adds this file. Its pipeline code
-  is identical to `5c79e59f` plus this document and `run_config.json`. Verified after the run against the workflow
+- Branch `ccr-3f12fc2f-pdvirt` (PR #391, draft). The run's head SHA is the commit that enables the paid budget (after Gate A passed, run 44148876075). Its
+  pipeline code is `80fc677b` (= `5c79e59f` + the Gate A hook move into `pipeline/context_qa_gate.py`), plus this
+  document, `run_config.json` and the Gate A evaluator. Verified after the run against the workflow
   run's `headSha`.
 - Changes since cycle 9 (`f299a5a9`) under test:
   - **FIX-PQ-10-001** (`pipeline/real_identity_gate.py::_evidence_may_autopublish`): model-only pairwise consensus never

@@ -1,0 +1,150 @@
+{
+ "pass": false,
+ "checks": [
+  {
+   "id": "A1.R0.no_input",
+   "pass": true,
+   "detail": "exit=0 no_input=True"
+  },
+  {
+   "id": "A1.R0.no_writes",
+   "pass": true,
+   "detail": "r2 writes=0"
+  },
+  {
+   "id": "A1.R0.namespace_unchanged",
+   "pass": true,
+   "detail": "object listing identical before/after the retry"
+  },
+  {
+   "id": "A2.F1.crashed_at_point",
+   "pass": true,
+   "detail": "exit=97 faults=['after_analysis']"
+  },
+  {
+   "id": "A2.F1.no_processed_markers",
+   "pass": true,
+   "detail": "metadata objects=0"
+  },
+  {
+   "id": "A2.F1.no_publishable_state",
+   "pass": true,
+   "detail": "PASS publishability payloads=0"
+  },
+  {
+   "id": "A2.F1.writes_confined",
+   "pass": true,
+   "detail": "every write inside the namespace"
+  },
+  {
+   "id": "A2.F1.raw_unchanged",
+   "pass": true,
+   "detail": "namespace raw/ identical to the seed"
+  },
+  {
+   "id": "A2.F2.crashed_at_point",
+   "pass": false,
+   "detail": "exit=0 faults=[]"
+  },
+  {
+   "id": "A2.F2.no_processed_markers",
+   "pass": false,
+   "detail": "metadata objects=24"
+  },
+  {
+   "id": "A2.F2.no_publishable_state",
+   "pass": false,
+   "detail": "PASS publishability payloads=50"
+  },
+  {
+   "id": "A2.F2.writes_confined",
+   "pass": true,
+   "detail": "every write inside the namespace"
+  },
+  {
+   "id": "A2.F2.raw_unchanged",
+   "pass": true,
+   "detail": "namespace raw/ identical to the seed"
+  },
+  {
+   "id": "A2.F3.crashed_at_point",
+   "pass": false,
+   "detail": "exit=0 faults=[]"
+  },
+  {
+   "id": "A2.F3.no_processed_markers",
+   "pass": false,
+   "detail": "metadata objects=24"
+  },
+  {
+   "id": "A2.F3.no_publishable_state",
+   "pass": true,
+   "detail": "PASS publishability payloads=0"
+  },
+  {
+   "id": "A2.F3.writes_confined",
+   "pass": true,
+   "detail": "every write inside the namespace"
+  },
+  {
+   "id": "A2.F3.raw_unchanged",
+   "pass": true,
+   "detail": "namespace raw/ identical to the seed"
+  },
+  {
+   "id": "A2.F1.no_outputs",
+   "pass": true,
+   "detail": "review objects=0"
+  },
+  {
+   "id": "A2.F2.no_outputs",
+   "pass": false,
+   "detail": "review objects=25"
+  },
+  {
+   "id": "A2.F3.partial_upload_visible_and_bounded",
+   "pass": false,
+   "detail": "review objects after a crash at the first upload=25"
+  },
+  {
+   "id": "A2.R4.recovered",
+   "pass": false,
+   "detail": "exit=0 drafts written=0"
+  },
+  {
+   "id": "A2.R4.no_duplicate_or_orphan_drafts",
+   "pass": false,
+   "detail": "review objects not (re)written by the recovery run = ['review/DRAFT_Shirtless surfer in pink shorts on a light-colored_20261117.mp4', 'review/DRAFT_Tandem surfers _one in a pink top_ one in blue sho_20261117.mp4', 'review/DRAFT_stand-up paddleboarder with a white board_ white t_20261117.mp4', 'review/DRAFT_surfer in a black sleeveless top and black shorts_20261117.mp4', 'review/DRAFT_surfer in a dark bikini on a yellow_white longboar_20261117.mp4']"
+  },
+  {
+   "id": "A2.R4.all_sources_marked",
+   "pass": true,
+   "detail": "one processed marker per seeded source"
+  },
+  {
+   "id": "A2.R4.raw_unchanged",
+   "pass": true,
+   "detail": "namespace raw/ identical to the seed"
+  },
+  {
+   "id": "A1.R5.no_input",
+   "pass": true,
+   "detail": "exit=0 no_input=True"
+  },
+  {
+   "id": "A1.R5.no_writes",
+   "pass": true,
+   "detail": "r2 writes=0"
+  },
+  {
+   "id": "A1.R5.namespace_unchanged",
+   "pass": true,
+   "detail": "listing identical after the retry"
+  },
+  {
+   "id": "A.production_unchanged",
+   "pass": true,
+   "detail": "differences=0"
+  }
+ ]
+}
