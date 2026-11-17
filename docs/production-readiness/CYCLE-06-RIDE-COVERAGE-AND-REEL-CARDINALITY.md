@@ -65,8 +65,19 @@ Sources with GT rides range over active / 0.73–1.00 / 0.20–0.82 / 0.05–0.2
 | Non-ride source false positives (0095, 0155), 0108 tail, 0115 start, split reels | REPRODUCED on frozen artifacts; **not fixed** |
 | MEDIA_VERIFIED / HOLDOUT_VERIFIED | **BLOCKED** (see below) |
 
-## 4. Blockers and decisions needed
-1. **Viewing rendered media.** This environment cannot show me video frames: artifacts cannot be downloaded through the egress proxy and media must not go to public GitHub artifacts. Independent visual verification therefore needs either a private path I can read (a private bucket or viewer under existing R2 permissions) or you viewing the reels; I will not mark MEDIA_VERIFIED from a manifest.
-2. **GT currency.** The matrix uses GT-v1 (digest `b31fd9b4…`). If Annotation Studio has changed since (new includes/excludes), the dataset must be re-frozen and re-approved before I measure against it.
-3. **Non-ride sources.** A separating signal for 0095/0155 needs either a model look at the clip or a ride-presence check from perception; with only two negative sources any threshold would be overfit. Needs the new filming day as holdout.
-4. **Paid runs / spend.** None used in this cycle so far. Estimated Gemini headroom ≈ $0.36 of the approved $2.
+## 4. Blockers removed with the connected tools (Supabase MCP, read-only queries on project `sportreel`)
+1. **GT currency: VERIFIED.** The live `ground_truth` schema (the hosted Annotation Studio store) holds dataset `ae844a94-…` with digest `b31fd9b4…27c9`, identical to `gtv1_frozen.json`; all 24 members point to the latest annotation revision of their source (0 newer revisions; latest revision created 2026-11-06). GT-v1 is current.
+2. **Why the two sources are excluded (live GT carries it, GT-v1 export did not):** `0095` = `wave_ride`, `usability: unusable`, reason `no_meaningful_action`; `0155` = `failed_takeoff`, `unusable`, `no_meaningful_action`; `0108` tail 409-553 = `unusable`, reason `missing_landing`. So the exclusion is a *content-quality* judgement (an attempt without a meaningful action), not an absence of a surfer, which is why perception geometry cannot separate it (section 2b). A semantic/visual check is needed; `physical_actions` is empty (0 rows), so ride identity is still the PQ-19 heuristic.
+3. **Frame-level actor boxes exist** in the live revision (25 tracks, 3,383 keyframes; earlier cycles wrongly recorded them as absent). New tool `scripts/actor_correctness.py` (+ contract, 4 tests) checks, frame by frame, that the pipeline's tracked crop follows the GT athlete (containment of the pipeline person box in the GT athlete box; IoU is unusable because GT boxes include the board). Raw boxes are derived from private footage and are not committed; results are in `evaluation/actor_correctness/<run>.json`.
+
+| run | windows | follows a GT athlete | not following |
+|---|---:|---:|---|
+| 43920602179 (latest) | 25 | 23 | `0095` (excluded source: followed a different person than the annotated athlete) and `0097` (GT track has no athlete assigned; the crop is inside it, containment 1.0, so not a defect) |
+| 43583126199 (best) | 24 | 21 | `0095`, `0097` (same unassigned-track case) and **`0151`: the crop followed a person who is not the annotated athlete** (fixed in the later run) |
+
+So, for the rides that matter, wrong-person tracking is rare (one real case in the best run, none in the latest apart from the excluded `0095`): the multi-athlete and split problems are identity-evidence problems between sources, not crops following the wrong surfer inside a source.
+
+## 5. Still blocked
+1. **Viewing rendered media.** Engineering-OS routes visual inspection through `mcp-video-analyzer` / `watch-video`, which need the file on this machine. The originals and proxies are in Cloudflare R2; this environment has no R2 host or key and the account id is held only in repository secrets. To unblock: a read-only R2 token (bucket `sportreel`, Object Read only) entered through the secure credential form plus the R2 endpoint host added to this environment's allowed hosts. Without it no `MEDIA_VERIFIED`.
+2. **Holdout.** No independent filming day yet.
+3. **Spend.** None this cycle; ≈ $0.36 of the $2 Gemini cap remains by estimate.

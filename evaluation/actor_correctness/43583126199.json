@@ -1,0 +1,394 @@
+{
+ "summary": {
+  "windows": 24,
+  "followed_ok": 21,
+  "unverifiable": 0,
+  "not_following_any_gt_athlete": 3
+ },
+ "windows": [
+  {
+   "source_sha256": "207fe17c86b15b7310d5cd44d5bad4ce404436d3946854fea5f1b2ce6d5a5ec6",
+   "source_video": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-32_DJI_20260724103552_0162_D_aad790cb7c0",
+   "track_id": "10013",
+   "mode": "tracked_crop",
+   "frames": [
+    77,
+    638
+   ],
+   "compared_frames": 84,
+   "followed_athlete": "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "42",
+   "mode": "tracked_crop",
+   "frames": [
+    269,
+    1349
+   ],
+   "compared_frames": 215,
+   "followed_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a76a3cf1770",
+   "track_id": "162",
+   "mode": "tracked_crop",
+   "frames": [
+    1546,
+    2026
+   ],
+   "compared_frames": 83,
+   "followed_athlete": "d805a9b1-5786-43e8-b968-a078f77ac32e",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "2c7c9ee430b5106722a9179db47b19592bc3d15c5a36c9f70706cfee4e2132de",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "10001",
+   "mode": "tracked_crop",
+   "frames": [
+    167,
+    1049
+   ],
+   "compared_frames": 133,
+   "followed_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "3095fb74eca2f5ce2104929fc9033f4b86bcbf87e0192e5d69d278f80ea0ac43",
+   "source_video": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_aee4f4ccb3f",
+   "track_id": "10003",
+   "mode": "tracked_crop",
+   "frames": [
+    179,
+    660
+   ],
+   "compared_frames": 71,
+   "followed_athlete": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+   "source_video": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-04T07-38-33_DJI_20260724103751_0165_D_a0fe9b960d2",
+   "track_id": "10003",
+   "mode": "tracked_crop",
+   "frames": [
+    47,
+    348
+   ],
+   "compared_frames": 46,
+   "followed_athlete": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a16d8713aa3",
+   "track_id": "10007",
+   "mode": "tracked_crop",
+   "frames": [
+    89,
+    540
+   ],
+   "compared_frames": 68,
+   "followed_athlete": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "41e2f8bb26a39969955d1ee18d6e73d643229af68df2af9eb8592f9499c8c229",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10006",
+   "mode": "tracked_crop",
+   "frames": [
+    47,
+    563
+   ],
+   "compared_frames": 77,
+   "followed_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "4e84086f72c62e4a35c369d14b1280ec495c5860546924debc6f705f4bf84e23",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a5789171004",
+   "track_id": "10001",
+   "mode": "tracked_crop",
+   "frames": [
+    0,
+    480
+   ],
+   "compared_frames": 75,
+   "followed_athlete": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "548cf4ffb308cb65628cb2c5209027f65587f1d926a798a021038c097c2784eb",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a77337e7e51",
+   "track_id": "2",
+   "mode": "tracked_crop",
+   "frames": [
+    119,
+    570
+   ],
+   "compared_frames": 71,
+   "followed_athlete": null,
+   "median_containment": 1.0,
+   "followed_ok": false
+  },
+  {
+   "source_sha256": "575a812da943d8dd8222f33d48a681d3de25896e458c1620e5b9888bd15f0c58",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a16d8713aa3",
+   "track_id": "10002",
+   "mode": "tracked_crop",
+   "frames": [
+    149,
+    1079
+   ],
+   "compared_frames": 140,
+   "followed_athlete": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "58a990e5355da9960447a491ff08e3c8cbf496851e5efa2443049991fed9c160",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "10003",
+   "mode": "tracked_crop",
+   "frames": [
+    101,
+    1109
+   ],
+   "compared_frames": 153,
+   "followed_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "5f7ba69f1c3f6535279b28f08b1e278b95a31b014ea773cc1d4473528c322165",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10005",
+   "mode": "tracked_crop",
+   "frames": [
+    167,
+    858
+   ],
+   "compared_frames": 105,
+   "followed_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "6d57d3835262b3486fd8f750e7da8eb5f90d153623dcf0edf5f73cccb314770d",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_a32b6eec78d",
+   "track_id": "10003",
+   "mode": "tracked_crop",
+   "frames": [
+    5,
+    354
+   ],
+   "compared_frames": 46,
+   "followed_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "median_containment": 0.0,
+   "followed_ok": false
+  },
+  {
+   "source_sha256": "82dd734957da17b9f0b0da309465cc7ba86e5c9aaf2f60bbe82b5ed5d4e903c6",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "2",
+   "mode": "tracked_crop",
+   "frames": [
+    209,
+    686
+   ],
+   "compared_frames": 95,
+   "followed_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "85aedb594ab72a923b000b0142665fdf0238a08cb848b7e8883cd6e70213c4ed",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a5789171004",
+   "track_id": "10046",
+   "mode": "tracked_crop",
+   "frames": [
+    299,
+    630
+   ],
+   "compared_frames": 50,
+   "followed_athlete": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "8a01bba486b2aaeb8614ca7d399645cd930aedc51420d0301427849131428b2d",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10002",
+   "mode": "tracked_crop",
+   "frames": [
+    119,
+    1169
+   ],
+   "compared_frames": 157,
+   "followed_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "a1adfdae432f595944026a75f772839c97df297cdcd568616750f2f1c4b7870e",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a3c6321cd3d",
+   "track_id": "10001",
+   "mode": "tracked_crop",
+   "frames": [
+    203,
+    1289
+   ],
+   "compared_frames": 163,
+   "followed_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "a683559526f1b7274fce93336c96886a6429a29653444160c90b6953dd173cea",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720162950_0130_D_aa6196935aa",
+   "track_id": "10010",
+   "mode": "tracked_crop",
+   "frames": [
+    29,
+    510
+   ],
+   "compared_frames": 73,
+   "followed_athlete": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "b62c8aa0cb140b103e40a2518c41c33f2081da41f0b7e0fe8b07405a41000740",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160658_0097_D_a77337e7e51",
+   "track_id": "10041",
+   "mode": "tracked_crop",
+   "frames": [
+    359,
+    930
+   ],
+   "compared_frames": 111,
+   "followed_athlete": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "bfd005ab7787c08afb9cd2c56116639a2c9f85206cf402709f8c389e7eae742d",
+   "source_video": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_aee4f4ccb3f",
+   "track_id": "10006",
+   "mode": "tracked_crop",
+   "frames": [
+    59,
+    810
+   ],
+   "compared_frames": 113,
+   "followed_athlete": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "c241b723fce2bd93881085b895b599ffc29424eb897f33f21e31e712e8b3d618",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a091265c4a8",
+   "track_id": "10001",
+   "mode": "tracked_crop",
+   "frames": [
+    0,
+    450
+   ],
+   "compared_frames": 68,
+   "followed_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "median_containment": 1.0,
+   "followed_ok": true
+  },
+  {
+   "source_sha256": "e01a614de6057284637f598c74004859ca144c9a3a8dea77c0ac64c466fd1da8",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-54_DJI_20260720164734_0151_D_a55796e31bf",
+   "track_id": "10003",
+   "mode": "tracked_crop",
+   "frames": [
+    29,
+    420
+   ],
+   "compared_frames": 41,
+   "followed_athlete": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+   "median_containment": 0.0,
+   "followed_ok": false
+  },
+  {
+   "source_sha256": "f6ac72f8aeb5311993f61a78a55061506eae450fab15906815e9eca5f03ab74f",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "event_id": null,
+   "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_a561fbae979",
+   "track_id": "10002",
+   "mode": "tracked_crop",
+   "frames": [
+    149,
+    1289
+   ],
+   "compared_frames": 160,
+   "followed_athlete": "6e81fe5b-0bf7-472d-aa61-15e863a8938a",
+   "median_containment": 1.0,
+   "followed_ok": true
+  }
+ ]
+}
