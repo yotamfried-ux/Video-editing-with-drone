@@ -28,11 +28,16 @@ _SHEET_TILE = 320
 _SHEET_MIN_VISIBLE = 0.6
 
 
+# Six crops per identity sheet: with four, the order-symmetric consensus auto-matched 0143+0152 (two athletes) and split
+# 0097/0115 on the dev pairs (cycle 5, docs/production-readiness/CYCLE-05-REPORT.md); with six it left 0143+0152 in REVIEW.
+IDENTITY_SHEET_CROPS_DEFAULT = 6
+
+
 def _sheet_crops() -> int:
     try:
-        return max(0, min(6, int(os.getenv("SPORTREEL_IDENTITY_CROPS", "4"))))
+        return max(0, min(6, int(os.getenv("SPORTREEL_IDENTITY_CROPS", str(IDENTITY_SHEET_CROPS_DEFAULT)))))
     except ValueError:
-        return 4
+        return IDENTITY_SHEET_CROPS_DEFAULT
 
 
 def _clamp01(value: Any, default: float) -> float:

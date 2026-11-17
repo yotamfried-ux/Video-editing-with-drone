@@ -45,7 +45,7 @@ def make(tmp: str, names: list[str], real: bool = True) -> dict:
             video.write_bytes(b"video-" + name.encode())
         thumb = Path(tmp) / f"{name}.jpg"
         thumb.write_bytes(b"\xff\xd8\xff" + name.encode())
-        apps.append({"path": str(video), "_person_id": "person_A", "thumbnail": str(thumb),
+        apps.append({"path": str(video), "_person_id": "person_A", "thumbnail": str(thumb), "_sheet_crops": 6,
                      "events": [{"type": "wave_catch", "person_id": "person_A", "start": 1.0, "end": 8.0, "track_id": str(10000 + i)}]})
     return {"description": "surfer on a pink board", "appearances": apps}
 

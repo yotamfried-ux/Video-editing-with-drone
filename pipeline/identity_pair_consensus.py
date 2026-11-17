@@ -116,6 +116,9 @@ def _read(path: Any) -> bytes | None:
         return None
 
 
+MIN_SHEET_CROPS = 6      # the validated setting (cycle 5: four crops auto-matched 0143+0152)
+
+
 def verify_cluster(cluster: dict[str, Any], ask: Ask) -> dict[str, Any]:
     """Check EVERY cross-source pair of the cluster (no transitive merge). verdict: MATCH only if all are MATCH,
     NO_MATCH if any pair is a confident different-athlete, otherwise REVIEW."""
@@ -126,6 +129,9 @@ def verify_cluster(cluster: dict[str, Any], ask: Ask) -> dict[str, Any]:
     images = {k: _read(a.get("thumbnail")) for k, a in zip(keys, apps)}
     if len(set(keys)) != len(keys) or any(v is None for v in images.values()):
         return {"verdict": "REVIEW", "reason": "ambiguous_member_keys_or_missing_images", "pairs": []}
+    thin = [k for k, a in zip(keys, apps) if int(a.get("_sheet_crops") or 0) < MIN_SHEET_CROPS]
+    if thin:                                   # fail closed: a thinner sheet is not the evidence the rule was validated on
+        return {"verdict": "REVIEW", "reason": f"identity_sheet_has_fewer_than_{MIN_SHEET_CROPS}_crops", "pairs": []}
     pairs = []
     for a, b in ev._required_pairs(sorted(keys)):
         result = verify_pair(ask, images[a], images[b])

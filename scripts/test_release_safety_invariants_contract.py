@@ -161,7 +161,7 @@ def verifier_answers() -> None:
     def run(verifier, answer: str):
         saved = identity._consensus_ask
         identity._consensus_ask = lambda prompt, images: answer
-        apps = [dict(app("a.mp4", "person_A", "7"), thumbnail=thumb), dict(app("b.mp4", "person_B", "3"), thumbnail=thumb)]
+        apps = [dict(app("a.mp4", "person_A", "7"), thumbnail=thumb, _sheet_crops=6), dict(app("b.mp4", "person_B", "3"), thumbnail=thumb, _sheet_crops=6)]
         try:
             return verifier([{"description": "x", "appearances": apps}])
         finally:

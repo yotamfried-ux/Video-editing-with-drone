@@ -29,6 +29,7 @@ def prove(cluster: dict, ask=None, *, image: str | None = None) -> dict:
     image = image or str(Path(__file__).resolve())
     for app in cluster["appearances"]:
         app.setdefault("thumbnail", image)
+        app.setdefault("_sheet_crops", 6)
     result = pc.verify_cluster(cluster, ask or ask_with(MATCH_SPECIFIC))
     keys = [ev.member_key(a) for a in cluster["appearances"]]
     return ev.stamp_pairwise(cluster, result["pairs"], model="test-verifier",

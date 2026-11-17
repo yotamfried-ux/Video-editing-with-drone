@@ -72,7 +72,7 @@ def main() -> int:
         def with_thumb(name: str, description: str, track: int) -> dict:
             thumb = _os.path.join(folder, name + ".jpg")
             open(thumb, "wb").write(b"jpg")
-            return {**app(name, description, track), "thumbnail": thumb}
+            return {**app(name, description, track), "thumbnail": thumb, "_sheet_crops": 6, "_sheet_crops": 6}
 
         import _consensus_fixture as fx
         identity._consensus_ask = lambda prompt, images: fx.MATCH_SPECIFIC

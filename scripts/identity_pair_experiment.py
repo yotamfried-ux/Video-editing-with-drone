@@ -330,13 +330,33 @@ def run_clusters(args: argparse.Namespace, gt: dict[str, Any], manifest: dict[st
                     for r in truth[sha]["rides"]:
                         if sc._overlap(a, b, r["start_frame"], r["end_frame"]) >= LABEL_SHARE * max(1, b - a):
                             gt_ath.add(r["athlete_id"])
-                    crops = appearance_crops({"track_id": track, "window_sec": rng}, sidecars[sha], videos[sha], tmp, CROPS_M1)
-                    if len(crops) < 3:
-                        continue
-                    thumb = os.path.join(tmp, f"{sha[:12]}_{track}.jpg")
-                    Path(thumb).write_bytes(_sheet(crops, 3))
+                    sheet_crops = CROPS_M1
+                    if args.sheet == "production":
+                        sheet_crops = 0
+                        thumb = None
+                        try:
+                            from pipeline import runtime_quality as rq
+                            from pipeline.perception.runtime import _detections_from_payload
+                            import config as _config
+                            _config.TMP_DIR = tmp
+                            payload = sidecars[sha]
+                            dets = _detections_from_payload(videos[sha], payload)
+                            event = {"target_track_id": track, "start": rng[0], "end": rng[1]}
+                            thumb, evidence = rq._identity_sheet(videos[sha], {"id": f"t{track}"}, [event], dets)
+                            sheet_crops = int(evidence.get("crops") or 0) if thumb else 0
+                        except Exception as exc:        # a sheet that cannot be built is a REVIEW, never a guess
+                            print(f"production sheet failed for {sha[:12]}#{track}: {type(exc).__name__}")
+                        if not thumb:
+                            continue
+                    else:
+                        crops = appearance_crops({"track_id": track, "window_sec": rng}, sidecars[sha], videos[sha], tmp, CROPS_M1)
+                        if len(crops) < 3:
+                            continue
+                        thumb = os.path.join(tmp, f"{sha[:12]}_{track}.jpg")
+                        Path(thumb).write_bytes(_sheet(crops, 3))
+                        sheet_crops = len(crops)
                     apps.append({"path": f"/dtor/{sha[:12]}.MP4", "_person_id": f"t{track}", "thumbnail": thumb,
-                                 "events": [{"person_id": f"t{track}"}]})
+                                 "_sheet_crops": sheet_crops, "events": [{"person_id": f"t{track}"}]})
                 if len({a["path"] for a in apps}) < 2:
                     out_rows.append({"cluster": arow.get("athlete_key", "")[-8:], "members": len(apps), "verdict": "NOT_RUN_MEDIA_MISSING"})
                     continue
@@ -348,7 +368,7 @@ def run_clusters(args: argparse.Namespace, gt: dict[str, Any], manifest: dict[st
                                  "verdict": result["verdict"], "reason": result["reason"],
                                  "pair_decisions": sorted(p["decision"] for p in result["pairs"])})
     report = {"schema": "sportreel.identity_cluster_check.v1", "mode": "clusters", "model": MODEL, "media_in_result": False,
-              "note": "uses the 6-crop sheets of this script, not the pipeline's 4-crop thumbnails", "clusters": out_rows,
+              "sheet": args.sheet, "note": ("thumbnails built by the PRODUCTION builder (pipeline.runtime_quality._identity_sheet)" if args.sheet == "production" else "6-crop sheets of this script, not the pipeline's builder"), "clusters": out_rows,
               "cost": {"calls": budget.calls, "tokens_in": budget.tokens_in, "tokens_out": budget.tokens_out,
                        "estimated_usd": round(budget.spent, 4), "cap_usd": args.budget_usd}}
     args.out.write_text(json.dumps(report, indent=1), encoding="utf-8")
@@ -368,6 +388,9 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--budget-usd", type=float, default=0.9)
     ap.add_argument("--m2-crops", type=int, choices=[4, 6], default=6,
                     help="crops per appearance sheet used by M1/M2 (controlled 4-vs-6 comparison; M0 keeps its 4-crop sheet)")
+    ap.add_argument("--sheet", choices=["experiment", "production"], default="experiment",
+                    help="clusters mode: build the thumbnails with this script's 6-crop sheet, or with the PRODUCTION builder "
+                         "(pipeline.runtime_quality._identity_sheet) so the real sheet layout is what gets verified")
     ap.add_argument("--only-m2", action="store_true", help="skip M0/M1 (cost): only the order-symmetric consensus")
     ap.add_argument("--m4-threshold", type=float, help="holdout: threshold frozen from the dev run (never fit on holdout)")
     ap.add_argument("--dry-run", action="store_true", help="appearances, split and pair counts only; no media, no model")

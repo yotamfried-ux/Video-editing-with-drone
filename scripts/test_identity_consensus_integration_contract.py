@@ -16,6 +16,9 @@ C7  Evidence tampering (membership change, edited digest, missing order) -> not 
 C8  Structural: ACCEPTED_METHODS == {pairwise_consensus, operator_review (owner decision)}; nothing but identity_evidence sets `_visual_verified = True`.
 C9  A cluster whose verification was already stamped for exactly its members is not re-asked (no extra cost).
 C10 A failure of the model call is REVIEW, not a split and not a merge.
+C11 Sheet strength: appearances whose identity sheet has fewer than 6 tracked crops (4 = the old default, or unknown)
+    never confirm a merge, even when the verifier answers MATCH with specific features: at four crops the consensus rule
+    auto-matched 0143+0152 (cycle 5 dev pairs). Same at the singleton merge-check path.
 """
 from __future__ import annotations
 
@@ -47,7 +50,7 @@ def make(tmp: str, names: list[str]) -> dict:
     for i, name in enumerate(names):
         thumb = Path(tmp) / f"{name}.jpg"
         thumb.write_bytes(b"\xff\xd8\xff" + name.encode())            # distinct bytes per member
-        apps.append({"path": f"/tmp/dtor/{name}.MP4", "_clip_index": i, "_person_id": "person_A", "thumbnail": str(thumb),
+        apps.append({"path": f"/tmp/dtor/{name}.MP4", "_clip_index": i, "_person_id": "person_A", "thumbnail": str(thumb), "_sheet_crops": 6,
                      "events": [{"type": "wave_catch", "person_id": "person_A", "start": 1.0, "end": 8.0,
                                  "track_id": str(10000 + i)}]})
     return {"description": "x", "appearances": apps}
@@ -262,7 +265,32 @@ def c9():
         check(not calls and ev.covers(out[0]), "C9: an already covered cluster must not be re-asked")
 
 
-for case in (c1, c2, c3, c4, c5, c6, c7, c8, c9):
+def c11():
+    with tempfile.TemporaryDirectory() as tmp:
+        for crops in (4, 0, 5):
+            for name, verifier in paths():
+                cl = make(tmp, ["A_0143", "B_0152"])
+                for a in cl["appearances"]:
+                    a["_sheet_crops"] = crops
+                out = run(verifier, [cl], fx.ask_with(fx.MATCH_SPECIFIC))
+                check(len(out) == 1 and not ev.covers(out[0]) and not out[0].get("_visual_verified"),
+                      f"C11 {name}: a {crops}-crop sheet must not confirm a merge")
+                check(enforce_identity_gate(out)[0]["_identity_gate"] == "kept_together_unconfirmed", f"C11 {name} gate ({crops})")
+            s1, s2 = make(tmp, ["P_0143"]), make(tmp, ["Q_0152"])
+            for c in (s1, s2):
+                c["appearances"][0]["_sheet_crops"] = crops
+            saved = identity._consensus_ask
+            identity._consensus_ask = fx.ask_with(fx.MATCH_SPECIFIC)
+            try:
+                merged = identity._verify_merge_candidates([s1, s2])
+            finally:
+                identity._consensus_ask = saved
+            check(len(merged) == 2, f"C11 merge-check: a {crops}-crop sheet must not merge")
+        from pipeline import runtime_quality as rq
+        check(rq.IDENTITY_SHEET_CROPS_DEFAULT == 6 and rq._sheet_crops() == 6, "C11 production default is six crops")
+
+
+for case in (c1, c2, c3, c4, c5, c6, c7, c8, c9, c11):
     try:
         case()
     except Exception as exc:

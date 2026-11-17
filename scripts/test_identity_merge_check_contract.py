@@ -60,7 +60,7 @@ def app(tmp: str, source: str, description: str) -> dict:
     thumb = os.path.join(tmp, f"{source}.jpg")
     Path(thumb).write_bytes(b"\xff\xd8\xff")
     return {"path": f"/tmp/{source}.MP4", "_clip_index": source, "person_id": "person_A", "_description": description,
-            "thumbnail": thumb, "events": [{"type": "wave_catch", "start": 1.0, "end": 8.0, "score": 9}]}
+            "thumbnail": thumb, "_sheet_crops": 6, "events": [{"type": "wave_catch", "start": 1.0, "end": 8.0, "score": 9}]}
 
 
 def run(identity, clusters: list[dict], answer) -> tuple[list[dict], FakeGenai]:

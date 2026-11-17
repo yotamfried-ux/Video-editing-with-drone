@@ -92,7 +92,7 @@ def test_verifier_marks_only_positively_confirmed_clusters() -> None:
     import pipeline.identity_failsafe as failsafe
     import pipeline.stages.identity as identity
     thumb = ROOT / "scripts" / "test_verified_cluster_merge_contract.py"  # any existing file
-    apps = [{"path": "a.mp4", "thumbnail": str(thumb), "events": []}, {"path": "b.mp4", "thumbnail": str(thumb), "events": []}]
+    apps = [{"path": "a.mp4", "thumbnail": str(thumb), "_sheet_crops": 6, "events": []}, {"path": "b.mp4", "thumbnail": str(thumb), "_sheet_crops": 6, "events": []}]
 
     import _consensus_fixture as fx
 

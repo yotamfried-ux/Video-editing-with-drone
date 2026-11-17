@@ -68,6 +68,7 @@ on:
       - 'scripts/test_identity_pair_experiment_contract.py'
       - 'scripts/_consensus_fixture.py'
       - 'pipeline/identity_pair_consensus.py'
+      - 'pipeline/runtime_quality.py'
       - 'pipeline/identity_evidence.py'
       - 'scripts/test_verified_cluster_merge_contract.py'
       - 'scripts/test_identity_merge_check_contract.py'

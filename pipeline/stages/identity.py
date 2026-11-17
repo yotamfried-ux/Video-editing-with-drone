@@ -217,9 +217,21 @@ def _person_entries(clip_analyses: list[dict],
                 "description": person.get("description", "unknown athlete"),
                 "events": events,
                 "thumbnail": thumbnail,
+                "sheet_crops": _sheet_crops_of(person),
                 "key": _identity_key(clip_index, person_id, ca.get("path", "")),
             })
     return entries
+
+
+def _sheet_crops_of(person: dict) -> int:
+    """How many tracked crops the person's identity contact sheet holds (0 = a single crop-point thumbnail / unknown)."""
+    evidence = person.get("identity_evidence")
+    if isinstance(evidence, dict) and evidence.get("kind") == "track_bbox_sheet":
+        try:
+            return int(evidence.get("crops") or 0)
+        except (TypeError, ValueError):
+            return 0
+    return 0
 
 
 def _appearance_from_entry(entry: dict) -> dict:
@@ -228,6 +240,7 @@ def _appearance_from_entry(entry: dict) -> dict:
         "path": entry["path"],
         "events": entry["events"],
         "thumbnail": entry.get("thumbnail", ""),
+        "_sheet_crops": int(entry.get("sheet_crops") or 0),
         "_clip_index": entry.get("clip_index"),
         "_person_id": entry.get("person_id"),
         "_description": entry.get("description", "unknown athlete"),
@@ -1294,8 +1307,12 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
         b_src = {x.get("_clip_index", x.get("path")) for x in b.get("appearances", [])}
         if a_src & b_src:
             continue
-        thumb_a = next((x.get("thumbnail") for x in a.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))), None)
-        thumb_b = next((x.get("thumbnail") for x in b.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))), None)
+        from pipeline import identity_pair_consensus as _pc
+        # only full-strength sheets (>= MIN_SHEET_CROPS tracked crops) may confirm a merge; thinner ones stay apart
+        thumb_a = next((x.get("thumbnail") for x in a.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))
+                        and int(x.get("_sheet_crops") or 0) >= _pc.MIN_SHEET_CROPS), None)
+        thumb_b = next((x.get("thumbnail") for x in b.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))
+                        and int(x.get("_sheet_crops") or 0) >= _pc.MIN_SHEET_CROPS), None)
         if not thumb_a or not thumb_b:
             continue
         checked += 1
