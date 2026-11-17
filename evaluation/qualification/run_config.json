@@ -1,7 +1,7 @@
 {
-  "qualification_run_id": "q10-paid-02-not-authorised",
+  "qualification_run_id": "q11-paid-01",
   "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
-  "llm_budget_usd_paid": 0.0,
-  "note": "Paid runs closed after EXP-10-001 (run 44166232265, $0.206). Spent of the $2 total: cycle 8 $0.380, q9-paid-01 $0.225, q9-paid-02 $0.469, q10-paid-01 $0.206 = $1.280; remainder $0.720. No further paid run without a new decision.",
+  "llm_budget_usd_paid": 0.4,
+  "note": "EXP-11-001 (PREREGISTRATION-EXP-11-001.md), cap $0.40. Campaign: $4 total (owner added $2 on 2026-11-17). Spent before: cycle 8 $0.380, q9-paid-01 $0.225, q9-paid-02 $0.469, q10-paid-01 $0.206 = $1.280; remainder $2.720.",
   "gate_a_run_id": "q10-gate-a2"
 }
