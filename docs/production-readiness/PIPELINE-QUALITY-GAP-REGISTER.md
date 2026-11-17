@@ -430,3 +430,39 @@ rollback_sha: ""
 ```
 
 **Durable final qualification:** the latest run's real artifacts and manifest must match the reviewed source/actor wave inventory; final-QA approval reasons must be consistent across scripts/API; every evaluated render independently viewed by frame slices; no blocked high-risk cases; protected metrics no worse than replayed best baseline; exact merged `main` SHA re-verified; final owner GO is separately recorded. **A green GitHub Actions run is not a pipeline qualification certificate.**
+
+## 13. Mandatory cross-sport architecture principle — all future fixes and experiments
+
+**Binding product/engineering decision (owner, 2026-11-17): SportReel is a general-purpose personal performance-video engine, NOT a surf-only editor.** This decision applies across *all* existing gaps PQ/PA, all new fixes, refactors, tests, agents, review recommendations and PRs. The current surfing GT-v1 is the first proof cohort, not a reason to hard-code surfing into pipeline foundations.
+
+### 13.1 Architectural rule — shared core, configurable domain
+
+- **Core (sport-neutral):** media ingest and source-frame provenance; human/actor tracking and identity continuity; event representation and attribution to a primary performer; clip-boundary and sequence machinery; clustering into one canonical personal reel per performer; crop/reframe; edit, render, QA/re-edit; approval/delivery; audit/evidence, retries and isolation. These components MUST operate on domain-independent inputs and must not require a separate implementation per sport.
+- **Sport / Performance Profile (domain-specific):** event vocabulary and phases; sport-specific detectors or model prompts; meaningful-action criteria, preparation and outcome signals; exclusion/eligibility rules; known contextual objects (board, ball, etc.); editorial preferences and calibrated confidence. These can vary by sport **without duplicating or forking the core**.
+- **One primary performer, other participants allowed:** a shared wave or football play with multiple people is not by itself invalid; track action ownership and maintain the featured performer. Do not confuse "who is visible" with "whose performance is edited."
+- **New-sport onboarding target:** introduce a profile + labeled examples/GT + calibration and verification; reuse the same event/actor/source/EDL/render/QA/review contracts. A new sport must not require a new orchestration, storage, reel-assembly, render, approval or evidence system.
+- **Reuse before abstraction:** inspect existing code/contracts first; prefer the smallest backwards-compatible extension. Do not create an unused, parallel "universal pipeline" or speculative abstractions.
+
+**Banned as core fixes:** source IDs/names/timestamps as branching conditions; hard-coded `surf`/`wave`/`paddle`/`board` requirements in generic eligibility, identity, render, release or QA; adjusting global thresholds exclusively to fit one labeled clip while regressing another; claiming a football feature works solely because a surf test passed. Existing surf-specific code should be isolated behind profiles as touched, with migration/backwards-compatibility checks. Sport-specific algorithms are allowed **inside their profiles** when supported by domain evidence, not promoted to universal assumptions.
+
+### 13.2 Mandatory acceptance gate for each future fix / PR
+
+Before marking a candidate `ADOPTED`, `MERGE_READY` or `PRODUCTION_QUALIFIED`, record a **MULTI_SPORT_COMPATIBILITY** assessment linked to the same exact code SHA and experiment evidence:
+
+1. **Scope and dependencies:** identify whether the patch changes shared core, an existing profile or both; list its domain assumptions and all impacted consumers.
+2. **Universal behavior:** define the sport-neutral invariant being fixed (e.g., "action boundary based on observed preparation/outcome", not "add 4 seconds to paddle-in").
+3. **Surf regression:** test against existing frozen GT-v1 and difficult counterexamples (0115 vs 0140 start, 0108/0094/0142 endings, 0143 vs 0152 lookalikes, 0097+0115 true pair, 0095 shared wave); prevent new P0 errors.
+4. **Second-domain contract:** run a small synthetic **football-like performance** fixture (many similarly dressed players, primary-player attribution, approach/active-play/outcome, waiting/irrelevant lead-in, action continuity) through shared input/event/EDL/QA interfaces. If a component is intentionally surf-profile-only, test that unrelated profiles and core are unaffected.
+5. **Change-impact evidence:** name exact core files changed, profile/config changes, test command, observed result, executed SHA, artifacts/hashes, limitations and any remaining migration work.
+6. **Decision:** PASS / FAIL / NOT_TESTED with explanation. FAIL/NOT_TESTED blocks claims of *cross-sport portability* and adoption of a new core algorithm as universally valid; a production P0 hotfix may be narrowly isolated and kept in review until compatibility is resolved, not silently treated as certified globally.
+
+Synthetic football-like fixtures **test architecture only**. They do **not** qualify football action accuracy. Sport-specific release requires real football footage, separately annotated football GT, independent holdout video, actual render/QA review and owner approval.
+
+### 13.3 ROI, evidence and integration with open gaps
+
+- In ROI ranking, consider **reusability across sports, reduced onboarding cost, and reduction of sport-specific core dependencies** alongside expected surf-quality improvement, cost and regression risk. Mandatory P0 safety always overrides ROI.
+- Treat existing **PQ-30** as the cross-sport dependency register item; apply this guard also to PQ-01..PQ-41, PA-01..PA-16 and future IDs. Include `sport_profile_id` and core/profile dependency impact in subsequent evidence-registry fixes and experiment records when relevant.
+- All relevant change proposals MUST include a negative/positive test covering *another* performance domain at the interface level. Do not confuse synthetic portability evidence with empirical accuracy or assume "any sport" already works without domain-specific data.
+- A genuine general fix must remain testable across source footage and sports; a surf-specific recognition model may remain a swappable profile implementation. Product-wide invariants, QA/provenance, rollback and release gates stay shared.
+
+**Definition of done:** improving current surfing reels is necessary but not sufficient if the fix hard-codes surfing into a previously generic path. Conversely, the portability guard must not delay fixing actual surf P0 bugs through pointless architecture rewrites; use small, test-backed profile boundaries and verify no unintended cross-domain breakage.
