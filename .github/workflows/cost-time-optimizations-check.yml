@@ -57,6 +57,7 @@ on:
       - 'scripts/boundary_experiment.py'
       - 'scripts/test_boundary_experiment_contract.py'
       - 'scripts/test_identity_consensus_integration_contract.py'
+      - 'scripts/test_identity_model_path_sheet_contract.py'
       - 'scripts/test_consensus_concurrency_contract.py'
       - 'scripts/test_review_replacement_invalidation_contract.py'
       - 'scripts/test_athlete_ride_matrix_contract.py'
@@ -346,6 +347,7 @@ jobs:
           PYTHONPATH: scripts:.
         run: |
           python scripts/test_identity_consensus_integration_contract.py
+          python scripts/test_identity_model_path_sheet_contract.py
           python scripts/test_consensus_concurrency_contract.py
           python scripts/test_review_replacement_invalidation_contract.py
           python scripts/test_athlete_ride_matrix_contract.py

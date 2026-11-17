@@ -320,6 +320,10 @@ def _resolve_model_appearance(app: dict, clip_analyses: list[dict]) -> dict | No
         "events": person["events"],
         "description": person.get("description", "unknown athlete"),
         "thumbnail": person.get("thumbnail", "") or "",
+        # FIX-PQ-09-001: without this, every model-clustered appearance carried _sheet_crops=0, the pairwise verifier
+        # refused every pair as a thin sheet (qualification run q9-paid-01: 0 verifier calls, 5 clusters unconfirmed,
+        # no singleton pair verified), and identity fell back to the description clustering alone.
+        "sheet_crops": _sheet_crops_of(person),
         "key": _identity_key(idx, pid, ca.get("path", "")),
     }
 
@@ -1362,6 +1366,14 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
     return [cluster for index, cluster in enumerate(clusters) if index not in merged_into]
 
 
+def _identity_evidence_covers(cluster: dict) -> bool:
+    from pipeline import identity_evidence as ev
+    try:
+        return len(cluster.get("appearances") or []) >= 2 and ev.covers(cluster)
+    except Exception:
+        return False
+
+
 def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
     """Apply deterministic no-guessing safeguards before expensive verification."""
     from pipeline.identity_decision_engine import IdentityDecisionEngine
@@ -1374,6 +1386,12 @@ def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
         elif _cluster_has_number_conflict(cluster):
             out.extend(_split_cluster_to_singles(
                 cluster, "conflicting jersey/bib numbers"))
+        elif _identity_evidence_covers(cluster):
+            # FIX-PQ-09-002: every cross-source pair of exactly these members is a both-orders image MATCH. The
+            # description attributes below are the analyzer's TEXT under varying light ("dark swimsuit" vs "no shirt",
+            # 0097+0115); they decide which clusters get verified, they do not overrule the image evidence. Same-clip
+            # and number conflicts above still split.
+            out.append(cluster)
         else:
             apps = cluster.get("appearances", []) or []
             has_no_match = False
