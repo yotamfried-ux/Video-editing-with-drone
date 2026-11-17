@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Callable
 
 M1_PROMPT = """\
@@ -91,15 +92,30 @@ def _sha(text: str) -> str:
     return hashlib.sha256(str(text or "").encode("utf-8")).hexdigest()
 
 
+def workers() -> int:
+    """Concurrent model calls (SPORTREEL_CONSENSUS_WORKERS, default 4; 1 = serial). Results never depend on it."""
+    try:
+        return max(1, min(16, int(os.environ.get("SPORTREEL_CONSENSUS_WORKERS", "4"))))
+    except ValueError:
+        return 4
+
+
+def _ask_safe(ask: Ask, first: bytes, second: bytes) -> str:
+    try:
+        return ask(M1_PROMPT, [first, second])
+    except Exception:
+        return ""
+
+
 def verify_pair(ask: Ask, sheet_a: bytes, sheet_b: bytes) -> dict[str, Any]:
     """Both image orders. Any error, empty or unparsable answer in either order is REVIEW, never a merge."""
-    answers = []
-    for first, second in ((sheet_a, sheet_b), (sheet_b, sheet_a)):
-        try:
-            raw = ask(M1_PROMPT, [first, second])
-        except Exception:
-            raw = ""
-        answers.append((raw, parse_json(raw)))
+    orders = ((sheet_a, sheet_b), (sheet_b, sheet_a))
+    if workers() > 1:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            raws = list(pool.map(lambda o: _ask_safe(ask, *o), orders))
+    else:
+        raws = [_ask_safe(ask, *o) for o in orders]
+    answers = [(raw, parse_json(raw)) for raw in raws]
     (raw_f, forward), (raw_b, backward) = answers
     return {"decision": consensus(forward, backward), "forward_sha256": _sha(raw_f) if raw_f else "",
             "backward_sha256": _sha(raw_b) if raw_b else "",
@@ -132,10 +148,13 @@ def verify_cluster(cluster: dict[str, Any], ask: Ask) -> dict[str, Any]:
     thin = [k for k, a in zip(keys, apps) if int(a.get("_sheet_crops") or 0) < MIN_SHEET_CROPS]
     if thin:                                   # fail closed: a thinner sheet is not the evidence the rule was validated on
         return {"verdict": "REVIEW", "reason": f"identity_sheet_has_fewer_than_{MIN_SHEET_CROPS}_crops", "pairs": []}
-    pairs = []
-    for a, b in ev._required_pairs(sorted(keys)):
-        result = verify_pair(ask, images[a], images[b])
-        pairs.append(dict(result, a=a, b=b))
+    required = list(ev._required_pairs(sorted(keys)))
+    if workers() > 1 and len(required) > 1:
+        with ThreadPoolExecutor(max_workers=max(1, workers() // 2)) as pool:   # each pair already runs 2 calls
+            results = list(pool.map(lambda ab: verify_pair(ask, images[ab[0]], images[ab[1]]), required))
+    else:
+        results = [verify_pair(ask, images[a], images[b]) for a, b in required]
+    pairs = [dict(r, a=a, b=b) for (a, b), r in zip(required, results)]
     decisions = {p["decision"] for p in pairs}
     verdict = "NO_MATCH" if "NO_MATCH" in decisions else ("MATCH" if pairs and decisions == {"MATCH"} else "REVIEW")
     return {"verdict": verdict, "reason": "", "pairs": pairs}
