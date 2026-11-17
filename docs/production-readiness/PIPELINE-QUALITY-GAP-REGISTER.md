@@ -524,3 +524,15 @@ Synthetic football-like fixtures **test architecture only**. They do **not** qua
 
 **Definition of done:** improving current surfing reels is necessary but not sufficient if the fix hard-codes surfing into a previously generic path. Conversely, the portability guard must not delay fixing actual surf P0 bugs through pointless architecture rewrites; use small, test-backed profile boundaries and verify no unintended cross-domain breakage.
 
+
+
+## 14. Cycle 11 sync (2026-11-17) — see CYCLE-11-ROI-AND-MULTISPORT-QUALIFICATION.md
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PQ-05 / PA-15 starts | PATCHED (replayed, not rendered) | EVD-11-001, EVD-11-002 | FIX-PQ-11-001 motion-supported onset: missing include 20.4 -> 16.7 s in replay; EXP-11-001 pending (BLK-11-001) |
+| PA-15 (corrected) | PATCHED (starts) / OPEN (ends) | EVD-11-001 | cycle-10 overrun figures for 0142/0118/0146/0126/0115/0104 were a measurement error; real ends: 0094 tail, 0108 tail, 0070 gap, 0151 early end |
+| PQ-30 cross-sport dependencies | PATCHED (partial) | EVD-11-002 | FIX-PQ-11-002 sport profiles; remaining surf code listed in docs/architecture/MULTI-SPORT-PERFORMANCE-ENGINE.md section 3 |
+| PA-16 metric | PATCHED | EVD-11-003 | scripts/quality_scorecard.py: visible vs time-attributed mixing, wrong-actor frames, non-GT seconds |
+| PA-12 / Gate A | TESTED (cycle 10) | EVD-10-001 | unchanged; PA-13 paid-retry duplicates still open |
+| PQ-02 / PA-11 | MITIGATED (cycle 10) | EVD-10-005 | unchanged |

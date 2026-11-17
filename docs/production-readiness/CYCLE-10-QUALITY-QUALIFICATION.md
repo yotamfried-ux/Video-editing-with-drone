@@ -1,3 +1,8 @@
+> **Correction (cycle 11):** the PA-15 overrun figures below for 0142, 0118, 0146, 0126, 0115 and 0104 are wrong. They
+> compared windows with the single largest GT include segment; GT rides are runs of contiguous include segments
+> (wave_ride + maneuver + wipeout). See `ROI-PRIORITIZED-REMEDIATION.md` and the corrected PA-15 in the registry. The
+> EXP-10-002 include-loss figure (44.0 s) counted all include segments and stands.
+
 # Cycle 10 — Qualification gates, identity safety, controlled pipeline experiment, GO/NO-GO
 
 **Production decision: NO-GO.** PR #391 stays a draft and is not merged.

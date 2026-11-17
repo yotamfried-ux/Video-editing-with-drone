@@ -222,6 +222,30 @@
    "where": "session scratch contact sheets; reels artifact qualification-reels-q10-paid-01-44166232265",
    "produced_by": "ffmpeg decode",
    "proof_scope": "RENDERED_MEDIA"
+  },
+  {
+   "id": "EVD-11-001",
+   "kind": "replay",
+   "what": "FIX-PQ-11-001 replay (production pipeline/action_onset.motion_supported_onset on stored sidecars + analyzer timings, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9, quality_scorecard): EXP-10-001 missing include 20.4 -> 16.7 s, >=95% rides 14 -> 15, incorrect starts 8 -> 7, non-GT seconds 7.47 -> 7.47 (0140 waiting not added); changed windows 0115 4.5->1.5 s, 0142 1.2->0.5 s. Same on q9-paid-01/02 diagnostics (shared analyzer cache: one observation, not three). Rejected alternatives in the same replay: setup lead-in cap 3 s (missing 21.61, +0.9 s waiting) / 6 s (19.11, +0.9 s waiting); stitching without motion (19.83, +0.9 s waiting on 0140).",
+   "where": "cycle-11 report",
+   "produced_by": "session replay scripts reading private GT boxes (aggregate only); scripts/quality_scorecard.py",
+   "proof_scope": "REPLAY"
+  },
+  {
+   "id": "EVD-11-002",
+   "kind": "contract",
+   "what": "Architecture contracts: scripts/test_action_onset_contract.py (O1-O6: fragmented paddler, stationary wait, generic profile, football run-up among stationary team-mates, production window integration, missing evidence) and scripts/test_football_profile_architecture_contract.py (F1-F8: synthetic football MP4 through production binding, windows/onset, eligibility, identity gate, follow-crop framing and FFmpeg editor; decoded centre shows the target; surfing behaviour unchanged). Synthetic: architecture only, no football accuracy claim.",
+   "where": "CI: cost-time-optimizations-check (onset), pipeline-real-mp4 (football)",
+   "produced_by": "the two contracts",
+   "proof_scope": "CONTRACT"
+  },
+  {
+   "id": "EVD-11-003",
+   "kind": "measurement",
+   "what": "scripts/quality_scorecard.py (crop-aware) on stored runs: q9-paid-02 visible mixed 1 / time-attributed 2, wrong-actor frames 54, non-GT s 7.47, incorrect starts 8 / ends 1, QA false pass 3 / reject 6; q9-paid-01 and EXP-10-001 identical boundaries, QA false pass 1 / reject 6, publishable wrong identity 0.",
+   "where": "cycle-11 report",
+   "produced_by": "scripts/quality_scorecard.py + scripts/primary_athlete_audit.py",
+   "proof_scope": "SIDECAR_MEASUREMENT"
   }
  ],
  "fixes": [
@@ -449,6 +473,48 @@
    "status": "REPLAYED",
    "classification": "CANDIDATE_IMPROVED",
    "limits": "Needs an owner decision; no model call; does not merge on its own."
+  },
+  {
+   "id": "FIX-PQ-11-001",
+   "gap": "PA-15",
+   "title": "Motion-supported action onset (Core) with profile OnsetPolicy",
+   "root_cause": "The analyzer's setup_start is wrong both ways (0115 paddle-in cut by the 2 s cap; 0140 setup inside waiting); a global cap cannot satisfy both (EXP-08-003)",
+   "change": "pipeline/action_onset.py::motion_supported_onset; window_refinement.refine_event_window (onset_motion_from_sec); complete_action_window_policy.extend_to_setup; output_qualification.action_interval floor; pipeline/sport_profiles OnsetPolicy",
+   "commit": "c9848ca5",
+   "experiments": [
+    "RED->GREEN scripts/test_action_onset_contract.py",
+    "EVD-11-001 replay",
+    "EXP-11-001 pre-registered (not run: PR #391 closed, see BLK-11-001)"
+   ],
+   "before": "EXP-10-001: missing include 20.4 s, starts 8 incorrect",
+   "after": "replay: 16.7 s, 7 incorrect, 0 new waiting",
+   "evidence": [
+    "EVD-11-001",
+    "EVD-11-002"
+   ],
+   "status": "REPLAYED",
+   "classification": "CANDIDATE",
+   "limits": "One negative (0140) and four positives in the same batch; threshold 0.2 body heights/s not calibrated on independent data; no rendered MP4 yet."
+  },
+  {
+   "id": "FIX-PQ-11-002",
+   "gap": "PQ-30",
+   "title": "Sport profiles: surf definitions moved out of Core; football profile",
+   "root_cause": "Surf vocabulary, failed-takeoff rule, identity text-attribute conflicts and framing ratio were hard-coded in shared modules",
+   "change": "pipeline/sport_profiles/*; performance_reel_policy.coverage_profile; stages.identity._reviewable_conflicts; quality_preserving_framing._profile_height_ratio; pipeline/performance_event.py",
+   "commit": "c9848ca5",
+   "experiments": [
+    "all CI contracts re-run locally (environment-bound ones fail identically on the base)",
+    "scripts/test_football_profile_architecture_contract.py"
+   ],
+   "before": "surf rules inside Core modules",
+   "after": "same surf behaviour from the surfing profile; football runs through the same engine (synthetic)",
+   "evidence": [
+    "EVD-11-002"
+   ],
+   "status": "TESTED",
+   "classification": "ARCHITECTURE",
+   "limits": "Prompts, surf editor, ride segmentation and identity attribute vocabulary still surf-specific (docs/architecture/MULTI-SPORT-PERFORMANCE-ENGINE.md section 3)."
   }
  ],
  "gaps": [
@@ -666,12 +732,13 @@
    "id": "PA-15",
    "case": "0094/0108/0118/0126/0142/0146",
    "product": "boundary",
-   "finding": "Windows overrun GT rides widely, not only 0094/0108: end overrun 0142 10.0 s, 0094 9.3 s, 0126 3.5 s, 0146 3.2 s, 0115 2.9 s, 0160 2.6 s; pre-roll 0146 4.9 s, 0118 4.7 s, 0142 4.6 s. The analyzer's own windows (e.g. 0142 3.2-22.5 'rides for a very long duration') drive them. EXP-10-002 board-loss rule rejected.",
+   "finding": "CORRECTED in cycle 11: the cycle-10 overrun figures for 0142/0118/0146/0126/0115/0104 compared windows with the single largest include segment; GT rides are runs of contiguous include segments (wave_ride + maneuver + wipeout), so those windows are inside GT. Real boundary defects: late starts 0115 4.43 s, 0104 2.48, 0094 2.0 (and the 0094 tandem 10.15), 0162 1.47, 0142 1.2, 0152 1.08, 0097 1.0, 0070 0.8; ends: 0094 tail 13.23 -> 22.5 s, 0108 excluded tail 2.4 s, 0070 inter-ride gap, 0151 early end 1.47 s.",
    "classification": "ROOT_CAUSE_CONFIRMED",
-   "status": "FAILED",
-   "next": "A validated end-of-action signal (per-frame ride state) on more data; owner adjudication of 0094 13.2-16 s.",
+   "status": "PATCHED",
+   "next": "Starts: FIX-PQ-11-001 (replayed) needs a rendered run. Ends: no reliable signal yet; owner adjudication of 0094.",
    "evidence": [
-    "EVD-10-004"
+    "EVD-10-004",
+    "EVD-11-001"
    ]
   },
   {
@@ -680,10 +747,11 @@
    "product": "measurement",
    "finding": "gt_scorecard 'mixed_reels' attributes by time overlap with any GT ride in the source, not by who is in the crop: 0094's single-rider reel counts as mixed. The primary-athlete audit (crop vs GT boxes) is the visible-mix measure.",
    "classification": "MEASUREMENT_LIMIT",
-   "status": "IDENTIFIED",
+   "status": "PATCHED",
    "next": "Report both; consider a crop-aware mixed metric.",
    "evidence": [
-    "EVD-10-002"
+    "EVD-10-002",
+    "EVD-11-003"
    ]
   }
  ],
@@ -773,6 +841,10 @@
   {
    "id": "BLK-10-001",
    "what": "Paid runs closed after EXP-10-001. Campaign spend $1.280 of $2; remainder $0.720 (run_config paid budget 0, workflow cap 0.72). Owner decisions open: identity review requests 758fe7783e9c (0097+0115) and 7b2a6964427f (0074+0151); PA-01 uncatalogued riders (0095); PA-03 0094 13.2-16 s."
+  },
+  {
+   "id": "BLK-11-001",
+   "what": "PR #391 was closed (not merged) from the owner's account at 2026-11-17T21:29:38Z, 25 s after the qualrun-paid label for EXP-11-001; label-triggered qualification workflows run only on an open PR. EXP-11-001 is pre-registered but not launched; no spend. Budget: $4 total, $1.280 spent, $2.720 remaining. Needs the owner: reopen #391 / approve a new draft PR for the branch, and confirm the paid run."
   }
  ],
  "proof_policy": {
