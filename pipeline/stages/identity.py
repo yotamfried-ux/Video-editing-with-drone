@@ -1396,11 +1396,52 @@ def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
                         break
                 if has_no_match:
                     break
-            if has_no_match:
+            if has_no_match and _text_attribute_split_reviewed(cluster, dec.reasons):
+                out.append(cluster)                     # owner APPROVED this exact grouping (operator_review)
+            elif has_no_match:
                 out.extend(_split_cluster_to_singles(cluster, split_reason))
             else:
                 out.append(cluster)
     return out
+
+
+# Description attributes are the analyzer's TEXT under varying light. A split on them alone is the safe default, but
+# the model clustering's proposal is not thrown away silently (FIX-PQ-10-003, PA-08 0097+0115: "dark swimsuit" vs
+# "no shirt"): it becomes an identity review request for the owner, at no model cost.
+_TEXT_ATTRIBUTE_REASONS = {"wetsuit_vs_bare_or_swimsuit_conflict", "conflicting_equipment_color",
+                           "incompatible_swimwear_or_category"}
+
+
+def _text_attribute_split_reviewed(cluster: dict, reasons: list[str]) -> bool:
+    """True only when the owner APPROVED this exact grouping; then the cluster carries operator_review evidence.
+    Otherwise a PENDING request is recorded (REJECTED: nothing recorded) and the caller splits as before."""
+    hard = set(reasons) & {"same_source_clip_conflict", "conflicting_jersey_or_bib_numbers",
+                           "companion_solo_vs_tandem_conflict", "rejected_by_semantic_or_visual_verifier"}
+    if hard or not (set(reasons) & _TEXT_ATTRIBUTE_REASONS):
+        return False
+    apps = cluster.get("appearances", []) or []
+    if len({a.get("_clip_index", a.get("path")) for a in apps}) < 2:
+        return False
+    try:
+        from pipeline import identity_review as review
+        request = review.build_request(
+            cluster, {"reason": "model clustering proposed one athlete; split on text attributes only ("
+                                + ", ".join(sorted(set(reasons) & _TEXT_ATTRIBUTE_REASONS)) + ")", "pairs": []},
+            model="identity_decision_engine.description_rules", prompt="text_attribute_split")
+        decision = review.resolve(cluster, request)
+        if decision == "APPROVED":
+            from pipeline import identity_evidence
+            approved = review.load_decisions()[request["request_id"]]
+            identity_evidence.stamp_operator_review(cluster, approved, request_id=request["request_id"])
+            print(f"  ✅ owner-approved identity kept together: {cluster.get('description', '')[:40]}")
+            return True
+        if decision != "REJECTED":
+            review.record_request(request)
+            print(f"  📝 identity review request {request['request_id'][:12]} (split on text attributes): "
+                  f"{cluster.get('description', '')[:40]}")
+    except Exception as exc:                            # a review-channel failure never merges anything
+        logger.warning("identity review request for a text-attribute split failed: %s", exc)
+    return False
 
 
 def _post_process_clusters(clusters: list[dict], clip_analyses: list[dict]) -> list[dict]:

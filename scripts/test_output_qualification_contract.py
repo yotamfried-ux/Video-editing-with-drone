@@ -23,6 +23,11 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+import os as _os
+# Cycle 10 (FIX-PQ-10-001): model-only visual consensus no longer auto-publishes a multi-source cluster by default.
+# This contract tests the evidence plumbing behind a pass, so it runs with the explicit opt-in; the default policy
+# is covered by scripts/test_identity_autopublish_policy_contract.py.
+_os.environ["SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH"] = "1"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.modules.setdefault("supabase", types.SimpleNamespace(create_client=lambda *a, **k: None, Client=object))
