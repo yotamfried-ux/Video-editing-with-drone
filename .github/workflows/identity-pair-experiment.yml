@@ -15,7 +15,7 @@ on:
         description: 'dev (tune) or holdout (run once with the frozen rule)'
         required: true
         type: choice
-        options: [dev, holdout, clusters, clusters-prod, bound-dev, bound-holdout, crops4-dev, crops4-holdout]
+        options: [dev, holdout, clusters, clusters-prod, bound-dev, bound-holdout, crops4-dev, crops4-holdout, ridevalid]
       budget_usd:
         description: 'Hard cap for this run (USD, model cost estimate)'
         required: true
@@ -35,7 +35,7 @@ permissions:
 
 jobs:
   experiment:
-    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'idexp-dev' || github.event.label.name == 'idexp-holdout' || github.event.label.name == 'idexp-clusters' || github.event.label.name == 'idexp-bound-dev' || github.event.label.name == 'idexp-bound-holdout' || github.event.label.name == 'idexp-clusters-prod' || github.event.label.name == 'idexp-crops4-dev' || github.event.label.name == 'idexp-crops4-holdout'
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'idexp-dev' || github.event.label.name == 'idexp-holdout' || github.event.label.name == 'idexp-clusters' || github.event.label.name == 'idexp-bound-dev' || github.event.label.name == 'idexp-bound-holdout' || github.event.label.name == 'idexp-clusters-prod' || github.event.label.name == 'idexp-crops4-dev' || github.event.label.name == 'idexp-crops4-holdout' || github.event.label.name == 'idexp-ridevalid'
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
@@ -61,14 +61,18 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           BATCH_ID: batch_2026-10-03T12-19-52_ttgvat95
-          PHASE: ${{ inputs.phase || fromJSON('{"idexp-dev":"dev","idexp-holdout":"holdout","idexp-clusters":"clusters","idexp-bound-dev":"bound-dev","idexp-bound-holdout":"bound-holdout","idexp-clusters-prod":"clusters-prod","idexp-crops4-dev":"crops4-dev","idexp-crops4-holdout":"crops4-holdout"}')[github.event.label.name] }}
-          BUDGET: ${{ inputs.budget_usd || (startsWith(github.event.label.name, 'idexp-bound') && '0.3' || startsWith(github.event.label.name, 'idexp-crops4') && '0.4' || startsWith(github.event.label.name, 'idexp-clusters-prod') && '0.25' || '0.9') }}
+          PHASE: ${{ inputs.phase || fromJSON('{"idexp-dev":"dev","idexp-holdout":"holdout","idexp-clusters":"clusters","idexp-bound-dev":"bound-dev","idexp-bound-holdout":"bound-holdout","idexp-clusters-prod":"clusters-prod","idexp-crops4-dev":"crops4-dev","idexp-crops4-holdout":"crops4-holdout","idexp-ridevalid":"ridevalid"}')[github.event.label.name] }}
+          BUDGET: ${{ inputs.budget_usd || (startsWith(github.event.label.name, 'idexp-ridevalid') && '0.8' || startsWith(github.event.label.name, 'idexp-bound') && '0.3' || startsWith(github.event.label.name, 'idexp-crops4') && '0.4' || startsWith(github.event.label.name, 'idexp-clusters-prod') && '0.25' || '0.9') }}
           M4: ${{ inputs.m4_threshold }}
         run: |
           if [ -z "$M4" ] && [ "$PHASE" = "holdout" ] && [ -f evaluation/identity/m4_threshold.txt ]; then M4=$(cat evaluation/identity/m4_threshold.txt); fi
           ARGS=""
           if [ -n "$M4" ]; then ARGS="--m4-threshold $M4"; fi
           case "$PHASE" in
+            ridevalid)
+              python scripts/ride_validity_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --jobs evaluation/ride_validity/jobs_43920602179.json --reps 2 \
+                --out "$RUNNER_TEMP/result.json" --budget-usd "$BUDGET" ;;
             bound-dev|bound-holdout)
               python scripts/boundary_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
                 --out "$RUNNER_TEMP/result.json" --split "${PHASE#bound-}" --budget-usd "$BUDGET" ;;
@@ -85,6 +89,6 @@ jobs:
           esac
       - uses: actions/upload-artifact@v4
         with:
-          name: identity-pair-experiment-${{ inputs.phase || fromJSON('{"idexp-dev":"dev","idexp-holdout":"holdout","idexp-clusters":"clusters","idexp-bound-dev":"bound-dev","idexp-bound-holdout":"bound-holdout","idexp-crops4-dev":"crops4-dev","idexp-crops4-holdout":"crops4-holdout"}')[github.event.label.name] }}
+          name: identity-pair-experiment-${{ inputs.phase || fromJSON('{"idexp-dev":"dev","idexp-holdout":"holdout","idexp-clusters":"clusters","idexp-bound-dev":"bound-dev","idexp-bound-holdout":"bound-holdout","idexp-crops4-dev":"crops4-dev","idexp-crops4-holdout":"crops4-holdout","idexp-ridevalid":"ridevalid"}')[github.event.label.name] }}
           path: ${{ runner.temp }}/result.json
           retention-days: 30
