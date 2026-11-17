@@ -199,6 +199,10 @@ def send_summary_email(
         sport_type:  "surfing", "football", "mixed", or "other".
         video_name:  Original video filename shown in the subject line.
     """
+    from integrations import qualification
+    if qualification.active():
+        qualification.record("notification_skipped", channel="email", video_name=video_name, links=len(clips_links))
+        return None
     if not recipients:
         logger.warning("⚠️ send_summary_email called with empty recipients list")
         return

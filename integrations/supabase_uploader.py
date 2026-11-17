@@ -19,7 +19,8 @@ def _supabase() -> Client:
     global _client
     if _client is None:
         _client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
-    return _client
+    from integrations import qualification
+    return qualification.guard_supabase(_client)   # qualification runs: reads only, writes go to the ledger
 
 
 def _get_drive_recording_date(file_id: str) -> str:

@@ -443,6 +443,11 @@ def _handle_reprocess_requests() -> list[str]:
     Returns the operator-note keys created, so main() can clear them after the
     run (they are reprocess-specific and must not leak into future sessions).
     """
+    from integrations import qualification
+    if qualification.active():
+        # Operator reprocess requests belong to production: a qualification run never reads, claims or acts on them.
+        qualification.record("reprocess_stage_skipped")
+        return []
     try:
         from integrations.supabase_uploader import (claim_reprocess,
                                                     fetch_pending_reprocess,

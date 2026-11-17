@@ -15,7 +15,8 @@ def _supabase() -> Client:
     global _client
     if _client is None:
         _client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
-    return _client
+    from integrations import qualification
+    return qualification.guard_supabase(_client)   # qualification runs: reads only, writes go to the ledger
 
 
 def get_source_upload(storage_key: str, *, client: Client | None = None) -> dict[str, Any] | None:
@@ -59,6 +60,9 @@ def resolve_exact_source_duplicate(
     client: Client | None = None,
 ) -> dict[str, Any]:
     db = client or _supabase()
+    from integrations import qualification
+    if qualification.active():
+        return _resolve_recorded_duplicate(db, upload_id, content_sha256)
     response = db.rpc(
         "resolve_exact_source_duplicate",
         {"p_upload_id": upload_id, "p_content_sha256": content_sha256},
@@ -109,3 +113,29 @@ def mark_source_removal_error(
     ).eq("superseded_upload_id", upload_id).eq(
         "canonical_upload_id", canonical_upload_id
     ).eq("reason", "exact_content_duplicate").execute()
+
+
+def _resolve_recorded_duplicate(db: Any, upload_id: str, content_sha256: str) -> dict[str, Any]:
+    """Qualification runs: the SAME dedup decision, read-only. The production RPC atomically re-decides and may mark
+    rows superseded; here the decision production already recorded is reused (row canonical_upload_id) and the bytes
+    must still match the recorded content_sha256. Nothing is written."""
+    from integrations import qualification
+
+    row = (db.table("source_uploads").select("id,storage_key,status,content_sha256,canonical_upload_id")
+           .eq("id", upload_id).limit(1).execute()).data
+    if not row:
+        raise RuntimeError(f"qualification dedup: no source_uploads row {upload_id}")
+    row = row[0]
+    recorded = str(row.get("content_sha256") or "")
+    if recorded and recorded != content_sha256:
+        raise RuntimeError(f"qualification dedup: bytes of {row.get('storage_key')} differ from the recorded SHA-256")
+    canonical_id = str(row.get("canonical_upload_id") or row["id"])
+    canonical = row
+    if canonical_id != str(row["id"]):
+        found = (db.table("source_uploads").select("id,storage_key").eq("id", canonical_id).limit(1).execute()).data
+        if not found:
+            raise RuntimeError(f"qualification dedup: canonical upload {canonical_id} not found")
+        canonical = found[0]
+    qualification.record("dedup_read_only", upload_id=upload_id, canonical_upload_id=canonical_id,
+                         content_sha256=content_sha256, sha_matches_record=bool(recorded))
+    return {"canonical": {"upload_id": str(canonical["id"]), "storage_key": canonical["storage_key"]}, "superseded": []}

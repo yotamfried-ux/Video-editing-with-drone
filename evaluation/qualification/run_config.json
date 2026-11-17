@@ -1,0 +1,6 @@
+{
+  "qualification_run_id": "q9-dry-01",
+  "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
+  "llm_budget_usd_paid": 0.0,
+  "note": "Label qualrun-dry ALWAYS runs with budget 0 (cache-only, free). Label qualrun-paid uses llm_budget_usd_paid, which must be set > 0 explicitly in a reviewed commit. Change qualification_run_id for every new run."
+}

@@ -22,6 +22,9 @@ def _backend_name() -> str:
     if value not in _BACKEND_MODULES:
         allowed = ", ".join(sorted(_BACKEND_MODULES))
         raise ValueError(f"Unsupported STORAGE_BACKEND={value!r}; expected one of: {allowed}")
+    from integrations import qualification
+    if qualification.active() and value != "r2":
+        raise qualification.QualificationIsolationError("qualification runs require STORAGE_BACKEND=r2")
     return value
 
 

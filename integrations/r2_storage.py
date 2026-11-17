@@ -51,7 +51,7 @@ def _client():
     read_timeout = int(os.getenv("R2_READ_TIMEOUT_SECONDS", "60"))
     max_attempts = int(os.getenv("R2_MAX_ATTEMPTS", "4"))
 
-    return boto3.client(
+    client = boto3.client(
         "s3",
         endpoint_url=_endpoint_url(),
         aws_access_key_id=os.getenv("R2_ACCESS_KEY_ID") or os.getenv("ACCESS_KEY_ID"),
@@ -62,6 +62,9 @@ def _client():
             retries={"max_attempts": max_attempts, "mode": "standard"},
         ),
     )
+    # Qualification runs (SPORTREEL_QUALIFICATION_RUN_ID): every key is confined to qualification/<run_id>/.
+    from integrations import qualification
+    return qualification.NamespacedS3(client) if qualification.active() else client
 
 
 def _public_base_url() -> str | None:
