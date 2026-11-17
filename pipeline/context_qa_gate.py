@@ -272,6 +272,8 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         def _finish_cluster(cluster: dict, reels: list[str], events_out: list, source_video: str,
                             source_quality: dict, all_events: list[dict]) -> tuple[list, list]:
             """QA gate + draft naming for one rendered cluster. Runs on the QA worker while the next cluster renders."""
+            from integrations import qualification as _qualification
+            _qualification.fault("before_qa")          # Gate A: honoured only in a qualification run
             inv_id = str(cluster.get("invocation_id") or "")
             # No `except TypeError` legacy retries here: every editor wrapper forwards **kwargs, and a retry
             # without invocation_id re-rendered the whole reel and broke the render-to-QA scope contract
@@ -377,6 +379,8 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             reel_path, name = args
             try:
                 orchestrator.upload_draft(reel_path, name)
+                from integrations import qualification as _qualification
+                _qualification.fault("after_first_upload")  # Gate A: honoured only in a qualification run
                 return True
             except Exception as exc:
                 os.makedirs(orchestrator.config.PENDING_UPLOADS_DIR, exist_ok=True)

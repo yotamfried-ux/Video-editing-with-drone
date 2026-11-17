@@ -355,6 +355,11 @@ def main() -> int:
         check(True, "Q11 unknown fault point refused")
     orch = (ROOT / "pipeline/orchestrator.py").read_text()
     check(all(f'_qualification.fault("{p}")' in orch for p in q.FAULT_POINTS), "Q11 every fault point is wired in the orchestrator")
+    # Gate A run 44140263067: production replaces orchestrator._compile_clusters with the context-QA path, so the
+    # QA and upload fault points must live THERE (they never fired when they were only in the shadowed function).
+    ctx = (ROOT / "pipeline/context_qa_gate.py").read_text()
+    check('_qualification.fault("before_qa")' in ctx and '_qualification.fault("after_first_upload")' in ctx,
+          "Q11 QA and upload fault points are wired in the ACTIVE compile path (context_qa_gate)")
     ga = (ROOT / ".github/workflows/pipeline-qualification-gate-a.yml").read_text()
     ga_head = "\n".join(l for l in ga.split("jobs:")[0].splitlines() if not l.lstrip().startswith("#"))
     check("labeled" in ga_head and "push" not in ga_head and "workflow_dispatch" not in ga_head and "qualgate-a" in ga,

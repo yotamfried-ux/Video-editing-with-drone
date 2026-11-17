@@ -72,7 +72,7 @@ def _keys(inv: dict, prefix: str) -> dict[str, tuple]:
 
 
 def evaluate(d: Path, out: Path) -> int:
-    inv = {p.stem: json.loads(p.read_text()) for p in sorted(d.glob("*.inventory.json"))}
+    inv = {p.name[: -len(".inventory.json")]: json.loads(p.read_text()) for p in sorted(d.glob("*.inventory.json"))}
     checks: list[dict] = []
 
     def check(cid: str, ok: bool, detail: str) -> None:
