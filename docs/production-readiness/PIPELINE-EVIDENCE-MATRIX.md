@@ -55,7 +55,7 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 
 ### FIX-PQ-08-003 — Verify cross-source pairs of single-source clusters (0097+0115 split)
 
-- **Gap:** PA-08 · **Classification:** PIPELINE_DEFECT · **Status:** `TESTED`
+- **Gap:** PA-08 · **Classification:** PIPELINE_DEFECT · **Status:** `FAILED`
 - **Root cause:** Description-based clustering kept one athlete apart under different light; pairwise verifier only checks clusters it is given
 - **Fix:** [pipeline/identity_pair_consensus.py::merge_verified_singletons @693e7f6a](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/693e7f6a9bc1dcc243851e57367cfdff654ffabe/pipeline/identity_pair_consensus.py), called from [pipeline/stages/identity.py::_verify_multi_clusters](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/693e7f6a9bc1dcc243851e57367cfdff654ffabe/pipeline/stages/identity.py); all-MATCH groups only, pair cap SPORTREEL_SINGLETON_PAIRS_MAX=45
 - **Commit:** 693e7f6a9bc1dcc243851e57367cfdff654ffabe
@@ -63,7 +63,31 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **Before:** 0097 and 0115 in two reels (43920602179)
 - **After:** verifier: 0097+0115 MATCH, 0/34 false merges among different/unlabelled pairs, 1 REVIEW kept apart
 - **Evidence:** EVD-08-002
-- **Limits:** The model experiment ran the unchanged production verifier at 58bb8a15; the merge function (693e7f6a) is proven by contract only. No pipeline run / rendered merged reel yet (blocked: BLK-08-001). Single positive pair; not holdout. Added cost ~ $0.19 per 36 pairs per run.
+- **Limits:** The model experiment ran the unchanged production verifier at 58bb8a15; the merge function (693e7f6a) is proven by contract only. No pipeline run / rendered merged reel yet (blocked: BLK-08-001). Single positive pair; not holdout. Added cost ~ $0.19 per 36 pairs per run. | Cycle 9 integration: never effective in a real run. q9-paid-01: verifier dead (model-path _sheet_crops=0). q9-paid-02 (verifier enabled): 0097+0115 still two reels; the stage most likely skipped (14 single-source clusters -> 91 candidate pairs > cap 45; inferred, the skip line is not in the captured log). REVALIDATION_REQUIRED.
+
+### FIX-PQ-09-001 — Keep the identity sheet crop count on the model-clustering path
+
+- **Gap:** PA-11 · **Classification:** UNSAFE_REVERTED · **Status:** `FAILED`
+- **Root cause:** _resolve_model_appearance dropped sheet_crops, so every production appearance carried _sheet_crops=0 and the pairwise verifier refused every pair (0 calls in q9-paid-01)
+- **Fix:** pipeline/stages/identity.py @2c86d3a2 (REVERTED in the cycle-9 closing commit)
+- **Commit:** 2c86d3a2c61e1e45f9a2e725505fd724331b69a8
+- **Experiments:** contract test_identity_model_path_sheet_contract.py RED 4 / GREEN 0 (removed with the revert), EXP-09-002 run 44121013654
+- **Before:** verifier dead; multi-source clusters withheld unconfirmed; 0143+0152 one reel, not publishable
+- **After:** verifier live; 0143+0152 false MATCH stamped and PUBLISHABLE; 0112 athlete split into 4
+- **Evidence:** EVD-09-002, EVD-09-003, EVD-09-004
+- **Limits:** The verifier (both-orders, 6-crop sheets, gemini-2.5-flash) cannot separate the 0143/0152 lookalikes; enabling it converts a withheld reel into a published wrong-identity reel. Fail-closed (dead verifier) is safer until the verifier is fixed.
+
+### FIX-PQ-09-002 — Image-verified clusters are not re-split on description attributes
+
+- **Gap:** PA-08 · **Classification:** NO_EFFECT_REVERTED · **Status:** `FAILED`
+- **Root cause:** _split_impossible_clusters re-applies wetsuit_vs_bare_or_swimsuit_conflict after verification, undoing an image MATCH (0097 'dark swimsuit' vs 0115 'no shirt')
+- **Fix:** pipeline/stages/identity.py @2c86d3a2 (REVERTED with FIX-PQ-09-001)
+- **Commit:** 2c86d3a2c61e1e45f9a2e725505fd724331b69a8
+- **Experiments:** contract S2/S3 (removed with the revert), EXP-09-002: no effect observed (0097+0115 never reached a verified cluster)
+- **Before:** 0097+0115 split
+- **After:** 0097+0115 split
+- **Evidence:** EVD-09-003
+- **Limits:** Only meaningful once a trustworthy verifier exists.
 
 ## Gaps
 
@@ -79,6 +103,8 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | PA-08 | 0097+0115 | C (two reels for one surfer) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Crops consistent with one athlete (shirtless, dark shorts, light-blue board); 0097 is backlit (silhouette), 0115 front-lit, which explains the analyzer's 'dark swimsuit' vs 'no shirt'. 11-16 splits them into two reels. | Fail-closed identity (#396) routes such pairs to owner REVIEW; an automatic merge needs pairwise consensus evidence, not a description match. |
 | PA-09 | 0115 start | A (missing include: paddle-in) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Reel starts 4.5 s; GT include from 0.07 s (paddle-in, owner policy: include the relevant paddle-in). Sequence shows paddling from the first frame, standing ~8 s. | Perception recall for prone paddlers, evaluated on held-out rides. |
 | PA-10 | 0070 | boundary | INSUFFICIENT_EVIDENCE | `IDENTIFIED` | ~2.8 s of the rendered 0070 shot is outside any GT segment (both runs). Not yet viewed. | Add 0070 to the next sequence extraction. |
+| PA-11 | 0143+0152 | identity | ROOT_CAUSE_CONFIRMED | `FAILED` | The production pairwise verifier gives a both-orders MATCH for the 0143/0152 lookalikes (GT: two athletes) at 6-crop sheets; the identity gate then passes the reel as publishable. In every earlier production run the verifier was effectively dead on the model path (sheet crop count lost), so its live precision was never measured end to end. | Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run. |
+| PA-12 | isolation | qualification | INSUFFICIENT_EVIDENCE | `IDENTIFIED` | Isolated qualification runs proven non-destructive (3 runs, fingerprints identical). Not yet proven: same-namespace retry idempotency and an explicit mid-run crash. | Free dry run with qualrun-dry re-using q9-dry-02, and a dry run killed mid-stage; compare fingerprints and namespace object counts. |
 
 ## Primary-athlete scenarios
 
@@ -110,6 +136,10 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-08-002 | model_experiment | EXP-08-002 production pairwise identity verifier on all 36 pairs of the 9 single-source reels of 43920602179: 0097+0115 MATCH (only same-athlete pair), 0 false merges, 1 REVIEW (different athletes, not merged); $0.1943 | GitHub Actions run 44068576343, artifact id 14321178678 (sha256:e632cd30d35e0338be960fe7cc5e61a275cb735935f80e12d45a8e90faeaac1a); copy evaluation/identity_experiment/cycle8_exp08_002_singleton_pairs.json |
 | EVD-08-003 | replay | EXP-08-003 paddle-in start candidate vs current code on 43920602179: 22 rides, 4 improved (0115 +4.36 s, 0094 +2.0, 0142 +1.2, 0070 +0.8), within 0.5 s 15->18, 1 regression on negative control 0140 (+1.4 s waiting); 43583126199 NOT_COMPARABLE (no per-event tracks) | evaluation/boundary_experiment/exp08_003_paddle_in_replay_43920602179.json |
 | EVD-08-004 | measurement | Negative results: detector box h/w does not separate standing ride from failed take-off (valid top-down rides 0.92-1.05 vs 0155 1.02); neither box shape nor image speed separates waiting from paddling. Detector DOES see the 0115 paddler from frame 0 (tracks 3/10003/10043 inside the GT box), correcting the cycle-3 recall root cause | cycle-8 report (session measurement on 43920602179 sidecars + private GT boxes; aggregate only) |
+| EVD-09-001 | isolated_run | Isolation proof, dry run q9-dry-02 (run 44078257676 @2d2595a0, $0): 25 reels rendered under qualification/q9-dry-02/review/; production fingerprint (R2 raw/review/approved/pending_payment/previews/metadata/source_state + Supabase drafts/draft_publishability/reels/reprocess_requests/pipeline_status) identical before/after; ledger: 52 R2 writes all namespaced, 204 Supabase writes blocked, 24 dedup decisions read-only, 52 LLM calls refused, reprocess stage skipped. NOT yet proven: same-namespace retry idempotency, explicit mid-run crash. | artifact qualification-diagnostics-q9-dry-02-44078257676 (production_snapshot_compare.json, qualification_ledger.jsonl) |
+| EVD-09-002 | isolated_run | EXP-09-001 q9-paid-01 (run 44085419164 @cdb77b9c, $0.225/cap $1.20, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9): production fingerprint identical; 14 reels. Pre-registered conditions FAILED: 0097+0115 two reels; 0143+0152 (two GT athletes) one reel (withheld IDENTITY_UNCONFIRMED). Diagnosis: pairwise verifier made 0 calls (every review request: identity_sheet_has_fewer_than_6_crops). Scorecard: FULL 14, >=95% 14, missing 20.4 s, excluded frames 999, mixed 2, splits 2, published 5 / correct 4. | artifact qualification-diagnostics-q9-paid-01-44085419164 (identity_trace.json, publishable_reel_manifest.json, llm_cost.json) |
+| EVD-09-003 | isolated_run | EXP-09-002 q9-paid-02 (run 44121013654 @2c86d3a2, $0.469/cap $0.90, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9): production fingerprint identical; 17 reels; verifier active (64 consensus calls). Pre-registered FAILURE: 0143+0152 (GT 0d12c8b8 vs 42f8772b) stamped pairwise MATCH and marked publishable (false merge); 0112/0131/0104 split from 0126+0140 (one GT athlete, 4 reels); 0097+0115 still two reels (singleton stage did not merge). Scorecard: FULL 14, >=95% 14, missing 20.4 s, excluded 999, mixed 2, splits 3, published 10 / correct 7. | artifact qualification-diagnostics-q9-paid-02-44121013654 |
+| EVD-09-004 | rendered_media | Decoded MP4 viewing (contact sheets at 1.5 fps) of q9-paid-02 reels: 0143+0152 reel (sha256 b7b86f1066e2...) shows two white-top / pink-longboard lookalikes (clip 2 sleeves longer); 0097 reel (70a8d9460ef8...) correct athlete, backlit, foam-only tail; 0115 reel (1708522a574b...) visibly the same athlete as 0097, starts at pop-up (paddle-in missing); 0070+0108 reel (7831b08d9d8a...) correct athlete, clip 2 runs into the GT-excluded shore tail ~20-26 s. | session scratch contact sheets; reels artifact qualification-reels-q9-paid-02-44121013654 |
 
 ## Blockers
 
@@ -117,3 +147,4 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **BLK-07-002** Owner decisions: PA-01 (reels for uncatalogued riders), PA-03 (0094 GT end 13.2 s vs standing to ~16 s), PA-07 REVIEW outcome.
 - **BLK-07-003** No controlled candidate pipeline run or decoded final render yet. On 2026-11-17 owner authorized a NEW capped experiment campaign of up to $2 incremental total; do not spend without per-run enforcement and attribution. This is not a GO or automatic authorization to publish.
 - **BLK-08-001** End-to-end integration (pipeline run -> new EDL -> rendered MP4 -> Review screen) for FIX-PQ-08-003 and later fixes: re-running the same 24 sources needs Run Pipeline with reset=true, which moves PROCESSED->RAW and DELETES current REVIEW drafts (destructive) and lands drafts on the operator Review screen. Requires the owner's explicit approval. Estimated model cost ~$0.5-0.7 (warm cache: logged $0.23 for 43920602179 + identity/singleton calls).
+- **BLK-09-001** Paid runs stopped after EXP-09-002. Spent of the $2 campaign: $0.380 (cycle 8) + $0.225 (q9-paid-01) + $0.469 (q9-paid-02) = $1.074; remainder $0.926. run_config.json sets llm_budget_usd_paid 0 and the workflow cap is 0.92; any further paid run needs a fix with a credible safety case and a new pre-registration.
