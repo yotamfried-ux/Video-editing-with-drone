@@ -84,11 +84,19 @@ def identity() -> None:
     bare = {"description": "x", "_visual_verified": True, "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
     check(not passed(gate([bare], False)), "I2: a bare _visual_verified flag passed the gate")
 
-    # I3: verified athlete, same and different tracker numbers -> passes through evidence
+    # I3: verified athlete, same and different tracker numbers -> passes through evidence. Cycle 10 (FIX-PQ-10-001):
+    # model-only consensus is withheld by default; the evidence plumbing is checked under the explicit opt-in.
+    import os
     for tracks in (("7", "7"), ("7", "3")):
         c = {"description": "x", "appearances": [app("a.mp4", "person_A", tracks[0]), app("b.mp4", "person_B", tracks[1])]}
         prove(c)
         out = gate([c], False)
+        check(not passed(out), f"I3 default: model-only consensus with tracks {tracks} must NOT pass")
+        os.environ["SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH"] = "1"
+        try:
+            out = gate([c], False)
+        finally:
+            os.environ.pop("SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH", None)
         check(passed(out) and out[0].get("_identity_gate_reason") == "visual_verified_per_source_tracks",
               f"I3: a verified athlete with tracks {tracks} must pass on its image evidence")
 
@@ -128,7 +136,11 @@ def identity() -> None:
     c = {"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
     prove(c)
     stripped = _strip_internal_fields([c])[0]
-    check(ev.covers(stripped) and passed(gate([stripped], False)), "evidence must survive _strip_internal_fields")
+    os.environ["SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH"] = "1"   # evidence plumbing (cycle 10 default withholds)
+    try:
+        check(ev.covers(stripped) and passed(gate([stripped], False)), "evidence must survive _strip_internal_fields")
+    finally:
+        os.environ.pop("SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH", None)
 
     # I4: several people in one source; missing source; missing tracks
     from pipeline.stages.identity import _split_impossible_clusters

@@ -28,9 +28,18 @@ def cluster(*apps, verified=False):
 
 def test_verified_cluster_with_one_track_per_source_stays_one_reel() -> None:
     from pipeline.real_identity_gate import enforce_identity_gate
+    # Cycle 10 (FIX-PQ-10-001): model-only visual consensus keeps the athlete together as ONE reel, but withheld
+    # (unconfirmed) by default; only an owner operator_review, or the explicit opt-in below, makes it a pass.
     out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1"), app("b.mp4", "b", "t9"), app("c.mp4", "c", None), verified=True)])
     assert len(out) == 1 and len(out[0]["appearances"]) == 3, out
-    assert out[0]["_identity_gate"] == "pass"
+    assert out[0]["_identity_gate"] == "kept_together_unconfirmed", out[0].get("_identity_gate")
+    assert out[0]["_identity_gate_reason"] == "visual_consensus_requires_operator_review"
+    os.environ["SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH"] = "1"
+    try:
+        out = enforce_identity_gate([cluster(app("a.mp4", "a", "t1"), app("b.mp4", "b", "t9"), app("c.mp4", "c", None), verified=True)])
+    finally:
+        os.environ.pop("SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH", None)
+    assert len(out) == 1 and out[0]["_identity_gate"] == "pass"
     assert out[0]["_identity_gate_reason"] == "visual_verified_per_source_tracks"
     gate = out[0]["appearances"][0]["events"][0]["identity_gate"]
     assert gate["decision"] == "pass" and gate["reason"] == "visual_verified_per_source_tracks", gate
