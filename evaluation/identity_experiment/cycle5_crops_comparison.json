@@ -1,0 +1,68 @@
+{
+ "schema": "sportreel.identity_crops_comparison.v1",
+ "github_run": "43981732202",
+ "model": "gemini-2.5-flash",
+ "split": "dev",
+ "m2_6crops_cycle3": {
+  "false_merges": 0,
+  "false_splits": 0,
+  "auto_true_merges": 4,
+  "review_pos": 5,
+  "review_neg": 1,
+  "pairs": 69
+ },
+ "m2_4crops": {
+  "metrics": {
+   "all": {
+    "pairs": 68,
+    "positives": 9,
+    "negatives": 59,
+    "false_merges": 1,
+    "false_splits": 1,
+    "true_merges_auto": 5,
+    "true_splits_auto": 58,
+    "review_positive": 3,
+    "review_negative": 0,
+    "false_merge_rate_upper95": 0.09,
+    "false_split_rate_upper95": 0.435
+   },
+   "hard_negatives": {
+    "pairs": 30,
+    "positives": 0,
+    "negatives": 30,
+    "false_merges": 1,
+    "false_splits": 0,
+    "true_merges_auto": 0,
+    "true_splits_auto": 29,
+    "review_positive": 0,
+    "review_negative": 0,
+    "false_merge_rate_upper95": 0.167,
+    "false_split_rate_upper95": null
+   }
+  },
+  "cost": {
+   "model": "gemini-2.5-flash",
+   "calls": 138,
+   "tokens_in": 105156,
+   "tokens_out": 134119,
+   "estimated_usd": 0.3668,
+   "cap_usd": 0.4,
+   "pairs_not_evaluated": 1,
+   "mean_pair_latency_sec": 10.5
+  }
+ },
+ "named_pairs_4crops": [
+  {
+   "pair": "0143+0152",
+   "gt": "different athletes",
+   "m2": "MATCH (false merge)"
+  },
+  {
+   "pair": "0097+0115",
+   "gt": "same athlete",
+   "m2": "NO_MATCH (false split)"
+  }
+ ],
+ "conclusion": "four-crop sheets are NOT safe for the consensus rule; six crops required",
+ "holdout_4crop": "not run (the dev result already disqualifies 4 crops)"
+}
