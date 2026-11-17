@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Isolated qualification run helper (see integrations/qualification.py).
 
-  seed      --run-id ID --batch B   verified server-side COPY of raw/<B>/ sources into qualification/<ID>/raw/<B>/
+  seed      --run-id ID --batch B   verified server-side COPY of the batch's verified source_uploads objects into
+                                    qualification/<ID>/<same key>
                                     (production read-only; same bytes, ETag and size checked; never overwrites)
   snapshot  --out FILE              read-only fingerprint of production state: R2 review/, approved/,
                                     pending_payment/, previews/, metadata/source_state/, raw/ and the Supabase tables
@@ -22,6 +23,12 @@ import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
+
+try:
+    from botocore.exceptions import ClientError
+except ImportError:   # local tooling without boto3: seed/check are CI-only
+    class ClientError(Exception):
+        pass
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -51,43 +58,63 @@ def _ns(run_id: str) -> str:
     return f"qualification/{run_id}/"
 
 
+def batch_source_keys(batch: str) -> list[str]:
+    """The batch's admitted inputs, as production recorded them: verified, not removed/superseded source_uploads."""
+    base = os.environ["SUPABASE_URL"].rstrip("/")
+    key = os.environ.get("SUPABASE_SERVICE_KEY") or os.environ["SUPABASE_SERVICE_ROLE_KEY"]
+    q = urllib.parse.urlencode({"batch_id": f"eq.{batch}", "status": "eq.verified", "removed_at": "is.null",
+                                "superseded_at": "is.null", "select": "storage_key,content_sha256"})
+    req = urllib.request.Request(f"{base}/rest/v1/source_uploads?{q}", headers={"apikey": key, "Authorization": f"Bearer {key}"})
+    rows = json.loads(urllib.request.urlopen(req, timeout=30).read())
+    keys = sorted({r["storage_key"] for r in rows if r.get("storage_key")})
+    if not keys:
+        raise SystemExit(f"batch {batch} has no verified source_uploads")
+    return keys
+
+
 def seed(run_id: str, batch: str) -> int:
     client, bucket = _raw_client()
     ns = _ns(run_id)
-    src_prefix = f"raw/{batch.strip('/')}/"
-    objs = [o for o in _list(client, bucket, src_prefix) if not o["Key"].endswith("/")]
-    if not objs:
-        raise SystemExit(f"no source objects under {src_prefix}")
+    keys = batch_source_keys(batch)
     copied = present = 0
-    for o in objs:
-        dest = ns + o["Key"]
+    for src_key in keys:
+        o = client.head_object(Bucket=bucket, Key=src_key)
+        dest = ns + src_key
         assert dest.startswith(ns), dest
         try:
             head = client.head_object(Bucket=bucket, Key=dest)
-            if head["ContentLength"] != o["Size"] or head.get("ETag") != o.get("ETag"):
+            if head["ContentLength"] != o["ContentLength"] or head.get("ETag") != o.get("ETag"):
                 raise SystemExit(f"namespace object differs from source, refusing to overwrite: {dest}")
             present += 1
             continue
-        except client.exceptions.ClientError as exc:
+        except ClientError as exc:
             if exc.response.get("Error", {}).get("Code") not in ("404", "NoSuchKey", "NotFound"):
                 raise
-        client.copy_object(Bucket=bucket, Key=dest, CopySource={"Bucket": bucket, "Key": o["Key"]})
+        client.copy_object(Bucket=bucket, Key=dest, CopySource={"Bucket": bucket, "Key": src_key})
         head = client.head_object(Bucket=bucket, Key=dest)
-        if head["ContentLength"] != o["Size"] or head.get("ETag") != o.get("ETag"):
-            raise SystemExit(f"copy verification failed: {o['Key']} -> {dest}")
+        if head["ContentLength"] != o["ContentLength"] or head.get("ETag") != o.get("ETag"):
+            raise SystemExit(f"copy verification failed: {src_key} -> {dest}")
         copied += 1
-    print(json.dumps({"seeded_prefix": ns + src_prefix, "objects": len(objs), "copied": copied, "already_present": present}))
+    print(json.dumps({"namespace": ns, "batch": batch, "objects": len(keys), "copied": copied, "already_present": present}))
     return 0
 
 
 def seed_check(run_id: str, batch: str) -> int:
     client, bucket = _raw_client()
     ns = _ns(run_id)
-    src = {o["Key"]: o for o in _list(client, bucket, f"raw/{batch.strip('/')}/")}
-    dst = {o["Key"][len(ns):]: o for o in _list(client, bucket, ns + f"raw/{batch.strip('/')}/")}
-    bad = [k for k in src if k not in dst or dst[k]["Size"] != src[k]["Size"] or dst[k].get("ETag") != src[k].get("ETag")]
-    print(json.dumps({"sources": len(src), "seeded": len(dst), "mismatched_or_missing": bad[:10]}))
-    return 1 if bad or not src else 0
+    bad, n = [], 0
+    for key in batch_source_keys(batch):
+        n += 1
+        a = client.head_object(Bucket=bucket, Key=key)
+        try:
+            b = client.head_object(Bucket=bucket, Key=ns + key)
+        except ClientError:
+            bad.append(key); continue
+        if a["ContentLength"] != b["ContentLength"] or a.get("ETag") != b.get("ETag"):
+            bad.append(key)
+    extra = [o["Key"] for o in _list(client, bucket, ns + "raw/") if o["Key"][len(ns):] not in set(batch_source_keys(batch))]
+    print(json.dumps({"sources": n, "mismatched_or_missing": bad[:10], "unexpected_in_namespace_raw": extra[:10]}))
+    return 1 if bad or extra or not n else 0
 
 
 def _supabase_rows(table: str) -> tuple[int, str]:

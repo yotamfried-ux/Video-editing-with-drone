@@ -125,6 +125,8 @@ jobs:
         R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
         R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
         R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
       run: 'python scripts/qualification_run.py seed --run-id "${{ steps.cfg.outputs.run_id }}" --batch "${{ steps.cfg.outputs.batch }}"
 
         python scripts/qualification_run.py seed-check --run-id "${{ steps.cfg.outputs.run_id }}" --batch "${{ steps.cfg.outputs.batch }}"'
@@ -179,7 +181,7 @@ jobs:
         TMP_DIR: /tmp/dtor
         SPORTREEL_EXPORT_EDL: '1'
         QA_GATE: 'false'
-        RAW_BATCH_ID: ${{ steps.cfg.outputs.batch }}
+        RAW_BATCH_ID: ''
         SPORTREEL_QUALIFICATION_RUN_ID: ${{ steps.cfg.outputs.run_id }}
         STORAGE_BACKEND: r2
         SPORTREEL_LLM_BUDGET_USD: ${{ steps.cfg.outputs.budget }}
