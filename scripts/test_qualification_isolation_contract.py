@@ -333,7 +333,7 @@ def main() -> int:
     check("actions/cache/save" not in text, "Q10 no cache is saved")
     check("record_run_correlation" not in text and "finalize" not in text.lower(), "Q10 no operator run row / batch lifecycle writes")
     check("snapshot --out" in text and " compare " in text, "Q10 production fingerprint before/after + compare")
-    check("0.92" in text and "SPORTREEL_LLM_BUDGET_USD" in run_block and "SPORTREEL_QUALIFICATION_RUN_ID" in run_block
+    check("0.72" in text and "SPORTREEL_LLM_BUDGET_USD" in run_block and "SPORTREEL_QUALIFICATION_RUN_ID" in run_block
           and "PIPELINE_RUN_ID" not in run_block, "Q10 run step: qualification id + capped budget, no production pipeline run id")
     # Q11 (cycle 10, Gate A): fault injection is honoured ONLY inside a qualification run, only at known points
     import subprocess

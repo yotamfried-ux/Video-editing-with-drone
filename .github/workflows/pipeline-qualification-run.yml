@@ -97,7 +97,7 @@ jobs:
 
         budget = 0.0 if label != "qualrun-paid" else float(c["llm_budget_usd_paid"])
 
-        assert 0.0 <= budget <= 0.92, f"budget {budget} outside the authorised remainder (USD 2 total - 0.380 cycle 8 - 0.225 q9-paid-01 - 0.469 q9-paid-02)"
+        assert 0.0 <= budget <= 0.72, f"budget {budget} outside the authorised remainder (USD 2 total - 0.380 cycle 8 - 0.225 q9-paid-01 - 0.469 q9-paid-02 - 0.206 q10-paid-01)"
 
         print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}"); print(f"budget={budget}")
 

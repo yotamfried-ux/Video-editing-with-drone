@@ -8,7 +8,8 @@
   "isolated_qualification": [
    "44078257676 (q9-dry-02)",
    "44085419164 (q9-paid-01)",
-   "44121013654 (q9-paid-02)"
+   "44121013654 (q9-paid-02)",
+   "44166232265 (q10-paid-01, EXP-10-001)"
   ]
  },
  "statuses": [
@@ -205,6 +206,14 @@
    "where": "cycle-10 report",
    "produced_by": "session replay script (reads private GT)",
    "proof_scope": "REPLAY"
+  },
+  {
+   "id": "EVD-10-005",
+   "kind": "isolated_run",
+   "what": "EXP-10-001 q10-paid-01 (run 44166232265 @bf9c9024, $0.206 / cap $0.40, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9). Production fingerprint identical. Pre-registered conditions all met: 0 publishable multi-source reels without operator evidence (5 multi-source reels kept together UNCONFIRMED: 0070+0108, 0094-cluster, 0112-cluster, 0143+0152, 0160+0163); 0 publishable visibly mixed reels (audit: 24/25 shots OK, the one visible mix 0143+0152 withheld); FULL 14, missing 20.4 s, published 5 / correct 4, QA false passes 1 (0095), published wrong identity 0. FIX-PQ-10-003 in situ: the clustering grouped 0097+0115 and 0074+0151, both split on wetsuit_vs_bare_or_swimsuit_conflict, PENDING review requests 758fe7783e9c (0097+0115, GT same athlete) and 7b2a6964427f (0074+0151, GT different). Rendered MP4s: 14 reels, full scaled decode 0 errors / 0 freezes / 0 black; viewed: 0112-cluster (one athlete, 5 clips, correct, withheld), 0160+0163 (one woman, correct, withheld), 0143+0152 (two lookalikes, withheld). Reel SHA-256 prefixes: 0143+0152 30a2aed300b7, 0112-cluster 1ae08503dc19, 0160+0163 3df8c2fb84b4, 0097 7a9280cbde56, 0115 767ecae02f52, 0094-cluster cf6dcb1781f7, 0070+0108 c704b2278366, 0095 ca1813e1e0bd.",
+   "where": "artifacts qualification-diagnostics-q10-paid-01-44166232265, qualification-reels-q10-paid-01-44166232265",
+   "produced_by": "scripts/gt_scorecard.py, scripts/primary_athlete_audit.py, ffmpeg",
+   "proof_scope": "RENDERED_MEDIA"
   }
  ],
  "fixes": [
@@ -383,15 +392,16 @@
    "experiments": [
     "RED->GREEN scripts/test_identity_autopublish_policy_contract.py (4 fails on f299a5a9)",
     "Gate C replay EVD-10-003",
-    "EXP-10-001 run 44166232265 (pending)"
+    "EXP-10-001 run 44166232265 (conditions met)"
    ],
    "before": "q9-paid-02: 0143+0152 publishable",
-   "after": "replay: 0 wrong-identity publishable, correct published unchanged",
+   "after": "EXP-10-001: 0 wrong-identity publishable; 0143+0152 rendered but withheld (viewed); correct published 4 (= q9-paid-01)",
    "evidence": [
-    "EVD-10-003"
+    "EVD-10-003",
+    "EVD-10-005"
    ],
-   "status": "REPLAYED",
-   "classification": "SAFETY_GATE",
+   "status": "MEDIA_VERIFIED",
+   "classification": "CANDIDATE_IMPROVED",
    "limits": "Multi-source reels need an owner operator_review to publish; correct merges (0126+0140, 0070+0108) are withheld too."
   },
   {
@@ -423,10 +433,12 @@
     "EXP-10-001 (evaluated only if the clustering groups 0097+0115)"
    ],
    "before": "0097+0115 two reels, no review path",
-   "after": "two reels + PENDING review request; owner APPROVED -> one reel with operator_review evidence",
-   "evidence": [],
-   "status": "TESTED",
-   "classification": "REVIEW_PATH",
+   "after": "EXP-10-001: PENDING review request for exactly 0097+0115 (and 0074+0151); owner decision still required",
+   "evidence": [
+    "EVD-10-005"
+   ],
+   "status": "REPLAYED",
+   "classification": "CANDIDATE_IMPROVED",
    "limits": "Needs an owner decision; no model call; does not merge on its own."
   }
  ],
@@ -597,8 +609,8 @@
    "product": "identity",
    "finding": "The production pairwise verifier gives a both-orders MATCH for the 0143/0152 lookalikes (GT: two athletes) at 6-crop sheets; the identity gate then passes the reel as publishable. In every earlier production run the verifier was effectively dead on the model path (sheet crop count lost), so its live precision was never measured end to end.",
    "classification": "ROOT_CAUSE_CONFIRMED",
-   "status": "FAILED",
-   "next": "Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run.",
+   "status": "MITIGATED",
+   "next": "Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run. Cycle 10: FIX-PQ-10-001 withholds model-only consensus (EXP-10-001); the verifier itself is still not trustworthy.",
    "evidence": [
     "EVD-09-003",
     "EVD-09-004"
@@ -748,6 +760,10 @@
   {
    "id": "BLK-09-001",
    "what": "Paid runs stopped after EXP-09-002. Spent of the $2 campaign: $0.380 (cycle 8) + $0.225 (q9-paid-01) + $0.469 (q9-paid-02) = $1.074; remainder $0.926. run_config.json sets llm_budget_usd_paid 0 and the workflow cap is 0.92; any further paid run needs a fix with a credible safety case and a new pre-registration."
+  },
+  {
+   "id": "BLK-10-001",
+   "what": "Paid runs closed after EXP-10-001. Campaign spend $1.280 of $2; remainder $0.720 (run_config paid budget 0, workflow cap 0.72). Owner decisions open: identity review requests 758fe7783e9c (0097+0115) and 7b2a6964427f (0074+0151); PA-01 uncatalogued riders (0095); PA-03 0094 13.2-16 s."
   }
  ],
  "proof_policy": {

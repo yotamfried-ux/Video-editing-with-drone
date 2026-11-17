@@ -91,14 +91,14 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 
 ### FIX-PQ-10-001 — Model-only visual consensus never auto-publishes a multi-source reel
 
-- **Gap:** PA-11 · **Classification:** SAFETY_GATE · **Status:** `REPLAYED`
+- **Gap:** PA-11 · **Classification:** CANDIDATE_IMPROVED · **Status:** `MEDIA_VERIFIED`
 - **Root cause:** EXP-09-002: both-orders 6-crop MATCH for two GT athletes (0143/0152) became an identity-gate pass
 - **Fix:** pipeline/real_identity_gate.py::_evidence_may_autopublish (default off; SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH=1 reserved for a validated verifier)
 - **Commit:** 8992e067760602a94f95c79ba1d0a5eadf815637
-- **Experiments:** RED->GREEN scripts/test_identity_autopublish_policy_contract.py (4 fails on f299a5a9), Gate C replay EVD-10-003, EXP-10-001 run 44166232265 (pending)
+- **Experiments:** RED->GREEN scripts/test_identity_autopublish_policy_contract.py (4 fails on f299a5a9), Gate C replay EVD-10-003, EXP-10-001 run 44166232265 (conditions met)
 - **Before:** q9-paid-02: 0143+0152 publishable
-- **After:** replay: 0 wrong-identity publishable, correct published unchanged
-- **Evidence:** EVD-10-003
+- **After:** EXP-10-001: 0 wrong-identity publishable; 0143+0152 rendered but withheld (viewed); correct published 4 (= q9-paid-01)
+- **Evidence:** EVD-10-003, EVD-10-005
 - **Limits:** Multi-source reels need an owner operator_review to publish; correct merges (0126+0140, 0070+0108) are withheld too.
 
 ### FIX-PQ-10-002 — _stable_track treated _clip_index 0 as missing
@@ -115,14 +115,14 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 
 ### FIX-PQ-10-003 — Text-attribute split of a model-proposed grouping raises an owner identity review request
 
-- **Gap:** PA-08 · **Classification:** REVIEW_PATH · **Status:** `TESTED`
+- **Gap:** PA-08 · **Classification:** CANDIDATE_IMPROVED · **Status:** `REPLAYED`
 - **Root cause:** 0097+0115 grouped by the model, split on 'dark swimsuit' vs 'no shirt'; the proposal was discarded silently
 - **Fix:** pipeline/stages/identity.py::_text_attribute_split_reviewed
 - **Commit:** 8992e067760602a94f95c79ba1d0a5eadf815637
 - **Experiments:** RED->GREEN scripts/test_text_split_review_request_contract.py (4 fails on f299a5a9), EXP-10-001 (evaluated only if the clustering groups 0097+0115)
 - **Before:** 0097+0115 two reels, no review path
-- **After:** two reels + PENDING review request; owner APPROVED -> one reel with operator_review evidence
-- **Evidence:** 
+- **After:** EXP-10-001: PENDING review request for exactly 0097+0115 (and 0074+0151); owner decision still required
+- **Evidence:** EVD-10-005
 - **Limits:** Needs an owner decision; no model call; does not merge on its own.
 
 ## Gaps
@@ -139,7 +139,7 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | PA-08 | 0097+0115 | C (two reels for one surfer) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Crops consistent with one athlete (shirtless, dark shorts, light-blue board); 0097 is backlit (silhouette), 0115 front-lit, which explains the analyzer's 'dark swimsuit' vs 'no shirt'. 11-16 splits them into two reels. | Fail-closed identity (#396) routes such pairs to owner REVIEW; an automatic merge needs pairwise consensus evidence, not a description match. |
 | PA-09 | 0115 start | A (missing include: paddle-in) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Reel starts 4.5 s; GT include from 0.07 s (paddle-in, owner policy: include the relevant paddle-in). Sequence shows paddling from the first frame, standing ~8 s. | Perception recall for prone paddlers, evaluated on held-out rides. |
 | PA-10 | 0070 | boundary | INSUFFICIENT_EVIDENCE | `IDENTIFIED` | ~2.8 s of the rendered 0070 shot is outside any GT segment (both runs). Not yet viewed. | Add 0070 to the next sequence extraction. |
-| PA-11 | 0143+0152 | identity | ROOT_CAUSE_CONFIRMED | `FAILED` | The production pairwise verifier gives a both-orders MATCH for the 0143/0152 lookalikes (GT: two athletes) at 6-crop sheets; the identity gate then passes the reel as publishable. In every earlier production run the verifier was effectively dead on the model path (sheet crop count lost), so its live precision was never measured end to end. | Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run. |
+| PA-11 | 0143+0152 | identity | ROOT_CAUSE_CONFIRMED | `MITIGATED` | The production pairwise verifier gives a both-orders MATCH for the 0143/0152 lookalikes (GT: two athletes) at 6-crop sheets; the identity gate then passes the reel as publishable. In every earlier production run the verifier was effectively dead on the model path (sheet crop count lost), so its live precision was never measured end to end. | Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run. Cycle 10: FIX-PQ-10-001 withholds model-only consensus (EXP-10-001); the verifier itself is still not trustworthy. |
 | PA-12 | isolation | qualification | MOSTLY_PROVEN | `TESTED` | Isolated qualification runs proven non-destructive (3 runs, fingerprints identical). Not yet proven: same-namespace retry idempotency and an explicit mid-run crash. Cycle 10 Gate A (run 44148876075): retries and three hard crashes PASS; limits: paid-retry draft-name drift and a publishable partial not exercised. | Free dry run with qualrun-dry re-using q9-dry-02, and a dry run killed mid-stage; compare fingerprints and namespace object counts. |
 | PA-13 | retry | review drafts | RISK_IDENTIFIED | `IDENTIFIED` | Draft object keys come from the model's athlete description + the date. A crash after some uploads, retried on another day or with different model descriptions, leaves the first drafts in review/ next to the new ones (duplicates). Not exercised by Gate A (free runs reuse cached descriptions). | Key drafts by a stable athlete/run identity, or record a run draft ledger and supersede drafts of an incomplete run (no deletion). |
 | PA-14 | code | pipeline | ROOT_CAUSE_CONFIRMED | `IDENTIFIED` | pipeline/orchestrator._compile_clusters is replaced at startup by pipeline/context_qa_gate.compile_clusters_with_context_qa; changes made only in the orchestrator copy are inert (Gate A run 1). | Remove or clearly mark the shadowed copy; contracts must assert the active path. |
@@ -184,6 +184,7 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-10-002 | measurement | Gate B diagnoses (private GT boxes, aggregate only). 0094: primary-athlete audit of the q9-paid-02 reel - crop shows 9524ac02 in 195/203 frames, 0 other GT athletes in crop, 0 identity switches; the scorecard's 'mixed' is a time overlap of the 2.0-22.5 s window with d805a9b1's ride (1010-2199 f): the real defect is the end (9.3 s past the GT ride end). 0095: drone frames track 10003 (uncatalogued white-sleeve rider) at centre; GT athlete 6c84aed0 = track 10007 riding the same wave at left, his take GT-excluded (unusable): no tracking/identity defect, owner decision PA-01. | cycle-10 report |
 | EVD-10-003 | replay | Gate C replay of FIX-PQ-10-001 on stored runs (scripts/identity_policy_replay.py, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9): q9-paid-02 published 10->8, published_wrong_identity 1->0, published_nonride 2->1, published_correct 7->7, coverage unchanged; 43920602179, q9-dry-02, q9-paid-01 unchanged (no image-evidence passes); 43583126199 NOT_REPLAYABLE (legacy manifest without per-event inputs). | cycle-10 report |
 | EVD-10-004 | replay | EXP-10-002 (REJECTED): pre-chosen end-of-ride rule 'board association < 0.5 for 1.5 s after an established ride, +1.0 s margin' replayed on all q9-paid-02 windows against GT: removed 6.2 s of non-include but cut 44.0 s of GT include (0094 11.6 s, 0118 14.7 s, 0074 5.0 s ...). Board detection at stride 5 drops out mid-ride. Not tuned further (24 cases = test set). | cycle-10 report |
+| EVD-10-005 | isolated_run | EXP-10-001 q10-paid-01 (run 44166232265 @bf9c9024, $0.206 / cap $0.40, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9). Production fingerprint identical. Pre-registered conditions all met: 0 publishable multi-source reels without operator evidence (5 multi-source reels kept together UNCONFIRMED: 0070+0108, 0094-cluster, 0112-cluster, 0143+0152, 0160+0163); 0 publishable visibly mixed reels (audit: 24/25 shots OK, the one visible mix 0143+0152 withheld); FULL 14, missing 20.4 s, published 5 / correct 4, QA false passes 1 (0095), published wrong identity 0. FIX-PQ-10-003 in situ: the clustering grouped 0097+0115 and 0074+0151, both split on wetsuit_vs_bare_or_swimsuit_conflict, PENDING review requests 758fe7783e9c (0097+0115, GT same athlete) and 7b2a6964427f (0074+0151, GT different). Rendered MP4s: 14 reels, full scaled decode 0 errors / 0 freezes / 0 black; viewed: 0112-cluster (one athlete, 5 clips, correct, withheld), 0160+0163 (one woman, correct, withheld), 0143+0152 (two lookalikes, withheld). Reel SHA-256 prefixes: 0143+0152 30a2aed300b7, 0112-cluster 1ae08503dc19, 0160+0163 3df8c2fb84b4, 0097 7a9280cbde56, 0115 767ecae02f52, 0094-cluster cf6dcb1781f7, 0070+0108 c704b2278366, 0095 ca1813e1e0bd. | artifacts qualification-diagnostics-q10-paid-01-44166232265, qualification-reels-q10-paid-01-44166232265 |
 
 ## Blockers
 
@@ -192,3 +193,4 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **BLK-07-003** No controlled candidate pipeline run or decoded final render yet. On 2026-11-17 owner authorized a NEW capped experiment campaign of up to $2 incremental total; do not spend without per-run enforcement and attribution. This is not a GO or automatic authorization to publish.
 - **BLK-08-001** End-to-end integration (pipeline run -> new EDL -> rendered MP4 -> Review screen) for FIX-PQ-08-003 and later fixes: re-running the same 24 sources needs Run Pipeline with reset=true, which moves PROCESSED->RAW and DELETES current REVIEW drafts (destructive) and lands drafts on the operator Review screen. Requires the owner's explicit approval. Estimated model cost ~$0.5-0.7 (warm cache: logged $0.23 for 43920602179 + identity/singleton calls).
 - **BLK-09-001** Paid runs stopped after EXP-09-002. Spent of the $2 campaign: $0.380 (cycle 8) + $0.225 (q9-paid-01) + $0.469 (q9-paid-02) = $1.074; remainder $0.926. run_config.json sets llm_budget_usd_paid 0 and the workflow cap is 0.92; any further paid run needs a fix with a credible safety case and a new pre-registration.
+- **BLK-10-001** Paid runs closed after EXP-10-001. Campaign spend $1.280 of $2; remainder $0.720 (run_config paid budget 0, workflow cap 0.72). Owner decisions open: identity review requests 758fe7783e9c (0097+0115) and 7b2a6964427f (0074+0151); PA-01 uncatalogued riders (0095); PA-03 0094 13.2-16 s.

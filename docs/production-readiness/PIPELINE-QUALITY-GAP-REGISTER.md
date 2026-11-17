@@ -473,3 +473,17 @@ Owner clarification (2026-11-17): a shared wave is **not automatically disqualif
 Owner authorized **up to $2 incremental total** for the next bounded evidence-producing experiment campaign on 2026-11-17. This does not retroactively change earlier estimated Gemini spending and is **not $2 per retry**. Before dispatch, set a hard dollar cap and track model + incremental compute/storage/API charges. No unbounded retries, paid model calls outside cap, production publication, GT mutation or privileged destructive changes. Use free replay/proxy/render first; only pay for a discriminating test that replay cannot answer. If cost cannot be bounded, stop and report blocker.
 
 **Per-fix proof chain:** `PA/PQ → FIX ID → exact code SHA/path/symbol → EXP ID + command + executed SHA/config/model → EVD ID + output hash → measured delta vs 43583126199 and 43920602179 → independent source/decoded-render/holdout status`. Code-only, synthetics and historical EDL/overlay checks do not substitute for new rendered-media verification. New commit invalidates dependent evidence until revalidated. Preserve failures, test-set contamination and negative results.
+
+
+## 11. Cycle 10 update (2026-11-17) — see CYCLE-10-QUALITY-QUALIFICATION.md
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PA-11 0143+0152 false merge made publishable | MITIGATED | EVD-10-003, EVD-10-005 | FIX-PQ-10-001: model-only consensus never auto-publishes; verifier still untrusted |
+| PA-08 0097+0115 split | REVIEW PATH | EVD-10-005 | FIX-PQ-10-003: owner review request `758fe7783e9c`; no automatic merge |
+| PA-12 isolation retry / crash | TESTED | EVD-10-001 | Gate A run 44148876075 PASS; limits: paid retry name drift, publishable partial |
+| PA-13 paid-retry duplicate drafts | IDENTIFIED | EVD-10-001 | draft keys from model description + date |
+| PA-14 shadowed orchestrator._compile_clusters | IDENTIFIED | EVD-10-001 | production uses context_qa_gate |
+| PA-15 window overruns (0094, 0108, 0142, 0126, 0146, 0118) | FAILED | EVD-10-004 | EXP-10-002 board-loss rule rejected (44.0 s include lost) |
+| PA-16 time-attributed "mixed" metric | IDENTIFIED | EVD-10-002 | use the primary-athlete audit for visible mixes |
+| PA-01 0095 uncatalogued rider | OWNER DECISION | EVD-10-002 | drone target is the uncatalogued rider; no identity switch |
