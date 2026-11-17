@@ -173,8 +173,8 @@
      "primary_shown_ratio": 1.0,
      "other_gt_athletes_in_crop": {},
      "gt_decision_frames": {
-      "include": 167,
-      "none": 36
+      "include": 113,
+      "none": 90
      },
      "verdict": "OK"
     },
@@ -283,7 +283,7 @@
    ],
    "mixed": false,
    "exclude_frames": 78,
-   "unsegmented_frames": 36
+   "unsegmented_frames": 90
   },
   {
    "output_id": "MULTI_2026-10-03T12-19-53_DJI_20260720160431_0095_D_ac94054ce77",

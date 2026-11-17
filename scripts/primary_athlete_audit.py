@@ -70,8 +70,9 @@ def crop_at(keyframes: list[dict[str, Any]], out_frame: float) -> dict[str, floa
     return ks[-1]["crop"]
 
 
-def gt_decision(segments: list[list[Any]], frame: int) -> str:
-    hits = [s[2] for s in segments if s[0] <= frame <= s[1]]
+def gt_decision(segments: list[list[Any]], frame: int, athlete: str | None = None) -> str:
+    """GT decision of `frame` for `athlete` (segments of other athletes do not count; None = any athlete)."""
+    hits = [s[2] for s in segments if s[0] <= frame <= s[1] and (athlete is None or s[5] in (athlete, None))]
     if "exclude" in hits:
         return "exclude"
     return "include" if hits else "none"
@@ -103,13 +104,13 @@ def audit_shot(shot: dict[str, Any], gt: dict[str, Any] | None) -> dict[str, Any
     subj = sorted(shot.get("subject_track") or [], key=lambda s: s["src_frame"])
     subj_frames = [s["src_frame"] for s in subj]
     labels: list[str] = []
-    decisions: Counter = Counter()
+    sampled: list[int] = []
     shown: dict[str, int] = Counter()
     audited = 0
     frames_with_gt = 0
     for f in range(f0, f1 + 1, SAMPLE_STEP):
         audited += 1
-        decisions[gt_decision(gt.get("segments") or [], f)] += 1
+        sampled.append(f)
         gt_now = {t["athlete_id"]: interp(t["points"], f) for t in tracks}
         gt_now = {k: v for k, v in gt_now.items() if v is not None}
         if gt_now:
@@ -133,6 +134,9 @@ def audit_shot(shot: dict[str, Any], gt: dict[str, Any] | None) -> dict[str, Any
                 shown[a] += 1
     athlete_labels = [x for x in labels if x not in ("no_subject", "other_person", "no_gt_box")]
     primary = Counter(athlete_labels).most_common(1)[0][0] if athlete_labels else None
+    # Decision of each rendered frame for the athlete the shot follows: another athlete's include segment on the
+    # same frames is not this reel's include (0094: d805a9b1's ride while the reel stays on 9524ac02).
+    decisions = Counter(gt_decision(gt.get("segments") or [], f, primary) for f in sampled)
     switches = sum(1 for a, b in zip(athlete_labels, athlete_labels[1:]) if a != b)
     shown_primary = shown.get(primary, 0) / frames_with_gt if primary and frames_with_gt else 0.0
     others_shown = {a: round(n / audited, 3) for a, n in shown.items() if a != primary and n}

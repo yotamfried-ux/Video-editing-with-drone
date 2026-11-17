@@ -1,0 +1,43 @@
+{
+ "experiment": "EXP-07-002",
+ "rule": "pipeline/perception/runtime._binding_separability (final)",
+ "hint": "proxy: bound track position at event middle (hints are not exported)",
+ "windows": 167,
+ "per_run": {
+  "42891165218": {
+   "separable": 23
+  },
+  "43013005072": {
+   "separable": 23
+  },
+  "43203677423": {
+   "separable": 24
+  },
+  "43303438106": {
+   "separable": 24
+  },
+  "43397405813": {
+   "separable": 24
+  },
+  "43583126199": {
+   "separable": 24
+  },
+  "43920602179": {
+   "separable": 25
+  }
+ },
+ "history": [
+  {
+   "version": "hint+rank only",
+   "ambiguous": "39/49 windows (runs 43583126199+43920602179); runner-ups were duplicate canonical/raw boxes of the same person"
+  },
+  {
+   "version": "+ same-body IoU",
+   "ambiguous": "1/49 (0104, 6 shared frames with a nearby second person)"
+  },
+  {
+   "version": "+ co-presence 25%",
+   "ambiguous": "0/166"
+  }
+ ]
+}

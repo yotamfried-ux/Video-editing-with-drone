@@ -63,6 +63,13 @@ on:
       - 'scripts/athlete_ride_matrix.py'
       - 'scripts/test_actor_correctness_contract.py'
       - 'scripts/actor_correctness.py'
+      - 'scripts/test_primary_athlete_binding_contract.py'
+      - 'scripts/primary_athlete_audit.py'
+      - 'pipeline/perception/runtime.py'
+      - 'pipeline/missed_moment_rescue.py'
+      - 'evaluation/evidence/**'
+      - 'scripts/build_evidence_matrix.py'
+      - 'docs/production-readiness/PIPELINE-EVIDENCE-MATRIX.md'
       - 'scripts/test_identity_review_contract.py'
       - 'scripts/test_source_start_contract.py'
       - 'scripts/test_identity_gate_replay_contract.py'
@@ -337,6 +344,8 @@ jobs:
           python scripts/test_review_replacement_invalidation_contract.py
           python scripts/test_athlete_ride_matrix_contract.py
           python scripts/test_actor_correctness_contract.py
+          python scripts/test_primary_athlete_binding_contract.py
+          python scripts/build_evidence_matrix.py --check
           python scripts/test_identity_review_contract.py
           python scripts/test_source_start_contract.py
           python scripts/test_identity_gate_replay_contract.py
