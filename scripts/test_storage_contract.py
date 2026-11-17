@@ -58,18 +58,33 @@ def require_r2_draft_identity_contract() -> None:
     """A draft upload returns the same immutable key listed by the operator API."""
     import integrations.r2_storage as r2
 
+    import sys
+    import types
+    if "supabase" not in sys.modules:       # the uploader imports the client library at import time
+        stub = types.ModuleType("supabase")
+        stub.create_client = lambda *a, **k: None
+        stub.Client = object
+        sys.modules["supabase"] = stub
+    import integrations.supabase_uploader as uploader
+
     calls: list[tuple[str, str, str | None]] = []
+    revoked: list[str] = []
     original = r2.upload_object
+    original_revoke = uploader.revoke_draft_publishability
 
     def fake_upload(local_path: str, key: str, content_type: str | None = None) -> str:
         calls.append((local_path, key, content_type))
         return "https://example.invalid/signed-review-url"
 
     r2.upload_object = fake_upload
+    uploader.revoke_draft_publishability = lambda key, *a, **k: revoked.append(key)
     try:
         identity = r2.upload_draft("/tmp/part.mp4", "DRAFT_target.mp4")
     finally:
         r2.upload_object = original
+        uploader.revoke_draft_publishability = original_revoke
+    if revoked != ["review/DRAFT_target.mp4"]:
+        raise SystemExit(f"R2 draft upload must first revoke the old authority of its own key, got {revoked!r}")
 
     if identity != "review/DRAFT_target.mp4":
         raise SystemExit(f"R2 draft upload returned a URL/noncanonical identity: {identity!r}")
