@@ -9,6 +9,12 @@ on:
       cases:
         description: 'Lines "SOURCE_SUFFIX:t1,t2,..." separated by ";" (e.g. "_0095_D.MP4:0,2,4;_0155_D.MP4:1,3")'
         required: false
+      sequence:
+        description: 'Source suffixes for full frame sequences, ";"-separated (empty: the nine disputed sources; "none": skip)'
+        required: false
+      sequence_step:
+        description: 'Keep every Nth source frame in sequences (6 = ~10 fps at 59.94 fps)'
+        required: false
   pull_request:
     paths:
       - '.github/workflows/visual-review-frames.yml'
@@ -29,6 +35,8 @@ jobs:
       # Disputed GT cases (seconds from the start of each source).
       CASES: >-
         ${{ inputs.cases || '_0095_D.MP4:0,1,2,3,4,5,6;_0155_D.MP4:0,1.5,3,4.5,6,7.5;_0108_D.MP4:4,5.5,6.5,7.2,8,9;_0143_D.MP4:1,3,5,7;_0152_D.MP4:4,6,8,10;_0097_D.MP4:2,4,6,8;_0115_D.MP4:0.5,2,4,6,10,14;_0094_D.MP4:8,11,13,14.5,16,17.5,20,22,28,33;_0151_D.MP4:4,5.5,6.2,6.9,7.5' }}
+      SEQUENCE: ${{ inputs.sequence || '_0095_D.MP4;_0155_D.MP4;_0108_D.MP4;_0143_D.MP4;_0152_D.MP4;_0097_D.MP4;_0115_D.MP4;_0094_D.MP4;_0151_D.MP4' }}
+      SEQUENCE_STEP: ${{ inputs.sequence_step || '6' }}
     steps:
       - name: Tools
         run: |
@@ -65,13 +73,40 @@ jobs:
                                   "-q:v", "3", "-y", out], check=False)
               index.append(f"{suffix}\t{key}\t{times}")
               os.remove(local)
+          # Frame sequences: every Nth source frame, file name = exact source frame number, so evidence can be
+          # aligned offline with GT keyframes and EDL source frames.
+          step = int(os.environ.get("SEQUENCE_STEP") or 6)
+          seq = [c.strip() for c in os.environ.get("SEQUENCE", "").split(";") if c.strip() and c.strip() != "none"]
+          for suffix in seq:
+              match = sorted(k for k in keys if k.endswith(suffix))
+              if not match:
+                  print(f"MISSING {suffix}"); continue
+              local = os.path.join("src", os.path.basename(match[0]))
+              s3.download_file(bucket, match[0], local)  # read-only GET
+              tag = suffix.strip("_").split(".")[0]
+              os.makedirs(f"seq/{tag}", exist_ok=True)
+              subprocess.run(["ffmpeg", "-loglevel", "error", "-i", local, "-vf", f"select=not(mod(n\\,{step})),scale=960:-2",
+                              "-fps_mode", "passthrough", "-q:v", "4", f"seq/{tag}/i%05d.jpg"], check=True)
+              files = sorted(os.listdir(f"seq/{tag}"))
+              for i, name in enumerate(files):  # ffmpeg numbers outputs 1..N; rename to the source frame number
+                  os.rename(f"seq/{tag}/{name}", f"seq/{tag}/f{i * step:05d}.jpg")
+              print(f"{tag}: {len(files)} frames (step {step})")
+              os.remove(local)
           open("frames/index.tsv", "w").write("\n".join(index) + "\n")
           print("\n".join(index))
           PY
           ls -la frames | head -80
+          du -sh seq 2>/dev/null || true
       - name: Keep the frames
         uses: actions/upload-artifact@v4
         with:
           name: visual-review-frames
           path: frames
+          retention-days: 14
+      - name: Keep the sequences
+        if: ${{ hashFiles('seq/**') != '' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-review-sequences
+          path: seq
           retention-days: 14
