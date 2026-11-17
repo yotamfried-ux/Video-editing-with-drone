@@ -348,6 +348,9 @@ def download_video(file_id_or_key: str, filename: str) -> str:
 def upload_draft(draft_path: str, draft_name: str) -> str:
     """Upload to REVIEW and return the canonical immutable R2 object key."""
     key = _join(REVIEW_PREFIX, draft_name)
+    # A replaced REVIEW object must not keep the previous run's PASS authority (see revoke_draft_publishability).
+    from integrations.supabase_uploader import revoke_draft_publishability
+    revoke_draft_publishability(key)
     upload_object(draft_path, key, "video/mp4")
     return key
 

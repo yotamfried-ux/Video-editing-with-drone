@@ -131,6 +131,14 @@ def seed_uploads(bucket: Bucket, count: int = 24, batch: str | None = BATCH, tag
 def run_pipeline() -> list[str]:
     """What one pipeline run does to storage: admit, download, write a draft, mark processed."""
     import integrations.r2_storage as r2
+    if "supabase" not in sys.modules:           # no production DB here; the uploader module only needs the name
+        stub = types.ModuleType("supabase")
+        stub.create_client = lambda *a, **k: None
+        stub.Client = object
+        sys.modules["supabase"] = stub
+    import integrations.supabase_uploader as uploader
+    revoked: list[str] = []
+    uploader.revoke_draft_publishability = lambda key, *a, **k: revoked.append(key)   # in-memory stand-in
     admitted = r2.get_new_videos()
     for item in admitted:
         local = r2.download_video(item["id"], os.path.basename(item["id"]))
@@ -139,6 +147,7 @@ def run_pipeline() -> list[str]:
         Path(draft).write_bytes(b"draft:" + item["name"].encode())
         r2.upload_draft(draft, f"draft_{item['name']}")
         r2.mark_as_processed(item["id"])
+    assert revoked == [f"review/draft_{item['name']}" for item in admitted], revoked   # old authority revoked first
     return [item["id"] for item in admitted]
 
 

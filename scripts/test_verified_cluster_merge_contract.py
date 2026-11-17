@@ -21,10 +21,8 @@ def cluster(*apps, verified=False):
     if verified:
         # A positive image verification records the exact members it covered (pipeline.identity_evidence);
         # the release gate reads that evidence, not the bare flag.
-        from pipeline import identity_evidence
-        image = str(Path(__file__).resolve())  # any readable file stands in for the thumbnail shown
-        identity_evidence.stamp(item, identity_evidence.IMAGE_VERIFIER, images=[image] * len(apps),
-                                model="test-verifier", raw_response='{"same_person": true}')
+        import _consensus_fixture as fx
+        fx.prove(item)  # pairwise consensus evidence for every cross-source pair (fake verifier, any readable file as image)
     return item
 
 
@@ -94,24 +92,24 @@ def test_verifier_marks_only_positively_confirmed_clusters() -> None:
     import pipeline.identity_failsafe as failsafe
     import pipeline.stages.identity as identity
     thumb = ROOT / "scripts" / "test_verified_cluster_merge_contract.py"  # any existing file
-    apps = [{"path": "a.mp4", "thumbnail": str(thumb), "events": []}, {"path": "b.mp4", "thumbnail": str(thumb), "events": []}]
+    apps = [{"path": "a.mp4", "thumbnail": str(thumb), "_sheet_crops": 6, "events": []}, {"path": "b.mp4", "thumbnail": str(thumb), "_sheet_crops": 6, "events": []}]
+
+    import _consensus_fixture as fx
 
     def run(answer: str):
-        fake_model = types.SimpleNamespace(generate_content=lambda *a, **k: types.SimpleNamespace(text=answer))
-        fake_genai = types.SimpleNamespace(
-            upload_file=lambda **k: types.SimpleNamespace(name="f"), delete_file=lambda n: None,
-            GenerativeModel=lambda model_name=None: fake_model)
-        saved = (identity.genai, identity._retry_gemini)
-        identity.genai, identity._retry_gemini = fake_genai, lambda fn, *a, **k: fn()
+        saved = identity._consensus_ask
+        identity._consensus_ask = lambda prompt, images: answer
         try:
-            return failsafe._wrap_verify_multi_clusters(identity)([{"description": "x", "appearances": list(apps)}])
+            return failsafe._wrap_verify_multi_clusters(identity)([{"description": "x", "appearances": [dict(a) for a in apps]}])
         finally:
-            identity.genai, identity._retry_gemini = saved
+            identity._consensus_ask = saved
 
-    same = run('{"same_person": true, "mismatched_indices": []}')
+    same = run(fx.MATCH_SPECIFIC)
     assert len(same) == 1 and same[0].get("_visual_verified") is True, same
-    different = run('{"same_person": false, "mismatched_indices": []}')
+    different = run(fx.NO_MATCH)
     assert len(different) == 2 and not any(c.get("_visual_verified") for c in different), different
+    review = run(fx.MATCH_GENERIC)       # doubt: kept together, unconfirmed (the gate withholds it), never split or stamped
+    assert len(review) == 1 and not review[0].get("_visual_verified") and not review[0].get("_identity_evidence"), review
 
 
 def main() -> int:

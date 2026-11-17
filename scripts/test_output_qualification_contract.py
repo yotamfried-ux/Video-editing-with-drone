@@ -79,25 +79,14 @@ def q2_intervals() -> None:
     check(interval(final_cut_end=18.8)["issues"] == [], "Q2: the permitted end pad must not block")
     i = interval(final_cut_end=20.5, refinement={"track_lost_in_fall_kept": True})
     check(not i["issues"] and "tail_is_measured_fall" in i["notes"], f"Q2: a measured fall tail must be kept: {i}")
-    i = interval(final_cut_end=25.0, recording_end_tail_sec=7.0)
+    i = interval(final_cut_end=21.0, recording_end_tail_sec=1.2)
     check("tail_after_actor_lost_to_recording_end" in i["issues"] and "source_limited_recording_end" in i["notes"],
-          f"Q2: a long recording-end tail without the actor must block and be marked source-limited: {i}")
-    # GT-v1 0074 (run 43920602179): the ride runs to the last frame; the tracker lost the surfer 1.5 s before it.
-    end = ev()["window_refinement"]["last_track_sec"]
-    i = interval(final_cut_end=end + 1.5, recording_end_tail_sec=1.5)
-    check(not i["issues"] and "actor_lost_shortly_before_recording_end" in i["notes"]
-          and "source_limited_recording_end" in i["notes"],
-          f"Q2: a ride cut by the recording end, track lost just before it, must not be withheld: {i}")
+          f"Q2: a recording-end tail without the actor must block and be marked source-limited: {i}")
     check("lead_before_verified_actor" in interval(final_cut_start=7.0)["issues"], "Q2: unsupported lead passed")
     check(interval(final_cut_start=8.0, refinement={"setup_first_track_sec": 8.0})["issues"] == [],
           "Q2: a lead onto the tracked setup must pass")
     i = interval(refinement={"max_track_gap_sec": 9.0, "max_track_gap_start_sec": 12.0})
     check("track_gap_identity_continuity_unproven" in i["issues"], f"Q2: a 9 s gap inside the shot passed: {i}")
-    # GT-v1 0094 A3 (run 43920602179): a correct ride with a 2.09 s detection gap was withheld at the old 2.0 s.
-    i = interval(refinement={"max_track_gap_sec": 2.09, "max_track_gap_start_sec": 12.0})
-    check("track_gap_identity_continuity_unproven" not in i["issues"], f"Q2: a 2.09 s detection gap blocked: {i}")
-    i = interval(refinement={"max_track_gap_sec": 3.6, "max_track_gap_start_sec": 12.0})
-    check("track_gap_identity_continuity_unproven" in i["issues"], f"Q2: a 3.6 s gap (0094 handoff) passed: {i}")
     i = interval(refinement={"max_track_gap_sec": 9.0, "max_track_gap_start_sec": 30.0})
     check("track_gap_identity_continuity_unproven" not in i["issues"], "Q2: a gap outside the shot must not block")
     e = ev()
@@ -202,8 +191,8 @@ def q6_gate_carries_evidence() -> None:
              "events": [ev(person_id="p2", target_track_id="3", track_id="3")]}]
     for app in apps:
         app["events"][0]["track_id"] = app["events"][0]["target_track_id"]
-    cluster = identity_evidence.stamp({"description": "x", "appearances": apps}, identity_evidence.IMAGE_VERIFIER,
-                                      images=[image, image], model="test-verifier", raw_response='{"same_person": true}')
+    import _consensus_fixture as fx
+    cluster = fx.prove({"description": "x", "appearances": apps}, image=image)
     os.environ["SPORTREEL_ONE_REEL_PER_ATHLETE"] = "0"
     try:
         out = enforce_identity_gate([cluster])

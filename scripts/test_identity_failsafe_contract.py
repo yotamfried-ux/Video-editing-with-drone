@@ -34,8 +34,9 @@ def main() -> int:
     require("guard", guard, [
         "def _cluster_has_perception_evidence",
         "medium confidence without bbox perception evidence",
-        "missing thumbnails for identity verification",
-        "identity verifier error",
+        # cycle 4: one verifier (identity_pair_consensus); a missing image or a model error is REVIEW, never a merge
+        "identity_pair_consensus.verify_multi_clusters",
+        "identity._consensus_ask",
         "_sportreel_identity_failsafe_installed",
     ])
     if "keeping as-is" in guard:

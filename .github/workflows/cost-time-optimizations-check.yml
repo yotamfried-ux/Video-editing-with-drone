@@ -53,8 +53,33 @@ on:
       - 'scripts/test_release_safety_invariants_contract.py'
       - 'scripts/test_reprocess_binding_contract.py'
       - 'scripts/test_output_qualification_contract.py'
-      - 'scripts/test_gt_product_check_contract.py'
-      - 'scripts/gt_product_check.py'
+      - 'scripts/gt_scorecard.py'
+      - 'scripts/boundary_experiment.py'
+      - 'scripts/test_boundary_experiment_contract.py'
+      - 'scripts/test_identity_consensus_integration_contract.py'
+      - 'scripts/test_consensus_concurrency_contract.py'
+      - 'scripts/test_review_replacement_invalidation_contract.py'
+      - 'scripts/test_athlete_ride_matrix_contract.py'
+      - 'scripts/athlete_ride_matrix.py'
+      - 'scripts/test_actor_correctness_contract.py'
+      - 'scripts/actor_correctness.py'
+      - 'scripts/test_identity_review_contract.py'
+      - 'scripts/test_source_start_contract.py'
+      - 'scripts/test_identity_gate_replay_contract.py'
+      - 'scripts/identity_gate_replay.py'
+      - 'scripts/boundary_start_replay.py'
+      - 'pipeline/window_refinement.py'
+      - 'pipeline/complete_action_window_policy.py'
+      - 'pipeline/identity_review.py'
+      - 'scripts/test_identity_pair_experiment_contract.py'
+      - 'scripts/_consensus_fixture.py'
+      - 'pipeline/identity_pair_consensus.py'
+      - 'pipeline/runtime_quality.py'
+      - 'pipeline/identity_evidence.py'
+      - 'scripts/test_verified_cluster_merge_contract.py'
+      - 'scripts/test_identity_merge_check_contract.py'
+      - 'scripts/test_gt_scorecard_contract.py'
+      - 'evaluation/ground_truth/**'
       - 'scripts/_qualification_fixture.py'
       - 'pipeline/output_qualification.py'
       - 'pipeline/runtime_policy_registry.py'
@@ -301,10 +326,25 @@ jobs:
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_output_qualification_contract.py
-      - name: Identity evidence survives the strip; GT product check
+      - name: Strict GT scorecard (union coverage, excluded frames, boundaries, fail-closed compare)
+        run: python scripts/test_gt_scorecard_contract.py
+      - name: Pairwise-consensus identity evidence at every evidence-writing path (fake verifier)
         env:
           PYTHONPATH: scripts:.
-        run: python scripts/test_gt_product_check_contract.py
+        run: |
+          python scripts/test_identity_consensus_integration_contract.py
+          python scripts/test_consensus_concurrency_contract.py
+          python scripts/test_review_replacement_invalidation_contract.py
+          python scripts/test_athlete_ride_matrix_contract.py
+          python scripts/test_actor_correctness_contract.py
+          python scripts/test_identity_review_contract.py
+          python scripts/test_source_start_contract.py
+          python scripts/test_identity_gate_replay_contract.py
+          python scripts/test_setup_lead_in_contract.py
+          python scripts/test_identity_pair_experiment_contract.py
+          python scripts/test_boundary_experiment_contract.py
+          python scripts/test_verified_cluster_merge_contract.py
+          python scripts/test_identity_merge_check_contract.py
       - name: Batch qualification separates execution from product state
         env:
           PYTHONPATH: scripts:.

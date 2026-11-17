@@ -1,0 +1,664 @@
+{
+ "schema": "sportreel.boundary_cycle5_results.v1",
+ "diagnostics_run": "43920602179",
+ "github_run_boundary_dev": "43977625921",
+ "gemini_clip_verifier_dev": {
+  "model": "gemini-2.5-flash",
+  "summary": {
+   "pipeline": {
+    "rides": 14,
+    "evaluated": 14,
+    "within_tol_start": 3,
+    "within_tol_end": 11,
+    "start_p50": 1.08,
+    "start_max": 15.93,
+    "end_p50": 0.0,
+    "end_max": 9.27,
+    "both_within_tol": 3,
+    "all_p95": 10.15
+   },
+   "verifier": {
+    "rides": 14,
+    "evaluated": 14,
+    "within_tol_start": 4,
+    "within_tol_end": 2,
+    "start_p50": 1.17,
+    "start_max": 16.73,
+    "end_p50": 1.18,
+    "end_max": 21.5,
+    "both_within_tol": 1,
+    "all_p95": 16.73
+   },
+   "cost": {
+    "calls": 14,
+    "tokens_in": 315323,
+    "tokens_out": 84633,
+    "estimated_usd": 0.3062,
+    "cap_usd": 0.3,
+    "mean_latency_sec": 27.6
+   }
+  },
+  "rides": [
+   {
+    "ride_uid": "207fe17c86b1#R0",
+    "gt_start": 0.03,
+    "gt_end": 10.64,
+    "pipeline": {
+     "start_err": 1.47,
+     "end_err": 0.0
+    },
+    "clip": [
+     0.0,
+     10.644
+    ],
+    "verifier": {
+     "start_sec": 1.2,
+     "end_sec": 10.4,
+     "start_err": 1.17,
+     "end_err": -0.24
+    },
+    "kind": "wave_over",
+    "evidence": "The surfer on the pink board begins paddling at 00:01.2, stands up on the board at 00:02.6, and rides the wave until it completely dissipates into whitewater at 00:10.4.",
+    "takeoff_sec": 2.6
+   },
+   {
+    "ride_uid": "250c3592fd87#R0",
+    "gt_start": 0.0,
+    "gt_end": 13.23,
+    "pipeline": {
+     "start_err": 2.0,
+     "end_err": 9.27
+    },
+    "clip": [
+     0.0,
+     28.5
+    ],
+    "verifier": {
+     "start_sec": 2.0,
+     "end_sec": 15.8,
+     "start_err": 2.0,
+     "end_err": 2.57
+    },
+    "kind": "wave_over",
+    "evidence": "The target surfer begins paddling vigorously at 0:02.0 to catch the wave. He starts to stand up on the board at 0:04.3. The ride ends at 0:15.8 as the wave dissipates into whitewater and the surfer tr",
+    "takeoff_sec": 4.3
+   },
+   {
+    "ride_uid": "250c3592fd87#R1",
+    "gt_start": 16.85,
+    "gt_end": 36.69,
+    "pipeline": {
+     "start_err": 10.15,
+     "end_err": 0.0
+    },
+    "clip": [
+     15.0,
+     36.687
+    ],
+    "verifier": {
+     "start_sec": 15.0,
+     "end_sec": 15.19,
+     "start_err": -1.85,
+     "end_err": -21.5
+    },
+    "kind": "wave_over",
+    "evidence": "The TARGET surfer, identifiable by the green board and the child on their back, is already riding a wave at the start of the clip (0.0s), lying down. They do not stand up, so takeoff is also 0.0s. The",
+    "takeoff_sec": 15.0
+   },
+   {
+    "ride_uid": "2c7c9ee430b5#R0",
+    "gt_start": 0.0,
+    "gt_end": 18.15,
+    "pipeline": {
+     "start_err": 1.0,
+     "end_err": -0.0
+    },
+    "clip": [
+     0.0,
+     18.151
+    ],
+    "verifier": {
+     "start_sec": 0.0,
+     "end_sec": 15.0,
+     "start_err": 0.0,
+     "end_err": -3.15
+    },
+    "kind": "wave_over",
+    "evidence": "The surfer is already paddling for the wave at the start of the clip. He stands up on the board at 3.2 seconds. He continues to ride the wave until it completely dissipates into whitewater and he is n",
+    "takeoff_sec": 3.2
+   },
+   {
+    "ride_uid": "3095fb74eca2#R0",
+    "gt_start": 2.12,
+    "gt_end": 11.33,
+    "pipeline": {
+     "start_err": -0.12,
+     "end_err": 0.0
+    },
+    "clip": [
+     0.0,
+     11.328
+    ],
+    "verifier": {
+     "start_sec": 0.0,
+     "end_sec": 10.3,
+     "start_err": -2.12,
+     "end_err": -1.03
+    },
+    "kind": "fall",
+    "evidence": "The video opens with the target surfer already paddling for the wave, assisted by another person. She stands up on the board and begins riding the wave at 4.3 seconds. She rides the wave for several s",
+    "takeoff_sec": 4.3
+   },
+   {
+    "ride_uid": "3f1f5e846b33#R0",
+    "gt_start": 0.0,
+    "gt_end": 6.82,
+    "pipeline": {
+     "start_err": 1.0,
+     "end_err": 2.4
+    },
+    "clip": [
+     0.0,
+     9.226
+    ],
+    "verifier": {
+     "start_sec": 1.0,
+     "end_sec": 8.0,
+     "start_err": 1.0,
+     "end_err": 1.18
+    },
+    "kind": "wave_over",
+    "evidence": "The surfer on the light blue board starts paddling for the wave at 0:01.0. They stand up at 0:02.5. The ride ends when the wave completely flattens out and no longer propels the surfer at 0:08.0.",
+    "takeoff_sec": 2.5
+   },
+   {
+    "ride_uid": "4e84086f72c6#R0",
+    "gt_start": 0.0,
+    "gt_end": 8.27,
+    "pipeline": {
+     "start_err": 0.0,
+     "end_err": 0.0
+    },
+    "clip": [
+     0.0,
+     8.275
+    ],
+    "verifier": {
+     "start_sec": 0.0,
+     "end_sec": 8.0,
+     "start_err": 0.0,
+     "end_err": -0.27
+    },
+    "kind": "wave_over",
+    "evidence": "The surfer on the pink board, matching the description and crops, is already standing and riding the wave at the beginning of the clip (0.0). The ride continues until the surfer goes into the water as",
+    "takeoff_sec": 0.0
+   },
+   {
+    "ride_uid": "548cf4ffb308#R0",
+    "gt_start": 0.0,
+    "gt_end": 10.14,
+    "pipeline": {
+     "start_err": 1.0,
+     "end_err": -0.0
+    },
+    "clip": [
+     0.0,
+     10.143
+    ],
+    "verifier": {
+     "start_sec": 2.0,
+     "end_sec": 9.5,
+     "start_err": 2.0,
+     "end_err": -0.64
+    },
+    "kind": "wave_over",
+    "evidence": "The TARGET surfer, identifiable by the silhouette and light board as seen in the crops, is the second surfer to catch the wave. They begin distinct paddling at 00:02.0, stand up at 00:02.5, and ride t",
+    "takeoff_sec": 2.5
+   },
+   {
+    "ride_uid": "575a812da943#R0",
+    "gt_start": 0.0,
+    "gt_end": 13.95,
+    "pipeline": {
+     "start_err": 0.8,
+     "end_err": 4.87
+    },
+    "clip": [
+     0.0,
+     18.819
+    ],
+    "verifier": {
+     "start_sec": 0.0,
+     "end_sec": 15.0,
+     "start_err": 0.0,
+     "end_err": 1.05
+    },
+    "kind": "wave_over",
+    "evidence": "The surfer is already paddling at the start of the clip. They stand up on the board at 2.5 seconds. The ride continues until the wave dissipates into whitewater around 15.0 seconds, at which point the",
+    "takeoff_sec": 2.5
+   },
+   {
+    "ride_uid": "575a812da943#R1",
+    "gt_start": 16.73,
+    "gt_end": 18.82,
+    "pipeline": {
+     "start_err": -15.93,
+     "end_err": 0.0
+    },
+    "clip": [
+     0.0,
+     18.819
+    ],
+    "verifier": {
+     "start_sec": 0.0,
+     "end_sec": 15.0,
+     "start_err": -16.73,
+     "end_err": -3.82
+    },
+    "kind": "wave_over",
+    "evidence": "The surfer is already paddling at the start of the clip. They stand up on the board at 2.5 seconds. The ride continues until the wave dissipates into whitewater around 15.0 seconds, at which point the",
+    "takeoff_sec": 2.5
+   },
+   {
+    "ride_uid": "58a990e5355d#R0",
+    "gt_start": 0.0,
+    "gt_end": 19.95,
+    "pipeline": {
+     "start_err": 0.5,
+     "end_err": -0.0
+    },
+    "clip": [
+     0.0,
+     19.953
+    ],
+    "verifier": {
+     "start_sec": 1.0,
+     "end_sec": 19.0,
+     "start_err": 1.0,
+     "end_err": -0.95
+    },
+    "kind": "fall",
+    "evidence": "The target surfer, identifiable by the dark sleeveless wetsuit and dark hair, begins paddling at 0:01.0. He stands up on the board at 0:03.6, initiating the ride. The ride concludes at 0:19.0 when he ",
+    "takeoff_sec": 3.6
+   },
+   {
+    "ride_uid": "85aedb594ab7#R0",
+    "gt_start": 3.42,
+    "gt_end": 11.28,
+    "pipeline": {
+     "start_err": 1.08,
+     "end_err": 0.0
+    },
+    "clip": [
+     0.0,
+     11.278
+    ],
+    "verifier": {
+     "start_sec": 4.5,
+     "end_sec": 10.0,
+     "start_err": 1.08,
+     "end_err": -1.28
+    },
+    "kind": "fall",
+    "evidence": "The surfer on the pink board (TARGET) begins paddling to catch the wave at 00:04.5. They stand up on the board at 00:06.5, initiating the ride. The ride concludes at 00:10.0 when the surfer falls off ",
+    "takeoff_sec": 6.5
+   },
+   {
+    "ride_uid": "a1adfdae432f#R0",
+    "gt_start": 0.0,
+    "gt_end": 22.89,
+    "pipeline": {
+     "start_err": 1.2,
+     "end_err": 0.0
+    },
+    "clip": [
+     0.0,
+     22.89
+    ],
+    "verifier": {
+     "start_sec": 0.0,
+     "end_sec": 21.5,
+     "start_err": 0.0,
+     "end_err": -1.39
+    },
+    "kind": "wave_over",
+    "evidence": "The target surfer, identifiable by his long hair, beard, black sleeveless top, and white longboard, is already paddling at the start of the clip (0.0s). He stands up on the board at 3.8s. He continues",
+    "takeoff_sec": 3.8
+   },
+   {
+    "ride_uid": "b62c8aa0cb14#R0",
+    "gt_start": 0.07,
+    "gt_end": 16.38,
+    "pipeline": {
+     "start_err": 4.43,
+     "end_err": -0.0
+    },
+    "clip": [
+     0.0,
+     16.383
+    ],
+    "verifier": {
+     "start_sec": 2.0,
+     "end_sec": 15.4,
+     "start_err": 1.93,
+     "end_err": -0.98
+    },
+    "kind": "fall",
+    "evidence": "The target surfer, identifiable by dark skin, patterned board shorts, and a light blue surfboard, begins paddling intensely for the wave at 0:02.0. He stands up on the board at 0:07.0, initiating the ",
+    "takeoff_sec": 7.0
+   },
+   {
+    "ride_uid": "bfd005ab7787#R0",
+    "gt_start": 0.0,
+    "gt_end": 14.41,
+    "pipeline": {
+     "start_err": 0.0,
+     "end_err": -0.0
+    },
+    "skip": "budget_cap"
+   },
+   {
+    "ride_uid": "e01a614de605#R0",
+    "gt_start": 0.0,
+    "gt_end": 7.61,
+    "pipeline": {
+     "start_err": 0.5,
+     "end_err": -1.47
+    },
+    "skip": "budget_cap"
+   }
+  ],
+  "notes": [
+   "budget cap stopped 2 of 16 dev rides",
+   "holdout NOT run: dev shows the verifier is not accurate enough to adopt",
+   "token-based cost estimate; mean latency 27.6 s per ride"
+  ]
+ },
+ "source_start_rule_frozen_replay": {
+  "rides": 24,
+  "moved": 9,
+  "regressions": [],
+  "start_within_tol_before": 10,
+  "start_within_tol_after": 15,
+  "by_split": {
+   "dev": {
+    "rides": 16,
+    "moved": 5,
+    "within_before": 5,
+    "within_after": 8
+   },
+   "holdout": {
+    "rides": 8,
+    "moved": 4,
+    "within_before": 5,
+    "within_after": 7
+   }
+  },
+  "scorecard_before": {
+   "rides_full_selected": 7,
+   "rides_ge95_selected": 9,
+   "missing_seconds_total": 26.1,
+   "boundary_over_tolerance": 17,
+   "boundary_max_error_sec": 4.44,
+   "excluded_frames_selected": 999,
+   "nonride_windows": 2,
+   "mixed_reels": 2,
+   "published_correct": 4
+  },
+  "scorecard_after": {
+   "rides_full_selected": 15,
+   "rides_ge95_selected": 15,
+   "missing_seconds_total": 19.4,
+   "boundary_over_tolerance": 8,
+   "boundary_max_error_sec": 4.44,
+   "excluded_frames_selected": 999,
+   "nonride_windows": 2,
+   "mixed_reels": 2,
+   "published_correct": 4
+  },
+  "table": [
+   {
+    "ride": "207fe17c86b1#R0",
+    "split": "dev",
+    "gt_start": 0.03,
+    "start": 1.5,
+    "new_start": 1.5,
+    "err_before": 1.47,
+    "err_after": 1.47,
+    "continuous_from": 0.0
+   },
+   {
+    "ride": "250c3592fd87#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 2.0,
+    "new_start": 2.0,
+    "err_before": 2.0,
+    "err_after": 2.0,
+    "continuous_from": 1.42
+   },
+   {
+    "ride": "250c3592fd87#R1",
+    "split": "dev",
+    "gt_start": 16.85,
+    "start": 27.0,
+    "new_start": 27.0,
+    "err_before": 10.15,
+    "err_after": 10.15,
+    "continuous_from": 17.35
+   },
+   {
+    "ride": "2c7c9ee430b5#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 1.0,
+    "new_start": 0.0,
+    "err_before": 1.0,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "3095fb74eca2#R0",
+    "split": "dev",
+    "gt_start": 2.12,
+    "start": 2.0,
+    "new_start": 2.0,
+    "err_before": -0.12,
+    "err_after": -0.12,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "3311db2ed35d#R0",
+    "split": "holdout",
+    "gt_start": 0.0,
+    "start": 0.5,
+    "new_start": 0.0,
+    "err_before": 0.5,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "3f1f5e846b33#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 1.0,
+    "new_start": 0.0,
+    "err_before": 1.0,
+    "err_after": 0.0,
+    "continuous_from": 0.07
+   },
+   {
+    "ride": "41e2f8bb26a3#R0",
+    "split": "holdout",
+    "gt_start": 0.0,
+    "start": 0.9,
+    "new_start": 0.0,
+    "err_before": 0.9,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "4e84086f72c6#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 0.0,
+    "new_start": 0.0,
+    "err_before": 0.0,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "548cf4ffb308#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 1.0,
+    "new_start": 0.0,
+    "err_before": 1.0,
+    "err_after": 0.0,
+    "continuous_from": 0.0
+   },
+   {
+    "ride": "575a812da943#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 0.8,
+    "new_start": 0.8,
+    "err_before": 0.8,
+    "err_after": 0.8,
+    "continuous_from": 0.53
+   },
+   {
+    "ride": "575a812da943#R1",
+    "split": "dev",
+    "gt_start": 16.73,
+    "start": 0.8,
+    "new_start": 0.8,
+    "err_before": -15.93,
+    "err_after": -15.93,
+    "continuous_from": 0.53
+   },
+   {
+    "ride": "58a990e5355d#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 0.5,
+    "new_start": 0.0,
+    "err_before": 0.5,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "5f7ba69f1c3f#R0",
+    "split": "holdout",
+    "gt_start": 0.02,
+    "start": 2.5,
+    "new_start": 2.5,
+    "err_before": 2.48,
+    "err_after": 2.48,
+    "continuous_from": 0.0
+   },
+   {
+    "ride": "82dd734957da#R0",
+    "split": "holdout",
+    "gt_start": 1.77,
+    "start": 1.4,
+    "new_start": 1.4,
+    "err_before": -0.37,
+    "err_after": -0.37,
+    "continuous_from": 0.0
+   },
+   {
+    "ride": "85aedb594ab7#R0",
+    "split": "dev",
+    "gt_start": 3.42,
+    "start": 4.5,
+    "new_start": 4.5,
+    "err_before": 1.08,
+    "err_after": 1.08,
+    "continuous_from": 2.5
+   },
+   {
+    "ride": "8a01bba486b2#R0",
+    "split": "holdout",
+    "gt_start": 0.0,
+    "start": 0.0,
+    "new_start": 0.0,
+    "err_before": 0.0,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "a1adfdae432f#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 1.2,
+    "new_start": 1.2,
+    "err_before": 1.2,
+    "err_after": 1.2,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "a683559526f1#R0",
+    "split": "holdout",
+    "gt_start": 0.0,
+    "start": 0.5,
+    "new_start": 0.0,
+    "err_before": 0.5,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "b62c8aa0cb14#R0",
+    "split": "dev",
+    "gt_start": 0.07,
+    "start": 4.5,
+    "new_start": 4.5,
+    "err_before": 4.43,
+    "err_after": 4.43,
+    "continuous_from": 1.9
+   },
+   {
+    "ride": "bfd005ab7787#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 0.0,
+    "new_start": 0.0,
+    "err_before": 0.0,
+    "err_after": 0.0,
+    "continuous_from": 0.0
+   },
+   {
+    "ride": "c241b723fce2#R0",
+    "split": "holdout",
+    "gt_start": 0.0,
+    "start": 0.0,
+    "new_start": 0.0,
+    "err_before": 0.0,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "e01a614de605#R0",
+    "split": "dev",
+    "gt_start": 0.0,
+    "start": 0.5,
+    "new_start": 0.0,
+    "err_before": 0.5,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   },
+   {
+    "ride": "f6ac72f8aeb5#R0",
+    "split": "holdout",
+    "gt_start": 0.0,
+    "start": 0.8,
+    "new_start": 0.0,
+    "err_before": 0.8,
+    "err_after": 0.0,
+    "continuous_from": 0.03
+   }
+  ]
+ },
+ "baseline_43583126199": "NOT REPLAYABLE for track-based rules: legacy manifest has no per-event actor tracks (BASELINE_UNVERIFIED for this rule)",
+ "blind_holdout": "none: the rule was designed after inspecting dev AND holdout rides; the independent filming day is the blind test"
+}

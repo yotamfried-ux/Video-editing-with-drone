@@ -38,9 +38,7 @@ MIN_POSITIVE_SCORE = 6
 PAD_END_SEC = 1.0          # window_refinement.DEFAULT_PAD_END_SEC
 PAD_START_SEC = 0.5        # window_refinement.DEFAULT_PAD_START_SEC
 FALL_TAIL_MAX_SEC = 2.5    # window_refinement.FALL_TRACK_LOSS_MAX_SEC
-# Longer gaps: the same id may be another person (0094, run 42891165218: the A2 -> A3 handoff spans ~3.6 s).
-# 2.0 s withheld GT-correct rides (run 43920602179: 0094's A3 ride, a 2.09 s detection gap at stride 5).
-MAX_TRACK_GAP_SEC = 2.5
+MAX_TRACK_GAP_SEC = 2.0    # longer gaps: the same id may be another person (0094, run 42891165218)
 EQUIPMENT_MIN_RATIO = 0.20
 
 ISSUE_PREFIX = "qualification:"
@@ -135,17 +133,15 @@ def action_interval(event: dict[str, Any]) -> dict[str, Any]:
             tail = rendered[1] - last
             if refinement.get("track_lost_in_fall_kept") and tail <= FALL_TAIL_MAX_SEC + PAD_END_SEC:
                 notes.append("tail_is_measured_fall")
-            elif event.get("recording_end_tail_sec") is not None and tail <= FALL_TAIL_MAX_SEC + PAD_END_SEC:
-                # The camera stopped while the ride was still on screen: a short loss of the track just before the
-                # recording ends is not a tail past the athlete (run 43920602179: 0074's GT ride runs to the last
-                # frame; the tracker lost the surfer 1.5 s before it and the shot was withheld).
-                notes.append("actor_lost_shortly_before_recording_end")
             elif event.get("recording_end_tail_sec") is not None:
                 issues.append("tail_after_actor_lost_to_recording_end")
             else:
                 issues.append("tail_beyond_verified_actor")
         lead_floor = _num(refinement.get("setup_first_track_sec"))
-        floor = min(first, lead_floor) if lead_floor is not None else first
+        # The target track seen continuously (no hole > 0.4 s) from an earlier second validates the lead as well:
+        # `first` only looks one second before the analyzer's start (window_refinement.continuous_presence_from).
+        continuous = _num(refinement.get("track_continuous_from_sec"))
+        floor = min(v for v in (first, lead_floor, continuous) if v is not None)
         if rendered[0] is not None and rendered[0] < floor - PAD_START_SEC:
             issues.append("lead_before_verified_actor")
         if gap > MAX_TRACK_GAP_SEC and gap_at is not None and rendered[0] is not None and rendered[1] is not None \

@@ -67,12 +67,18 @@ def main() -> int:
     if extend_to_setup({**refined, "_teaser": True})["start"] != 2.5:
         fail("a teaser keeps its window")
 
+    once = normalize_complete_action_event(dict(refined))
     twice = normalize_complete_action_event(normalize_complete_action_event(dict(refined)))
-    if abs(float(twice["start"]) - 0.5) > 1e-6:
-        fail(f"normalizing twice applies the lead-in once: {twice['start']}")
+    # 0070's catalogued ride starts at 0.0 s: after the lead-in the cut sits at 0.5 s with the track seen from 0.4 s, i.e.
+    # the action was already running when the recording opened (cycle 5: source-limited start) -> frame 0.
+    if abs(float(once["start"]) - 0.0) > 1e-6 or once.get("start_before_setup_lead_in") != 2.5:
+        fail(f"lead-in once, then the source-limited start: {once['start']} / {once.get('start_before_setup_lead_in')}")
+    if twice["start"] != once["start"] or twice.get("start_before_setup_lead_in") != 2.5 \
+            or twice.get("start_snapped_to_recording_start") != once.get("start_snapped_to_recording_start"):
+        fail(f"normalizing twice must change nothing: {twice['start']} vs {once['start']}")
     perf = normalize_complete_action_event({**refined, "performance_reel_contract": "all_usable_waves_per_athlete_v1"})
-    if abs(float(perf.get("final_cut_start", -1)) - 0.5) > 1e-6:
-        fail("the persisted final cut window (renderer and QA) carries the lead-in")
+    if abs(float(perf.get("final_cut_start", -1)) - 0.0) > 1e-6:
+        fail("the persisted final cut window (renderer and QA) carries the lead-in and the source-limited start")
 
     # Run 43203677423, catalogued starts: (source, analyzer start, setup_start, catalogued ride start).
     rows = [("0070", 2.5, 0.5, 0.0), ("0074", 2.8, 0.5, 0.0), ("0094", 3.5, 0.5, 0.0), ("0097", 2.0, 1.4, 0.0),
