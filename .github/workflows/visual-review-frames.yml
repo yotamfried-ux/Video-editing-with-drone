@@ -1,0 +1,77 @@
+name: Visual Review Frames
+
+# Read-only: downloads selected source videos from R2 (raw/), extracts still frames at the timestamps under review
+# and uploads them as an artifact for visual adjudication against the owner's GT. Never writes, moves or deletes
+# anything in R2. No inference, no paid calls.
+on:
+  workflow_dispatch:
+    inputs:
+      cases:
+        description: 'Lines "SOURCE_SUFFIX:t1,t2,..." separated by ";" (e.g. "_0095_D.MP4:0,2,4;_0155_D.MP4:1,3")'
+        required: false
+  pull_request:
+    paths:
+      - '.github/workflows/visual-review-frames.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  frames:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+      R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+      # Disputed GT cases (seconds from the start of each source).
+      CASES: >-
+        ${{ inputs.cases || '_0095_D.MP4:0,1,2,3,4,5,6;_0155_D.MP4:0,1.5,3,4.5,6,7.5;_0108_D.MP4:4,5.5,6.5,7.2,8,9;_0143_D.MP4:1,3,5,7;_0152_D.MP4:4,6,8,10;_0097_D.MP4:2,4,6,8;_0115_D.MP4:0.5,2,4,6,10,14;_0094_D.MP4:8,11,13,14.5,16,17.5,20,22,28,33;_0151_D.MP4:4,5.5,6.2,6.9,7.5' }}
+    steps:
+      - name: Tools
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg >/dev/null
+          python -m pip install --disable-pip-version-check -q boto3
+      - name: Download sources (read-only) and extract frames
+        run: |
+          python - <<'PY'
+          import os, subprocess, boto3
+          endpoint = os.environ.get("R2_ENDPOINT_URL") or f"https://{os.environ['R2_ACCOUNT_ID']}.r2.cloudflarestorage.com"
+          s3 = boto3.client("s3", endpoint_url=endpoint, region_name="auto",
+                            aws_access_key_id=os.environ["R2_ACCESS_KEY_ID"], aws_secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"])
+          bucket = os.environ["R2_BUCKET"]
+          keys = []
+          for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix="raw/"):
+              keys += [o["Key"] for o in page.get("Contents", [])]
+          print(f"raw/ objects: {len(keys)}")
+          os.makedirs("frames", exist_ok=True)
+          os.makedirs("src", exist_ok=True)
+          index = []
+          for case in [c.strip() for c in os.environ["CASES"].split(";") if c.strip()]:
+              suffix, times = case.split(":", 1)
+              match = sorted(k for k in keys if k.endswith(suffix))
+              if not match:
+                  print(f"MISSING {suffix}"); index.append(f"{suffix}\tMISSING"); continue
+              key = match[0]
+              local = os.path.join("src", os.path.basename(key))
+              s3.download_file(bucket, key, local)  # read-only GET
+              tag = suffix.strip("_").split(".")[0]
+              for t in [x.strip() for x in times.split(",") if x.strip()]:
+                  out = f"frames/{tag}_t{float(t):05.1f}.jpg"
+                  subprocess.run(["ffmpeg", "-loglevel", "error", "-ss", t, "-i", local, "-frames:v", "1",
+                                  "-vf", f"scale=1600:-2,drawtext=text='{tag} t={t}s':x=20:y=20:fontsize=36:fontcolor=yellow:box=1:boxcolor=black@0.6",
+                                  "-q:v", "3", "-y", out], check=False)
+              index.append(f"{suffix}\t{key}\t{times}")
+              os.remove(local)
+          open("frames/index.tsv", "w").write("\n".join(index) + "\n")
+          print("\n".join(index))
+          PY
+          ls -la frames | head -80
+      - name: Keep the frames
+        uses: actions/upload-artifact@v4
+        with:
+          name: visual-review-frames
+          path: frames
+          retention-days: 14
