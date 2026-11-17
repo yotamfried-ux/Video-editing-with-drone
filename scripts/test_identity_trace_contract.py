@@ -113,9 +113,10 @@ def check_identity_sheet() -> None:
     assert abs(w * 1920 - h * 1080) < 1e-6 and 0 <= x and x + w <= 1 + 1e-9 and 0 <= y and y + h <= 1 + 1e-9
     hardened = rq._harden_person(str(video), person, dets + other)
     ev = hardened["identity_evidence"]
-    assert ev["kind"] == "track_bbox_sheet" and ev["crops"] == 4 and ev["track_ids"] == ["7"], ev
+    assert ev["kind"] == "track_bbox_sheet" and ev["crops"] == rq.IDENTITY_SHEET_CROPS_DEFAULT == 6 and ev["track_ids"] == ["7"], ev
     with Image.open(hardened["thumbnail"]) as im:
-        assert im.size == (2 * rq._SHEET_TILE + 8, 2 * rq._SHEET_TILE + 8), im.size
+        # six crops, two columns: 2 x 3 tiles (the identity consensus is only valid on full six-crop sheets)
+        assert im.size == (2 * rq._SHEET_TILE + 8, 3 * rq._SHEET_TILE + 16), im.size
     assert all(e["source_person_key"] == "DJI_20260720160337_0094_D.MP4::person_A" for e in hardened["events"])
     assert not list(TMP.glob("identity_crop_*")), "per-crop temp files must be removed"
     # no track evidence: the old single crop-point thumbnail, recorded as such
@@ -169,7 +170,7 @@ def check_production_hardening_builds_sheet() -> None:
     people = {p["id"]: p for p in hardened["persons"]}
     assert people["person_A"]["events"], "the tracked person's ride must survive the performance filter"
     ev = people["person_A"].get("identity_evidence") or {}
-    assert ev.get("kind") == "track_bbox_sheet" and ev.get("crops") == 4 and ev.get("track_ids") == ["3"], (
+    assert ev.get("kind") == "track_bbox_sheet" and ev.get("crops") == rq.IDENTITY_SHEET_CROPS_DEFAULT and ev.get("track_ids") == ["3"], (
         f"production hardening must build the tracked contact sheet, got {ev}")
     assert os.path.exists(people["person_A"]["thumbnail"]), "the sheet is the person's identity image"
     if people["person_B"]["events"]:
