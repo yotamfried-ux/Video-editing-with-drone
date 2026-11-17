@@ -1,95 +1,466 @@
 {
   "schema": "sportreel.evidence_registry.v1",
-  "note": "Single source of truth. docs/production-readiness/PIPELINE-EVIDENCE-MATRIX.md is generated from this file by scripts/build_evidence_matrix.py; edit here, never there.",
+  "note": "Single source of truth; generated Markdown matrix must match scripts/build_evidence_matrix.py. MEDIA_VERIFIED for a historical gap means SOURCE_SEQUENCE/GT_OVERLAY defect inspected, NOT verification of a newly decoded final render. Fix qualification requires evidence from the exact executed SHA; do not count a prior source visual audit as candidate-render verification.",
   "gt": "GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged)",
-  "comparison_runs": {"baseline": "43583126199", "latest": "43920602179"},
-  "statuses": ["IDENTIFIED", "REPRODUCED", "PATCHED", "TESTED", "REPLAYED", "SIMULATED", "MEDIA_VERIFIED", "HOLDOUT_VERIFIED", "REVALIDATION_REQUIRED", "FAILED", "REGRESSED", "BLOCKED", "PRODUCTION_QUALIFIED"],
+  "comparison_runs": {
+    "baseline": "43583126199",
+    "latest": "43920602179"
+  },
+  "statuses": [
+    "IDENTIFIED",
+    "REPRODUCED",
+    "PATCHED",
+    "TESTED",
+    "REPLAYED",
+    "SIMULATED",
+    "MEDIA_VERIFIED",
+    "HOLDOUT_VERIFIED",
+    "REVALIDATION_REQUIRED",
+    "FAILED",
+    "REGRESSED",
+    "BLOCKED",
+    "PRODUCTION_QUALIFIED"
+  ],
   "evidence": [
-    {"id": "EVD-07-001", "kind": "frame_sequence", "what": "Every 6th source frame (~10 fps, 960 px) of 0094 0095 0097 0108 0115 0143 0151 0152 0155, file name = source frame number", "where": "GitHub Actions run 44062679003, artifact visual-review-sequences (id 14318098891, expires 2026-12-01)", "produced_by": ".github/workflows/visual-review-frames.yml (read-only R2 GET)"},
-    {"id": "EVD-07-002", "kind": "tracking_overlay", "what": "Overlay frames, 10 fps proxy MP4 and 2 fps contact sheets per source: GT athlete boxes (green include / red exclude / magenta outside segments), pipeline subject box and rendered crop for 11-14 (white/cyan) and 11-16 (yellow/gold), banner with frame, GT decision and rendering reel", "where": "Generated offline from EVD-07-001 + EDLs of both runs + live GT boxes; GT boxes are not committed (private annotations). Sent to the owner in the session; durable storage pending (see BLK-07-001)", "produced_by": "offline overlay renderer (session scratch), inputs listed"},
-    {"id": "EVD-07-003", "kind": "metric", "what": "Frame-level primary-athlete audit of every rendered EDL shot", "where": "evaluation/primary_athlete/43583126199.json|md, evaluation/primary_athlete/43920602179.json|md", "produced_by": "scripts/primary_athlete_audit.py"},
-    {"id": "EVD-07-004", "kind": "contract", "what": "Primary-athlete binding scenarios P1-P8 (synthetic tracks through the production binding functions)", "where": "scripts/test_primary_athlete_binding_contract.py", "produced_by": "contract run: red on 95eb1497 (P5), green after FIX-PQ-07-001"},
-    {"id": "EVD-07-005", "kind": "replay", "what": "Binding ambiguity rule replayed on every selected window of 7 stored runs (166 windows): 0 windows marked ambiguous after the same-body and co-presence conditions; first version marked 39/49 (duplicate canonical/raw boxes), second 1/49 (0104, 6 shared frames)", "where": "evaluation/evidence/binding_replay_2026-11-17.json", "produced_by": "replay over predictions.v1.json + sidecars of runs 42891165218 43013005072 43203677423 43303438106 43397405813 43583126199 43920602179"},
-    {"id": "EVD-07-006", "kind": "visual_identity", "what": "GT-box crops side by side: 0143 vs 0152 and 0097 vs 0115", "where": "derived from EVD-07-001 (session scratch); sent to the owner", "produced_by": "offline crop sheet"}
+    {
+      "id": "EVD-07-001",
+      "kind": "frame_sequence",
+      "what": "Every 6th source frame (~10 fps, 960 px) of 0094 0095 0097 0108 0115 0143 0151 0152 0155, file name = source frame number",
+      "where": "GitHub Actions run 44062679003, artifact visual-review-sequences (id 14318098891, expires 2026-12-01)",
+      "produced_by": ".github/workflows/visual-review-frames.yml (read-only R2 GET)",
+      "proof_scope": "SOURCE_SEQUENCE_ONLY_NOT_RENDERED_MP4",
+      "workflow_run_id": "44062679003",
+      "workflow_artifact_id": "14318098891",
+      "producer_code_sha": null,
+      "provenance_gap": "Verify exact workflow run head SHA and persist frame assets before expiry (2026-12-01)"
+    },
+    {
+      "id": "EVD-07-002",
+      "kind": "tracking_overlay",
+      "what": "Overlay frames, 10 fps proxy MP4 and 2 fps contact sheets per source: GT athlete boxes (green include / red exclude / magenta outside segments), pipeline subject box and rendered crop for 11-14 (white/cyan) and 11-16 (yellow/gold), banner with frame, GT decision and rendering reel",
+      "where": "Generated offline from EVD-07-001 + EDLs of both runs + live GT boxes; GT boxes are not committed (private annotations). Sent to the owner in the session; durable storage pending (see BLK-07-001)",
+      "produced_by": "offline overlay renderer (session scratch), inputs listed",
+      "proof_scope": "SOURCE_GT_EDL_OVERLAY_NOT_RENDERED_MP4",
+      "producer_code_sha": null,
+      "provenance_gap": "Offline session scratch, no persistent overlay object hash or executable renderer SHA; cannot replay until safely archived."
+    },
+    {
+      "id": "EVD-07-003",
+      "kind": "metric",
+      "what": "Frame-level primary-athlete audit of every rendered EDL shot",
+      "where": "evaluation/primary_athlete/43583126199.json|md, evaluation/primary_athlete/43920602179.json|md",
+      "produced_by": "scripts/primary_athlete_audit.py",
+      "proof_scope": "EDL_GT_FRAME_SAMPLE_AUDIT_NOT_RENDERED_MP4",
+      "producer_code_sha": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
+      "producer_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/primary_athlete_audit.py",
+      "analyzed_historical_run_ids": [
+        "43583126199",
+        "43920602179"
+      ]
+    },
+    {
+      "id": "EVD-07-004",
+      "kind": "contract",
+      "what": "Primary-athlete binding scenarios P1-P8 (synthetic tracks through the production binding functions)",
+      "where": "scripts/test_primary_athlete_binding_contract.py",
+      "produced_by": "contract run: red on 95eb1497 (P5), green after FIX-PQ-07-001",
+      "proof_scope": "SYNTHETIC_PRODUCTION_FUNCTION_CONTRACT",
+      "producer_code_sha": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
+      "red_baseline_sha": "95eb1497a76a3de65512562c18c83be8a8f483d1",
+      "test_code_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/test_primary_athlete_binding_contract.py",
+      "provenance_gap": "No real GT crossing case, branch and ambiguity gate need real-media holdout."
+    },
+    {
+      "id": "EVD-07-005",
+      "kind": "replay",
+      "what": "Historic binding replay across seven runs; zero reported newly ambiguous windows, but denominators conflict (artifact windows=167 vs report 166) and crop hints are proxied. Not a production or holdout proof.",
+      "where": "evaluation/evidence/binding_replay_2026-11-17.json",
+      "produced_by": "replay over predictions.v1.json + sidecars of runs 42891165218 43013005072 43203677423 43303438106 43397405813 43583126199 43920602179",
+      "proof_scope": "STORED_SIDECAR_REPLAY_PROXY_HINT_NOT_RENDERED_MP4",
+      "producer_code_sha": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
+      "artifact_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/evidence/binding_replay_2026-11-17.json",
+      "denominator_conflict": "JSON windows=167; report and history state 166 (per_run sums to 167). Must reconcile before trusting replay denominator."
+    },
+    {
+      "id": "EVD-07-006",
+      "kind": "visual_identity",
+      "what": "GT-box crops side by side: 0143 vs 0152 and 0097 vs 0115",
+      "where": "derived from EVD-07-001 (session scratch); sent to the owner",
+      "produced_by": "offline crop sheet",
+      "proof_scope": "SOURCE_CROP_VISUAL_ONLY",
+      "producer_code_sha": null,
+      "provenance_gap": "Side-by-side source crops were shared in session but not archived with exact inputs/digests."
+    }
   ],
   "fixes": [
-    {"id": "FIX-PQ-07-001", "gap": "PA-05", "title": "Primary-athlete binding reports an inseparable second surfer as ambiguous instead of a silent tie-break",
-     "root_cause": "pipeline/perception/runtime._best_primary ranks tracks by a composite with a single timeless crop hint; two surfers crossing at the hint tie and max() picks one silently",
-     "change": "_binding_separability: runner-up that is a different body (median IoU < 0.3 over shared frames), co-present for >= 25% of the bound track's window, as close to the hint (<= 0.06, within 0.03) and within 10% on the ranking -> track_binding_status=ambiguous, actor_tracking_status=ambiguous (-> PRIMARY_ACTOR_UNCLEAR via primary_actor_policy). Every event also records track_binding_status / runner_up / evidence.",
-     "commit": "this cycle (see git log: primary-athlete binding ambiguity)",
-     "experiments": ["EXP-07-001 synthetic P1-P8", "EXP-07-002 replay 166 real windows"],
-     "before": "P5 bound track 1 with no flag; real windows: n/a", "after": "P5 ambiguous + PRIMARY_ACTOR_UNCLEAR; P1-P4, P6-P8 unchanged; 0/166 real windows newly blocked",
-     "evidence": ["EVD-07-004", "EVD-07-005"],
-     "status": "REPLAYED", "classification": "PIPELINE_DEFECT",
-     "limits": "Crop hints are not exported to diagnostics, so the replay uses the bound track's position at the event middle as the hint (proxy). The co-presence condition was added after seeing 0104 in run 43583126199: development data, not holdout. No real crossing case exists in GT-v1, so the blocking branch is synthetic-only (SIMULATED, not MEDIA_VERIFIED)."},
-    {"id": "FIX-PQ-07-002", "gap": "MEAS-01", "title": "Rendered-reel audit counts GT decisions per followed athlete",
-     "root_cause": "First version of primary_athlete_audit took any athlete's include segment as include for the frame; 0094's A reel showed 3.6 s outside GT while ~9 s are outside A's own segments (d805a9b1's ride overlaps)",
-     "change": "gt_decision(..., athlete) counts only segments of the shot's primary GT athlete",
-     "commit": "this cycle", "experiments": ["EXP-07-003 re-run of the audit on both runs"],
-     "before": "0094 A shot 'none' 36/200 samples", "after": "0094 A shot 'none' 90-92/200 samples (11-14 / 11-16), matching the overlay (EVD-07-002)",
-     "evidence": ["EVD-07-003", "EVD-07-002"], "status": "MEDIA_VERIFIED", "classification": "VERIFIED_CORRECT"}
+    {
+      "id": "FIX-PQ-07-001",
+      "gap": "PA-05",
+      "title": "Primary-athlete binding reports an inseparable second surfer as ambiguous instead of a silent tie-break",
+      "root_cause": "pipeline/perception/runtime._best_primary ranks tracks by a composite with a single timeless crop hint; two surfers crossing at the hint tie and max() picks one silently",
+      "change": "[Code: pipeline/perception/runtime.py::_binding_separability](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/pipeline/perception/runtime.py). _binding_separability: runner-up that is a different body (median IoU < 0.3 over shared frames), co-present for >= 25% of the bound track's window, as close to the hint (<= 0.06, within 0.03) and within 10% on the ranking -> track_binding_status=ambiguous, actor_tracking_status=ambiguous (-> PRIMARY_ACTOR_UNCLEAR via primary_actor_policy). Every event also records track_binding_status / runner_up / evidence.",
+      "commit": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
+      "experiments": [
+        "[EXP-07-001 red/green P1-P8](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/test_primary_athlete_binding_contract.py) (red 95eb149; green 15a732d)",
+        "[EXP-07-002 historical binding replay](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/evidence/binding_replay_2026-11-17.json) (denominator 167 in JSON vs 166 in report: RECONCILE)"
+      ],
+      "before": "P5 bound track 1 with no flag; real windows: n/a",
+      "after": "P5 ambiguous + PRIMARY_ACTOR_UNCLEAR; P1-P4, P6-P8 unchanged; 0/166 real windows newly blocked",
+      "evidence": [
+        "EVD-07-004",
+        "EVD-07-005"
+      ],
+      "status": "REPLAYED",
+      "classification": "PIPELINE_DEFECT",
+      "limits": "Crop hints are not exported to diagnostics, so the replay uses the bound track's position at the event middle as the hint (proxy). The co-presence condition was added after seeing 0104 in run 43583126199: development data, not holdout. No real crossing case exists in GT-v1, so the blocking branch is synthetic-only (SIMULATED, not MEDIA_VERIFIED). IMPORTANT: Replay report 0/166 conflicts with committed JSON windows=167. No claim about exact 166/167 denominator until reconciled; the real crossing branch remains synthetic-only. No new rendered MP4 or independent holdout.",
+      "code_sha": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
+      "code_path": "pipeline/perception/runtime.py",
+      "code_symbol": "_binding_separability and _best_primary",
+      "code_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/pipeline/perception/runtime.py",
+      "red_baseline_sha": "95eb1497a76a3de65512562c18c83be8a8f483d1",
+      "red_baseline_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/commit/95eb1497a76a3de65512562c18c83be8a8f483d1",
+      "related_pq": [
+        "PQ-04",
+        "PQ-32"
+      ]
+    },
+    {
+      "id": "FIX-PQ-07-002",
+      "gap": "MEAS-01",
+      "title": "EDL/GT sampled audit counts frame decisions for the selected athlete, not any other athlete",
+      "root_cause": "First version of primary_athlete_audit took any athlete's include segment as include for the frame; 0094's A reel showed 3.6 s outside GT while ~9 s are outside A's own segments (d805a9b1's ride overlaps)",
+      "change": "[Code: scripts/primary_athlete_audit.py::gt_decision](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/primary_athlete_audit.py). gt_decision(..., athlete) counts only segments of the shot's primary GT athlete",
+      "commit": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
+      "experiments": [
+        "[EXP-07-003 corrected historical EDL/GT audit](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/primary_athlete/43920602179.json) (also baseline run 43583126199)"
+      ],
+      "before": "0094 A shot 'none' 36/200 samples",
+      "after": "0094 A shot 'none' 90-92/200 samples (11-14 / 11-16), matching the overlay (EVD-07-002)",
+      "evidence": [
+        "EVD-07-003",
+        "EVD-07-002"
+      ],
+      "status": "REPLAYED",
+      "classification": "VERIFIED_CORRECT",
+      "code_sha": "15a732d9dbcfe889cc68d64cc9f8589471e27f9d",
+      "code_path": "scripts/primary_athlete_audit.py",
+      "code_symbol": "gt_decision and audit_shot",
+      "code_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/primary_athlete_audit.py",
+      "red_baseline_sha": "9e4c2e4911b8d809966d29d563be8a594d8b47cc",
+      "red_baseline_permalink": "https://github.com/yotamfried-ux/Video-editing-with-drone/commit/9e4c2e4911b8d809966d29d563be8a594d8b47cc",
+      "related_pq": [
+        "PQ-16",
+        "PQ-20",
+        "PQ-22"
+      ],
+      "limits": "Correction validated against source-frame/GT overlays from the historic EDL, not against a decoded final MP4 produced by the fixed pipeline. Do not label the corrected candidate RENDERED_MEDIA_VERIFIED or PRODUCTION_QUALIFIED."
+    }
   ],
   "gaps": [
-    {"id": "PA-01", "case": "0095", "product": "B (exclude segment in a reel) / primary athlete",
-     "finding": "Two surfers on one wave. GT has one catalogued athlete (6c84aed0, pink board, left), excluded as no_meaningful_action. Both runs render a reel that follows the OTHER rider (white board, centre) for the whole clip with no identity switch; that rider has no GT segment or box.",
-     "classification": "POLICY_AMBIGUOUS", "status": "MEDIA_VERIFIED",
-     "runs": {"43583126199": "reel of uncatalogued rider (track 10003)", "43920602179": "same (track 10003)"},
-     "next": "Owner decision: may a reel be produced for a rider who is not in the catalogue? If not, the fix is a catalogue-membership gate, not a binding change (the binding is consistent). GT exclusion kept.", "evidence": ["EVD-07-002", "EVD-07-003"]},
-    {"id": "PA-02", "case": "0151", "product": "primary athlete / A (coverage)",
-     "finding": "Three-rider party wave. 11-14 followed a shirtless rider who is not the GT athlete (WRONG_PERSON); 11-16 follows the GT athlete (dark wetsuit). The GT athlete falls at ~5.0-5.5 s (earlier note '6.2-6.9 s' corrected). 11-16 window ends 6.14 s and misses the aftermath to 7.6 s (GT second segment).",
-     "classification": "PIPELINE_DEFECT", "status": "MEDIA_VERIFIED",
-     "runs": {"43583126199": "WRONG_PERSON", "43920602179": "OK, end 1.5 s short"},
-     "next": "The binding in 11-14 followed the analyzer's person choice; not reproducible without the 11-14 hint. Keep 0151 end unchanged (no global extension, per owner).", "evidence": ["EVD-07-002", "EVD-07-003"]},
-    {"id": "PA-03", "case": "0094", "product": "B / boundary",
-     "finding": "A's reel (9524ac02) stays on the right surfer (no switch) but runs ~9 s past A's GT end (13.2 s): standing in whitewater to ~16 s, prone/crouched after; from frame 1010 GT's include belongs to d805a9b1, not to A.",
-     "classification": "GT_DISCREPANCY_SUSPECTED", "status": "MEDIA_VERIFIED",
-     "runs": {"43583126199": "92/200 samples outside A's GT", "43920602179": "90/203 samples outside A's GT"},
-     "next": "13.2-16 s: owner to confirm the GT end (rider still standing). 16-22 s (prone in whitewater) is a PIPELINE_DEFECT: same root cause family as the 0108 tail (end follows tracking/outcome extension, not action state).", "evidence": ["EVD-07-002", "EVD-07-003"]},
-    {"id": "PA-04", "case": "0155", "product": "B (exclude segment in a reel)",
-     "finding": "Takeoff lying/kneeling, crouched, drops prone ~6.5 s: no standing ride. GT exclude is correct. 11-16 renders all 7.8 s inside A's (9524ac02) reel; tracking follows the right person.",
-     "classification": "PIPELINE_DEFECT", "status": "MEDIA_VERIFIED",
-     "runs": {"43583126199": "not selected (analyzer said no_complete_action)", "43920602179": "selected, 78 exclude samples rendered"},
-     "root_cause": "Gemini answer changed when the evicted LLM cache was rebuilt on 11-15 (no code change)",
-     "next": "Needs a stand-up evidence requirement or a pinned analysis cache; any detector change needs a held-out set (no fitted thresholds).", "evidence": ["EVD-07-002", "EVD-07-003"]},
-    {"id": "PA-05", "case": "synthetic", "product": "primary athlete",
-     "finding": "Crossing surfers with an inseparable hint were bound by tie-break without a flag.",
-     "classification": "PIPELINE_DEFECT", "status": "REPLAYED", "fix": "FIX-PQ-07-001", "evidence": ["EVD-07-004", "EVD-07-005"]},
-    {"id": "PA-06", "case": "0108", "product": "B (exclude segment in a reel)",
-     "finding": "Rider is still riding at the last frame (9.0 s); no outcome visible, matching GT missing_landing for 6.82-9.2 s. Both runs render up to ~8.5 s (21-22 exclude samples).",
-     "classification": "PIPELINE_DEFECT", "status": "MEDIA_VERIFIED",
-     "next": "Owner decision 2 (cycle 5): the ride ends with the action, content after 6.82 s excluded. Fix needs action-state evidence (CYCLE-03); no global shortening.", "evidence": ["EVD-07-002", "EVD-07-003"]},
-    {"id": "PA-07", "case": "0143+0152", "product": "C/identity",
-     "finding": "Merged into one reel in both runs. Side-by-side crops: white T-shirt, dark shorts, pink board in both; pixels cannot separate them. GT says two athletes.",
-     "classification": "INSUFFICIENT_EVIDENCE", "status": "BLOCKED",
-     "next": "Stays REVIEW (owner policy); never auto-published as one athlete.", "evidence": ["EVD-07-006", "EVD-07-003"]},
-    {"id": "PA-08", "case": "0097+0115", "product": "C (two reels for one surfer)",
-     "finding": "Crops consistent with one athlete (shirtless, dark shorts, light-blue board); 0097 is backlit (silhouette), 0115 front-lit, which explains the analyzer's 'dark swimsuit' vs 'no shirt'. 11-16 splits them into two reels.",
-     "classification": "PIPELINE_DEFECT", "status": "MEDIA_VERIFIED",
-     "next": "Fail-closed identity (#396) routes such pairs to owner REVIEW; an automatic merge needs pairwise consensus evidence, not a description match.", "evidence": ["EVD-07-006", "EVD-07-003"]},
-    {"id": "PA-09", "case": "0115 start", "product": "A (missing include: paddle-in)",
-     "finding": "Reel starts 4.5 s; GT include from 0.07 s (paddle-in, owner policy: include the relevant paddle-in). Sequence shows paddling from the first frame, standing ~8 s.",
-     "classification": "PIPELINE_DEFECT", "status": "MEDIA_VERIFIED",
-     "root_cause": "Actor track begins at 5.51 s: the detector misses the small prone paddler (CYCLE-03); the window policy cannot reach back without a track",
-     "next": "Perception recall for prone paddlers, evaluated on held-out rides.", "evidence": ["EVD-07-001"]},
-    {"id": "PA-10", "case": "0070", "product": "boundary",
-     "finding": "~2.8 s of the rendered 0070 shot is outside any GT segment (both runs). Not yet viewed.",
-     "classification": "INSUFFICIENT_EVIDENCE", "status": "IDENTIFIED", "next": "Add 0070 to the next sequence extraction.", "evidence": ["EVD-07-003"]}
+    {
+      "id": "PA-01",
+      "case": "0095",
+      "product": "B (exclude segment in a reel) / primary athlete",
+      "finding": "Two surfers on one wave. GT has one catalogued athlete (6c84aed0, pink board, left), excluded as no_meaningful_action. Both runs render a reel that follows the OTHER rider (white board, centre) for the whole clip with no identity switch; that rider has no GT segment or box.",
+      "classification": "POLICY_AMBIGUOUS",
+      "status": "MEDIA_VERIFIED",
+      "runs": {
+        "43583126199": "reel of uncatalogued rider (track 10003)",
+        "43920602179": "same (track 10003)"
+      },
+      "next": "Use owner-annotated target-athlete identity for GT audit; source-only evidence indicates current reel follows a different, uncatalogued rider. Keep existing GT-v1 exclude and do not edit or mark resolved without adjudication. No automatic publish based on two-surfer presence alone.",
+      "evidence": [
+        "EVD-07-002",
+        "EVD-07-003"
+      ],
+      "owner_clarification": "The owner catalogued each physical ride to its intended primary athlete. A second surfer on the same wave does NOT automatically invalidate the ride; do not substitute an uncatalogued surfer for the tagged athlete in GT evaluation. This is not proof production may never serve an uncatalogued rider.",
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+    },
+    {
+      "id": "PA-02",
+      "case": "0151",
+      "product": "primary athlete / A (coverage)",
+      "finding": "Three-rider party wave. 11-14 followed a shirtless rider who is not the GT athlete (WRONG_PERSON); 11-16 follows the GT athlete (dark wetsuit). The GT athlete falls at ~5.0-5.5 s (earlier note '6.2-6.9 s' corrected). 11-16 window ends 6.14 s and misses the aftermath to 7.6 s (GT second segment).",
+      "classification": "PIPELINE_DEFECT",
+      "status": "MEDIA_VERIFIED",
+      "runs": {
+        "43583126199": "WRONG_PERSON",
+        "43920602179": "OK, end 1.5 s short"
+      },
+      "next": "The binding in 11-14 followed the analyzer's person choice; not reproducible without the 11-14 hint. Keep 0151 end unchanged (no global extension, per owner).",
+      "evidence": [
+        "EVD-07-002",
+        "EVD-07-003"
+      ],
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+    },
+    {
+      "id": "PA-03",
+      "case": "0094",
+      "product": "B / boundary",
+      "finding": "A's reel (9524ac02) stays on the right surfer (no switch) but runs ~9 s past A's GT end (13.2 s): standing in whitewater to ~16 s, prone/crouched after; from frame 1010 GT's include belongs to d805a9b1, not to A.",
+      "classification": "GT_DISCREPANCY_SUSPECTED",
+      "status": "MEDIA_VERIFIED",
+      "runs": {
+        "43583126199": "92/200 samples outside A's GT",
+        "43920602179": "90/203 samples outside A's GT"
+      },
+      "next": "Split decision: 13.2-16 s GT end contested, owner must adjudicate; 16-22 s prone whitewater after meaningful action is candidate pipeline tail error. Keep GT-v1 unchanged and create GT-v2 proposal only with consent.",
+      "evidence": [
+        "EVD-07-002",
+        "EVD-07-003"
+      ],
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+    },
+    {
+      "id": "PA-04",
+      "case": "0155",
+      "product": "B (exclude segment in a reel)",
+      "finding": "Takeoff lying/kneeling, crouched, drops prone ~6.5 s: no standing ride. GT exclude is correct. 11-16 renders all 7.8 s inside A's (9524ac02) reel; tracking follows the right person.",
+      "classification": "PIPELINE_DEFECT",
+      "status": "MEDIA_VERIFIED",
+      "runs": {
+        "43583126199": "not selected (analyzer said no_complete_action)",
+        "43920602179": "selected, 78 exclude samples rendered"
+      },
+      "root_cause": "Gemini answer changed when the evicted LLM cache was rebuilt on 11-15 (no code change)",
+      "next": "Needs a stand-up evidence requirement or a pinned analysis cache; any detector change needs a held-out set (no fitted thresholds).",
+      "evidence": [
+        "EVD-07-002",
+        "EVD-07-003"
+      ],
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+    },
+    {
+      "id": "PA-05",
+      "case": "synthetic",
+      "product": "primary athlete",
+      "finding": "Crossing surfers with an inseparable hint were bound by tie-break without a flag.",
+      "classification": "PIPELINE_DEFECT",
+      "status": "REPLAYED",
+      "fix": "FIX-PQ-07-001",
+      "evidence": [
+        "EVD-07-004",
+        "EVD-07-005"
+      ],
+      "next": "Red/green test passed on FIX-PQ-07-001@15a732d9; replay count conflict 166 vs 167 must be reconciled; no decoded new render or real crossing holdout. EVD-07-004/005 only."
+    },
+    {
+      "id": "PA-06",
+      "case": "0108",
+      "product": "B (exclude segment in a reel)",
+      "finding": "Rider is still riding at the last frame (9.0 s); no outcome visible, matching GT missing_landing for 6.82-9.2 s. Both runs render up to ~8.5 s (21-22 exclude samples).",
+      "classification": "PIPELINE_DEFECT",
+      "status": "MEDIA_VERIFIED",
+      "next": "Owner decision 2 (cycle 5): the ride ends with the action, content after 6.82 s excluded. Fix needs action-state evidence (CYCLE-03); no global shortening.",
+      "evidence": [
+        "EVD-07-002",
+        "EVD-07-003"
+      ],
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+    },
+    {
+      "id": "PA-07",
+      "case": "0143+0152",
+      "product": "C/identity",
+      "finding": "Merged into one reel in both runs. Side-by-side crops: white T-shirt, dark shorts, pink board in both; pixels cannot separate them. GT says two athletes.",
+      "classification": "INSUFFICIENT_EVIDENCE",
+      "status": "BLOCKED",
+      "next": "Stays REVIEW (owner policy); never auto-published as one athlete.",
+      "evidence": [
+        "EVD-07-006",
+        "EVD-07-003"
+      ]
+    },
+    {
+      "id": "PA-08",
+      "case": "0097+0115",
+      "product": "C (two reels for one surfer)",
+      "finding": "Crops consistent with one athlete (shirtless, dark shorts, light-blue board); 0097 is backlit (silhouette), 0115 front-lit, which explains the analyzer's 'dark swimsuit' vs 'no shirt'. 11-16 splits them into two reels.",
+      "classification": "PIPELINE_DEFECT",
+      "status": "MEDIA_VERIFIED",
+      "next": "Fail-closed identity (#396) routes such pairs to owner REVIEW; an automatic merge needs pairwise consensus evidence, not a description match.",
+      "evidence": [
+        "EVD-07-006",
+        "EVD-07-003"
+      ],
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+    },
+    {
+      "id": "PA-09",
+      "case": "0115 start",
+      "product": "A (missing include: paddle-in)",
+      "finding": "Reel starts 4.5 s; GT include from 0.07 s (paddle-in, owner policy: include the relevant paddle-in). Sequence shows paddling from the first frame, standing ~8 s.",
+      "classification": "PIPELINE_DEFECT",
+      "status": "MEDIA_VERIFIED",
+      "root_cause": "Actor track begins at 5.51 s: the detector misses the small prone paddler (CYCLE-03); the window policy cannot reach back without a track",
+      "next": "Perception recall for prone paddlers, evaluated on held-out rides.",
+      "evidence": [
+        "EVD-07-001"
+      ],
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+    },
+    {
+      "id": "PA-10",
+      "case": "0070",
+      "product": "boundary",
+      "finding": "~2.8 s of the rendered 0070 shot is outside any GT segment (both runs). Not yet viewed.",
+      "classification": "INSUFFICIENT_EVIDENCE",
+      "status": "IDENTIFIED",
+      "next": "Add 0070 to the next sequence extraction.",
+      "evidence": [
+        "EVD-07-003"
+      ]
+    }
   ],
   "primary_athlete_scenarios": [
-    {"id": "P1", "scenario": "primary on the left", "result": "PASS", "status": "TESTED"},
-    {"id": "P2", "scenario": "primary on the right", "result": "PASS", "status": "TESTED"},
-    {"id": "P3", "scenario": "temporary occlusion 1.5 s", "result": "PASS", "status": "TESTED"},
-    {"id": "P4", "scenario": "other surfer larger and central", "result": "PASS", "status": "TESTED"},
-    {"id": "P5", "scenario": "surfers swap positions (cross at the hint)", "result": "RED -> GREEN (FIX-PQ-07-001)", "status": "REPLAYED"},
-    {"id": "P6", "scenario": "separate actions on one wave", "result": "PASS", "status": "TESTED"},
-    {"id": "P7", "scenario": "primary falls, other continues", "result": "PASS (end not chained onto the other surfer)", "status": "TESTED"},
-    {"id": "P8", "scenario": "second surfer alone is no reason to reject", "result": "PASS", "status": "TESTED"},
-    {"id": "P9", "scenario": "same surfer across several videos", "result": "covered by scripts/test_identity_consensus_integration.py (#396)", "status": "TESTED"},
-    {"id": "REAL", "scenario": "real multi-surfer reels (0094, 0095, 0151, 0155, 0108...)", "result": "11-16: 24/25 shots follow one GT athlete with 0 identity switches; the exception (0095) follows an uncatalogued rider consistently", "status": "MEDIA_VERIFIED"}
+    {
+      "id": "P1",
+      "scenario": "primary on the left",
+      "result": "PASS",
+      "status": "TESTED"
+    },
+    {
+      "id": "P2",
+      "scenario": "primary on the right",
+      "result": "PASS",
+      "status": "TESTED"
+    },
+    {
+      "id": "P3",
+      "scenario": "temporary occlusion 1.5 s",
+      "result": "PASS",
+      "status": "TESTED"
+    },
+    {
+      "id": "P4",
+      "scenario": "other surfer larger and central",
+      "result": "PASS",
+      "status": "TESTED"
+    },
+    {
+      "id": "P5",
+      "scenario": "surfers swap positions (cross at the hint)",
+      "result": "RED -> GREEN (FIX-PQ-07-001)",
+      "status": "REPLAYED"
+    },
+    {
+      "id": "P6",
+      "scenario": "separate actions on one wave",
+      "result": "PASS",
+      "status": "TESTED"
+    },
+    {
+      "id": "P7",
+      "scenario": "primary falls, other continues",
+      "result": "PASS (end not chained onto the other surfer)",
+      "status": "TESTED"
+    },
+    {
+      "id": "P8",
+      "scenario": "second surfer alone is no reason to reject",
+      "result": "PASS",
+      "status": "TESTED"
+    },
+    {
+      "id": "P9",
+      "scenario": "same surfer across several videos",
+      "result": "covered by scripts/test_identity_consensus_integration.py (#396)",
+      "status": "TESTED"
+    },
+    {
+      "id": "REAL",
+      "scenario": "real multi-surfer reels (0094, 0095, 0151, 0155, 0108...)",
+      "result": "11-16: 24/25 shots follow one GT athlete with 0 identity switches; the exception (0095) follows an uncatalogued rider consistently",
+      "status": "MEDIA_VERIFIED"
+    }
   ],
   "blockers": [
-    {"id": "BLK-07-001", "what": "Durable storage of overlay videos: the overlays need the private GT boxes, which are not in CI and not committed. Options: (a) owner approves writing evidence objects to R2 under an evidence/ prefix, (b) a Supabase read secret in CI. Both need explicit approval."},
-    {"id": "BLK-07-002", "what": "Owner decisions: PA-01 (reels for uncatalogued riders), PA-03 (0094 GT end 13.2 s vs standing to ~16 s), PA-07 REVIEW outcome."},
-    {"id": "BLK-07-003", "what": "No paid pipeline run in this cycle (budget): FIX-PQ-07-001 is replayed on stored runs only; PRODUCTION_QUALIFIED is not claimed."}
+    {
+      "id": "BLK-07-001",
+      "what": "Durable storage of overlay videos: the overlays need the private GT boxes, which are not in CI and not committed. Options: (a) owner approves writing evidence objects to R2 under an evidence/ prefix, (b) a Supabase read secret in CI. Both need explicit approval."
+    },
+    {
+      "id": "BLK-07-002",
+      "what": "Owner decisions: PA-01 (reels for uncatalogued riders), PA-03 (0094 GT end 13.2 s vs standing to ~16 s), PA-07 REVIEW outcome."
+    },
+    {
+      "id": "BLK-07-003",
+      "what": "No controlled candidate pipeline run or decoded final render yet. On 2026-11-17 owner authorized a NEW capped experiment campaign of up to $2 incremental total; do not spend without per-run enforcement and attribution. This is not a GO or automatic authorization to publish."
+    }
+  ],
+  "proof_policy": {
+    "required_trace": "Gap/PA -> Fix ID -> exact code SHA + code path/symbol -> experiment ID -> actual executed SHA/config/dataset -> artifact hash -> observed result -> independent scope",
+    "historical_scope": "EVD-07-001/002 and EVD-07-006: source video / EDL overlays only; no new candidate final rendered MP4 was decoded",
+    "qualifying_render": "Only decoded, exact-sha MP4 with output SHA+source-frame attribution and independent review may be RENDERED_MEDIA_VERIFIED; no such evidence yet",
+    "confidence_caveat": "Historical model outputs/sidecars may differ between warm and cold cache; GT-v1 is development data, not independent holdout"
+  },
+  "budget_authorization": {
+    "approved_at": "2026-11-17",
+    "new_experiment_cap_usd": 2,
+    "meaning": "New incremental ceiling of USD 2 total for a bounded evidence-producing experiment campaign; not USD 2 per retry. Includes paid model and marginal cloud costs. Existing costs before authorization are historical, not treated as available credit.",
+    "mandatory_controls": "Record spend before/after each paid action; no auto-publish, no production GT mutations, no uncapped job retries. Stop at hard limit; report any provider costs that cannot be bounded.",
+    "exact_spend_usd": null
+  },
+  "next_priorities": [
+    {
+      "id": "NEXT-07-A",
+      "gap_ids": [
+        "PQ-01",
+        "PQ-33"
+      ],
+      "cases": [
+        "0155",
+        "0095"
+      ],
+      "required_proof": "Source visual action/owner GT policy -> RED test invalid ride -> real replay -> newly rendered candidate MP4 + blinded QA vs GT; 0095 remains policy-sensitive"
+    },
+    {
+      "id": "NEXT-07-B",
+      "gap_ids": [
+        "PQ-05",
+        "PQ-06"
+      ],
+      "cases": [
+        "0115",
+        "0108",
+        "0094",
+        "0151",
+        "0070"
+      ],
+      "required_proof": "Prone paddler from frame 0, correct action-end vs track-end; per-source frame-error, zero excluded frames and decoded output; 0094 13.2-16s remains unadjudicated"
+    },
+    {
+      "id": "NEXT-07-C",
+      "gap_ids": [
+        "PQ-03",
+        "PQ-18",
+        "PQ-20",
+        "PQ-40"
+      ],
+      "cases": [
+        "0097",
+        "0115",
+        "0143",
+        "0152"
+      ],
+      "required_proof": "One verified athlete -> one primary reel, same-person positive and lookalike negative; every merge evidence-backed; fail-closed uncertainty not counted as delivered"
+    },
+    {
+      "id": "NEXT-07-D",
+      "gap_ids": [
+        "PQ-22",
+        "PQ-26",
+        "PQ-33",
+        "PQ-35",
+        "PQ-37",
+        "PQ-38",
+        "PQ-41"
+      ],
+      "cases": [
+        "real rendered candidates"
+      ],
+      "required_proof": "Source-to-decoded-output mapping, QA fault injection, re-edit regression, exact approved-file/delivered-file hash with no unapproved publication"
+    }
   ]
 }
