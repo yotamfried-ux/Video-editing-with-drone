@@ -89,6 +89,42 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **Evidence:** EVD-09-003
 - **Limits:** Only meaningful once a trustworthy verifier exists.
 
+### FIX-PQ-10-001 — Model-only visual consensus never auto-publishes a multi-source reel
+
+- **Gap:** PA-11 · **Classification:** SAFETY_GATE · **Status:** `REPLAYED`
+- **Root cause:** EXP-09-002: both-orders 6-crop MATCH for two GT athletes (0143/0152) became an identity-gate pass
+- **Fix:** pipeline/real_identity_gate.py::_evidence_may_autopublish (default off; SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH=1 reserved for a validated verifier)
+- **Commit:** 8992e067760602a94f95c79ba1d0a5eadf815637
+- **Experiments:** RED->GREEN scripts/test_identity_autopublish_policy_contract.py (4 fails on f299a5a9), Gate C replay EVD-10-003, EXP-10-001 run 44166232265 (pending)
+- **Before:** q9-paid-02: 0143+0152 publishable
+- **After:** replay: 0 wrong-identity publishable, correct published unchanged
+- **Evidence:** EVD-10-003
+- **Limits:** Multi-source reels need an owner operator_review to publish; correct merges (0126+0140, 0070+0108) are withheld too.
+
+### FIX-PQ-10-002 — _stable_track treated _clip_index 0 as missing
+
+- **Gap:** PA-11 · **Classification:** BUG_FIX · **Status:** `TESTED`
+- **Root cause:** str(0 or '') == ''
+- **Fix:** pipeline/real_identity_gate.py::_source_of
+- **Commit:** 8992e067760602a94f95c79ba1d0a5eadf815637
+- **Experiments:** P3 in test_identity_autopublish_policy_contract.py
+- **Before:** same-source same-track cluster from clip 0 never passed
+- **After:** passes
+- **Evidence:** 
+- **Limits:** Rare case (one athlete twice in clip 0).
+
+### FIX-PQ-10-003 — Text-attribute split of a model-proposed grouping raises an owner identity review request
+
+- **Gap:** PA-08 · **Classification:** REVIEW_PATH · **Status:** `TESTED`
+- **Root cause:** 0097+0115 grouped by the model, split on 'dark swimsuit' vs 'no shirt'; the proposal was discarded silently
+- **Fix:** pipeline/stages/identity.py::_text_attribute_split_reviewed
+- **Commit:** 8992e067760602a94f95c79ba1d0a5eadf815637
+- **Experiments:** RED->GREEN scripts/test_text_split_review_request_contract.py (4 fails on f299a5a9), EXP-10-001 (evaluated only if the clustering groups 0097+0115)
+- **Before:** 0097+0115 two reels, no review path
+- **After:** two reels + PENDING review request; owner APPROVED -> one reel with operator_review evidence
+- **Evidence:** 
+- **Limits:** Needs an owner decision; no model call; does not merge on its own.
+
 ## Gaps
 
 | ID | Case | Product | Classification | Status | Finding | Next |
@@ -104,7 +140,11 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | PA-09 | 0115 start | A (missing include: paddle-in) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Reel starts 4.5 s; GT include from 0.07 s (paddle-in, owner policy: include the relevant paddle-in). Sequence shows paddling from the first frame, standing ~8 s. | Perception recall for prone paddlers, evaluated on held-out rides. |
 | PA-10 | 0070 | boundary | INSUFFICIENT_EVIDENCE | `IDENTIFIED` | ~2.8 s of the rendered 0070 shot is outside any GT segment (both runs). Not yet viewed. | Add 0070 to the next sequence extraction. |
 | PA-11 | 0143+0152 | identity | ROOT_CAUSE_CONFIRMED | `FAILED` | The production pairwise verifier gives a both-orders MATCH for the 0143/0152 lookalikes (GT: two athletes) at 6-crop sheets; the identity gate then passes the reel as publishable. In every earlier production run the verifier was effectively dead on the model path (sheet crop count lost), so its live precision was never measured end to end. | Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run. |
-| PA-12 | isolation | qualification | INSUFFICIENT_EVIDENCE | `IDENTIFIED` | Isolated qualification runs proven non-destructive (3 runs, fingerprints identical). Not yet proven: same-namespace retry idempotency and an explicit mid-run crash. | Free dry run with qualrun-dry re-using q9-dry-02, and a dry run killed mid-stage; compare fingerprints and namespace object counts. |
+| PA-12 | isolation | qualification | MOSTLY_PROVEN | `TESTED` | Isolated qualification runs proven non-destructive (3 runs, fingerprints identical). Not yet proven: same-namespace retry idempotency and an explicit mid-run crash. Cycle 10 Gate A (run 44148876075): retries and three hard crashes PASS; limits: paid-retry draft-name drift and a publishable partial not exercised. | Free dry run with qualrun-dry re-using q9-dry-02, and a dry run killed mid-stage; compare fingerprints and namespace object counts. |
+| PA-13 | retry | review drafts | RISK_IDENTIFIED | `IDENTIFIED` | Draft object keys come from the model's athlete description + the date. A crash after some uploads, retried on another day or with different model descriptions, leaves the first drafts in review/ next to the new ones (duplicates). Not exercised by Gate A (free runs reuse cached descriptions). | Key drafts by a stable athlete/run identity, or record a run draft ledger and supersede drafts of an incomplete run (no deletion). |
+| PA-14 | code | pipeline | ROOT_CAUSE_CONFIRMED | `IDENTIFIED` | pipeline/orchestrator._compile_clusters is replaced at startup by pipeline/context_qa_gate.compile_clusters_with_context_qa; changes made only in the orchestrator copy are inert (Gate A run 1). | Remove or clearly mark the shadowed copy; contracts must assert the active path. |
+| PA-15 | 0094/0108/0118/0126/0142/0146 | boundary | ROOT_CAUSE_CONFIRMED | `FAILED` | Windows overrun GT rides widely, not only 0094/0108: end overrun 0142 10.0 s, 0094 9.3 s, 0126 3.5 s, 0146 3.2 s, 0115 2.9 s, 0160 2.6 s; pre-roll 0146 4.9 s, 0118 4.7 s, 0142 4.6 s. The analyzer's own windows (e.g. 0142 3.2-22.5 'rides for a very long duration') drive them. EXP-10-002 board-loss rule rejected. | A validated end-of-action signal (per-frame ride state) on more data; owner adjudication of 0094 13.2-16 s. |
+| PA-16 | scorecard | measurement | MEASUREMENT_LIMIT | `IDENTIFIED` | gt_scorecard 'mixed_reels' attributes by time overlap with any GT ride in the source, not by who is in the crop: 0094's single-rider reel counts as mixed. The primary-athlete audit (crop vs GT boxes) is the visible-mix measure. | Report both; consider a crop-aware mixed metric. |
 
 ## Primary-athlete scenarios
 
@@ -140,6 +180,10 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-09-002 | isolated_run | EXP-09-001 q9-paid-01 (run 44085419164 @cdb77b9c, $0.225/cap $1.20, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9): production fingerprint identical; 14 reels. Pre-registered conditions FAILED: 0097+0115 two reels; 0143+0152 (two GT athletes) one reel (withheld IDENTITY_UNCONFIRMED). Diagnosis: pairwise verifier made 0 calls (every review request: identity_sheet_has_fewer_than_6_crops). Scorecard: FULL 14, >=95% 14, missing 20.4 s, excluded frames 999, mixed 2, splits 2, published 5 / correct 4. | artifact qualification-diagnostics-q9-paid-01-44085419164 (identity_trace.json, publishable_reel_manifest.json, llm_cost.json) |
 | EVD-09-003 | isolated_run | EXP-09-002 q9-paid-02 (run 44121013654 @2c86d3a2, $0.469/cap $0.90, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9): production fingerprint identical; 17 reels; verifier active (64 consensus calls). Pre-registered FAILURE: 0143+0152 (GT 0d12c8b8 vs 42f8772b) stamped pairwise MATCH and marked publishable (false merge); 0112/0131/0104 split from 0126+0140 (one GT athlete, 4 reels); 0097+0115 still two reels (singleton stage did not merge). Scorecard: FULL 14, >=95% 14, missing 20.4 s, excluded 999, mixed 2, splits 3, published 10 / correct 7. | artifact qualification-diagnostics-q9-paid-02-44121013654 |
 | EVD-09-004 | rendered_media | Decoded MP4 viewing (contact sheets at 1.5 fps) of q9-paid-02 reels: 0143+0152 reel (sha256 b7b86f1066e2...) shows two white-top / pink-longboard lookalikes (clip 2 sleeves longer); 0097 reel (70a8d9460ef8...) correct athlete, backlit, foam-only tail; 0115 reel (1708522a574b...) visibly the same athlete as 0097, starts at pop-up (paddle-in missing); 0070+0108 reel (7831b08d9d8a...) correct athlete, clip 2 runs into the GT-excluded shore tail ~20-26 s. | session scratch contact sheets; reels artifact qualification-reels-q9-paid-02-44121013654 |
+| EVD-10-001 | isolated_run | Gate A (free, budget 0, production entry point scripts/run_tracked.py). Run 44140263067 @82f8e544: FAILED - the before_qa / after_first_upload fault points sat in the shadowed orchestrator._compile_clusters (production uses pipeline/context_qa_gate.compile_clusters_with_context_qa) and never fired; evaluator keyed inventories by Path.stem. R0/R5 retries no-op and F1 crash clean even there. Run 44148876075 @80fc677b (hooks moved, namespace q10-gate-a2): R0 retry into completed q9-dry-02 = no input, 0 writes, listing identical; F1 after_analysis / F2 before_qa / F3 after_first_upload: exit 97 at the point, 0 processed markers, 0 publishable records, raw unchanged; F3 left 3 complete drafts (3 upload workers); R4 recovery wrote 25 drafts + 24 markers and rewrote every partial key (0 orphans); R5 retry no input, 0 writes; production fingerprint identical. Evaluator corrected after run 2 (substring 'pass' matched qa_passed:false; partial bound 1 -> upload workers) and re-applied to the run's own ledgers: all checks PASS. Limits: at budget 0 QA cannot pass, so a publishable partial is not exercised; draft-name drift on a PAID retry (different model descriptions / next-day date) is not exercised. | artifacts qualification-gate-a-q10-gate-a-44140263067, qualification-gate-a-q10-gate-a2-44148876075; evaluation/qualification/gate_a/ |
+| EVD-10-002 | measurement | Gate B diagnoses (private GT boxes, aggregate only). 0094: primary-athlete audit of the q9-paid-02 reel - crop shows 9524ac02 in 195/203 frames, 0 other GT athletes in crop, 0 identity switches; the scorecard's 'mixed' is a time overlap of the 2.0-22.5 s window with d805a9b1's ride (1010-2199 f): the real defect is the end (9.3 s past the GT ride end). 0095: drone frames track 10003 (uncatalogued white-sleeve rider) at centre; GT athlete 6c84aed0 = track 10007 riding the same wave at left, his take GT-excluded (unusable): no tracking/identity defect, owner decision PA-01. | cycle-10 report |
+| EVD-10-003 | replay | Gate C replay of FIX-PQ-10-001 on stored runs (scripts/identity_policy_replay.py, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9): q9-paid-02 published 10->8, published_wrong_identity 1->0, published_nonride 2->1, published_correct 7->7, coverage unchanged; 43920602179, q9-dry-02, q9-paid-01 unchanged (no image-evidence passes); 43583126199 NOT_REPLAYABLE (legacy manifest without per-event inputs). | cycle-10 report |
+| EVD-10-004 | replay | EXP-10-002 (REJECTED): pre-chosen end-of-ride rule 'board association < 0.5 for 1.5 s after an established ride, +1.0 s margin' replayed on all q9-paid-02 windows against GT: removed 6.2 s of non-include but cut 44.0 s of GT include (0094 11.6 s, 0118 14.7 s, 0074 5.0 s ...). Board detection at stride 5 drops out mid-ride. Not tuned further (24 cases = test set). | cycle-10 report |
 
 ## Blockers
 
