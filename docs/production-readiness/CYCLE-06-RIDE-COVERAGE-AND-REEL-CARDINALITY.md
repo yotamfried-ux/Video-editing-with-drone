@@ -78,6 +78,7 @@ Sources with GT rides range over active / 0.73–1.00 / 0.20–0.82 / 0.05–0.2
 So, for the rides that matter, wrong-person tracking is rare (one real case in the best run, none in the latest apart from the excluded `0095`): the multi-athlete and split problems are identity-evidence problems between sources, not crops following the wrong surfer inside a source.
 
 ## 5. Still blocked
+0. **Video viewer installed and partly qualified (2026-11-17, this host):** `mcp-video-analyzer` 0.11.0 via `npx` (Engineering-OS `video-analysis/mcp-video-analyzer.md`). Local MP4 -> metadata + key frames OK (6 frames from a 6 s synthetic clip). OCR fails here (tesseract downloads language data from a host the sandbox blocks), so use `--detail brief`/frames only. It accepts a local path or a direct `.mp4` URL, so it is ready the moment a pipeline video is reachable. The Google Drive connector holds no SportReel footage (search returned nothing).
 1. **Viewing rendered media.** Engineering-OS routes visual inspection through `mcp-video-analyzer` / `watch-video`, which need the file on this machine. The originals and proxies are in Cloudflare R2; this environment has no R2 host or key and the account id is held only in repository secrets. To unblock: a read-only R2 token (bucket `sportreel`, Object Read only) entered through the secure credential form plus the R2 endpoint host added to this environment's allowed hosts. Without it no `MEDIA_VERIFIED`.
 2. **Holdout.** No independent filming day yet.
 3. **Spend.** None this cycle; ≈ $0.36 of the $2 Gemini cap remains by estimate.
