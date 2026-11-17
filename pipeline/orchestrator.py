@@ -16,6 +16,7 @@ import config
 from integrations.drive    import (download_video, get_new_videos, mark_as_processed,
                                     upload_draft, record_failure, flag_quality_issue)
 from integrations.run_status import mark_run
+from integrations import qualification as _qualification
 from pipeline.stages.analyzer import analyze_session
 from pipeline.stages.editor   import create_reel, compile_multi_source_reel, drain_quality_issues
 from pipeline.stages.identity import cluster_clips
@@ -569,6 +570,7 @@ def _compile_clusters(clusters: list[dict], activity: str,
                                              athlete_label=cluster["description"],
                                              _events_out=out)
 
+        _qualification.fault("before_qa")
         reels, events_by_reel, flagged = _qa_gate(
             reels, events_out, activity, cluster["description"], _recompile)
 
@@ -595,6 +597,7 @@ def _compile_clusters(clusters: list[dict], activity: str,
         reel_path, name = args
         try:
             upload_draft(reel_path, name)
+            _qualification.fault("after_first_upload")
             return True
         except Exception as exc:
             os.makedirs(config.PENDING_UPLOADS_DIR, exist_ok=True)
@@ -828,6 +831,7 @@ def _process_clips_session(videos: list[dict]) -> int:
         dl_results = list(pool.map(_download_one, videos))
     downloaded = [r for r in dl_results if r is not None]
     clip_analyses = _analyze_downloaded(downloaded)
+    _qualification.fault("after_analysis")
     if not clip_analyses:
         print("⚠️ No clips downloaded or analyzed — nothing to process")
         return 0
@@ -866,6 +870,7 @@ def _process_mixed_session(videos: list[dict]) -> int:
         dl_results = list(pool.map(_download_one, videos))
     downloaded = [r for r in dl_results if r is not None]
     clip_analyses = _analyze_downloaded(downloaded)
+    _qualification.fault("after_analysis")
     if not clip_analyses:
         print("⚠️ No files downloaded — nothing to process")
         return 0

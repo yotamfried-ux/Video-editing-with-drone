@@ -335,6 +335,33 @@ def main() -> int:
     check("snapshot --out" in text and " compare " in text, "Q10 production fingerprint before/after + compare")
     check("0.92" in text and "SPORTREEL_LLM_BUDGET_USD" in run_block and "SPORTREEL_QUALIFICATION_RUN_ID" in run_block
           and "PIPELINE_RUN_ID" not in run_block, "Q10 run step: qualification id + capped budget, no production pipeline run id")
+    # Q11 (cycle 10, Gate A): fault injection is honoured ONLY inside a qualification run, only at known points
+    import subprocess
+    code = ("import os; os.environ.pop('SPORTREEL_QUALIFICATION_RUN_ID', None); "
+            "os.environ['SPORTREEL_QUALIFICATION_FAULT']='after_analysis'; "
+            "from integrations import qualification as q; q.fault('after_analysis'); print('alive')")
+    r = subprocess.run([sys.executable, "-c", code], cwd=str(ROOT), capture_output=True, text=True)
+    check(r.returncode == 0 and "alive" in r.stdout, f"Q11 no crash outside a qualification run (rc={r.returncode})")
+    code_q = ("import os, tempfile; os.environ['SPORTREEL_QUALIFICATION_RUN_ID']='q-fault-test'; "
+              "os.environ['TMP_DIR']=tempfile.mkdtemp(); os.environ['SPORTREEL_QUALIFICATION_FAULT']='before_qa'; "
+              "from integrations import qualification as q; q.fault('after_analysis'); print('alive1'); "
+              "q.fault('before_qa'); print('alive2')")
+    r = subprocess.run([sys.executable, "-c", code_q], cwd=str(ROOT), capture_output=True, text=True)
+    check(r.returncode == 97 and "alive1" in r.stdout and "alive2" not in r.stdout,
+          f"Q11 qualification run: only the configured point crashes, hard, exit 97 (rc={r.returncode})")
+    try:
+        q.fault("unknown_point"); check(False, "Q11 unknown fault point refused")
+    except ValueError:
+        check(True, "Q11 unknown fault point refused")
+    orch = (ROOT / "pipeline/orchestrator.py").read_text()
+    check(all(f'_qualification.fault("{p}")' in orch for p in q.FAULT_POINTS), "Q11 every fault point is wired in the orchestrator")
+    ga = (ROOT / ".github/workflows/pipeline-qualification-gate-a.yml").read_text()
+    ga_head = "\n".join(l for l in ga.split("jobs:")[0].splitlines() if not l.lstrip().startswith("#"))
+    check("labeled" in ga_head and "push" not in ga_head and "workflow_dispatch" not in ga_head and "qualgate-a" in ga,
+          "Q12 Gate A workflow is label-gated only")
+    check("SPORTREEL_LLM_BUDGET_USD: '0'" in ga and "actions/cache/save" not in ga and "PIPELINE_RUN_ID" not in ga
+          and "reset_and_rerun" not in ga and "snapshot --out" in ga and " compare " in ga,
+          "Q12 Gate A: budget 0, no cache save, no production run id, no reset, production fingerprint compared")
     print(f"{len(FAILS)} failing")
     return 1 if FAILS else 0
 

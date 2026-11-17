@@ -1,0 +1,204 @@
+# Cycle 10 Gate A (free): the PRODUCTION entry point (scripts/run_tracked.py) inside qualification namespaces with
+# LLM budget 0: a retry into a completed namespace, three deliberate hard crashes (SPORTREEL_QUALIFICATION_FAULT,
+# honoured only in qualification runs), a recovery run and a second retry. Production is fingerprinted before/after.
+# Trigger: label `qualgate-a` only. Never resets, never writes Supabase, never publishes, never saves caches.
+name: Pipeline Qualification Gate A (retry + fault injection, free)
+'on':
+  pull_request:
+    types:
+    - labeled
+permissions:
+  contents: read
+concurrency:
+  group: pipeline-qualification-run
+  cancel-in-progress: false
+jobs:
+  gate_a:
+    if: github.event.label.name == 'qualgate-a'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 330
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+    - name: Free runner disk space
+      env:
+        MIN_FREE_GB: '40'
+      run: "df -h / | tail -1\nfree_gb=$(df --output=avail -BG / | tail -1 | tr -dc '0-9')\nif [ \"${free_gb:-0}\" -ge \"$MIN_FREE_GB\" ]; then\n  echo \"disk cleanup skipped: ${free_gb} GB free >= ${MIN_FREE_GB}\
+        \ GB\"\n  exit 0\nfi\nsudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup \\\n  /opt/hostedtoolcache/CodeQL /usr/local/share/boost /usr/share/swift || true\nsudo docker\
+        \ image prune --all --force >/dev/null 2>&1 || true\ndf -h / | tail -1\n"
+    - name: Restore ffmpeg packages
+      id: ffmpeg-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/apt-debs
+        key: ffmpeg-debs-ubuntu-24.04-v1
+    - name: Install ffmpeg
+      timeout-minutes: 15
+      env:
+        DEBIAN_FRONTEND: noninteractive
+      run: "echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null 2>&1 || true\nsudo rm -f /var/lib/man-db/auto-update\nmkdir -p ~/apt-debs\nif ls ~/apt-debs/*.deb >/dev/null 2>&1 &&\
+        \ sudo dpkg -i ~/apt-debs/*.deb >/dev/null && command -v ffmpeg >/dev/null; then\n  echo \"ffmpeg installed offline from the cached packages\"; ffmpeg -version | head -1; exit 0\nfi\nrm -f ~/apt-debs/*.deb\n\
+        APT_OPTS=\"-o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 -o DPkg::Lock::Timeout=60\"\nfor i in 1 2 3; do\n  if timeout 120 sudo apt-get $APT_OPTS update \\\n \
+        \    && timeout 240 sudo apt-get $APT_OPTS install -y --no-install-recommends --download-only -o Dir::Cache::archives=\"$HOME/apt-debs\" ffmpeg \\\n     && sudo dpkg -i ~/apt-debs/*.deb >/dev/null\
+        \ && command -v ffmpeg >/dev/null; then\n    sudo chown -R \"$USER\" ~/apt-debs; rm -rf ~/apt-debs/partial ~/apt-debs/lock\n    ffmpeg -version | head -1; exit 0\n  fi\n  echo \"apt attempt $i failed\
+        \ or hung\"\n  # The runner's default mirror (azure.archive.ubuntu.com) hung on 2026-11-06: retry on Ubuntu's main archive.\n  sudo sed -i 's#http://azure.archive.ubuntu.com/ubuntu#http://archive.ubuntu.com/ubuntu#g'\
+        \ \\\n    /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list 2>/dev/null || true\n  sleep 5\ndone\nexit 1\n"
+    - name: Setup Python
+      id: py
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    - name: Restore Python environment
+      id: venv-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/venv
+        key: venv-ubuntu-24.04-py${{ steps.py.outputs.python-version }}-${{ hashFiles('requirements.txt') }}-v1
+    - name: Install Python dependencies
+      run: "if [ \"${{ steps.venv-cache.outputs.cache-hit }}\" != \"true\" ] || ! ~/venv/bin/python -c \"import torch, torchvision, lap\" 2>/dev/null; then\n  rm -rf ~/venv\n  python -m venv ~/venv\n  ~/venv/bin/python\
+        \ -m pip install --upgrade pip\n  if ! ~/venv/bin/pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu --retries 5 --timeout 120; then\n    echo \"::warning::Falling back\
+        \ to PyPI for torch/torchvision after PyTorch CPU index install failed\"\n    ~/venv/bin/pip install torch torchvision --retries 5 --timeout 120\n  fi\n  ~/venv/bin/pip install -r requirements.txt\n\
+        \  echo \"VENV_FRESH=1\" >> \"$GITHUB_ENV\"\nelse\n  echo \"Python environment restored from cache (requirements unchanged)\"\nfi\necho \"$HOME/venv/bin\" >> \"$GITHUB_PATH\"\necho \"VIRTUAL_ENV=$HOME/venv\"\
+        \ >> \"$GITHUB_ENV\"\n~/venv/bin/python - <<'PY'\nimport torch\nimport torchvision\nimport lap\nfrom torchvision.ops import nms\nprint(f\"torch={torch.__version__} torchvision={torchvision.__version__}\
+        \ lap={lap.__version__} nms={nms.__name__}\")\nPY\n"
+    - name: Restore model weights
+      id: models-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: '~/.cache/huggingface
+
+          yolo11n.pt
+
+          yolo11s.pt
+
+          '
+        key: models-v1-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+    - name: Verify YOLO weight preflight contract
+      run: python scripts/test_preflight_yolo_weights_contract.py
+    - name: Preflight actual YOLO model weights
+      timeout-minutes: 5
+      env:
+        SPORTREEL_PERCEPTION_COMMAND: ${{ secrets.SPORTREEL_PERCEPTION_COMMAND || vars.SPORTREEL_PERCEPTION_COMMAND || '' }}
+        SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+      run: python scripts/preflight_yolo_weights.py
+    - name: Gate A config (committed, budget always 0)
+      id: cfg
+      run: 'python3 - <<''PY'' >> "$GITHUB_OUTPUT"
+
+        import json, re
+
+        c = json.load(open("evaluation/qualification/run_config.json"))
+
+        rid = c["gate_a_run_id"]; assert re.match(r"^[a-z0-9][a-z0-9-]{3,62}$", rid), rid
+
+        print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}")
+
+        PY
+
+        cat "$GITHUB_OUTPUT"'
+    - name: Snapshot production state BEFORE (read-only)
+      env:
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: mkdir -p /tmp/dtor/pipeline-debug && python scripts/qualification_run.py snapshot --out /tmp/dtor/pipeline-debug/production_snapshot_before.json
+    - name: Seed qualification namespace (verified server-side copy, production read-only)
+      env:
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: 'python scripts/qualification_run.py seed --run-id "${{ steps.cfg.outputs.run_id }}" --batch "${{ steps.cfg.outputs.batch }}"
+
+        python scripts/qualification_run.py seed-check --run-id "${{ steps.cfg.outputs.run_id }}" --batch "${{ steps.cfg.outputs.batch }}"'
+    - name: Real-R2 isolation probe (write/read/delete inside the namespace)
+      env:
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+        SPORTREEL_QUALIFICATION_RUN_ID: ${{ steps.cfg.outputs.run_id }}
+        STORAGE_BACKEND: r2
+        TMP_DIR: /tmp/dtor
+      run: python scripts/check_storage_access.py
+    - name: Restore OpenVINO model export
+      id: openvino-cache
+      uses: actions/cache/restore@v4
+      with:
+        path: ~/.cache/sportreel/openvino
+        key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+    - name: Restore LLM analysis cache
+      uses: actions/cache/restore@v4
+      with:
+        path: /tmp/llm-cache
+        key: llm-analysis-cache-v1-${{ github.run_id }}
+        restore-keys: 'llm-analysis-cache-v1-
+
+          '
+    - name: 'Gate A phases: retry + deliberate crashes (production entry point, budget 0)'
+      timeout-minutes: 270
+      env:
+        LLM_CACHE_DIR: /tmp/llm-cache
+        ANALYSIS_WORKERS: ${{ vars.ANALYSIS_WORKERS || '3' }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+        GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        SPORTREEL_PERCEPTION_COMMAND: ${{ secrets.SPORTREEL_PERCEPTION_COMMAND || vars.SPORTREEL_PERCEPTION_COMMAND || '' }}
+        SPORTREEL_REQUIRE_PERCEPTION: '1'
+        SPORTREEL_REQUIRE_EXPLICIT_SCOPE: '1'
+        SPORTREEL_ULTRALYTICS_MODEL: ${{ secrets.SPORTREEL_ULTRALYTICS_MODEL || vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
+        SPORTREEL_ULTRALYTICS_TRACKER: ${{ secrets.SPORTREEL_ULTRALYTICS_TRACKER || vars.SPORTREEL_ULTRALYTICS_TRACKER || 'botsort.yaml' }}
+        SPORTREEL_ULTRALYTICS_FPS: ${{ vars.SPORTREEL_ULTRALYTICS_FPS || 'auto' }}
+        SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '5' }}
+        SPORTREEL_EXPORT_EDL: '1'
+        QA_GATE: 'false'
+        RAW_BATCH_ID: ''
+        STORAGE_BACKEND: r2
+        SPORTREEL_LLM_BUDGET_USD: '0'
+      run: bash scripts/qualification_gate_a.sh "${{ steps.cfg.outputs.run_id }}" "${{ steps.cfg.outputs.batch }}" /tmp/gate-a
+    - name: Snapshot production state AFTER and compare (fails if anything changed)
+      if: always()
+      env:
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        R2_PUBLIC_BASE_URL: ${{ secrets.R2_PUBLIC_BASE_URL }}
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+      run: 'python scripts/qualification_run.py snapshot --out /tmp/dtor/pipeline-debug/production_snapshot_after.json
+
+        python scripts/qualification_run.py compare /tmp/dtor/pipeline-debug/production_snapshot_before.json /tmp/dtor/pipeline-debug/production_snapshot_after.json | tee /tmp/dtor/pipeline-debug/production_snapshot_compare.json
+
+        cp /tmp/dtor/pipeline-debug/production_snapshot_*.json /tmp/gate-a/ || true
+
+        '
+    - name: Evaluate Gate A
+      if: always()
+      run: python scripts/qualification_gate_a.py evaluate --dir /tmp/gate-a --out /tmp/gate-a/gate_a_report.json
+    - name: Upload Gate A evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: qualification-gate-a-${{ steps.cfg.outputs.run_id }}-${{ github.run_id }}
+        path: /tmp/gate-a
+        retention-days: 30

@@ -2,5 +2,6 @@
   "qualification_run_id": "q9-paid-03-not-authorised",
   "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
   "llm_budget_usd_paid": 0.0,
-  "note": "Paid runs stopped after EXP-09-002 (false merge 0143+0152 with image evidence). Spent of the $2 total: cycle 8 $0.380, q9-paid-01 $0.225, q9-paid-02 $0.469 -> remainder $0.926. A new paid run needs a reviewed commit setting llm_budget_usd_paid > 0 and a new pre-registration."
+  "note": "Paid runs stopped after EXP-09-002 (false merge 0143+0152 with image evidence). Spent of the $2 total: cycle 8 $0.380, q9-paid-01 $0.225, q9-paid-02 $0.469 -> remainder $0.926. A new paid run needs a reviewed commit setting llm_budget_usd_paid > 0 and a new pre-registration.",
+  "gate_a_run_id": "q10-gate-a"
 }

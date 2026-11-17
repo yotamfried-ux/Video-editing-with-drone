@@ -261,3 +261,28 @@ def check_llm_budget() -> None:
         if active():
             record("llm_budget_exceeded", spent_usd=round(spent, 4), cap_usd=cap)
         raise LlmBudgetExceeded(f"LLM budget reached: spent ${spent:.4f} + reserve ${LLM_CALL_RESERVE_USD} > cap ${cap}")
+
+
+# ------------------------------------------------------------------------------------------------ fault injection
+FAULT_POINTS = ("after_analysis", "before_qa", "after_first_upload")
+_fault_hits: dict[str, int] = {}
+
+
+def fault(point: str) -> None:
+    """Gate A (cycle 10): a deliberate HARD crash at a named point, honoured ONLY in a qualification run.
+
+    SPORTREEL_QUALIFICATION_FAULT=<point> -> the ledger records the fault, then the process exits with code 97 via
+    os._exit (no finally blocks, no cleanup: the same as a runner kill). Outside a qualification run, or for any
+    other point, this is a no-op, so production can never be crashed by it.
+    """
+    if point not in FAULT_POINTS:
+        raise ValueError(f"unknown fault point {point!r}")
+    if not active() or os.getenv("SPORTREEL_QUALIFICATION_FAULT", "").strip() != point:
+        return
+    with _lock:
+        _fault_hits[point] = _fault_hits.get(point, 0) + 1
+    record("fault_injected", point=point)
+    import sys
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(97)
