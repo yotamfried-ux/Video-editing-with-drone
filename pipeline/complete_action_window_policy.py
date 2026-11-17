@@ -182,6 +182,15 @@ def extend_to_setup(event: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         return event
     new_start = max(setup, start - SETUP_LEAD_IN_MAX_SEC, first_seen - SETUP_TRACK_MARGIN_SEC, 0.0)
+    # FIX-PQ-11-001: where the stitched actor is seen MOVING back to an earlier second (motion-supported onset,
+    # pipeline.action_onset; bound and motion threshold from the sport profile), the build-up starts there - beyond
+    # the fixed lead-in cap (0115 paddle-in), but never into stationary waiting (0140), which stops the walk-back.
+    try:
+        onset = float(refinement.get("onset_motion_from_sec"))
+    except (TypeError, ValueError):
+        onset = None
+    if onset is not None and onset < new_start:
+        new_start = max(setup, onset, 0.0)
     if not new_start < start - 0.05:
         return event
     return {**event, "start": round(new_start, 3), "start_before_setup_lead_in": round(start, 3)}

@@ -112,7 +112,7 @@ def main() -> int:
             "EVERY DISTINCT WAVE RIDE",
             "MAX_PERFORMANCE_REEL_SEC = 89.0",
             "PerformanceReelPackingError",
-            "if surf_event and is_explicit_failed_takeoff",
+            "if profile is not None and is_explicit_failed_takeoff",
             "if not _surf_events(event_list)",
             "remove_duplicate_events(event_list)",
             "performance_reel_total_wave_count",

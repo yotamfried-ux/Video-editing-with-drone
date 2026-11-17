@@ -19,15 +19,11 @@ logger = logging.getLogger(__name__)
 
 MAX_PERFORMANCE_REEL_SEC = 89.0
 RENDERED_TIMELINE_RESERVED_SECONDS = 2.75
-_SURF_TERMS = {
-    "surf", "surfing", "surfer", "wave", "longboard", "shortboard",
-    "cutback", "bottom_turn", "carve", "snap", "barrel", "tube_ride",
-    "wave_catch", "surf_ride",
-}
-_FAILED_TAKEOFF_TERMS = {
-    "failed takeoff", "falls immediately", "fell immediately", "immediate fall",
-    "wipeout at takeoff", "misses the wave", "never stands", "does not stand",
-}
+# Cycle 11: these definitions live in the surfing profile (pipeline/sport_profiles/surfing.py); the names stay as
+# read-only aliases for existing callers and contracts.
+from pipeline.sport_profiles.surfing import SURFING as _SURFING_PROFILE  # noqa: E402
+_SURF_TERMS = set(_SURFING_PROFILE.event_terms)
+_FAILED_TAKEOFF_TERMS = set(_SURFING_PROFILE.failed_attempt_terms)
 _HARD_REJECT_DEFECTS = {
     "DUPLICATE_MOMENT", "IDENTITY_MISMATCH", "NO_VISIBLE_ACTION",
 }
@@ -80,6 +76,26 @@ def _text(event: dict[str, Any], activity: str = "") -> str:
     ).lower()
 
 
+def coverage_profile(event: dict[str, Any], activity: str = ""):
+    """The coverage-first sport profile this event belongs to, or None (Core: score policy only).
+
+    Activity first, then the event's sport, then the profile vocabulary (pipeline.sport_profiles). A surf
+    `ride_segment` always belongs to the surfing profile (legacy contract).
+    """
+    from pipeline.sport_profiles import GENERIC, profile_for_event
+    if event.get("ride_segment"):
+        return _SURFING_PROFILE
+    profile = profile_for_event(event, activity)
+    if profile is GENERIC or not profile.coverage_first:
+        # An activity outside every profile still matches by vocabulary (legacy: surf terms in the text).
+        for candidate in (_SURFING_PROFILE,):
+            if any(term in _text(event, activity) for term in candidate.event_terms):
+                return candidate
+        return None
+    text = _text(event, activity)
+    return profile if any(term in text for term in profile.event_terms) else None
+
+
 def is_surf_event(event: dict[str, Any], activity: str = "") -> bool:
     """Return whether an event belongs to the surfing coverage contract."""
     if event.get("ride_segment"):
@@ -88,11 +104,12 @@ def is_surf_event(event: dict[str, Any], activity: str = "") -> bool:
 
 
 def is_explicit_failed_takeoff(event: dict[str, Any], activity: str = "") -> bool:
-    """Reject explicit no-ride evidence regardless of score."""
+    """Reject explicit no-ride evidence regardless of score (the matching profile's failed-attempt definition)."""
+    profile = coverage_profile(event, activity) or _SURFING_PROFILE
     reason = str(event.get("hard_reject_reason") or "").strip().lower()
-    if reason in {"failed_takeoff", "no_ride_established", "immediate_fall"}:
+    if reason in profile.failed_attempt_reasons:
         return True
-    return any(term in _text(event, activity) for term in _FAILED_TAKEOFF_TERMS)
+    return any(term in _text(event, activity) for term in profile.failed_attempt_terms)
 
 
 ELIGIBLE, INELIGIBLE, UNCERTAIN = "ELIGIBLE", "INELIGIBLE", "UNCERTAIN"
@@ -109,8 +126,8 @@ def classify_event_eligibility(event: dict[str, Any], activity: str = "") -> dic
     check of the footage (run 43725044948: 0095 and 0155 were rated 9 and 7 and described as real rides, and
     the human catalog excludes both).
     """
-    surf_event = is_surf_event(event, activity)
-    if surf_event and is_explicit_failed_takeoff(event, activity):
+    profile = coverage_profile(event, activity)
+    if profile is not None and is_explicit_failed_takeoff(event, activity):
         return {"verdict": INELIGIBLE, "basis": "explicit_no_ride_statement"}
     try:
         score = int(event.get("score", 0))
@@ -118,8 +135,9 @@ def classify_event_eligibility(event: dict[str, Any], activity: str = "") -> dic
         score = 0
     if score >= 6:
         return {"verdict": ELIGIBLE, "basis": "analyzer_score"}
-    if surf_event:
-        return {"verdict": UNCERTAIN, "basis": "surf_coverage_rule_without_positive_score"}
+    if profile is not None:
+        prefix = "surf" if profile.profile_id == "surfing" else profile.profile_id
+        return {"verdict": UNCERTAIN, "basis": f"{prefix}_coverage_rule_without_positive_score"}
     return {"verdict": INELIGIBLE, "basis": "score_below_threshold"}
 
 

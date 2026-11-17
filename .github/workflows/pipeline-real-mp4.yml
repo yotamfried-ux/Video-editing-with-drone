@@ -10,6 +10,13 @@ on:
       - 'pipeline/stages/editor.py'
       - 'integrations/ffmpeg.py'
       - 'pipeline/window_policy.py'
+      - 'scripts/test_football_profile_architecture_contract.py'
+      - 'pipeline/sport_profiles/**'
+      - 'pipeline/action_onset.py'
+      - 'pipeline/window_refinement.py'
+      - 'pipeline/complete_action_window_policy.py'
+      - 'pipeline/quality_preserving_framing.py'
+      - 'pipeline/performance_event.py'
   workflow_dispatch:
 
 permissions:
@@ -39,3 +46,4 @@ jobs:
         run: |
           python scripts/test_pipeline_real_mp4_renderer.py
           python scripts/test_pipeline_track_to_render_mp4.py
+          python scripts/test_football_profile_architecture_contract.py

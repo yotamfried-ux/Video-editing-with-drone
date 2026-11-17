@@ -1408,8 +1408,19 @@ def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
 # Description attributes are the analyzer's TEXT under varying light. A split on them alone is the safe default, but
 # the model clustering's proposal is not thrown away silently (FIX-PQ-10-003, PA-08 0097+0115: "dark swimsuit" vs
 # "no shirt"): it becomes an identity review request for the owner, at no model cost.
-_TEXT_ATTRIBUTE_REASONS = {"wetsuit_vs_bare_or_swimsuit_conflict", "conflicting_equipment_color",
-                           "incompatible_swimwear_or_category"}
+# Cycle 11: the set lives in the sport profile (pipeline/sport_profiles: surfing = these three; football = none,
+# because team kits make colour conflicts meaningless either way). Kept as the surfing alias for existing callers.
+from pipeline.sport_profiles.surfing import SURFING as _SURFING_PROFILE  # noqa: E402
+_TEXT_ATTRIBUTE_REASONS = set(_SURFING_PROFILE.reviewable_attribute_conflicts)
+
+
+def _reviewable_conflicts(cluster: dict) -> set[str]:
+    from pipeline.sport_profiles import GENERIC, default_profile, profile_for_event
+    events = [e for a in cluster.get("appearances", []) or [] for e in a.get("events", []) or [] if isinstance(e, dict)]
+    profile = profile_for_event(events[0]) if events else GENERIC
+    if profile is GENERIC:
+        profile = default_profile()
+    return set(profile.reviewable_attribute_conflicts)
 
 
 def _text_attribute_split_reviewed(cluster: dict, reasons: list[str]) -> bool:
@@ -1417,7 +1428,8 @@ def _text_attribute_split_reviewed(cluster: dict, reasons: list[str]) -> bool:
     Otherwise a PENDING request is recorded (REJECTED: nothing recorded) and the caller splits as before."""
     hard = set(reasons) & {"same_source_clip_conflict", "conflicting_jersey_or_bib_numbers",
                            "companion_solo_vs_tandem_conflict", "rejected_by_semantic_or_visual_verifier"}
-    if hard or not (set(reasons) & _TEXT_ATTRIBUTE_REASONS):
+    reviewable = _reviewable_conflicts(cluster)
+    if hard or not (set(reasons) & reviewable):
         return False
     apps = cluster.get("appearances", []) or []
     if len({a.get("_clip_index", a.get("path")) for a in apps}) < 2:
@@ -1426,7 +1438,7 @@ def _text_attribute_split_reviewed(cluster: dict, reasons: list[str]) -> bool:
         from pipeline import identity_review as review
         request = review.build_request(
             cluster, {"reason": "model clustering proposed one athlete; split on text attributes only ("
-                                + ", ".join(sorted(set(reasons) & _TEXT_ATTRIBUTE_REASONS)) + ")", "pairs": []},
+                                + ", ".join(sorted(set(reasons) & reviewable)) + ")", "pairs": []},
             model="identity_decision_engine.description_rules", prompt="text_attribute_split")
         decision = review.resolve(cluster, request)
         if decision == "APPROVED":

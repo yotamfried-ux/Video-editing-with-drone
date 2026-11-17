@@ -139,6 +139,17 @@ def refine_event_window(
         lead = _track_times(detections, str(track_id), max(0.0, setup - 0.5), start)
         if lead:
             measured["setup_first_track_sec"] = round(lead[0], 2)
+        # FIX-PQ-11-001: motion-supported onset (Core), parameters from the event's sport profile.
+        try:
+            from pipeline.action_onset import motion_supported_onset
+            from pipeline.sport_profiles import profile_for_event
+            onset = motion_supported_onset(detections, track_id, start=start, setup=setup,
+                                           policy=profile_for_event(event).onset)
+        except Exception:                       # evidence, never a reason to fail the window
+            onset = None
+        if onset and onset["onset_sec"] < start - 0.05:
+            measured["onset_motion_from_sec"] = onset["onset_sec"]
+            measured["onset_motion_steps"] = onset["steps"]
     new_start, new_end = start, end
     reasons: list[str] = []
     if first - start > tolerance:

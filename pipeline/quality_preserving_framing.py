@@ -110,6 +110,12 @@ def _visible_track_count(event: dict[str, Any]) -> int:
     return 1 if raw else 0
 
 
+def _profile_height_ratio(sport: str) -> float:
+    """Framing style from the sport profile (cycle 11; surfing 0.16, every other profile 0.18 as before)."""
+    from pipeline.sport_profiles import profile_for
+    return profile_for(sport).framing_subject_height_ratio
+
+
 def decide_framing(
     event: dict[str, Any],
     *,
@@ -160,7 +166,7 @@ def decide_framing(
     # The complete bound trajectory is checked before rendering; if it is not
     # reliable enough for a crop, preserve the full source frame instead.
 
-    desired_height_ratio = 0.16 if sport.lower() == "surfing" else 0.18
+    desired_height_ratio = _profile_height_ratio(sport)
     zoom = max(1.0, min(MAX_EMERGENCY_ZOOM, desired_height_ratio / max(height_ratio, 0.001)))
     return FramingDecision(
         mode="tracked_crop",
@@ -334,7 +340,7 @@ def _follow_decision(
     if len({round(sample["frame_width"], 3) for sample in reliable}) != 1 or len({round(sample["frame_height"], 3) for sample in reliable}) != 1:
         return None
     height_ratio = float(median(sample["y2"] - sample["y1"] for sample in reliable))
-    desired = 0.16 if sport.lower() == "surfing" else 0.18
+    desired = _profile_height_ratio(sport)
     zoom = round(max(1.0, min(MAX_FOLLOW_ZOOM, desired / max(height_ratio, 0.001))), 3)
     built = build_follow_path(reliable, start, end, zoom)
     if built is None:
