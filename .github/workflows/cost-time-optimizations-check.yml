@@ -65,6 +65,7 @@ on:
       - 'scripts/actor_correctness.py'
       - 'scripts/test_primary_athlete_binding_contract.py'
       - 'scripts/test_ride_validity_contract.py'
+      - 'scripts/test_singleton_pair_merge_contract.py'
       - 'pipeline/ride_validity.py'
       - 'scripts/primary_athlete_audit.py'
       - 'pipeline/perception/runtime.py'
@@ -348,6 +349,7 @@ jobs:
           python scripts/test_actor_correctness_contract.py
           python scripts/test_primary_athlete_binding_contract.py
           python scripts/test_ride_validity_contract.py
+          python scripts/test_singleton_pair_merge_contract.py
           python scripts/build_evidence_matrix.py --check
           python scripts/test_identity_review_contract.py
           python scripts/test_source_start_contract.py

@@ -1,0 +1,614 @@
+{
+ "schema": "sportreel.identity_cluster_check.v1",
+ "mode": "singleton_pairs",
+ "model": "gemini-2.5-flash",
+ "media_in_result": false,
+ "sheet": "production",
+ "note": "thumbnails built by the PRODUCTION builder (pipeline.runtime_quality._identity_sheet)",
+ "clusters": [
+  {
+   "pair": [
+    "0320faf2",
+    "2c2d2963"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "250c3592fd87"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "0320faf2",
+    "2f6a12b8"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "548cf4ffb308"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "0320faf2",
+    "3e28412e"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "b62c8aa0cb14"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "0320faf2",
+    "7134b1c4"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "207fe17c86b1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "0320faf2",
+    "7a93ddac"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "e01a614de605"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "0320faf2",
+    "ad592282"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "a683559526f1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "0320faf2",
+    "d95090d1"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "6d57d3835262"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "0320faf2",
+    "f8ee2933"
+   ],
+   "sources": [
+    "3311db2ed35d",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2c2d2963",
+    "2f6a12b8"
+   ],
+   "sources": [
+    "250c3592fd87",
+    "548cf4ffb308"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2c2d2963",
+    "3e28412e"
+   ],
+   "sources": [
+    "250c3592fd87",
+    "b62c8aa0cb14"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2c2d2963",
+    "7134b1c4"
+   ],
+   "sources": [
+    "250c3592fd87",
+    "207fe17c86b1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2c2d2963",
+    "7a93ddac"
+   ],
+   "sources": [
+    "250c3592fd87",
+    "e01a614de605"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2c2d2963",
+    "ad592282"
+   ],
+   "sources": [
+    "250c3592fd87",
+    "a683559526f1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2c2d2963",
+    "d95090d1"
+   ],
+   "sources": [
+    "250c3592fd87",
+    "6d57d3835262"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2c2d2963",
+    "f8ee2933"
+   ],
+   "sources": [
+    "250c3592fd87",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2f6a12b8",
+    "3e28412e"
+   ],
+   "sources": [
+    "548cf4ffb308",
+    "b62c8aa0cb14"
+   ],
+   "gt": "same_athlete",
+   "verdict": "MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2f6a12b8",
+    "7134b1c4"
+   ],
+   "sources": [
+    "548cf4ffb308",
+    "207fe17c86b1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2f6a12b8",
+    "7a93ddac"
+   ],
+   "sources": [
+    "548cf4ffb308",
+    "e01a614de605"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2f6a12b8",
+    "ad592282"
+   ],
+   "sources": [
+    "548cf4ffb308",
+    "a683559526f1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2f6a12b8",
+    "d95090d1"
+   ],
+   "sources": [
+    "548cf4ffb308",
+    "6d57d3835262"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "2f6a12b8",
+    "f8ee2933"
+   ],
+   "sources": [
+    "548cf4ffb308",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "3e28412e",
+    "7134b1c4"
+   ],
+   "sources": [
+    "b62c8aa0cb14",
+    "207fe17c86b1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "3e28412e",
+    "7a93ddac"
+   ],
+   "sources": [
+    "b62c8aa0cb14",
+    "e01a614de605"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "3e28412e",
+    "ad592282"
+   ],
+   "sources": [
+    "b62c8aa0cb14",
+    "a683559526f1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "3e28412e",
+    "d95090d1"
+   ],
+   "sources": [
+    "b62c8aa0cb14",
+    "6d57d3835262"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "3e28412e",
+    "f8ee2933"
+   ],
+   "sources": [
+    "b62c8aa0cb14",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "7134b1c4",
+    "7a93ddac"
+   ],
+   "sources": [
+    "207fe17c86b1",
+    "e01a614de605"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "7134b1c4",
+    "ad592282"
+   ],
+   "sources": [
+    "207fe17c86b1",
+    "a683559526f1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "7134b1c4",
+    "d95090d1"
+   ],
+   "sources": [
+    "207fe17c86b1",
+    "6d57d3835262"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "7134b1c4",
+    "f8ee2933"
+   ],
+   "sources": [
+    "207fe17c86b1",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "7a93ddac",
+    "ad592282"
+   ],
+   "sources": [
+    "e01a614de605",
+    "a683559526f1"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "7a93ddac",
+    "d95090d1"
+   ],
+   "sources": [
+    "e01a614de605",
+    "6d57d3835262"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "7a93ddac",
+    "f8ee2933"
+   ],
+   "sources": [
+    "e01a614de605",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "different",
+   "verdict": "REVIEW",
+   "reason": "",
+   "pair_decisions": [
+    "REVIEW"
+   ]
+  },
+  {
+   "pair": [
+    "ad592282",
+    "d95090d1"
+   ],
+   "sources": [
+    "a683559526f1",
+    "6d57d3835262"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "ad592282",
+    "f8ee2933"
+   ],
+   "sources": [
+    "a683559526f1",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "different",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  },
+  {
+   "pair": [
+    "d95090d1",
+    "f8ee2933"
+   ],
+   "sources": [
+    "6d57d3835262",
+    "f6ac72f8aeb5"
+   ],
+   "gt": "unlabelled",
+   "verdict": "NO_MATCH",
+   "reason": "",
+   "pair_decisions": [
+    "NO_MATCH"
+   ]
+  }
+ ],
+ "cost": {
+  "calls": 72,
+  "tokens_in": 54864,
+  "tokens_out": 71133,
+  "estimated_usd": 0.1943,
+  "cap_usd": 0.35
+ },
+ "experiment": "EXP-08-002",
+ "github_run": "44068576343",
+ "executed_code_sha": "58bb8a1590769195b69d0b189c26923e88896ef4",
+ "diagnostics_run": "43920602179",
+ "artifact_id": 14321178678,
+ "summary": {
+  "pairs": 36,
+  "by_gt_and_verdict": {
+   "different:NO_MATCH": 26,
+   "unlabelled:NO_MATCH": 8,
+   "same_athlete:MATCH": 1,
+   "different:REVIEW": 1
+  },
+  "false_merges": 0,
+  "recovered_splits": [
+   [
+    "548cf4ffb308",
+    "b62c8aa0cb14"
+   ]
+  ]
+ }
+}

@@ -198,3 +198,74 @@ def verify_multi_clusters(clusters: list[dict[str, Any]], *, ask: Ask, split_to_
                 review.record_request(request)
                 out.append(dict(cluster, _identity_review=request["request_id"]))
     return out
+
+
+SINGLETON_PAIRS_MAX_DEFAULT = 45     # 10 single-source clusters; measured 36 pairs = $0.19 (EXP-08-002)
+
+
+def singleton_pairs_max() -> int:
+    """SPORTREEL_SINGLETON_PAIRS_MAX (0 disables the stage)."""
+    try:
+        return max(0, int(os.environ.get("SPORTREEL_SINGLETON_PAIRS_MAX", str(SINGLETON_PAIRS_MAX_DEFAULT))))
+    except ValueError:
+        return SINGLETON_PAIRS_MAX_DEFAULT
+
+
+def merge_verified_singletons(clusters: list[dict[str, Any]], *, ask: Ask, model: str = "gemini-2.5-flash",
+                              max_pairs: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Propose cross-source pairs of SINGLE-SOURCE clusters to the same fail-closed pairwise verifier.
+
+    Root cause (PA-08, 0097+0115): one athlete filmed in two clips under different light got two descriptions
+    ("dark swimsuit" vs "no shirt"); the description-based clustering never put the clips together, so the
+    pairwise verifier, which only checks clusters it is given, never saw the pair and the athlete got two reels.
+    Here every cross-source pair of single-source clusters is verified (both image orders, production sheets).
+    Clusters are merged only through MATCH edges, and a group grows only if EVERY pair inside it is a MATCH (no
+    transitive merge); NO_MATCH / REVIEW / errors leave the clusters as they were (split = the previous behaviour).
+    More candidate pairs than `max_pairs` -> the stage is skipped (cost bound), never a partial guess.
+    Returns (clusters, report).
+    """
+    from pipeline import identity_evidence as ev
+
+    limit = singleton_pairs_max() if max_pairs is None else max_pairs
+    report: dict[str, Any] = {"stage": "singleton_pair_merge", "pairs": 0, "merged_groups": [], "skipped": ""}
+
+    def sources(c: dict[str, Any]) -> set[str]:
+        return {os.path.basename(str(a.get("path") or "")) for a in (c.get("appearances") or [])}
+
+    singles = [i for i, c in enumerate(clusters) if len(c.get("appearances") or []) >= 1 and len(sources(c)) == 1]
+    candidates = [(i, j) for k, i in enumerate(singles) for j in singles[k + 1:] if sources(clusters[i]) != sources(clusters[j])]
+    if not candidates:
+        return clusters, dict(report, skipped="no_candidate_pairs")
+    if limit <= 0 or len(candidates) > limit:
+        return clusters, dict(report, skipped=f"candidate_pairs_{len(candidates)}_over_limit_{limit}")
+    verdicts: dict[tuple[int, int], dict[str, Any]] = {}
+    for i, j in candidates:
+        verdicts[(i, j)] = verify_cluster({"appearances": list(clusters[i]["appearances"]) + list(clusters[j]["appearances"])}, ask)
+    report["pairs"] = len(candidates)
+    report["verdicts"] = {f"{i}-{j}": v["verdict"] for (i, j), v in verdicts.items()}
+    groups: list[list[int]] = []
+    for (i, j), v in sorted(verdicts.items()):
+        if v["verdict"] != "MATCH":
+            continue
+        gi = next((g for g in groups if i in g), None)
+        gj = next((g for g in groups if j in g), None)
+        if gi is not None and gi is gj:
+            continue
+        merged = sorted(set((gi or [i]) + (gj or [j])))
+        if all(verdicts.get((a, b), {}).get("verdict") == "MATCH" for k, a in enumerate(merged) for b in merged[k + 1:]
+               if sources(clusters[a]) != sources(clusters[b])):
+            groups = [g for g in groups if g is not gi and g is not gj] + [merged]
+    if not groups:
+        return clusters, report
+    used = {i for g in groups for i in g}
+    out = [c for k, c in enumerate(clusters) if k not in used]
+    for g in groups:
+        base = dict(clusters[g[0]])
+        base["appearances"] = [a for k in g for a in (clusters[k].get("appearances") or [])]
+        base = ev.clear(base)
+        results = [p for k, a in enumerate(g) for b in g[k + 1:] if (a, b) in verdicts for p in verdicts[(a, b)]["pairs"]]
+        keys = [ev.member_key(app) for app in base["appearances"]]
+        images = {key: app.get("thumbnail") for key, app in zip(keys, base["appearances"])}
+        out.append(ev.stamp_pairwise(base, results, model=model, member_images=images))
+        report["merged_groups"].append(sorted(s for k in g for s in sources(clusters[k])))
+    return out, report

@@ -1194,8 +1194,14 @@ def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
     """
     from pipeline import identity_pair_consensus
 
-    return identity_pair_consensus.verify_multi_clusters(
+    verified = identity_pair_consensus.verify_multi_clusters(
         clusters, ask=_consensus_ask, split_to_singles=_split_cluster_to_singles)
+    # Single-source clusters the description-based clustering kept apart (PA-08, 0097+0115) are proposed to the same
+    # fail-closed pairwise verifier; only all-MATCH groups merge (EXP-08-002: 1 split recovered, 0 false merges / 36).
+    merged, report = identity_pair_consensus.merge_verified_singletons(verified, ask=_consensus_ask)
+    if report.get("merged_groups") or report.get("skipped"):
+        print(f"🔗 singleton pair merge: {report.get('merged_groups') or report.get('skipped')}")
+    return merged
 
 
 _MERGE_CHECK_PROMPT = """\
