@@ -29,6 +29,42 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **Evidence:** EVD-07-003, EVD-07-002
 - **Limits:** Correction validated against source-frame/GT overlays from the historic EDL, not against a decoded final MP4 produced by the fixed pipeline. Do not label the corrected candidate RENDERED_MEDIA_VERIFIED or PRODUCTION_QUALIFIED.
 
+### FIX-PQ-08-001 — Ride-validity gate after selection (0155 failed take-off)
+
+- **Gap:** PA-04 · **Classification:** PIPELINE_DEFECT · **Status:** `FAILED`
+- **Root cause:** Analyzer answer for 0155 changed on cache rebuild (11-15); no later check of whether the target actually rode
+- **Fix:** [pipeline/ride_validity.py @42609b95](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/42609b95880194308505e7534e8caf981717e484/pipeline/ride_validity.py): verify_window / parse_verdict / decide; reject only on high-confidence 'never stood'. NOT WIRED into the pipeline.
+- **Commit:** 42609b95880194308505e7534e8caf981717e484
+- **Experiments:** EXP-08-001 (run 44067400479 @42609b95), contract scripts/test_ride_validity_contract.py V1-V7
+- **Before:** 0155 selected in 43920602179
+- **After:** verifier kept 0155 in 3/3 calls and rejected a GT-valid prone ride twice
+- **Evidence:** EVD-08-001
+- **Limits:** Premise wrong: GT counts prone riding (0094 d805a9b1) as valid, so 'stood up' is not the validity criterion; 2 negative windows only. Not adopted; no further prompt iteration on the same negatives (would tune on the test).
+
+### FIX-PQ-08-002 — Paddle-in start: analyzer setup_start beyond the 2 s cap when a same-body chain proves presence (candidate)
+
+- **Gap:** PA-09 · **Classification:** PIPELINE_DEFECT · **Status:** `REPLAYED`
+- **Root cause:** Not detector recall: the paddler is detected from frame 0 but split across track fragments; complete_action_window_policy.extend_to_setup caps the lead-in at 2 s and bounds it by the bound track's first detection
+- **Fix:** Replay-only candidate [scripts/paddle_in_replay.py @2e884ddc](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/2e884ddc/scripts/paddle_in_replay.py); production code unchanged
+- **Commit:** 2e884ddc
+- **Experiments:** EXP-08-003
+- **Before:** within 0.5 s: 15/22; 0115 +4.43 s
+- **After:** within 0.5 s: 18/22; 0115 -0.07 s; 0140 -0.37 -> -1.77 s (regression)
+- **Evidence:** EVD-08-003, EVD-08-004
+- **Limits:** NOT ADOPTED: one regression on a negative control (analyzer setup_start includes waiting on 0140). Needs an owner decision on the trade-off or a waiting/paddling signal; no render.
+
+### FIX-PQ-08-003 — Verify cross-source pairs of single-source clusters (0097+0115 split)
+
+- **Gap:** PA-08 · **Classification:** PIPELINE_DEFECT · **Status:** `TESTED`
+- **Root cause:** Description-based clustering kept one athlete apart under different light; pairwise verifier only checks clusters it is given
+- **Fix:** [pipeline/identity_pair_consensus.py::merge_verified_singletons @693e7f6a](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/693e7f6a9bc1dcc243851e57367cfdff654ffabe/pipeline/identity_pair_consensus.py), called from [pipeline/stages/identity.py::_verify_multi_clusters](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/693e7f6a9bc1dcc243851e57367cfdff654ffabe/pipeline/stages/identity.py); all-MATCH groups only, pair cap SPORTREEL_SINGLETON_PAIRS_MAX=45
+- **Commit:** 693e7f6a9bc1dcc243851e57367cfdff654ffabe
+- **Experiments:** EXP-08-002 (run 44068576343 @58bb8a15: production verifier, before the merge function existed), contract scripts/test_singleton_pair_merge_contract.py S1-S6 (red on old path), identity contracts unchanged green
+- **Before:** 0097 and 0115 in two reels (43920602179)
+- **After:** verifier: 0097+0115 MATCH, 0/34 false merges among different/unlabelled pairs, 1 REVIEW kept apart
+- **Evidence:** EVD-08-002
+- **Limits:** The model experiment ran the unchanged production verifier at 58bb8a15; the merge function (693e7f6a) is proven by contract only. No pipeline run / rendered merged reel yet (blocked: BLK-08-001). Single positive pair; not holdout. Added cost ~ $0.19 per 36 pairs per run.
+
 ## Gaps
 
 | ID | Case | Product | Classification | Status | Finding | Next |
@@ -69,9 +105,15 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-07-004 | contract | Primary-athlete binding scenarios P1-P8 (synthetic tracks through the production binding functions) | scripts/test_primary_athlete_binding_contract.py |
 | EVD-07-005 | replay | Historic binding replay across seven runs; zero newly ambiguous windows out of 167 (denominator reconciled 2026-11-17: the report's 166 was an arithmetic error; per-run 23+23+24+24+24+24+25=167; re-run with per-window output in binding_replay_2026-11-17_reconciled.json); crop hints are proxied. Not a production or holdout proof. | evaluation/evidence/binding_replay_2026-11-17.json |
 | EVD-07-006 | visual_identity | GT-box crops side by side: 0143 vs 0152 and 0097 vs 0115 | derived from EVD-07-001 (session scratch); sent to the owner |
+| EVD-08-000 | replay | Binding-separability replay re-run with per-window output: 167 windows (7 runs), 167 separable, 0 ambiguous; reconciles the 166/167 denominator (166 was an addition error) | evaluation/evidence/binding_replay_2026-11-17_reconciled.json |
+| EVD-08-001 | model_experiment | EXP-08-001 ride-validity verifier on 25 selected windows x2 + GT controls: FAILED pre-registered conditions (0155 kept 3/3, 2 FP on the GT-valid prone ride of d805a9b1 in 0094, stable 24/24); $0.186 | GitHub Actions run 44067400479, artifact identity-pair-experiment-ridevalid id 14320754713 (sha256:e6f6691dc7bff00368dc156bb885e4b5025910369e0056f048a057ce687c42f6); copy evaluation/ride_validity/exp08_001_result_run44067400479.json |
+| EVD-08-002 | model_experiment | EXP-08-002 production pairwise identity verifier on all 36 pairs of the 9 single-source reels of 43920602179: 0097+0115 MATCH (only same-athlete pair), 0 false merges, 1 REVIEW (different athletes, not merged); $0.1943 | GitHub Actions run 44068576343, artifact id 14321178678 (sha256:e632cd30d35e0338be960fe7cc5e61a275cb735935f80e12d45a8e90faeaac1a); copy evaluation/identity_experiment/cycle8_exp08_002_singleton_pairs.json |
+| EVD-08-003 | replay | EXP-08-003 paddle-in start candidate vs current code on 43920602179: 22 rides, 4 improved (0115 +4.36 s, 0094 +2.0, 0142 +1.2, 0070 +0.8), within 0.5 s 15->18, 1 regression on negative control 0140 (+1.4 s waiting); 43583126199 NOT_COMPARABLE (no per-event tracks) | evaluation/boundary_experiment/exp08_003_paddle_in_replay_43920602179.json |
+| EVD-08-004 | measurement | Negative results: detector box h/w does not separate standing ride from failed take-off (valid top-down rides 0.92-1.05 vs 0155 1.02); neither box shape nor image speed separates waiting from paddling. Detector DOES see the 0115 paddler from frame 0 (tracks 3/10003/10043 inside the GT box), correcting the cycle-3 recall root cause | cycle-8 report (session measurement on 43920602179 sidecars + private GT boxes; aggregate only) |
 
 ## Blockers
 
 - **BLK-07-001** Durable storage of overlay videos: the overlays need the private GT boxes, which are not in CI and not committed. Options: (a) owner approves writing evidence objects to R2 under an evidence/ prefix, (b) a Supabase read secret in CI. Both need explicit approval.
 - **BLK-07-002** Owner decisions: PA-01 (reels for uncatalogued riders), PA-03 (0094 GT end 13.2 s vs standing to ~16 s), PA-07 REVIEW outcome.
 - **BLK-07-003** No controlled candidate pipeline run or decoded final render yet. On 2026-11-17 owner authorized a NEW capped experiment campaign of up to $2 incremental total; do not spend without per-run enforcement and attribution. This is not a GO or automatic authorization to publish.
+- **BLK-08-001** End-to-end integration (pipeline run -> new EDL -> rendered MP4 -> Review screen) for FIX-PQ-08-003 and later fixes: re-running the same 24 sources needs Run Pipeline with reset=true, which moves PROCESSED->RAW and DELETES current REVIEW drafts (destructive) and lands drafts on the operator Review screen. Requires the owner's explicit approval. Estimated model cost ~$0.5-0.7 (warm cache: logged $0.23 for 43920602179 + identity/singleton calls).

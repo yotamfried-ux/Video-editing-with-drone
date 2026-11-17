@@ -90,6 +90,52 @@
       "proof_scope": "SOURCE_CROP_VISUAL_ONLY",
       "producer_code_sha": null,
       "provenance_gap": "Side-by-side source crops were shared in session but not archived with exact inputs/digests."
+    },
+    {
+      "id": "EVD-08-000",
+      "kind": "replay",
+      "what": "Binding-separability replay re-run with per-window output: 167 windows (7 runs), 167 separable, 0 ambiguous; reconciles the 166/167 denominator (166 was an addition error)",
+      "where": "evaluation/evidence/binding_replay_2026-11-17_reconciled.json",
+      "produced_by": "scripts/binding_replay.py",
+      "executed_code_sha": "cfae2c10127298a61531697c18963e9e432343e8",
+      "proof_scope": "EDL_SIDECAR_REPLAY (crop hint proxied)"
+    },
+    {
+      "id": "EVD-08-001",
+      "kind": "model_experiment",
+      "what": "EXP-08-001 ride-validity verifier on 25 selected windows x2 + GT controls: FAILED pre-registered conditions (0155 kept 3/3, 2 FP on the GT-valid prone ride of d805a9b1 in 0094, stable 24/24); $0.186",
+      "where": "GitHub Actions run 44067400479, artifact identity-pair-experiment-ridevalid id 14320754713 (sha256:e6f6691dc7bff00368dc156bb885e4b5025910369e0056f048a057ce687c42f6); copy evaluation/ride_validity/exp08_001_result_run44067400479.json",
+      "produced_by": "scripts/ride_validity_experiment.py -> pipeline/ride_validity.verify_window",
+      "executed_code_sha": "42609b95880194308505e7534e8caf981717e484",
+      "model": "gemini-2.5-flash (52 calls, temperature 0, media resolution LOW)",
+      "proof_scope": "MODEL_ON_SOURCE_PROXY_CLIPS (no render)"
+    },
+    {
+      "id": "EVD-08-002",
+      "kind": "model_experiment",
+      "what": "EXP-08-002 production pairwise identity verifier on all 36 pairs of the 9 single-source reels of 43920602179: 0097+0115 MATCH (only same-athlete pair), 0 false merges, 1 REVIEW (different athletes, not merged); $0.1943",
+      "where": "GitHub Actions run 44068576343, artifact id 14321178678 (sha256:e632cd30d35e0338be960fe7cc5e61a275cb735935f80e12d45a8e90faeaac1a); copy evaluation/identity_experiment/cycle8_exp08_002_singleton_pairs.json",
+      "produced_by": "scripts/identity_pair_experiment.py --singleton-pairs -> pipeline.identity_pair_consensus.verify_cluster + runtime_quality._identity_sheet",
+      "executed_code_sha": "58bb8a1590769195b69d0b189c26923e88896ef4",
+      "model": "gemini-2.5-flash (72 calls, temperature 0)",
+      "proof_scope": "PRODUCTION_VERIFIER_ON_REAL_SHEETS (merge function itself covered by contract only; no pipeline run, no render)"
+    },
+    {
+      "id": "EVD-08-003",
+      "kind": "replay",
+      "what": "EXP-08-003 paddle-in start candidate vs current code on 43920602179: 22 rides, 4 improved (0115 +4.36 s, 0094 +2.0, 0142 +1.2, 0070 +0.8), within 0.5 s 15->18, 1 regression on negative control 0140 (+1.4 s waiting); 43583126199 NOT_COMPARABLE (no per-event tracks)",
+      "where": "evaluation/boundary_experiment/exp08_003_paddle_in_replay_43920602179.json",
+      "produced_by": "scripts/paddle_in_replay.py (production extend_to_setup / extend_to_recording_start)",
+      "executed_code_sha": "2e884ddc",
+      "proof_scope": "EDL_SIDECAR_REPLAY"
+    },
+    {
+      "id": "EVD-08-004",
+      "kind": "measurement",
+      "what": "Negative results: detector box h/w does not separate standing ride from failed take-off (valid top-down rides 0.92-1.05 vs 0155 1.02); neither box shape nor image speed separates waiting from paddling. Detector DOES see the 0115 paddler from frame 0 (tracks 3/10003/10043 inside the GT box), correcting the cycle-3 recall root cause",
+      "where": "cycle-8 report (session measurement on 43920602179 sidecars + private GT boxes; aggregate only)",
+      "produced_by": "session scripts (not committed: read private GT boxes)",
+      "proof_scope": "SIDECAR_MEASUREMENT"
     }
   ],
   "fixes": [
@@ -154,6 +200,67 @@
         "PQ-22"
       ],
       "limits": "Correction validated against source-frame/GT overlays from the historic EDL, not against a decoded final MP4 produced by the fixed pipeline. Do not label the corrected candidate RENDERED_MEDIA_VERIFIED or PRODUCTION_QUALIFIED."
+    },
+    {
+      "id": "FIX-PQ-08-001",
+      "gap": "PA-04",
+      "title": "Ride-validity gate after selection (0155 failed take-off)",
+      "root_cause": "Analyzer answer for 0155 changed on cache rebuild (11-15); no later check of whether the target actually rode",
+      "change": "[pipeline/ride_validity.py @42609b95](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/42609b95880194308505e7534e8caf981717e484/pipeline/ride_validity.py): verify_window / parse_verdict / decide; reject only on high-confidence 'never stood'. NOT WIRED into the pipeline.",
+      "commit": "42609b95880194308505e7534e8caf981717e484",
+      "experiments": [
+        "EXP-08-001 (run 44067400479 @42609b95)",
+        "contract scripts/test_ride_validity_contract.py V1-V7"
+      ],
+      "before": "0155 selected in 43920602179",
+      "after": "verifier kept 0155 in 3/3 calls and rejected a GT-valid prone ride twice",
+      "evidence": [
+        "EVD-08-001"
+      ],
+      "status": "FAILED",
+      "classification": "PIPELINE_DEFECT",
+      "limits": "Premise wrong: GT counts prone riding (0094 d805a9b1) as valid, so 'stood up' is not the validity criterion; 2 negative windows only. Not adopted; no further prompt iteration on the same negatives (would tune on the test)."
+    },
+    {
+      "id": "FIX-PQ-08-002",
+      "gap": "PA-09",
+      "title": "Paddle-in start: analyzer setup_start beyond the 2 s cap when a same-body chain proves presence (candidate)",
+      "root_cause": "Not detector recall: the paddler is detected from frame 0 but split across track fragments; complete_action_window_policy.extend_to_setup caps the lead-in at 2 s and bounds it by the bound track's first detection",
+      "change": "Replay-only candidate [scripts/paddle_in_replay.py @2e884ddc](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/2e884ddc/scripts/paddle_in_replay.py); production code unchanged",
+      "commit": "2e884ddc",
+      "experiments": [
+        "EXP-08-003"
+      ],
+      "before": "within 0.5 s: 15/22; 0115 +4.43 s",
+      "after": "within 0.5 s: 18/22; 0115 -0.07 s; 0140 -0.37 -> -1.77 s (regression)",
+      "evidence": [
+        "EVD-08-003",
+        "EVD-08-004"
+      ],
+      "status": "REPLAYED",
+      "classification": "PIPELINE_DEFECT",
+      "limits": "NOT ADOPTED: one regression on a negative control (analyzer setup_start includes waiting on 0140). Needs an owner decision on the trade-off or a waiting/paddling signal; no render."
+    },
+    {
+      "id": "FIX-PQ-08-003",
+      "gap": "PA-08",
+      "title": "Verify cross-source pairs of single-source clusters (0097+0115 split)",
+      "root_cause": "Description-based clustering kept one athlete apart under different light; pairwise verifier only checks clusters it is given",
+      "change": "[pipeline/identity_pair_consensus.py::merge_verified_singletons @693e7f6a](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/693e7f6a9bc1dcc243851e57367cfdff654ffabe/pipeline/identity_pair_consensus.py), called from [pipeline/stages/identity.py::_verify_multi_clusters](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/693e7f6a9bc1dcc243851e57367cfdff654ffabe/pipeline/stages/identity.py); all-MATCH groups only, pair cap SPORTREEL_SINGLETON_PAIRS_MAX=45",
+      "commit": "693e7f6a9bc1dcc243851e57367cfdff654ffabe",
+      "experiments": [
+        "EXP-08-002 (run 44068576343 @58bb8a15: production verifier, before the merge function existed)",
+        "contract scripts/test_singleton_pair_merge_contract.py S1-S6 (red on old path)",
+        "identity contracts unchanged green"
+      ],
+      "before": "0097 and 0115 in two reels (43920602179)",
+      "after": "verifier: 0097+0115 MATCH, 0/34 false merges among different/unlabelled pairs, 1 REVIEW kept apart",
+      "evidence": [
+        "EVD-08-002"
+      ],
+      "status": "TESTED",
+      "classification": "PIPELINE_DEFECT",
+      "limits": "The model experiment ran the unchanged production verifier at 58bb8a15; the merge function (693e7f6a) is proven by contract only. No pipeline run / rendered merged reel yet (blocked: BLK-08-001). Single positive pair; not holdout. Added cost ~ $0.19 per 36 pairs per run."
     }
   ],
   "gaps": [
@@ -210,7 +317,8 @@
         "EVD-07-002",
         "EVD-07-003"
       ],
-      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
+      "cycle8": "Not fixed. EXP-08-001 'ride_end' answers: median |err| ~0.8 s on valid windows but large outliers (4.4, 5.6, 16.4 s), and it called the 0094 A tail (13.2-22 s) and the 0108 tail 'still riding' - no usable end signal; no cut moved."
     },
     {
       "id": "PA-04",
@@ -229,7 +337,8 @@
         "EVD-07-002",
         "EVD-07-003"
       ],
-      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
+      "cycle8": "EXP-08-001 FAILED (FIX-PQ-08-001 not adopted). Owner definition needed: GT treats prone riding as valid, so the line between a failed take-off and a ride is not 'standing'."
     },
     {
       "id": "PA-05",
@@ -257,7 +366,8 @@
         "EVD-07-002",
         "EVD-07-003"
       ],
-      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
+      "cycle8": "Not fixed. EXP-08-001 'ride_end' answers: median |err| ~0.8 s on valid windows but large outliers (4.4, 5.6, 16.4 s), and it called the 0094 A tail (13.2-22 s) and the 0108 tail 'still riding' - no usable end signal; no cut moved."
     },
     {
       "id": "PA-07",
@@ -284,7 +394,8 @@
         "EVD-07-006",
         "EVD-07-003"
       ],
-      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
+      "cycle8": "FIX-PQ-08-003 TESTED: production verifier MATCHes 0097+0115 (EXP-08-002), merge stage wired; integration render blocked (BLK-08-001)."
     },
     {
       "id": "PA-09",
@@ -298,7 +409,8 @@
       "evidence": [
         "EVD-07-001"
       ],
-      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
+      "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
+      "cycle8": "Root cause corrected (not recall). Candidate FIX-PQ-08-002 REPLAYED: +4 rides, 1 regression (0140); not adopted."
     },
     {
       "id": "PA-10",
@@ -387,6 +499,10 @@
     {
       "id": "BLK-07-003",
       "what": "No controlled candidate pipeline run or decoded final render yet. On 2026-11-17 owner authorized a NEW capped experiment campaign of up to $2 incremental total; do not spend without per-run enforcement and attribution. This is not a GO or automatic authorization to publish."
+    },
+    {
+      "id": "BLK-08-001",
+      "what": "End-to-end integration (pipeline run -> new EDL -> rendered MP4 -> Review screen) for FIX-PQ-08-003 and later fixes: re-running the same 24 sources needs Run Pipeline with reset=true, which moves PROCESSED->RAW and DELETES current REVIEW drafts (destructive) and lands drafts on the operator Review screen. Requires the owner's explicit approval. Estimated model cost ~$0.5-0.7 (warm cache: logged $0.23 for 43920602179 + identity/singleton calls)."
     }
   ],
   "proof_policy": {
@@ -400,7 +516,14 @@
     "new_experiment_cap_usd": 2,
     "meaning": "New incremental ceiling of USD 2 total for a bounded evidence-producing experiment campaign; not USD 2 per retry. Includes paid model and marginal cloud costs. Existing costs before authorization are historical, not treated as available credit.",
     "mandatory_controls": "Record spend before/after each paid action; no auto-publish, no production GT mutations, no uncapped job retries. Stop at hard limit; report any provider costs that cannot be bounded.",
-    "exact_spend_usd": null
+    "exact_spend_usd": null,
+    "cycle8_spend": {
+      "EXP-08-001": 0.186,
+      "EXP-08-002": 0.1943,
+      "total_estimated_usd": 0.3803,
+      "remaining_of_2_usd": 1.6197,
+      "basis": "list-price estimate from recorded tokens; reconcile with billing"
+    }
   },
   "next_priorities": [
     {

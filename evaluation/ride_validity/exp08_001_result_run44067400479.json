@@ -1,0 +1,2257 @@
+{
+ "schema": "sportreel.ride_validity_experiment.v1",
+ "experiment": "EXP-08-001",
+ "executed_code_sha": "42609b95880194308505e7534e8caf981717e484",
+ "model": "gemini-2.5-flash",
+ "model_versions": {
+  "gemini-2.5-flash": 52
+ },
+ "prompt_version": "ride-validity-v1",
+ "decision_rule": {
+  "min_standing_sec": 1.0,
+  "reject_only_confidence": "high"
+ },
+ "clip": {
+  "pad_sec": 0.5,
+  "fps": 4,
+  "media_resolution": "MEDIA_RESOLUTION_LOW"
+ },
+ "reps": 2,
+ "gt": "GT-v1 frozen ae844a94 / b31fd9b4\u202627c9 (scoring only)",
+ "media_in_result": false,
+ "summary": {
+  "rows": 54,
+  "scored": 47,
+  "false_positive_valid_rejected": 2,
+  "true_positive_invalid_rejected": 0,
+  "false_negative_invalid_kept": 3,
+  "windows_stable": 24,
+  "windows": 24,
+  "status_counts": {
+   "verified_ride": 50,
+   "rejected": 2
+  },
+  "ride_end_abs_err_sec": [
+   0.15,
+   0.19,
+   0.27,
+   0.27,
+   0.33,
+   0.33,
+   0.46,
+   0.48,
+   0.48,
+   0.53,
+   0.54,
+   0.64,
+   0.64,
+   0.64,
+   0.64,
+   0.81,
+   0.81,
+   0.88,
+   0.88,
+   1.23,
+   1.33,
+   1.33,
+   1.41,
+   1.54,
+   1.54,
+   1.58,
+   1.58,
+   1.73,
+   2.27,
+   2.27,
+   2.51,
+   2.51,
+   4.41,
+   5.55,
+   16.39,
+   16.39
+  ]
+ },
+ "cost": {
+  "calls": 52,
+  "tokens_in": 199518,
+  "tokens_out": 50442,
+  "estimated_usd": 0.186,
+  "cap_usd": 0.8
+ },
+ "rows": [
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "track_id": "10013",
+   "window_sec": [
+    1.5,
+    10.5
+   ],
+   "gt_athlete": "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c",
+   "label": "valid",
+   "label_detail": {
+    "include": 91
+   },
+   "rep": 0,
+   "gt_end_sec": 10.643966666666667,
+   "calls": [
+    {
+     "latency_sec": 7.2,
+     "usd": 0.00401,
+     "tokens_in": 3372,
+     "tokens_out": 1199
+    }
+   ],
+   "clip_sec": [
+    1.0,
+    10.64
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 8.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": 9.0,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:01 and rides the wave standing until the clip ends at 0:09."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 10.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "track_id": "10013",
+   "window_sec": [
+    1.5,
+    10.5
+   ],
+   "gt_athlete": "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c",
+   "label": "valid",
+   "label_detail": {
+    "include": 91
+   },
+   "rep": 1,
+   "gt_end_sec": 10.643966666666667,
+   "calls": [
+    {
+     "latency_sec": 7.1,
+     "usd": 0.00401,
+     "tokens_in": 3372,
+     "tokens_out": 1199
+    }
+   ],
+   "clip_sec": [
+    1.0,
+    10.64
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 8.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": 9.0,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:01 and rides the wave standing until the clip ends at 0:09."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 10.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "track_id": "37",
+   "window_sec": [
+    4.0,
+    22.0
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 93,
+    "none": 87
+   },
+   "rep": 0,
+   "gt_end_sec": 13.229883333333333,
+   "calls": [
+    {
+     "latency_sec": 8.1,
+     "usd": 0.0047,
+     "tokens_in": 6371,
+     "tokens_out": 1114
+    }
+   ],
+   "clip_sec": [
+    3.5,
+    22.5
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 10.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 12.0,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:02 and rides the wave standing until it dissipates around 0:12."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 15.5
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "track_id": "37",
+   "window_sec": [
+    4.0,
+    22.0
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 93,
+    "none": 87
+   },
+   "rep": 1,
+   "gt_end_sec": 13.229883333333333,
+   "calls": [
+    {
+     "latency_sec": 6.3,
+     "usd": 0.0047,
+     "tokens_in": 6371,
+     "tokens_out": 1114
+    }
+   ],
+   "clip_sec": [
+    3.5,
+    22.5
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 10.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 12.0,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:02 and rides the wave standing until it dissipates around 0:12."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 15.5
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "track_id": "154",
+   "window_sec": [
+    27.0,
+    35.5
+   ],
+   "gt_athlete": "d805a9b1-5786-43e8-b968-a078f77ac32e",
+   "label": "valid",
+   "label_detail": {
+    "include": 85
+   },
+   "rep": 0,
+   "gt_end_sec": 36.68665,
+   "calls": [
+    {
+     "latency_sec": 4.9,
+     "usd": 0.00248,
+     "tokens_in": 3297,
+     "tokens_out": 597
+    }
+   ],
+   "clip_sec": [
+    26.5,
+    36.0
+   ],
+   "verdict": {
+    "stood_up": false,
+    "standing_ride_sec": 0.0,
+    "outcome": "never_stood",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The target surfer remains lying on the board with a child on their back throughout the ride and never stands up."
+   },
+   "decision": {
+    "keep": false,
+    "status": "rejected",
+    "reason": "failed_takeoff_no_standing_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "track_id": "154",
+   "window_sec": [
+    27.0,
+    35.5
+   ],
+   "gt_athlete": "d805a9b1-5786-43e8-b968-a078f77ac32e",
+   "label": "valid",
+   "label_detail": {
+    "include": 85
+   },
+   "rep": 1,
+   "gt_end_sec": 36.68665,
+   "calls": [
+    {
+     "latency_sec": 5.2,
+     "usd": 0.00275,
+     "tokens_in": 3297,
+     "tokens_out": 704
+    }
+   ],
+   "clip_sec": [
+    26.5,
+    36.0
+   ],
+   "verdict": {
+    "stood_up": false,
+    "standing_ride_sec": 0.0,
+    "outcome": "never_stood",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The target surfer remains lying prone on the board with a child on their back throughout the ride and never stands up."
+   },
+   "decision": {
+    "keep": false,
+    "status": "rejected",
+    "reason": "failed_takeoff_no_standing_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    3.0,
+    18.0
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 149,
+    "none": 1
+   },
+   "rep": 0,
+   "gt_end_sec": 18.151466666666668,
+   "calls": [
+    {
+     "latency_sec": 5.9,
+     "usd": 0.00367,
+     "tokens_in": 5271,
+     "tokens_out": 834
+    }
+   ],
+   "clip_sec": [
+    2.5,
+    18.15
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 14.5,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": 15.5,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the board at 0:01 and continues to ride the wave standing until the clip ends at 0:15.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 18.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    3.0,
+    18.0
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 149,
+    "none": 1
+   },
+   "rep": 1,
+   "gt_end_sec": 18.151466666666668,
+   "calls": [
+    {
+     "latency_sec": 6.3,
+     "usd": 0.0043,
+     "tokens_in": 5271,
+     "tokens_out": 1088
+    }
+   ],
+   "clip_sec": [
+    2.5,
+    18.15
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 14.3,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the board at 0:01.2 and continues to ride the wave standing until the clip ends at 0:15.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    3.0,
+    10.8
+   ],
+   "gt_athlete": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "label": "valid",
+   "label_detail": {
+    "include": 79
+   },
+   "rep": 0,
+   "gt_end_sec": 11.327983333333334,
+   "calls": [
+    {
+     "latency_sec": 5.7,
+     "usd": 0.00279,
+     "tokens_in": 3133,
+     "tokens_out": 739
+    }
+   ],
+   "clip_sec": [
+    2.5,
+    11.3
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 5.5,
+    "outcome": "fall",
+    "ride_end_sec": 7.5,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board and rides the wave standing for several seconds before falling."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 10.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    3.0,
+    10.8
+   ],
+   "gt_athlete": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "label": "valid",
+   "label_detail": {
+    "include": 79
+   },
+   "rep": 1,
+   "gt_end_sec": 11.327983333333334,
+   "calls": [
+    {
+     "latency_sec": 5.7,
+     "usd": 0.00279,
+     "tokens_in": 3133,
+     "tokens_out": 739
+    }
+   ],
+   "clip_sec": [
+    2.5,
+    11.3
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 5.5,
+    "outcome": "fall",
+    "ride_end_sec": 7.5,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board and rides the wave standing for several seconds before falling."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 10.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    0.5,
+    6.0
+   ],
+   "gt_athlete": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+   "label": "valid",
+   "label_detail": {
+    "include": 56
+   },
+   "rep": 0,
+   "gt_end_sec": 6.139466666666666,
+   "calls": [
+    {
+     "latency_sec": 7.8,
+     "usd": 0.00303,
+     "tokens_in": 2266,
+     "tokens_out": 942
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    6.14
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 3.6,
+    "outcome": "fall",
+    "ride_end_sec": 4.6,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the board at 0:01.0 and rides the wave standing until falling at 0:04.6."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 4.6
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    0.5,
+    6.0
+   ],
+   "gt_athlete": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+   "label": "valid",
+   "label_detail": {
+    "include": 56
+   },
+   "rep": 1,
+   "gt_end_sec": 6.139466666666666,
+   "calls": [
+    {
+     "latency_sec": 6.3,
+     "usd": 0.00303,
+     "tokens_in": 2266,
+     "tokens_out": 942
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    6.14
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 3.6,
+    "outcome": "fall",
+    "ride_end_sec": 4.6,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the board at 0:01.0 and rides the wave standing until falling at 0:04.6."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 4.6
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "track_id": "10007",
+   "window_sec": [
+    1.7,
+    9.0
+   ],
+   "gt_athlete": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "label": "valid",
+   "label_detail": {
+    "include": 52,
+    "exclude_wave_ride": 22
+   },
+   "rep": 0,
+   "gt_end_sec": 6.823483333333334,
+   "calls": [
+    {
+     "latency_sec": 5.8,
+     "usd": 0.00203,
+     "tokens_in": 2823,
+     "tokens_out": 475
+    }
+   ],
+   "clip_sec": [
+    1.2,
+    9.23
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 6.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": 0.07,
+    "confidence": "high",
+    "evidence": "The surfer stands up on the board at 0:01 and rides the wave standing until the clip ends at 0:07."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 1.27
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "track_id": "10007",
+   "window_sec": [
+    1.7,
+    9.0
+   ],
+   "gt_athlete": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "label": "valid",
+   "label_detail": {
+    "include": 52,
+    "exclude_wave_ride": 22
+   },
+   "rep": 1,
+   "gt_end_sec": 6.823483333333334,
+   "calls": [
+    {
+     "latency_sec": 5.1,
+     "usd": 0.00268,
+     "tokens_in": 2823,
+     "tokens_out": 733
+    }
+   ],
+   "clip_sec": [
+    1.2,
+    9.23
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 6.5,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The surfer stands up at 0:01 and rides the wave standing until the clip ends at 0:07.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  },
+  {
+   "kind": "B_gt_exclude_segment",
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "track_id": "10007",
+   "window_sec": [
+    6.823483333333334,
+    9.225883333333334
+   ],
+   "gt_athlete": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "label": "other",
+   "label_detail": {
+    "event_type": "wave_ride",
+    "reasons": [
+     "missing_landing"
+    ]
+   },
+   "rep": 0,
+   "gt_end_sec": null,
+   "calls": [
+    {
+     "latency_sec": 4.3,
+     "usd": 0.00192,
+     "tokens_in": 1240,
+     "tokens_out": 618
+    }
+   ],
+   "clip_sec": [
+    6.32,
+    9.23
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 2.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The surfer is already standing and riding the wave at the beginning of the clip and continues to do so until the clip ends."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "track_id": "10005",
+   "window_sec": [
+    0.9,
+    9.38
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 85
+   },
+   "rep": 0,
+   "gt_end_sec": 9.376033333333334,
+   "calls": [
+    {
+     "latency_sec": 6.5,
+     "usd": 0.00349,
+     "tokens_in": 3139,
+     "tokens_out": 1019
+    }
+   ],
+   "clip_sec": [
+    0.4,
+    9.38
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 6.5,
+    "outcome": "fall",
+    "ride_end_sec": 8.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up on the red board at 0:02 and rides the wave for several seconds before falling as the wave breaks at 0:08.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 8.9
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "track_id": "10005",
+   "window_sec": [
+    0.9,
+    9.38
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 85
+   },
+   "rep": 1,
+   "gt_end_sec": 9.376033333333334,
+   "calls": [
+    {
+     "latency_sec": 5.1,
+     "usd": 0.00245,
+     "tokens_in": 3139,
+     "tokens_out": 602
+    }
+   ],
+   "clip_sec": [
+    0.4,
+    9.38
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 6.5,
+    "outcome": "fall",
+    "ride_end_sec": 8.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up on the red board at 0:02 and rides the wave standing until falling into the white water at 0:08.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 8.9
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.2
+   ],
+   "gt_athlete": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+   "label": "valid",
+   "label_detail": {
+    "include": 82
+   },
+   "rep": 0,
+   "gt_end_sec": 8.274933333333333,
+   "calls": [
+    {
+     "latency_sec": 6.5,
+     "usd": 0.00321,
+     "tokens_in": 2975,
+     "tokens_out": 926
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    8.27
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 7.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 8.0,
+    "confidence": "high",
+    "evidence": "The surfer on the pink board stands up at 0:01 and rides the wave standing until it dissipates at the end of the clip."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 8.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    8.2
+   ],
+   "gt_athlete": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+   "label": "valid",
+   "label_detail": {
+    "include": 82
+   },
+   "rep": 1,
+   "gt_end_sec": 8.274933333333333,
+   "calls": [
+    {
+     "latency_sec": 6.0,
+     "usd": 0.00321,
+     "tokens_in": 2975,
+     "tokens_out": 926
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    8.27
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 7.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 8.0,
+    "confidence": "high",
+    "evidence": "The surfer on the pink board stands up at 0:01 and rides the wave standing until it dissipates at the end of the clip."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 8.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "track_id": "2",
+   "window_sec": [
+    2.0,
+    9.9
+   ],
+   "gt_athlete": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "label": "valid",
+   "label_detail": {
+    "include": 80
+   },
+   "rep": 0,
+   "gt_end_sec": 10.143466666666667,
+   "calls": [
+    {
+     "latency_sec": 4.3,
+     "usd": 0.00228,
+     "tokens_in": 3056,
+     "tokens_out": 544
+    }
+   ],
+   "clip_sec": [
+    1.5,
+    10.14
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 8.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 8.0,
+    "confidence": "high",
+    "evidence": "The surfer is standing on the board and riding the wave from the beginning of the clip until the wave dissipates at the end."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 9.5
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "track_id": "2",
+   "window_sec": [
+    2.0,
+    9.9
+   ],
+   "gt_athlete": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "label": "valid",
+   "label_detail": {
+    "include": 80
+   },
+   "rep": 1,
+   "gt_end_sec": 10.143466666666667,
+   "calls": [
+    {
+     "latency_sec": 4.4,
+     "usd": 0.00228,
+     "tokens_in": 3056,
+     "tokens_out": 544
+    }
+   ],
+   "clip_sec": [
+    1.5,
+    10.14
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 8.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 8.0,
+    "confidence": "high",
+    "evidence": "The surfer is standing on the board and riding the wave from the beginning of the clip until the wave dissipates at the end."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 9.5
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "track_id": "10008",
+   "window_sec": [
+    2.8,
+    17.8
+   ],
+   "gt_athlete": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "label": "valid",
+   "label_detail": {
+    "include": 122,
+    "none": 28
+   },
+   "rep": 0,
+   "gt_end_sec": 18.8188,
+   "calls": [
+    {
+     "latency_sec": 9.9,
+     "usd": 0.00553,
+     "tokens_in": 5423,
+     "tokens_out": 1562
+    }
+   ],
+   "clip_sec": [
+    2.3,
+    18.3
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 0.1,
+    "outcome": "wave_ends",
+    "ride_end_sec": 0.13,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:03 and rides the wave standing until it dissipates at 0:13."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 2.43
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "track_id": "10008",
+   "window_sec": [
+    2.8,
+    17.8
+   ],
+   "gt_athlete": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "label": "valid",
+   "label_detail": {
+    "include": 122,
+    "none": 28
+   },
+   "rep": 1,
+   "gt_end_sec": 18.8188,
+   "calls": [
+    {
+     "latency_sec": 9.6,
+     "usd": 0.00553,
+     "tokens_in": 5423,
+     "tokens_out": 1562
+    }
+   ],
+   "clip_sec": [
+    2.3,
+    18.3
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 0.1,
+    "outcome": "wave_ends",
+    "ride_end_sec": 0.13,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:03 and rides the wave standing until it dissipates at 0:13."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 2.43
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    1.5,
+    18.5
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 170
+   },
+   "rep": 0,
+   "gt_end_sec": 19.953266666666668,
+   "calls": [
+    {
+     "latency_sec": 6.8,
+     "usd": 0.00432,
+     "tokens_in": 6055,
+     "tokens_out": 1002
+    }
+   ],
+   "clip_sec": [
+    1.0,
+    19.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 15.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the board at 0:02 and rides the wave standing until the clip ends at 0:17, with the wave dissipating."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    1.5,
+    18.5
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 170
+   },
+   "rep": 1,
+   "gt_end_sec": 19.953266666666668,
+   "calls": [
+    {
+     "latency_sec": 5.8,
+     "usd": 0.00432,
+     "tokens_in": 6055,
+     "tokens_out": 1002
+    }
+   ],
+   "clip_sec": [
+    1.0,
+    19.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 15.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the board at 0:02 and rides the wave standing until the clip ends at 0:17, with the wave dissipating."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "track_id": "10004",
+   "window_sec": [
+    3.2,
+    14.5
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 114
+   },
+   "rep": 0,
+   "gt_end_sec": 15.432083333333333,
+   "calls": [
+    {
+     "latency_sec": 8.8,
+     "usd": 0.00369,
+     "tokens_in": 4239,
+     "tokens_out": 967
+    }
+   ],
+   "clip_sec": [
+    2.7,
+    15.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 9.5,
+    "outcome": "fall",
+    "ride_end_sec": 11.0,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the red board at 0:01.5 and rides the wave standing until falling at 0:11.0."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 13.7
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "track_id": "10004",
+   "window_sec": [
+    3.2,
+    14.5
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 114
+   },
+   "rep": 1,
+   "gt_end_sec": 15.432083333333333,
+   "calls": [
+    {
+     "latency_sec": 5.9,
+     "usd": 0.00374,
+     "tokens_in": 4239,
+     "tokens_out": 989
+    }
+   ],
+   "clip_sec": [
+    2.7,
+    15.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 10.5,
+    "outcome": "wave_ends",
+    "ride_end_sec": 11.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up at 0:01 and rides the wave standing until it dissipates around 0:11.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 14.2
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    0.0,
+    5.8
+   ],
+   "gt_athlete": null,
+   "label": "other",
+   "label_detail": {
+    "why": "target not a GT athlete"
+   },
+   "rep": 0,
+   "gt_end_sec": null,
+   "calls": [
+    {
+     "latency_sec": 6.8,
+     "usd": 0.00246,
+     "tokens_in": 2343,
+     "tokens_out": 701
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    6.3
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 3.5,
+    "outcome": "fall",
+    "ride_end_sec": 4.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up on his board at 0:01 and rides the wave standing for several seconds before falling at 0:04.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 4.5
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "track_id": "10003",
+   "window_sec": [
+    0.0,
+    5.8
+   ],
+   "gt_athlete": null,
+   "label": "other",
+   "label_detail": {
+    "why": "target not a GT athlete"
+   },
+   "rep": 1,
+   "gt_end_sec": null,
+   "calls": [
+    {
+     "latency_sec": 4.8,
+     "usd": 0.00246,
+     "tokens_in": 2343,
+     "tokens_out": 701
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    6.3
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 3.5,
+    "outcome": "fall",
+    "ride_end_sec": 4.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up on his board at 0:01 and rides the wave standing for several seconds before falling at 0:04.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 4.5
+  },
+  {
+   "kind": "B_gt_exclude_segment",
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "track_id": "10007",
+   "window_sec": [
+    0.0,
+    6.322983333333333
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "other",
+   "label_detail": {
+    "event_type": "wave_ride",
+    "reasons": [
+     "no_meaningful_action"
+    ]
+   },
+   "rep": 0,
+   "gt_end_sec": null,
+   "calls": [
+    {
+     "latency_sec": 6.1,
+     "usd": 0.00271,
+     "tokens_in": 2343,
+     "tokens_out": 803
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    6.32
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 2.5,
+    "outcome": "fall",
+    "ride_end_sec": 5.0,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on his red board at 0:02.5 and rides standing for 2.5 seconds before falling at 0:05.0."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 5.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "track_id": "2",
+   "window_sec": [
+    3.4,
+    11.2
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 79
+   },
+   "rep": 0,
+   "gt_end_sec": 11.428083333333333,
+   "calls": [
+    {
+     "latency_sec": 4.2,
+     "usd": 0.00221,
+     "tokens_in": 2981,
+     "tokens_out": 526
+    }
+   ],
+   "clip_sec": [
+    2.9,
+    11.43
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 7.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": 8.0,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:01 and rides the wave standing until the clip ends at 0:08."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 10.9
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "track_id": "2",
+   "window_sec": [
+    3.4,
+    11.2
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 79
+   },
+   "rep": 1,
+   "gt_end_sec": 11.428083333333333,
+   "calls": [
+    {
+     "latency_sec": 6.1,
+     "usd": 0.00234,
+     "tokens_in": 2981,
+     "tokens_out": 577
+    }
+   ],
+   "clip_sec": [
+    2.9,
+    11.43
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 7.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:01 and rides the wave standing until the clip ends at 0:08."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "track_id": "10046",
+   "window_sec": [
+    5.0,
+    10.1
+   ],
+   "gt_athlete": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+   "label": "valid",
+   "label_detail": {
+    "include": 52
+   },
+   "rep": 0,
+   "gt_end_sec": 11.277933333333333,
+   "calls": [
+    {
+     "latency_sec": 5.4,
+     "usd": 0.00261,
+     "tokens_in": 2266,
+     "tokens_out": 772
+    }
+   ],
+   "clip_sec": [
+    4.5,
+    10.6
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 4.2,
+    "outcome": "fall",
+    "ride_end_sec": 5.2,
+    "confidence": "high",
+    "evidence": "The surfer on the pink board stands up and rides the wave for several seconds before falling into the water."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 9.7
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "track_id": "10046",
+   "window_sec": [
+    5.0,
+    10.1
+   ],
+   "gt_athlete": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+   "label": "valid",
+   "label_detail": {
+    "include": 52
+   },
+   "rep": 1,
+   "gt_end_sec": 11.277933333333333,
+   "calls": [
+    {
+     "latency_sec": 6.7,
+     "usd": 0.00261,
+     "tokens_in": 2266,
+     "tokens_out": 772
+    }
+   ],
+   "clip_sec": [
+    4.5,
+    10.6
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 4.2,
+    "outcome": "fall",
+    "ride_end_sec": 5.2,
+    "confidence": "high",
+    "evidence": "The surfer on the pink board stands up and rides the wave for several seconds before falling into the water."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 9.7
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "track_id": "10002",
+   "window_sec": [
+    1.5,
+    19.5
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 180
+   },
+   "rep": 0,
+   "gt_end_sec": 19.66965,
+   "calls": [
+    {
+     "latency_sec": 8.1,
+     "usd": 0.00531,
+     "tokens_in": 6371,
+     "tokens_out": 1358
+    }
+   ],
+   "clip_sec": [
+    1.0,
+    20.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 17.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 19.0,
+    "confidence": "high",
+    "evidence": "The surfer stands up at 0:02 and rides the wave standing until it dissipates at 0:19."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 20.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "track_id": "10002",
+   "window_sec": [
+    1.5,
+    19.5
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 180
+   },
+   "rep": 1,
+   "gt_end_sec": 19.66965,
+   "calls": [
+    {
+     "latency_sec": 6.8,
+     "usd": 0.00531,
+     "tokens_in": 6371,
+     "tokens_out": 1358
+    }
+   ],
+   "clip_sec": [
+    1.0,
+    20.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 17.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 19.0,
+    "confidence": "high",
+    "evidence": "The surfer stands up at 0:02 and rides the wave standing until it dissipates at 0:19."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 20.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.0
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "invalid",
+   "label_detail": {
+    "exclude_failed_takeoff": 70
+   },
+   "rep": 0,
+   "gt_end_sec": null,
+   "calls": [
+    {
+     "latency_sec": 5.6,
+     "usd": 0.00278,
+     "tokens_in": 2665,
+     "tokens_out": 792
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    7.5
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 1.5,
+    "outcome": "fall",
+    "ride_end_sec": 0.055,
+    "confidence": "high",
+    "evidence": "The surfer quickly stands up on the board and rides for approximately 1.5 seconds before falling into the water."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 0.06
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.0
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "invalid",
+   "label_detail": {
+    "exclude_failed_takeoff": 70
+   },
+   "rep": 1,
+   "gt_end_sec": null,
+   "calls": [
+    {
+     "latency_sec": 8.1,
+     "usd": 0.00317,
+     "tokens_in": 2665,
+     "tokens_out": 949
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    7.5
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 3.0,
+    "outcome": "kick_out",
+    "ride_end_sec": 6.0,
+    "confidence": "high",
+    "evidence": "The surfer paddles, stands up at 0:03, rides the wave standing for 3 seconds, and then dismounts into the water at 0:06."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 6.0
+  },
+  {
+   "kind": "B_gt_exclude_segment",
+   "source": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.9412666666666665
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "invalid",
+   "label_detail": {
+    "event_type": "failed_takeoff",
+    "reasons": [
+     "no_meaningful_action"
+    ]
+   },
+   "rep": 0,
+   "gt_end_sec": null,
+   "calls": [
+    {
+     "latency_sec": 8.2,
+     "usd": 0.0037,
+     "tokens_in": 2820,
+     "tokens_out": 1140
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    7.94
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 2.9,
+    "outcome": "fall",
+    "ride_end_sec": 6.0,
+    "confidence": "high",
+    "evidence": "The surfer paddles into the wave, stands up at 3.1 seconds, rides the wave standing, and then falls off the board at 6.0 seconds."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 6.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    3.2,
+    22.5
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 193
+   },
+   "rep": 0,
+   "gt_end_sec": 22.889533333333333,
+   "calls": [
+    {
+     "latency_sec": 6.6,
+     "usd": 0.00466,
+     "tokens_in": 6693,
+     "tokens_out": 1059
+    }
+   ],
+   "clip_sec": [
+    2.7,
+    22.89
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 18.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The target surfer stands up on the board at 0:02 and rides the wave standing until the clip ends at 0:20."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    3.2,
+    22.5
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "valid",
+   "label_detail": {
+    "include": 193
+   },
+   "rep": 1,
+   "gt_end_sec": 22.889533333333333,
+   "calls": [
+    {
+     "latency_sec": 6.4,
+     "usd": 0.00518,
+     "tokens_in": 6693,
+     "tokens_out": 1268
+    }
+   ],
+   "clip_sec": [
+    2.7,
+    22.89
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 18.9,
+    "outcome": "wave_ends",
+    "ride_end_sec": 20.0,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:01.1 and rides the wave standing until it dissipates at the end of the clip."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 22.7
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "track_id": "10010",
+   "window_sec": [
+    0.5,
+    8.62
+   ],
+   "gt_athlete": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+   "label": "valid",
+   "label_detail": {
+    "include": 82
+   },
+   "rep": 0,
+   "gt_end_sec": 8.625283333333334,
+   "skip": "error:CalledProcessError:Command '['ffmpeg', '-v', 'error', '-y', '-ss', '8.609', '-i', '/tmp/rv-lxyyox2r"
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "track_id": "10010",
+   "window_sec": [
+    0.5,
+    8.62
+   ],
+   "gt_athlete": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+   "label": "valid",
+   "label_detail": {
+    "include": 82
+   },
+   "rep": 1,
+   "gt_end_sec": 8.625283333333334,
+   "skip": "error:CalledProcessError:Command '['ffmpeg', '-v', 'error', '-y', '-ss', '8.609', '-i', '/tmp/rv-lxyyox2r"
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "track_id": "10043",
+   "window_sec": [
+    6.5,
+    15.5
+   ],
+   "gt_athlete": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "label": "valid",
+   "label_detail": {
+    "include": 91
+   },
+   "rep": 0,
+   "gt_end_sec": 16.383033333333334,
+   "calls": [
+    {
+     "latency_sec": 5.0,
+     "usd": 0.00292,
+     "tokens_in": 3527,
+     "tokens_out": 744
+    }
+   ],
+   "clip_sec": [
+    6.0,
+    16.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 8.0,
+    "outcome": "fall",
+    "ride_end_sec": 9.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up on the board at 1.5 seconds and rides the wave standing for 8 seconds before falling at 9.5 seconds."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 15.5
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "track_id": "10043",
+   "window_sec": [
+    6.5,
+    15.5
+   ],
+   "gt_athlete": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "label": "valid",
+   "label_detail": {
+    "include": 91
+   },
+   "rep": 1,
+   "gt_end_sec": 16.383033333333334,
+   "calls": [
+    {
+     "latency_sec": 5.3,
+     "usd": 0.00292,
+     "tokens_in": 3527,
+     "tokens_out": 744
+    }
+   ],
+   "clip_sec": [
+    6.0,
+    16.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 8.0,
+    "outcome": "fall",
+    "ride_end_sec": 9.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up on the board at 1.5 seconds and rides the wave standing for 8 seconds before falling at 9.5 seconds."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 15.5
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.5
+   ],
+   "gt_athlete": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "label": "valid",
+   "label_detail": {
+    "include": 126
+   },
+   "rep": 0,
+   "gt_end_sec": 14.4144,
+   "calls": [
+    {
+     "latency_sec": 8.3,
+     "usd": 0.0032,
+     "tokens_in": 4633,
+     "tokens_out": 724
+    }
+   ],
+   "clip_sec": [
+    0.5,
+    14.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 8.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 9.5,
+    "confidence": "high",
+    "evidence": "The surfer catches the wave, stands up at 0:01.5, and rides it standing until the wave dissipates at the shore around 0:09.5."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 10.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "track_id": "10006",
+   "window_sec": [
+    1.0,
+    13.5
+   ],
+   "gt_athlete": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "label": "valid",
+   "label_detail": {
+    "include": 126
+   },
+   "rep": 1,
+   "gt_end_sec": 14.4144,
+   "calls": [
+    {
+     "latency_sec": 6.1,
+     "usd": 0.00379,
+     "tokens_in": 4633,
+     "tokens_out": 959
+    }
+   ],
+   "clip_sec": [
+    0.5,
+    14.0
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 11.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 12.5,
+    "confidence": "high",
+    "evidence": "The surfer stands up at 0:01.5 and rides the wave standing until she steps off the board at 0:12.5 as the wave dissipates near the shore."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 13.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.7
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 77
+   },
+   "rep": 0,
+   "gt_end_sec": 7.8078,
+   "calls": [
+    {
+     "latency_sec": 5.0,
+     "usd": 0.00251,
+     "tokens_in": 2817,
+     "tokens_out": 667
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    7.81
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 7.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": 7.0,
+    "confidence": "high",
+    "evidence": "The surfer is standing on the board and riding the wave from the beginning of the clip until it ends."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 7.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "track_id": "10001",
+   "window_sec": [
+    0.0,
+    7.7
+   ],
+   "gt_athlete": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "label": "valid",
+   "label_detail": {
+    "include": 77
+   },
+   "rep": 1,
+   "gt_end_sec": 7.8078,
+   "calls": [
+    {
+     "latency_sec": 5.3,
+     "usd": 0.00251,
+     "tokens_in": 2817,
+     "tokens_out": 667
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    7.81
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 7.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": 7.0,
+    "confidence": "high",
+    "evidence": "The surfer is standing on the board and riding the wave from the beginning of the clip until it ends."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 7.0
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "track_id": "10002",
+   "window_sec": [
+    0.5,
+    7.4
+   ],
+   "gt_athlete": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+   "label": "valid",
+   "label_detail": {
+    "include": 70
+   },
+   "rep": 0,
+   "gt_end_sec": 7.6076,
+   "calls": [
+    {
+     "latency_sec": 23.4,
+     "usd": 0.00789,
+     "tokens_in": 2740,
+     "tokens_out": 2829
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    7.61
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 5.1,
+    "outcome": "fall",
+    "ride_end_sec": 5.1,
+    "confidence": "high",
+    "evidence": "The surfer in the black wetsuit (leftmost) is standing on the board at the start of the clip and rides the wave for 5.1 seconds before falling."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 5.1
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "track_id": "10002",
+   "window_sec": [
+    0.5,
+    7.4
+   ],
+   "gt_athlete": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+   "label": "valid",
+   "label_detail": {
+    "include": 70
+   },
+   "rep": 1,
+   "gt_end_sec": 7.6076,
+   "calls": [
+    {
+     "latency_sec": 28.6,
+     "usd": 0.00789,
+     "tokens_in": 2740,
+     "tokens_out": 2829
+    }
+   ],
+   "clip_sec": [
+    0.0,
+    7.61
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 5.1,
+    "outcome": "fall",
+    "ride_end_sec": 5.1,
+    "confidence": "high",
+    "evidence": "The surfer in the black wetsuit (leftmost) is standing on the board at the start of the clip and rides the wave for 5.1 seconds before falling."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 5.1
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "track_id": "10002",
+   "window_sec": [
+    2.8,
+    21.0
+   ],
+   "gt_athlete": "6e81fe5b-0bf7-472d-aa61-15e863a8938a",
+   "label": "valid",
+   "label_detail": {
+    "include": 182
+   },
+   "rep": 0,
+   "gt_end_sec": 21.755066666666668,
+   "calls": [
+    {
+     "latency_sec": 7.4,
+     "usd": 0.00504,
+     "tokens_in": 6377,
+     "tokens_out": 1249
+    }
+   ],
+   "clip_sec": [
+    2.3,
+    21.5
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 18.5,
+    "outcome": "wave_ends",
+    "ride_end_sec": 20.0,
+    "confidence": "high",
+    "evidence": "The surfer stands up on the board at 0:01.5 and rides the wave, including the whitewater, until it dissipates around 0:20.0."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 22.3
+  },
+  {
+   "kind": "A_selected_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "track_id": "10002",
+   "window_sec": [
+    2.8,
+    21.0
+   ],
+   "gt_athlete": "6e81fe5b-0bf7-472d-aa61-15e863a8938a",
+   "label": "valid",
+   "label_detail": {
+    "include": 182
+   },
+   "rep": 1,
+   "gt_end_sec": 21.755066666666668,
+   "calls": [
+    {
+     "latency_sec": 5.4,
+     "usd": 0.00421,
+     "tokens_in": 6377,
+     "tokens_out": 917
+    }
+   ],
+   "clip_sec": [
+    2.3,
+    21.5
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 18.0,
+    "outcome": "wave_ends",
+    "ride_end_sec": 19.0,
+    "confidence": "high",
+    "evidence": "The surfer successfully stands up on the board at 0:01 and rides the wave standing, making turns, until the wave dissipates at the clip's end."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   },
+   "ride_end_source_sec": 21.3
+  },
+  {
+   "kind": "B_extra",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "track_id": "37",
+   "window_sec": [
+    13.2,
+    22.0
+   ],
+   "gt_athlete": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "label": "other",
+   "label_detail": {
+    "extra": "_0094_D.MP4:13.2:22.0:other"
+   },
+   "rep": 0,
+   "gt_end_sec": 13.229883333333333,
+   "calls": [
+    {
+     "latency_sec": 5.1,
+     "usd": 0.00267,
+     "tokens_in": 3449,
+     "tokens_out": 655
+    }
+   ],
+   "clip_sec": [
+    12.7,
+    22.5
+   ],
+   "verdict": {
+    "stood_up": true,
+    "standing_ride_sec": 9.0,
+    "outcome": "still_riding_at_clip_end",
+    "ride_end_sec": null,
+    "confidence": "high",
+    "evidence": "The surfer is standing on the board and riding the wave from the beginning of the clip until the end."
+   },
+   "decision": {
+    "keep": true,
+    "status": "verified_ride"
+   }
+  }
+ ]
+}

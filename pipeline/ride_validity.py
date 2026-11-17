@@ -1,4 +1,8 @@
-"""Ride validity: did the target surfer actually stand up and ride, or is the window a failed take-off?
+"""STATUS: NOT WIRED INTO THE PIPELINE. EXP-08-001 (run 44067400479) failed its pre-registered conditions: the
+verifier kept the 0155 failed take-off in 3/3 calls and rejected a GT-valid prone ride twice. Kept as the evaluated
+artifact; do not call it from production without a new, passing experiment.
+
+Ride validity: did the target surfer actually stand up and ride, or is the window a failed take-off?
 
 Root cause (PA-04 / PQ-01/33): the session analyzer's event list decides which windows become reels. When its
 cached answer was rebuilt (11-15) the same failed take-off (rider catches the wave lying/kneeling and never stands,
