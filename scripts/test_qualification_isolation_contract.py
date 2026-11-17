@@ -116,6 +116,15 @@ bc_config.Config = lambda **k: None; bc_exc.ClientError = _ClientError
 sys.modules.update({"boto3": boto3, "botocore": botocore, "botocore.config": bc_config, "botocore.exceptions": bc_exc})
 
 
+# CI jobs without the supabase SDK: a stub module so the production integrations import (the client is faked below).
+try:
+    from supabase import create_client as _probe  # noqa: F401
+except Exception:
+    _sb = types.ModuleType("supabase")
+    _sb.create_client = lambda *a, **k: None
+    _sb.Client = object
+    sys.modules["supabase"] = _sb
+
 # ---------------------------------------------------------------- fake supabase
 class FakeQuery:
     def __init__(self, log, table, op, payload=None):

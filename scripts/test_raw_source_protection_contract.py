@@ -46,6 +46,9 @@ ALLOWED: dict[str, tuple[str, list[str]]] = {
     "scripts/reset_and_rerun.py": (
         "_r2_delete_prefix is only ever called for approved/ and review/ (derived outputs); the guard also applies",
         ["_r2_delete_prefix(r2_storage.APPROVED_PREFIX", "_r2_delete_prefix(r2_storage.REVIEW_PREFIX"]),
+    "scripts/qualification_run.py": (
+        "cleanup deletes only keys under its own qualification/<run_id>/ namespace, through the guarded delete_object",
+        ["if not o[\"Key\"].startswith(ns)", "r2_storage.delete_object(o[\"Key\"])"]),
     "scripts/check_storage_access.py": (
         "preflight deletes only its own review/_preflight_* probe object",
         ["review/_preflight_"]),

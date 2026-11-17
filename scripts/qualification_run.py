@@ -164,11 +164,12 @@ def compare(a: Path, b: Path) -> int:
 def cleanup(run_id: str) -> int:
     client, bucket = _raw_client()
     ns = _ns(run_id)
+    from integrations import r2_storage
     objs = _list(client, bucket, ns)
     for o in objs:
         if not o["Key"].startswith(ns):
             raise SystemExit(f"refusing to delete {o['Key']!r} outside {ns}")
-        client.delete_object(Bucket=bucket, Key=o["Key"])
+        r2_storage.delete_object(o["Key"])   # guarded: an original source key (raw/, processed/ video) is refused
     print(json.dumps({"deleted": len(objs), "namespace": ns}))
     return 0
 
