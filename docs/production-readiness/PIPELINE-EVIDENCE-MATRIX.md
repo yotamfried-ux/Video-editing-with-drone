@@ -127,15 +127,15 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 
 ### FIX-PQ-11-001 — Motion-supported action onset (Core) with profile OnsetPolicy
 
-- **Gap:** PA-15 · **Classification:** CANDIDATE · **Status:** `REPLAYED`
+- **Gap:** PA-15 · **Classification:** CANDIDATE_IMPROVED · **Status:** `MEDIA_VERIFIED`
 - **Root cause:** The analyzer's setup_start is wrong both ways (0115 paddle-in cut by the 2 s cap; 0140 setup inside waiting); a global cap cannot satisfy both (EXP-08-003)
 - **Fix:** pipeline/action_onset.py::motion_supported_onset; window_refinement.refine_event_window (onset_motion_from_sec); complete_action_window_policy.extend_to_setup; output_qualification.action_interval floor; pipeline/sport_profiles OnsetPolicy
 - **Commit:** c9848ca5
-- **Experiments:** RED->GREEN scripts/test_action_onset_contract.py, EVD-11-001 replay, EXP-11-001 pre-registered (not run: PR #391 closed, see BLK-11-001)
+- **Experiments:** RED->GREEN scripts/test_action_onset_contract.py, EVD-11-001 replay, EXP-11-001 run 44252428407 (pre-registered conditions met, MP4s viewed)
 - **Before:** EXP-10-001: missing include 20.4 s, starts 8 incorrect
-- **After:** replay: 16.7 s, 7 incorrect, 0 new waiting
-- **Evidence:** EVD-11-001, EVD-11-002
-- **Limits:** One negative (0140) and four positives in the same batch; threshold 0.2 body heights/s not calibrated on independent data; no rendered MP4 yet.
+- **After:** EXP-11-001 rendered: missing include 16.2 s, >=95% 15, FULL 15, incorrect starts 7, non-GT seconds unchanged 7.47, no protected metric regressed
+- **Evidence:** EVD-11-001, EVD-11-002, EVD-11-004, EVD-11-005
+- **Limits:** Same 24-source batch as development (no independent holdout); one negative (0140) and four positives; threshold 0.2 body heights/s uncalibrated on other data; ends unchanged.
 
 ### FIX-PQ-11-002 — Sport profiles: surf definitions moved out of Core; football profile
 
@@ -213,6 +213,8 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-11-001 | replay | FIX-PQ-11-001 replay (production pipeline/action_onset.motion_supported_onset on stored sidecars + analyzer timings, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9, quality_scorecard): EXP-10-001 missing include 20.4 -> 16.7 s, >=95% rides 14 -> 15, incorrect starts 8 -> 7, non-GT seconds 7.47 -> 7.47 (0140 waiting not added); changed windows 0115 4.5->1.5 s, 0142 1.2->0.5 s. Same on q9-paid-01/02 diagnostics (shared analyzer cache: one observation, not three). Rejected alternatives in the same replay: setup lead-in cap 3 s (missing 21.61, +0.9 s waiting) / 6 s (19.11, +0.9 s waiting); stitching without motion (19.83, +0.9 s waiting on 0140). | cycle-11 report |
 | EVD-11-002 | contract | Architecture contracts: scripts/test_action_onset_contract.py (O1-O6: fragmented paddler, stationary wait, generic profile, football run-up among stationary team-mates, production window integration, missing evidence) and scripts/test_football_profile_architecture_contract.py (F1-F8: synthetic football MP4 through production binding, windows/onset, eligibility, identity gate, follow-crop framing and FFmpeg editor; decoded centre shows the target; surfing behaviour unchanged). Synthetic: architecture only, no football accuracy claim. | CI: cost-time-optimizations-check (onset), pipeline-real-mp4 (football) |
 | EVD-11-003 | measurement | scripts/quality_scorecard.py (crop-aware) on stored runs: q9-paid-02 visible mixed 1 / time-attributed 2, wrong-actor frames 54, non-GT s 7.47, incorrect starts 8 / ends 1, QA false pass 3 / reject 6; q9-paid-01 and EXP-10-001 identical boundaries, QA false pass 1 / reject 6, publishable wrong identity 0. | cycle-11 report |
+| EVD-11-004 | isolated_run | EXP-11-001 q11-paid-01 (run 44252428407 @324b0853; pipeline code = c9848ca5; $0.228 list-price estimate, 15 calls / cap $0.40; GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9). Production fingerprint before/after identical. quality_scorecard vs EXP-10-001: FULL 14->15, >=95% 14->15, missing include 20.4->16.2 s, incorrect starts 8->7; unchanged: non-GT seconds 7.47 (0140 waiting not added), excluded frames 999, incorrect ends 1, wrong-actor frames 54, identity switches 0, visible mixed 1 (0143+0152, withheld), split athletes 2, publishable 5 / correct 4, QA false pass 1 / false reject 6, publishable wrong identity 0. Primary-athlete audit 24/25 shots OK. Rendered windows: 0115 4.5->1.5 s, 0142 1.2->0.0 s, 0140 1.4 s unchanged. All pre-registered numeric conditions (PREREGISTRATION-EXP-11-001.md) met. | cycle-11 report; reels artifact of run 44252428407 |
+| EVD-11-005 | frame_sequence | Decoded contact sheets (2 fps first 6 s of each changed segment, 1 fps whole reel; reel time burnt in) of EXP-11-001 reels viewed: 0115 reel sha256 c5f122af4fa29fa85982a4f10e3db0eec40ae3f6fe929b170a6bbf26c9ddf3cc opens prone paddling (0-2 s), catch 2.5-4.5 s, pop-up 5-5.5 s; 0094-cluster reel 423a3d650854d132ff98e3a5e463f58a363e73f750d7ef8f9cdf41e4fa3e5231, 0142 segment at reel 65.27 s opens prone paddling 0-3 s, pop-up ~3.5 s; 0112-cluster reel 2ab15f72b916b077bb42f236e032cb5e10a08deaf7d0330aede6d17947357a56, 0140 segment at reel 49.3 s opens paddling 0-1.5 s, pop-up 2-2.5 s, no stationary waiting; every other segment boundary of that reel opens in motion. Technical check on all 14 reels: H.264 2160x3840 30 fps, 0 decode-error lines, no freeze >= 0.5 s, no black >= 0.3 s. | session scratch contact sheets; reels artifact of run 44252428407 |
 
 ## Blockers
 

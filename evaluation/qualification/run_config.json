@@ -1,7 +1,7 @@
 {
   "qualification_run_id": "q11-paid-01",
   "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
-  "llm_budget_usd_paid": 0.4,
-  "note": "EXP-11-001 (PREREGISTRATION-EXP-11-001.md), cap $0.40; owner confirmed 2026-11-18 (reopen #391 + run). Campaign $4; spent $1.280; remainder $2.720.",
+  "llm_budget_usd_paid": 0.0,
+  "note": "Paid budget 0 after EXP-11-001 (run 44252428407, $0.228). Campaign $4; spent $1.508; remainder $2.492. A new paid run needs a pre-registration and a hard cap <= remainder.",
   "gate_a_run_id": "q10-gate-a2"
 }

@@ -9,7 +9,8 @@
    "44078257676 (q9-dry-02)",
    "44085419164 (q9-paid-01)",
    "44121013654 (q9-paid-02)",
-   "44166232265 (q10-paid-01, EXP-10-001)"
+   "44166232265 (q10-paid-01, EXP-10-001)",
+   "44252428407 (q11-paid-01, EXP-11-001)"
   ]
  },
  "statuses": [
@@ -246,6 +247,22 @@
    "where": "cycle-11 report",
    "produced_by": "scripts/quality_scorecard.py + scripts/primary_athlete_audit.py",
    "proof_scope": "SIDECAR_MEASUREMENT"
+  },
+  {
+   "id": "EVD-11-004",
+   "kind": "isolated_run",
+   "what": "EXP-11-001 q11-paid-01 (run 44252428407 @324b0853; pipeline code = c9848ca5; $0.228 list-price estimate, 15 calls / cap $0.40; GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9). Production fingerprint before/after identical. quality_scorecard vs EXP-10-001: FULL 14->15, >=95% 14->15, missing include 20.4->16.2 s, incorrect starts 8->7; unchanged: non-GT seconds 7.47 (0140 waiting not added), excluded frames 999, incorrect ends 1, wrong-actor frames 54, identity switches 0, visible mixed 1 (0143+0152, withheld), split athletes 2, publishable 5 / correct 4, QA false pass 1 / false reject 6, publishable wrong identity 0. Primary-athlete audit 24/25 shots OK. Rendered windows: 0115 4.5->1.5 s, 0142 1.2->0.0 s, 0140 1.4 s unchanged. All pre-registered numeric conditions (PREREGISTRATION-EXP-11-001.md) met.",
+   "where": "cycle-11 report; reels artifact of run 44252428407",
+   "produced_by": "scripts/quality_scorecard.py --diagnostics --audit --gt; scripts/primary_athlete_audit.py",
+   "proof_scope": "ISOLATED_RUN"
+  },
+  {
+   "id": "EVD-11-005",
+   "kind": "frame_sequence",
+   "what": "Decoded contact sheets (2 fps first 6 s of each changed segment, 1 fps whole reel; reel time burnt in) of EXP-11-001 reels viewed: 0115 reel sha256 c5f122af4fa29fa85982a4f10e3db0eec40ae3f6fe929b170a6bbf26c9ddf3cc opens prone paddling (0-2 s), catch 2.5-4.5 s, pop-up 5-5.5 s; 0094-cluster reel 423a3d650854d132ff98e3a5e463f58a363e73f750d7ef8f9cdf41e4fa3e5231, 0142 segment at reel 65.27 s opens prone paddling 0-3 s, pop-up ~3.5 s; 0112-cluster reel 2ab15f72b916b077bb42f236e032cb5e10a08deaf7d0330aede6d17947357a56, 0140 segment at reel 49.3 s opens paddling 0-1.5 s, pop-up 2-2.5 s, no stationary waiting; every other segment boundary of that reel opens in motion. Technical check on all 14 reels: H.264 2160x3840 30 fps, 0 decode-error lines, no freeze >= 0.5 s, no black >= 0.3 s.",
+   "where": "session scratch contact sheets; reels artifact of run 44252428407",
+   "produced_by": "ffmpeg decode (fps/tile, freezedetect, blackdetect)",
+   "proof_scope": "RENDERED_MEDIA"
   }
  ],
  "fixes": [
@@ -484,17 +501,19 @@
    "experiments": [
     "RED->GREEN scripts/test_action_onset_contract.py",
     "EVD-11-001 replay",
-    "EXP-11-001 pre-registered (not run: PR #391 closed, see BLK-11-001)"
+    "EXP-11-001 run 44252428407 (pre-registered conditions met, MP4s viewed)"
    ],
    "before": "EXP-10-001: missing include 20.4 s, starts 8 incorrect",
-   "after": "replay: 16.7 s, 7 incorrect, 0 new waiting",
+   "after": "EXP-11-001 rendered: missing include 16.2 s, >=95% 15, FULL 15, incorrect starts 7, non-GT seconds unchanged 7.47, no protected metric regressed",
    "evidence": [
     "EVD-11-001",
-    "EVD-11-002"
+    "EVD-11-002",
+    "EVD-11-004",
+    "EVD-11-005"
    ],
-   "status": "REPLAYED",
-   "classification": "CANDIDATE",
-   "limits": "One negative (0140) and four positives in the same batch; threshold 0.2 body heights/s not calibrated on independent data; no rendered MP4 yet."
+   "status": "MEDIA_VERIFIED",
+   "classification": "CANDIDATE_IMPROVED",
+   "limits": "Same 24-source batch as development (no independent holdout); one negative (0140) and four positives; threshold 0.2 body heights/s uncalibrated on other data; ends unchanged."
   },
   {
    "id": "FIX-PQ-11-002",
@@ -738,7 +757,9 @@
    "next": "Starts: FIX-PQ-11-001 (replayed) needs a rendered run. Ends: no reliable signal yet; owner adjudication of 0094.",
    "evidence": [
     "EVD-10-004",
-    "EVD-11-001"
+    "EVD-11-001",
+    "EVD-11-004",
+    "EVD-11-005"
    ]
   },
   {
@@ -844,7 +865,9 @@
   },
   {
    "id": "BLK-11-001",
-   "what": "PR #391 was closed (not merged) from the owner's account at 2026-11-17T21:29:38Z, 25 s after the qualrun-paid label for EXP-11-001; label-triggered qualification workflows run only on an open PR. EXP-11-001 is pre-registered but not launched; no spend. Budget: $4 total, $1.280 spent, $2.720 remaining. Needs the owner: reopen #391 / approve a new draft PR for the branch, and confirm the paid run."
+   "what": "PR #391 was closed (not merged) from the owner's account at 2026-11-17T21:29:38Z, 25 s after the qualrun-paid label for EXP-11-001; label-triggered qualification workflows run only on an open PR. EXP-11-001 is pre-registered but not launched; no spend. Budget: $4 total, $1.280 spent, $2.720 remaining. Needs the owner: reopen #391 / approve a new draft PR for the branch, and confirm the paid run.",
+   "status": "RESOLVED",
+   "resolution": "Owner chose 'Reopen #391 + run' (2026-11-18); PR reopened, EXP-11-001 ran as run 44252428407."
   }
  ],
  "proof_policy": {
@@ -865,6 +888,14 @@
    "total_estimated_usd": 0.3803,
    "remaining_of_2_usd": 1.6197,
    "basis": "list-price estimate from recorded tokens; reconcile with billing"
+  },
+  "cycle11": {
+   "campaign_total_usd": 4,
+   "spent_before_cycle11_usd": 1.28,
+   "EXP-11-001_usd": 0.228,
+   "spent_total_usd": 1.508,
+   "remaining_usd": 2.492,
+   "basis": "list-price estimate from recorded tokens (llm_cost.json); reconcile with billing"
   }
  },
  "next_priorities": [

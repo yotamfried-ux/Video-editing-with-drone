@@ -536,3 +536,11 @@ Synthetic football-like fixtures **test architecture only**. They do **not** qua
 | PA-16 metric | PATCHED | EVD-11-003 | scripts/quality_scorecard.py: visible vs time-attributed mixing, wrong-actor frames, non-GT seconds |
 | PA-12 / Gate A | TESTED (cycle 10) | EVD-10-001 | unchanged; PA-13 paid-retry duplicates still open |
 | PQ-02 / PA-11 | MITIGATED (cycle 10) | EVD-10-005 | unchanged |
+
+### 14.1 Cycle 11 update (2026-11-18): EXP-11-001 rendered
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PQ-05 / PA-15 starts | MEDIA_VERIFIED (CANDIDATE_IMPROVED, same batch, no holdout) | EVD-11-004, EVD-11-005 | EXP-11-001 run 44252428407, $0.228: FULL 14 -> 15, missing include 20.4 -> 16.2 s, incorrect starts 8 -> 7, no protected metric regressed; 0115 / 0142 open on the paddle-in, 0140 does not open on waiting (MP4s viewed) |
+| BLK-11-001 | RESOLVED | — | owner reopened #391 and confirmed the run |
+| Budget | — | — | $4 campaign; $1.508 spent; $2.492 remaining; paid budget reset to 0 |
