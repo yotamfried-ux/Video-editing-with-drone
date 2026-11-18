@@ -263,6 +263,62 @@
    "where": "session scratch contact sheets; reels artifact of run 44252428407",
    "produced_by": "ffmpeg decode (fps/tile, freezedetect, blackdetect)",
    "proof_scope": "RENDERED_MEDIA"
+  },
+  {
+   "id": "EVD-12-001",
+   "kind": "contract",
+   "what": "PA-13 RED/GREEN: scripts/test_draft_ledger_retry_contract.py drives the production hooks context_qa_gate._ledger_assign/_ledger_upload and the orchestrator.upload_draft metadata channel against a conditional-PUT store. RED with SPORTREEL_DRAFT_LEDGER=0: crash + retry next day with new descriptions -> 4 review objects for 3 reels. GREEN: D1 crash after first upload, D1b crash after upload before commit (committed without re-upload), D2 parallel crash, D3 same day, D4 another day, D5 new description, D6 after QA PASS, D7 QA FAIL->PASS, D8 render changed (revision 2, previous bytes archived by copy, new approval required), D9 after operator approval (approved untouched; new plan = pending revision), D10 two concurrent runs, S no delete / no writes outside review/ metadata/, Q name perturbation only in qualification runs, I namespace inventory check. 0 failing.",
+   "where": "cycle-12 report",
+   "produced_by": "scripts/test_draft_ledger_retry_contract.py",
+   "proof_scope": "TESTED"
+  },
+  {
+   "id": "EVD-12-002",
+   "kind": "contract",
+   "what": "Identity working decisions bound to the REAL sources (EXP-11-001 source SHA-256s): request ids reproduce 758fe7783e9c... (0097+0115) and 7b2a6964427f... (0074+0151). GREEN W1-W9: 0097+0115 kept together with operator_review evidence, identity gate pass; 0074+0151 split; model MATCH on 0074+0151 overridden; superset with an approval split; singleton merge never groups 0074 with 0151; approval does not extend to 0097+0151 / 0115+0074; working file ignored outside qualification runs; no production decision file. RED on 3da09101: W4, W5, W6, W8 fail (a model MATCH kept the owner-rejected pair together).",
+   "where": "cycle-12 report",
+   "produced_by": "scripts/test_identity_working_decisions_contract.py",
+   "proof_scope": "TESTED"
+  },
+  {
+   "id": "EVD-12-003",
+   "kind": "replay",
+   "what": "Pre-declared end-rule replay E1 (bound actor speed < 0.35 body heights/s for >= 1.5 s, searched from start+3 s, +0.5 s margin) on EXP-11-001 windows and sidecars, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9: 5 windows cut GT include (0146 13.6 s mid-ride, 0163 6.9, 0094 5.6 time-attributed, 0130 3.6, 0070 2.1) = 31.9 s include lost for 3.8 s non-include removed; 0 helpful-only changes. REJECTED: drone follow keeps a riding surfer still in image space.",
+   "where": "cycle-12 report",
+   "produced_by": "session replay script",
+   "proof_scope": "REPLAY"
+  },
+  {
+   "id": "EVD-12-004",
+   "kind": "frame_sequence",
+   "what": "PA-03 0094 boundary: EXP-11-001 reel 423a3d650854d132ff98e3a5e463f58a363e73f750d7ef8f9cdf41e4fa3e5231 (tracked crop of 9524ac02, source = reel + 2.0 s), 2 fps source 11-18 s viewed: riding the green face to 12.5 s, standing ride in whitewater 13.0-14.5 s, crouch 15.0 s, kneeling/prone 15.5-17.5 s. GT annotator box height 0.37 -> 0.26 between 13.5 and 15.5 s (aggregate). GT-v1 end 13.23 s unchanged; candidate end ~15.2 s for a separate GT version if the owner counts whitewater riding.",
+   "where": "docs/production-readiness/PA-03-0094-BOUNDARY-EVIDENCE.md",
+   "produced_by": "ffmpeg decode",
+   "proof_scope": "RENDERED_MEDIA"
+  },
+  {
+   "id": "EVD-12-005",
+   "kind": "frame_sequence",
+   "what": "PA-01 0095: EXP-11-001 reel 'DRAFT_Man in a white long-sleeve top...' (track 10003, source 0.0-6.32 s) viewed at 2 fps: standing ride 0.0-5.0 s, fall 5.5 s = a valid action of an uncatalogued person; not the tagged athlete 6c84aed0 (GT exclude/unusable in this interval). quality_scorecard on EXP-11-001: legacy qa_false_pass 1 = publishable_non_gt_person 1, qa_false_pass_gt_cohort 0.",
+   "where": "docs/production-readiness/UNCATALOGUED-PERSON-POLICY.md",
+   "produced_by": "ffmpeg decode; scripts/quality_scorecard.py",
+   "proof_scope": "RENDERED_MEDIA"
+  },
+  {
+   "id": "EVD-12-006",
+   "kind": "measurement",
+   "what": "Holdout availability (production source_uploads, read-only, 2026-11-18): the only drone sources are the 24 GT-v1 sources (20 filmed 2026-07-20, 4 filmed 2026-07-24); 5 other uploads are tiny non-drone test files. GT-v1 has 3 negative (exclude) segments only (0095 no_meaningful_action, 0108 missing_landing, 0155 failed_takeoff).",
+   "where": "docs/production-readiness/HOLDOUT-H1-PLAN.md",
+   "produced_by": "Supabase read-only query; private GT box file (aggregate)",
+   "proof_scope": "MEASUREMENT"
+  },
+  {
+   "id": "EVD-12-007",
+   "kind": "contract",
+   "what": "Holdout tooling H1-H7 (synthetic fixtures, not a holdout result); PA-01 policy U1-U6; football architecture F1-F9 (F9: cycle-12 Core sport-neutral, football reel canonical id stable). All 0 failing locally.",
+   "where": "cycle-12 report",
+   "produced_by": "scripts/test_holdout_qualification_contract.py; scripts/test_uncatalogued_person_policy_contract.py; scripts/test_football_profile_architecture_contract.py",
+   "proof_scope": "TESTED"
   }
  ],
  "fixes": [
@@ -534,6 +590,67 @@
    "status": "TESTED",
    "classification": "ARCHITECTURE",
    "limits": "Prompts, surf editor, ride segmentation and identity attribute vocabulary still surf-specific (docs/architecture/MULTI-SPORT-PERFORMANCE-ENGINE.md section 3)."
+  },
+  {
+   "id": "FIX-PQ-12-001",
+   "gap": "PA-13",
+   "title": "Draft ledger: stable canonical reel ids, revisions and idempotent retry",
+   "root_cause": "Draft object names = model description + date; a crash and a retry with another description or day left duplicates",
+   "change": "pipeline/draft_ledger.py; pipeline/context_qa_gate._ledger_assign/_ledger_upload/_proposed_draft_name; integrations/r2_storage.upload_object (ledger metadata on review uploads); integrations/qualification.draft_name_perturbation (Gate A only)",
+   "commit": "9c26a306",
+   "experiments": [
+    "RED/GREEN EVD-12-001",
+    "Gate A suite pa13 run 44269495332 (real R2)"
+   ],
+   "before": "legacy names: duplicates after crash + retry with a new description/day (RED)",
+   "after": "contract GREEN D1-D10; Gate A pending",
+   "evidence": [
+    "EVD-12-001"
+   ],
+   "status": "TESTED",
+   "classification": "CANDIDATE",
+   "limits": "Long-video path (context_qa_long_video) and the staged pending_uploads path keep legacy naming; a QA-label change keeps the first name (conservative); ledger reads add a few R2 GETs per reel.",
+   "sport_profile_id": "core"
+  },
+  {
+   "id": "FIX-PQ-12-002",
+   "gap": "PA-08/PA-11/PQ-02",
+   "title": "An owner REJECTED decision outranks model consensus, superset approvals and the singleton merge",
+   "root_cause": "verify_multi_clusters consulted owner decisions only on REVIEW; a model MATCH kept an owner-rejected pair together (withheld, but one reel)",
+   "change": "pipeline/identity_review.rejected_pairs + qualification_only decision files; pipeline/identity_pair_consensus.verify_multi_clusters / merge_verified_singletons",
+   "commit": "9c26a306",
+   "experiments": [
+    "RED/GREEN EVD-12-002 (RED on 3da09101: W4-W6, W8)"
+   ],
+   "before": "model MATCH on 0074+0151 -> one cluster",
+   "after": "split; no transitive merge through a rejected pair",
+   "evidence": [
+    "EVD-12-002"
+   ],
+   "status": "TESTED",
+   "classification": "SAFETY_FIX",
+   "limits": "A rejection splits the whole cluster into singles (conservative); rendered proof pending EXP-12-001.",
+   "sport_profile_id": "core"
+  },
+  {
+   "id": "FIX-PQ-12-003",
+   "gap": "PA-01/PA-16",
+   "title": "Scorecard reports reels of non-GT people apart",
+   "root_cause": "A valid reel of an uncatalogued person counted only as a QA false pass",
+   "change": "scripts/quality_scorecard.py: publishable_non_gt_person, non_gt_person_reels_audited, qa_false_pass_gt_cohort (legacy metric unchanged)",
+   "commit": "d47065db",
+   "experiments": [
+    "EVD-12-005"
+   ],
+   "before": "QA false pass 1 (0095)",
+   "after": "legacy 1 = 1 non-GT-person reel + 0 GT-cohort false passes",
+   "evidence": [
+    "EVD-12-005"
+   ],
+   "status": "TESTED",
+   "classification": "MEASUREMENT",
+   "limits": "Whether a non-GT reel shows a valid action still needs a viewed MP4.",
+   "sport_profile_id": "core"
   }
  ],
  "gaps": [
@@ -548,10 +665,11 @@
     "43583126199": "reel of uncatalogued rider (track 10003)",
     "43920602179": "same (track 10003)"
    },
-   "next": "Use owner-annotated target-athlete identity for GT audit; source-only evidence indicates current reel follows a different, uncatalogued rider. Keep existing GT-v1 exclude and do not edit or mark resolved without adjudication. No automatic publish based on two-surfer presence alone.",
+   "next": "Owner approval of UNCATALOGUED-PERSON-POLICY.md; 0095 = valid action of an uncatalogued person (viewed), never a GT success.",
    "evidence": [
     "EVD-07-002",
-    "EVD-07-003"
+    "EVD-07-003",
+    "EVD-12-005"
    ],
    "owner_clarification": "The owner catalogued each physical ride to its intended primary athlete. A second surfer on the same wave does NOT automatically invalidate the ride; do not substitute an uncatalogued surfer for the tagged athlete in GT evaluation. This is not proof production may never serve an uncatalogued rider.",
    "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct."
@@ -585,10 +703,11 @@
     "43583126199": "92/200 samples outside A's GT",
     "43920602179": "90/203 samples outside A's GT"
    },
-   "next": "Split decision: 13.2-16 s GT end contested, owner must adjudicate; 16-22 s prone whitewater after meaningful action is candidate pipeline tail error. Keep GT-v1 unchanged and create GT-v2 proposal only with consent.",
+   "next": "Owner labelling decision (whitewater riding): GT-v1 stays; candidate end ~15.2 s for a separate GT version (PA-03-0094-BOUNDARY-EVIDENCE.md).",
    "evidence": [
     "EVD-07-002",
-    "EVD-07-003"
+    "EVD-07-003",
+    "EVD-12-004"
    ],
    "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
    "cycle8": "Not fixed. EXP-08-001 'ride_end' answers: median |err| ~0.8 s on valid windows but large outliers (4.4, 5.6, 16.4 s), and it called the 0094 A tail (13.2-22 s) and the 0108 tail 'still riding' - no usable end signal; no cut moved."
@@ -605,7 +724,7 @@
     "43920602179": "selected, 78 exclude samples rendered"
    },
    "root_cause": "Gemini answer changed when the evicted LLM cache was rebuilt on 11-15 (no code change)",
-   "next": "Needs a stand-up evidence requirement or a pinned analysis cache; any detector change needs a held-out set (no fitted thresholds).",
+   "next": "ActionValidity needs >= 30 varied negative examples (GT-v1 has 3); kept REVIEW/UNCERTAIN until then (EVD-12-006).",
    "evidence": [
     "EVD-07-002",
     "EVD-07-003"
@@ -664,8 +783,9 @@
    "status": "MEDIA_VERIFIED",
    "next": "Fail-closed identity (#396) routes such pairs to owner REVIEW; an automatic merge needs pairwise consensus evidence, not a description match.",
    "evidence": [
+    "EVD-07-003",
     "EVD-07-006",
-    "EVD-07-003"
+    "EVD-12-002"
    ],
    "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
    "cycle8": "FIX-PQ-08-003 TESTED: production verifier MATCHes 0097+0115 (EXP-08-002), merge stage wired; integration render blocked (BLK-08-001)."
@@ -728,11 +848,12 @@
    "case": "retry",
    "product": "review drafts",
    "finding": "Draft object keys come from the model's athlete description + the date. A crash after some uploads, retried on another day or with different model descriptions, leaves the first drafts in review/ next to the new ones (duplicates). Not exercised by Gate A (free runs reuse cached descriptions).",
-   "classification": "RISK_IDENTIFIED",
-   "status": "IDENTIFIED",
-   "next": "Key drafts by a stable athlete/run identity, or record a run draft ledger and supersede drafts of an incomplete run (no deletion).",
+   "classification": "FIX_CANDIDATE",
+   "status": "TESTED",
+   "next": "Gate A pa13 on real R2 (run 44269495332), then EXP-12-001 namespace inventory.",
    "evidence": [
-    "EVD-10-001"
+    "EVD-10-001",
+    "EVD-12-001"
    ]
   },
   {
@@ -868,6 +989,11 @@
    "what": "PR #391 was closed (not merged) from the owner's account at 2026-11-17T21:29:38Z, 25 s after the qualrun-paid label for EXP-11-001; label-triggered qualification workflows run only on an open PR. EXP-11-001 is pre-registered but not launched; no spend. Budget: $4 total, $1.280 spent, $2.720 remaining. Needs the owner: reopen #391 / approve a new draft PR for the branch, and confirm the paid run.",
    "status": "RESOLVED",
    "resolution": "Owner chose 'Reopen #391 + run' (2026-11-18); PR reopened, EXP-11-001 ran as run 44252428407."
+  },
+  {
+   "id": "BLK-12-001",
+   "what": "Independent holdout H1 cannot run: no drone footage outside the 24 GT-v1 sources exists (EVD-12-006). Tooling, freeze/lock, metrics template and plan are ready (HOLDOUT-H1-PLAN.md). Needs: new footage from another day + labelling in the annotation studio.",
+   "status": "OPEN"
   }
  ],
  "proof_policy": {
@@ -896,6 +1022,12 @@
    "spent_total_usd": 1.508,
    "remaining_usd": 2.492,
    "basis": "list-price estimate from recorded tokens (llm_cost.json); reconcile with billing"
+  },
+  "cycle12": {
+   "campaign_total_usd": 4,
+   "spent_before_cycle12_usd": 1.508,
+   "remaining_usd": 2.492,
+   "note": "verified 2026-11-18: cycle 8 0.380 + q9-paid-01 0.225 + q9-paid-02 0.469 + EXP-10-001 0.206 + EXP-11-001 0.228 = 1.508; list-price estimates from recorded tokens"
   }
  },
  "next_priorities": [
