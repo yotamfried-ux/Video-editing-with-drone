@@ -44,22 +44,61 @@ jobs:
           python-version: '3.11'
       - name: Install media-contract dependencies
         run: pip install --disable-pip-version-check python-dotenv
+      - name: Restore ffmpeg packages
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/apt-debs
+          key: ffmpeg-debs-ubuntu-24.04-v1
       - name: Install and verify ffmpeg tools
+        timeout-minutes: 9
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          set -o pipefail
-          if ! command -v ffmpeg >/dev/null 2>&1; then
-            sudo apt-get update -qq >/tmp/apt-update.log 2>&1 || {
-              tail -n 100 /tmp/apt-update.log
-              exit 1
-            }
-            sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ffmpeg >/tmp/apt-install.log 2>&1 || {
-              tail -n 100 /tmp/apt-install.log
-              exit 1
-            }
+          set -e
+          if command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+            ffmpeg -version | head -1; exit 0
           fi
-          command -v ffmpeg
-          command -v ffprobe
-          ffmpeg -version | head -n 1
+          echo 'set man-db/auto-update false' | sudo debconf-communicate >/dev/null 2>&1 || true
+          sudo rm -f /var/lib/man-db/auto-update
+          mkdir -p ~/apt-debs
+          if ls ~/apt-debs/*.deb >/dev/null 2>&1 && sudo dpkg -i ~/apt-debs/*.deb >/dev/null \
+             && command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+            echo "FFmpeg installed offline from cached packages"
+            ffmpeg -version | head -1; exit 0
+          fi
+          # Runner sources use mirror+file (and may resolve to slow EC2 mirrors).
+          # Match the production pipeline's first-attempt archive fallback.
+          for source in /etc/apt/sources.list /etc/apt/sources.list.d/*.sources /etc/apt/sources.list.d/*.list; do
+            [ -f "$source" ] || continue
+            sudo sed -i \
+              -e 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|g' \
+              -e 's|http://us-east-2.ec2.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+              -e 's|http://azure.archive.ubuntu.com/ubuntu|http://archive.ubuntu.com/ubuntu|g' \
+              "$source"
+          done
+          rm -f ~/apt-debs/*.deb
+          APT_OPTS="-o Acquire::Retries=1 -o Acquire::http::Timeout=15 -o Acquire::https::Timeout=15 -o DPkg::Lock::Timeout=30"
+          for attempt in 1 2; do
+            if timeout 75 sudo apt-get $APT_OPTS update \
+               && timeout 150 sudo apt-get $APT_OPTS install -y --no-install-recommends --download-only -o Dir::Cache::archives="$HOME/apt-debs" ffmpeg \
+               && sudo dpkg -i ~/apt-debs/*.deb >/dev/null \
+               && command -v ffmpeg >/dev/null 2>&1 && command -v ffprobe >/dev/null 2>&1; then
+              sudo chown -R "$USER" ~/apt-debs
+              rm -rf ~/apt-debs/partial ~/apt-debs/lock
+              ffmpeg -version | head -1
+              exit 0
+            fi
+            echo "::warning::FFmpeg download attempt $attempt failed or timed out"
+          done
+          echo "::error::FFmpeg install failed after bounded attempts against Ubuntu archive"
+          exit 1
+      - name: Save ffmpeg packages
+        if: steps.ffmpeg-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/apt-debs
+          key: ffmpeg-debs-ubuntu-24.04-v1
       - name: Compile changed Python modules
         run: |
           python -m py_compile \
