@@ -52,6 +52,13 @@ def main() -> int:
           and prp.classify_event_eligibility({"type": "wave_catch", "description": "failed takeoff", "score": 9}, "surfing")["verdict"] == "INELIGIBLE",
           "U2 no positive evidence -> UNCERTAIN (reviewed); explicit failed attempt -> INELIGIBLE")
 
+    try:
+        from supabase import create_client  # noqa: F401
+    except Exception:  # CI jobs without the client library: the policy under test never calls it
+        stub = types.ModuleType("supabase")
+        stub.create_client = lambda *a, **k: None
+        stub.Client = object
+        sys.modules["supabase"] = stub
     from integrations import supabase_uploader as su
 
     class Q:
