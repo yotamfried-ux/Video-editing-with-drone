@@ -550,6 +550,9 @@ def _write_status(stage: str, progress: float, **meta) -> None:
 
 def _compile_clusters(clusters: list[dict], activity: str,
                       fn_to_id: dict[str, str] | None = None) -> int:
+    """SHADOWED IN PRODUCTION (PA-14): pipeline.context_qa_gate.install replaces this function with
+    compile_clusters_with_context_qa at startup, and real_identity_gate wraps that. A change made only here is inert in
+    a real run (Gate A run 44140263067: fault hooks placed here never fired). Change the context-QA path."""
     pending: list[tuple[str, str]] = []
     pending_meta: list[tuple[str, str, list[dict], dict]] = []
     fn_to_id = fn_to_id or {}
