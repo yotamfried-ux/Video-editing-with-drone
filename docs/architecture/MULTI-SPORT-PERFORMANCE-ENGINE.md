@@ -145,3 +145,18 @@ Second-domain coverage of the onset rule is in `scripts/test_action_onset_contra
 - Football QA prompts.
 - Framing on a wide pitch.
 - The default-profile fallback when events carry no sport, which works today only because surfing is the default.
+
+## 8. Cycle 12: MULTI_SPORT_COMPATIBILITY of the new Core changes
+
+| Change | Layer | Surf problem solved | Other surf cases | Football (contract) | Surf terms in Core | Football recalibration |
+|---|---|---|---|---|---|---|
+| FIX-PQ-12-001 draft ledger (`pipeline/draft_ledger.py`) | Core: Review, retry and storage | duplicate drafts after a crash and a retry (PA-13), RED to GREEN | D1–D10, every reel kind | F9: the football reel gets a canonical id and render-plan digest from the same code, stable under a changed description | none (F9) | none |
+| FIX-PQ-12-002 owner rejection precedence (`identity_review.rejected_pairs`) | Core: identity | a model MATCH kept the owner-rejected 0074+0151 together | W1–W9; 22 identity contracts unchanged | applies unchanged to team-mates: a rejected same-kit pair can never merge through a verifier | none (F9) | none: a decision is bound to source content and person |
+| FIX-PQ-12-003 non-GT-person scoring | Core: evaluation | a valid reel of an uncatalogued person (0095) was counted as a QA false pass | — | the same split serves untagged players | none | none |
+| Holdout tooling (`scripts/holdout_qualification.py`) | Core: evaluation | qualification on unseen footage | — | condition tags are free-form; the football GT plugs into the same freeze, lock and evaluate path | none | per-sport thresholds come from `SportProfile` and are digested in the lock |
+
+**Rejected in cycle 12:** an image-space motion end rule (E1, EVD-12-003). A drone that follows a surfer keeps the
+rider still in the image, so motion alone cannot mark the end of a surf action. The end signal belongs in a
+profile-owned action-state evaluator, trained on labelled data. It is not a Core threshold.
+
+**Still not proven:** football accuracy of any kind. The synthetic contract remains architecture-only.

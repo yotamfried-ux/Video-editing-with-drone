@@ -57,3 +57,27 @@ the single largest include segment, but GT rides are runs of contiguous include 
 wipeout). Measured correctly:
 - **Real end defects:** 0094 tail, 0108 excluded tail, 0070 inter-ride gap, 0151 early end.
 - **Real start defects:** the eight late starts listed in priority 1.
+
+## Cycle 12 re-ranking
+
+Inputs:
+- cycle-12 free work: PA-13 RED/GREEN, identity RED/GREEN, the E1 end replay, the holdout inventory;
+- verified budget: $1.508 spent, $2.492 left.
+
+| Priority | Gap IDs | Expected benefit | Generalization | Cost | Risk | ROI | Next experiment |
+|---|---|---|---|---|---|---|---|
+| **P0 gate** | PQ-02, PA-11, PA-08 (owner rejection must win) | no merge of a pair the owner rejected | 5 | done (FIX-PQ-12-002) | 1 | threshold | EXP-12-001 rendered confirmation |
+| 1 | PA-13 (duplicate drafts on retry) | zero duplicates, no lost output, no stale approval | 5 | free (contract plus Gate A) | 1 | **5.0** | Gate A pa13 (real R2), then EXP-12-001 inventory |
+| 2 | PA-08 (0097+0115 split) with the owner working decision | one reel instead of two; split athletes 2→1 | 5 | ~$0.23 (paid run) | 1 | 3.0 | **EXP-12-001** (pre-registered, cap $0.40) |
+| 3 | PQ-05 / PA-15 starts: generalisation | proves FIX-PQ-11-001 off the development set | 5 | blocked on data (BLK-12-001) | 1 | 3.0 once data exists | holdout H1: footage, then labelling, then freeze, then the paid run |
+| 4 | PA-01 (uncatalogued people) | sellable reels for untagged riders, with a clean GT metric | 4 | owner policy decision | 1 | 2.5 | owner approval of the policy |
+| 5 | PQ-06 / PA-03 / PA-15 ends | −7.5 s non-GT, −144 excluded frames | 4 | needs a per-frame action-state evaluator and labelled data; E1 failed | 3 | 0.6 | label end-state examples; owner decision on 0094 whitewater |
+| 6 | PQ-01 / PA-04 validity (0155) | −1 non-ride selection | 4 | needs ≥ 30 negatives (GT-v1 has 3) | 3 | 0.6 | collect negatives with the holdout footage |
+| 7 | PQ-17 / PA-07 (cross-source verifier precision) | auto-confirm correct multi-source reels | 5 | lookalike negative-pair set | 3 | 1.0 | mine different-athlete pairs from GT-v1 plus new footage |
+
+**Order:**
+1. safety (P0) and reliability (PA-13), both free;
+2. the one paid run with a real expected gain (EXP-12-001);
+3. everything that needs new data (holdout, ends, validity, verifier).
+
+These last items are blocked on footage and labels, not on code.
