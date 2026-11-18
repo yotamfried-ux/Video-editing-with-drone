@@ -65,6 +65,10 @@ on:
       - 'integrations/r2_storage.py'
       - 'scripts/test_draft_ledger_retry_contract.py'
       - 'scripts/test_identity_working_decisions_contract.py'
+      - 'scripts/test_uncatalogued_person_policy_contract.py'
+      - 'scripts/holdout_qualification.py'
+      - 'scripts/test_holdout_qualification_contract.py'
+      - 'scripts/quality_scorecard.py'
       - 'pipeline/sport_profiles/**'
       - 'pipeline/performance_event.py'
       - 'scripts/test_text_split_review_request_contract.py'
@@ -362,6 +366,8 @@ jobs:
           python scripts/test_action_onset_contract.py
           python scripts/test_draft_ledger_retry_contract.py
           python scripts/test_identity_working_decisions_contract.py
+          python scripts/test_uncatalogued_person_policy_contract.py
+          python scripts/test_holdout_qualification_contract.py
           python scripts/test_text_split_review_request_contract.py
           python scripts/test_consensus_concurrency_contract.py
           python scripts/test_review_replacement_invalidation_contract.py

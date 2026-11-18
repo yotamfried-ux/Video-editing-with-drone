@@ -10,6 +10,12 @@ and adds, from the rendered windows against GT-v1:
   * non_gt_seconds: rendered seconds inside no include and no exclude segment (waiting, gaps, tails)
   * incorrect_starts / incorrect_ends: rides whose start / end error exceeds the 0.5 s tolerance
   * qa_false_pass: publishable but not correct; qa_false_reject: correct but not publishable (withheld)
+  * cycle 12 (PA-01 policy, docs/production-readiness/UNCATALOGUED-PERSON-POLICY.md): reels of a person who is in no
+    GT-v1 include segment are reported apart - publishable_non_gt_person (time attribution finds no GT athlete) and
+    non_gt_person_reels_audited (crop follows a person with no GT box: no GT athlete shown). They are NEVER counted
+    as a GT success; qa_false_pass_gt_cohort excludes them so the GT-cohort QA error is visible on its own. The
+    legacy qa_false_pass is unchanged for comparability. Whether such a reel shows a VALID action of the new person
+    needs its own evidence (viewed MP4), recorded in the evidence registry, not inferred here.
 
 usage: quality_scorecard.py --diagnostics DIR --audit AUDIT.json [--gt GT.json] [--out OUT.json]
 The GT boxes behind the audit are private (never committed); this script reads only the audit's aggregates.
@@ -61,9 +67,13 @@ def build(diagnostics: Path, audit: dict, gt: dict) -> dict:
             wrong_actor += sum(v for k, v in labels.items()
                                if k not in ("no_subject", "no_gt_box") and k != primary)
             switches += int(shot.get("identity_switches") or 0)
+    non_gt_audited = sum(1 for reel in audit.get("reels", []) if reel.get("shots") and not reel.get("gt_athletes_shown")
+                         and all(not s.get("primary_gt_athlete") and not s.get("other_gt_athletes_in_crop")
+                                 for s in reel["shots"]))
     rides = report["rides"]
     tol = gs.BOUNDARY_TOLERANCE_SEC
     parts = report["reels"]
+    non_gt_published = sum(1 for p in parts if p.get("publishable") and not p.get("athletes"))
     return {
         "run_id": report.get("run_id"), "gt_digest": report.get("gt_digest"),
         "full_rides": m["rides_full_selected"], "ge95_rides": m["rides_ge95_selected"], "gt_rides": m["gt_rides"],
@@ -78,6 +88,9 @@ def build(diagnostics: Path, audit: dict, gt: dict) -> dict:
         "reels": m["reels"], "publishable": m["published"], "publishable_correct": m["published_correct"],
         "qa_false_pass": m["published"] - m["published_correct"],
         "qa_false_reject": m["correct_reels_withheld"],
+        "publishable_non_gt_person": non_gt_published,
+        "non_gt_person_reels_audited": non_gt_audited,
+        "qa_false_pass_gt_cohort": m["published"] - m["published_correct"] - non_gt_published,
         "publishable_wrong_identity": m["published_wrong_identity"],
         "correct_reels": sum(1 for p in parts if p.get("correct")),
     }
