@@ -149,6 +149,7 @@ jobs:
         path: ~/.cache/sportreel/openvino
         key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
     - name: Restore LLM analysis cache
+      if: ${{ false }} # EXP-13-COLD-001: no historical model or perception decisions restored
       uses: actions/cache/restore@v4
       with:
         path: /tmp/llm-cache
@@ -156,10 +157,15 @@ jobs:
         restore-keys: 'llm-analysis-cache-v1-
 
           '
+    - name: Purge ephemeral analysis memory before inference
+      run: |
+        rm -rf /tmp/llm-cache /tmp/llm-cache-cold-no-memory
+        test ! -e /tmp/llm-cache && test ! -e /tmp/llm-cache-cold-no-memory
     - name: Run pipeline (qualification namespace, Supabase writes blocked, LLM capped)
       timeout-minutes: 240
       env:
-        LLM_CACHE_DIR: /tmp/llm-cache
+        LLM_CACHE: '0' # disable model-response AND perception-sidecar caches
+        LLM_CACHE_DIR: /tmp/llm-cache-cold-no-memory
         ANALYSIS_WORKERS: ${{ vars.ANALYSIS_WORKERS || '3' }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
@@ -186,7 +192,7 @@ jobs:
         STORAGE_BACKEND: r2
         SPORTREEL_LLM_BUDGET_USD: ${{ steps.cfg.outputs.budget }}
         # cycle 12: owner WORKING identity decisions (0097+0115 same, 0074+0151 different), qualification-only file
-        SPORTREEL_IDENTITY_REVIEW_DECISIONS: ${{ github.workspace }}/evaluation/qualification/identity_working_decisions.json
+        SPORTREEL_IDENTITY_REVIEW_DECISIONS: '' # EXP-13: exclude previous owner qualification decisions
       run: bash scripts/run_pipeline_with_diagnostics.sh
     - name: Collect rendered reels from the namespace
       if: always()
