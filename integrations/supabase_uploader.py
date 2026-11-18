@@ -19,7 +19,8 @@ def _supabase() -> Client:
     global _client
     if _client is None:
         _client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
-    return _client
+    from integrations import qualification
+    return qualification.guard_supabase(_client)   # qualification runs: reads only, writes go to the ledger
 
 
 def _get_drive_recording_date(file_id: str) -> str:
@@ -220,6 +221,25 @@ def upsert_draft_publishability(record: dict) -> None:
         ],
     }
     _supabase().table("draft_publishability").upsert(payload).execute()
+
+
+REPLACEMENT_PENDING_REASON = "The REVIEW file is being replaced; final QA evidence for the new file is pending."
+
+
+def revoke_draft_publishability(storage_object_id: str, reason: str = REPLACEMENT_PENDING_REASON) -> None:
+    """Withdraw the previous run's approval authority for a REVIEW object that is about to be overwritten.
+
+    R2 REVIEW objects are keyed by draft name, so a re-edit replaces the bytes under the same storage id. Until the
+    new run writes its own row, the old PASS row must not describe the new bytes: the approval API refuses a draft
+    whose authority is not publishable / QA-evidenced, and the Review screen shows `reason`. A failure raises, so the
+    object is never replaced while its old authority could still be read as valid.
+    """
+    if not str(storage_object_id or "").strip():
+        raise ValueError("storage_object_id required")
+    (_supabase().table("draft_publishability")
+     .update({"publishable": False, "qa_evidence_recorded": False, "qa_passed": False, "qa_verdict": None,
+              "approval_blocked_reasons": [reason]})
+     .eq("storage_object_id", storage_object_id).execute())
 
 
 def _qa_defects(qa_gate: dict) -> list[dict]:

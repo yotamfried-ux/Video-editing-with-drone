@@ -52,6 +52,32 @@ def extend_to_recording_end(event: dict[str, Any], duration: float | None) -> di
             "recording_end_tail_sec": round(remaining, 3)}
 
 
+# Owner rule (cycle 5): the paddle-in that leads directly to the wave belongs to the ride, and the GT starts at the first
+# recorded frame when the recording opens on the action (16 of 24 GT rides). The analyzer samples at about one frame per
+# second and reports its start in whole/half seconds, so a start within SOURCE_START_SNAP_SEC of the recording start with
+# the athlete's track present from the first frames and unbroken up to that start is "the action was already running":
+# the cut opens on the first recorded frame. Nothing else moves; a track that appears later, has a hole, or starts after
+# the snap window is left exactly as it was (waiting before the paddle-in is not part of the ride).
+SOURCE_START_SNAP_SEC = 1.0
+TRACK_AT_START_SEC = 0.5
+
+
+def extend_to_recording_start(event: dict[str, Any]) -> dict[str, Any]:
+    if event.get("_teaser") or event.get("start_snapped_to_recording_start") is not None:
+        return event                                   # applied once; teasers are not complete actions
+    refinement = event.get("window_refinement")
+    if not isinstance(refinement, dict) or "athlete_not_in_frame_at_start" in (refinement.get("reasons") or []):
+        return event
+    try:
+        start = float(event.get("start"))
+        continuous_from = float(refinement.get("track_continuous_from_sec"))
+    except (TypeError, ValueError):
+        return event                                   # no evidence about the athlete before the start: do not move
+    if not (0.05 < start <= SOURCE_START_SNAP_SEC) or continuous_from > TRACK_AT_START_SEC:
+        return event
+    return {**event, "start": 0.0, "start_snapped_to_recording_start": round(start, 3)}
+
+
 def ends_with_recording(event: dict[str, Any], video_path: str | None = None) -> bool | None:
     """True when this event's clip will end on the last recorded frame (so its action may be cut by the camera),
     False when the action ends inside the recording, None when the recording's length is unknown.
@@ -156,6 +182,15 @@ def extend_to_setup(event: dict[str, Any]) -> dict[str, Any]:
     except (TypeError, ValueError):
         return event
     new_start = max(setup, start - SETUP_LEAD_IN_MAX_SEC, first_seen - SETUP_TRACK_MARGIN_SEC, 0.0)
+    # FIX-PQ-11-001: where the stitched actor is seen MOVING back to an earlier second (motion-supported onset,
+    # pipeline.action_onset; bound and motion threshold from the sport profile), the build-up starts there - beyond
+    # the fixed lead-in cap (0115 paddle-in), but never into stationary waiting (0140), which stops the walk-back.
+    try:
+        onset = float(refinement.get("onset_motion_from_sec"))
+    except (TypeError, ValueError):
+        onset = None
+    if onset is not None and onset < new_start:
+        new_start = max(setup, onset, 0.0)
     if not new_start < start - 0.05:
         return event
     return {**event, "start": round(new_start, 3), "start_before_setup_lead_in": round(start, 3)}
@@ -175,6 +210,7 @@ def normalize_complete_action_event(event: dict[str, Any], video_path: str | Non
     # comes from QA's generic DEAD_TIME rule.
     duration = _recording_duration(_source_path(effective, video_path))
     effective = extend_to_setup(effective)
+    effective = extend_to_recording_start(effective)
     effective = extend_to_outcome(effective, duration)
     effective = extend_through_fall(effective, duration)
     effective = extend_to_recording_end(effective, duration)

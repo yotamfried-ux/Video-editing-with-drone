@@ -326,7 +326,7 @@ def main() -> int:
         "QA_FAIL: Reel did not pass final quality review.",
         "remove_duplicate_events(event_list)",
         "if not _surf_events(event_list)",
-        "if surf_event and is_explicit_failed_takeoff",
+        "if profile is not None and is_explicit_failed_takeoff",
     ]
     missing = [token for token in required_policy_tokens if token not in policy_source]
     if missing:

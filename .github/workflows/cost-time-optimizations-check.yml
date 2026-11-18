@@ -53,6 +53,62 @@ on:
       - 'scripts/test_release_safety_invariants_contract.py'
       - 'scripts/test_reprocess_binding_contract.py'
       - 'scripts/test_output_qualification_contract.py'
+      - 'scripts/gt_scorecard.py'
+      - 'scripts/boundary_experiment.py'
+      - 'scripts/test_boundary_experiment_contract.py'
+      - 'scripts/test_identity_consensus_integration_contract.py'
+      - 'scripts/test_identity_autopublish_policy_contract.py'
+      - 'scripts/test_action_onset_contract.py'
+      - 'pipeline/action_onset.py'
+      - 'pipeline/draft_ledger.py'
+      - 'pipeline/context_qa_gate.py'
+      - 'integrations/r2_storage.py'
+      - 'scripts/test_draft_ledger_retry_contract.py'
+      - 'scripts/test_identity_working_decisions_contract.py'
+      - 'scripts/test_uncatalogued_person_policy_contract.py'
+      - 'scripts/holdout_qualification.py'
+      - 'scripts/test_holdout_qualification_contract.py'
+      - 'scripts/quality_scorecard.py'
+      - 'pipeline/sport_profiles/**'
+      - 'pipeline/performance_event.py'
+      - 'scripts/test_text_split_review_request_contract.py'
+      - 'pipeline/real_identity_gate.py'
+      - 'scripts/test_consensus_concurrency_contract.py'
+      - 'scripts/test_review_replacement_invalidation_contract.py'
+      - 'scripts/test_athlete_ride_matrix_contract.py'
+      - 'scripts/athlete_ride_matrix.py'
+      - 'scripts/test_actor_correctness_contract.py'
+      - 'scripts/actor_correctness.py'
+      - 'scripts/test_primary_athlete_binding_contract.py'
+      - 'scripts/test_ride_validity_contract.py'
+      - 'scripts/test_singleton_pair_merge_contract.py'
+      - 'scripts/test_qualification_isolation_contract.py'
+      - 'integrations/**'
+      - '.github/workflows/pipeline-qualification-run.yml'
+      - 'pipeline/ride_validity.py'
+      - 'scripts/primary_athlete_audit.py'
+      - 'pipeline/perception/runtime.py'
+      - 'pipeline/missed_moment_rescue.py'
+      - 'evaluation/evidence/**'
+      - 'scripts/build_evidence_matrix.py'
+      - 'docs/production-readiness/PIPELINE-EVIDENCE-MATRIX.md'
+      - 'scripts/test_identity_review_contract.py'
+      - 'scripts/test_source_start_contract.py'
+      - 'scripts/test_identity_gate_replay_contract.py'
+      - 'scripts/identity_gate_replay.py'
+      - 'scripts/boundary_start_replay.py'
+      - 'pipeline/window_refinement.py'
+      - 'pipeline/complete_action_window_policy.py'
+      - 'pipeline/identity_review.py'
+      - 'scripts/test_identity_pair_experiment_contract.py'
+      - 'scripts/_consensus_fixture.py'
+      - 'pipeline/identity_pair_consensus.py'
+      - 'pipeline/runtime_quality.py'
+      - 'pipeline/identity_evidence.py'
+      - 'scripts/test_verified_cluster_merge_contract.py'
+      - 'scripts/test_identity_merge_check_contract.py'
+      - 'scripts/test_gt_scorecard_contract.py'
+      - 'evaluation/ground_truth/**'
       - 'scripts/_qualification_fixture.py'
       - 'pipeline/output_qualification.py'
       - 'pipeline/runtime_policy_registry.py'
@@ -299,6 +355,37 @@ jobs:
         env:
           PYTHONPATH: scripts:.
         run: python scripts/test_output_qualification_contract.py
+      - name: Strict GT scorecard (union coverage, excluded frames, boundaries, fail-closed compare)
+        run: python scripts/test_gt_scorecard_contract.py
+      - name: Pairwise-consensus identity evidence at every evidence-writing path (fake verifier)
+        env:
+          PYTHONPATH: scripts:.
+        run: |
+          python scripts/test_identity_consensus_integration_contract.py
+          python scripts/test_identity_autopublish_policy_contract.py
+          python scripts/test_action_onset_contract.py
+          python scripts/test_draft_ledger_retry_contract.py
+          python scripts/test_identity_working_decisions_contract.py
+          python scripts/test_uncatalogued_person_policy_contract.py
+          python scripts/test_holdout_qualification_contract.py
+          python scripts/test_text_split_review_request_contract.py
+          python scripts/test_consensus_concurrency_contract.py
+          python scripts/test_review_replacement_invalidation_contract.py
+          python scripts/test_athlete_ride_matrix_contract.py
+          python scripts/test_actor_correctness_contract.py
+          python scripts/test_primary_athlete_binding_contract.py
+          python scripts/test_ride_validity_contract.py
+          python scripts/test_singleton_pair_merge_contract.py
+          python scripts/test_qualification_isolation_contract.py
+          python scripts/build_evidence_matrix.py --check
+          python scripts/test_identity_review_contract.py
+          python scripts/test_source_start_contract.py
+          python scripts/test_identity_gate_replay_contract.py
+          python scripts/test_setup_lead_in_contract.py
+          python scripts/test_identity_pair_experiment_contract.py
+          python scripts/test_boundary_experiment_contract.py
+          python scripts/test_verified_cluster_merge_contract.py
+          python scripts/test_identity_merge_check_contract.py
       - name: Batch qualification separates execution from product state
         env:
           PYTHONPATH: scripts:.

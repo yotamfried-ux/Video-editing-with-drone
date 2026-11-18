@@ -272,6 +272,8 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         def _finish_cluster(cluster: dict, reels: list[str], events_out: list, source_video: str,
                             source_quality: dict, all_events: list[dict]) -> tuple[list, list]:
             """QA gate + draft naming for one rendered cluster. Runs on the QA worker while the next cluster renders."""
+            from integrations import qualification as _qualification
+            _qualification.fault("before_qa")          # Gate A: honoured only in a qualification run
             inv_id = str(cluster.get("invocation_id") or "")
             # No `except TypeError` legacy retries here: every editor wrapper forwards **kwargs, and a retry
             # without invocation_id re-rendered the whole reel and broke the render-to-QA scope contract
@@ -315,8 +317,11 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 part_label = f" (part {clean_idx})" if clean_count > 1 else ""
                 music_label = " (music)" if is_music else ""
                 qa_label = " QA-FLAGGED" if reel in flagged else ""
-                name = orchestrator._safe_draft_name(str(cluster.get("description", "")) + part_label + music_label + qa_label)
+                name = _proposed_draft_name(orchestrator, str(cluster.get("description", "")), part_label + music_label + qa_label)
                 reel_events = events_by_reel.get(reel, all_events)
+                # PA-13: the draft keeps the name its canonical reel (source content + person, part, variant) first
+                # received, whatever the model's description or the date is on a retry.
+                name = _ledger_assign(cluster, clean_idx, is_music, name, reel, reel_events, reel in flagged)
                 # The subject gates above run after the manifest recorded the final-QA verdict. A draft the gate
                 # blocks must reach the manifest (and draft_publishability) as not publishable, before upload.
                 from pipeline.publishable_reel_policy import mark_qa_gate_blocked, qa_gate_block_reasons
@@ -376,7 +381,9 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         def _upload_one(args: tuple[str, str]) -> bool:
             reel_path, name = args
             try:
-                orchestrator.upload_draft(reel_path, name)
+                _ledger_upload(orchestrator, reel_path, name)
+                from integrations import qualification as _qualification
+                _qualification.fault("after_first_upload")  # Gate A: honoured only in a qualification run
                 return True
             except Exception as exc:
                 os.makedirs(orchestrator.config.PENDING_UPLOADS_DIR, exist_ok=True)
@@ -433,6 +440,61 @@ def _wrap_existing_hook() -> bool:
     setattr(policy, _QA_WRAPPED, True)
     return True
 
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# PA-13 draft ledger (pipeline.draft_ledger): stable draft names and idempotent, revisioned uploads
+# ---------------------------------------------------------------------------------------------------------------
+_LEDGER_CTX: dict[str, dict[str, Any]] = {}
+
+
+def _proposed_draft_name(orchestrator, description: str, labels: str) -> str:
+    """The legacy proposed name (description + labels + today). Inside a qualification run only, Gate A can make a
+    retry propose a different description / date (integrations.qualification.draft_name_perturbation)."""
+    from integrations import qualification
+
+    suffix, day = qualification.draft_name_perturbation()
+    name = orchestrator._safe_draft_name(description + (f" {suffix}" if suffix else "") + labels)
+    if day and len(name) > 13 and name[-13] == "_" and name[-12:-4].isdigit():
+        name = name[:-12] + day + ".mp4"
+    return name
+
+
+def _ledger_assign(cluster: dict, part_index: int, is_music: bool, proposed: str, reel: str,
+                   events: list[dict], flagged: bool) -> str:
+    from pipeline import draft_ledger
+
+    store = draft_ledger.default_store()
+    if store is None:
+        return proposed
+    try:
+        apps = cluster.get("appearances", []) or []
+        cid = draft_ledger.canonical_reel_id(apps, part_index=part_index or 1, variant="music" if is_music else "clean")
+        run_id = os.getenv("SPORTREEL_QUALIFICATION_RUN_ID") or os.getenv("GITHUB_RUN_ID") or os.getenv("PIPELINE_RUN_ID", "")
+        members = sorted({draft_ledger._source(a.get("path")) + "::" + draft_ledger._person(a) for a in apps})
+        name = draft_ledger.assign_name(store, cid, Path(proposed).name, run_id=run_id, members=members)
+        _LEDGER_CTX[reel] = {"cid": cid, "plan": draft_ledger.plan_digest(events), "run_id": run_id,
+                             "qa_verdict": "FLAGGED" if flagged else "PASS", "members": members}
+        if name != Path(proposed).name:
+            print(f"  📒 draft ledger: {cid} keeps its draft name {name} (proposed {proposed})")
+        return name
+    except Exception as exc:  # noqa: BLE001 - a ledger failure falls back to the legacy name, never drops a reel
+        print(f"  ⚠️  draft ledger unavailable for this reel ({exc}); legacy draft name kept")
+        _LEDGER_CTX.pop(reel, None)
+        return proposed
+
+
+def _ledger_upload(orchestrator, reel_path: str, name: str) -> None:
+    from pipeline import draft_ledger
+
+    ctx = _LEDGER_CTX.pop(reel_path, None)
+    store = draft_ledger.default_store(orchestrator.upload_draft) if ctx else None
+    if store is None:
+        orchestrator.upload_draft(reel_path, name)
+        return
+    outcome = draft_ledger.publish(store, cid=ctx["cid"], draft_name=name, plan=ctx["plan"], render_path=reel_path,
+                                   run_id=ctx["run_id"], qa_verdict=ctx["qa_verdict"], members=ctx["members"])
+    print(f"  📒 {outcome.action}: {outcome.draft_name} revision {outcome.revision}")
 
 def install() -> None:
     module = sys.modules.get("pipeline.orchestrator")

@@ -76,7 +76,9 @@ def classify_action(event: dict[str, Any], activity: str = "") -> dict[str, Any]
     positive: list[str] = []
     missing: list[str] = []
     negative: list[str] = []
-    if is_surf_event(event, activity) and is_explicit_failed_takeoff(event, activity):
+    covered = (policy.coverage_profile(event, activity) is not None) if hasattr(policy, "coverage_profile") \
+        else is_surf_event(event, activity)
+    if covered and is_explicit_failed_takeoff(event, activity):
         negative.append("explicit_no_ride_statement")
     score = _num(event.get("score")) or 0.0
     (positive if score >= MIN_POSITIVE_SCORE else missing).append(
@@ -138,7 +140,11 @@ def action_interval(event: dict[str, Any]) -> dict[str, Any]:
             else:
                 issues.append("tail_beyond_verified_actor")
         lead_floor = _num(refinement.get("setup_first_track_sec"))
-        floor = min(first, lead_floor) if lead_floor is not None else first
+        # The target track seen continuously (no hole > 0.4 s) from an earlier second validates the lead as well:
+        # `first` only looks one second before the analyzer's start (window_refinement.continuous_presence_from).
+        continuous = _num(refinement.get("track_continuous_from_sec"))
+        onset = _num(refinement.get("onset_motion_from_sec"))   # stitched, moving actor (FIX-PQ-11-001)
+        floor = min(v for v in (first, lead_floor, continuous, onset) if v is not None)
         if rendered[0] is not None and rendered[0] < floor - PAD_START_SEC:
             issues.append("lead_before_verified_actor")
         if gap > MAX_TRACK_GAP_SEC and gap_at is not None and rendered[0] is not None and rendered[1] is not None \

@@ -16,6 +16,7 @@ import config
 from integrations.drive    import (download_video, get_new_videos, mark_as_processed,
                                     upload_draft, record_failure, flag_quality_issue)
 from integrations.run_status import mark_run
+from integrations import qualification as _qualification
 from pipeline.stages.analyzer import analyze_session
 from pipeline.stages.editor   import create_reel, compile_multi_source_reel, drain_quality_issues
 from pipeline.stages.identity import cluster_clips
@@ -443,6 +444,11 @@ def _handle_reprocess_requests() -> list[str]:
     Returns the operator-note keys created, so main() can clear them after the
     run (they are reprocess-specific and must not leak into future sessions).
     """
+    from integrations import qualification
+    if qualification.active():
+        # Operator reprocess requests belong to production: a qualification run never reads, claims or acts on them.
+        qualification.record("reprocess_stage_skipped")
+        return []
     try:
         from integrations.supabase_uploader import (claim_reprocess,
                                                     fetch_pending_reprocess,
@@ -544,6 +550,9 @@ def _write_status(stage: str, progress: float, **meta) -> None:
 
 def _compile_clusters(clusters: list[dict], activity: str,
                       fn_to_id: dict[str, str] | None = None) -> int:
+    """SHADOWED IN PRODUCTION (PA-14): pipeline.context_qa_gate.install replaces this function with
+    compile_clusters_with_context_qa at startup, and real_identity_gate wraps that. A change made only here is inert in
+    a real run (Gate A run 44140263067: fault hooks placed here never fired). Change the context-QA path."""
     pending: list[tuple[str, str]] = []
     pending_meta: list[tuple[str, str, list[dict], dict]] = []
     fn_to_id = fn_to_id or {}
@@ -564,6 +573,7 @@ def _compile_clusters(clusters: list[dict], activity: str,
                                              athlete_label=cluster["description"],
                                              _events_out=out)
 
+        _qualification.fault("before_qa")
         reels, events_by_reel, flagged = _qa_gate(
             reels, events_out, activity, cluster["description"], _recompile)
 
@@ -590,6 +600,7 @@ def _compile_clusters(clusters: list[dict], activity: str,
         reel_path, name = args
         try:
             upload_draft(reel_path, name)
+            _qualification.fault("after_first_upload")
             return True
         except Exception as exc:
             os.makedirs(config.PENDING_UPLOADS_DIR, exist_ok=True)
@@ -823,6 +834,7 @@ def _process_clips_session(videos: list[dict]) -> int:
         dl_results = list(pool.map(_download_one, videos))
     downloaded = [r for r in dl_results if r is not None]
     clip_analyses = _analyze_downloaded(downloaded)
+    _qualification.fault("after_analysis")
     if not clip_analyses:
         print("⚠️ No clips downloaded or analyzed — nothing to process")
         return 0
@@ -861,6 +873,7 @@ def _process_mixed_session(videos: list[dict]) -> int:
         dl_results = list(pool.map(_download_one, videos))
     downloaded = [r for r in dl_results if r is not None]
     clip_analyses = _analyze_downloaded(downloaded)
+    _qualification.fault("after_analysis")
     if not clip_analyses:
         print("⚠️ No files downloaded — nothing to process")
         return 0

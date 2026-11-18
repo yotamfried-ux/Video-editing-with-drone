@@ -112,7 +112,7 @@ def main() -> int:
             "EVERY DISTINCT WAVE RIDE",
             "MAX_PERFORMANCE_REEL_SEC = 89.0",
             "PerformanceReelPackingError",
-            "if surf_event and is_explicit_failed_takeoff",
+            "if profile is not None and is_explicit_failed_takeoff",
             "if not _surf_events(event_list)",
             "remove_duplicate_events(event_list)",
             "performance_reel_total_wave_count",
@@ -197,8 +197,9 @@ def main() -> int:
         [
             "def _cluster_has_perception_evidence",
             "medium confidence without bbox perception evidence",
-            "missing thumbnails for identity verification",
-            "identity verifier error",
+            # cycle 4: the cluster verifier is identity_pair_consensus (missing image / error -> REVIEW, never a merge)
+            "identity_pair_consensus.verify_multi_clusters",
+            "identity._consensus_ask",
             "_sportreel_identity_failsafe_installed",
             "identity._build_clusters_from_data = _wrap_build_clusters(identity)",
             "identity._verify_multi_clusters = _wrap_verify_multi_clusters(identity)",

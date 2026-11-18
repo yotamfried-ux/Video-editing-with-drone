@@ -1,0 +1,122 @@
+{
+ "schema": "sportreel.identity_cluster_check_results.v1",
+ "github_run": "43974708319",
+ "model": "gemini-2.5-flash",
+ "diagnostics_run": "43920602179",
+ "code_path": "pipeline.identity_pair_consensus.verify_cluster (production function)",
+ "caveat": "6-crop sheets built by the experiment script, not the pipeline's 4-crop thumbnails",
+ "clusters": [
+  {
+   "cluster": "f72cae84",
+   "sources": 2,
+   "gt": "same_athlete (0070+0108)",
+   "verdict": "MATCH",
+   "pairs": [
+    "MATCH"
+   ]
+  },
+  {
+   "cluster": "818b1a1e",
+   "sources": 5,
+   "gt": "same_athlete (+ one non-ride source)",
+   "verdict": "REVIEW",
+   "pairs": [
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "REVIEW",
+    "REVIEW",
+    "REVIEW",
+    "REVIEW",
+    "REVIEW"
+   ]
+  },
+  {
+   "cluster": "a7207728",
+   "sources": 2,
+   "gt": "MIXED (0143 + 0152, two athletes)",
+   "verdict": "REVIEW",
+   "pairs": [
+    "REVIEW"
+   ]
+  },
+  {
+   "cluster": "1f3e674b",
+   "sources": 5,
+   "gt": "same_athlete",
+   "verdict": "REVIEW",
+   "pairs": [
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "MATCH",
+    "REVIEW",
+    "REVIEW"
+   ]
+  },
+  {
+   "cluster": "b0da9f88",
+   "sources": 2,
+   "gt": "same_athlete (0160+0163)",
+   "verdict": "MATCH",
+   "pairs": [
+    "MATCH"
+   ]
+  }
+ ],
+ "cost": {
+  "calls": 46,
+  "estimated_usd": 0.1816
+ },
+ "replay_policy_on_frozen_manifests": {
+  "43583126199": {
+   "parts_withheld": 5,
+   "published": [
+    12,
+    7
+   ],
+   "published_correct": [
+    9,
+    6
+   ],
+   "published_wrong_identity": [
+    1,
+    0
+   ],
+   "published_nonride": [
+    2,
+    1
+   ],
+   "correct_reels_withheld": [
+    0,
+    3
+   ]
+  },
+  "43920602179": {
+   "parts_withheld": 0,
+   "published": [
+    5,
+    5
+   ],
+   "published_correct": [
+    4,
+    4
+   ],
+   "published_wrong_identity": [
+    0,
+    0
+   ],
+   "correct_reels_withheld": [
+    6,
+    6
+   ]
+  }
+ },
+ "total_experiment_cost_usd": 0.8259
+}

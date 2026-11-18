@@ -217,9 +217,21 @@ def _person_entries(clip_analyses: list[dict],
                 "description": person.get("description", "unknown athlete"),
                 "events": events,
                 "thumbnail": thumbnail,
+                "sheet_crops": _sheet_crops_of(person),
                 "key": _identity_key(clip_index, person_id, ca.get("path", "")),
             })
     return entries
+
+
+def _sheet_crops_of(person: dict) -> int:
+    """How many tracked crops the person's identity contact sheet holds (0 = a single crop-point thumbnail / unknown)."""
+    evidence = person.get("identity_evidence")
+    if isinstance(evidence, dict) and evidence.get("kind") == "track_bbox_sheet":
+        try:
+            return int(evidence.get("crops") or 0)
+        except (TypeError, ValueError):
+            return 0
+    return 0
 
 
 def _appearance_from_entry(entry: dict) -> dict:
@@ -228,6 +240,7 @@ def _appearance_from_entry(entry: dict) -> dict:
         "path": entry["path"],
         "events": entry["events"],
         "thumbnail": entry.get("thumbnail", ""),
+        "_sheet_crops": int(entry.get("sheet_crops") or 0),
         "_clip_index": entry.get("clip_index"),
         "_person_id": entry.get("person_id"),
         "_description": entry.get("description", "unknown athlete"),
@@ -1159,81 +1172,37 @@ Rules:
 """
 
 
+def _consensus_ask(prompt: str, images: list[bytes]) -> str:
+    """Model access of the pairwise consensus verifier: inline image bytes (nothing is uploaded to the Files API)."""
+    from google.genai import types
+
+    parts: list = []
+    for index, data in enumerate(images):
+        parts += [f"[Image {index}]:", types.Part.from_bytes(data=data, mime_type="image/jpeg")]
+    parts.append(prompt)
+    model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+    return _retry_gemini(lambda: model.generate_content(parts, request_options={"timeout": 60}).text.strip())
+
+
 def _verify_multi_clusters(clusters: list[dict]) -> list[dict]:
-    """Visual verification pass for multi-clip clusters.
+    """Visual verification of multi-clip clusters: pairwise consensus is the ONLY way to confirm a cross-clip merge.
 
-    Fail-safe behavior is intentionally conservative:
-      - if Gemini identifies specific mismatches, split only those appearances;
-      - if Gemini says the group is not one person but cannot isolate a mismatch,
-        split the full group into singleton clusters;
-      - if verification cannot run, keep the cluster unchanged.
+    Every cross-source pair is compared in both image orders (pipeline.identity_pair_consensus). All pairs MATCH ->
+    pairwise evidence is stamped; any pair a confident different athlete -> the cluster is split; any doubt or error ->
+    the cluster stays together WITHOUT evidence (the identity gate withholds it for review). There is no transitive
+    merge and no group "same person" call any more (cycle 3: that prompt merged 3 of 60 different-athlete pairs).
     """
-    verified: list[dict] = []
-    for cluster in clusters:
-        apps = cluster.get("appearances", [])
-        thumbs = [a.get("thumbnail", "") for a in apps]
-        if len(apps) < 2 or not all(t and os.path.exists(t) for t in thumbs):
-            verified.append(cluster)
-            continue
-        from pipeline import identity_evidence
-        if identity_evidence.covers(cluster):
-            verified.append(cluster)  # already confirmed on images for exactly these members
-            continue
-        cluster = identity_evidence.clear(dict(cluster))
+    from pipeline import identity_pair_consensus
 
-        uploaded: list = []
-        try:
-            content: list = []
-            for i, thumb_path in enumerate(thumbs):
-                gfile = genai.upload_file(path=thumb_path, mime_type="image/jpeg")
-                uploaded.append(gfile)
-                content.append(f"[Image {i}]:")
-                content.append(gfile)
-            content.append(_VERIFY_PROMPT)
+    verified = identity_pair_consensus.verify_multi_clusters(
+        clusters, ask=_consensus_ask, split_to_singles=_split_cluster_to_singles)
+    # Single-source clusters the description-based clustering kept apart (PA-08, 0097+0115) are proposed to the same
+    # fail-closed pairwise verifier; only all-MATCH groups merge (EXP-08-002: 1 split recovered, 0 false merges / 36).
+    merged, report = identity_pair_consensus.merge_verified_singletons(verified, ask=_consensus_ask)
+    if report.get("merged_groups") or report.get("skipped"):
+        print(f"🔗 singleton pair merge: {report.get('merged_groups') or report.get('skipped')}")
+    return merged
 
-            model = genai.GenerativeModel(model_name="gemini-2.5-flash")
-            raw = _retry_gemini(lambda: model.generate_content(
-                content, request_options={"timeout": 60}
-            ).text.strip())
-            parsed = _parse_json_response(raw)
-            same_person, bad, verdict_problem = identity_evidence.parse_verifier_verdict(parsed, len(apps))
-            if verdict_problem:
-                print(f"  [IDENTITY] verifier answer rejected ({verdict_problem}): cluster not confirmed")
-
-            if same_person and not bad:
-                verified.append(identity_evidence.stamp(dict(cluster), identity_evidence.IMAGE_VERIFIER,
-                    images=thumbs, model="gemini-2.5-flash", raw_response=raw))
-                continue
-
-            if not bad or len(bad) >= len(apps):
-                verified.extend(_split_cluster_to_singles(
-                    cluster, "visual verifier could not confirm same athlete"))
-                continue
-
-            keep = [a for i, a in enumerate(apps) if i not in bad]
-            split = [a for i, a in enumerate(apps) if i in bad]
-            print(f"  [SPLIT] Identity verification split {len(split)} clip(s) out of "
-                  f"'{cluster.get('description','?')[:40]}' — different athlete detected")
-            logger.warning("Identity verify: split %d/%d appearance(s) from '%s'",
-                           len(split), len(apps), cluster.get("description", "?"))
-            verified.append({**cluster, "appearances": keep})
-            for app in split:
-                verified.append({
-                    "description": app.get("_description")
-                                   or cluster.get("description", "unknown athlete") + " (separated)",
-                    "appearances": [app],
-                })
-        except Exception as e:
-            logger.debug("Cluster verification skipped (%s) — keeping as-is", e)
-            verified.append(cluster)
-        finally:
-            for gfile in uploaded:
-                try:
-                    genai.delete_file(gfile.name)
-                except Exception:
-                    pass
-
-    return verified
 
 _MERGE_CHECK_PROMPT = """\
 Image A and Image B each show one tracked person from a different drone clip of the same surf/sports session.
@@ -1344,38 +1313,32 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
         b_src = {x.get("_clip_index", x.get("path")) for x in b.get("appearances", [])}
         if a_src & b_src:
             continue
-        thumb_a = next((x.get("thumbnail") for x in a.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))), None)
-        thumb_b = next((x.get("thumbnail") for x in b.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))), None)
+        from pipeline import identity_pair_consensus as _pc
+        # only full-strength sheets (>= MIN_SHEET_CROPS tracked crops) may confirm a merge; thinner ones stay apart
+        thumb_a = next((x.get("thumbnail") for x in a.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))
+                        and int(x.get("_sheet_crops") or 0) >= _pc.MIN_SHEET_CROPS), None)
+        thumb_b = next((x.get("thumbnail") for x in b.get("appearances", []) if x.get("thumbnail") and os.path.exists(x.get("thumbnail"))
+                        and int(x.get("_sheet_crops") or 0) >= _pc.MIN_SHEET_CROPS), None)
         if not thumb_a or not thumb_b:
             continue
-        uploaded: list = []
         checked += 1
+        from pipeline import identity_pair_consensus
         try:
-            content: list = []
-            for label, path in (("A", thumb_a), ("B", thumb_b)):
-                gfile = genai.upload_file(path=path, mime_type="image/jpeg")
-                uploaded.append(gfile)
-                content += [f"[Image {label}]:", gfile]
-            content.append(_MERGE_CHECK_PROMPT)
-            model = genai.GenerativeModel(model_name="gemini-2.5-flash")
-            raw = _retry_gemini(lambda: model.generate_content(content, request_options={"timeout": 60}).text.strip())
-            parsed = _parse_json_response(raw)
+            sheet_a, sheet_b = identity_pair_consensus._read(thumb_a), identity_pair_consensus._read(thumb_b)
+            if sheet_a is None or sheet_b is None:
+                continue
+            pair = identity_pair_consensus.verify_pair(_consensus_ask, sheet_a, sheet_b)
         except Exception as exc:
             logger.debug("merge check skipped (%s)", exc)
             continue
-        finally:
-            for gfile in uploaded:
-                try:
-                    genai.delete_file(gfile.name)
-                except Exception:
-                    pass
-        same = parsed.get("same_person") is True and str(parsed.get("confidence", "")).lower() == "high"
+        same = pair["decision"] == "MATCH"            # both image orders, >= 2 specific features, no contradiction
         verdict = "MERGED" if same else "kept apart"
-        print(f"  🔍 Identity merge check ({verdict}, text score {score:.2f}): '{str(a.get('description', '?'))[:40]}' + "
-              f"'{str(b.get('description', '?'))[:40]}' — {str(parsed.get('reason', ''))[:120]}")
+        print(f"  🔍 Identity merge check ({verdict}, {pair['decision']}, text score {score:.2f}): "
+              f"'{str(a.get('description', '?'))[:40]}' + '{str(b.get('description', '?'))[:40]}'")
         identity_trace.record_metadata(f"merge_check_{checked}", {
             "a": str(a.get("description", ""))[:80], "b": str(b.get("description", ""))[:80], "text_score": score,
-            "same_person": parsed.get("same_person"), "confidence": parsed.get("confidence"), "merged": same})
+            "decision": pair["decision"], "matching_features": pair["matching_features"],
+            "contradicting_features": pair["contradicting_features"], "merged": same})
         if not same:
             continue
         # One image of each cluster was compared. That confirms the merged cluster only when each side was a
@@ -1386,9 +1349,9 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
         if pair_covers_all:
             a_key = identity_evidence.member_key(a["appearances"][0])
             b_key = identity_evidence.member_key(a["appearances"][1])
-            identity_evidence.stamp(a, identity_evidence.PAIR_CHECK_SINGLETONS, str(parsed.get("reason", "")),
-                                    model="gemini-2.5-flash", raw_response=raw,
-                                    member_images={a_key: thumb_a, b_key: thumb_b})
+            identity_evidence.stamp_pairwise(
+                a, [dict(pair, a=a_key, b=b_key)], model="gemini-2.5-flash",
+                member_images={a_key: thumb_a, b_key: thumb_b})
         else:
             identity_evidence.clear(a)
             a["_merge_check_pair_only"] = True
@@ -1433,11 +1396,64 @@ def _split_impossible_clusters(clusters: list[dict]) -> list[dict]:
                         break
                 if has_no_match:
                     break
-            if has_no_match:
+            if has_no_match and _text_attribute_split_reviewed(cluster, dec.reasons):
+                out.append(cluster)                     # owner APPROVED this exact grouping (operator_review)
+            elif has_no_match:
                 out.extend(_split_cluster_to_singles(cluster, split_reason))
             else:
                 out.append(cluster)
     return out
+
+
+# Description attributes are the analyzer's TEXT under varying light. A split on them alone is the safe default, but
+# the model clustering's proposal is not thrown away silently (FIX-PQ-10-003, PA-08 0097+0115: "dark swimsuit" vs
+# "no shirt"): it becomes an identity review request for the owner, at no model cost.
+# Cycle 11: the set lives in the sport profile (pipeline/sport_profiles: surfing = these three; football = none,
+# because team kits make colour conflicts meaningless either way). Kept as the surfing alias for existing callers.
+from pipeline.sport_profiles.surfing import SURFING as _SURFING_PROFILE  # noqa: E402
+_TEXT_ATTRIBUTE_REASONS = set(_SURFING_PROFILE.reviewable_attribute_conflicts)
+
+
+def _reviewable_conflicts(cluster: dict) -> set[str]:
+    from pipeline.sport_profiles import GENERIC, default_profile, profile_for_event
+    events = [e for a in cluster.get("appearances", []) or [] for e in a.get("events", []) or [] if isinstance(e, dict)]
+    profile = profile_for_event(events[0]) if events else GENERIC
+    if profile is GENERIC:
+        profile = default_profile()
+    return set(profile.reviewable_attribute_conflicts)
+
+
+def _text_attribute_split_reviewed(cluster: dict, reasons: list[str]) -> bool:
+    """True only when the owner APPROVED this exact grouping; then the cluster carries operator_review evidence.
+    Otherwise a PENDING request is recorded (REJECTED: nothing recorded) and the caller splits as before."""
+    hard = set(reasons) & {"same_source_clip_conflict", "conflicting_jersey_or_bib_numbers",
+                           "companion_solo_vs_tandem_conflict", "rejected_by_semantic_or_visual_verifier"}
+    reviewable = _reviewable_conflicts(cluster)
+    if hard or not (set(reasons) & reviewable):
+        return False
+    apps = cluster.get("appearances", []) or []
+    if len({a.get("_clip_index", a.get("path")) for a in apps}) < 2:
+        return False
+    try:
+        from pipeline import identity_review as review
+        request = review.build_request(
+            cluster, {"reason": "model clustering proposed one athlete; split on text attributes only ("
+                                + ", ".join(sorted(set(reasons) & reviewable)) + ")", "pairs": []},
+            model="identity_decision_engine.description_rules", prompt="text_attribute_split")
+        decision = review.resolve(cluster, request)
+        if decision == "APPROVED":
+            from pipeline import identity_evidence
+            approved = review.load_decisions()[request["request_id"]]
+            identity_evidence.stamp_operator_review(cluster, approved, request_id=request["request_id"])
+            print(f"  ✅ owner-approved identity kept together: {cluster.get('description', '')[:40]}")
+            return True
+        if decision != "REJECTED":
+            review.record_request(request)
+            print(f"  📝 identity review request {request['request_id'][:12]} (split on text attributes): "
+                  f"{cluster.get('description', '')[:40]}")
+    except Exception as exc:                            # a review-channel failure never merges anything
+        logger.warning("identity review request for a text-attribute split failed: %s", exc)
+    return False
 
 
 def _post_process_clusters(clusters: list[dict], clip_analyses: list[dict]) -> list[dict]:

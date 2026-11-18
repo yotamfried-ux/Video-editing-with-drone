@@ -25,6 +25,10 @@ def _send_push(messages: list[dict]) -> None:
 
 def notify_athlete_followers(client, reel_id: str, athlete_id: str | None, send=_send_push) -> int:
     """Notify every follower of `athlete_id` about `reel_id` once. Returns how many followers were notified."""
+    from integrations import qualification
+    if qualification.active():
+        qualification.record("notification_skipped", channel="athlete_follow", reel_id=reel_id)
+        return 0
     if not athlete_id:
         return 0
     try:

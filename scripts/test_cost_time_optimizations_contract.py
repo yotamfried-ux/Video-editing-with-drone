@@ -165,11 +165,14 @@ def test_concurrent_analysis_keeps_order_isolates_failures_and_is_faster() -> No
     elapsed = time.monotonic() - start
     assert [r["meta"]["id"] for r in out] == ["a", "c", "d"], out
     assert failures == ["bad"], failures
-    assert elapsed < 0.6, f"4 sources x 0.2s should overlap, took {elapsed:.2f}s"
     namespace["_ANALYSIS_WORKERS"] = 1
     start = time.monotonic()
     namespace["_analyze_downloaded"](items)
-    assert time.monotonic() - start >= 0.75, "ANALYSIS_WORKERS=1 must stay serial"
+    serial = time.monotonic() - start
+    assert serial >= 0.75, "ANALYSIS_WORKERS=1 must stay serial"
+    # Overlap is judged against the serial run on the same runner (a fixed wall-clock bound failed at 0.61 s on a
+    # loaded CI runner). Serial >= 0.8 s of work; 4 workers overlap it to ~0.2 s, so < 60 % of serial proves overlap.
+    assert elapsed < 0.6 * serial, f"4 sources x 0.2s should overlap: parallel {elapsed:.2f}s vs serial {serial:.2f}s"
 
 
 def test_selector_capture_is_isolated_per_thread() -> None:

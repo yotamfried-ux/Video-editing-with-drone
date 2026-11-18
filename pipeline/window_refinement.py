@@ -65,6 +65,28 @@ def _track_times(detections: Iterable[Any], track_id: str, lo: float, hi: float)
     return times
 
 
+TRACK_CONTINUITY_GAP_SEC = 0.4   # a longer hole in a track may be another person under the same id
+
+
+def continuous_presence_from(detections: Iterable[Any], track_id: str, anchor: float) -> float | None:
+    """Earliest second from which the track is seen WITHOUT a hole longer than TRACK_CONTINUITY_GAP_SEC up to `anchor`.
+
+    `first_track_sec` only looks one second before the analyzer's start, so it says nothing about how long the athlete
+    has been in frame; this does (a run of dense detections walked backwards from the anchor). None when the track is
+    not seen near the anchor at all.
+    """
+    times = _track_times(detections, track_id, 0.0, anchor + 1.0)
+    near = [i for i, t in enumerate(times) if t >= anchor - 1.0]
+    if not near:
+        return None
+    i = near[0]
+    cont = times[i]
+    while i > 0 and times[i] - times[i - 1] <= TRACK_CONTINUITY_GAP_SEC:
+        i -= 1
+        cont = times[i]
+    return round(cont, 2)
+
+
 def _sampling_gap(times: list[float]) -> float:
     gaps = [b - a for a, b in zip(times, times[1:]) if b > a]
     return median(gaps) if gaps else 0.0
@@ -106,6 +128,9 @@ def refine_event_window(
     # another surfer's). The trace prints this so the next run shows whether such gaps separate the two.
     gap, gap_at = _largest_gap(times)
     measured = {"max_track_gap_sec": gap, "max_track_gap_start_sec": gap_at}
+    continuous_from = continuous_presence_from(detections, str(track_id), start)
+    if continuous_from is not None:
+        measured["track_continuous_from_sec"] = continuous_from
     # Where the athlete is first tracked between the analyzer's setup_start and start: the earliest second a cut
     # can open on them (pipeline.complete_action_window_policy.extend_to_setup). `first` cannot answer this, it
     # only looks 1 s before start.
@@ -114,6 +139,17 @@ def refine_event_window(
         lead = _track_times(detections, str(track_id), max(0.0, setup - 0.5), start)
         if lead:
             measured["setup_first_track_sec"] = round(lead[0], 2)
+        # FIX-PQ-11-001: motion-supported onset (Core), parameters from the event's sport profile.
+        try:
+            from pipeline.action_onset import motion_supported_onset
+            from pipeline.sport_profiles import profile_for_event
+            onset = motion_supported_onset(detections, track_id, start=start, setup=setup,
+                                           policy=profile_for_event(event).onset)
+        except Exception:                       # evidence, never a reason to fail the window
+            onset = None
+        if onset and onset["onset_sec"] < start - 0.05:
+            measured["onset_motion_from_sec"] = onset["onset_sec"]
+            measured["onset_motion_steps"] = onset["steps"]
     new_start, new_end = start, end
     reasons: list[str] = []
     if first - start > tolerance:

@@ -1,0 +1,1375 @@
+{
+ "athletes": [
+  {
+   "athlete_id": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+   "cardinality": "MIXED",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 1,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_802f77aca7207728",
+     "blocking_reasons": [
+      "qa_gate:IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed (conflicting_track_ids)",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a1b9a3908cf.mp4",
+      "qualification:identity_identity_gate_kept_together_unconfirmed:MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a1b9a3908cf.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_802f77aca7207728#1",
+     "other_athletes": [
+      "42f8772b-6a6c-4e0d-af77-9d48f128c24d"
+     ],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 1,
+   "rides_missing_or_partial": [],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 144,
+   "gt_rides": 3,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_0564ae81f72cae84",
+     "blocking_reasons": [
+      "qa_gate:IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed (conflicting_track_ids)",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a7357710ec6.mp4",
+      "qualification:identity_identity_gate_kept_together_unconfirmed:MULTI_2026-10-03T12-19-53_DJI_20260720154036_0070_D_a7357710ec6.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 144,
+     "key": "athlete_0564ae81f72cae84#1",
+     "other_athletes": [],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 1,
+   "rides_missing_or_partial": [
+    "3f1f5e846b33#R0",
+    "575a812da943#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+   "cardinality": "MIXED",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 1,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_802f77aca7207728",
+     "blocking_reasons": [
+      "qa_gate:IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed (conflicting_track_ids)",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a1b9a3908cf.mp4",
+      "qualification:identity_identity_gate_kept_together_unconfirmed:MULTI_2026-10-03T12-19-53_DJI_20260720164122_0143_D_a1b9a3908cf.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_802f77aca7207728#1",
+     "other_athletes": [
+      "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2"
+     ],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "85aedb594ab7#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 5,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_f968e2fa1f3e674b",
+     "blocking_reasons": [
+      "qa_gate:IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed (conflicting_track_ids)",
+      "qa_gate:PRIMARY_ACTOR_UNCLEAR: primary athlete cannot be followed reliably through the action",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5bcf5c14c5.mp4",
+      "qualification:identity_identity_gate_kept_together_unconfirmed:MULTI_2026-10-03T12-19-53_DJI_20260720161439_0112_D_a5bcf5c14c5.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_f968e2fa1f3e674b#1",
+     "other_athletes": [],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 3,
+   "rides_missing_or_partial": [
+    "41e2f8bb26a3#R0",
+    "5f7ba69f1c3f#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "6e81fe5b-0bf7-472d-aa61-15e863a8938a",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 1,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_b5a02a81f8ee2933",
+     "blocking_reasons": [
+      "qualification:tail_after_actor_lost_to_recording_end:ev2_caf063f40870e16f5ef8:MULTI_2026-10-03T12-19-53_DJI_20260720154350_0074_D_a49842c55a8.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_b5a02a81f8ee2933#1",
+     "other_athletes": [],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "f6ac72f8aeb5#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 1,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_a5739f677a93ddac",
+     "blocking_reasons": [
+      "final_qa_failed:MULTI_2026-10-03T12-19-54_DJI_20260720164734_0151_D_a041540caa3.mp4",
+      "qa_gate:QA_REVIEW_REQUIRED: critical QA defects require operator review",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-54_DJI_20260720164734_0151_D_a041540caa3.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_a5739f677a93ddac#1",
+     "other_athletes": [],
+     "publishable": false,
+     "qa_verdict": "FAIL",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "e01a614de605#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 2,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_09f0105db0da9f88",
+     "blocking_reasons": [
+      "qa_gate:IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed (conflicting_track_ids)",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_acaacb94bd1.mp4",
+      "qualification:identity_identity_gate_kept_together_unconfirmed:MULTI_2026-10-03T12-19-54_DJI_20260724103255_0160_D_acaacb94bd1.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_09f0105db0da9f88#1",
+     "other_athletes": [],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 2,
+   "rides_missing_or_partial": [],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 1,
+   "outcome": "publishable",
+   "reels": [
+    {
+     "athlete_key": "athlete_a97279bdad592282",
+     "blocking_reasons": [],
+     "business_outcome": "publishable_ready",
+     "excluded_frames": 0,
+     "key": "athlete_a97279bdad592282#1",
+     "other_athletes": [],
+     "publishable": true,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "a683559526f1#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "cardinality": "MIXED",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 476,
+   "gt_rides": 4,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_04e119ca818b1a1e",
+     "blocking_reasons": [
+      "qa_gate:IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed (conflicting_track_ids)",
+      "qa_gate:PRIMARY_ACTOR_UNCLEAR: primary athlete cannot be followed reliably through the action",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165.mp4",
+      "qualification:identity_identity_gate_kept_together_unconfirmed:MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165.mp4",
+      "qualification:tail_after_actor_lost_to_recording_end:ev2_c06b1fb8e0e6bdcd7f92:MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 476,
+     "key": "athlete_04e119ca818b1a1e#1",
+     "other_athletes": [
+      "d805a9b1-5786-43e8-b968-a078f77ac32e"
+     ],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "250c3592fd87#R0",
+    "2c7c9ee430b5#R0",
+    "58a990e5355d#R0",
+    "a1adfdae432f#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 1,
+   "outcome": "publishable",
+   "reels": [
+    {
+     "athlete_key": "athlete_c5cc86dd0320faf2",
+     "blocking_reasons": [],
+     "business_outcome": "publishable_ready",
+     "excluded_frames": 0,
+     "key": "athlete_c5cc86dd0320faf2#1",
+     "other_athletes": [],
+     "publishable": true,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "3311db2ed35d#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "cardinality": "SPLIT",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 2,
+   "outcome": "publishable",
+   "reels": [
+    {
+     "athlete_key": "athlete_b53c501f3e28412e",
+     "blocking_reasons": [
+      "qa_gate:PRIMARY_ACTOR_UNCLEAR: primary athlete cannot be followed reliably through the action",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-53_DJI_20260720161907_0115_D_a3500dd6ebb.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_b53c501f3e28412e#1",
+     "other_athletes": [],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    },
+    {
+     "athlete_key": "athlete_c3fdd6372f6a12b8",
+     "blocking_reasons": [],
+     "business_outcome": "publishable_ready",
+     "excluded_frames": 0,
+     "key": "athlete_c3fdd6372f6a12b8#1",
+     "other_athletes": [],
+     "publishable": true,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "548cf4ffb308#R0",
+    "b62c8aa0cb14#R0"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "d805a9b1-5786-43e8-b968-a078f77ac32e",
+   "cardinality": "SPLIT",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 476,
+   "gt_rides": 1,
+   "outcome": "reel_blocked",
+   "reels": [
+    {
+     "athlete_key": "athlete_04e119ca818b1a1e",
+     "blocking_reasons": [
+      "qa_gate:IDENTITY_UNCONFIRMED: the same athlete across these sources was not independently confirmed (conflicting_track_ids)",
+      "qa_gate:PRIMARY_ACTOR_UNCLEAR: primary athlete cannot be followed reliably through the action",
+      "qa_gate_review_required:MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165.mp4",
+      "qualification:identity_identity_gate_kept_together_unconfirmed:MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165.mp4",
+      "qualification:tail_after_actor_lost_to_recording_end:ev2_c06b1fb8e0e6bdcd7f92:MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a8b4bce5165.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 476,
+     "key": "athlete_04e119ca818b1a1e#1",
+     "other_athletes": [
+      "9524ac02-beba-4805-a9aa-474b8d57b3b5"
+     ],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    },
+    {
+     "athlete_key": "athlete_05dac9c02c2d2963",
+     "blocking_reasons": [
+      "qualification:track_gap_identity_continuity_unproven:ev2_18722accd12ffe5db56b:MULTI_2026-10-03T12-19-53_DJI_20260720160337_0094_D_a7f0fe54b22.mp4"
+     ],
+     "business_outcome": "review_or_upload_required",
+     "excluded_frames": 0,
+     "key": "athlete_05dac9c02c2d2963#1",
+     "other_athletes": [],
+     "publishable": false,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "250c3592fd87#R1"
+   ],
+   "rides_not_in_any_reel": []
+  },
+  {
+   "athlete_id": "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c",
+   "cardinality": "ONE_REEL",
+   "d_no_reel_silent": false,
+   "excluded_frames_in_reels": 0,
+   "gt_rides": 1,
+   "outcome": "publishable",
+   "reels": [
+    {
+     "athlete_key": "athlete_b8aaf04e7134b1c4",
+     "blocking_reasons": [],
+     "business_outcome": "publishable_ready",
+     "excluded_frames": 0,
+     "key": "athlete_b8aaf04e7134b1c4#1",
+     "other_athletes": [],
+     "publishable": true,
+     "qa_verdict": "PASS",
+     "state": "UPLOADED"
+    }
+   ],
+   "rides_full": 0,
+   "rides_missing_or_partial": [
+    "207fe17c86b1#R0"
+   ],
+   "rides_not_in_any_reel": []
+  }
+ ],
+ "blocked_windows": 0,
+ "gt_digest": "b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9",
+ "ride_unit": "HEURISTIC_same_athlete_include_gap_le_3_frames",
+ "rides": [
+  {
+   "athlete_id": "ed0d45c3-8b8e-4fe2-9275-1e169dcf093c",
+   "candidate_frac": 0.851,
+   "candidates": [
+    {
+     "athlete_key": "ath_8bd2f3d01d",
+     "candidate_id": "0621d770ca51306c",
+     "decision": "selected",
+     "frames": [
+      89,
+      630
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    2,
+    638
+   ],
+   "full": false,
+   "reels": {
+    "athlete_b8aaf04e7134b1c4#1": 0.862
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.862,
+   "rendered_start_err_sec": 1.47,
+   "ride_sec": 10.61,
+   "ride_uid": "207fe17c86b1#R0",
+   "selected_frac": 0.851,
+   "source_sha256": "207fe17c86b15b7310d5cd44d5bad4ce404436d3946854fea5f1b2ce6d5a5ec6",
+   "source_video": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "track_presence_frac": 0.849
+  },
+  {
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "candidate_frac": 0.699,
+   "candidates": [
+    {
+     "athlete_key": "ath_67973ac046",
+     "candidate_id": "86468f8e72c6997c",
+     "decision": "selected",
+     "frames": [
+      239,
+      1319
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    793
+   ],
+   "full": false,
+   "reels": {
+    "athlete_04e119ca818b1a1e#1": 0.849
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.849,
+   "rendered_start_err_sec": 2.0,
+   "ride_sec": 13.23,
+   "ride_uid": "250c3592fd87#R0",
+   "selected_frac": 0.699,
+   "source_sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "track_presence_frac": 0.748
+  },
+  {
+   "athlete_id": "d805a9b1-5786-43e8-b968-a078f77ac32e",
+   "candidate_frac": 0.689,
+   "candidates": [
+    {
+     "athlete_key": "ath_67973ac046",
+     "candidate_id": "86468f8e72c6997c",
+     "decision": "selected",
+     "frames": [
+      239,
+      1319
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    },
+    {
+     "athlete_key": "ath_c5b736f5fe",
+     "candidate_id": "8cb6fd879e17cd20",
+     "decision": "selected",
+     "frames": [
+      1618,
+      2128
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    1010,
+    2199
+   ],
+   "full": false,
+   "reels": {
+    "athlete_04e119ca818b1a1e#1": 0.285,
+    "athlete_05dac9c02c2d2963#1": 0.489
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.774,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 19.84,
+   "ride_uid": "250c3592fd87#R1",
+   "selected_frac": 0.689,
+   "source_sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "track_presence_frac": 0.66
+  },
+  {
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "candidate_frac": 0.827,
+   "candidates": [
+    {
+     "athlete_key": "ath_67973ac046",
+     "candidate_id": "8dc0e32855f5fbab",
+     "decision": "selected",
+     "frames": [
+      179,
+      1079
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    },
+    {
+     "athlete_key": "person_B",
+     "candidate_id": "e7854833f84fd378",
+     "decision": "rejected",
+     "frames": [
+      209,
+      870
+     ],
+     "reason": "duplicate_source_window_before_render",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    1088
+   ],
+   "full": false,
+   "reels": {
+    "athlete_04e119ca818b1a1e#1": 0.945
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.945,
+   "rendered_start_err_sec": 1.0,
+   "ride_sec": 18.15,
+   "ride_uid": "2c7c9ee430b5#R0",
+   "selected_frac": 0.827,
+   "source_sha256": "2c7c9ee430b5106722a9179db47b19592bc3d15c5a36c9f70706cfee4e2132de",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "track_presence_frac": 0.938
+  },
+  {
+   "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "candidate_frac": 0.85,
+   "candidates": [
+    {
+     "athlete_key": "ath_0fd9649b3d",
+     "candidate_id": "a1e93e44baf73dc3",
+     "decision": "selected",
+     "frames": [
+      179,
+      648
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "none",
+   "fps": 59.94,
+   "frames": [
+    127,
+    679
+   ],
+   "full": true,
+   "reels": {
+    "athlete_09f0105db0da9f88#1": 1.0
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 1.0,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 9.21,
+   "ride_uid": "3095fb74eca2#R0",
+   "selected_frac": 0.85,
+   "source_sha256": "3095fb74eca2f5ce2104929fc9033f4b86bcbf87e0192e5d69d278f80ea0ac43",
+   "source_video": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "track_presence_frac": 0.951
+  },
+  {
+   "athlete_id": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+   "candidate_frac": 0.899,
+   "candidates": [
+    {
+     "athlete_key": "ath_163372eda7",
+     "candidate_id": "485b77f37fe4f0d1",
+     "decision": "selected",
+     "frames": [
+      29,
+      360
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    368
+   ],
+   "full": false,
+   "reels": {
+    "athlete_c5cc86dd0320faf2#1": 0.918
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.918,
+   "rendered_start_err_sec": 0.5,
+   "ride_sec": 6.14,
+   "ride_uid": "3311db2ed35d#R0",
+   "selected_frac": 0.899,
+   "source_sha256": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+   "source_video": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "track_presence_frac": 0.848
+  },
+  {
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "candidate_frac": 0.753,
+   "candidates": [
+    {
+     "athlete_key": "ath_f81a539d5a",
+     "candidate_id": "4627830ff13fe536",
+     "decision": "selected",
+     "frames": [
+      101,
+      540
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "highlight"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    409
+   ],
+   "full": false,
+   "reels": {
+    "athlete_0564ae81f72cae84#1": 0.853
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.853,
+   "rendered_start_err_sec": 1.0,
+   "ride_sec": 6.82,
+   "ride_uid": "3f1f5e846b33#R0",
+   "selected_frac": 0.753,
+   "source_sha256": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "track_presence_frac": 0.848
+  },
+  {
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "candidate_frac": 0.906,
+   "candidates": [
+    {
+     "athlete_key": "ath_cda4deda41",
+     "candidate_id": "59ccf1724468e33c",
+     "decision": "selected",
+     "frames": [
+      53,
+      563
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    562
+   ],
+   "full": false,
+   "reels": {
+    "athlete_f968e2fa1f3e674b#1": 0.904
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.904,
+   "rendered_start_err_sec": 0.9,
+   "ride_sec": 9.38,
+   "ride_uid": "41e2f8bb26a3#R0",
+   "selected_frac": 0.906,
+   "source_sha256": "41e2f8bb26a39969955d1ee18d6e73d643229af68df2af9eb8592f9499c8c229",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "track_presence_frac": 0.89
+  },
+  {
+   "athlete_id": "0d12c8b8-4b1b-4213-9311-2abd2e65f8a2",
+   "candidate_frac": 0.992,
+   "candidates": [
+    {
+     "athlete_key": "ath_8820e08388",
+     "candidate_id": "020b0f53f81cc7dd",
+     "decision": "selected",
+     "frames": [
+      0,
+      492
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "none",
+   "fps": 59.94,
+   "frames": [
+    0,
+    496
+   ],
+   "full": true,
+   "reels": {
+    "athlete_802f77aca7207728#1": 1.0
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 1.0,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 8.27,
+   "ride_uid": "4e84086f72c6#R0",
+   "selected_frac": 0.992,
+   "source_sha256": "4e84086f72c62e4a35c369d14b1280ec495c5860546924debc6f705f4bf84e23",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "track_presence_frac": 0.992
+  },
+  {
+   "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "candidate_frac": 0.781,
+   "candidates": [
+    {
+     "athlete_key": "ath_472f57ecdc",
+     "candidate_id": "8fd59e34b7afda56",
+     "decision": "selected",
+     "frames": [
+      119,
+      594
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    608
+   ],
+   "full": false,
+   "reels": {
+    "athlete_c3fdd6372f6a12b8#1": 0.901
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.901,
+   "rendered_start_err_sec": 1.0,
+   "ride_sec": 10.14,
+   "ride_uid": "548cf4ffb308#R0",
+   "selected_frac": 0.781,
+   "source_sha256": "548cf4ffb308cb65628cb2c5209027f65587f1d926a798a021038c097c2784eb",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "track_presence_frac": 0.845
+  },
+  {
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "candidate_frac": 0.8,
+   "candidates": [
+    {
+     "athlete_key": "ath_f81a539d5a",
+     "candidate_id": "c5ac149f80ef1830",
+     "decision": "selected",
+     "frames": [
+      167,
+      1067
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    836
+   ],
+   "full": false,
+   "reels": {
+    "athlete_0564ae81f72cae84#1": 0.943
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.943,
+   "rendered_start_err_sec": 0.8,
+   "ride_sec": 13.95,
+   "ride_uid": "575a812da943#R0",
+   "selected_frac": 0.8,
+   "source_sha256": "575a812da943d8dd8222f33d48a681d3de25896e458c1620e5b9888bd15f0c58",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "track_presence_frac": 0.907
+  },
+  {
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d",
+   "candidate_frac": 0.512,
+   "candidates": [
+    {
+     "athlete_key": "ath_f81a539d5a",
+     "candidate_id": "c5ac149f80ef1830",
+     "decision": "selected",
+     "frames": [
+      167,
+      1067
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "none",
+   "fps": 59.94,
+   "frames": [
+    1003,
+    1128
+   ],
+   "full": true,
+   "reels": {
+    "athlete_0564ae81f72cae84#1": 1.0
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 1.0,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 2.09,
+   "ride_uid": "575a812da943#R1",
+   "selected_frac": 0.512,
+   "source_sha256": "575a812da943d8dd8222f33d48a681d3de25896e458c1620e5b9888bd15f0c58",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "track_presence_frac": 0.728
+  },
+  {
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "candidate_frac": 0.853,
+   "candidates": [
+    {
+     "athlete_key": "ath_67973ac046",
+     "candidate_id": "22fba3898a5d4601",
+     "decision": "selected",
+     "frames": [
+      89,
+      1109
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "highlight"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    1196
+   ],
+   "full": false,
+   "reels": {
+    "athlete_04e119ca818b1a1e#1": 0.975
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.975,
+   "rendered_start_err_sec": 0.5,
+   "ride_sec": 19.95,
+   "ride_uid": "58a990e5355d#R0",
+   "selected_frac": 0.853,
+   "source_sha256": "58a990e5355da9960447a491ff08e3c8cbf496851e5efa2443049991fed9c160",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "track_presence_frac": 0.928
+  },
+  {
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "candidate_frac": 0.735,
+   "candidates": [
+    {
+     "athlete_key": "ath_cda4deda41",
+     "candidate_id": "b1a9e28efc9c8d61",
+     "decision": "selected",
+     "frames": [
+      191,
+      870
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    1,
+    925
+   ],
+   "full": false,
+   "reels": {
+    "athlete_f968e2fa1f3e674b#1": 0.839
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.839,
+   "rendered_start_err_sec": 2.49,
+   "ride_sec": 15.42,
+   "ride_uid": "5f7ba69f1c3f#R0",
+   "selected_frac": 0.735,
+   "source_sha256": "5f7ba69f1c3f6535279b28f08b1e278b95a31b014ea773cc1d4473528c322165",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "track_presence_frac": 0.835
+  },
+  {
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "candidate_frac": 0.81,
+   "candidates": [
+    {
+     "athlete_key": "ath_cda4deda41",
+     "candidate_id": "0a2ce2b29b06da4b",
+     "decision": "selected",
+     "frames": [
+      203,
+      672
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "none",
+   "fps": 59.94,
+   "frames": [
+    106,
+    685
+   ],
+   "full": true,
+   "reels": {
+    "athlete_f968e2fa1f3e674b#1": 1.0
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 1.0,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 9.66,
+   "ride_uid": "82dd734957da#R0",
+   "selected_frac": 0.81,
+   "source_sha256": "82dd734957da17b9f0b0da309465cc7ba86e5c9aaf2f60bbe82b5ed5d4e903c6",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "track_presence_frac": 0.991
+  },
+  {
+   "athlete_id": "42f8772b-6a6c-4e0d-af77-9d48f128c24d",
+   "candidate_frac": 0.851,
+   "candidates": [
+    {
+     "athlete_key": "person_B",
+     "candidate_id": "3b4ed54ac604395d",
+     "decision": "rejected",
+     "frames": [
+      89,
+      360
+     ],
+     "reason": "fragment_shorter_than_min_event_sec",
+     "type": "wave_catch"
+    },
+    {
+     "athlete_key": "person_C",
+     "candidate_id": "9902ac49362526bb",
+     "decision": "rejected",
+     "frames": [
+      131,
+      540
+     ],
+     "reason": "duplicate_source_window_before_render",
+     "type": "wave_catch"
+    },
+    {
+     "athlete_key": "ath_8820e08388",
+     "candidate_id": "cf5cabf0cd94eaae",
+     "decision": "selected",
+     "frames": [
+      299,
+      606
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    205,
+    676
+   ],
+   "full": false,
+   "reels": {
+    "athlete_802f77aca7207728#1": 0.862
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.862,
+   "rendered_start_err_sec": 1.08,
+   "ride_sec": 7.86,
+   "ride_uid": "85aedb594ab7#R0",
+   "selected_frac": 0.652,
+   "source_sha256": "85aedb594ab72a923b000b0142665fdf0238a08cb848b7e8883cd6e70213c4ed",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "track_presence_frac": 0.769
+  },
+  {
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "candidate_frac": 0.916,
+   "candidates": [
+    {
+     "athlete_key": "ath_cda4deda41",
+     "candidate_id": "c6b0b525cf670412",
+     "decision": "selected",
+     "frames": [
+      89,
+      1169
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "none",
+   "fps": 59.94,
+   "frames": [
+    0,
+    1179
+   ],
+   "full": true,
+   "reels": {
+    "athlete_f968e2fa1f3e674b#1": 1.0
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 1.0,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 19.67,
+   "ride_uid": "8a01bba486b2#R0",
+   "selected_frac": 0.916,
+   "source_sha256": "8a01bba486b2aaeb8614ca7d399645cd930aedc51420d0301427849131428b2d",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "track_presence_frac": 0.986
+  },
+  {
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5",
+   "candidate_frac": 0.844,
+   "candidates": [
+    {
+     "athlete_key": "ath_67973ac046",
+     "candidate_id": "2c89477c7bce7f8c",
+     "decision": "selected",
+     "frames": [
+      191,
+      1349
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    1372
+   ],
+   "full": false,
+   "reels": {
+    "athlete_04e119ca818b1a1e#1": 0.948
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.948,
+   "rendered_start_err_sec": 1.2,
+   "ride_sec": 22.89,
+   "ride_uid": "a1adfdae432f#R0",
+   "selected_frac": 0.844,
+   "source_sha256": "a1adfdae432f595944026a75f772839c97df297cdcd568616750f2f1c4b7870e",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "track_presence_frac": 0.942
+  },
+  {
+   "athlete_id": "8ef1161d-667c-44dd-acd8-852e3919d7a7",
+   "candidate_frac": 0.944,
+   "candidates": [
+    {
+     "athlete_key": "ath_c15a09a5c1",
+     "candidate_id": "a7a77e1a2bbc4512",
+     "decision": "selected",
+     "frames": [
+      29,
+      517
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    },
+    {
+     "athlete_key": "person_B",
+     "candidate_id": "fd3ae30f6f2ce642",
+     "decision": "rejected",
+     "frames": [
+      47,
+      270
+     ],
+     "reason": "insufficient_time_inside_chunk",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    517
+   ],
+   "full": false,
+   "reels": {
+    "athlete_a97279bdad592282#1": 0.942
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.942,
+   "rendered_start_err_sec": 0.5,
+   "ride_sec": 8.63,
+   "ride_uid": "a683559526f1#R0",
+   "selected_frac": 0.944,
+   "source_sha256": "a683559526f1b7274fce93336c96886a6429a29653444160c90b6953dd173cea",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "track_presence_frac": 0.936
+  },
+  {
+   "athlete_id": "c53ef74d-1937-47c6-bb9c-406c3e41b26e",
+   "candidate_frac": 0.553,
+   "candidates": [
+    {
+     "athlete_key": "ath_09351dc25a",
+     "candidate_id": "3302c2654c037b6a",
+     "decision": "selected",
+     "frames": [
+      389,
+      930
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    4,
+    982
+   ],
+   "full": false,
+   "reels": {
+    "athlete_b53c501f3e28412e#1": 0.728
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.728,
+   "rendered_start_err_sec": 4.44,
+   "ride_sec": 16.32,
+   "ride_uid": "b62c8aa0cb14#R0",
+   "selected_frac": 0.553,
+   "source_sha256": "b62c8aa0cb140b103e40a2518c41c33f2081da41f0b7e0fe8b07405a41000740",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "track_presence_frac": 0.68
+  },
+  {
+   "athlete_id": "8b1c2b0e-4938-497a-ae62-7d0a2d6546f8",
+   "candidate_frac": 0.869,
+   "candidates": [
+    {
+     "athlete_key": "ath_0fd9649b3d",
+     "candidate_id": "8a0d68c70cb51900",
+     "decision": "selected",
+     "frames": [
+      59,
+      810
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "none",
+   "fps": 59.94,
+   "frames": [
+    0,
+    864
+   ],
+   "full": true,
+   "reels": {
+    "athlete_09f0105db0da9f88#1": 1.0
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 1.0,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 14.41,
+   "ride_uid": "bfd005ab7787#R0",
+   "selected_frac": 0.869,
+   "source_sha256": "bfd005ab7787c08afb9cd2c56116639a2c9f85206cf402709f8c389e7eae742d",
+   "source_video": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "track_presence_frac": 0.998
+  },
+  {
+   "athlete_id": "6c84aed0-b734-42c4-8775-a8dceb7b5242",
+   "candidate_frac": 0.987,
+   "candidates": [
+    {
+     "athlete_key": "ath_cda4deda41",
+     "candidate_id": "cc8949d0cf3eb29d",
+     "decision": "selected",
+     "frames": [
+      0,
+      462
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "none",
+   "fps": 59.94,
+   "frames": [
+    0,
+    468
+   ],
+   "full": true,
+   "reels": {
+    "athlete_f968e2fa1f3e674b#1": 1.0
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 1.0,
+   "rendered_start_err_sec": 0.0,
+   "ride_sec": 7.81,
+   "ride_uid": "c241b723fce2#R0",
+   "selected_frac": 0.987,
+   "source_sha256": "c241b723fce2bd93881085b895b599ffc29424eb897f33f21e31e712e8b3d618",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "track_presence_frac": 0.983
+  },
+  {
+   "athlete_id": "8627f3bf-0ecb-4515-b156-52463a43ac41",
+   "candidate_frac": 0.974,
+   "candidates": [
+    {
+     "athlete_key": "person_B",
+     "candidate_id": "f4db7786ed40eae7",
+     "decision": "rejected",
+     "frames": [
+      0,
+      330
+     ],
+     "reason": "duplicate_source_window_before_render",
+     "type": "wave_catch"
+    },
+    {
+     "athlete_key": "ath_f8c32db853",
+     "candidate_id": "352842c90e77f0e7",
+     "decision": "selected",
+     "frames": [
+      29,
+      444
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "selection_dedup:duplicate_source_window_before_render",
+   "fps": 59.94,
+   "frames": [
+    0,
+    456
+   ],
+   "full": false,
+   "reels": {
+    "athlete_a5739f677a93ddac#1": 0.741
+   },
+   "rendered_end_err_sec": 1.47,
+   "rendered_frac": 0.741,
+   "rendered_start_err_sec": 0.5,
+   "ride_sec": 7.61,
+   "ride_uid": "e01a614de605#R0",
+   "selected_frac": 0.91,
+   "source_sha256": "e01a614de6057284637f598c74004859ca144c9a3a8dea77c0ac64c466fd1da8",
+   "source_video": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "track_presence_frac": 0.596
+  },
+  {
+   "athlete_id": "6e81fe5b-0bf7-472d-aa61-15e863a8938a",
+   "candidate_frac": 0.837,
+   "candidates": [
+    {
+     "athlete_key": "ath_ffdf39751f",
+     "candidate_id": "45d8828eba325a68",
+     "decision": "selected",
+     "frames": [
+      167,
+      1259
+     ],
+     "reason": "selected_for_uploaded_draft",
+     "type": "wave_catch"
+    }
+   ],
+   "first_loss_stage": "event_candidate_window",
+   "fps": 59.94,
+   "frames": [
+    0,
+    1304
+   ],
+   "full": false,
+   "reels": {
+    "athlete_b5a02a81f8ee2933#1": 0.963
+   },
+   "rendered_end_err_sec": 0.0,
+   "rendered_frac": 0.963,
+   "rendered_start_err_sec": 0.8,
+   "ride_sec": 21.76,
+   "ride_uid": "f6ac72f8aeb5#R0",
+   "selected_frac": 0.837,
+   "source_sha256": "f6ac72f8aeb5311993f61a78a55061506eae450fab15906815e9eca5f03ab74f",
+   "source_video": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "track_presence_frac": 0.894
+  }
+ ],
+ "run_id": "366fe9c0-a160-49b4-865f-eefea65c8573",
+ "schema": "athlete-ride-matrix-v1",
+ "summary": {
+  "A_first_loss_by_stage": {
+   "event_candidate_window": 16,
+   "selection_dedup": 1
+  },
+  "A_rides_in_no_reel": 0,
+  "A_rides_not_full": 17,
+  "B_athletes_with_excluded_frames": 3,
+  "B_excluded_frames_total": 1096,
+  "B_excluded_frames_union": 999,
+  "C_mixed_reel_athletes": 3,
+  "C_split_athletes": 2,
+  "D_athletes_without_reel": 0,
+  "athletes_publishable": 4,
+  "athletes_reel_blocked": 9,
+  "gt_athletes": 13,
+  "gt_rides": 24,
+  "rides_full": 7
+ }
+}

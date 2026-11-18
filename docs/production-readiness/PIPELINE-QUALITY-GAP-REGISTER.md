@@ -431,6 +431,63 @@ rollback_sha: ""
 
 **Durable final qualification:** the latest run's real artifacts and manifest must match the reviewed source/actor wave inventory; final-QA approval reasons must be consistent across scripts/API; every evaluated render independently viewed by frame slices; no blocked high-risk cases; protected metrics no worse than replayed best baseline; exact merged `main` SHA re-verified; final owner GO is separately recorded. **A green GitHub Actions run is not a pipeline qualification certificate.**
 
+## 11. Remediation history (append-only)
+
+| Date | Cycle | Gaps | Status | Evidence |
+|---|---|---|---|---|
+| 2026-11-16 | 1 | PQ-07, 08, 16, 21, 36 | PATCHED / TESTED / REPLAYED (artifacts, no media) | [CYCLE-01-MEASUREMENT-REPORT.md](./CYCLE-01-MEASUREMENT-REPORT.md); `scripts/gt_scorecard.py`; `scripts/test_gt_scorecard_contract.py`; baselines under `evaluation/ground_truth/baselines/` |
+| 2026-11-16 | 2 | PQ-10, PQ-23, **PQ-40 (new, P0)** | REPRODUCED (artifact replay); NO-GO for #391 key change alone | [CYCLE-02-IDENTITY-RELEASE-ANALYSIS.md](./CYCLE-02-IDENTITY-RELEASE-ANALYSIS.md). PQ-40: the image verifier confirms 0143+0152 (A8 ≠ A10) at score 1.0; the `_clip_index` key mismatch currently blocks it by accident. Exit: calibrated pairwise crops (4–6 per appearance), 0 false merges on held-out pairs. |
+| 2026-11-16 | 3 | PQ-02, 03, 10, 17, 23, **40** | REPRODUCED (3/60 dev false merges with the production prompt); consensus rule TESTED + experiment run (dev + one-shot holdout, low power); NOT wired | [CYCLE-03-IDENTITY-REPORT.md](./CYCLE-03-IDENTITY-REPORT.md); `pipeline/identity_pair_consensus.py`; `scripts/identity_pair_experiment.py`; `evaluation/identity_experiment/cycle3_results.json`; cost ≈ $0.64 of $2 |
+| 2026-11-16 | 4 | PQ-02, 03, 10, 17, 23, 40 (identity); PQ-05, 06 (root cause only) | PATCHED + TESTED (fake verifier, red on main, green here) for identity; REPLAYED (policy on both baselines: best run published_correct 9→6 pending REVIEW, wrong-identity 1→0; latest unchanged); real-cluster check run (0143+0152 → REVIEW); boundaries ANALYSED, not patched (owner choice #1); draft, not merged | [CYCLE-04-REPORT.md](./CYCLE-04-REPORT.md); `pipeline/identity_evidence.py`, `pipeline/identity_pair_consensus.py`, `pipeline/stages/identity.py`, `pipeline/identity_failsafe.py`; `scripts/test_identity_consensus_integration_contract.py`; `scripts/identity_gate_replay.py` |
+| 2026-11-17 | 5 | PQ-02, 03, 17, 23, 40 (identity); PQ-05 (start, partly); PQ-06 (end, open) | Identity: PATCHED + TESTED + REPLAYED (production sheet builder, 6 crops; 4 crops disqualified: auto-matched 0143+0152); REVIEW requests + owner decisions PATCHED + TESTED; source-limited start PATCHED + TESTED + REPLAYED (9 starts moved, 0 regressions, rides FULL 7→15, boundaries >0.5 s 17→8; not blind; best baseline not replayable); Gemini clip verifier MEASURED, NOT ADOPTED (start 4/14, end 2/14 vs pipeline end 11/14); 0115 start and 0108 end BLOCKED | [CYCLE-05-REPORT.md](./CYCLE-05-REPORT.md); `pipeline/identity_review.py`, `pipeline/runtime_quality.py`, `pipeline/complete_action_window_policy.py`, `pipeline/window_refinement.py`; `scripts/test_identity_review_contract.py`, `test_source_start_contract.py`, `test_identity_gate_replay_contract.py`; cost cycles 3–5 ≈ $1.64 of $2 (estimate) |
+| 2026-11-17 | 6 (in progress) | Review/approval boundary (new **PQ-41**, P1); consensus latency | Owner clarification: the existing Review screen and re-edit integration are kept unchanged; the pair-comparison screen and owner REVIEW queue tool are withdrawn ([REVIEW-AND-REEDIT-CONTRACT.md](./REVIEW-AND-REEDIT-CONTRACT.md)). Auto QA repair and manual re-edit VERIFIED as separate routes (existing contracts green). **PQ-41** (stale PASS authority could cover re-edited bytes under the same R2 key): REPRODUCED (red), PATCHED, TESTED. Consensus calls now concurrent (bounded, verdicts unchanged); real latency gain not yet measured. | `integrations/r2_storage.py`, `integrations/supabase_uploader.py::revoke_draft_publishability`; `scripts/test_review_replacement_invalidation_contract.py`, `scripts/test_consensus_concurrency_contract.py` |
+
+## 12. Cycle 7 follow-up: code↔evidence audit, quality release blockers (2026-11-17)
+
+**Status:** documentation/provenance correction only; no pipeline execution, no decoded candidate MP4, no new model spend, no merge to `main`. Canonical metadata: [registry](../../evaluation/evidence/registry.json); generated [evidence matrix](./PIPELINE-EVIDENCE-MATRIX.md); source [cycle-7 report](./CYCLE-07-VISUAL-VERIFICATION-AND-PRIMARY-ATHLETE.md).
+
+### 12.1 Verified code revisions and scope
+
+| Fix | Exact code revision (permalink) | Red/green and replay | Evidence | Truthful qualification |
+|---|---|---|---|---|
+| FIX-PQ-07-001 (PA-05; PQ-04/32) | [`pipeline/perception/runtime.py::_binding_separability` @ `15a732d9dbcf`](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/pipeline/perception/runtime.py) | [P1–P8 contract](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/test_primary_athlete_binding_contract.py) red before/green after; [replay JSON](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/evidence/binding_replay_2026-11-17.json) | EVD-07-004/005 | `REPLAYED` **with unresolved replay denominator**; simulated crossing only; no new decoded MP4/holdout |
+| FIX-PQ-07-002 (MEAS-01; PQ-16/20/22) | [`scripts/primary_athlete_audit.py::gt_decision` @ `15a732d9dbcf`](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/scripts/primary_athlete_audit.py) | [corrected historical audit output](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/15a732d9dbcfe889cc68d64cc9f8589471e27f9d/evaluation/primary_athlete/43920602179.json) vs [original audit baseline](https://github.com/yotamfried-ux/Video-editing-with-drone/commit/9e4c2e4911b8d809966d29d563be8a594d8b47cc) | EVD-07-002/003 | `REPLAYED` with historical source video/EDL overlay; **not** candidate rendered-MP4 proof |
+
+**Integrity gap in EVD-07-005 — RESOLVED (cycle 8):** the correct denominator is 167 (the report's 166 was an addition error; no window was excluded). EXP-08-000 re-ran the replay with per-window output: 167/167 separable. Also export exact per-event crop hints; existing replay uses a proxy. Historical source sequences and EDL overlays may establish *defects*, but not that a newly changed pipeline rendered a correct reel. Explicitly distinguish `SOURCE_SEQUENCE_VERIFIED`, `EDL_GT_AUDIT_REPLAYED`, `RENDERED_MEDIA_VERIFIED`, and `HOLDOUT_VERIFIED` in narrative claims.
+
+### 12.2 Quality defects requiring post-fix experiments (P0 before GO)
+
+| Priority | References | Real observed defect / uncertainty | Mandatory exit proof |
+|---|---|---|---|
+| P0 | PQ-01/33 · PA-04 | 0155 failed takeoff selected after cold Gemini analysis | RED on existing selection; semantic/action-state counterexamples; frozen A/B, real candidate render excludes it without dropping short valid rides; independent QA |
+| P0 | PQ-05 · PA-09 | 0115 misses ~4.4 s of paddle-in; detector track starts ~5.51 s | Restore prone/small surfer recall, preserve owner-tagged paddle-in; per-frame bounds, candidate rendered video; verify no wrong-person extension |
+| P0 | PQ-06 · PA-03/06 | 0108 excluded tail; 0094 16–22 s after meaningful action | Action-outcome rather than track-end termination; inspect candidate decoded MP4, no excluded frames; 0094 13.2–16 s remains owner-adjudication pending |
+| P0 | PQ-03/18/20/40 · PA-07/08 | 0097/0115 split; 0143/0152 deceptively similar | One reel per GT-confirmed athlete with all distinct rides; pairwise evidence; never merge 0143/0152 speculatively; blockers not counted as delivered |
+| P0 | PQ-22/26/33/35/37/38/41 | QA/re-edit/render/delivery provenance unproven on new revision | New decoded final outputs, hash-bound QA and operator state, post-re-edit preservation, fault-injection controls; no auto publication |
+| P1 | PQ-09/14/25/27/39 · PA-10 | cache drift, cancellation/retry cleanup, latency, 0070 unviewed | replay cold/warm sidecars; no duplicate/lost assets; inspect 0070 video; record runtime and real costs |
+
+Owner clarification (2026-11-17): a shared wave is **not automatically disqualified**. The intended surfer for a tagged event is the tagged athlete; 0095 currently tracks a *different, uncatalogued* surfer. Do not substitute that rider as a correct GT positive or silently alter GT-v1. Whether to sell a reel to an untagged rider outside the GT cohort is a separate product-policy question. For 0094, keep GT-v1 frozen until owner adjudicates the standing-in-whitewater interval.
+
+### 12.3 New authorized experiment budget and mandatory procedure
+
+Owner authorized **up to $2 incremental total** for the next bounded evidence-producing experiment campaign on 2026-11-17. This does not retroactively change earlier estimated Gemini spending and is **not $2 per retry**. Before dispatch, set a hard dollar cap and track model + incremental compute/storage/API charges. No unbounded retries, paid model calls outside cap, production publication, GT mutation or privileged destructive changes. Use free replay/proxy/render first; only pay for a discriminating test that replay cannot answer. If cost cannot be bounded, stop and report blocker.
+
+**Per-fix proof chain:** `PA/PQ → FIX ID → exact code SHA/path/symbol → EXP ID + command + executed SHA/config/model → EVD ID + output hash → measured delta vs 43583126199 and 43920602179 → independent source/decoded-render/holdout status`. Code-only, synthetics and historical EDL/overlay checks do not substitute for new rendered-media verification. New commit invalidates dependent evidence until revalidated. Preserve failures, test-set contamination and negative results.
+
+
+## 11. Cycle 10 update (2026-11-17) — see CYCLE-10-QUALITY-QUALIFICATION.md
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PA-11 0143+0152 false merge made publishable | PATCHED (mitigated) | EVD-10-003, EVD-10-005 | FIX-PQ-10-001: model-only consensus never auto-publishes; verifier still untrusted |
+| PA-08 0097+0115 split | REVIEW PATH | EVD-10-005 | FIX-PQ-10-003: owner review request `758fe7783e9c`; no automatic merge |
+| PA-12 isolation retry / crash | TESTED | EVD-10-001 | Gate A run 44148876075 PASS; limits: paid retry name drift, publishable partial |
+| PA-13 paid-retry duplicate drafts | IDENTIFIED | EVD-10-001 | draft keys from model description + date |
+| PA-14 shadowed orchestrator._compile_clusters | IDENTIFIED | EVD-10-001 | production uses context_qa_gate |
+| PA-15 window overruns (0094, 0108, 0142, 0126, 0146, 0118) | FAILED | EVD-10-004 | EXP-10-002 board-loss rule rejected (44.0 s include lost) |
+| PA-16 time-attributed "mixed" metric | IDENTIFIED | EVD-10-002 | use the primary-athlete audit for visible mixes |
+| PA-01 0095 uncatalogued rider | OWNER DECISION | EVD-10-002 | drone target is the uncatalogued rider; no identity switch |
+
 ## 13. Mandatory cross-sport architecture principle — all future fixes and experiments
 
 **Binding product/engineering decision (owner, 2026-11-17): SportReel is a general-purpose personal performance-video engine, NOT a surf-only editor.** This decision applies across *all* existing gaps PQ/PA, all new fixes, refactors, tests, agents, review recommendations and PRs. The current surfing GT-v1 is the first proof cohort, not a reason to hard-code surfing into pipeline foundations.
@@ -466,3 +523,38 @@ Synthetic football-like fixtures **test architecture only**. They do **not** qua
 - A genuine general fix must remain testable across source footage and sports; a surf-specific recognition model may remain a swappable profile implementation. Product-wide invariants, QA/provenance, rollback and release gates stay shared.
 
 **Definition of done:** improving current surfing reels is necessary but not sufficient if the fix hard-codes surfing into a previously generic path. Conversely, the portability guard must not delay fixing actual surf P0 bugs through pointless architecture rewrites; use small, test-backed profile boundaries and verify no unintended cross-domain breakage.
+
+
+
+## 14. Cycle 11 sync (2026-11-17) — see CYCLE-11-ROI-AND-MULTISPORT-QUALIFICATION.md
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PQ-05 / PA-15 starts | PATCHED (replayed, not rendered) | EVD-11-001, EVD-11-002 | FIX-PQ-11-001 motion-supported onset: missing include 20.4 -> 16.7 s in replay; EXP-11-001 pending (BLK-11-001) |
+| PA-15 (corrected) | PATCHED (starts) / OPEN (ends) | EVD-11-001 | cycle-10 overrun figures for 0142/0118/0146/0126/0115/0104 were a measurement error; real ends: 0094 tail, 0108 tail, 0070 gap, 0151 early end |
+| PQ-30 cross-sport dependencies | PATCHED (partial) | EVD-11-002 | FIX-PQ-11-002 sport profiles; remaining surf code listed in docs/architecture/MULTI-SPORT-PERFORMANCE-ENGINE.md section 3 |
+| PA-16 metric | PATCHED | EVD-11-003 | scripts/quality_scorecard.py: visible vs time-attributed mixing, wrong-actor frames, non-GT seconds |
+| PA-12 / Gate A | TESTED (cycle 10) | EVD-10-001 | unchanged; PA-13 paid-retry duplicates still open |
+| PQ-02 / PA-11 | MITIGATED (cycle 10) | EVD-10-005 | unchanged |
+
+### 14.1 Cycle 11 update (2026-11-18): EXP-11-001 rendered
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PQ-05 / PA-15 starts | MEDIA_VERIFIED (CANDIDATE_IMPROVED, same batch, no holdout) | EVD-11-004, EVD-11-005 | EXP-11-001 run 44252428407, $0.228: FULL 14 -> 15, missing include 20.4 -> 16.2 s, incorrect starts 8 -> 7, no protected metric regressed; 0115 / 0142 open on the paddle-in, 0140 does not open on waiting (MP4s viewed) |
+| BLK-11-001 | RESOLVED | — | owner reopened #391 and confirmed the run |
+| Budget | — | — | $4 campaign; $1.508 spent; $2.492 remaining; paid budget reset to 0 |
+
+## 15. Cycle 12 sync (2026-11-18) — see CYCLE-12-HOLDOUT-AND-RELIABILITY-QUALIFICATION.md
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PA-13 duplicate drafts on retry | FIX VERIFIED (isolated, real R2) | EVD-12-001, EVD-12-008, EVD-12-009 | FIX-PQ-12-001 draft ledger: old naming RED (2 duplicates), ledger 25 objects = 25 canonical reels; long-video and staged paths still on old naming |
+| PA-08 / PA-11 / PQ-02 owner rejection | SAFETY FIX, MEDIA_VERIFIED | EVD-12-002, EVD-12-009, EVD-12-010 | rejection outranks model MATCH, superset approvals and singleton merge (RED on 3da09101) |
+| PA-08 0097+0115 | EXPERIMENT FAILED (EXP-12-001) | EVD-12-009 | merge works with the owner working decision (split 2→1); merged reel withheld by 0115's subject gate (publishable correct 4→3); next: per-clip gate handling |
+| PA-01 uncatalogued people | POLICY PROPOSED | EVD-12-005 | 0095 = valid action of an uncatalogued person; never a GT success; operator-only approval and binding |
+| PA-03 0094 end | EVIDENCE READY, OWNER DECISION | EVD-12-004 | standing whitewater riding to ~15.2 s; GT-v1 unchanged |
+| PQ-05 / PA-15 starts generalisation | BLOCKED (BLK-12-001) | EVD-12-006 | no independent footage; holdout tooling ready |
+| PQ-06 / PA-15 ends | OPEN | EVD-12-003 | E1 motion end rule rejected (31.9 s include lost) |
+| PQ-01 / PA-04 validity | OPEN | EVD-12-006 | 3 negatives in GT-v1; kept in review |
+| Budget | — | — | $1.727 spent of $4; $2.273 remaining; paid budget reset to 0 |

@@ -23,6 +23,11 @@ import types
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+import os as _os
+# Cycle 10 (FIX-PQ-10-001): model-only visual consensus no longer auto-publishes a multi-source cluster by default.
+# This contract tests the evidence plumbing behind a pass, so it runs with the explicit opt-in; the default policy
+# is covered by scripts/test_identity_autopublish_policy_contract.py.
+_os.environ["SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH"] = "1"
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.modules.setdefault("supabase", types.SimpleNamespace(create_client=lambda *a, **k: None, Client=object))
@@ -191,8 +196,8 @@ def q6_gate_carries_evidence() -> None:
              "events": [ev(person_id="p2", target_track_id="3", track_id="3")]}]
     for app in apps:
         app["events"][0]["track_id"] = app["events"][0]["target_track_id"]
-    cluster = identity_evidence.stamp({"description": "x", "appearances": apps}, identity_evidence.IMAGE_VERIFIER,
-                                      images=[image, image], model="test-verifier", raw_response='{"same_person": true}')
+    import _consensus_fixture as fx
+    cluster = fx.prove({"description": "x", "appearances": apps}, image=image)
     os.environ["SPORTREEL_ONE_REEL_PER_ATHLETE"] = "0"
     try:
         out = enforce_identity_gate([cluster])

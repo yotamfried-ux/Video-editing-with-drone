@@ -600,6 +600,7 @@ def _best_primary(
     *,
     claimed_tracks: set[str] | None = None,
     track_profiles: dict[str, dict[str, Any]] | None = None,
+    binding_report: dict[str, Any] | None = None,
 ) -> PerceptionDetection | None:
     if not candidates:
         return None
@@ -630,10 +631,68 @@ def _best_primary(
             comp *= 0.72
         return (round(comp, 6), score[1], score[2], score[3])
 
-    best_id, track_detections = max(by_track.items(), key=_rank_key)
+    ranked = sorted(by_track.items(), key=_rank_key, reverse=True)
+    best_id, track_detections = ranked[0]
     mid = _event_mid(event)
     primary = min(track_detections, key=lambda detection: abs(detection.time_sec - mid))
+    if binding_report is not None and len(ranked) > 1:
+        binding_report.update(_binding_separability(ranked[0], ranked[1], event, _rank_key))
     return primary
+
+
+# Primary-athlete binding on a shared wave. The analyzer gives one crop hint per event; when a second sustained
+# track passes as close to that hint as the bound one and the track ranking cannot separate them either, the binding
+# is a coin toss between two surfers (e.g. they cross at the hint). It is then reported as ambiguous - the event
+# blocks with PRIMARY_ACTOR_UNCLEAR through primary_actor_policy instead of following a possibly wrong surfer. A
+# second surfer that the hint or the ranking separates is never a reason to block.
+_HINT_NEAR = 0.06          # both tracks pass within this share of the frame of the hint
+_HINT_TIE = 0.03           # ... and within this of each other's closest distance
+_RANK_TIE_RATIO = 0.10     # ... and the ranking margin is below this share of the best composite
+_MIN_SUSTAINED = 6         # detections a track needs to count as a competing athlete
+_MIN_COPRESENCE = 0.25     # share of the bound track's window detections the competitor must be seen alongside
+_SAME_BODY_IOU = 0.3       # median IoU over shared frames at or above which the runner-up is the same person
+
+
+def _iou(a, b) -> float:
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    union = (a[2] - a[0]) * (a[3] - a[1]) + (b[2] - b[0]) * (b[3] - b[1]) - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _closest_to_hint(detections: list[PerceptionDetection], hint: tuple[float, float]) -> float:
+    return min(math.hypot(((d.xyxy[0] + d.xyxy[2]) / 2.0) / max(1.0, float(d.frame_width)) - hint[0],
+                          ((d.xyxy[1] + d.xyxy[3]) / 2.0) / max(1.0, float(d.frame_height)) - hint[1])
+               for d in detections)
+
+
+def _binding_separability(best, second, event: dict[str, Any], rank_key) -> dict[str, Any]:
+    hint = _event_crop_point(event)
+    (best_id, best_dets), (second_id, second_dets) = best, second
+    if hint is None or len(best_dets) < _MIN_SUSTAINED or len(second_dets) < _MIN_SUSTAINED:
+        return {"track_binding_status": "separable", "track_binding_runner_up": second_id}
+    # The sidecar carries the stitched canonical track and the raw / high-res track of the same person side by side
+    # (measured 2026-11-17: in 39 of 49 real windows the runner-up was such a duplicate box). Only a different body
+    # seen at the same time competes: shared frames whose boxes mostly do not overlap the bound track.
+    best_by_frame = {d.frame_index: d.xyxy for d in best_dets}
+    shared = [(best_by_frame[d.frame_index], d.xyxy) for d in second_dets if d.frame_index in best_by_frame]
+    if len(shared) < max(_MIN_SUSTAINED, _MIN_COPRESENCE * len(best_dets)):
+        return {"track_binding_status": "separable", "track_binding_runner_up": second_id,
+                "track_binding_evidence": {"runner_up_shared_frames": len(shared)}}
+    ious = sorted(_iou(a, b) for a, b in shared)
+    if ious[len(ious) // 2] >= _SAME_BODY_IOU:
+        return {"track_binding_status": "separable", "track_binding_runner_up": second_id,
+                "track_binding_evidence": {"runner_up_same_body_median_iou": round(ious[len(ious) // 2], 3)}}
+    d_best, d_second = _closest_to_hint(best_dets, hint), _closest_to_hint(second_dets, hint)
+    comp_best, comp_second = rank_key(best)[0], rank_key(second)[0]
+    margin = (comp_best - comp_second) / comp_best if comp_best > 0 else 0.0
+    ambiguous = d_best <= _HINT_NEAR and d_second <= _HINT_NEAR and abs(d_best - d_second) < _HINT_TIE \
+        and margin < _RANK_TIE_RATIO
+    return {"track_binding_status": "ambiguous" if ambiguous else "separable",
+            "track_binding_runner_up": second_id,
+            "track_binding_evidence": {"hint_distance_bound": round(d_best, 4), "hint_distance_runner_up": round(d_second, 4),
+                                       "rank_margin": round(margin, 4)}}
 
 
 def _track_ids(candidates: list[PerceptionDetection]) -> list[str]:
@@ -652,8 +711,10 @@ def enrich_event(
     profiles = (sidecar_context or {}).get("track_activity_profiles") or {}
     equip_links = (sidecar_context or {}).get("athlete_equipment_links") or {}
     window_detections = _in_window(detections, event)
+    binding: dict[str, Any] = {}
     primary = (
-        _best_primary(window_detections, event, claimed_tracks=claimed_tracks, track_profiles=profiles)
+        _best_primary(window_detections, event, claimed_tracks=claimed_tracks, track_profiles=profiles,
+                      binding_report=binding)
         or _nearest(detections, event)
     )
     if primary is None:
@@ -672,6 +733,10 @@ def enrich_event(
         if tid_str in equip_links:
             metadata["associated_equipment"] = equip_links[tid_str].get("primary_equipment")
             metadata["equipment_association_ratio"] = equip_links[tid_str].get("equipment_association_ratio")
+    if binding:
+        metadata.update(binding)
+        if binding.get("track_binding_status") == "ambiguous":
+            metadata["actor_tracking_status"] = "ambiguous"  # -> primary_actor_policy: PRIMARY_ACTOR_UNCLEAR
     if visible_ids:
         metadata.update({
             "source_window_track_ids": visible_ids,

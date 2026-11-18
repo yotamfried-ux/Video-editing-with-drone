@@ -51,7 +51,7 @@ def _client():
     read_timeout = int(os.getenv("R2_READ_TIMEOUT_SECONDS", "60"))
     max_attempts = int(os.getenv("R2_MAX_ATTEMPTS", "4"))
 
-    return boto3.client(
+    client = boto3.client(
         "s3",
         endpoint_url=_endpoint_url(),
         aws_access_key_id=os.getenv("R2_ACCESS_KEY_ID") or os.getenv("ACCESS_KEY_ID"),
@@ -62,6 +62,9 @@ def _client():
             retries={"max_attempts": max_attempts, "mode": "standard"},
         ),
     )
+    # Qualification runs (SPORTREEL_QUALIFICATION_RUN_ID): every key is confined to qualification/<run_id>/.
+    from integrations import qualification
+    return qualification.NamespacedS3(client) if qualification.active() else client
 
 
 def _public_base_url() -> str | None:
@@ -170,6 +173,13 @@ def download_object(key: str, local_path: str) -> str:
 
 def upload_object(local_path: str, key: str, content_type: str | None = None) -> str:
     extra_args = {"ContentType": content_type or _content_type(local_path)}
+    if key.startswith(REVIEW_PREFIX):
+        # PA-13: the draft ledger (pipeline.draft_ledger.upload_metadata) tags a REVIEW upload with its canonical
+        # reel id, render plan and revision, so a retry recognises a completed upload without uploading again.
+        from pipeline.draft_ledger import pending_upload_metadata
+        ledger_meta = pending_upload_metadata()
+        if ledger_meta:
+            extra_args["Metadata"] = {str(k): str(v) for k, v in ledger_meta.items()}
     _client().upload_file(local_path, _bucket(), key, ExtraArgs=extra_args)
     return _object_url(key)
 
@@ -348,6 +358,9 @@ def download_video(file_id_or_key: str, filename: str) -> str:
 def upload_draft(draft_path: str, draft_name: str) -> str:
     """Upload to REVIEW and return the canonical immutable R2 object key."""
     key = _join(REVIEW_PREFIX, draft_name)
+    # A replaced REVIEW object must not keep the previous run's PASS authority (see revoke_draft_publishability).
+    from integrations.supabase_uploader import revoke_draft_publishability
+    revoke_draft_publishability(key)
     upload_object(draft_path, key, "video/mp4")
     return key
 

@@ -1,0 +1,8 @@
+{
+  "qualification_run_id": "q12-paid-01",
+  "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
+  "llm_budget_usd_paid": 0.0,
+  "note": "Paid budget 0 after EXP-12-001 (run 44290916415, $0.219). Campaign $4; spent $1.727; remainder $2.273. A new paid run needs a pre-registration and a hard cap <= remainder.",
+  "gate_a_run_id": "q12-pa13",
+  "gate_a_suite": "pa13"
+}

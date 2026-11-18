@@ -1,0 +1,162 @@
+name: Android APK Inspect
+
+# Read-only diagnosis of already built phone-ready APKs: Android's own parser (aapt2), signature and alignment,
+# and a side-by-side diff of a build that installs on the phone against one that does not. Starts no EAS build.
+on:
+  workflow_dispatch:
+    inputs:
+      good_run_id:
+        description: Run id of an Android Phone-ready Build whose APK installs
+        required: true
+      bad_run_id:
+        description: Run id of an Android Phone-ready Build whose APK does not install
+        required: true
+  pull_request:
+    paths:
+      - '.github/workflows/android-apk-inspect.yml'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      # Defaults: 2026-10-21 build (installed on the owner's phone) vs 2026-11-16 build (parse error on the phone).
+      GOOD_RUN_ID: ${{ inputs.good_run_id || '39559911241' }}
+      BAD_RUN_ID: ${{ inputs.bad_run_id || '43918805844' }}
+    steps:
+      - name: Download good APK
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.GOOD_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: good
+          pattern: sportreel-phone-ready-*
+          merge-multiple: true
+
+      - name: Download bad APK
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.BAD_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: bad
+          pattern: sportreel-phone-ready-*
+          merge-multiple: true
+
+      - name: Describe both APKs
+        run: |
+          set -u
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -n 1)
+          echo "build-tools: $BT"
+          for side in good bad; do
+            APK=$side/sportreel-phone-ready.apk
+            mkdir -p out/$side
+            ls -l "$APK"
+            unzip -tq "$APK" > out/$side/zip-test.txt 2>&1
+            unzip -Z1 "$APK" | sort > out/$side/files.txt
+            unzip -v "$APK" | awk 'NR>3 && NF>=8 {print $NF" "$2}' | sort > out/$side/compression.txt
+            "$BT/aapt2" dump badging "$APK" > out/$side/badging.txt 2>&1
+            "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$APK" > out/$side/manifest.txt 2>&1
+            "$BT/apksigner" verify --verbose --print-certs "$APK" 2>/dev/null | grep -v '^WARNING' > out/$side/signing.txt
+            "$BT/zipalign" -c -P 16 4 "$APK" > out/$side/zipalign.txt 2>&1; echo "zipalign exit $?" >> out/$side/zipalign.txt
+            unzip -Z1 "$APK" | grep '^lib/' | cut -d/ -f2 | sort | uniq -c > out/$side/abis.txt
+            unzip -l "$APK" | tail -n 1 > out/$side/total.txt
+            cp $side/eas-build-evidence.json out/$side/ 2>/dev/null || true
+          done
+
+      - name: Compare
+        run: |
+          set -u
+          for f in badging signing zipalign abis total zip-test; do
+            echo "================ $f"
+            diff out/good/$f.txt out/bad/$f.txt && echo "(identical)"
+          done
+          echo "================ manifest (diff)"
+          diff out/good/manifest.txt out/bad/manifest.txt | head -n 200
+          echo "================ files only in good (first 80)"
+          comm -23 out/good/files.txt out/bad/files.txt | head -n 80
+          echo "================ files only in bad (first 80)"
+          comm -13 out/good/files.txt out/bad/files.txt | head -n 80
+          echo "================ compression of special entries"
+          grep -E '^(AndroidManifest.xml|resources.arsc) ' out/good/compression.txt; grep '\.so ' out/good/compression.txt | awk '{print $2}' | sort | uniq -c
+          echo "---- bad"
+          grep -E '^(AndroidManifest.xml|resources.arsc) ' out/bad/compression.txt; grep '\.so ' out/bad/compression.txt | awk '{print $2}' | sort | uniq -c
+          echo "================ evidence"
+          cat out/good/eas-build-evidence.json out/bad/eas-build-evidence.json 2>/dev/null || true
+
+      - name: Keep the comparison
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-comparison
+          path: out
+          retention-days: 14
+
+  install-on-emulator:
+    # adb install prints the installer's exact failure code (INSTALL_PARSE_FAILED_*, INSTALL_FAILED_*), which a phone
+    # reduces to "There was a problem parsing the package". Installs both APKs on several Android versions.
+    name: install on Android API ${{ matrix.api }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        api: [29, 31, 33, 34, 35, 36]
+    env:
+      GOOD_RUN_ID: ${{ inputs.good_run_id || '39559911241' }}
+      BAD_RUN_ID: ${{ inputs.bad_run_id || '43918805844' }}
+    steps:
+      - name: Download good APK
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.GOOD_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: good
+          pattern: sportreel-phone-ready-*
+          merge-multiple: true
+      - name: Download bad APK
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ env.BAD_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: bad
+          pattern: sportreel-phone-ready-*
+          merge-multiple: true
+      - name: Write install script
+        run: |
+          cat > install.sh <<'SH'
+          set -u
+          adb wait-for-device
+          echo "device API: $(adb shell getprop ro.build.version.sdk) release: $(adb shell getprop ro.build.version.release)"
+          try() {
+            label=$1; shift
+            adb logcat -c || true
+            out=$(adb install "$@" 2>&1); rc=$?
+            echo "RESULT $label rc=$rc :: $(echo "$out" | tail -n 2 | tr '\n' ' ')"
+            if [ $rc -ne 0 ]; then
+              adb logcat -d | grep -iE 'PackageManager|PackageInstaller|PackageParser|ApkAssets|INSTALL_' | tail -n 25
+            fi
+          }
+          try "good fresh" good/sportreel-phone-ready.apk
+          try "bad update-over-good" -r bad/sportreel-phone-ready.apk
+          adb uninstall com.sportreel.app >/dev/null 2>&1 || true
+          try "bad fresh" bad/sportreel-phone-ready.apk
+          adb uninstall com.sportreel.app >/dev/null 2>&1 || true
+          try "bad fresh no-streaming" --no-streaming bad/sportreel-phone-ready.apk
+          exit 0
+          SH
+      - name: Enable KVM
+        run: test -e /dev/kvm && sudo chmod 666 /dev/kvm
+      - name: Install on emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api }}
+          arch: x86_64
+          target: google_apis
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 600
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none -camera-front none -accel on
+          script: bash install.sh

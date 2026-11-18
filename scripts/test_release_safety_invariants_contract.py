@@ -49,11 +49,9 @@ def app(source: str, person: str, track: str | None, description: str = "surfer 
 
 
 def prove(cluster: dict) -> dict:
-    """A real group verification: every member's image examined, the call recorded."""
-    from pipeline import identity_evidence as ev
-    image = str(Path(__file__).resolve())
-    return ev.stamp(cluster, ev.IMAGE_VERIFIER, images=[image] * len(cluster["appearances"]),
-                    model="test-verifier", raw_response='{"same_person": true, "mismatched_indices": []}')
+    """A real pairwise-consensus verification: every cross-source pair examined in both image orders."""
+    import _consensus_fixture as fx
+    return fx.prove(cluster)
 
 
 def gate(clusters, one_reel: bool):
@@ -86,11 +84,19 @@ def identity() -> None:
     bare = {"description": "x", "_visual_verified": True, "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
     check(not passed(gate([bare], False)), "I2: a bare _visual_verified flag passed the gate")
 
-    # I3: verified athlete, same and different tracker numbers -> passes through evidence
+    # I3: verified athlete, same and different tracker numbers -> passes through evidence. Cycle 10 (FIX-PQ-10-001):
+    # model-only consensus is withheld by default; the evidence plumbing is checked under the explicit opt-in.
+    import os
     for tracks in (("7", "7"), ("7", "3")):
         c = {"description": "x", "appearances": [app("a.mp4", "person_A", tracks[0]), app("b.mp4", "person_B", tracks[1])]}
         prove(c)
         out = gate([c], False)
+        check(not passed(out), f"I3 default: model-only consensus with tracks {tracks} must NOT pass")
+        os.environ["SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH"] = "1"
+        try:
+            out = gate([c], False)
+        finally:
+            os.environ.pop("SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH", None)
         check(passed(out) and out[0].get("_identity_gate_reason") == "visual_verified_per_source_tracks",
               f"I3: a verified athlete with tracks {tracks} must pass on its image evidence")
 
@@ -107,8 +113,8 @@ def identity() -> None:
     # I2: a caller-supplied method without the examined images, the model call, or with an altered record fails
     c = {"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
     ev.stamp(c, ev.IMAGE_VERIFIER)
-    check(ev.coverage_problem(c) == "image_not_examined_for_every_member" and not passed(gate([c], False)),
-          "I2: method='image_verifier' without examined images passed")
+    check(ev.coverage_problem(c) == "unaccepted_method" and not passed(gate([c], False)),
+          "I2: the legacy group-call method must no longer prove a cross-clip merge")
     c = prove({"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]})
     c["_identity_evidence"]["model"] = ""
     check(not ev.covers(c), "I2: a record without the verifier call passed")
@@ -122,15 +128,19 @@ def identity() -> None:
                                                    app("c.mp4", "person_C", "5")]})
     c["_identity_evidence"]["method"] = ev.PAIR_CHECK_SINGLETONS
     c["_identity_evidence"]["evidence_digest"] = ev._evidence_digest(c["_identity_evidence"])
-    check(ev.coverage_problem(c) == "pair_check_cannot_cover_more_than_two_members",
-          "I2: a pairwise check was stretched over three members")
+    check(ev.coverage_problem(c) == "unaccepted_method",
+          "I2: a legacy single-order pair check was relabelled onto three members")
 
     # Evidence survives the identity module's field stripping (production hand-off to the editor)
     from pipeline.stages.identity import _strip_internal_fields
     c = {"description": "x", "appearances": [app("a.mp4", "person_A", "7"), app("b.mp4", "person_B", "3")]}
     prove(c)
     stripped = _strip_internal_fields([c])[0]
-    check(ev.covers(stripped) and passed(gate([stripped], False)), "evidence must survive _strip_internal_fields")
+    os.environ["SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH"] = "1"   # evidence plumbing (cycle 10 default withholds)
+    try:
+        check(ev.covers(stripped) and passed(gate([stripped], False)), "evidence must survive _strip_internal_fields")
+    finally:
+        os.environ.pop("SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH", None)
 
     # I4: several people in one source; missing source; missing tracks
     from pipeline.stages.identity import _split_impossible_clusters
@@ -151,6 +161,7 @@ def identity() -> None:
 
 
 def verifier_answers() -> None:
+    import _consensus_fixture as fx
     import pipeline.identity_failsafe as failsafe
     import pipeline.stages.identity as identity
     from pipeline import identity_evidence as ev
@@ -160,30 +171,25 @@ def verifier_answers() -> None:
     thumb = str(Path(__file__).resolve())  # any existing file stands in for a thumbnail
 
     def run(verifier, answer: str):
-        model = types.SimpleNamespace(generate_content=lambda *a, **k: types.SimpleNamespace(text=answer))
-        genai = types.SimpleNamespace(upload_file=lambda **k: types.SimpleNamespace(name="f"),
-                                      delete_file=lambda n: None, GenerativeModel=lambda model_name=None: model)
-        saved = (identity.genai, identity._retry_gemini)
-        identity.genai, identity._retry_gemini = genai, lambda fn, *a, **k: fn()
-        apps = [dict(app("a.mp4", "person_A", "7"), thumbnail=thumb), dict(app("b.mp4", "person_B", "3"), thumbnail=thumb)]
+        saved = identity._consensus_ask
+        identity._consensus_ask = lambda prompt, images: answer
+        apps = [dict(app("a.mp4", "person_A", "7"), thumbnail=thumb, _sheet_crops=6), dict(app("b.mp4", "person_B", "3"), thumbnail=thumb, _sheet_crops=6)]
         try:
             return verifier([{"description": "x", "appearances": apps}])
         finally:
-            identity.genai, identity._retry_gemini = saved
+            identity._consensus_ask = saved
 
-    invalid = ('{}', '{"mismatched_indices": []}', '{"same_person": null}', '{"same_person": "true"}',
-               '{"same_person": 1}', '[]', '{"same_person": true, "mismatched_indices": [1]}',
-               '{"same_person": true, "mismatched_indices": "0"}', '{"same_person": true, "mismatched_indices": [5]}',
-               '{"same_person": true, "mismatched_indices": [true]}', '{"confidence": "high"}')
+    invalid = ('', '{}', 'not json', '[]', '{"verdict": "MAYBE"}', '{"verdict": "MATCH"}', '{"same_person": true}',
+               '{"verdict": "MATCH", "matching_features": ["only one"], "contradicting_features": []}',
+               '{"verdict": "MATCH", "matching_features": ["a", "b"], "contradicting_features": ["c"]}',
+               fx.MATCH_GENERIC, fx.UNCERTAIN)
     for name, verifier in (("stages.identity", original), ("identity_failsafe", production)):
         for answer in invalid:
             out = run(verifier, answer)
             check(not any(ev.covers(c) or c.get("_visual_verified") for c in out),
-                  f"I6 {name}: verifier answer {answer} was read as an identity confirmation")
-        out = run(verifier, '{"same_person": true, "mismatched_indices": []}')
-        check(len(out) == 1 and ev.covers(out[0]), f"I6 {name}: an explicit confirmation must stamp evidence")
-    check(ev.parse_verifier_verdict({"same_person": False, "mismatched_indices": [1]}, 3) == (False, {1}, ""),
-          "I6: a valid partial mismatch must still name the mismatched image")
+                  f"I6 {name}: verifier answer {answer!r} was read as an identity confirmation")
+        out = run(verifier, fx.MATCH_SPECIFIC)
+        check(len(out) == 1 and ev.covers(out[0]), f"I6 {name}: a consensus MATCH must stamp pairwise evidence")
 
 
 def lineage() -> None:

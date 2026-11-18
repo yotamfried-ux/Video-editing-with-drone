@@ -60,10 +60,20 @@ def _shot_verdicts(part: dict[str, Any]) -> list[str]:
     return [str((e.get("eligibility") or {}).get("verdict")) for e in inputs.get("events") or []]
 
 
+_SOURCE_LIMIT_ISSUES = ("qualification:tail_after_actor_lost_to_recording_end",)
+
+
 def _source_limited(part: dict[str, Any]) -> bool:
+    """Withheld only because the recording ended: a recording-end note and no other blocking reason.
+
+    A part blocked for identity, QA or anything else is REVIEW_REQUIRED even when one of its shots also ends at the
+    recording end (run 43920602179 labelled five identity-withheld athletes SOURCE_LIMITED).
+    """
     inputs = part.get("qualification_inputs") if isinstance(part.get("qualification_inputs"), dict) else {}
-    return any("source_limited_recording_end" in (e.get("interval") or {}).get("notes", [])
-               for e in inputs.get("events") or [])
+    noted = any("source_limited_recording_end" in (e.get("interval") or {}).get("notes", [])
+                for e in inputs.get("events") or [])
+    blocking = [str(b) for b in (_qualification(part).get("blocking") or part.get("technical_issues") or [])]
+    return noted and bool(blocking) and all(b.startswith(_SOURCE_LIMIT_ISSUES) for b in blocking)
 
 
 def build(manifest: Any, *, coverage: Any = None, gt_eval: Any = None, exit_code: int | None = None) -> dict[str, Any]:

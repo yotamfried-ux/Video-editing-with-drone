@@ -1,0 +1,21 @@
+{
+  "schema": "sportreel.identity_review_decisions.v1",
+  "qualification_only": true,
+  "scope": "Owner WORKING decisions for isolated qualification experiments only (cycle 12 mandate 4.1 / 4.2). Loaded only when SPORTREEL_IDENTITY_REVIEW_DECISIONS points here AND inside a qualification run (pipeline.identity_review.load_decisions ignores a qualification_only file elsewhere). This is NOT the production decision file (evaluation/identity_reviews/decisions.json, which does not exist); promoting these decisions to production is a separate owner action (docs/production-readiness/OWNER-ACTIONS-CYCLE-12.md).",
+  "decisions": [
+    {
+      "request_id": "758fe7783e9c16dc579f0c951a556fc68b7dd94dea78ca9642cce7ed98873e60",
+      "decision": "APPROVED",
+      "reviewer": "owner working decision (cycle 12 mandate 4.1), experiments only",
+      "decided_at": "2026-11-18T00:00:00Z",
+      "note": "0097 + 0115 (person_A in each; source SHA-256 548cf4ff... and b62c8aa0...) are the same athlete per GT-v1 and visual checks. Bound to these exact sources/people; not extended to any similar pair."
+    },
+    {
+      "request_id": "7b2a6964427f5b96fe87311e310b01ae1739f59852b892bac42519024bd966b3",
+      "decision": "REJECTED",
+      "reviewer": "owner working decision (cycle 12 mandate 4.2), experiments only",
+      "decided_at": "2026-11-18T00:00:00Z",
+      "note": "0074 + 0151 (person_A in each; source SHA-256 f6ac72f8... and e01a614d...) are two different people per GT-v1. Negative control."
+    }
+  ]
+}

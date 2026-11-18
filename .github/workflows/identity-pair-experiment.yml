@@ -1,0 +1,97 @@
+name: Identity Pair Experiment (read-only, manual, capped)
+
+# Evaluation only. Reads compressed proxies from R2 (read-only), cuts crops in memory, asks Gemini with inline bytes,
+# compares with the frozen GT. The result artifact is JSON verdicts/counts ONLY: this repository is public, so no
+# image, crop or video is ever written to disk outside the job temp dir or uploaded. Never dispatches the pipeline,
+# never writes R2/Supabase. Manual trigger only (each run spends model budget).
+# Triggers: workflow_dispatch (once this file is on the default branch) or the label `idexp-dev` / `idexp-holdout`
+# added to a pull request (works from a branch; a push alone never spends anything).
+on:
+  pull_request:
+    types: [labeled]
+  workflow_dispatch:
+    inputs:
+      phase:
+        description: 'dev (tune) or holdout (run once with the frozen rule)'
+        required: true
+        type: choice
+        options: [dev, holdout, clusters, clusters-prod, bound-dev, bound-holdout, crops4-dev, crops4-holdout, ridevalid, idsingles]
+      budget_usd:
+        description: 'Hard cap for this run (USD, model cost estimate)'
+        required: true
+        default: '0.9'
+      m4_threshold:
+        description: 'holdout only: colour threshold frozen from the dev run'
+        required: false
+        default: ''
+      diagnostics_run:
+        description: 'Run Pipeline run id whose diagnostics artifact supplies tracks'
+        required: true
+        default: '43920602179'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  experiment:
+    if: github.event_name == 'workflow_dispatch' || github.event.label.name == 'idexp-dev' || github.event.label.name == 'idexp-holdout' || github.event.label.name == 'idexp-clusters' || github.event.label.name == 'idexp-bound-dev' || github.event.label.name == 'idexp-bound-holdout' || github.event.label.name == 'idexp-clusters-prod' || github.event.label.name == 'idexp-crops4-dev' || github.event.label.name == 'idexp-crops4-holdout' || github.event.label.name == 'idexp-ridevalid'
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: pip install --disable-pip-version-check google-genai boto3 pillow numpy python-dotenv
+      - name: Download run diagnostics (tracks only)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ inputs.diagnostics_run || '43920602179' }}
+        run: gh run download "$RUN_ID" -n "pipeline-diagnostics-$RUN_ID" -D "$RUNNER_TEMP/diag"
+      - name: Run experiment
+        env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BATCH_ID: batch_2026-10-03T12-19-52_ttgvat95
+          PHASE: ${{ inputs.phase || fromJSON('{"idexp-dev":"dev","idexp-holdout":"holdout","idexp-clusters":"clusters","idexp-bound-dev":"bound-dev","idexp-bound-holdout":"bound-holdout","idexp-clusters-prod":"clusters-prod","idexp-crops4-dev":"crops4-dev","idexp-crops4-holdout":"crops4-holdout","idexp-ridevalid":"ridevalid"}')[github.event.label.name] }}
+          BUDGET: ${{ inputs.budget_usd || (startsWith(github.event.label.name, 'idexp-ridevalid') && '0.8' || startsWith(github.event.label.name, 'idexp-bound') && '0.3' || startsWith(github.event.label.name, 'idexp-crops4') && '0.4' || startsWith(github.event.label.name, 'idexp-clusters-prod') && '0.25' || '0.9') }}
+          M4: ${{ inputs.m4_threshold }}
+        run: |
+          if [ -z "$M4" ] && [ "$PHASE" = "holdout" ] && [ -f evaluation/identity/m4_threshold.txt ]; then M4=$(cat evaluation/identity/m4_threshold.txt); fi
+          ARGS=""
+          if [ -n "$M4" ]; then ARGS="--m4-threshold $M4"; fi
+          case "$PHASE" in
+            idsingles)
+              SPORTREEL_IDENTITY_CROPS=6 python scripts/identity_pair_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --out "$RUNNER_TEMP/result.json" --phase clusters --sheet production --singleton-pairs --budget-usd "$BUDGET" ;;
+            ridevalid)
+              python scripts/ride_validity_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --jobs evaluation/ride_validity/jobs_43920602179.json --reps 2 \
+                --out "$RUNNER_TEMP/result.json" --budget-usd "$BUDGET" ;;
+            bound-dev|bound-holdout)
+              python scripts/boundary_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --out "$RUNNER_TEMP/result.json" --split "${PHASE#bound-}" --budget-usd "$BUDGET" ;;
+            clusters-prod)
+              SPORTREEL_IDENTITY_CROPS=6 python scripts/identity_pair_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --out "$RUNNER_TEMP/result.json" --phase clusters --sheet production --budget-usd "$BUDGET" ;;
+            crops4-dev|crops4-holdout)
+              python scripts/identity_pair_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --out "$RUNNER_TEMP/result.json" --phase "${PHASE#crops4-}" --budget-usd "$BUDGET" \
+                --m2-crops 4 --only-m2 ;;
+            *)
+              python scripts/identity_pair_experiment.py --diagnostics "$RUNNER_TEMP/diag" \
+                --out "$RUNNER_TEMP/result.json" --phase "$PHASE" --budget-usd "$BUDGET" $ARGS ;;
+          esac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: identity-pair-experiment-${{ inputs.phase || fromJSON('{"idexp-dev":"dev","idexp-holdout":"holdout","idexp-clusters":"clusters","idexp-bound-dev":"bound-dev","idexp-bound-holdout":"bound-holdout","idexp-crops4-dev":"crops4-dev","idexp-crops4-holdout":"crops4-holdout","idexp-ridevalid":"ridevalid"}')[github.event.label.name] }}
+          path: ${{ runner.temp }}/result.json
+          retention-days: 30

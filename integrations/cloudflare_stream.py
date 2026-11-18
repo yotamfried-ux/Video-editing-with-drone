@@ -9,6 +9,9 @@ import config
 
 def upload_to_stream(local_path: str) -> str:
     """Upload a local MP4 to Cloudflare Stream, return the stream UID."""
+    from integrations import qualification
+    if qualification.active():
+        raise qualification.QualificationIsolationError("Cloudflare Stream upload is not allowed in a qualification run")
     url = f"https://api.cloudflare.com/client/v4/accounts/{config.CLOUDFLARE_ACCOUNT_ID}/stream"
     headers = {"Authorization": f"Bearer {config.CLOUDFLARE_STREAM_API_TOKEN}"}
     with open(local_path, "rb") as f:

@@ -30,13 +30,21 @@ def _appearance_summary(app: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _source_of(app: dict[str, Any]) -> str:
+    index = app.get("_clip_index")
+    if index is not None and str(index).strip() != "":
+        return f"clip:{index}"
+    return str(app.get("path") or "")
+
+
 def _stable_track(cluster: dict[str, Any]) -> str | None:
     apps = cluster.get("appearances", []) or []
     if len(apps) <= 1:
         return None
     # Tracker ids are numbered per video. The same number in two different sources says nothing about the
     # person (two surfers can both be "t7"), so a shared id is evidence only inside one source.
-    sources = {str(app.get("_clip_index", app.get("path")) or "") for app in apps}
+    # FIX-PQ-10-002: `_clip_index` 0 (the first source) is a valid index, not a missing one (`0 or ""` was "").
+    sources = {str(_source_of(app)) for app in apps}
     if len(sources) != 1 or "" in sources:
         return None
     per_app = [_track_ids(app) for app in apps]
@@ -60,7 +68,28 @@ def _verified_single_track_per_source(cluster: dict[str, Any]) -> bool:
     from pipeline import identity_evidence
     if cluster.get("_visual_verified") is not True or not identity_evidence.covers(cluster):
         return False
+    if not _evidence_may_autopublish(cluster):
+        return False
     return all(len(_track_ids(app)) <= 1 for app in cluster.get("appearances", []) or [])
+
+
+def _visual_consensus_autopublish() -> bool:
+    return os.getenv("SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH", "0").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _evidence_may_autopublish(cluster: dict[str, Any]) -> bool:
+    """FIX-PQ-10-001 (Gate B1). A cross-source identity confirmed ONLY by the model's visual answer is not enough to
+    auto-publish: EXP-09-002 showed a both-orders, 6-crop MATCH for two different athletes (0143/0152). Such a cluster
+    stays together UNCONFIRMED (withheld; the identity review request decides). The owner's APPROVED operator_review
+    passes. SPORTREEL_VISUAL_CONSENSUS_AUTOPUBLISH=1 is reserved for a verifier validated on lookalike negatives."""
+    from pipeline import identity_evidence
+    method = (cluster.get(identity_evidence.EVIDENCE_KEY) or {}).get("method")
+    if method == identity_evidence.OPERATOR_REVIEW:
+        return True
+    sources = {_source_of(app) for app in cluster.get("appearances", []) or []}
+    if len(sources) <= 1:
+        return True
+    return _visual_consensus_autopublish()
 
 
 def _one_reel_per_athlete() -> bool:
@@ -111,8 +140,13 @@ def enforce_identity_gate(clusters: list[dict[str, Any]]) -> list[dict[str, Any]
                            "_identity_gate_reason": "visual_verified_per_source_tracks"})
             continue
         reason = "missing_track_evidence"
+        from pipeline import identity_evidence as _ev
+        if cluster.get("_visual_verified") is True and _ev.covers(cluster) and not _evidence_may_autopublish(cluster):
+            reason = "visual_consensus_requires_operator_review"
         track_sets = [_track_ids(app) for app in apps]
-        if any(track_sets) and len(set().union(*track_sets)) > 1:
+        if reason == "visual_consensus_requires_operator_review":
+            pass
+        elif any(track_sets) and len(set().union(*track_sets)) > 1:
             reason = "conflicting_track_ids"
         elif all(track_sets) and len({str(app.get("_clip_index", app.get("path")) or "") for app in apps}) > 1:
             reason = "same_track_id_across_sources_is_not_evidence"
