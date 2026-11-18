@@ -10,7 +10,8 @@
    "44085419164 (q9-paid-01)",
    "44121013654 (q9-paid-02)",
    "44166232265 (q10-paid-01, EXP-10-001)",
-   "44252428407 (q11-paid-01, EXP-11-001)"
+   "44252428407 (q11-paid-01, EXP-11-001)",
+   "44290916415 (q12-paid-01, EXP-12-001)"
   ]
  },
  "statuses": [
@@ -327,6 +328,22 @@
    "where": "artifact qualification-gate-a-q12-pa13-44269495332 (id 14420887587)",
    "produced_by": "scripts/qualification_gate_a.sh/.py",
    "proof_scope": "ISOLATED_RUN"
+  },
+  {
+   "id": "EVD-12-009",
+   "kind": "isolated_run",
+   "what": "EXP-12-001 q12-paid-01 (run 44290916415 @1651bfe6, $0.219 list-price estimate, 14 calls / cap $0.40, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9; owner working identity decisions qualification-only). Production fingerprint identical. S1 OBSERVED: 0097+0115 one cluster, identity gate pass on the owner approval (request 758fe7783e9c...). S2: 0074 and 0151 in different reels. S3: split athletes 2 -> 1. S4: namespace inventory 13 review objects = 13 ledgers, 0 problems. Protected: FULL 15, missing 16.2 s, incorrect starts 7 / ends 1, non-GT 7.47 s, excluded 999, wrong-actor frames 54, visible mixed 1 (0143+0152, withheld), publishable wrong identity 0, QA false pass 1 (= 1 non-GT-person reel, GT-cohort 0) - all unchanged; publishable correct 4 -> 3 = PROTECTED CONDITION FAILED. Cause: 0115's clip carries the subject gate PRIMARY_ACTOR_UNCLEAR (it was already blocked as its own reel in EXP-11-001, where 0097's single reel was publishable); the merged reel inherits the block, so a correct reel is withheld (QA verdict PASS, no defects). VERDICT: EXP-12-001 FAILED per pre-registration; nothing adopted from it.",
+   "where": "cycle-12 report; artifacts qualification-diagnostics/reels-q12-paid-01-44290916415",
+   "produced_by": "scripts/quality_scorecard.py; scripts/primary_athlete_audit.py; scripts/qualification_ledger_inventory.py",
+   "proof_scope": "ISOLATED_RUN"
+  },
+  {
+   "id": "EVD-12-010",
+   "kind": "frame_sequence",
+   "what": "EXP-12-001 reels decoded (all 13: H.264 2160x3840 30 fps, 0 decode errors, no freeze/black). Viewed: merged 0097+0115 reel sha256 6d4457a7a133fceed7661b0118723633d01d3901106bcdda1a746c61de0298c6 (1 fps): one athlete; 0097 clip 0-9 s backlit (prone, pop-up ~1-2 s, ride into whitewater), 0115 clip 9-23 s (paddle-in with other people nearby 9-13 s, pop-up ~14 s, ride to 22 s); the PRIMARY_ACTOR_UNCLEAR block on 0115 looks conservative (rider followable). 0074 reel 9e14d590a1a63784229b197a07efd2edec872b5c1f6ca07098596c2627ee3bab one athlete (take-off ~3 s, ride to 21 s); 0151 reel 5315a28a21b561a13d733dd492497593bb54cb190bbec2f6b6b16b6b549e9b72 one athlete (ride to ~4.5 s, wipeout); the two lookalikes (black long-sleeve tops) correctly separate.",
+   "where": "session scratch contact sheets",
+   "produced_by": "ffmpeg decode",
+   "proof_scope": "RENDERED_MEDIA"
   }
  ],
  "fixes": [
@@ -611,10 +628,11 @@
     "Gate A suite pa13 run 44269495332 (real R2): PASS on re-scoring (evaluator bug fixed)"
    ],
    "before": "legacy names: duplicates after crash + retry with a new description/day (RED)",
-   "after": "Gate A real R2: legacy 26 objects (2 duplicates) vs ledger 25 objects = 25 canonical reels, nothing lost, retry after completion no-op",
+   "after": "Gate A real R2: legacy 26 objects (2 duplicates) vs ledger 25 objects = 25 canonical reels, nothing lost, retry after completion no-op; EXP-12-001 paid run: 13 review objects = 13 ledgers, 0 problems",
    "evidence": [
     "EVD-12-001",
-    "EVD-12-008"
+    "EVD-12-008",
+    "EVD-12-009"
    ],
    "status": "REPLAYED",
    "classification": "CANDIDATE_IMPROVED",
@@ -632,11 +650,13 @@
     "RED/GREEN EVD-12-002 (RED on 3da09101: W4-W6, W8)"
    ],
    "before": "model MATCH on 0074+0151 -> one cluster",
-   "after": "split; no transitive merge through a rejected pair",
+   "after": "EXP-12-001: 0074 and 0151 separate reels, both viewed single-athlete; no wrong-identity publishable",
    "evidence": [
-    "EVD-12-002"
+    "EVD-12-002",
+    "EVD-12-009",
+    "EVD-12-010"
    ],
-   "status": "TESTED",
+   "status": "MEDIA_VERIFIED",
    "classification": "SAFETY_FIX",
    "limits": "A rejection splits the whole cluster into singles (conservative); rendered proof pending EXP-12-001.",
    "sport_profile_id": "core"
@@ -659,6 +679,27 @@
    "status": "TESTED",
    "classification": "MEASUREMENT",
    "limits": "Whether a non-GT reel shows a valid action still needs a viewed MP4.",
+   "sport_profile_id": "core"
+  },
+  {
+   "id": "EXP-12-001-IDENTITY",
+   "gap": "PA-08",
+   "title": "Owner working decision 0097+0115 in a real run",
+   "root_cause": "one athlete split into two reels (text attributes)",
+   "change": "evaluation/qualification/identity_working_decisions.json (qualification-only)",
+   "commit": "1651bfe6",
+   "experiments": [
+    "EXP-12-001 run 44290916415"
+   ],
+   "before": "split athletes 2; publishable correct 4",
+   "after": "split athletes 1; publishable correct 3 (merged reel inherits 0115's PRIMARY_ACTOR_UNCLEAR block)",
+   "evidence": [
+    "EVD-12-009",
+    "EVD-12-010"
+   ],
+   "status": "FAILED",
+   "classification": "NOT_ADOPTED",
+   "limits": "Next step (free): per-clip subject-gate handling in multi-clip reels (hold or drop the blocked clip for review instead of withholding the whole reel), then replay; no production identity decision without owner approval.",
    "sport_profile_id": "core"
   }
  ],
@@ -790,11 +831,13 @@
    "finding": "Crops consistent with one athlete (shirtless, dark shorts, light-blue board); 0097 is backlit (silhouette), 0115 front-lit, which explains the analyzer's 'dark swimsuit' vs 'no shirt'. 11-16 splits them into two reels.",
    "classification": "PIPELINE_DEFECT",
    "status": "MEDIA_VERIFIED",
-   "next": "Fail-closed identity (#396) routes such pairs to owner REVIEW; an automatic merge needs pairwise consensus evidence, not a description match.",
+   "next": "EXP-12-001: merge works with the owner decision (split 2->1) but the merged reel inherits 0115's subject-gate block (publishable correct 4->3). Fix candidate: per-clip gate handling in multi-clip reels; owner decides whether to promote the decision.",
    "evidence": [
     "EVD-07-003",
     "EVD-07-006",
-    "EVD-12-002"
+    "EVD-12-002",
+    "EVD-12-009",
+    "EVD-12-010"
    ],
    "proof_scope": "Historical source sequence + GT overlay/EDL observation; defects confirmed or suspected, NOT proof candidate code fixed them or a new final MP4 is correct.",
    "cycle8": "FIX-PQ-08-003 TESTED: production verifier MATCHes 0097+0115 (EXP-08-002), merge stage wired; integration render blocked (BLK-08-001)."
@@ -1036,8 +1079,10 @@
   "cycle12": {
    "campaign_total_usd": 4,
    "spent_before_cycle12_usd": 1.508,
-   "remaining_usd": 2.492,
-   "note": "verified 2026-11-18: cycle 8 0.380 + q9-paid-01 0.225 + q9-paid-02 0.469 + EXP-10-001 0.206 + EXP-11-001 0.228 = 1.508; list-price estimates from recorded tokens"
+   "remaining_usd": 2.273,
+   "note": "verified 2026-11-18: cycle 8 0.380 + q9-paid-01 0.225 + q9-paid-02 0.469 + EXP-10-001 0.206 + EXP-11-001 0.228 = 1.508; list-price estimates from recorded tokens",
+   "spent_total_usd": 1.727,
+   "EXP_12_001_usd": 0.219
   }
  },
  "next_priorities": [

@@ -544,3 +544,17 @@ Synthetic football-like fixtures **test architecture only**. They do **not** qua
 | PQ-05 / PA-15 starts | MEDIA_VERIFIED (CANDIDATE_IMPROVED, same batch, no holdout) | EVD-11-004, EVD-11-005 | EXP-11-001 run 44252428407, $0.228: FULL 14 -> 15, missing include 20.4 -> 16.2 s, incorrect starts 8 -> 7, no protected metric regressed; 0115 / 0142 open on the paddle-in, 0140 does not open on waiting (MP4s viewed) |
 | BLK-11-001 | RESOLVED | — | owner reopened #391 and confirmed the run |
 | Budget | — | — | $4 campaign; $1.508 spent; $2.492 remaining; paid budget reset to 0 |
+
+## 15. Cycle 12 sync (2026-11-18) — see CYCLE-12-HOLDOUT-AND-RELIABILITY-QUALIFICATION.md
+
+| Gap | Status | Evidence | Note |
+|---|---|---|---|
+| PA-13 duplicate drafts on retry | FIX VERIFIED (isolated, real R2) | EVD-12-001, EVD-12-008, EVD-12-009 | FIX-PQ-12-001 draft ledger: old naming RED (2 duplicates), ledger 25 objects = 25 canonical reels; long-video and staged paths still on old naming |
+| PA-08 / PA-11 / PQ-02 owner rejection | SAFETY FIX, MEDIA_VERIFIED | EVD-12-002, EVD-12-009, EVD-12-010 | rejection outranks model MATCH, superset approvals and singleton merge (RED on 3da09101) |
+| PA-08 0097+0115 | EXPERIMENT FAILED (EXP-12-001) | EVD-12-009 | merge works with the owner working decision (split 2→1); merged reel withheld by 0115's subject gate (publishable correct 4→3); next: per-clip gate handling |
+| PA-01 uncatalogued people | POLICY PROPOSED | EVD-12-005 | 0095 = valid action of an uncatalogued person; never a GT success; operator-only approval and binding |
+| PA-03 0094 end | EVIDENCE READY, OWNER DECISION | EVD-12-004 | standing whitewater riding to ~15.2 s; GT-v1 unchanged |
+| PQ-05 / PA-15 starts generalisation | BLOCKED (BLK-12-001) | EVD-12-006 | no independent footage; holdout tooling ready |
+| PQ-06 / PA-15 ends | OPEN | EVD-12-003 | E1 motion end rule rejected (31.9 s include lost) |
+| PQ-01 / PA-04 validity | OPEN | EVD-12-006 | 3 negatives in GT-v1; kept in review |
+| Budget | — | — | $1.727 spent of $4; $2.273 remaining; paid budget reset to 0 |

@@ -157,20 +157,20 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **Commit:** 9c26a306
 - **Experiments:** RED/GREEN EVD-12-001, Gate A suite pa13 run 44269495332 (real R2): PASS on re-scoring (evaluator bug fixed)
 - **Before:** legacy names: duplicates after crash + retry with a new description/day (RED)
-- **After:** Gate A real R2: legacy 26 objects (2 duplicates) vs ledger 25 objects = 25 canonical reels, nothing lost, retry after completion no-op
-- **Evidence:** EVD-12-001, EVD-12-008
+- **After:** Gate A real R2: legacy 26 objects (2 duplicates) vs ledger 25 objects = 25 canonical reels, nothing lost, retry after completion no-op; EXP-12-001 paid run: 13 review objects = 13 ledgers, 0 problems
+- **Evidence:** EVD-12-001, EVD-12-008, EVD-12-009
 - **Limits:** Long-video path (context_qa_long_video) and the staged pending_uploads path keep legacy naming; a QA-label change keeps the first name (conservative); ledger reads add a few R2 GETs per reel.
 
 ### FIX-PQ-12-002 — An owner REJECTED decision outranks model consensus, superset approvals and the singleton merge
 
-- **Gap:** PA-08/PA-11/PQ-02 · **Classification:** SAFETY_FIX · **Status:** `TESTED`
+- **Gap:** PA-08/PA-11/PQ-02 · **Classification:** SAFETY_FIX · **Status:** `MEDIA_VERIFIED`
 - **Root cause:** verify_multi_clusters consulted owner decisions only on REVIEW; a model MATCH kept an owner-rejected pair together (withheld, but one reel)
 - **Fix:** pipeline/identity_review.rejected_pairs + qualification_only decision files; pipeline/identity_pair_consensus.verify_multi_clusters / merge_verified_singletons
 - **Commit:** 9c26a306
 - **Experiments:** RED/GREEN EVD-12-002 (RED on 3da09101: W4-W6, W8)
 - **Before:** model MATCH on 0074+0151 -> one cluster
-- **After:** split; no transitive merge through a rejected pair
-- **Evidence:** EVD-12-002
+- **After:** EXP-12-001: 0074 and 0151 separate reels, both viewed single-athlete; no wrong-identity publishable
+- **Evidence:** EVD-12-002, EVD-12-009, EVD-12-010
 - **Limits:** A rejection splits the whole cluster into singles (conservative); rendered proof pending EXP-12-001.
 
 ### FIX-PQ-12-003 — Scorecard reports reels of non-GT people apart
@@ -185,6 +185,18 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **Evidence:** EVD-12-005
 - **Limits:** Whether a non-GT reel shows a valid action still needs a viewed MP4.
 
+### EXP-12-001-IDENTITY — Owner working decision 0097+0115 in a real run
+
+- **Gap:** PA-08 · **Classification:** NOT_ADOPTED · **Status:** `FAILED`
+- **Root cause:** one athlete split into two reels (text attributes)
+- **Fix:** evaluation/qualification/identity_working_decisions.json (qualification-only)
+- **Commit:** 1651bfe6
+- **Experiments:** EXP-12-001 run 44290916415
+- **Before:** split athletes 2; publishable correct 4
+- **After:** split athletes 1; publishable correct 3 (merged reel inherits 0115's PRIMARY_ACTOR_UNCLEAR block)
+- **Evidence:** EVD-12-009, EVD-12-010
+- **Limits:** Next step (free): per-clip subject-gate handling in multi-clip reels (hold or drop the blocked clip for review instead of withholding the whole reel), then replay; no production identity decision without owner approval.
+
 ## Gaps
 
 | ID | Case | Product | Classification | Status | Finding | Next |
@@ -196,7 +208,7 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | PA-05 | synthetic | primary athlete | PIPELINE_DEFECT | `REPLAYED` | Crossing surfers with an inseparable hint were bound by tie-break without a flag. | Red/green test passed on FIX-PQ-07-001@15a732d9; replay denominator reconciled (167, EXP-08-000); no decoded new render or real crossing holdout. EVD-07-004/005 only. |
 | PA-06 | 0108 | B (exclude segment in a reel) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Rider is still riding at the last frame (9.0 s); no outcome visible, matching GT missing_landing for 6.82-9.2 s. Both runs render up to ~8.5 s (21-22 exclude samples). | Owner decision 2 (cycle 5): the ride ends with the action, content after 6.82 s excluded. Fix needs action-state evidence (CYCLE-03); no global shortening. |
 | PA-07 | 0143+0152 | C/identity | INSUFFICIENT_EVIDENCE | `BLOCKED` | Merged into one reel in both runs. Side-by-side crops: white T-shirt, dark shorts, pink board in both; pixels cannot separate them. GT says two athletes. | Stays REVIEW (owner policy); never auto-published as one athlete. |
-| PA-08 | 0097+0115 | C (two reels for one surfer) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Crops consistent with one athlete (shirtless, dark shorts, light-blue board); 0097 is backlit (silhouette), 0115 front-lit, which explains the analyzer's 'dark swimsuit' vs 'no shirt'. 11-16 splits them into two reels. | Fail-closed identity (#396) routes such pairs to owner REVIEW; an automatic merge needs pairwise consensus evidence, not a description match. |
+| PA-08 | 0097+0115 | C (two reels for one surfer) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Crops consistent with one athlete (shirtless, dark shorts, light-blue board); 0097 is backlit (silhouette), 0115 front-lit, which explains the analyzer's 'dark swimsuit' vs 'no shirt'. 11-16 splits them into two reels. | EXP-12-001: merge works with the owner decision (split 2->1) but the merged reel inherits 0115's subject-gate block (publishable correct 4->3). Fix candidate: per-clip gate handling in multi-clip reels; owner decides whether to promote the decision. |
 | PA-09 | 0115 start | A (missing include: paddle-in) | PIPELINE_DEFECT | `MEDIA_VERIFIED` | Reel starts 4.5 s; GT include from 0.07 s (paddle-in, owner policy: include the relevant paddle-in). Sequence shows paddling from the first frame, standing ~8 s. | Perception recall for prone paddlers, evaluated on held-out rides. |
 | PA-10 | 0070 | boundary | INSUFFICIENT_EVIDENCE | `IDENTIFIED` | ~2.8 s of the rendered 0070 shot is outside any GT segment (both runs). Not yet viewed. | Add 0070 to the next sequence extraction. |
 | PA-11 | 0143+0152 | identity | ROOT_CAUSE_CONFIRMED | `PATCHED` | The production pairwise verifier gives a both-orders MATCH for the 0143/0152 lookalikes (GT: two athletes) at 6-crop sheets; the identity gate then passes the reel as publishable. In every earlier production run the verifier was effectively dead on the model path (sheet crop count lost), so its live precision was never measured end to end. | Do not enable the verifier for auto-publish. Options: operator review for every multi-source cluster (current fail-closed state), or a verifier redesign validated on more lookalike negatives before any paid run. Cycle 10: FIX-PQ-10-001 withholds model-only consensus (EXP-10-001); the verifier itself is still not trustworthy. |
@@ -259,6 +271,8 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-12-006 | measurement | Holdout availability (production source_uploads, read-only, 2026-11-18): the only drone sources are the 24 GT-v1 sources (20 filmed 2026-07-20, 4 filmed 2026-07-24); 5 other uploads are tiny non-drone test files. GT-v1 has 3 negative (exclude) segments only (0095 no_meaningful_action, 0108 missing_landing, 0155 failed_takeoff). | docs/production-readiness/HOLDOUT-H1-PLAN.md |
 | EVD-12-007 | contract | Holdout tooling H1-H7 (synthetic fixtures, not a holdout result); PA-01 policy U1-U6; football architecture F1-F9 (F9: cycle-12 Core sport-neutral, football reel canonical id stable). All 0 failing locally. | cycle-12 report |
 | EVD-12-008 | isolated_run | Gate A suite pa13, run 44269495332 @9c26a306 (budget 0, real R2, namespaces q12-pa13 and q12-pa13-legacy, production entry point scripts/run_tracked.py). RED legacy names (L1 crash after first upload, L2 retry with another description + date 20991231): 26 review objects, 2 left over from the crashed run next to renamed drafts. GREEN draft ledger (G1 crash: 3 partial uploads; G2 retry with another description + date): 25 review objects = 25 canonical reels, no renamed duplicate, every partial kept, same output count as the legacy retry (25); G2 ledger actions UPLOADED 22, COMMITTED_PENDING 2 (crash after upload before commit: committed without re-upload), SKIPPED_SAME_PLAN 1; G3 retry after completion: no input, 0 writes; raw/ identical to the seed in both namespaces; production fingerprint identical. The workflow verdict was FAIL only because the evaluator also required the cycle-10 phases F1-F3 that this suite does not run (evaluator bug, fixed); re-scoring the run's own inventories with the fixed evaluator: GATE A PASS (16/16). | artifact qualification-gate-a-q12-pa13-44269495332 (id 14420887587) |
+| EVD-12-009 | isolated_run | EXP-12-001 q12-paid-01 (run 44290916415 @1651bfe6, $0.219 list-price estimate, 14 calls / cap $0.40, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9; owner working identity decisions qualification-only). Production fingerprint identical. S1 OBSERVED: 0097+0115 one cluster, identity gate pass on the owner approval (request 758fe7783e9c...). S2: 0074 and 0151 in different reels. S3: split athletes 2 -> 1. S4: namespace inventory 13 review objects = 13 ledgers, 0 problems. Protected: FULL 15, missing 16.2 s, incorrect starts 7 / ends 1, non-GT 7.47 s, excluded 999, wrong-actor frames 54, visible mixed 1 (0143+0152, withheld), publishable wrong identity 0, QA false pass 1 (= 1 non-GT-person reel, GT-cohort 0) - all unchanged; publishable correct 4 -> 3 = PROTECTED CONDITION FAILED. Cause: 0115's clip carries the subject gate PRIMARY_ACTOR_UNCLEAR (it was already blocked as its own reel in EXP-11-001, where 0097's single reel was publishable); the merged reel inherits the block, so a correct reel is withheld (QA verdict PASS, no defects). VERDICT: EXP-12-001 FAILED per pre-registration; nothing adopted from it. | cycle-12 report; artifacts qualification-diagnostics/reels-q12-paid-01-44290916415 |
+| EVD-12-010 | frame_sequence | EXP-12-001 reels decoded (all 13: H.264 2160x3840 30 fps, 0 decode errors, no freeze/black). Viewed: merged 0097+0115 reel sha256 6d4457a7a133fceed7661b0118723633d01d3901106bcdda1a746c61de0298c6 (1 fps): one athlete; 0097 clip 0-9 s backlit (prone, pop-up ~1-2 s, ride into whitewater), 0115 clip 9-23 s (paddle-in with other people nearby 9-13 s, pop-up ~14 s, ride to 22 s); the PRIMARY_ACTOR_UNCLEAR block on 0115 looks conservative (rider followable). 0074 reel 9e14d590a1a63784229b197a07efd2edec872b5c1f6ca07098596c2627ee3bab one athlete (take-off ~3 s, ride to 21 s); 0151 reel 5315a28a21b561a13d733dd492497593bb54cb190bbec2f6b6b16b6b549e9b72 one athlete (ride to ~4.5 s, wipeout); the two lookalikes (black long-sleeve tops) correctly separate. | session scratch contact sheets |
 
 ## Blockers
 
