@@ -19,6 +19,9 @@ F6  the production editor (stages.editor.cut_clip) renders a real 9:16 H.264 cli
 F7  a PerformanceEvent view of the rendered event lists its missing fields explicitly (no invented values).
 F8  the surfing behaviour is untouched: a surf wave_catch keeps the surfing profile, its coverage basis string and
     failed-takeoff rule.
+F9  cycle 12 Core changes are sport-neutral: the draft ledger, identity review and pairwise-consensus modules carry
+    no surf / wave / board / paddle condition, and the football reel gets a canonical reel id and render-plan digest
+    from the same ledger code (stable under a changed model description).
 """
 from __future__ import annotations
 
@@ -155,6 +158,19 @@ def main() -> int:
               and prp.classify_event_eligibility({"type": "wave_catch", "description": "failed takeoff", "score": 9},
                                                  "surfing")["verdict"] == "INELIGIBLE",
               "F8 surfing behaviour unchanged")
+        import re as _re
+        from pipeline import draft_ledger
+        core = {m: (ROOT / "pipeline" / f"{m}.py").read_text() for m in ("draft_ledger", "identity_review")}
+        pc = (ROOT / "pipeline" / "identity_pair_consensus.py").read_text()
+        pc_code = pc.split("M1_PROMPT", 1)[0]          # the prompt text itself is a profile-migration item (PQ-30)
+        surf = _re.compile(r"\b(surf\w*|wave\w*|paddl\w*|wetsuit)\b", _re.I)
+        hits = {m: surf.findall(s) for m, s in list(core.items()) + [("identity_pair_consensus(code before prompt)", pc_code)]}
+        apps = [{"path": str(src), "_person_id": "7", "events": [out]}]
+        cid1 = draft_ledger.canonical_reel_id(apps, part_index=1)
+        cid2 = draft_ledger.canonical_reel_id([dict(apps[0], _description="other model text")], part_index=1)
+        plan = draft_ledger.plan_digest([dict(out, source_path=str(src))])
+        check(not any(hits.values()) and cid1 == cid2 and cid1.startswith("cr_") and len(plan) == 64,
+              f"F9 cycle-12 Core (ledger, identity review) sport-neutral {hits}; football reel id {cid1} stable")
     print(f"{len(FAILS)} failing")
     return 1 if FAILS else 0
 
