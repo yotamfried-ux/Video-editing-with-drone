@@ -1,6 +1,6 @@
 {
   "qualification_run_id": "q13-cold-no-memory-01",
   "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
-  "llm_budget_usd_paid": 0.8,
-  "note": "EXP-13-COLD-001 first-time-like isolated inference on the same 24 known source files. Explicitly skip LLM and perception sidecar cache (LLM_CACHE=0), purge ephemeral caches, omit operator identity working decisions. No GT in inference and no production writes. Owner-authorized existing $4 campaign; remaining $2.273 before this test; hard experiment cap $0.80. Not a true new-footage holdout; not a production qualification."
+  "llm_budget_usd_paid": 0,
+  "note": "EXP-13-COLD-001 was launched from d2d854294a1bad598a71c58d0ac63ef78866f6c7 with $0.80 hard cap. This branch is now locked against additional paid runs (budget=0; paid label removed). No re-run without a new preregistration."
 }
