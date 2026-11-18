@@ -298,6 +298,18 @@ def main() -> int:
     check(not (results[0][1] + results[1][1]) and all(r and r[-1]["committed"] for r in revs),
           f"D10 no error in either run, latest revision of every reel committed (errors {results[0][1] + results[1][1]})")
 
+    sys.path.insert(0, str(ROOT / "scripts"))
+    import qualification_ledger_inventory as qli
+
+    def inventory(st):
+        rev = [{"key": k, "cid": st.objects[k]["metadata"].get(dl.META_CID)} for k in st.review()]
+        leds = [json.loads(o["body"]) for k, o in st.objects.items() if k.startswith(dl.LEDGER_PREFIX) and "/names/" not in k]
+        return {"review": rev, "ledgers": [{"cid": l["cid"], "draft_name": l["draft_name"], "revisions": l["revisions"]} for l in leds]}
+    inv = inventory(store)
+    dup = {"review": inv["review"] + [{"key": "review/DRAFT_other_name.mp4", "cid": inv["review"][0]["cid"]}],
+           "ledgers": inv["ledgers"] + [dict(inv["ledgers"][0], draft_name="DRAFT_other_name.mp4")]}
+    check(qli.check(inv) == [] and any("review objects" in p for p in qli.check(dup)),
+          "I namespace inventory check: clean after concurrent runs; a second object for one canonical reel is reported")
     check(store.deletes == 0 and all(k.startswith(("review/", "metadata/")) for k in store.writes)
           and not any(k.startswith(("raw/", "approved/")) for k in store.writes),
           "S no delete; writes only under review/ and metadata/; raw/ and approved/ never written by the pipeline")

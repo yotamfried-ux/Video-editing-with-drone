@@ -205,6 +205,19 @@ jobs:
         \ not o[\"Key\"].endswith(\".mp4\"): continue\n    dst=os.path.join(\"/tmp/qual-reels\", os.path.basename(o[\"Key\"]))\n    r2.download_object(o[\"Key\"], dst)\n    rows.append({\"key\": \"qualification/\"\
         +os.environ[\"SPORTREEL_QUALIFICATION_RUN_ID\"]+\"/\"+o[\"Key\"], \"bytes\": os.path.getsize(dst), \"sha256\": hashlib.sha256(open(dst,\"rb\").read()).hexdigest()})\njson.dump(rows, open(\"/tmp/dtor/pipeline-debug/qualification_reels.json\"\
         ,\"w\"), indent=1)\nprint(json.dumps(rows, indent=1))\nPY"
+    - name: Draft ledger inventory of the namespace (PA-13, read-only)
+      if: always()
+      continue-on-error: true
+      env:
+        R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+        R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+        R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+        R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+        SPORTREEL_QUALIFICATION_RUN_ID: ${{ steps.cfg.outputs.run_id }}
+        STORAGE_BACKEND: r2
+        TMP_DIR: /tmp/dtor
+      run: python scripts/qualification_ledger_inventory.py --out /tmp/dtor/pipeline-debug/draft_ledger_inventory.json
     - name: Snapshot production state AFTER and compare (fails if anything changed)
       if: always()
       env:

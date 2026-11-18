@@ -1,0 +1,11 @@
+{
+  "schema": "sportreel.holdout_preregistered_metrics.v1",
+  "holdout_id": "H1",
+  "status": "TEMPLATE - to be frozen with the holdout (scripts/holdout_qualification.py freeze --metrics); not editable after the freeze",
+  "hypothesis": "FIX-PQ-11-001 (motion-supported onset) generalises: on sources never used in development the start error rate is no worse than the development rate and no protected safety metric regresses.",
+  "reference_development_rates_gtv1": {"EXP-10-001": {"full_rate": 0.583, "wrong_start_rate": 0.333, "missing_sec_per_ride_minute": 4.09},
+                                        "EXP-11-001": {"full_rate": 0.625, "wrong_start_rate": 0.292, "missing_sec_per_ride_minute": 3.25}},
+  "success": {"wrong_start_rate": ["<=", 0.33], "full_rate": [">=", 0.5]},
+  "protected": {"published_wrong_identity": ["<=", 0], "mixed_reels": ["<=", 0]},
+  "notes": "Rates, not counts: the holdout has a different number of rides. Stratified results (athlete, lighting, distance, crowding, camera motion, difficulty, action type) are reported; a stratum with fewer than 5 rides is reported but not used for a verdict. Waiting-before-takeoff cases must not get a stationary opening (checked on decoded MP4s)."
+}
