@@ -10,6 +10,9 @@ Written before the run. Nothing below may be changed after the label is applied.
   (qualification-only owner working decisions: 0097+0115 APPROVED, 0074+0151 REJECTED).
 - **Cost:** hard cap **$0.40** (`run_config.llm_budget_usd_paid`). Remainder before the run: $2.492.
 - **Launch condition:** Gate A suite pa13 (run 44269495332) PASS. Otherwise the run is not launched.
+  - **Met:** every PA13 check passed in the run. The workflow verdict was FAIL only because the evaluator also
+    required cycle-10 phases this suite does not run. After fixing that bug, re-scoring the run's own inventories
+    gives PASS 16/16 (EVD-12-008).
 
 ## Hypothesis
 

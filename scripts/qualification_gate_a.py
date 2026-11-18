@@ -95,7 +95,10 @@ def evaluate(d: Path, out: Path) -> int:
         check("A1.R0.no_writes", not b["r2_writes"], f"r2 writes={len(b['r2_writes'])}")
         check("A1.R0.namespace_unchanged", a["objects"] == b["objects"], "object listing identical before/after the retry")
     raw0 = _keys(inv["seed"], "raw/") if "seed" in inv else None
-    for phase, point in (("F1", "after_analysis"), ("F2", "before_qa"), ("F3", "after_first_upload")):
+    # the cycle-10 crash phases are checked only in the suite that runs them (the pa13 suite runs L*/G* instead;
+    # run 44269495332 reported "phase inventory missing" for F1-F3 although the pa13 suite never schedules them)
+    cycle10 = any(p in inv for p in ("R0", "F1", "F2", "F3", "R4", "R5"))
+    for phase, point in ((("F1", "after_analysis"), ("F2", "before_qa"), ("F3", "after_first_upload")) if cycle10 else ()):
         x = inv.get(phase)
         if not x:
             check(f"A2.{phase}.ran", False, "phase inventory missing")
@@ -193,6 +196,8 @@ def evaluate(d: Path, out: Path) -> int:
         check("A.production_unchanged", cmp.get("identical") is True, f"differences={len(cmp.get('differences', []))}")
     else:
         check("A.production_unchanged", False, "snapshot compare missing")
+    if not any(c["id"].startswith(("A1.", "A2.", "PA13.")) for c in checks):
+        check("A.suite_ran", False, "no phase inventories of any suite")
     report = {"pass": all(c["pass"] for c in checks), "checks": checks}
     out.write_text(json.dumps(report, indent=1))
     for c in checks:

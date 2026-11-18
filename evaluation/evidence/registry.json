@@ -319,6 +319,14 @@
    "where": "cycle-12 report",
    "produced_by": "scripts/test_holdout_qualification_contract.py; scripts/test_uncatalogued_person_policy_contract.py; scripts/test_football_profile_architecture_contract.py",
    "proof_scope": "TESTED"
+  },
+  {
+   "id": "EVD-12-008",
+   "kind": "isolated_run",
+   "what": "Gate A suite pa13, run 44269495332 @9c26a306 (budget 0, real R2, namespaces q12-pa13 and q12-pa13-legacy, production entry point scripts/run_tracked.py). RED legacy names (L1 crash after first upload, L2 retry with another description + date 20991231): 26 review objects, 2 left over from the crashed run next to renamed drafts. GREEN draft ledger (G1 crash: 3 partial uploads; G2 retry with another description + date): 25 review objects = 25 canonical reels, no renamed duplicate, every partial kept, same output count as the legacy retry (25); G2 ledger actions UPLOADED 22, COMMITTED_PENDING 2 (crash after upload before commit: committed without re-upload), SKIPPED_SAME_PLAN 1; G3 retry after completion: no input, 0 writes; raw/ identical to the seed in both namespaces; production fingerprint identical. The workflow verdict was FAIL only because the evaluator also required the cycle-10 phases F1-F3 that this suite does not run (evaluator bug, fixed); re-scoring the run's own inventories with the fixed evaluator: GATE A PASS (16/16).",
+   "where": "artifact qualification-gate-a-q12-pa13-44269495332 (id 14420887587)",
+   "produced_by": "scripts/qualification_gate_a.sh/.py",
+   "proof_scope": "ISOLATED_RUN"
   }
  ],
  "fixes": [
@@ -600,15 +608,16 @@
    "commit": "9c26a306",
    "experiments": [
     "RED/GREEN EVD-12-001",
-    "Gate A suite pa13 run 44269495332 (real R2)"
+    "Gate A suite pa13 run 44269495332 (real R2): PASS on re-scoring (evaluator bug fixed)"
    ],
    "before": "legacy names: duplicates after crash + retry with a new description/day (RED)",
-   "after": "contract GREEN D1-D10; Gate A pending",
+   "after": "Gate A real R2: legacy 26 objects (2 duplicates) vs ledger 25 objects = 25 canonical reels, nothing lost, retry after completion no-op",
    "evidence": [
-    "EVD-12-001"
+    "EVD-12-001",
+    "EVD-12-008"
    ],
-   "status": "TESTED",
-   "classification": "CANDIDATE",
+   "status": "REPLAYED",
+   "classification": "CANDIDATE_IMPROVED",
    "limits": "Long-video path (context_qa_long_video) and the staged pending_uploads path keep legacy naming; a QA-label change keeps the first name (conservative); ledger reads add a few R2 GETs per reel.",
    "sport_profile_id": "core"
   },
@@ -848,12 +857,13 @@
    "case": "retry",
    "product": "review drafts",
    "finding": "Draft object keys come from the model's athlete description + the date. A crash after some uploads, retried on another day or with different model descriptions, leaves the first drafts in review/ next to the new ones (duplicates). Not exercised by Gate A (free runs reuse cached descriptions).",
-   "classification": "FIX_CANDIDATE",
-   "status": "TESTED",
-   "next": "Gate A pa13 on real R2 (run 44269495332), then EXP-12-001 namespace inventory.",
+   "classification": "FIX_VERIFIED_ISOLATED",
+   "status": "REPLAYED",
+   "next": "Exercise in a paid run (EXP-12-001 namespace inventory); then promote with owner approval. Long-video and staged-upload paths keep legacy names (documented limit).",
    "evidence": [
     "EVD-10-001",
-    "EVD-12-001"
+    "EVD-12-001",
+    "EVD-12-008"
    ]
   },
   {

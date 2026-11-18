@@ -1,8 +1,8 @@
 {
-  "qualification_run_id": "q11-paid-01",
+  "qualification_run_id": "q12-paid-01",
   "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
-  "llm_budget_usd_paid": 0.0,
-  "note": "Paid budget 0 after EXP-11-001 (run 44252428407, $0.228). Campaign $4; spent $1.508; remainder $2.492. A new paid run needs a pre-registration and a hard cap <= remainder.",
+  "llm_budget_usd_paid": 0.4,
+  "note": "EXP-12-001 (PREREGISTRATION-EXP-12-001.md), hard cap $0.40. Campaign $4; spent $1.508 (verified); remainder $2.492. Launch condition Gate A pa13 met (run 44269495332, PASS on re-scoring after an evaluator bug fix, EVD-12-008).",
   "gate_a_run_id": "q12-pa13",
   "gate_a_suite": "pa13"
 }
