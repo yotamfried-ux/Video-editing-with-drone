@@ -11,6 +11,11 @@ Phases (each one a fresh TMP_DIR = a fresh runner, as after a real crash):
   F1  crash after analysis (before any output)        F2  crash before the QA gate of the first athlete
   F3  crash right after the FIRST draft upload        R4  recovery run, same namespace, no fault
   R5  retry after the completed recovery: must be a no-op
+Cycle 12 PA-13 suite (run_config gate_a_suite = "pa13"; scripts/qualification_gate_a.sh):
+  L1/L2  legacy names (SPORTREEL_DRAFT_LEDGER=0, namespace <id>-legacy): crash after the first upload, then a retry
+         with another description suffix and date -> expected RED (left-over drafts next to renamed ones)
+  G1/G2  the same with the draft ledger -> no renamed duplicate, partials kept, same output count
+  G3     retry after completion -> no-op
 """
 from __future__ import annotations
 
@@ -138,6 +143,50 @@ def evaluate(d: Path, out: Path) -> int:
         check("A1.R5.no_input", r5["no_input"] and r5["exit_code"] == 0, f"exit={r5['exit_code']} no_input={r5['no_input']}")
         check("A1.R5.no_writes", not r5["r2_writes"], f"r2 writes={len(r5['r2_writes'])}")
         check("A1.R5.namespace_unchanged", r4["objects"] == r5["objects"], "listing identical after the retry")
+    # Cycle 12 PA-13 suite (GATE_A_SUITE=pa13): duplicates after a crash + a retry proposing different names
+    if "G2" in inv or "L2" in inv:
+        def _written_review(x):
+            return {k for op, k in x["r2_writes"] if op in ("upload_file", "put_object") and str(k).startswith("review/")}
+        marker = ("retry-description", "20991231")
+        for leg, crash, retry in (("L", "L1", "L2"), ("G", "G1", "G2")):
+            c, r = inv.get(crash), inv.get(retry)
+            if not (c and r):
+                check(f"PA13.{leg}.ran", False, "phase inventory missing")
+                continue
+            check(f"PA13.{leg}.crashed_at_first_upload", c["exit_code"] == 97 and c["faults"] == ["after_first_upload"]
+                  and c["counts"].get("review/", 0) >= 1, f"exit={c['exit_code']} partial review objects={c['counts'].get('review/', 0)}")
+            check(f"PA13.{leg}.retry_completed", r["exit_code"] == 0, f"exit={r['exit_code']}")
+            check(f"PA13.{leg}.writes_confined", not c["r2_writes_outside_namespace"] and not r["r2_writes_outside_namespace"],
+                  "every write inside the namespace")
+        l2, g2 = inv.get("L2"), inv.get("G2")
+        if l2:
+            review_l = set(_keys(l2, "review/"))
+            dup_l = sorted(k for k in review_l if not any(m in k for m in marker))
+            check("PA13.L.RED_legacy_duplicates", bool(dup_l) and any(any(m in k for m in marker) for k in review_l),
+                  f"legacy names: {len(review_l)} review objects, {len(dup_l)} left over from the crashed run next to the retry's renamed drafts")
+        if g2:
+            review_g = set(_keys(g2, "review/"))
+            ledgers = [k for k in _keys(g2, "metadata/") if k.startswith("metadata/draft_ledger/cr_")]
+            check("PA13.G.no_renamed_duplicates", not any(any(m in k for m in marker) for k in review_g),
+                  f"no review object carries the retry's description/date ({len(review_g)} objects)")
+            # every review object belongs to a ledgered canonical reel (a reel the in-run duplicate filter drops after
+            # naming keeps a ledger entry without an object, so ledgers >= objects)
+            check("PA13.G.objects_within_canonical_reels", 0 < len(review_g) <= len(ledgers),
+                  f"review objects={len(review_g)} canonical reels in the ledger={len(ledgers)}")
+            if inv.get("G1"):
+                check("PA13.G.partials_kept", set(_keys(inv["G1"], "review/")) <= review_g, "every partial upload of the crashed run is still there (nothing lost)")
+            if l2:
+                written_l = _written_review(l2)
+                check("PA13.G.same_output_count_as_legacy_retry", len(review_g) == len(written_l),
+                      f"ledger retry objects={len(review_g)} vs drafts the legacy retry produced={len(written_l)}")
+            for seed_name, phase_name in (("seed", "G2"), ("seedL", "L2")):
+                if seed_name in inv and phase_name in inv:
+                    check(f"PA13.{phase_name}.raw_unchanged", _keys(inv[phase_name], "raw/") == _keys(inv[seed_name], "raw/"),
+                          "namespace raw/ identical to the seed")
+        g3 = inv.get("G3")
+        if g3 and g2:
+            check("PA13.G3.retry_after_completion_noop", g3["no_input"] and g3["exit_code"] == 0 and not g3["r2_writes"],
+                  f"exit={g3['exit_code']} no_input={g3['no_input']} writes={len(g3['r2_writes'])}")
     compare = d / "production_snapshot_compare.json"
     if compare.exists():
         cmp = json.loads(compare.read_text())

@@ -185,6 +185,8 @@ jobs:
         SPORTREEL_QUALIFICATION_RUN_ID: ${{ steps.cfg.outputs.run_id }}
         STORAGE_BACKEND: r2
         SPORTREEL_LLM_BUDGET_USD: ${{ steps.cfg.outputs.budget }}
+        # cycle 12: owner WORKING identity decisions (0097+0115 same, 0074+0151 different), qualification-only file
+        SPORTREEL_IDENTITY_REVIEW_DECISIONS: ${{ github.workspace }}/evaluation/qualification/identity_working_decisions.json
       run: bash scripts/run_pipeline_with_diagnostics.sh
     - name: Collect rendered reels from the namespace
       if: always()

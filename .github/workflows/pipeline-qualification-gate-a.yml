@@ -91,7 +91,9 @@ jobs:
 
         rid = c["gate_a_run_id"]; assert re.match(r"^[a-z0-9][a-z0-9-]{3,62}$", rid), rid
 
-        print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}")
+        suite = c.get("gate_a_suite", "cycle10"); assert suite in ("cycle10", "pa13"), suite
+
+        print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}"); print(f"suite={suite}")
 
         PY
 
@@ -173,6 +175,7 @@ jobs:
         RAW_BATCH_ID: ''
         STORAGE_BACKEND: r2
         SPORTREEL_LLM_BUDGET_USD: '0'
+        GATE_A_SUITE: ${{ steps.cfg.outputs.suite }}
       run: bash scripts/qualification_gate_a.sh "${{ steps.cfg.outputs.run_id }}" "${{ steps.cfg.outputs.batch }}" /tmp/gate-a
     - name: Snapshot production state AFTER and compare (fails if anything changed)
       if: always()

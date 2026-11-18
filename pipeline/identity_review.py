@@ -65,12 +65,23 @@ def build_request(cluster: dict[str, Any], result: dict[str, Any], *, model: str
 
 
 def load_decisions(path: str | Path | None = None) -> dict[str, dict[str, Any]]:
-    """request_id -> decision. Malformed files / records are ignored (fail closed); the latest valid record wins."""
+    """request_id -> decision. Malformed files / records are ignored (fail closed); the latest valid record wins.
+
+    A file marked ``"qualification_only": true`` (working decisions for isolated experiments) is ignored outside a
+    qualification run, so it can never change production identity decisions.
+    """
     target = Path(path or os.getenv(DECISIONS_ENV) or DEFAULT_DECISIONS)
     try:
         raw = json.loads(target.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return {}
+    if isinstance(raw, dict) and raw.get("qualification_only") is True:
+        try:
+            from integrations import qualification
+            if not qualification.active():
+                return {}
+        except Exception:  # noqa: BLE001 - unknown state: fail closed
+            return {}
     out: dict[str, dict[str, Any]] = {}
     for item in raw.get("decisions", []) if isinstance(raw, dict) else []:
         if (isinstance(item, dict) and item.get("decision") in VALID and len(str(item.get("request_id") or "")) == 64
@@ -97,3 +108,23 @@ def resolve(cluster: dict[str, Any], request: dict[str, Any], decisions: dict[st
     if decision["decision"] == "APPROVED" and not request.get("approvable"):
         return "PENDING"
     return decision["decision"]
+
+
+def rejected_pairs(cluster: dict[str, Any], decisions: dict[str, dict[str, Any]] | None = None) -> list[tuple[str, str]]:
+    """Pairs of the cluster's members (file names) that the owner REJECTED as one athlete.
+
+    An owner rejection is bound to the exact pair of sources and people (its request_id) and outranks every model
+    signal: a cluster containing a rejected pair must never stay together, whatever a verifier or a superset
+    approval says (no transitive merge through a rejected pair).
+    """
+    decisions = load_decisions() if decisions is None else decisions
+    rejected = {rid for rid, d in decisions.items() if d.get("decision") == "REJECTED"}
+    if not rejected:
+        return []
+    apps = list(cluster.get("appearances") or [])
+    out = []
+    for i, a in enumerate(apps):
+        for b in apps[i + 1:]:
+            if request_id({"appearances": [a, b]}) in rejected:
+                out.append((_member(a)["file"], _member(b)["file"]))
+    return out

@@ -268,6 +268,17 @@ FAULT_POINTS = ("after_analysis", "before_qa", "after_first_upload")
 _fault_hits: dict[str, int] = {}
 
 
+def draft_name_perturbation() -> tuple[str, str]:
+    """Gate A PA-13 (cycle 12): (description suffix, YYYYMMDD) that make a RETRY propose different draft names, as a
+    retry on another day / with another model description would. Honoured ONLY in a qualification run; ("", "")
+    otherwise, so production names can never be changed by it."""
+    if not active():
+        return "", ""
+    suffix = os.getenv("SPORTREEL_QUALIFICATION_DESCRIPTION_SUFFIX", "").strip()[:40]
+    day = os.getenv("SPORTREEL_QUALIFICATION_DRAFT_DATE", "").strip()
+    return suffix, (day if re.match(r"^\d{8}$", day) else "")
+
+
 def fault(point: str) -> None:
     """Gate A (cycle 10): a deliberate HARD crash at a named point, honoured ONLY in a qualification run.
 

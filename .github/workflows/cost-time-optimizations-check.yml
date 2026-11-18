@@ -60,6 +60,11 @@ on:
       - 'scripts/test_identity_autopublish_policy_contract.py'
       - 'scripts/test_action_onset_contract.py'
       - 'pipeline/action_onset.py'
+      - 'pipeline/draft_ledger.py'
+      - 'pipeline/context_qa_gate.py'
+      - 'integrations/r2_storage.py'
+      - 'scripts/test_draft_ledger_retry_contract.py'
+      - 'scripts/test_identity_working_decisions_contract.py'
       - 'pipeline/sport_profiles/**'
       - 'pipeline/performance_event.py'
       - 'scripts/test_text_split_review_request_contract.py'
@@ -355,6 +360,8 @@ jobs:
           python scripts/test_identity_consensus_integration_contract.py
           python scripts/test_identity_autopublish_policy_contract.py
           python scripts/test_action_onset_contract.py
+          python scripts/test_draft_ledger_retry_contract.py
+          python scripts/test_identity_working_decisions_contract.py
           python scripts/test_text_split_review_request_contract.py
           python scripts/test_consensus_concurrency_contract.py
           python scripts/test_review_replacement_invalidation_contract.py

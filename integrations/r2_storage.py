@@ -173,6 +173,13 @@ def download_object(key: str, local_path: str) -> str:
 
 def upload_object(local_path: str, key: str, content_type: str | None = None) -> str:
     extra_args = {"ContentType": content_type or _content_type(local_path)}
+    if key.startswith(REVIEW_PREFIX):
+        # PA-13: the draft ledger (pipeline.draft_ledger.upload_metadata) tags a REVIEW upload with its canonical
+        # reel id, render plan and revision, so a retry recognises a completed upload without uploading again.
+        from pipeline.draft_ledger import pending_upload_metadata
+        ledger_meta = pending_upload_metadata()
+        if ledger_meta:
+            extra_args["Metadata"] = {str(k): str(v) for k, v in ledger_meta.items()}
     _client().upload_file(local_path, _bucket(), key, ExtraArgs=extra_args)
     return _object_url(key)
 

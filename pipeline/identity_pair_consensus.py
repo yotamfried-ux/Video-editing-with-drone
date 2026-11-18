@@ -172,6 +172,11 @@ def verify_multi_clusters(clusters: list[dict[str, Any]], *, ask: Ask, split_to_
         if len(apps) < 2:
             out.append(cluster)
             continue
+        from pipeline import identity_review as _review
+        if _review.rejected_pairs(cluster):
+            # an owner REJECTED decision on any pair outranks model consensus and any superset approval
+            out.extend(split_to_singles(ev.clear(dict(cluster)), "owner rejected a pair of this cluster"))
+            continue
         if ev.covers(cluster):
             out.append(cluster)                    # already confirmed for exactly these members
             continue
@@ -233,7 +238,9 @@ def merge_verified_singletons(clusters: list[dict[str, Any]], *, ask: Ask, model
         return {os.path.basename(str(a.get("path") or "")) for a in (c.get("appearances") or [])}
 
     singles = [i for i, c in enumerate(clusters) if len(c.get("appearances") or []) >= 1 and len(sources(c)) == 1]
-    candidates = [(i, j) for k, i in enumerate(singles) for j in singles[k + 1:] if sources(clusters[i]) != sources(clusters[j])]
+    from pipeline import identity_review as _review
+    candidates = [(i, j) for k, i in enumerate(singles) for j in singles[k + 1:] if sources(clusters[i]) != sources(clusters[j])
+                  and not _review.rejected_pairs({"appearances": list(clusters[i]["appearances"]) + list(clusters[j]["appearances"])})]
     if not candidates:
         return clusters, dict(report, skipped="no_candidate_pairs")
     if limit <= 0 or len(candidates) > limit:
