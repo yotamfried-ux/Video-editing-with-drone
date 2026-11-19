@@ -109,8 +109,21 @@ PRODUCTION_QUALIFIED, BLOCKED.
 **Bottlenecks:** serial YOLO perception and serial render. A cold run on 24 sources misses the target by about 2×,
 even before the 10 missing analyses.
 
-**No optimisation was adopted.** It needs a measured paired experiment, and the speed-up must not cause a quality
-regression.
+**Root cause:** both stages are CPU-saturated on the 4-vCPU standard runner. This is by design and measured: each
+perception producer already uses every core (4K decode plus inference). Earlier runs showed that three concurrent
+producers were slower than serial (`perception/runtime._producer_slots`, `SPORTREEL_PERCEPTION_CONCURRENCY=1`). Render
+is 4K H.264 encoding under the quality-first 4K output policy. Render cannot start before identity clustering covers
+every source, so it cannot overlap perception.
+
+**Options (none adopted):**
+1. A larger runner, about 8 vCPU or with a GPU. This is a paid infrastructure decision for the owner. A projection
+   from the CPU-bound share puts a cold run at about 30–35 min, but that is a hypothesis to measure.
+2. Lower perception stride or decode resolution, or a faster render preset. These carry quality risk and need a
+   paired GT experiment; they must not be adopted for speed alone.
+3. Caching per-source results is **forbidden** by the no-memory rule. It is the only reason the warm run reached
+   29 min.
+
+**State:** runtime is **BLOCKED on an infrastructure decision**, not on code.
 
 ## 5. Changes this cycle (PR #402, stacked on #401)
 
