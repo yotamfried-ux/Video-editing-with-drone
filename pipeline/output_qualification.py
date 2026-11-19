@@ -104,7 +104,26 @@ def classify_action(event: dict[str, Any], activity: str = "") -> dict[str, Any]
     else:
         positive.append("coherent_window")
 
-    if "explicit_no_ride_statement" in negative:
+    # FIX-PQ-14-002: observed action validity (pipeline.action_validity). A recorded INVALID / UNCERTAIN observation
+    # always counts; with the gate enabled, an unobserved shot of a profile that defines validity is not VALID either.
+    observed = event.get("action_validity") if isinstance(event.get("action_validity"), dict) else None
+    if observed is not None:
+        verdict_seen = str(observed.get("verdict") or "")
+        if verdict_seen == "INVALID":
+            negative.append("observed_action_never_established")
+        elif verdict_seen == "VALID":
+            positive.append("observed_established_action")
+        else:
+            missing.append("observed_action_validity_uncertain")
+    else:
+        try:
+            from pipeline import action_validity
+            from pipeline.sport_profiles import profile_for_event
+            if action_validity.enabled() and profile_for_event(event, activity).action_validity.established_states:
+                missing.append("action_validity_not_observed")
+        except Exception:
+            pass
+    if "explicit_no_ride_statement" in negative or "observed_action_never_established" in negative:
         verdict = INVALID
     elif negative or missing:
         verdict = UNCERTAIN
