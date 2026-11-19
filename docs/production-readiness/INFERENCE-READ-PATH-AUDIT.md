@@ -38,9 +38,18 @@ stages) can make of state that outlives a run.
 **Not proved:**
 1. **Model weights:** pretrained weights and earlier GT-guided development cannot be made memoryless. This is allowed,
    and it is not holdout evidence.
-2. **Network-level enforcement:** the credentials used by inference can still read Supabase tables such as
-   `reprocess_requests`. Isolation relies on code paths and the strict flag, not on database role permissions.
-   - The least-privilege fix is a separate inference role without SELECT on R4–R7 sources. It is a production
-     infrastructure change that needs owner approval.
+2. **Network-level enforcement (measured 2026-11-19, read-only `pg_catalog`):**
+   - `service_role`, the current inference credential, has **no USAGE on schema `ground_truth`** and SELECT on 0 of
+     33 GT tables. GT is isolated at the database level.
+   - It **can** read `public.draft_feedback` and `public.reprocess_requests`, because it bypasses RLS. For these
+     tables, isolation relies on the strict-mode code closure.
+   - **Prepared, not applied:** `supabase/migrations/20261119_inference_role.sql` creates role `sportreel_inference`.
+     It grants exactly the tables inference writes for its own run and explicitly revokes the two history tables. It
+     gives no ground_truth access and no delivery tables.
+   - Strict runs use `SUPABASE_INFERENCE_KEY` when it is set. Otherwise the isolation report records
+     `service_role_fallback_not_isolated`.
+   - With the inference key, reprocess requests are no longer read inside inference; they need a separate pre-step.
+   - Contract: `scripts/test_inference_db_role_contract.py`.
+   - Applying the migration and issuing the key are owner actions.
 3. **Cloud-run proof:** that a real strict cloud run closes every channel. That is shown by the isolation report of a
    real run under PR #401's workflows, which needs an approved run.
