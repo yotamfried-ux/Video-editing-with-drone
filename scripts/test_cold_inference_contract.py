@@ -52,6 +52,15 @@ class ColdInferenceGateTest(unittest.TestCase):
                 p = subprocess.run([sys.executable, script], cwd=root, env=env, capture_output=True, text=True)
                 self.assertNotEqual(p.returncode, 0)
 
+    def test_strict_mode_overrides_accidental_cache_enable(self):
+        from unittest import mock
+        sys.path.insert(0, str(ROOT))
+        from integrations import llm_cache
+        with mock.patch.dict(os.environ, {"SPORTREEL_STRICT_COLD_INFERENCE": "1", "LLM_CACHE": "1"}):
+            self.assertFalse(llm_cache.enabled())
+        with mock.patch.dict(os.environ, {"SPORTREEL_STRICT_COLD_INFERENCE": "0", "LLM_CACHE": "0"}):
+            self.assertFalse(llm_cache.enabled())
+
     def test_workflows_do_not_restore_model_decision_cache(self):
         workflows = (
             ROOT / ".github/workflows/pipeline-run.yml",
