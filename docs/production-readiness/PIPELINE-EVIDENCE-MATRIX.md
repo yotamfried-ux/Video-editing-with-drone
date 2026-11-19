@@ -233,6 +233,42 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **Evidence:** EVD-13-002
 - **Limits:** does not catch numeric thresholds tuned on GT
 
+### FIX-PQ-14-001 — Start on frame 0 when the recording opens on an action already in progress (camera-compensated motion)
+
+- **Gap:** PQ-05 starts · **Classification:** SIMULATION_VERIFIED · **Status:** `REPLAYED`
+- **Root cause:** 1.0 s snap window + raw on-screen motion bounded by analyzer setup_start
+- **Fix:** pipeline/action_onset.py, window_refinement.py, complete_action_window_policy.py, sport_profiles
+- **Commit:** 2865c1f5
+- **Experiments:** EXP-14-001
+- **Before:** boundary >0.5 s on 118/236 replayed events
+- **After:** 98/236, 0 worse
+- **Evidence:** EVD-14-002
+- **Limits:** not yet rendered; 3 independent analyzer variants; perception-recall late starts remain
+
+### FIX-PQ-14-002 — Observed action validity (established prone/kneeling/standing riding; uncertainty -> review), gate off
+
+- **Gap:** PQ-01/33 validity · **Classification:** IMPLEMENTED_UNVERIFIED · **Status:** `PATCHED`
+- **Root cause:** 0155 selected on the analyzer's own claim; RC-03 accepted CV activity a failed take-off also has
+- **Fix:** pipeline/action_validity.py, output_qualification.py (RC-03)
+- **Commit:** 9bcd009c
+- **Experiments:** EXP-14-002 (preregistered, not run)
+- **Before:** 0155 VALID
+- **After:** unverified on real media
+- **Evidence:** 
+- **Limits:** needs owner authorization for EXP-14-002 ($0.40 cap)
+
+### FIX-PQ-14-003 — Identity sheet size carried through the model-clustering path
+
+- **Gap:** PQ identity · **Classification:** SIMULATION_VERIFIED · **Status:** `TESTED`
+- **Root cause:** _resolve_model_appearance omitted sheet_crops -> every multi-source cluster REVIEW without a pairwise check
+- **Fix:** pipeline/stages/identity.py
+- **Commit:** 5400b5c7
+- **Experiments:** EXP-14-003
+- **Before:** 5/5 clusters unverified
+- **After:** production-path contract RED -> GREEN
+- **Evidence:** EVD-14-003
+- **Limits:** multi-source auto-publish stays off by policy; real-run effect unmeasured
+
 ## Gaps
 
 | ID | Case | Product | Classification | Status | Finding | Next |
@@ -314,6 +350,10 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-13-003 | measurement | Runtime from stage_timings: cold 44374982006 pipeline wall 60.2 min (analyze_source wall 35.6 min overlapped with yolo_perception wall 35.5 min = cpu-sum 35.5 min, i.e. serial; render_reels wall 23.7 min = cpu-sum, serial, 15 reels; qa_gate wall 22.5 min overlapped); warm EXP-12-001 (forbidden cache) 29.2 min (render 26.6 min serial). Target ~30 min cold: FAIL. | CYCLE-13 report section 4 |
 | EVD-13-004 | frame_sequence | All 15 cold-run reels inspected with scripts/inspect_reel.py: H.264 2160x3840 30 fps, 0 decode errors, no black/freeze, single clip each. Sheets viewed: the 22.9 s 'long hair and beard' reel is 0142 (window 0-22.89 s), one athlete throughout [cycle-13 correction: it was first mislabelled as 0094-A]; tandem reel (QA-flagged) contain framing with tiny subjects and another athlete dominant ~13 s (framing defect, withheld). | session scratch inspection sheets |
 | EVD-13-005 | frame_sequence | 88-second reel of the long-haired surfer (identical in runs 44166232265, 44252428407, 44290916415 and production run 44388634790): shots 0094 2.0-22.5 s, 0155 0-7.9 s, 0118 0-19.95, 0146 0-18.15, 0142 0-22.89. vs GT: 0118/0146/0142 match exactly; 0155 is a GT-excluded failed take-off kept in full (SELECTION DEFECT, 7.9 s); 0094 GT ride 0-13.23 s, rendered to 22.5 s. Frames (cold reel 0094-A, real-time, source 12-22 s): whitewater riding to 15.0, kneeling 15.5-18.5, stands again and rides 19.0-21.5, fade 22.0: the 0094 'tail' is continued whitewater riding, a labelling-convention question (PA-03), not a clear cutting error. Signals measured on all 24 sources: never-upright box (0155: 0/7 s) also holds for valid rides 0160 (0/9), 0165 (0/6), 0094 tandem (1/9); low net displacement (0155 0.8 bh) also 0140 0.3, tandem 0.9; box shrink (0155 0.43x) also 0165 0.78, 0094 0.79. No generalisable separator with 3 GT negatives: no code change; 0155 remains a known selection defect until labelled negatives exist. | cycle-13 report section 9 |
+| EVD-14-001 | scorecard_reproduction | Run 44388634790 (main 90fa08e1) re-scored with scripts/gt_scorecard.py: FULL 15/24, recalled 2/24, excluded 999 (0155 476 invalid take-off; 0095 379 uncatalogued valid rider PA-01; 0108 144 standing ride GT 'missing_landing'), boundary 8 >0.5 s (max 2.49), withheld 6. Run log: 29 analysis + 24 perception cache hits (warm, not cold evidence). | docs/production-readiness/CYCLE-14-ROOT-CAUSE-REMEDIATION-AND-QUALIFICATION.md §1 |
+| EVD-14-002 | frozen_replay | Production window code replayed on frozen sidecars reproduces 25/25 rendered windows of 44388634790 within 0.06 s; EXP-14-001 paired replay over 13 frozen runs / 236 events: 24 boundaries better, 0 worse, events with boundary >0.5 s 118 -> 98 (evaluation/boundary_experiment/c14/). | evaluation/boundary_experiment/c14/ |
+| EVD-14-003 | identity_trace | Warm runs q10p/q12p/44388634790: identity sheets 25/25 track_bbox_sheet with 6 crops, yet 5/5 multi-source clusters REVIEW 'identity_sheet_has_fewer_than_6_crops' with empty pair evidence; cause _resolve_model_appearance dropped sheet_crops. | CYCLE-14 §2 FIX-PQ-14-003; scripts/test_identity_model_path_sheet_contract.py |
+| EVD-14-004 | db_privileges | Read-only pg_catalog 2026-11-19: service_role (inference credential) has no USAGE on schema ground_truth and SELECT on 0/33 GT tables; public.draft_feedback and public.reprocess_requests readable (service_role bypasses RLS). | CYCLE-14 §4 |
 
 ## Blockers
 
@@ -326,3 +366,6 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **BLK-11-001** PR #391 was closed (not merged) from the owner's account at 2026-11-17T21:29:38Z, 25 s after the qualrun-paid label for EXP-11-001; label-triggered qualification workflows run only on an open PR. EXP-11-001 is pre-registered but not launched; no spend. Budget: $4 total, $1.280 spent, $2.720 remaining. Needs the owner: reopen #391 / approve a new draft PR for the branch, and confirm the paid run.
 - **BLK-12-001** Independent holdout H1 cannot run: no drone footage outside the 24 GT-v1 sources exists (EVD-12-006). Tooling, freeze/lock, metrics template and plan are ready (HOLDOUT-H1-PLAN.md). Needs: new footage from another day + labelling in the annotation studio.
 - **BLK-13-001** A complete strict cold run (COLD_INFERENCE_VERIFIED, cold identity/QA, runtime baseline) needs an authorized paid run: estimate $1.3-1.6 (cap ~$1.5, downstream reserve ~$0.30) of the remaining $1.519.
+- **BLK-14-001** EXP-14-002 (action validity on real clips) needs owner authorization, cap $0.40.
+- **BLK-14-002** Inference DB role without SELECT on public.draft_feedback / reprocess_requests (service_role bypasses RLS); production infra change.
+- **BLK-14-003** GT adjudication: 0108 tail (standing ride labelled missing_landing), 0094 13.2-22.5 s attribution/end (PA-03), 0095 uncatalogued rider (PA-01).

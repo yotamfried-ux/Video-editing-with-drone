@@ -385,6 +385,30 @@
    "where": "cycle-13 report section 9",
    "produced_by": "session analysis of EDLs, sidecars, GT boxes; ffmpeg frames",
    "proof_scope": "RENDERED_MEDIA"
+  },
+  {
+   "id": "EVD-14-001",
+   "kind": "scorecard_reproduction",
+   "what": "Run 44388634790 (main 90fa08e1) re-scored with scripts/gt_scorecard.py: FULL 15/24, recalled 2/24, excluded 999 (0155 476 invalid take-off; 0095 379 uncatalogued valid rider PA-01; 0108 144 standing ride GT 'missing_landing'), boundary 8 >0.5 s (max 2.49), withheld 6. Run log: 29 analysis + 24 perception cache hits (warm, not cold evidence).",
+   "where": "docs/production-readiness/CYCLE-14-ROOT-CAUSE-REMEDIATION-AND-QUALIFICATION.md §1"
+  },
+  {
+   "id": "EVD-14-002",
+   "kind": "frozen_replay",
+   "what": "Production window code replayed on frozen sidecars reproduces 25/25 rendered windows of 44388634790 within 0.06 s; EXP-14-001 paired replay over 13 frozen runs / 236 events: 24 boundaries better, 0 worse, events with boundary >0.5 s 118 -> 98 (evaluation/boundary_experiment/c14/).",
+   "where": "evaluation/boundary_experiment/c14/"
+  },
+  {
+   "id": "EVD-14-003",
+   "kind": "identity_trace",
+   "what": "Warm runs q10p/q12p/44388634790: identity sheets 25/25 track_bbox_sheet with 6 crops, yet 5/5 multi-source clusters REVIEW 'identity_sheet_has_fewer_than_6_crops' with empty pair evidence; cause _resolve_model_appearance dropped sheet_crops.",
+   "where": "CYCLE-14 §2 FIX-PQ-14-003; scripts/test_identity_model_path_sheet_contract.py"
+  },
+  {
+   "id": "EVD-14-004",
+   "kind": "db_privileges",
+   "what": "Read-only pg_catalog 2026-11-19: service_role (inference credential) has no USAGE on schema ground_truth and SELECT on 0/33 GT tables; public.draft_feedback and public.reprocess_requests readable (service_role bypasses RLS).",
+   "where": "CYCLE-14 §4"
   }
  ],
  "fixes": [
@@ -802,6 +826,64 @@
    "classification": "GUARD",
    "limits": "does not catch numeric thresholds tuned on GT",
    "sport_profile_id": "core"
+  },
+  {
+   "id": "FIX-PQ-14-001",
+   "gap": "PQ-05 starts",
+   "title": "Start on frame 0 when the recording opens on an action already in progress (camera-compensated motion)",
+   "root_cause": "1.0 s snap window + raw on-screen motion bounded by analyzer setup_start",
+   "change": "pipeline/action_onset.py, window_refinement.py, complete_action_window_policy.py, sport_profiles",
+   "commit": "2865c1f5",
+   "experiments": [
+    "EXP-14-001"
+   ],
+   "before": "boundary >0.5 s on 118/236 replayed events",
+   "after": "98/236, 0 worse",
+   "evidence": [
+    "EVD-14-002"
+   ],
+   "status": "REPLAYED",
+   "classification": "SIMULATION_VERIFIED",
+   "limits": "not yet rendered; 3 independent analyzer variants; perception-recall late starts remain",
+   "sport_profile_id": "surfing"
+  },
+  {
+   "id": "FIX-PQ-14-002",
+   "gap": "PQ-01/33 validity",
+   "title": "Observed action validity (established prone/kneeling/standing riding; uncertainty -> review), gate off",
+   "root_cause": "0155 selected on the analyzer's own claim; RC-03 accepted CV activity a failed take-off also has",
+   "change": "pipeline/action_validity.py, output_qualification.py (RC-03)",
+   "commit": "9bcd009c",
+   "experiments": [
+    "EXP-14-002 (preregistered, not run)"
+   ],
+   "before": "0155 VALID",
+   "after": "unverified on real media",
+   "evidence": [],
+   "status": "PATCHED",
+   "classification": "IMPLEMENTED_UNVERIFIED",
+   "limits": "needs owner authorization for EXP-14-002 ($0.40 cap)",
+   "sport_profile_id": "surfing"
+  },
+  {
+   "id": "FIX-PQ-14-003",
+   "gap": "PQ identity",
+   "title": "Identity sheet size carried through the model-clustering path",
+   "root_cause": "_resolve_model_appearance omitted sheet_crops -> every multi-source cluster REVIEW without a pairwise check",
+   "change": "pipeline/stages/identity.py",
+   "commit": "5400b5c7",
+   "experiments": [
+    "EXP-14-003"
+   ],
+   "before": "5/5 clusters unverified",
+   "after": "production-path contract RED -> GREEN",
+   "evidence": [
+    "EVD-14-003"
+   ],
+   "status": "TESTED",
+   "classification": "SIMULATION_VERIFIED",
+   "limits": "multi-source auto-publish stays off by policy; real-run effect unmeasured",
+   "sport_profile_id": "core"
   }
  ],
  "gaps": [
@@ -1152,6 +1234,21 @@
   {
    "id": "BLK-13-001",
    "what": "A complete strict cold run (COLD_INFERENCE_VERIFIED, cold identity/QA, runtime baseline) needs an authorized paid run: estimate $1.3-1.6 (cap ~$1.5, downstream reserve ~$0.30) of the remaining $1.519.",
+   "status": "OPEN"
+  },
+  {
+   "id": "BLK-14-001",
+   "what": "EXP-14-002 (action validity on real clips) needs owner authorization, cap $0.40.",
+   "status": "OPEN"
+  },
+  {
+   "id": "BLK-14-002",
+   "what": "Inference DB role without SELECT on public.draft_feedback / reprocess_requests (service_role bypasses RLS); production infra change.",
+   "status": "OPEN"
+  },
+  {
+   "id": "BLK-14-003",
+   "what": "GT adjudication: 0108 tail (standing ride labelled missing_landing), 0094 13.2-22.5 s attribution/end (PA-03), 0095 uncatalogued rider (PA-01).",
    "status": "OPEN"
   }
  ],
