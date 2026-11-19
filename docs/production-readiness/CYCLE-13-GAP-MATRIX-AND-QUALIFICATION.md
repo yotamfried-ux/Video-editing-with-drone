@@ -34,7 +34,7 @@ PRODUCTION_QUALIFIED, BLOCKED.
 |---|---|---|
 | Operator reprocess notes are a product feature (`orchestrator._handle_reprocess_requests`, spec §repair) but are "historical correction logs" under the 2026-11-19 no-memory addendum | spec vs addendum | Strict mode closes the notes channel. Whether production keeps operator-directed re-edits as a separate, labelled mode is an **owner decision**. |
 | The runtime target "about 30 min normal workload" vs runs that were only measured warm (cache-assisted, 29 min) | spec vs no-memory addendum, which forbids that cache | The target applies to cold runs. It is unmet (§4). |
-| Cycle-12 PA-03 evidence mapped reel time = source − 2.0 s; the cold run's 0094 reel is 22.9 s for a 20.4 s window, so the mapping is not exact | cycle-12 evidence vs EVD-13-004 | EVD-12-004 is downgraded to UNCERTAIN until it is verified on source frames. |
+| Cycle-12 PA-03 reading (prone from 15.5 s, end ~15.2 s) | cycle-12 evidence vs EVD-13-005 | **Corrected:** the mapping was exact, but the cycle-12 frames stopped at 17.5 s. He stands again and rides 19.0–21.5 s, so if whitewater riding counts the action ends ~21.5 s. (A 22.9 s reel first taken for 0094 was 0142.) |
 
 ## 2. Stage matrix
 
@@ -168,3 +168,25 @@ the whole remainder.
 3. **Free:** runtime experiment (perception and render parallelism) on CI with no model calls.
 4. **Owner:** new footage for the holdout.
 5. **Owner:** policy on operator re-edit notes, and an inference DB role without SELECT on history tables.
+
+## 9. The 88-second reel (owner report, 2026-11-19): segment selection and ending
+
+**The reel** (identical in the last four runs, including production run 44388634790) is made of five shots:
+
+| Shot | Rendered | GT | Verdict |
+|---|---|---|---|
+| 0094 | 2.0–22.5 s | ride 0–13.23 s (green face) | **disputed, not a clear cutting error.** The frames show whitewater riding to 15.0 s, kneeling 15.5–18.5 s, then he **stands again and rides 19.0–21.5 s**. The pipeline's end (22.5 s) is close to the end of the continued action. Whether whitewater riding belongs to the action is the open labelling decision (PA-03). The start is 2.0 s late. |
+| 0155 | 0–7.9 s | **exclude: failed take-off** | **selection defect:** 7.9 s of non-action in the reel |
+| 0118, 0146, 0142 | full | full | correct |
+
+**Why there is no fix yet** (measured on all 24 sources, EVD-13-005):
+- Every candidate signal also hits valid rides:
+  - a box that is never upright: 0160, 0165 and the 0094 tandem never stand either;
+  - low net displacement: 0140, the tandem;
+  - a shrinking box: 0165, 0094.
+- The earlier motion-based end rule (E1) cut 31.9 s of real riding.
+- Only 3 GT negatives exist, so any threshold would be fitted to the test set.
+
+**Status:** 0155 stays a known selection defect. The reel is a multi-source reel that is not confirmed, so it is withheld
+and never auto-published. A fix needs labelled examples of failed attempts and whitewater endings; the holdout
+footage request should include them.
