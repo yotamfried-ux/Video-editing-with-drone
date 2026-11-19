@@ -6,6 +6,8 @@ a sport. Football is the worked example.
 
 Binding rules: gap register §13 and README item 11.
 
+**Mandatory across every sport profile:** inference has no access to historical per-video AI responses, tracker sidecars, manual athlete decisions or GT. See production spec §Binding addendum and gap register §16 (MEM-01..MEM-06). Reuse general model weights and core logic, but never replay a prior clip's model conclusion to claim new-footage quality.
+
 > **Scope of the evidence:** the football material here is a synthetic architecture contract. It proves the engine runs
 > a second profile without a new orchestrator, renderer, QA or review. It does **not** prove football accuracy. Real
 > football needs labelled football footage, football GT, an independent holdout, render/QA review and owner approval.

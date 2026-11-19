@@ -26,6 +26,10 @@ _file_hash_memo: dict[tuple[str, int, int], str] = {}
 
 
 def enabled() -> bool:
+    # A strict inference run must never replay a prior per-source model answer,
+    # even if a caller accidentally overrides LLM_CACHE back to "1".
+    if os.getenv("SPORTREEL_STRICT_COLD_INFERENCE", "").strip().lower() in {"1", "true", "yes", "on"}:
+        return False
     return os.getenv("LLM_CACHE", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
