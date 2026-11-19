@@ -1,26 +1,50 @@
-# EXP-14-002 — observed action validity v2 (pre-registered; NOT RUN — needs owner authorization)
+# EXP-14-002 — observed action validity on real clips (pre-registered; revision 2, cycle 14b; NOT RUN)
 
-- **Why a new experiment:** EXP-08-001 (run 44067400479) asked one judgement question ("did the target stand up?")
-  on 360p / 4 fps proxies. It kept the 0155 failed take-off in 3/3 calls and rejected a GT-valid prone ride twice.
-  Standing is also not required for valid surfing (owner policy, cycle 14). Free perception signals (box aspect,
-  displacement, compensated motion) do not separate 0155 from valid rides (cycles 8, 13, 14: 0155 moves 1.0–2.6
-  body heights/s relative to the lineup while carried in a pop-up crouch).
-- **Code under test:** `pipeline/action_validity.py` (prompt `action-validity-v2`, `parse_observations`, `decide`),
-  profile `pipeline/sport_profiles/surfing.py` `action_validity` (established = prone / kneeling / standing riding,
-  transitional = popping_up, min_established_sec 2.0 — set a priori, not fitted).
-- **What changes vs EXP-08-001:** the model only OBSERVES a per-frame state from a fixed vocabulary; the verdict is
-  computed in code; two independent passes (different frame offsets) must agree for VALID or INVALID; any
-  disagreement / low confidence / unparsable answer is UNCERTAIN (review, never VALID); target crops (tracked box
-  + 50 % margin, 384 px) instead of a whole-frame proxy.
-- **Input (frozen, development split — NOT holdout):** the 25 selected windows of run 44388634790 (sidecar target
-  tracks) + GT controls: 0155 (failed take-off, GT exclude), 0108 tail 6.8–9.2 s, 0094 track-37 tail 13.2–22.5 s.
-- **Sampling:** 12 crops per pass at 0.5 s from window start (pass A offset 0.0 s, pass B offset 0.25 s).
-- **Model:** gemini-2.5-flash, temperature 0, one image per call; no verdict cache across runs.
-- **Metrics:** FP = GT-valid window INVALID; withheld = GT-valid window UNCERTAIN; 0155 verdict; agreement rate.
-- **Failure conditions (any → gate stays OFF):** ≥ 1 GT-valid window INVALID; 0155 VALID; > 2 of 23 GT-valid windows
-  UNCERTAIN (each is a withheld-correct reel); < 80 % pass agreement.
-- **Success:** 0155 INVALID (or UNCERTAIN → review) with 0 FP and ≤ 2 UNCERTAIN valid windows. Even then this is
-  development evidence (0155 is a known case); the gate may only be enabled for a strict cold run, and blind
-  generalization stays BLOCKED until new labelled footage with failed attempts exists.
-- **Cost cap:** $0.40 hard (≈ 54 calls × ~$0.002–0.006); from the remaining cycle budget of ≈ $1.519.
-- **No production effect:** evaluation workflow only, read-only R2 proxies, JSON verdicts only, no publication.
+Revision 2 follows the owner's review of PR #402. Rev. 1 had three problems: the verifier was not wired into
+production; low confidence could still produce VALID; and the sampling (12 crops at 0.5 s from the start) could
+miss the action. All three are fixed before any model call:
+
+- **Code under test (production, not a harness copy).**
+  - `pipeline/action_validity_runtime.observe_event` is what `publishable_reel_policy._qualification_inputs` calls
+    for every final shot.
+  - `pipeline/action_validity` (`parse_observations`, `decide`, prompt `action-validity-v2`).
+  - The surfing profile's `ActionValidityPolicy`: established = prone, kneeling or standing riding; transitional =
+    popping_up; min_established_sec 2.0, set a priori.
+- **Sampling.**
+  - Two interleaved passes, each spanning the full final window: [start, end], both edges included.
+  - Up to 16 crops per pass, spacing ≤ 1 s for windows up to 15 s.
+  - Before any call, the bound (stitched) target must be in ≥ 75 % of samples and present at both take-off and
+    ending. Otherwise the result is UNCERTAIN with no model call.
+- **Answers.** The model must describe exactly the requested crop times.
+- **Decision.**
+  - VALID needs 2 agreeing passes, none of them low-confidence.
+  - INVALID needs 2 agreeing high-confidence passes.
+  - Everything else is UNCERTAIN, which means review and never VALID.
+- **Input (development split; not a holdout).** The 25 selected final windows of run 44388634790 plus two controls:
+  - 0108 tail, 6.82–9.23 s, track 10007 (ADJ-14-001);
+  - 0094 track-37 tail, 13.2–22.5 s (ADJ-14-002).
+- **Labels** (`scripts/score_action_validity_experiment.py`, from GT-v1 plus `evaluation/adjudications`):
+  - 23 valid;
+  - 3 valid by owner policy (0095 uncatalogued rider, 0108 tail, 0094 tail);
+  - 1 invalid (0155).
+- **Failure conditions (any → gate stays OFF):**
+  - ≥ 1 valid window INVALID;
+  - 0155 VALID;
+  - more than 2 valid windows UNCERTAIN;
+  - pass agreement below 80 %;
+  - any window unscored (error or skip).
+- **Success** (only if no failure condition is hit): 0155 INVALID (or UNCERTAIN, i.e. review), with 0 false
+  rejections and at most 2 UNCERTAIN valid windows.
+  - Even then this is development evidence only; 0155 is a known case.
+  - The gate may next be enabled only for a strict cold run.
+  - Blind generalisation stays BLOCKED until new labelled footage, including failed attempts, exists.
+- **Cost.**
+  - Estimate: 27 windows × 2 calls of gemini-2.5-flash, one ~1024×1024 grid each. Roughly 1.5k input and 2k
+    output+thinking tokens per call, about $0.0055 per call, so **≈ $0.30**.
+  - **Hard cap $0.40**, enforced twice:
+    - `integrations.qualification.check_llm_budget` with `SPORTREEL_LLM_BUDGET_USD=0.40`;
+    - the harness stops before any window that could exceed the cap.
+- **Execution.**
+  - The `avexp-dry` label: real R2 media, grid build and identity/coverage checks, no model; $0.
+  - The `avexp-paid` label: applied only after explicit owner approval of the $0.40 cap.
+  - Read-only R2. JSON-only artifact (public repository). No publication.
