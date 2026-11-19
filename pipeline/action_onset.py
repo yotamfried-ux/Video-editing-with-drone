@@ -125,3 +125,83 @@ def motion_supported_onset(detections: Iterable[Any], track_id: Any, *, start: f
         if motion is not None and motion >= need:
             onset = lo
     return {"onset_sec": round(onset, 2), "steps": steps}
+
+
+def _centre_h(det: Any) -> tuple[float, float, float]:
+    x1, y1, x2, y2 = _box(det)
+    return (x1 + x2) / 2, (y1 + y2) / 2, y2 - y1
+
+
+def _nearest_at(dets: list[Any], t: float, tol: float) -> Any | None:
+    near = [d for d in dets if abs(float(_f(d, "time_sec")) - t) <= tol]
+    return min(near, key=lambda d: abs(float(_f(d, "time_sec")) - t)) if near else None
+
+
+def relative_motion_per_sec(detections: list[Any], actor: list[Any], t0: float, t1: float, *,
+                            tol: float = 0.25, min_references: int = 2) -> float | None:
+    """Actor displacement between t0 and t1 MINUS the median displacement of the other people seen at both times,
+    per second, in the actor's own box heights.
+
+    A follow camera pans with the athlete, so raw on-screen displacement is high even for someone waiting (EXP-14-001:
+    0140/0160 waiting at 0.3-1.5 body heights/s raw). The other people in the water are mostly stationary in the world,
+    so their median shift is the camera's; subtracting it leaves the actor's own motion. None without enough evidence
+    (actor or fewer than `min_references` other people missing at either end).
+    """
+    if t1 <= t0:
+        return None
+    a0, a1 = _nearest_at(actor, t0, tol), _nearest_at(actor, t1, tol)
+    if a0 is None or a1 is None:
+        return None
+    actor_ids = {_track(d) for d in actor}
+    others: dict[str, list[Any]] = defaultdict(list)
+    for det in detections:
+        tid = _track(det)
+        if tid is None or tid in actor_ids or not _is_person(det) or _box(det) is None or _f(det, "time_sec") is None:
+            continue
+        others[tid].append(det)
+    shifts = []
+    for dets in others.values():
+        b0, b1 = _nearest_at(dets, t0, tol), _nearest_at(dets, t1, tol)
+        if b0 is not None and b1 is not None:
+            (p0, q0, _), (p1, q1, _) = _centre_h(b0), _centre_h(b1)
+            shifts.append((p1 - p0, q1 - q0))
+    if len(shifts) < min_references:
+        return None
+    xs, ys = sorted(s[0] for s in shifts), sorted(s[1] for s in shifts)
+    mid = len(shifts) // 2
+    mx = xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
+    my = ys[mid] if len(ys) % 2 else (ys[mid - 1] + ys[mid]) / 2
+    (x0, y0, h0), (x1, y1, h1) = _centre_h(a0), _centre_h(a1)
+    h = (h0 + h1) / 2
+    if h <= 0:
+        return None
+    return (((x1 - x0) - mx) ** 2 + ((y1 - y0) - my) ** 2) ** 0.5 / h / (t1 - t0)
+
+
+def in_progress_from_recording_start(detections: Iterable[Any], track_id: Any, *, start: float,
+                                     policy: Any, step_sec: float = 0.5, window_sec: float = 1.0,
+                                     first_seen_max_sec: float = 0.5) -> dict[str, Any] | None:
+    """Was the action already running when the recording began?
+
+    True evidence only: the stitched actor is in frame from the first `first_seen_max_sec`, and EVERY window from
+    the recording start up to `start` shows the actor moving at least `policy.in_progress_min_relative_motion`
+    relative to the other people in frame. Any window without evidence or below the bound -> no claim (None), so
+    waiting before a paddle-in, a late-appearing actor or a sparse scene never moves a cut.
+    Returns {"in_progress": True, "steps": [[t0, t1, motion], ...]} or None.
+    """
+    need = getattr(policy, "in_progress_min_relative_motion", None) if policy is not None else None
+    if need is None or start <= 0.05:
+        return None
+    dets = list(detections)
+    actor = stitched_actor_detections(dets, track_id)
+    if not actor or float(_f(actor[0], "time_sec")) > first_seen_max_sec:
+        return None
+    steps, t = [], 0.0
+    while t < start - 1e-6:
+        t1 = min(t + window_sec, max(start, t + step_sec))
+        motion = relative_motion_per_sec(dets, actor, t, t1)
+        steps.append([round(t, 2), round(t1, 2), None if motion is None else round(motion, 3)])
+        if motion is None or motion < float(need):
+            return None
+        t += step_sec
+    return {"in_progress": True, "steps": steps}

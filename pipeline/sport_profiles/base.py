@@ -15,11 +15,16 @@ class OnsetPolicy:
     waiting, not part of the action. `min_motion_body_heights_per_sec`: the actor's displacement per second,
     measured in their own box heights (scale-free for drone height and zoom).
     `max_lead_sec`: upper bound of how far before the main moment a build-up may start.
+    `in_progress_min_relative_motion`: when set, a recording that OPENS on the actor already moving at least this
+    fast relative to the other people in frame (camera-motion compensated, actor box heights per second) opens on
+    the action, so the cut starts on the first recorded frame (pipeline.action_onset.in_progress_from_recording_start).
+    None disables it. Consumer: window_refinement (measurement) and complete_action_window_policy (the cut).
     """
     requires_motion: bool = False
     min_motion_body_heights_per_sec: float = 0.0
     max_lead_sec: float = 2.0
     step_sec: float = 1.0
+    in_progress_min_relative_motion: float | None = None
 
 
 @dataclass(frozen=True)

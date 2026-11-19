@@ -15,7 +15,10 @@ SURFING = SportProfile(
     action_types=frozenset({"wave_ride", "maneuver", "wipeout"}),
     action_phases=("paddle_in", "catch", "pop_up", "ride", "outcome"),
     # Paddle-in is the surfer moving; sitting/lying still on the board is waiting (0140 vs 0115, cycle 11).
-    onset=OnsetPolicy(requires_motion=True, min_motion_body_heights_per_sec=0.2, max_lead_sec=6.0, step_sec=1.0),
+    # in_progress_min_relative_motion: a surfer paddling or riding moves >= 1 body height/s relative to the other
+    # people in the water; one waiting does not (camera pans cancel out). EXP-14-001.
+    onset=OnsetPolicy(requires_motion=True, min_motion_body_heights_per_sec=0.2, max_lead_sec=6.0, step_sec=1.0,
+                      in_progress_min_relative_motion=1.0),
     # was stages.identity._TEXT_ATTRIBUTE_REASONS (FIX-PQ-10-003)
     reviewable_attribute_conflicts=frozenset({"wetsuit_vs_bare_or_swimsuit_conflict", "conflicting_equipment_color",
                                               "incompatible_swimwear_or_category"}),

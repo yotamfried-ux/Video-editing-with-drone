@@ -73,6 +73,12 @@ def extend_to_recording_start(event: dict[str, Any]) -> dict[str, Any]:
         continuous_from = float(refinement.get("track_continuous_from_sec"))
     except (TypeError, ValueError):
         return event                                   # no evidence about the athlete before the start: do not move
+    if start > 0.05 and refinement.get("in_progress_from_recording_start") is True:
+        # EXP-14-001: every second from the first recorded frame to `start` shows the actor moving relative to the
+        # other people in frame (camera-motion compensated): the action was running when the camera started, at any
+        # start, not only within SOURCE_START_SNAP_SEC (0162: analyzer start 1.5 s, GT ride from the first frame).
+        return {**event, "start": 0.0, "start_snapped_to_recording_start": round(start, 3),
+                "start_snap_evidence": "in_progress_relative_motion"}
     if not (0.05 < start <= SOURCE_START_SNAP_SEC) or continuous_from > TRACK_AT_START_SEC:
         return event
     return {**event, "start": 0.0, "start_snapped_to_recording_start": round(start, 3)}
