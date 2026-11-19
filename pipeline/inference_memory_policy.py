@@ -103,8 +103,21 @@ def sidecar_reusable(path: str | os.PathLike) -> bool:
 
 
 def _forbidden(path: str) -> bool:
-    normalised = str(path).replace("\\", "/")
-    return any(part in normalised for part in FORBIDDEN_PATH_PARTS)
+    """Refuse direct and aliased paths to evaluation-only data.
+
+    A raw string check alone is bypassed by a symlink or parent traversal.
+    Resolve the local target before allowing the open; if canonicalization fails,
+    fail closed rather than falling back to a bypassable string.
+    This local guard is NOT a substitute for R2/Supabase least privilege.
+    """
+    normalised = os.fspath(path).replace("\\", "/")
+    if any(part in normalised for part in FORBIDDEN_PATH_PARTS):
+        return True
+    try:
+        canonical = Path(path).resolve(strict=False).as_posix()
+    except (OSError, RuntimeError, ValueError):
+        return True
+    return any(part in canonical for part in FORBIDDEN_PATH_PARTS)
 
 
 def _audit(event: str, args: tuple) -> None:
