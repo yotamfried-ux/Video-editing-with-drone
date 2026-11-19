@@ -324,3 +324,18 @@ The SQL has not been executed against a database. Applying it and issuing the ke
 - **Proposed cap for the cold run:** $2.30, with a $0.90 downstream reserve.
 - **After EXP-14-002**, about $1.12–1.22 would remain. Running the full cold run would therefore need **additional
   authorization of ≈ $1.10**, or deferring action validity (≈ $0.80 more).
+
+### 9.6 EXP-14-002 dry runs: real R2 media, no model, $0
+
+| Run | Code | Windows with both grids | Finding |
+|---|---|---|---|
+| 44600960800 | 5d6a4573 | 25 / 27 | **0130 `crop_failed`.** Its window runs to the last recorded frame; the final sample seeked past the last decodable frame, and one failed crop voids the grid. That would have withheld a valid ride. Fixed in 54b78db0 (step back before giving up); new real-media test R9 is RED → GREEN. **0151:** the target is lost 1 s before the window ends, so UNCERTAIN, as designed. |
+| 44603210495 | 54b78db0 | **26 / 27** (52 grids, 644 crops) | 0130 fixed. 0151 UNCERTAIN by design, with no model call. |
+
+Evidence: `evaluation/ride_validity/exp14_002_dry{1,2}_*.json`, JSON only, no images.
+
+**Paid-run expectation:**
+- 52 model calls, ≈ $0.29, cap $0.40.
+- 0151 is already one of the at most 2 UNCERTAIN valid windows the pre-registration allows.
+
+**Status:** ready to run. Owner approval of the $0.40 cap is the only remaining step.
