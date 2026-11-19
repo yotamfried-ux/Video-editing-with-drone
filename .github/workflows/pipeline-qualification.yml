@@ -84,6 +84,12 @@ jobs:
             --run-id '${{ inputs.diagnostics_run_id || '44388634790' }}' \
             --out ./qualification-output/qualification-report.json \
             --markdown ./qualification-output/qualification-report.md
+      - name: Evaluate absolute GT P0 metrics from frozen post-run diagnostics (development set only)
+        if: always()
+        run: |
+          python scripts/gt_scorecard.py --diagnostics ./diagnostics \
+            --absolute-release-gate \
+            --out ./qualification-output/gt-absolute-release-gate.json
       - name: Preserve offline qualification reports even on failure
         if: always()
         uses: actions/upload-artifact@v4
