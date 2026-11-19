@@ -97,7 +97,7 @@ jobs:
 
         budget = 0.0 if label != "qualrun-paid" else float(c["llm_budget_usd_paid"])
 
-        assert 0.0 <= budget <= 2.273, f"budget {budget} outside the authorised remainder (USD 4 total - 1.727 spent through q12-paid-01)"
+        assert 0.0 <= budget <= 1.519, f"budget {budget} outside the authorised remainder (USD 4 total - 2.481 spent through q13-cold-no-memory-01)"
 
         reserve = float(c.get("llm_downstream_reserve_usd", 0) or 0); assert 0.0 <= reserve <= max(budget, 0.0), reserve
 

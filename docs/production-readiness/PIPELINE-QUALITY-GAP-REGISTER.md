@@ -574,3 +574,18 @@ This register now inherits the mandatory no-prior-video-memory rule from [the pr
 
 Do not delete historical evidence, code commit history, model weights, or operator-approved media to enforce the rule. Quarantine per-source decision data only from the *inference execution plane*. Keep the evaluator independent.
 
+
+## 17. Cycle 13 sync (2026-11-19) — see CYCLE-13-GAP-MATRIX-AND-QUALIFICATION.md
+
+| ID | State | Evidence | Note |
+|---|---|---|---|
+| MEM-01 | PATCHED IN PR #401 / cloud-unverified | — | unchanged by cycle 13 |
+| MEM-02 | PATCHED (local checkout, PR #401) + runtime GT open() refusal (PR #402) | EVD-13-002 M8 | defence in depth inside the inference process |
+| MEM-03 | **code-level CLOSED for R1–R9 in strict mode (SIMULATION_VERIFIED)**; DB-role least privilege OPEN; cloud proof pending | EVD-13-002 M1–M9; INFERENCE-READ-PATH-AUDIT.md | RED on the #401 head: operator notes, draft feedback, approval and QA history, identity decisions open even in strict mode |
+| MEM-04 | **PATCHED (REPLAYED)** | EVD-13-001, EVD-13-002 B1–B6 | analysis/downstream reserve; budget-starved runs read INCOMPLETE / INCOMPLETE_QA (cold run replay) |
+| MEM-05 | BLOCKED (footage) | EVD-12-006 | unchanged |
+| MEM-06 | **GUARDED (TESTED)** | EVD-13-002 S1–S5 | 0 source-specific strings in 126 runtime files; numeric GT-tuned thresholds are not covered by the guard |
+| Runtime | **FAIL (measured)** | EVD-13-003 | cold 60.2 min (perception and render serial) vs about 30 min target |
+| Framing (contain, small subjects) | NEW DEFECT | EVD-13-004 | tandem reel: tiny subjects, another athlete dominant for about 13 s (withheld) |
+| PA-03 evidence | DOWNGRADED to UNCERTAIN | EVD-13-004 | reel-to-source time mapping not exact |
+| Budget | — | — | $2.481 spent of $4; $1.519 remaining; workflow cap 1.519 |
