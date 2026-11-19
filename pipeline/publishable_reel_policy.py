@@ -691,7 +691,8 @@ def _qualification_inputs(events: list[dict[str, Any]], sport: str) -> dict[str,
     # FIX-PQ-14-002 (cycle 14b): observe every final shot's action BEFORE its eligibility is decided. No-op (no model
     # call) unless SPORTREEL_ACTION_VALIDITY is enabled; the observation is recorded on the event in place, so the
     # manifest, the trace and RC-03 all see the same evidence.
-    _load_sibling("action_validity_runtime", "action_validity_runtime.py").observe_events(events)
+    if os.getenv("SPORTREEL_ACTION_VALIDITY", "").strip().lower() in {"1", "true", "yes", "on"}:
+        _load_sibling("action_validity_runtime", "action_validity_runtime.py").observe_events(events)
     return _load_sibling("output_qualification", "output_qualification.py").build_inputs(events, sport)
 
 

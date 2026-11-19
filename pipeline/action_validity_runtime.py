@@ -26,7 +26,13 @@ import subprocess
 import tempfile
 from typing import Any, Callable
 
-from pipeline import action_validity as av
+try:
+    from pipeline import action_validity as av
+except ModuleNotFoundError:          # loaded by file path (publishable_reel_policy._load_sibling) without the package
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+    from pipeline import action_validity as av
 
 logger = logging.getLogger(__name__)
 
