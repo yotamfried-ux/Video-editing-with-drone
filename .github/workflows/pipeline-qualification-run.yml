@@ -148,7 +148,7 @@ jobs:
       with:
         path: ~/.cache/sportreel/openvino
         key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
-    - name: Enforce cold inference: deny prior AI memory and GT access
+    - name: 'Enforce cold inference: deny prior AI memory and GT access'
       env:
         GITHUB_ACTIONS: 'true'
         SPORTREEL_STRICT_COLD_INFERENCE: '1'
