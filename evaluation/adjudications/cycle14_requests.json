@@ -1,0 +1,29 @@
+{
+ "schema": "sportreel.gt_adjudication_requests.v1",
+ "note": "EVALUATION PLANE ONLY. Requests for independent adjudication of approved GT-v1 labels and owner editorial policies (cycle 14b, 2026-11-19). Nothing here edits GT-v1 (ae844a94 / b31fd9b4...27c9); the strict scorecard keeps scoring against the approved labels. Inference never reads this file (evaluation/ is refused by the strict-mode open() guard and removed from the runner by assert_cold_inference --prepare).",
+ "gt_dataset_id": "ae844a94-b425-4f0a-8e4f-56034ab83425",
+ "items": [
+  {"id": "ADJ-14-001", "kind": "label_conflict", "status": "PENDING_INDEPENDENT_ADJUDICATION",
+   "source_index": "0108", "source_sha256": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+   "athlete_id": "144c217d-76be-4bf5-a494-0b3ac822b15d", "frames": [409, 553], "seconds": [6.82, 9.23],
+   "approved_label": "exclude (usability unusable, reason missing_landing)",
+   "owner_policy": "Continued active surfing remains valid even if the camera stops before the landing; preserve the visible action.",
+   "evidence": "Real R2 frames 7.2, 8.0, 9.0 s: the athlete stands and rides down the line until the recording ends (scratchpad frames sheet_0108_D; box audit 21 exclude frames all on the GT athlete).",
+   "pipeline_behaviour": "Run 44388634790 keeps the tail (rendered to 9.23 s) - consistent with the owner policy; counted as 144 excluded frames by the strict scorecard until adjudicated."},
+  {"id": "ADJ-14-002", "kind": "label_conflict_and_attribution", "status": "PENDING_INDEPENDENT_ADJUDICATION",
+   "source_index": "0094", "source_sha256": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "athlete_id": "9524ac02-beba-4805-a9aa-474b8d57b3b5", "frames": [793, 1320], "seconds": [13.23, 22.0],
+   "approved_label": "athlete 9524ac02 include 0-13.23 s; athlete d805a9b1 include 16.85-36.69 s; 9524ac02 has no segment after 13.23 s",
+   "owner_policy": "Active whitewater riding counts; verify the surfer's identity frame by frame after 13.2 s before deciding the ending or attribution.",
+   "evidence": "Frame-by-frame, real R2 frames every 0.5 s 11.5-24.5 s with sidecar tracks drawn: track 37 (the 88 s reel's crop) is the long-haired bearded surfer in a black tank top on a white longboard in every frame; standing whitewater riding to ~15.0 s, crouched/kneeling on the carried board 15.5-18.5 s, standing again 19.0-21.5 s, goes down onto the board at ~22.0 s and lies/sits on it 22.5-24.5 s (no riding). Track 154 is a different person (pink top, green bodyboard), prone in the whitewater from ~14.0 s: GT athlete d805a9b1. GT-box audit of the rendered shot: subject inside 9524ac02's box in 195/203 frames, 0 identity switches, no other GT athlete in the crop.",
+   "proposed_adjudication": "Rider 9524ac02's ride continues as active whitewater riding to ~21.5-22.0 s; the 16.85-22.5 s window of the 88 s reel shows 9524ac02 only (the scorecard's time-overlap 'mixed reel' is not supported by the pixels).",
+   "pipeline_behaviour": "Run 44388634790 cut 2.0-22.5 s (end within ~0.5-1.0 s of the proposed end; start 2.0 s late, FIX-PQ-14-001 does not reach it: the athlete is not detected before 1.42 s)."},
+  {"id": "POL-14-001", "kind": "editorial_policy", "status": "OWNER_POLICY_APPLIED_IN_EVALUATION",
+   "source_index": "0095", "source_sha256": "6d57d3835262b3486fd8f750e7da8eb5f90d153623dcf0edf5f73cccb314770d",
+   "track": "10003", "seconds": [0.0, 6.32],
+   "approved_label": "exclude for catalogued athlete 6c84aed0 (no_meaningful_action)",
+   "owner_policy": "A genuine ride by an uncatalogued surfer is eligible for a separate draft, but requires identity review, must not be automatically published and is not counted as a known GT athlete.",
+   "evidence": "Box audit: the rendered subject is 'other_person' in 51/51 boxed frames; frames 1-5 s show a standing ride on a white board next to the catalogued athlete's red board.",
+   "evaluation_rule": "Reported as uncatalogued_rider (not a known athlete, not a non-ride); a PUBLISHED uncatalogued-rider reel is a policy violation (auto-published without identity review)."}
+ ]
+}
