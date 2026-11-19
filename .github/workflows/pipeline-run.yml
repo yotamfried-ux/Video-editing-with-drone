@@ -39,6 +39,10 @@ jobs:
     timeout-minutes: 330
     env:
       STORAGE_BACKEND: ${{ vars.STORAGE_BACKEND || secrets.STORAGE_BACKEND || 'drive' }}
+      # Required for all production runs: no prior per-source decisions, analysis or tracker caches.
+      SPORTREEL_STRICT_COLD_INFERENCE: '1'
+      LLM_CACHE: '0'
+      SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -312,18 +316,18 @@ jobs:
           path: ~/.cache/sportreel/openvino
           key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
 
-      - name: Restore LLM analysis cache
-        uses: actions/cache/restore@v4
-        with:
-          path: /tmp/llm-cache
-          key: llm-analysis-cache-v1-${{ github.run_id }}
-          restore-keys: |
-            llm-analysis-cache-v1-
+      - name: Enforce cold inference: deny prior AI memory and GT access
+        # Deletes ONLY evaluation fixtures from this temporary checkout and local
+        # runner caches. Never deletes source media, Review drafts or R2 objects.
+        run: python scripts/assert_cold_inference.py --prepare
 
       - name: Run pipeline
         timeout-minutes: 300
         env:
           LLM_CACHE_DIR: /tmp/llm-cache
+          LLM_CACHE: '0'
+          SPORTREEL_STRICT_COLD_INFERENCE: '1'
+          SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''
           ANALYSIS_WORKERS: ${{ vars.ANALYSIS_WORKERS || '3' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
@@ -400,24 +404,6 @@ jobs:
         with:
           path: ~/.cache/sportreel/openvino
           key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
-
-      - name: Prune QA evidence copies unused for 14 days
-        # pipeline/perception/single_decode.py keeps each source's 1280 px QA evidence copy in the LLM cache so
-        # a run with cached perception never re-decodes 4K for QA; a copy's mtime is refreshed on every use.
-        if: always()
-        run: |
-          if [ -d /tmp/llm-cache/qa-evidence ]; then
-            find /tmp/llm-cache/qa-evidence -type f -mtime +14 -delete || true
-            du -sh /tmp/llm-cache/qa-evidence || true
-          fi
-
-      - name: Save LLM analysis cache
-        # Saved even when the run fails: the analysis is the expensive part and stays valid.
-        if: always()
-        uses: actions/cache/save@v4
-        with:
-          path: /tmp/llm-cache
-          key: llm-analysis-cache-v1-${{ github.run_id }}
 
       - name: Upload pipeline diagnostics
         if: always()
