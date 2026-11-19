@@ -244,14 +244,18 @@ def test_stage_timer_persists_and_never_raises() -> None:
     assert [r["stage"] for r in rows] == ["unit", "failing"] and rows[0]["source"] == "x.mp4", rows
 
 
-def test_pipeline_log_is_unbuffered_and_cache_is_wired() -> None:
+def test_pipeline_log_is_unbuffered_and_only_safe_caches_are_wired() -> None:
     script = (ROOT / "scripts" / "run_pipeline_with_diagnostics.sh").read_text(encoding='utf-8')
     assert "PYTHONUNBUFFERED=1 python -u scripts/run_tracked.py" in script
     workflow = (ROOT / ".github" / "workflows" / "pipeline-run.yml").read_text(encoding='utf-8')
+    # Dependency / model-weight caches can be reused, but never previous-source
+    # model answers, perception sidecars, or GT/manually labeled athlete decisions.
     assert "actions/cache/restore@v4" in workflow and "actions/cache/save@v4" in workflow
-    assert "LLM_CACHE_DIR: /tmp/llm-cache" in workflow
-    save = workflow[workflow.index("Save LLM analysis cache"):]
-    assert "if: always()" in save.split("Upload pipeline diagnostics")[0]
+    assert "LLM_CACHE: '0'" in workflow
+    assert "SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''" in workflow
+    assert "python scripts/assert_cold_inference.py --prepare" in workflow
+    assert "Restore LLM analysis cache" not in workflow
+    assert "Save LLM analysis cache" not in workflow
 
 
 def main() -> int:
