@@ -101,14 +101,20 @@ def _crop_frame(video_path: str, det: Any, out_path: str) -> bool:
     x, y, w, h = rq._crop_box(det)
     vf = (f"crop=iw*{w:.5f}:ih*{h:.5f}:iw*{x:.5f}:ih*{y:.5f},scale={TILE}:{TILE}:force_original_aspect_ratio=decrease,"
           f"pad={TILE}:{TILE}:(ow-iw)/2:(oh-ih)/2")
-    cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", f"{max(0.0, float(_f(det, 'time_sec'))):.3f}",
-           "-i", video_path, "-frames:v", "1", "-vf", vf, "-q:v", "3", out_path]
-    try:
-        subprocess.run(cmd, capture_output=True, timeout=60, check=True)
-        return os.path.exists(out_path) and os.path.getsize(out_path) > 0
-    except Exception as exc:
-        logger.debug("action-validity crop failed at %s: %s", _f(det, "time_sec"), exc)
-        return False
+    t = max(0.0, float(_f(det, "time_sec")))
+    # A sample at the very end of the recording (windows that run to the last frame, EXP-14-002 dry run: 0130 at
+    # 8.63 s) seeks past the last decodable frame and ffmpeg writes nothing; step back a few frames before giving up.
+    for back in (0.0, 0.05, 0.15, 0.35):
+        cmd = ["ffmpeg", "-nostdin", "-v", "error", "-y", "-ss", f"{max(0.0, t - back):.3f}",
+               "-i", video_path, "-frames:v", "1", "-vf", vf, "-q:v", "3", out_path]
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=60, check=True)
+        except Exception as exc:
+            logger.debug("action-validity crop failed at %.3f: %s", t - back, exc)
+            continue
+        if os.path.exists(out_path) and os.path.getsize(out_path) > 0:
+            return True
+    return False
 
 
 def build_grid(video_path: str, samples: list[Any], times: list[float]) -> bytes | None:

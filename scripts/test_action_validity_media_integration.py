@@ -17,6 +17,8 @@ R6  answer that skips the ending crop (timestamp coverage): UNCERTAIN
 R7  sample plan: every pass includes the first and last second of the window; gaps <= the planned step
 R8  negative control: boxes shifted off the athlete (wrong target) -> the stub sees no athlete in the crops -> the
     observation is not VALID (the pixel check really tests what the crops contain)
+R9  a window that runs to the last recorded frame still yields both grids (EXP-14-002 dry run, 0130: the sample at
+    the recording end seeked past the last frame and the whole grid failed -> a valid ride became UNCERTAIN)
 """
 from __future__ import annotations
 
@@ -207,6 +209,18 @@ def main() -> int:
         ev, elig, _ = run(wrong, m)
         check(ev["action_validity"]["verdict"] != av.VALID and m.calls >= 1 and not all(all(t) for t in m.tiles_ok),
               f"R8 negative control: crops off the athlete are detected ({ev['action_validity']['verdict']})")
+        video = make_media(tmp)                      # R8 rewrote the sidecar with shifted boxes: restore it
+        tail_ev = {**event(video), "end": DUR}
+        m = Model(riding)
+        orig, avr.default_ask = avr.default_ask, m
+        os.environ[av.ENV] = "1"
+        try:
+            prp._qualification_inputs([tail_ev], "surfing")
+        finally:
+            avr.default_ask = orig
+            os.environ.pop(av.ENV, None)
+        check(m.calls == 2 and tail_ev["action_validity"]["verdict"] == av.VALID,
+              f"R9 window to the recording end: {m.calls} grids, {tail_ev['action_validity'].get('basis')}")
     print(f"{len(FAILS)} failing")
     return 1 if FAILS else 0
 
