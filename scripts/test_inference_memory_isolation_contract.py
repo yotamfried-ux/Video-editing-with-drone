@@ -14,6 +14,7 @@ M7  a perception sidecar older than this run       -> not reused (recomputed)
 M8  opening Ground Truth / qualification / evidence files from the inference process (open(), Path.read_text,
     os.open) -> ForbiddenInferenceInput, even though the files exist
 M9  the inference isolation report lists every closed channel, refused open and rejected sidecar
+M10 hidden evaluation files through symlink or parent traversal -> blocked in strict mode
 """
 from __future__ import annotations
 
@@ -81,6 +82,16 @@ for name, fn in (("open", lambda: open(gt).read(1)), ("read_text", lambda: gt.re
         refused.append(True)
 out["gt_refused"] = refused
 out["gt_exists"] = gt.exists()
+# These aliases do not contain the literal forbidden path. A string-only guard misses both.
+alias_paths = (work / "alias_to_eval", work / "evaluation" / "safe" / ".." / "ground_truth" / "private.json")
+refused_aliases = []
+for alias_path in alias_paths:
+    try:
+        alias_path.read_text()
+        refused_aliases.append(False)
+    except memory.ForbiddenInferenceInput:
+        refused_aliases.append(True)
+out["aliased_gt_refused"] = refused_aliases
 memory.write_report(work / "report.json")
 print("RESULT " + json.dumps(out))
 ''')
@@ -93,6 +104,13 @@ def run_probe(strict: bool) -> tuple[dict, dict]:
         {"ts": "2026-11-18T00:00:00+00:00", "sport": "surfing", "events": [{"type": MARK.lower(), "edit": {"zoom": 1.0}}]}] * 4}))
     (work / "decisions.json").write_text(json.dumps({"decisions": [{"request_id": "b" * 64, "decision": "APPROVED",
                                                                    "reviewer": "owner", "decided_at": "2026-11-18"}]}))
+    # Protect a non-special filename inside an evaluation directory to expose alias bypasses.
+    hidden_dir = work / "evaluation" / "ground_truth"
+    hidden_dir.mkdir(parents=True)
+    (work / "evaluation" / "safe").mkdir()
+    hidden_file = hidden_dir / "private.json"
+    hidden_file.write_text(MARK)
+    (work / "alias_to_eval").symlink_to(hidden_file)
     env = {k: v for k, v in os.environ.items() if not k.startswith("SPORTREEL_")}
     env.update(REPO=str(ROOT), WORK=str(work), MARK=MARK, LLM_CACHE="1", LLM_CACHE_DIR=str(work / "cache"),
                TMP_DIR=str(work), PYTHONPATH=str(ROOT))
@@ -120,6 +138,8 @@ def main() -> int:
           "M7 sidecar older than the run is not reused under strict; one written in this run is")
     check(s.get("gt_exists") is True and s.get("gt_refused") == [True, True, True] and c.get("gt_refused") == [False, False, False],
           f"M8 GT open refused under strict via open/read_text/os.open (control can read it): {s.get('gt_refused')}")
+    check(s.get("aliased_gt_refused") == [True, True] and c.get("aliased_gt_refused") == [False, False],
+          f"M10 symlink and parent-traversal GT aliases refused in strict mode: {s.get('aliased_gt_refused')}")
     check(rep.get("strict_cold_inference") is True and rep.get("guard_installed") is True
           and {"operator_notes", "draft_feedback", "label_feedback_history", "identity_decisions"} <= set(rep.get("channels_closed", []))
           and len(rep.get("open_refused", [])) >= 3 and rep.get("prior_sidecars_rejected"),
