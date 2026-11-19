@@ -65,3 +65,32 @@ For each gate: `gate_id`, `requirement`, `current_sha`, `environment`, `test_com
 5. Execute a controlled end-to-end run and publish signed evidence ledger before declaring production ready.
 
 No pipeline execution, migration, merge, cloud changes, store submission, paid external calls or destructive data operations were performed during this assessment.
+
+## Binding addendum — no prior-video-memory in pipeline inference (2026-11-19)
+
+**Owner decision, mandatory for every sport and every experimental or production batch.** The performance editor must derive action, performer identity, timing, crop and QA verdicts from the current source media, the pretrained/general model and stable, **sport-neutral** policy. It must never derive those verdicts from labels, annotations, scores, per-video AI outputs, cached tracking sidecars, historic GT-driven corrective instructions, test-case IDs or manually adjudicated identity pairs from previous runs.
+
+### Separation of duties
+
+- **Inference plane (before decisions are frozen):** verified source media for the current batch, immutable code/model/profile configuration and transient observations created **within this run**. Do not restore/save cross-run analysis caches. No access to `evaluation/ground_truth`, `evaluation/qualification`, `evaluation/identity_reviews`, frozen evaluation ledgers or manual identity requests. Do not override with repo secrets, runtime flags or operator hints that inject historical conclusions.
+- **Evaluator plane (only after inference, EDL, manifest and MP4 hashes are frozen):** separate read-only processes may compare the predictions and rendered media against GT and earlier baselines. They must never write back to inference inputs or alter the exact result being scored.
+- **Permitted reusable assets:** versioned *general* pretrained model weights, installation/FFmpeg/OpenVINO package/binary caches and tested generic algorithms; exclude cached per-source detections and text. Pretrained models and previous GT-guided software development cannot be made truly "memoryless"; **this does not qualify as new-footage holdout**.
+- **Operational state:** the production system may use minimal idempotency/provenance records to avoid duplicate uploads and protect approved reels, but they MUST NOT feed historic event labels, athlete merge decisions, clips or editorial answers into inference. Auditing Supabase/R2 reads for such indirect leaks is an OPEN verification gap; isolation of only the local runner does not certify the entire pipeline.
+- **Source-independent rules:** no references to source IDs 0097/0115/0140/etc. or hardcoded GT outcomes in generic runtime branches, prompts or profiles. Fixes must generalize by reason and pass negatives/positive examples and multi-sport contract checks.
+
+### Acceptance gate: COLD_INFERENCE_VERIFIED
+
+1. Capture exact run SHA, source SHA-256s, sport profile, model/prompt versions, model-call counts, cache events, operator decision inputs and runtime config before executing inference.
+2. Stop immediately if cached Gemini output, per-source tracking/sidecar, historical identity decisions or GT inputs are loaded; assert zero **cross-run** inference-cache hits. Shared *same-run* intermediate results are permitted with provenance.
+3. Demonstrate GT and manual evaluation fixtures are absent from the inference working directory, and audit all network/database reads and external context paths for independent no-memory evidence.
+4. Execute and freeze EDL, selected action lineage, verdicts, per-video MP4 SHA-256 and cost **before** opening frozen GT or previous baseline data in a separate evaluator.
+5. Evaluate full-action coverage, include seconds, wrong actor/identity, excluded content, false QA passes/rejects, duplicates, cost, per-sport performance and rendered-media quality against locked thresholds. An all-green workflow is not a substitute for these metrics.
+6. Record `COLD_INFERENCE_VERIFIED` only if all proof is present. Mark `COLD_INFERENCE_LOCAL_GATE_PASS` only for local workspace/cache checks, and `MEMORY_ISOLATION_UNPROVEN` when external read-path audits are missing.
+7. Require a never-used, separately annotated source-session holdout before claiming **GENERALIZATION_VERIFIED**. If no independent footage exists, report BLOCKED and do not retune to that holdout after seeing results.
+
+### Price and failure gate
+
+Fresh inference costs more than cache reuse. Pre-register two separate bounded budgets: model analysis and final QA. A run that exhausts either limit must fail safely as `INCOMPLETE_QA`, not count zero publishable reels as an accuracy regression; do not silently expand a paid cap. The previous cold run `44374982006` exhausted $0.80 before final QA (estimated $0.7542 + $0.05 reserve), so it did **not** certify media quality.
+
+**Current implementation scope:** both GitHub pipeline workflows explicitly disable prior analysis caches; before inference `scripts/assert_cold_inference.py --prepare` removes local checkout evaluation fixtures and stale runner caches, but **this local check does not prove isolation against all external R2/Supabase metadata reads**. Prohibit claims of full cold-memory proof until those readers are audited and tested with a negative-control data-leak fixture.
+

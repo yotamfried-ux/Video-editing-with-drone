@@ -558,3 +558,34 @@ Synthetic football-like fixtures **test architecture only**. They do **not** qua
 | PQ-06 / PA-15 ends | OPEN | EVD-12-003 | E1 motion end rule rejected (31.9 s include lost) |
 | PQ-01 / PA-04 validity | OPEN | EVD-12-006 | 3 negatives in GT-v1; kept in review |
 | Budget | — | — | $1.727 spent of $4; $2.273 remaining; paid budget reset to 0 |
+
+## 16. COLD-INFERENCE evidence separation (2026-11-19) — binding
+
+This register now inherits the mandatory no-prior-video-memory rule from [the production specification](./2026-11-14-gap-assessment-and-spec.md#binding-addendum--no-prior-video-memory-in-pipeline-inference-2026-11-19). Applies to all PQ/PA gaps, future experiments and every sport profile, alongside the multi-sport core rule in §13.
+
+| ID | Priority | Current evidence / failing behavior | Exit criterion | State |
+|---|---|---|---|---|
+| MEM-01 | P0 proof | Run 44388634790 restored prior LLM analysis cache key `llm-analysis-cache-v1-43920602179` with source analysis/tracker hits | Remove cross-run model/perception caches and prove 0 cache hits on new production + qualification runs | PATCHED IN PR / UNVERIFIED ON CLOUD |
+| MEM-02 | P0 proof | GT/qualification decisions exist in the same checkout as executable pipeline; cold experiment disabled prior decision file, but source checkout still contained GT | No GT, frozen-score, or manual identity decisions in inference workspace/runtime; deterministic fail-closed preflight | PATCHED LOCAL PATH / EXTERNAL LEAK AUDIT OPEN |
+| MEM-03 | P0 proof | R2/Supabase operational state and historical source metadata can be read at runtime; exact reader dependency audit not yet complete | Trace all external reads; distinguish idempotency state from prior editorial/identity decisions; negative-control test fails if historic labels are injected | OPEN |
+| MEM-04 | P0 quality | Cold run 44374982006: 15 rendered reels, QA unavailable after LLM budget $0.7542 approached cap $0.80, 10 analysis failures | Budget separately for analysis and QA; complete full-run scoring without QA exhaustion, otherwise classify as incomplete | OPEN |
+| MEM-05 | P0 release | Only 24 development GT-v1 videos are labeled; no unseen-footage session | Independent, pre-registered held-out footage and GT, locked model/prompt/policies, media-reviewed scorecard before GENERALIZATION_VERIFIED | BLOCKED — footage required |
+| MEM-06 | P1 global | Potential case-specific source IDs / GT-informed heuristics and sport-dependent assumptions remain in shared paths | Code+prompt audit, generic red/green and second-domain profile contract per patch; no source-targeted branches | OPEN |
+
+Do not delete historical evidence, code commit history, model weights, or operator-approved media to enforce the rule. Quarantine per-source decision data only from the *inference execution plane*. Keep the evaluator independent.
+
+
+## 17. Cycle 13 sync (2026-11-19) — see CYCLE-13-GAP-MATRIX-AND-QUALIFICATION.md
+
+| ID | State | Evidence | Note |
+|---|---|---|---|
+| MEM-01 | PATCHED IN PR #401 / cloud-unverified | — | unchanged by cycle 13 |
+| MEM-02 | PATCHED (local checkout, PR #401) + runtime GT open() refusal (PR #402) | EVD-13-002 M8 | defence in depth inside the inference process |
+| MEM-03 | **code-level CLOSED for R1–R9 in strict mode (SIMULATION_VERIFIED)**; DB-role least privilege OPEN; cloud proof pending | EVD-13-002 M1–M9; INFERENCE-READ-PATH-AUDIT.md | RED on the #401 head: operator notes, draft feedback, approval and QA history, identity decisions open even in strict mode |
+| MEM-04 | **PATCHED (REPLAYED)** | EVD-13-001, EVD-13-002 B1–B6 | analysis/downstream reserve; budget-starved runs read INCOMPLETE / INCOMPLETE_QA (cold run replay) |
+| MEM-05 | BLOCKED (footage) | EVD-12-006 | unchanged |
+| MEM-06 | **GUARDED (TESTED)** | EVD-13-002 S1–S5 | 0 source-specific strings in 126 runtime files; numeric GT-tuned thresholds are not covered by the guard |
+| Runtime | **FAIL (measured)** | EVD-13-003 | cold 60.2 min (perception and render serial) vs about 30 min target |
+| Framing (contain, small subjects) | NEW DEFECT | EVD-13-004 | tandem reel: tiny subjects, another athlete dominant for about 13 s (withheld) |
+| PA-03 evidence | DOWNGRADED to UNCERTAIN | EVD-13-004 | reel-to-source time mapping not exact |
+| Budget | — | — | $2.481 spent of $4; $1.519 remaining; workflow cap 1.519 |

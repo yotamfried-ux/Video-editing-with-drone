@@ -63,7 +63,8 @@ class _Model:
 
     def generate_content(self, contents, request_options=None):
         from integrations import qualification
-        qualification.check_llm_budget()   # hard cap (SPORTREEL_LLM_BUDGET_USD); mandatory in qualification runs
+        # hard cap (SPORTREEL_LLM_BUDGET_USD), mandatory in qualification runs; analysis keeps the downstream reserve free
+        qualification.check_llm_budget(llm_cost.caller_label())
         client = _get_client()
         # Convert any _CompatFile wrappers back to real SDK File objects
         converted = []

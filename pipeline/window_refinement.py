@@ -150,6 +150,18 @@ def refine_event_window(
         if onset and onset["onset_sec"] < start - 0.05:
             measured["onset_motion_from_sec"] = onset["onset_sec"]
             measured["onset_motion_steps"] = onset["steps"]
+    # EXP-14-001: the recording opens on the actor already paddling/riding (camera-motion compensated), so the cut may
+    # start on the first recorded frame (complete_action_window_policy.extend_to_recording_start). Evidence only.
+    try:
+        from pipeline.action_onset import in_progress_from_recording_start
+        from pipeline.sport_profiles import profile_for_event
+        running = in_progress_from_recording_start(detections, track_id, start=start,
+                                                   policy=profile_for_event(event).onset)
+    except Exception:                           # evidence, never a reason to fail the window
+        running = None
+    if running:
+        measured["in_progress_from_recording_start"] = True
+        measured["in_progress_motion_steps"] = running["steps"]
     new_start, new_end = start, end
     reasons: list[str] = []
     if first - start > tolerance:

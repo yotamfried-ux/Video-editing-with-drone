@@ -3,8 +3,10 @@
 
 A green workflow says the pipeline ran; it does not say every athlete got a correct reel. This artifact states both:
 
-  execution_state = SUCCESS | FAILED          (the pipeline process exit code)
-  product_state   = PASS | PARTIAL | FAIL | BLOCKED
+  execution_state = SUCCESS | FAILED | INCOMPLETE   (exit code; INCOMPLETE when any model call was refused by the
+                                                      run's budget: work was skipped, the run must not read as done)
+  product_state   = PASS | PARTIAL | FAIL | BLOCKED | INCOMPLETE_QA
+                    (INCOMPLETE_QA: identity/QA calls were refused, so withheld reels are unjudged, not failures)
 
 PASS needs every eligible athlete verified publishable (each part's output qualification passes) and no athlete
 unaccounted for. PARTIAL: some verified, some withheld. FAIL: none verified. BLOCKED: the evidence needed to judge
@@ -76,14 +78,34 @@ def _source_limited(part: dict[str, Any]) -> bool:
     return noted and bool(blocking) and all(b.startswith(_SOURCE_LIMIT_ISSUES) for b in blocking)
 
 
-def build(manifest: Any, *, coverage: Any = None, gt_eval: Any = None, exit_code: int | None = None) -> dict[str, Any]:
+def _load_refusals(path: str | None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    if not path or not os.path.exists(path):
+        return rows
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            try:
+                rows.append(json.loads(line))
+            except ValueError:
+                continue
+    return rows
+
+
+def build(manifest: Any, *, coverage: Any = None, gt_eval: Any = None, exit_code: int | None = None,
+          refusals: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     execution = "SUCCESS" if exit_code == 0 else ("FAILED" if exit_code is not None else "UNKNOWN")
+    refused = {"analysis": 0, "downstream": 0}
+    for row in refusals or []:
+        refused[row.get("phase") if row.get("phase") in refused else "downstream"] += 1
+    if execution == "SUCCESS" and any(refused.values()):
+        execution = "INCOMPLETE"
     base = {
         "schema": SCHEMA,
         "pipeline_run_id": os.getenv("PIPELINE_RUN_ID") or (manifest.get("pipeline_run_id") if isinstance(manifest, dict) else None),
         "github_run_id": os.getenv("GITHUB_RUN_ID") or None,
         "commit_sha": os.getenv("SPORTREEL_COMMIT") or os.getenv("GITHUB_SHA") or None,
         "execution_state": execution,
+        "budget_refusals": refused,
     }
     if not isinstance(manifest, dict) or not isinstance(manifest.get("athletes"), list):
         return {**base, "product_state": "BLOCKED", "blocked_reason": "publishable manifest missing or unreadable",
@@ -145,6 +167,8 @@ def build(manifest: Any, *, coverage: Any = None, gt_eval: Any = None, exit_code
         product = "PARTIAL"
     else:
         product = "FAIL"
+    if refused["downstream"] and product in ("FAIL", "PARTIAL"):
+        product = "INCOMPLETE_QA"           # identity / QA never ran for some parts: not an accuracy verdict
     if isinstance(gt_eval, dict):
         gt = {"status": gt_eval.get("status"), "report_digest": gt_eval.get("report_digest"),
               "metrics": gt_eval.get("metrics"), "physical_rides": (gt_eval.get("physical_rides") or {}).get("summary")}
@@ -163,10 +187,12 @@ def main() -> int:
     parser.add_argument("--coverage")
     parser.add_argument("--gt-eval")
     parser.add_argument("--exit-code", type=int)
+    parser.add_argument("--budget-refusals", default=os.path.join(os.getenv("TMP_DIR", "/tmp/dtor"), "pipeline-debug",
+                                                                  "llm_budget_refusals.jsonl"))
     parser.add_argument("--record", action="store_true", help="merge the verdict into the pipeline_runs row meta")
     args = parser.parse_args()
     result = build(_load(args.manifest), coverage=_load(args.coverage), gt_eval=_load(args.gt_eval),
-                   exit_code=args.exit_code)
+                   exit_code=args.exit_code, refusals=_load_refusals(args.budget_refusals))
     Path(args.out).write_text(json.dumps(result, indent=2), encoding="utf-8")
     c = result.get("counts") or {}
     print(f"batch qualification: execution={result['execution_state']} product={result['product_state']} "

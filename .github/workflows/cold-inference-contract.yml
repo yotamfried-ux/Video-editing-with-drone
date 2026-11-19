@@ -1,0 +1,26 @@
+name: Cold Inference Isolation Contract
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/pipeline-run.yml'
+      - '.github/workflows/pipeline-qualification-run.yml'
+      - '.github/workflows/cold-inference-contract.yml'
+      - 'scripts/assert_cold_inference.py'
+      - 'scripts/test_cold_inference_contract.py'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/pipeline-run.yml'
+      - '.github/workflows/pipeline-qualification-run.yml'
+      - '.github/workflows/cold-inference-contract.yml'
+      - 'scripts/assert_cold_inference.py'
+      - 'scripts/test_cold_inference_contract.py'
+permissions:
+  contents: read
+jobs:
+  assert-cold-inference:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify no GT or prior-run memory in inference workflow
+        run: python3 scripts/test_cold_inference_contract.py
