@@ -62,6 +62,7 @@ on:
       - 'scripts/test_action_onset_contract.py'
       - 'scripts/test_in_progress_start_contract.py'
       - 'scripts/test_action_validity_contract.py'
+      - 'scripts/test_action_validity_media_integration.py'
       - 'pipeline/action_onset.py'
       - 'pipeline/draft_ledger.py'
       - 'pipeline/context_qa_gate.py'
@@ -380,6 +381,7 @@ jobs:
           python scripts/test_action_onset_contract.py
           python scripts/test_in_progress_start_contract.py
           python scripts/test_action_validity_contract.py
+          python scripts/test_action_validity_media_integration.py
           python scripts/test_draft_ledger_retry_contract.py
           python scripts/test_inference_memory_isolation_contract.py
           python scripts/test_no_source_specific_runtime_contract.py

@@ -23,7 +23,6 @@ plumbing with no production effect.
 """
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import re
@@ -53,8 +52,15 @@ def build_prompt(policy: Any, times: list[float]) -> str:
     )
 
 
-def parse_observations(raw: str, policy: Any) -> dict[str, Any] | None:
-    """Strict parse into {"frames": [(t, state, carried)], "confidence"}; None when incomplete or off-vocabulary."""
+TIME_TOLERANCE_SEC = 0.11   # crop labels are printed with one decimal
+
+
+def parse_observations(raw: str, policy: Any, expected_times: list[float] | None = None) -> dict[str, Any] | None:
+    """Strict parse into {"frames": [(t, state, carried)], "confidence"}; None when incomplete or off-vocabulary.
+
+    With `expected_times` (the sampled crop times) the answer must describe exactly those crops: one frame per
+    requested time, each within TIME_TOLERANCE_SEC - a skipped, invented or shifted frame invalidates the pass, so a
+    model that ignores part of the action (e.g. the ending) can never produce a verdict from it."""
     if not raw:
         return None
     m = re.search(r"\{.*\}", raw, re.S)
@@ -78,6 +84,10 @@ def parse_observations(raw: str, policy: Any) -> dict[str, Any] | None:
     if len(frames) < 3 or conf not in {"high", "medium", "low"}:
         return None
     frames.sort()
+    if expected_times is not None:
+        want = sorted(float(t) for t in expected_times)
+        if len(want) != len(frames) or any(abs(f[0] - w) > TIME_TOLERANCE_SEC for f, w in zip(frames, want)):
+            return None
     return {"frames": frames, "confidence": conf}
 
 
@@ -113,18 +123,16 @@ def decide(passes: Iterable[dict[str, Any] | None], policy: Any) -> dict[str, An
         return {"verdict": UNCERTAIN, "basis": "missing_or_unparsable_observation", "passes": summaries}
     need = float(policy.min_established_sec)
     established = [s["established_sec"] >= need for s in summaries]
-    if all(established):
+    # VALID needs >= 2 independent passes that agree, none of them low-confidence: a doubtful observation can delay a
+    # reel (review), never qualify one.
+    if all(established) and len(summaries) >= 2 and all(s["confidence"] in {"high", "medium"} for s in summaries):
         return {"verdict": VALID, "basis": "established_action_in_every_pass", "passes": summaries}
+    if all(established):
+        return {"verdict": UNCERTAIN, "basis": "established_but_single_pass_or_low_confidence", "passes": summaries}
     if not any(established) and len(summaries) >= 2 and all(
             s["confidence"] == "high" and s["established_sec"] < need / 2 for s in summaries):
         return {"verdict": INVALID, "basis": "action_never_established_in_any_pass", "passes": summaries}
     return {"verdict": UNCERTAIN, "basis": "passes_disagree_or_low_confidence", "passes": summaries}
-
-
-def cache_key(media: bytes, model: str, pass_index: int) -> str:
-    """Within-run de-duplication only (same clip asked twice in one run); never persisted across runs."""
-    return hashlib.sha256(b"|".join([hashlib.sha256(media).hexdigest().encode(), PROMPT_VERSION.encode(),
-                                     model.encode(), str(pass_index).encode()])).hexdigest()
 
 
 def verify(grids: list[tuple[bytes, list[float]]], ask: Callable[[bytes, str], str], policy: Any) -> dict[str, Any]:
@@ -135,7 +143,7 @@ def verify(grids: list[tuple[bytes, list[float]]], ask: Callable[[bytes, str], s
             raw = ask(image, build_prompt(policy, times))
         except Exception:                      # an outage is an UNCERTAIN observation, never a VALID one
             raw = ""
-        passes.append(parse_observations(raw, policy))
+        passes.append(parse_observations(raw, policy, expected_times=times))
     return {"prompt_version": PROMPT_VERSION, **decide(passes, policy)}
 
 

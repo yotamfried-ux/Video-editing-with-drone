@@ -21,6 +21,12 @@ Policy
       unobserved surf shot is no longer VALID (action_validity_not_observed)
   V14 profile without a validity policy (football) -> VALID by policy absence, never INVALID
   V15 negative control: a standing-only rule would reject V4/V5 (the test can tell the difference)
+Cycle 14b (owner review of PR #402)
+  V16 low confidence can never be VALID: both passes low / one low + one high / medium + low -> UNCERTAIN,
+      even when every pass shows a long established ride
+  V17 a single pass is never VALID (VALID needs >= 2 agreeing passes)
+  V18 timestamp coverage: an answer for different, missing or extra crop times than requested is unparsable
+  V19 negative control: the previous rule (VALID whenever every pass is established) would have passed V16
 """
 from __future__ import annotations
 
@@ -120,6 +126,24 @@ def main():
         return any(s == "standing_riding" for _, s, _ in obs["frames"])
     check(not standing_only(PRONE) and not standing_only(KNEEL), "V15 negative control: a standing-only rule would reject "
                                                                  "the valid prone and kneeling rides that V4/V5 accept")
+    lowp, medp = answer([("paddling", False, 1.0), ("prone_riding", True, 5.0)], conf="low"), \
+        answer([("paddling", False, 1.0), ("prone_riding", True, 5.0)], conf="medium")
+    combos = {"low+low": [lowp, lowp], "low+high": [lowp, PRONE], "medium+low": [medp, lowp]}
+    got = {k: run(v)["verdict"] for k, v in combos.items()}
+    check(all(v == av.UNCERTAIN for v in got.values()), f"V16 low confidence never VALID: {got}")
+    check(run([medp, PRONE])["verdict"] == av.VALID, "V16 medium + high established may be VALID (control)")
+    check(run([PRONE])["verdict"] == av.UNCERTAIN, "V17 a single established pass is not VALID")
+    obs = json.loads(PRONE)
+    times = [f["t"] for f in obs["frames"]]
+    shifted = [t + 0.5 for t in times]
+    check(av.parse_observations(PRONE, SURF, expected_times=times) is not None
+          and av.parse_observations(PRONE, SURF, expected_times=shifted) is None
+          and av.parse_observations(PRONE, SURF, expected_times=times + [times[-1] + 0.5]) is None
+          and av.parse_observations(PRONE, SURF, expected_times=times[:-1]) is None,
+          "V18 the answer must cover exactly the requested crop times")
+    summaries = [{"established_sec": 5.0, "confidence": "low"}] * 2
+    check(all(s["established_sec"] >= SURF.min_established_sec for s in summaries),
+          "V19 negative control: the pre-14b rule (all passes established) would have returned VALID for V16")
     print(f"{len(FAILS)} failing")
     return 1 if FAILS else 0
 
