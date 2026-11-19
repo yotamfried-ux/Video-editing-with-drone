@@ -70,6 +70,9 @@ def load_decisions(path: str | Path | None = None) -> dict[str, dict[str, Any]]:
     A file marked ``"qualification_only": true`` (working decisions for isolated experiments) is ignored outside a
     qualification run, so it can never change production identity decisions.
     """
+    from pipeline import inference_memory_policy as _memory
+    if _memory.closed("identity_decisions"):
+        return {}                      # strict cold inference: no manual identity decision reaches inference
     target = Path(path or os.getenv(DECISIONS_ENV) or DEFAULT_DECISIONS)
     try:
         raw = json.loads(target.read_text(encoding="utf-8"))
