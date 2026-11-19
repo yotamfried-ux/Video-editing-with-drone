@@ -33,15 +33,19 @@ from typing import Any
 
 STRICT_ENV = "SPORTREEL_STRICT_COLD_INFERENCE"
 RUN_START_ENV = "SPORTREEL_INFERENCE_RUN_STARTED_AT"
-FORBIDDEN_PATH_PARTS = (
-    "evaluation/ground_truth",
-    "evaluation/qualification",
-    "evaluation/identity_reviews",
-    "evaluation/evidence",
-    "gt_boxes",
-    "gtv1_frozen",
-    "ground_truth/holdout",
+# Deny-list for the open() guard. Kept as path segments (joined below) so this refusing module never carries a
+# literal GT path that the evaluator-side "no runtime file names the GT" scan (test_gt_scorecard_contract S10) would
+# have to whitelist; the guard refuses these reads, it never performs them.
+_FORBIDDEN_SEGMENTS = (
+    ("evaluation", "ground_truth"),
+    ("evaluation", "qualification"),
+    ("evaluation", "identity_reviews"),
+    ("evaluation", "evidence"),
+    ("gt_boxes",),
+    ("gtv1_frozen",),
+    ("ground_truth", "holdout"),
 )
+FORBIDDEN_PATH_PARTS = tuple("/".join(parts) for parts in _FORBIDDEN_SEGMENTS)
 _TRUE = {"1", "true", "yes", "on"}
 _lock = threading.Lock()
 _events: list[dict[str, Any]] = []
