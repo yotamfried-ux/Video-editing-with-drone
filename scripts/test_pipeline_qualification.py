@@ -88,6 +88,24 @@ def main() -> None:
     assert_fails_with(bad, "FINAL_QA_EVIDENCE")
     assert_fails_with(bad, "PUBLISHABILITY_FAIL_CLOSED")
 
+    # A model QA PASS can be safely withheld by a later identity/actor gate.
+    withheld = copy.deepcopy(good)
+    part = withheld["publishable_reel_manifest.json"]["athletes"][0]["parts"][0]
+    part.update(qa_verdict="PASS", qa_evidence_recorded=True, qa_passed=False,
+                qa_gate_block_reasons=["IDENTITY_UNCONFIRMED"], publishable=False)
+    withheld_report = audit(withheld)
+    assert "FINAL_QA_EVIDENCE" not in withheld_report["failed_checks"], withheld_report
+
+    # But a QA PASS with no reason for effective failure is inconsistent.
+    inconsistent = copy.deepcopy(good)
+    inconsistent["publishable_reel_manifest.json"]["athletes"][0]["parts"][0]["qa_passed"] = False
+    assert_fails_with(inconsistent, "FINAL_QA_EVIDENCE")
+
+    # No blocked part may be publishable even if the model QA verdict says PASS.
+    wrongly_published = copy.deepcopy(withheld)
+    wrongly_published["publishable_reel_manifest.json"]["athletes"][0]["parts"][0]["publishable"] = True
+    assert_fails_with(wrongly_published, "PUBLISHABILITY_FAIL_CLOSED")
+
     bad = copy.deepcopy(good)
     bad["athlete_coverage_report.json"]["summary"].update(
         athlete_accountability_rate=0.74, coverage_gap_cluster_count=19)
