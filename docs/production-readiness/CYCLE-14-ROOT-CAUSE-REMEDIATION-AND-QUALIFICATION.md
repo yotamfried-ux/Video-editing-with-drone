@@ -237,3 +237,90 @@ The roughly 30-minute target is not met cold on 4 vCPU. The next step is a large
 - FIX-PQ-14-001 and FIX-PQ-14-003 are scoped, replay-verified improvements, eligible for merge after a rendered cold
   run.
 - FIX-PQ-14-002 stays gated off.
+
+## 9. Cycle 14b — owner review of PR #402 (2026-11-19)
+
+### 9.1 Owner findings, each verified and fixed
+
+| # | Finding | Verified | Fix | Evidence |
+|---|---|---|---|---|
+| 1 | `action_validity.verify()` never called from production | yes: no caller anywhere | Called from `publishable_reel_policy._qualification_inputs` for every final shot, through `action_validity_runtime.observe_event`. That function cuts target crops from the real video, labels them with their times, makes a budget-checked model call and records the result on the event. Loaded only when `SPORTREEL_ACTION_VALIDITY` is on. | `test_action_validity_media_integration.py`, 12/12: a real ffmpeg MP4 plus sidecar go through the production loader, `_qualification_inputs` and `record_athlete_outcome`. RED without the hook: 0 calls, no observation. |
+| 2 | Low confidence could still give VALID | yes: old `decide()` returned VALID for low+low, low+high and medium+low | VALID needs at least 2 agreeing passes, none low-confidence. A single pass is never VALID. | V16–V19; RED on the old `decide()` |
+| 3 | 12 crops at 0.5 s from the start could miss the action | yes | Each of two interleaved passes spans the full final window, both edges included, up to 16 crops each. Before any call, the stitched target must be present in ≥ 75 % of samples and at both take-off and ending; otherwise UNCERTAIN with no call. The answer must cover exactly the requested times. | R2, R5–R8 (incl. a wrong-target negative control); V18 |
+
+### 9.2 Editorial policies (evaluation plane; approved GT not edited)
+
+- **0094 frame-by-frame identity.** Checked on real R2 frames every 0.5 s from 11.5 to 24.5 s, with sidecar tracks
+  drawn.
+  - Track 37, the 88 s reel's crop, is rider 9524ac02 in every frame. The GT-box audit agrees: 195 of 203 frames, 0
+    identity switches.
+  - He rides standing through whitewater to about 15.0 s, kneels on the carried board 15.5–18.5 s, stands again
+    19.0–21.5 s and goes down at about 22.0 s.
+  - The GT's second athlete from 16.85 s is a different person (track 154, pink top, green bodyboard).
+  - Proposed end of rider A's ride: about 21.5–22.0 s. The pipeline cut at 22.5 s. Filed as ADJ-14-002.
+  - The 88 s reel is "mixed" only by time overlap; its pixels show one athlete.
+- **0108.** The tail is genuine standing riding. The pipeline preserves it, consistent with policy. The conflicting GT
+  label is filed for independent adjudication as ADJ-14-001.
+- **0095.** A genuine ride by an uncatalogued rider (POL-14-001).
+  - Evaluation side: reported as `uncatalogued_rider`; the published 0095 reel is flagged as a policy violation.
+  - Inference side: **BLOCKED.** Inference has no permitted, video-independent signal that a rider is "uncatalogued".
+    Athlete registries and follow lists are historical identity data and forbidden in inference. Withholding every
+    single-source reel would withhold correct reels.
+  - Needed: a permitted current-run input, such as the session's declared athletes, supplied with the upload.
+- **`scripts/gt_adjudicated_view.py`** (reference run). The approved-GT metrics stay unchanged, with this breakdown
+  next to them:
+
+  | Excluded frames | Item | Status |
+  |---:|---|---|
+  | 476 | 0155 | Unadjudicated |
+  | 144 | 0108 | ADJ-14-001 |
+  | 379 | 0095 | POL-14-001 |
+
+  - Mixed reels by pixel: 1 (0143+0152, a real wrong merge), against 2 by time overlap.
+
+### 9.3 Strict no-memory database role (BLK-14-002)
+
+`supabase/migrations/20261119_inference_role.sql` (prepared, **not applied**) creates role `sportreel_inference`:
+- It gets exactly the tables inference writes for its own run.
+- `draft_feedback` and `reprocess_requests` are explicitly revoked.
+- It has no `ground_truth` and no delivery tables.
+
+Supporting changes:
+- Strict runs use `SUPABASE_INFERENCE_KEY` when set. Otherwise the isolation report records
+  `service_role_fallback_not_isolated`.
+- Under the inference key, the reprocess stage is skipped inside inference and must move to a separate pre-step.
+- Contract D1–D6, including a negative control.
+
+The SQL has not been executed against a database. Applying it and issuing the key are owner actions.
+
+### 9.4 Free regression and integration tests
+
+- **Local sweep:** 225 `scripts/test_*.py`; 215 pass. The 10 failures fail identically on `main` 90fa08e1 and are
+  environment-only (no ultralytics, OpenCV or R2 secrets in this container): background_upload, p0_02,
+  perception_contract, real_yolo_tracking, production_upload_api_smoke, raw_permanence_e2e, raw_recovery,
+  real_r2_conditional_copy, real_r2_multipart_upload, single_decode_perception.
+- **Without PYTHONPATH, as CI runs:** all 90 tests of `performance-reel-contract` and `cost-time-optimizations-check`
+  pass, except single_decode_perception (OpenCV).
+- **CI regression found and fixed:** `test_publishable_reel_concurrency_contract` hit a module path-load error caused
+  by this cycle's hook. Fixed in 6f341495.
+
+### 9.5 Budget (measured) and full-run estimate
+
+- **Remaining:** $1.519, per the registry ledger. No paid call has been made since cycle 13; this cycle's spend is
+  $0.000.
+- **EXP-14-002:** estimated ≈ $0.30 (54 calls), hard cap $0.40. **Awaiting owner approval.**
+- **Strict cold run, all 24 sources** (list-price, from recorded tokens):
+
+  | Component | Estimate | Basis |
+  |---|---:|---|
+  | Analysis | ≈ $1.29 | cold run: $0.750 for 14 sources, i.e. $0.054 per source |
+  | QA and identity cluster check | ≈ $0.21 | warm run 44388634790 |
+  | Pairwise identity checks (now actually run, FIX-PQ-14-003) | ≈ $0.20 | ~23 pairs × 2 orders |
+  | Singleton merge pass | ≈ $0.19 | EXP-08-002 |
+  | Action validity, if enabled | ≈ $0.28 | 25 shots × 2 passes |
+  | **Total, with action validity** | **≈ $2.17** | |
+  | **Total, without action validity** | **≈ $1.89** | |
+
+- **Proposed cap for the cold run:** $2.30, with a $0.90 downstream reserve.
+- **After EXP-14-002**, about $1.12–1.22 would remain. Running the full cold run would therefore need **additional
+  authorization of ≈ $1.10**, or deferring action validity (≈ $0.80 more).
