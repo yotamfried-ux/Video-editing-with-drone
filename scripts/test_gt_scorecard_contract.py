@@ -12,6 +12,7 @@ S8  A published correct reel with a FULL ride recalls it; a withheld one does no
 S9  Two athletes in one reel => mixed; one athlete in two reels => split.
 S10 Inference never reads the GT (no pipeline/, integrations/ or stages/ file names evaluation/ground_truth).
 S11 The frozen GT is the owner's v1: 24 sources, 13 athletes (unchanged, read-only).
+S12 An absolute release gate vetoes existing P0 defects even if baseline comparison is green.
 """
 from __future__ import annotations
 
@@ -147,7 +148,34 @@ def s11():
     check(data.get("digest") == "b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9", "S11 GT digest changed")
 
 
-for case in (s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11):
+def s12():
+    """S12: absolute release gate refuses unchanged P0 defects despite a green baseline diff."""
+    g = run(gt(excludes=()), [(True, [("s1", 0, sec(600))])])["metrics"]
+    failures, errors = sc.absolute_release_gate(g)
+    check(not failures and not errors, f"S12 clean known cohort: {failures}, {errors}")
+    for key in ("excluded_frames_selected", "nonride_windows", "duplicate_ride_frames",
+                "mixed_reels", "split_athletes", "published_wrong_identity",
+                "published_nonride", "wrong_actor_reels", "blocked_windows",
+                "unknown_source_windows", "boundary_over_tolerance", "correct_reels_withheld"):
+        bad = dict(g, **{key: 1})
+        failures, errors = sc.absolute_release_gate(bad)
+        check(bool(failures) and not errors, f"S12 must veto {key}=1")
+    for key in ("gt_rides", "rides_full_selected", "rides_recalled_published_full",
+                "boundary_max_error_sec", "excluded_frames_selected"):
+        bad = dict(g)
+        del bad[key]
+        failures, errors = sc.absolute_release_gate(bad)
+        check(bool(errors), f"S12 missing {key} must fail closed")
+    bad = dict(g, rides_full_selected=0)
+    check(bool(sc.absolute_release_gate(bad)[0]), "S12 incomplete ride veto")
+    bad = dict(g, boundary_max_error_sec=0.6)
+    check(bool(sc.absolute_release_gate(bad)[0]), "S12 late/early cut veto")
+    # A no-change baseline comparison is not an absolute release approval.
+    bad = dict(g, excluded_frames_selected=1)
+    check(sc.compare(bad, bad) == ([], []) and bool(sc.absolute_release_gate(bad)[0]),
+          "S12 no-regression cannot certify existing excluded footage")
+
+for case in (s1, s2, s3, s4, s5, s6, s7, s8, s9, s10, s11, s12):
     try:
         case()
     except Exception as exc:  # a crash is a failure, never a pass
