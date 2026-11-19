@@ -99,7 +99,9 @@ jobs:
 
         assert 0.0 <= budget <= 2.273, f"budget {budget} outside the authorised remainder (USD 4 total - 1.727 spent through q12-paid-01)"
 
-        print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}"); print(f"budget={budget}")
+        reserve = float(c.get("llm_downstream_reserve_usd", 0) or 0); assert 0.0 <= reserve <= max(budget, 0.0), reserve
+
+        print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}"); print(f"budget={budget}"); print(f"reserve={reserve}")
 
         PY
 
@@ -186,6 +188,8 @@ jobs:
         SPORTREEL_QUALIFICATION_RUN_ID: ${{ steps.cfg.outputs.run_id }}
         STORAGE_BACKEND: r2
         SPORTREEL_LLM_BUDGET_USD: ${{ steps.cfg.outputs.budget }}
+        # MEM-04: analysis stops at budget - reserve so identity verification and final QA keep their share
+        SPORTREEL_LLM_DOWNSTREAM_RESERVE_USD: ${{ steps.cfg.outputs.reserve }}
         # No historical owner decisions are injected during a cold qualification run.
         SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''
       run: bash scripts/run_pipeline_with_diagnostics.sh

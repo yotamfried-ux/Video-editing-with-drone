@@ -249,18 +249,57 @@ def _recorded_spend() -> float:
     return total
 
 
-def check_llm_budget() -> None:
-    """Called before every model call. A qualification run without a budget is refused outright."""
+# MEM-04: analysis may not starve identity verification and final QA. Calls are classed by the calling step.
+ANALYSIS_LABEL_PREFIXES = ("analyzer._gemini_call_session", "analyzer.analyze_", "analyzer._analyze_chunk",
+                           "missed_moment_rescue.")
+
+
+def budget_phase(label: str | None) -> str:
+    """'analysis' for per-source analysis calls, 'downstream' for identity, source-evidence and QA calls."""
+    return "analysis" if str(label or "").startswith(ANALYSIS_LABEL_PREFIXES) else "downstream"
+
+
+def downstream_reserve_usd() -> float:
+    try:
+        return max(0.0, float(os.getenv("SPORTREEL_LLM_DOWNSTREAM_RESERVE_USD", "0") or 0))
+    except ValueError:
+        raise LlmBudgetExceeded("invalid SPORTREEL_LLM_DOWNSTREAM_RESERVE_USD")
+
+
+def refusals_path() -> str:
+    return os.path.join(_debug_dir(), "llm_budget_refusals.jsonl")
+
+
+def _record_refusal(**row: Any) -> None:
+    try:
+        os.makedirs(_debug_dir(), exist_ok=True)
+        with _lock, open(refusals_path(), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps({"at": time.time(), **row}) + "\n")
+    except OSError:
+        pass
+
+
+def check_llm_budget(label: str | None = None) -> None:
+    """Called before every model call. A qualification run without a budget is refused outright.
+
+    With SPORTREEL_LLM_DOWNSTREAM_RESERVE_USD set, analysis calls stop at (cap - reserve) so identity verification
+    and final QA keep their share; downstream calls may use the full cap. Every refusal is recorded in
+    pipeline-debug/llm_budget_refusals.jsonl so the batch verdict reports the run as INCOMPLETE, never SUCCESS.
+    """
     cap = llm_budget_usd()
     if cap is None:
         if active():
             raise LlmBudgetExceeded("qualification runs require SPORTREEL_LLM_BUDGET_USD")
         return
     spent = _recorded_spend()
-    if spent + LLM_CALL_RESERVE_USD > cap:
+    phase = budget_phase(label)
+    limit = cap - downstream_reserve_usd() if phase == "analysis" else cap
+    if spent + LLM_CALL_RESERVE_USD > limit:
+        _record_refusal(phase=phase, label=label, spent_usd=round(spent, 4), cap_usd=cap, limit_usd=round(limit, 4))
         if active():
-            record("llm_budget_exceeded", spent_usd=round(spent, 4), cap_usd=cap)
-        raise LlmBudgetExceeded(f"LLM budget reached: spent ${spent:.4f} + reserve ${LLM_CALL_RESERVE_USD} > cap ${cap}")
+            record("llm_budget_exceeded", spent_usd=round(spent, 4), cap_usd=cap, phase=phase, label=label)
+        raise LlmBudgetExceeded(f"LLM budget reached ({phase}): spent ${spent:.4f} + reserve ${LLM_CALL_RESERVE_USD} "
+                                f"> limit ${limit:.4f} (cap ${cap})")
 
 
 # ------------------------------------------------------------------------------------------------ fault injection

@@ -70,6 +70,10 @@ on:
       - 'pipeline/perception/runtime.py'
       - 'pipeline/bootstrap.py'
       - 'scripts/test_inference_memory_isolation_contract.py'
+      - 'scripts/test_no_source_specific_runtime_contract.py'
+      - 'scripts/test_llm_budget_phases_contract.py'
+      - 'pipeline/**'
+      - 'integrations/**'
       - 'scripts/test_identity_working_decisions_contract.py'
       - 'scripts/test_uncatalogued_person_policy_contract.py'
       - 'scripts/holdout_qualification.py'
@@ -372,6 +376,8 @@ jobs:
           python scripts/test_action_onset_contract.py
           python scripts/test_draft_ledger_retry_contract.py
           python scripts/test_inference_memory_isolation_contract.py
+          python scripts/test_no_source_specific_runtime_contract.py
+          python scripts/test_llm_budget_phases_contract.py
           python scripts/test_identity_working_decisions_contract.py
           python scripts/test_uncatalogued_person_policy_contract.py
           python scripts/test_holdout_qualification_contract.py
