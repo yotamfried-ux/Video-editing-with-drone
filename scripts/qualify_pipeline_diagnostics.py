@@ -123,17 +123,36 @@ def evaluate(source: Path, *, run_id: str = "unknown") -> dict[str, Any]:
                     "missing_count": len(missing_drafts), "extra_count": len(extras),
                     "missing_names": missing_drafts})
 
+    def qa_evidence_consistent(part: dict[str, Any]) -> bool:
+        """Model QA verdict and effective safety gate are different decisions.
+
+        A model can return PASS while a later identity/actor gate correctly
+        withholds the reel. Preserve that evidence instead of misreporting it
+        as missing QA; never permit such a blocked part to become publishable.
+        """
+        verdict = part.get("qa_verdict")
+        effective = part.get("qa_passed")
+        reasons = part.get("qa_gate_block_reasons") or []
+        if part.get("qa_evidence_recorded") is not True or verdict not in ("PASS", "FAIL"):
+            return False
+        if not isinstance(effective, bool):
+            return False
+        if verdict == "FAIL":
+            return effective is False
+        if effective is True:
+            return not reasons
+        return bool(reasons) and part.get("publishable") is not True
+
     bad_qa = [p.get("review_draft_name") or p.get("local_file_name") for p in parts
-              if not (p.get("qa_evidence_recorded") is True and
-                      p.get("qa_verdict") in ("PASS", "FAIL") and
-                      p.get("qa_passed") is (p.get("qa_verdict") == "PASS"))]
+              if not qa_evidence_consistent(p)]
     check("FINAL_QA_EVIDENCE", bool(parts) and not bad_qa,
           "Every final manifest part must carry explicit final QA verdict; FAIL is valid evidence but not publishable",
           observed={"parts": len(parts), "missing_or_invalid": len(bad_qa)})
 
     publishable = [p for p in parts if p.get("publishable") is True]
     unsafe = [p.get("review_draft_name") or p.get("local_file_name") for p in publishable
-              if p.get("qa_verdict") != "PASS" or p.get("qa_evidence_recorded") is not True]
+              if (p.get("qa_verdict") != "PASS" or p.get("qa_evidence_recorded") is not True
+                  or p.get("qa_passed") is not True or bool(p.get("qa_gate_block_reasons")))]
     check("PUBLISHABILITY_FAIL_CLOSED", not unsafe,
           "No publishable part may lack explicit QA PASS evidence", observed={"unsafe_count": len(unsafe)})
 
