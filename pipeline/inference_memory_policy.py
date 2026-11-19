@@ -131,6 +131,22 @@ def install_guard() -> bool:
     return True
 
 
+def database_key(service_key: str, inference_key: str = "") -> str:
+    """The Supabase key this process should use. Strict inference prefers the least-privilege inference key (database
+    refuses draft_feedback / reprocess_requests / ground_truth); without one it falls back to the service key and
+    records that database-level isolation is NOT in effect, so the isolation report cannot overstate it."""
+    if strict() and inference_key:
+        record("database_role", "least_privilege_inference_key")
+        return inference_key
+    if strict():
+        record("database_role", "service_role_fallback_not_isolated")
+    return service_key
+
+
+def using_inference_key(inference_key: str = "") -> bool:
+    return strict() and bool(inference_key)
+
+
 def report() -> dict[str, Any]:
     evs = events()
     return {
@@ -141,6 +157,7 @@ def report() -> dict[str, Any]:
         "channels_closed": sorted({e["channel"] for e in evs if e["action"] == "closed"}),
         "open_refused": [e.get("path") for e in evs if e["action"] == "open_refused"],
         "prior_sidecars_rejected": [e.get("path") for e in evs if e["action"] == "rejected"],
+        "database_role": next((e["action"] for e in reversed(evs) if e["channel"] == "database_role"), None),
         "events": evs[-500:],
         "scope": "inference-process evidence only; external R2/Supabase read paths are audited in "
                  "docs/production-readiness/INFERENCE-READ-PATH-AUDIT.md",

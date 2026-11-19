@@ -79,6 +79,9 @@ ATHLETE_TEXT_OVERLAY: bool = os.getenv("ATHLETE_TEXT_OVERLAY", "false").lower() 
 # ── SportReel platform (Supabase + Cloudflare Stream) ────────────────────────
 SUPABASE_URL: str              = os.getenv("SUPABASE_URL", "")
 SUPABASE_SERVICE_KEY: str      = os.getenv("SUPABASE_SERVICE_KEY", "")
+# Least-privilege key for strict inference (role sportreel_inference, supabase/migrations/20261119_inference_role.sql):
+# no access to draft_feedback / reprocess_requests / ground_truth. Used instead of the service key when set.
+SUPABASE_INFERENCE_KEY: str    = os.getenv("SUPABASE_INFERENCE_KEY", "")
 CLOUDFLARE_ACCOUNT_ID: str     = os.getenv("CLOUDFLARE_ACCOUNT_ID", "")
 CLOUDFLARE_STREAM_API_TOKEN: str = os.getenv("CLOUDFLARE_STREAM_API_TOKEN", "")
 CLOUDFLARE_CUSTOMER_CODE: str  = os.getenv("CLOUDFLARE_CUSTOMER_CODE", "")

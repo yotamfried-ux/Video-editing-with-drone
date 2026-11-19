@@ -449,6 +449,13 @@ def _handle_reprocess_requests() -> list[str]:
         # Operator reprocess requests belong to production: a qualification run never reads, claims or acts on them.
         qualification.record("reprocess_stage_skipped")
         return []
+    import config as _config
+    from pipeline import inference_memory_policy as _memory
+    if _memory.using_inference_key(getattr(_config, "SUPABASE_INFERENCE_KEY", "")):
+        # The least-privilege inference role cannot read reprocess_requests (it carries operator notes about these
+        # videos); requests are resolved by a separate pre-step with the service key, never inside inference.
+        _memory.record("reprocess_requests", "stage_skipped_inference_role")
+        return []
     try:
         from integrations.supabase_uploader import (claim_reprocess,
                                                     fetch_pending_reprocess,

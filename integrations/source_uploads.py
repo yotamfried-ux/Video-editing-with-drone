@@ -11,10 +11,16 @@ import config
 _client: Client | None = None
 
 
+
+def _database_key() -> str:
+    """Strict inference uses the least-privilege inference key when configured (pipeline.inference_memory_policy)."""
+    from pipeline import inference_memory_policy
+    return inference_memory_policy.database_key(config.SUPABASE_SERVICE_KEY, getattr(config, "SUPABASE_INFERENCE_KEY", ""))
+
 def _supabase() -> Client:
     global _client
     if _client is None:
-        _client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_KEY)
+        _client = create_client(config.SUPABASE_URL, _database_key())
     from integrations import qualification
     return qualification.guard_supabase(_client)   # qualification runs: reads only, writes go to the ledger
 
