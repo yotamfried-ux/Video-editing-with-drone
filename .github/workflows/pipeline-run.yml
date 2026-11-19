@@ -316,7 +316,7 @@ jobs:
           path: ~/.cache/sportreel/openvino
           key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
 
-      - name: Enforce cold inference: deny prior AI memory and GT access
+      - name: 'Enforce cold inference: deny prior AI memory and GT access'
         # Deletes ONLY evaluation fixtures from this temporary checkout and local
         # runner caches. Never deletes source media, Review drafts or R2 objects.
         run: python scripts/assert_cold_inference.py --prepare
