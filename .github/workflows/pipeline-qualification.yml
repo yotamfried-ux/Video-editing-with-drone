@@ -64,7 +64,7 @@ jobs:
           exit "$failed"
 
   audit-completed-run:
-    if: ${{ github.event_name == 'workflow_dispatch' && inputs.diagnostics_run_id != '' }}
+    if: ${{ (github.event_name == 'workflow_dispatch' && inputs.diagnostics_run_id != '') || github.event_name == 'pull_request' }}
     needs: pipeline-contracts
     runs-on: ubuntu-latest
     timeout-minutes: 7
@@ -73,22 +73,22 @@ jobs:
       - name: Download completed pipeline diagnostic artifact (read-only)
         uses: actions/download-artifact@v4
         with:
-          name: pipeline-diagnostics-${{ inputs.diagnostics_run_id }}
-          run-id: ${{ inputs.diagnostics_run_id }}
+          name: pipeline-diagnostics-${{ inputs.diagnostics_run_id || '44388634790' }}
+          run-id: ${{ inputs.diagnostics_run_id || '44388634790' }}
           github-token: ${{ github.token }}
           path: ./diagnostics
       - name: Evaluate entire pipeline evidence chain
         id: audit
         run: |
           python scripts/qualify_pipeline_diagnostics.py ./diagnostics \
-            --run-id '${{ inputs.diagnostics_run_id }}' \
+            --run-id '${{ inputs.diagnostics_run_id || '44388634790' }}' \
             --out ./qualification-output/qualification-report.json \
             --markdown ./qualification-output/qualification-report.md
       - name: Preserve offline qualification reports even on failure
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: pipeline-qualification-${{ inputs.diagnostics_run_id }}
+          name: pipeline-qualification-${{ inputs.diagnostics_run_id || '44388634790' }}
           path: qualification-output/
           if-no-files-found: warn
           retention-days: 30
