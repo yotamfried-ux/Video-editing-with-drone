@@ -320,6 +320,10 @@ def _resolve_model_appearance(app: dict, clip_analyses: list[dict]) -> dict | No
         "events": person["events"],
         "description": person.get("description", "unknown athlete"),
         "thumbnail": person.get("thumbnail", "") or "",
+        # FIX-PQ-14-003: the model-clustering path must carry the sheet size like _person_entries does. Without it every
+        # model-clustered appearance read as 0 crops, so identity_pair_consensus (MIN_SHEET_CROPS) sent EVERY multi-source
+        # cluster to REVIEW without any visual check (runs q10p..44388634790: 5/5 clusters, real 6-crop sheets).
+        "sheet_crops": _sheet_crops_of(person),
         "key": _identity_key(idx, pid, ca.get("path", "")),
     }
 
