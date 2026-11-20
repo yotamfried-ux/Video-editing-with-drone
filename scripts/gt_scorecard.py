@@ -315,11 +315,46 @@ def compare(metrics: dict[str, Any], baseline: dict[str, Any]) -> tuple[list[str
     return regressions, errors
 
 
+def absolute_release_gate(metrics: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """Post-inference GT release gate: absolute P0 targets, never baseline-only comparison.
+
+    Evaluation-side only. A clean metric gate is NOT a blind-holdout, media,
+    isolation or production qualification certificate. Returns (failures, errors).
+    """
+    zero_keys = (
+        "excluded_frames_selected", "nonride_windows", "duplicate_ride_frames",
+        "mixed_reels", "split_athletes", "published_wrong_identity",
+        "published_nonride", "wrong_actor_reels", "blocked_windows",
+        "unknown_source_windows", "boundary_over_tolerance",
+        "correct_reels_withheld",
+    )
+    required = ("gt_rides", "rides_full_selected", "rides_recalled_published_full",
+                "boundary_max_error_sec", *zero_keys)
+    errors: list[str] = []
+    for key in required:
+        value = metrics.get(key)
+        if type(value) not in (int, float) or not math.isfinite(value) or value < 0:
+            errors.append(f"{key}: missing, invalid or negative: {value!r}")
+    if errors:
+        return [], errors
+    failures = [f"{key}: expected 0, got {metrics[key]}" for key in zero_keys if metrics[key] != 0]
+    total = metrics["gt_rides"]
+    if total <= 0:
+        errors.append("gt_rides: must contain at least one fully adjudicated ride")
+    for key in ("rides_full_selected", "rides_recalled_published_full"):
+        if metrics[key] != total:
+            failures.append(f"{key}: expected {total} of {total}, got {metrics[key]}")
+    if metrics["boundary_max_error_sec"] > BOUNDARY_TOLERANCE_SEC:
+        failures.append(f"boundary_max_error_sec: {metrics['boundary_max_error_sec']} > {BOUNDARY_TOLERANCE_SEC}")
+    return failures, errors
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--diagnostics", required=True, type=Path)
     ap.add_argument("--gt", type=Path, default=DEFAULT_GT)
     ap.add_argument("--baseline", type=Path)
+    ap.add_argument("--absolute-release-gate", action="store_true",
+                    help="post-run P0 metric veto (not a production certification)")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args(argv)
     try:
@@ -336,6 +371,18 @@ def main(argv: list[str] | None = None) -> int:
         reg, err = compare(report["metrics"], base.get("metrics") or {})
         report["regressions"], report["errors"] = reg, err
         code = 2 if err else (1 if reg else 0)
+    if args.absolute_release_gate:
+        failures, errors = absolute_release_gate(report["metrics"])
+        report["absolute_release_gate"] = {
+            "verdict": "BLOCKED" if failures or errors else "METRIC_GATE_PASS",
+            "failures": failures, "errors": errors,
+            "scope": "post-inference GT metric gate only; external isolation/media/holdout proofs still required",
+        }
+        code = 2 if errors else (max(code, 1) if failures else code)
+        for entry in errors:
+            print(f"RELEASE BLOCKED {entry}")
+        for entry in failures:
+            print(f"RELEASE FAIL {entry}")
     if args.out:
         args.out.write_text(json.dumps(report, indent=2, ensure_ascii=False), encoding="utf-8")
     m = report["metrics"]
