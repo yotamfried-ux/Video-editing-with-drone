@@ -6,22 +6,8 @@ import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
 import { FormField } from '@/shared/components/FormField';
 import { supabase } from '@/shared/lib/supabase';
+import { recoveryParams } from '@/features/auth/lib/recoveryLink';
 import { Colors, Spacing } from '@/shared/constants/theme';
-
-function recoveryParams(rawUrl: string): URLSearchParams | null {
-  try {
-    const url = new URL(rawUrl);
-    const route = `${url.hostname}${url.pathname}`.replace(/^\/+|\/+$/g, '');
-    if (url.protocol !== 'sportreel:' || route !== 'reset-password') return null;
-    const fragment = new URLSearchParams(url.hash.replace(/^#/, ''));
-    const query = url.searchParams;
-    return fragment.has('access_token') || fragment.has('error')
-      ? fragment
-      : query;
-  } catch {
-    return null;
-  }
-}
 
 export default function ResetPasswordScreen() {
   const router = useRouter();
