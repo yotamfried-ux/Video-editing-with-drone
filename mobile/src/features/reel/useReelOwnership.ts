@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { AppState } from 'react-native';
 import { accessToken, authedFetch } from '@/shared/lib/authedFetch';
 
+export type OwnershipStatus = 'loading' | 'owned' | 'not_owned' | 'signed_out' | 'error';
+
 export interface ReelOwnership {
   purchased: boolean;
   download_url: string | null;
@@ -15,18 +17,29 @@ export interface ReelOwnership {
  */
 export function useReelOwnership(token: string | undefined) {
   const [ownership, setOwnership] = useState<ReelOwnership | null>(null);
+  const [status, setStatus] = useState<OwnershipStatus>('loading');
+  const [ownershipError, setOwnershipError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    if (!token || !(await accessToken())) {
-      setOwnership(null);
-      return;
-    }
+    setStatus('loading');
+    setOwnershipError(null);
     try {
-      setOwnership(await authedFetch<ReelOwnership>(`/api/reels/${encodeURIComponent(token)}/ownership`));
+      if (!token || !(await accessToken())) {
+        setOwnership(null);
+        setStatus('signed_out');
+        return;
+      }
+      const result = await authedFetch<ReelOwnership>(`/api/reels/${encodeURIComponent(token)}/ownership`);
+      setOwnership(result);
+      setStatus(result.purchased ? 'owned' : 'not_owned');
     } catch {
-      setOwnership(null); // unknown is shown as "not purchased": the buy button stays
+      // Never turn an ownership lookup failure into "not purchased".
+      // The user may already have paid: prevent a second purchase until resolved.
+      setOwnership(null);
+      setStatus('error');
+      setOwnershipError('Could not verify your purchase. Check your connection and try again.');
     }
   }, [token]);
 
@@ -58,5 +71,5 @@ export function useReelOwnership(token: string | undefined) {
     [token, busy],
   );
 
-  return { ownership, busy, error, refresh, setFollowing };
+  return { ownership, status, ownershipError, busy, error, refresh, setFollowing };
 }

@@ -63,23 +63,38 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      # Production is an Android App Bundle for Google Play; internal preview
+      # is an installable APK. Never upload an AAB as though it were an APK.
       - name: Build Android locally
+        id: android-build
         working-directory: mobile
         env:
           ANDROID_HOME: /usr/local/lib/android/sdk
-        run: eas build --platform android --profile ${{ inputs.profile }} --non-interactive --local --output /tmp/sportreel.apk
+          BUILD_PROFILE: ${{ inputs.profile }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$BUILD_PROFILE" = "production" ]; then
+            OUTPUT=/tmp/sportreel-production.aab
+          else
+            OUTPUT=/tmp/sportreel-preview.apk
+          fi
+          eas build --platform android --profile "$BUILD_PROFILE" --non-interactive --local --output "$OUTPUT"
+          test -s "$OUTPUT"
+          echo "artifact=$OUTPUT" >> "$GITHUB_OUTPUT"
 
-      # Publish the APK to expo.dev so it can be installed straight from a
-      # phone (shareable install link / QR) without logging into GitHub.
-      - name: Upload APK to Expo (install link)
+      # Only preview APKs are directly installable on a phone.
+      - name: Upload preview APK to Expo (install link)
+        if: inputs.profile == 'preview'
         working-directory: mobile
-        run: eas upload --platform android --build-path /tmp/sportreel.apk --non-interactive
+        run: eas upload --platform android --build-path /tmp/sportreel-preview.apk --non-interactive
 
-      - name: Upload APK
+      - name: Upload signed Android artifact
         uses: actions/upload-artifact@v4
         with:
           name: sportreel-android-${{ inputs.profile }}-${{ github.sha }}
-          path: /tmp/sportreel.apk
+          path: ${{ steps.android-build.outputs.artifact }}
+          if-no-files-found: error
           retention-days: 14
 
   # iOS must build remotely on EAS (needs macOS + Xcode). Submit and exit fast.

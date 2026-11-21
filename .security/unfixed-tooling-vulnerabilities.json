@@ -1,19 +1,18 @@
 {
-  "expires": "2026-11-19",
+  "last_reviewed": "2026-11-21",
+  "expires": "2026-12-05",
+  "review_notes": "GitHub GHSA-vfj7-8cjw-p6xm was withdrawn on 2026-10-23 as not practically exploitable, but external CVE feeds retain CVE-2026-93687. braces 3.0.3 has no patched release: retain a narrow tooling-only exception with a 14-day review period. GitHub GHSA-86w9-cpqp-85rv lists node-forge <=1.4.0 as affected; mobile currently uses 1.4.2. Remove its exception, and keep strict drift and runtime-graph checks.",
+  "evidence": [
+    "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
+    "https://github.com/advisories/GHSA-86w9-cpqp-85rv"
+  ],
   "exceptions": [
     {
       "package": "braces",
       "version": "3.0.3",
       "cve": "CVE-2026-93687",
       "scope": "mobile build/tooling lockfile only",
-      "reason": "No patched upstream release; exception valid only while absent from web-api runtime graph."
-    },
-    {
-      "package": "node-forge",
-      "version": "1.4.2",
-      "cve": "CVE-2026-85393",
-      "scope": "Expo CLI/mobile build tooling",
-      "reason": "No patched upstream release; exception valid only while absent from web-api runtime graph. Re-reviewed 2026-10-31 when moving 1.4.0 -> 1.4.2 to fix five HIGH advisories fixed in 1.4.1: 1.4.2 is the latest upstream release and `npm audit` reports no advisory against it, but that does not confirm CVE-2026-85393 is fixed, so the exception is kept (same expiry)."
+      "reason": "CVE tracked externally despite withdrawn upstream GHSA. No server runtime use; mandatory re-review 2026-12-05."
     }
   ]
 }
