@@ -86,6 +86,12 @@ export default function LoginScreen() {
         <Button testID="login-submit" label="Sign In" onPress={login} loading={loading} disabled={!email.trim() || !password} />
         <Spacer size={Spacing.sm} />
         <Button
+          testID="login-forgot-password"
+          label="Forgot Password?"
+          variant="ghost"
+          onPress={() => router.push('/(auth)/forgot-password')}
+        />
+        <Button
           testID="login-create-account"
           label="Create Account"
           onPress={() => router.push('/(auth)/register')}
