@@ -19,7 +19,7 @@ export default function ReelScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
   const { data, loading, error } = useReelStream(token);
-  const { ownership, busy, error: followError, setFollowing } = useReelOwnership(token);
+  const { ownership, status: ownershipStatus, ownershipError, busy, error: followError, refresh: refreshOwnership, setFollowing } = useReelOwnership(token);
   const [ended, setEnded] = useState(false);
   // Android 16 draws under the system bars: keep the controls clear of them on every device.
   const insets = useSafeAreaInsets();
@@ -127,7 +127,16 @@ export default function ReelScreen() {
               {ended ? 'The preview has ended. ' : ''}
               {previewExplanation(data.fullSeconds)}
             </Text>
-            {soldToSomeoneElse ? (
+            {ownershipStatus === 'loading' ? (
+              <Text testID="reel-ownership-loading" variant="caption">Checking your purchase…</Text>
+            ) : ownershipStatus === 'error' ? (
+              <View>
+                <Text testID="reel-ownership-error" variant="caption" color={Colors.danger}>
+                  {ownershipError}
+                </Text>
+                <Button testID="reel-ownership-retry" variant="secondary" label="Try Again" onPress={refreshOwnership} />
+              </View>
+            ) : soldToSomeoneElse ? (
               <Text testID="reel-sold" variant="title" color={Colors.textSecondary}>This clip was already sold</Text>
             ) : (
               <Button
