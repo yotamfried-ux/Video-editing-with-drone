@@ -1,0 +1,113 @@
+{
+  "schema": "sportreel.real_r2_cold_drone_e2e_verification.v1",
+  "strict_cold_inference": true,
+  "gt_open_refused_in_worker": true,
+  "r2_mutations": 0,
+  "llm_spend_usd": 0.0,
+  "isolation_report": {
+    "schema": "sportreel.inference_isolation.v1",
+    "strict_cold_inference": true,
+    "guard_installed": true,
+    "channels_closed": [],
+    "open_refused_basenames": [
+      "gtv1_frozen.json"
+    ],
+    "prior_sidecars_rejected_count": 0
+  },
+  "real_drone_clips_tested": [
+    {
+      "video_name": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+      "source_sha256": "a10e4151734f76ce2ea37df28e35262658029940e38642eb9d45efab8eb51b6a",
+      "duration_sec": 7.941,
+      "detections_count": 268,
+      "canonical_tracks": 13,
+      "dominant_track_id": "1",
+      "refined_window_sec": [
+        0.0,
+        7.941
+      ],
+      "in_progress_from_start": false,
+      "two_pass_crop_grids_built": 2,
+      "reel_specs": {
+        "width": 2160,
+        "height": 3840,
+        "aspect": 0.562,
+        "duration": 7.9,
+        "has_audio": false,
+        "fps": 30.0
+      },
+      "tier1_pass": true,
+      "tier1_defects": [],
+      "ffprobe_verified_4k_bt709_silent": true
+    },
+    {
+      "video_name": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+      "source_sha256": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+      "duration_sec": 6.139,
+      "detections_count": 296,
+      "canonical_tracks": 17,
+      "dominant_track_id": "10001",
+      "refined_window_sec": [
+        0.0,
+        6.139
+      ],
+      "in_progress_from_start": true,
+      "two_pass_crop_grids_built": 2,
+      "reel_specs": {
+        "width": 2160,
+        "height": 3840,
+        "aspect": 0.562,
+        "duration": 6.1,
+        "has_audio": false,
+        "fps": 30.0
+      },
+      "tier1_pass": true,
+      "tier1_defects": [],
+      "ffprobe_verified_4k_bt709_silent": true
+    }
+  ],
+  "gt_v1_comparison": [
+    {
+      "video_name": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+      "source_sha256": "a10e4151734f76ce2ea37df28e35262658029940e38642eb9d45efab8eb51b6a",
+      "cold_pipeline_window_sec": [
+        0.0,
+        7.941
+      ],
+      "two_pass_crop_grids_built": 2,
+      "tier1_qa_pass": true,
+      "ffprobe_verified_4k_bt709_silent": true,
+      "gt_rides": [],
+      "gt_excludes": [
+        {
+          "gt_exclude_sec": [
+            0.0,
+            7.941
+          ]
+        }
+      ]
+    },
+    {
+      "video_name": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+      "source_sha256": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+      "cold_pipeline_window_sec": [
+        0.0,
+        6.139
+      ],
+      "two_pass_crop_grids_built": 2,
+      "tier1_qa_pass": true,
+      "ffprobe_verified_4k_bt709_silent": true,
+      "gt_rides": [
+        {
+          "ride_uid": "3311db2ed35d#R0",
+          "athlete_id": "b9818a21-b0b4-47e8-88c8-3c3c9de66a53",
+          "gt_window_sec": [
+            0.0,
+            6.139
+          ]
+        }
+      ],
+      "gt_excludes": []
+    }
+  ]
+}

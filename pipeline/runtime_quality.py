@@ -167,8 +167,12 @@ def _track_samples(events: list[dict], detections: list, k: int) -> list:
 
 def _crop_box(det) -> tuple[float, float, float, float]:
     """Square crop around the box with context (board, wake), as fractions of the frame: (x, y, w, h)."""
-    x1, y1, x2, y2 = det.xyxy
-    fw, fh = float(det.frame_width), float(det.frame_height)
+    if isinstance(det, dict):
+        x1, y1, x2, y2 = det.get("xyxy") or det.get("bbox_xyxy") or det["bbox"]
+        fw, fh = float(det.get("frame_width") or 3840), float(det.get("frame_height") or 2160)
+    else:
+        x1, y1, x2, y2 = det.xyxy
+        fw, fh = float(det.frame_width), float(det.frame_height)
     side = max(max(x2 - x1, y2 - y1) * 2.0, 0.08 * min(fw, fh))
     side = min(side, fw, fh)
     cx, cy = (x1 + x2) / 2.0, (y1 + y2) / 2.0
