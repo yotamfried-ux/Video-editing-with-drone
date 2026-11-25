@@ -18,4 +18,7 @@ FOOTBALL = SportProfile(
     # Team kits are shared: a colour/sleeve conflict is not owner-reviewable evidence of one person. (Making the
     # identity engine treat kit colour as non-evidence for SAME identity is future work: docs/architecture.)
     reviewable_attribute_conflicts=frozenset(),
+    coverage_contract_id="all_usable_actions_per_athlete_v1",
+    rescue_event_type="ball_action",
+    uses_swimwear_wetsuit_rules=False,
 )

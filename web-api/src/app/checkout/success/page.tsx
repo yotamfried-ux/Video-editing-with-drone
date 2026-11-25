@@ -29,7 +29,7 @@ export default function CheckoutSuccessPage() {
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 560 }}>
       <h1>SportReel</h1><p>{message}</p>
       {downloadUrl && <p><a href={downloadUrl}>Download reel</a></p>}
-      <p><a href="sportreel://">Back to the SportReel app</a></p>
+      <p><a href="/discover">Return to SportReel Web</a> · <a href="sportreel://">Open in mobile app</a></p>
     </main>
   );
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Linking, View, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, StyleSheet, TouchableOpacity } from 'react-native';
 import { ActivityIndicator, Switch } from 'react-native-paper';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -13,13 +13,14 @@ import { useReelStream } from '@/features/video/hooks/useReelStream';
 import { previewExplanation, previewLabel } from '@/features/reel/previewInfo';
 import { useReelOwnership } from '@/features/reel/useReelOwnership';
 import { isSafeCheckoutUrl } from '@/features/payment/lib/checkout';
+import { openDownloadUrl } from '@/shared/lib/browserActions';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function ReelScreen() {
   const { token } = useLocalSearchParams<{ token: string }>();
   const router = useRouter();
   const { data, loading, error } = useReelStream(token);
-  const { ownership, busy, error: followError, setFollowing } = useReelOwnership(token);
+  const { ownership, status: ownershipStatus, ownershipError, refresh: refreshOwnership, busy, error: followError, setFollowing } = useReelOwnership(token);
   const [ended, setEnded] = useState(false);
   // Android 16 draws under the system bars: keep the controls clear of them on every device.
   const insets = useSafeAreaInsets();
@@ -100,7 +101,9 @@ export default function ReelScreen() {
               label={ownership?.download_url ? 'Download full clip' : 'Preparing your clip…'}
               disabled={!isSafeCheckoutUrl(ownership?.download_url)}
               onPress={() => {
-                if (isSafeCheckoutUrl(ownership?.download_url)) Linking.openURL(ownership.download_url);
+                if (ownership?.download_url && isSafeCheckoutUrl(ownership.download_url)) {
+                  void openDownloadUrl(ownership.download_url);
+                }
               }}
             />
             {ownership?.can_follow && (
@@ -121,6 +124,19 @@ export default function ReelScreen() {
             )}
             {followError && <Text variant="caption" color={Colors.danger}>{followError}</Text>}
           </>
+        ) : ownershipStatus === 'network_error' ? (
+          <>
+            <Text testID="reel-ownership-error" variant="caption" color={Colors.danger}>
+              {ownershipError ?? 'Could not verify your purchase status. Check your connection and retry.'}
+            </Text>
+            <Button
+              testID="reel-ownership-retry"
+              icon="refresh"
+              label="Retry purchase check"
+              variant="secondary"
+              onPress={() => { void refreshOwnership(); }}
+            />
+          </>
         ) : (
           <>
             <Text testID="reel-preview-explanation" variant="caption" color={Colors.textPrimary}>
@@ -133,7 +149,8 @@ export default function ReelScreen() {
               <Button
                 testID="reel-buy"
                 icon="lock-open-variant-outline"
-                label="Buy the full clip"
+                label={ownershipStatus === 'unknown_loading' ? 'Checking ownership…' : 'Buy the full clip'}
+                disabled={ownershipStatus === 'unknown_loading'}
                 onPress={() => router.push(`/checkout/${token}`)}
               />
             )}

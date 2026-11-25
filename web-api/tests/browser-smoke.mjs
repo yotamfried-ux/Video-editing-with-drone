@@ -149,7 +149,28 @@ async function main() {
     assert.ok(successBody.includes('Missing checkout session.'), 'Client component rendered error state');
     console.log('  [PASS] /checkout/success: Client component resolved Missing checkout session.');
 
-    console.log('\n[PASS] All 3 routes rendered and verified in headless Chromium.');
+    // Route 4: Co-hosted Expo Router Web SPA (/login & /discover & /operator/review redirect)
+    console.log('[browser-smoke] Navigating to /login (Expo Router Web SPA)...');
+    const loginResp = await page.goto(`${baseUrl}/login`, { waitUntil: 'domcontentloaded' });
+    assert.equal(loginResp?.status(), 200, '/login SPA fallback must return 200');
+    assert.equal(loginResp?.headers()['x-content-type-options'], 'nosniff', 'Security header X-Content-Type-Options present');
+    await page.waitForSelector('#root', { state: 'attached' });
+    console.log('  [PASS] /login: Co-hosted SPA shell served with security headers.');
+
+    console.log('[browser-smoke] Navigating to /discover (Expo Router Web SPA)...');
+    const discoverResp = await page.goto(`${baseUrl}/discover`, { waitUntil: 'domcontentloaded' });
+    assert.equal(discoverResp?.status(), 200, '/discover SPA fallback must return 200');
+    await page.waitForSelector('#root', { state: 'attached' });
+    console.log('  [PASS] /discover: Co-hosted SPA shell served.');
+
+    console.log('[browser-smoke] Verifying /operator/review redirect -> /review and /api/* 404 isolation...');
+    await page.goto(`${baseUrl}/operator/review`, { waitUntil: 'domcontentloaded' });
+    assert.ok(page.url().endsWith('/review'), `/operator/review should redirect to /review, got ${page.url()}`);
+    const unknownApi = await fetch(`${baseUrl}/api/nonexistent-smoke-probe`);
+    assert.equal(unknownApi.status, 404, 'Unknown /api/* path must return 404, never SPA HTML');
+    console.log('  [PASS] /operator/review redirect and /api/* 404 boundary verified.');
+
+    console.log('\n[PASS] All Next.js + co-hosted Expo Web SPA routes rendered and verified in headless Chromium.');
   } finally {
     if (browser) {
       await browser.close().catch(() => {});

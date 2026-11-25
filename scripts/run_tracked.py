@@ -122,6 +122,7 @@ from pipeline.orchestrator import main
 if __name__ == "__main__":
     os.environ.setdefault("SPORTREEL_STRICT_COLD_INFERENCE", "1")
     os.environ.setdefault("LLM_CACHE", "0")
+    os.environ.setdefault("SPORTREEL_ACTION_VALIDITY", "1")
     from integrations.observability import init_sentry
     init_sentry()
     try:

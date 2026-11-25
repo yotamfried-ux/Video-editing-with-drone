@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from 'react';
-import { AppState } from 'react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { AppState, Platform } from 'react-native';
 import { accessToken, authedFetch } from '@/shared/lib/authedFetch';
+import { useAuthStore } from '@/shared/hooks/useAuth';
 
 export interface ReelOwnership {
   purchased: boolean;
@@ -9,33 +10,76 @@ export interface ReelOwnership {
   following: boolean;
 }
 
+export type OwnershipStatus =
+  | 'unknown_loading'
+  | 'unauthenticated'
+  | 'not_owned'
+  | 'owned'
+  | 'network_error';
+
 /**
- * Whether the signed-in user bought this reel and follows its athlete. Re-checked when the app returns to
- * the foreground, which is how the customer comes back from the payment page.
+ * APP-004: Explicit ownership state machine so transient network errors never disguise an owned
+ * reel as "not purchased" (preventing duplicate purchase attempts) and auth changes re-verify.
  */
 export function useReelOwnership(token: string | undefined) {
+  const userId = useAuthStore((s) => s.user?.id ?? null);
   const [ownership, setOwnership] = useState<ReelOwnership | null>(null);
+  const [status, setStatus] = useState<OwnershipStatus>('unknown_loading');
+  const [ownershipError, setOwnershipError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const reqCounter = useRef(0);
 
   const refresh = useCallback(async () => {
-    if (!token || !(await accessToken())) {
+    const reqId = ++reqCounter.current;
+    if (!token) {
       setOwnership(null);
+      setStatus('unauthenticated');
+      setOwnershipError(null);
       return;
     }
-    try {
-      setOwnership(await authedFetch<ReelOwnership>(`/api/reels/${encodeURIComponent(token)}/ownership`));
-    } catch {
-      setOwnership(null); // unknown is shown as "not purchased": the buy button stays
+    const jwt = await accessToken();
+    if (reqId !== reqCounter.current) return;
+    if (!jwt) {
+      setOwnership(null);
+      setStatus('unauthenticated');
+      setOwnershipError(null);
+      return;
     }
-  }, [token]);
+    setStatus((prev) => (prev === 'owned' ? 'owned' : 'unknown_loading'));
+    setOwnershipError(null);
+    try {
+      const next = await authedFetch<ReelOwnership>(`/api/reels/${encodeURIComponent(token)}/ownership`);
+      if (reqId !== reqCounter.current) return;
+      setOwnership(next);
+      setStatus(next.purchased ? 'owned' : 'not_owned');
+    } catch (e) {
+      if (reqId !== reqCounter.current) return;
+      setOwnershipError(e instanceof Error ? e.message : 'Could not verify purchase status');
+      // Keep prior verified ownership if already loaded; otherwise surface network_error explicitly.
+      setStatus((prev) => (prev === 'owned' ? 'owned' : 'network_error'));
+    }
+  }, [token, userId]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
     const sub = AppState.addEventListener('change', (state) => {
-      if (state === 'active') refresh();
+      if (state === 'active') void refresh();
     });
-    return () => sub.remove();
+    let cleanupWeb: (() => void) | undefined;
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      const onFocus = () => void refresh();
+      window.addEventListener('focus', onFocus);
+      window.addEventListener('pageshow', onFocus);
+      cleanupWeb = () => {
+        window.removeEventListener('focus', onFocus);
+        window.removeEventListener('pageshow', onFocus);
+      };
+    }
+    return () => {
+      sub.remove();
+      cleanupWeb?.();
+    };
   }, [refresh]);
 
   const setFollowing = useCallback(
@@ -58,5 +102,5 @@ export function useReelOwnership(token: string | undefined) {
     [token, busy],
   );
 
-  return { ownership, busy, error, refresh, setFollowing };
+  return { ownership, status, ownershipError, busy, error, refresh, setFollowing };
 }

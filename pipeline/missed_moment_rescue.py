@@ -474,9 +474,18 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
         recording_end = bool(duration) and end >= float(duration) - _RECORDING_END_TOLERANCE_SEC
         end = min(end, duration) if duration else end
         center = _track_center(detections, str(win["track_id"]), start, end) or (0.5, 0.5)
-        surf = any(term in (activity or "").lower() for term in ("surf", "wave"))
+        from pipeline.sport_profiles import GENERIC, profile_for
+        prof = profile_for(activity)
+        is_profiled = prof is not GENERIC
+        surf_fallback = any(term in (activity or "").lower() for term in ("surf", "wave"))
+        if is_profiled and kind in {"ride", "tandem_ride", "action"}:
+            rescued_type = prof.rescue_event_type
+        elif surf_fallback and kind in {"ride", "tandem_ride"}:
+            rescued_type = "wave_catch"
+        else:
+            rescued_type = "notable_moment"
         event = {
-            "type": "wave_catch" if surf and kind in {"ride", "tandem_ride"} else "notable_moment",
+            "type": rescued_type,
             "description": description, "start": round(start, 2), "end": round(end, 2), "score": score,
             "target_track_id": str(win["track_id"]), "crop_x": center[0], "crop_y": center[1],
             "timing_evidence": f"start {start:.1f}s; end {end:.1f}s: {answer.get('reason', '')}",
@@ -492,7 +501,9 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
             if extension["continuation_track_ids"]:
                 event["continuation_track_ids"] = list(extension["continuation_track_ids"])
         event["end_extension_reason"] = extension["reason"]
-        if surf and "surf" not in description.lower() and kind in {"ride", "tandem_ride"}:
+        if is_profiled and prof.profile_id not in description.lower() and kind in {"ride", "tandem_ride", "action"}:
+            event["sport"] = prof.profile_id
+        elif surf_fallback and "surf" not in description.lower() and kind in {"ride", "tandem_ride"}:
             event["sport"] = "surfing"
         event = _bind_to_track(event, detections, str(win["track_id"]), str(video_path))
         if event is None:

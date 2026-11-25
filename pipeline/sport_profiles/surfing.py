@@ -35,9 +35,14 @@ SURFING = SportProfile(
             ("in_water", "off the board, in the water (fallen, wiped out or swimming)"),
             ("not_visible", "the target cannot be seen in this frame"),
         ),
+        requires_engagement_cue=True,
+        engagement_cue="whether the target's board is being carried by the wave or whitewater in that crop",
     ),
     # was stages.identity._TEXT_ATTRIBUTE_REASONS (FIX-PQ-10-003)
     reviewable_attribute_conflicts=frozenset({"wetsuit_vs_bare_or_swimsuit_conflict", "conflicting_equipment_color",
                                               "incompatible_swimwear_or_category"}),
     framing_subject_height_ratio=0.16,   # was quality_preserving_framing: 0.16 if sport == "surfing" else 0.18
+    coverage_contract_id="all_usable_waves_per_athlete_v1",
+    rescue_event_type="wave_catch",
+    uses_swimwear_wetsuit_rules=True,
 )

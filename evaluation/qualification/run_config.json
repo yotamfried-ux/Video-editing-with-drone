@@ -1,8 +1,9 @@
 {
-  "qualification_run_id": "q12-paid-01",
+  "qualification_run_id": "q15-cold-full-01",
   "batch_id": "batch_2026-10-03T12-19-52_ttgvat95",
-  "llm_budget_usd_paid": 0.0,
-  "note": "Paid budget 0 after EXP-12-001 (run 44290916415, $0.219). Campaign $4; spent $1.727; remainder $2.273. A new paid run needs a pre-registration and a hard cap <= remainder.",
-  "gate_a_run_id": "q12-pa13",
+  "llm_budget_usd_paid": 3.50,
+  "llm_downstream_reserve_usd": 1.10,
+  "note": "Cycle 15 full strict cold-inference + SPORTREEL_ACTION_VALIDITY=1 qualification run (EXP-15-001), hard-capped at $3.50 ($1.10 downstream reserve for identity + action validity + final QA) within owner-authorized $10.00 development budget (2026-11-25).",
+  "gate_a_run_id": "q15-gate-a-01",
   "gate_a_suite": "pa13"
 }

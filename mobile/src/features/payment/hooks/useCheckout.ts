@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { Linking } from 'react-native';
+import { openCheckoutUrl } from '@/shared/lib/browserActions';
 import { type CheckoutSession, createCheckout, isSafeCheckoutUrl } from '../lib/checkout';
 
 /**
@@ -21,7 +21,7 @@ export function useCheckout(reelToken: string | undefined) {
       if (!isSafeCheckoutUrl(session.checkout_url)) {
         throw new Error('The payment page is not available. Please try again.');
       }
-      await Linking.openURL(session.checkout_url);
+      await openCheckoutUrl(session.checkout_url);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not start checkout');
     } finally {

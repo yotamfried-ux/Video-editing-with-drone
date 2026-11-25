@@ -97,7 +97,7 @@ jobs:
 
         budget = 0.0 if label != "qualrun-paid" else float(c["llm_budget_usd_paid"])
 
-        assert 0.0 <= budget <= 1.519, f"budget {budget} outside the authorised remainder (USD 4 total - 2.481 spent through q13-cold-no-memory-01)"
+        assert 0.0 <= budget <= 10.0, f"budget {budget} outside the owner-authorised USD 10.00 cap (2026-11-25)"
 
         reserve = float(c.get("llm_downstream_reserve_usd", 0) or 0); assert 0.0 <= reserve <= max(budget, 0.0), reserve
 
@@ -183,6 +183,7 @@ jobs:
         SPORTREEL_ULTRALYTICS_VID_STRIDE: ${{ vars.SPORTREEL_ULTRALYTICS_VID_STRIDE || '5' }}
         TMP_DIR: /tmp/dtor
         SPORTREEL_EXPORT_EDL: '1'
+        SPORTREEL_ACTION_VALIDITY: '1'
         QA_GATE: 'false'
         RAW_BATCH_ID: ''
         SPORTREEL_QUALIFICATION_RUN_ID: ${{ steps.cfg.outputs.run_id }}

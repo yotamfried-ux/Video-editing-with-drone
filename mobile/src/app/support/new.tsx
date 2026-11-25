@@ -4,10 +4,10 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Alert,
 } from 'react-native';
 import { useRouter } from 'expo-router';
-import * as Haptics from 'expo-haptics';
+import { hapticSuccess } from '@/shared/lib/haptics';
+import { showAlert } from '@/shared/lib/alert';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
@@ -32,11 +32,11 @@ export default function NewSupportTicketScreen() {
     });
     setSending(false);
     if (error) {
-      Alert.alert('Could not send', error.message);
+      showAlert('Could not send', error.message);
       return;
     }
-    await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-    Alert.alert('Sent!', "We received your message and will reply soon.", [
+    await hapticSuccess();
+    showAlert('Sent!', "We received your message and will reply soon.", [
       { text: 'OK', onPress: () => router.back() },
     ]);
   };

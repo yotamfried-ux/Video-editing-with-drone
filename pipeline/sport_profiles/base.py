@@ -38,9 +38,11 @@ class ActionValidityPolicy:
     """
     established_states: frozenset[str] = frozenset()
     transitional_states: frozenset[str] = frozenset()
-    other_states: frozenset[str] = frozenset({"in_water", "not_visible"})
+    other_states: frozenset[str] = frozenset({"inactive", "not_visible"})
     min_established_sec: float = 2.0
     state_definitions: tuple[tuple[str, str], ...] = ()
+    requires_engagement_cue: bool = False
+    engagement_cue: str = ""
 
 
 @dataclass(frozen=True)
@@ -67,6 +69,10 @@ class SportProfile:
     other_actors_allowed: bool = True
     # Framing style: the athlete's target height as a share of the 9:16 frame (consumer: quality_preserving_framing).
     framing_subject_height_ratio: float = 0.18
+    # Multi-sport coverage & rescue metadata (consumers: performance_reel_policy, missed_moment_rescue, identity).
+    coverage_contract_id: str = "all_usable_actions_per_athlete_v1"
+    rescue_event_type: str = "notable_moment"
+    uses_swimwear_wetsuit_rules: bool = False
 
     def matches_activity(self, activity: str) -> bool:
         a = str(activity or "").strip().lower()

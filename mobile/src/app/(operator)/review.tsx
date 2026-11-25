@@ -1,9 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
-  Linking,
   Modal,
   RefreshControl,
   StyleSheet,
@@ -11,6 +9,8 @@ import {
   View,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { showAlert } from '@/shared/lib/alert';
+import { openExternalUrl } from '@/shared/lib/browserActions';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -95,13 +95,13 @@ function readableDraftLabel(name: string): { athlete: string; reel: string } {
 
 function showApprovalResult(result: ApproveDraftResponse) {
   if (result.delivery_started) {
-    Alert.alert(
+    showAlert(
       'Delivery started',
       `Delivery workflow started. Delivery run: ${shortId(result.delivery_run_id)}.`,
     );
     return;
   }
-  Alert.alert(
+  showAlert(
     'Approved, delivery not started',
     `The reel moved to APPROVED, but no delivery workflow was started. Delivery run: ${shortId(result.delivery_run_id)}.`,
   );
@@ -121,13 +121,13 @@ export default function OperatorReviewScreen() {
   const handleOperatorError = (error: unknown) => {
     const message = error instanceof Error ? error.message : 'Unknown error';
     if (message.includes('secret not set')) {
-      Alert.alert('Operator secret required', message, [
+      showAlert('Operator secret required', message, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Go to Settings', onPress: () => router.push('/(operator)/settings' as never) },
       ]);
       return;
     }
-    Alert.alert('Failed', message);
+    showAlert('Failed', message);
   };
 
   const load = useCallback(async () => {
@@ -158,13 +158,13 @@ export default function OperatorReviewScreen() {
 
   const approve = (draft: DraftRow) => {
     if (draftIsApprovalBlocked(draft)) {
-      Alert.alert(
+      showAlert(
         'Approval blocked',
         `${draft.name} did not pass final QA. Send it to re-edit before approval.\n\n${approvalReasons(draft).join('\n')}`,
       );
       return;
     }
-    Alert.alert(
+    showAlert(
       'Approve this performance reel?',
       'The reel will move to APPROVED and the delivery workflow will start.',
       [
@@ -210,7 +210,7 @@ export default function OperatorReviewScreen() {
       setReeditTarget(null);
       setReeditNotes('');
       await load();
-      Alert.alert(
+      showAlert(
         'Sent for re-edit',
         `Pipeline run: ${shortId(result.pipeline_run_id)}. Check Pipeline status for progress.`,
       );
@@ -297,7 +297,7 @@ export default function OperatorReviewScreen() {
                 {item.watch_url && (
                   <Button
                     label="Watch performance reel"
-                    onPress={() => Linking.openURL(item.watch_url!)}
+                    onPress={() => { void openExternalUrl(item.watch_url!); }}
                     variant="ghost"
                     style={styles.fullButton}
                   />

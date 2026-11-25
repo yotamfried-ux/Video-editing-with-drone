@@ -1,6 +1,5 @@
 import React, { useState } from 'react';
 import {
-  Alert,
   ScrollView,
   View,
   StyleSheet,
@@ -21,6 +20,7 @@ import { supabase } from '@/shared/lib/supabase';
 import { getOperatorSecret } from '@/features/operator/lib/operatorSecret';
 import { useOperatorUnlock } from '@/features/operator/hooks/useOperatorUnlock';
 import { deleteAccount } from '@/features/account/deleteAccount';
+import { showAlert } from '@/shared/lib/alert';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function ProfileScreen() {
@@ -32,7 +32,7 @@ export default function ProfileScreen() {
   const [deleting, setDeleting] = useState(false);
 
   const confirmDeleteAccount = () => {
-    Alert.alert(
+    showAlert(
       'Delete account?',
       'Your account, profile and notification settings will be permanently deleted. This cannot be undone.',
       [
@@ -46,7 +46,7 @@ export default function ProfileScreen() {
               await deleteAccount();
               router.replace('/(auth)/login');
             } catch (e) {
-              Alert.alert('Could not delete account', e instanceof Error ? e.message : 'Please try again.');
+              showAlert('Could not delete account', e instanceof Error ? e.message : 'Please try again.');
             } finally {
               setDeleting(false);
             }

@@ -392,20 +392,27 @@ def _resolve_track_safe_decision(
             zoom=1.0,
         )
 
-    if any(
-        sample["confidence"] < MIN_TRACK_CONFIDENCE
-        or sample["visible_ratio"] < MIN_VISIBLE_RATIO
+    reliable_samples = [
+        sample
         for sample in samples
-    ):
+        if sample["confidence"] >= MIN_TRACK_CONFIDENCE
+        and sample["visible_ratio"] >= MIN_VISIBLE_RATIO
+    ]
+    if len(reliable_samples) < len(samples):
         followed = _follow_decision(decision, samples, start_end[0], start_end[1], sport)
         if followed is not None:
             return followed
-        return replace(
-            decision,
-            mode="contain",
-            reason=f"{decision.reason}+unreliable_track_trajectory_use_contain",
-            zoom=1.0,
-        )
+        # PQ-38 (EVD-13-004): When >=75% of trajectory samples (>=3) are reliable, evaluate the safe fixed crop
+        # against the reliable trajectory instead of collapsing to full-frame zoom=1.0 contain on a brief foam dip.
+        if len(reliable_samples) >= max(3, int(len(samples) * 0.75)):
+            samples = reliable_samples
+        else:
+            return replace(
+                decision,
+                mode="contain",
+                reason=f"{decision.reason}+unreliable_track_trajectory_use_contain",
+                zoom=1.0,
+            )
 
     frame_widths = {round(sample["frame_width"], 3) for sample in samples}
     frame_heights = {round(sample["frame_height"], 3) for sample in samples}

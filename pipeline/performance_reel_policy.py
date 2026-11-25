@@ -82,14 +82,14 @@ def coverage_profile(event: dict[str, Any], activity: str = ""):
     Activity first, then the event's sport, then the profile vocabulary (pipeline.sport_profiles). A surf
     `ride_segment` always belongs to the surfing profile (legacy contract).
     """
-    from pipeline.sport_profiles import GENERIC, profile_for_event
+    from pipeline.sport_profiles import GENERIC, all_profiles, profile_for_event
     if event.get("ride_segment"):
         return _SURFING_PROFILE
     profile = profile_for_event(event, activity)
     if profile is GENERIC or not profile.coverage_first:
-        # An activity outside every profile still matches by vocabulary (legacy: surf terms in the text).
-        for candidate in (_SURFING_PROFILE,):
-            if any(term in _text(event, activity) for term in candidate.event_terms):
+        text = _text(event, activity)
+        for candidate in all_profiles():
+            if candidate.coverage_first and any(term in text for term in candidate.event_terms):
                 return candidate
         return None
     text = _text(event, activity)
@@ -393,10 +393,12 @@ def partition_complete_performance_reels(
         part: list[dict[str, Any]] = []
         for event in group:
             running_wave_index += 1
+            cov_prof = coverage_profile(event, str(event.get("sport", "")))
+            contract_id = cov_prof.coverage_contract_id if cov_prof is not None else "all_usable_waves_per_athlete_v1"
             part.append(
                 {
                     **event,
-                    "performance_reel_contract": "all_usable_waves_per_athlete_v1",
+                    "performance_reel_contract": contract_id,
                     "performance_reel_part": part_index,
                     "performance_reel_part_count": part_count,
                     "performance_reel_wave_index": running_wave_index,
@@ -411,6 +413,10 @@ def partition_complete_performance_reels(
 
 def _surf_events(events: list[dict[str, Any]]) -> bool:
     return any(is_surf_event(event, str(event.get("sport", ""))) for event in events)
+
+
+def _coverage_events(events: list[dict[str, Any]]) -> bool:
+    return any(coverage_profile(event, str(event.get("sport", ""))) is not None for event in events)
 
 
 def _filter_surf_qa_defects(defects: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -602,12 +608,12 @@ def _patch_qa_policy() -> None:
         def preserve_complete_rides(ordered_events, defects):
             events = list(ordered_events or [])
             defect_rows = list(defects or [])
-            if not _surf_events(events):
+            if not _coverage_events(events):
                 return original_apply(events, defect_rows)
             allowed = _filter_surf_qa_defects(defect_rows)
             if not allowed:
                 logger.info(
-                    "Preserving %d surf ride(s): QA defects require trim/review, not deletion",
+                    "Preserving %d complete athlete action(s): QA defects require trim/review, not deletion",
                     len([event for event in events if not event.get("_teaser")]),
                 )
                 return events, False

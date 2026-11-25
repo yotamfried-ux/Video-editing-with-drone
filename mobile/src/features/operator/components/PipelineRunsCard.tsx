@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Linking, Pressable, View, StyleSheet } from 'react-native';
+import { Pressable, View, StyleSheet } from 'react-native';
+import { openExternalUrl } from '@/shared/lib/browserActions';
 import { Card } from '@/shared/components/Card';
 import { Text } from '@/shared/components/Text';
 import { operatorFetch } from '@/features/operator/lib/operatorApi';
@@ -142,7 +143,7 @@ export function PipelineRunsCard({ onSelectRun, selectedRunId, refreshKey = 0, h
               </Text>
 
               {/^https:\/\/github\.com\//.test(run.github_run_url ?? '') && (
-                <Pressable onPress={() => Linking.openURL(run.github_run_url as string)} accessibilityRole="link" hitSlop={8}>
+                <Pressable onPress={() => { void openExternalUrl(run.github_run_url as string); }} accessibilityRole="link" hitSlop={8}>
                   <Text variant="caption" color={Colors.accent}>
                     {/\/actions\/runs\/\d+/.test(run.github_run_url as string) ? 'Open GitHub run' : 'Open GitHub workflow'}
                   </Text>

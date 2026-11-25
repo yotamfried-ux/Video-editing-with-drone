@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { View, TextInput, StyleSheet, ScrollView, Alert } from 'react-native';
+import { View, TextInput, StyleSheet, ScrollView } from 'react-native';
+import { showAlert } from '@/shared/lib/alert';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
@@ -33,7 +34,7 @@ export default function OperatorSettingsScreen() {
   };
 
   const remove = () => {
-    Alert.alert(
+    showAlert(
       'Remove operator secret',
       'You will need to enter it again to use the operator features.',
       [

@@ -3,6 +3,7 @@ export default function CheckoutCancelPage() {
     <main style={{ fontFamily: 'system-ui, sans-serif', padding: 24, maxWidth: 560 }}>
       <h1>Payment cancelled</h1>
       <p>No charge was made. You can return to SportReel and try again.</p>
+      <p><a href="/discover">Return to SportReel Web</a></p>
     </main>
   );
 }

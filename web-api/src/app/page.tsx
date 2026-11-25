@@ -15,6 +15,11 @@ export default function HomePage() {
         <h2>Email confirmed</h2>
         <p>Your email address has been verified successfully.</p>
         <p>You can return to the SportReel app and sign in.</p>
+        <p style={{ marginTop: 16 }}>
+          <a href="/discover" style={{ color: '#38BDF8', fontWeight: 600 }}>
+            Continue to SportReel Web
+          </a>
+        </p>
       </section>
     </main>
   );

@@ -90,7 +90,8 @@ def identity_check(samples: list[Any | None], times: list[float], start: float, 
     tail = any(p for p, t in zip(present, times) if t >= end - edge)
     tracks = sorted({str(_f(s, "tracker_id") if _f(s, "tracker_id") is not None else _f(s, "track_id"))
                      for s in samples if s is not None})
-    return {"present_ratio": round(ratio, 3), "present_at_takeoff": head, "present_at_ending": tail,
+    return {"present_ratio": round(ratio, 3), "present_at_start": head, "present_at_end": tail,
+            "present_at_takeoff": head, "present_at_ending": tail,
             "track_ids": tracks, "ok": ratio >= MIN_PRESENT_RATIO and head and tail}
 
 

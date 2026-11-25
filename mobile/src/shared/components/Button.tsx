@@ -3,7 +3,7 @@ import {
   TouchableOpacity, Text, ActivityIndicator,
   StyleSheet, ViewStyle, TextStyle,
 } from 'react-native';
-import * as Haptics from 'expo-haptics';
+import { hapticLight } from '../lib/haptics';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import { Colors, Spacing, Radius } from '../constants/theme';
 import { Typography } from '../constants/typography';
@@ -50,7 +50,7 @@ export function Button({ label, onPress, variant = 'primary', loading, disabled,
   const vs = variantStyles[variant];
   const press = () => {
     // A light tap confirms the press on the actions that change something.
-    if (variant === 'primary' || variant === 'danger' || variant === 'dangerText') Haptics.selectionAsync().catch(() => {});
+    if (variant === 'primary' || variant === 'danger' || variant === 'dangerText') void hapticLight();
     onPress();
   };
   return (

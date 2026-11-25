@@ -3,14 +3,14 @@ import {
   View,
   StyleSheet,
   FlatList,
-  Linking,
   RefreshControl,
   Modal,
   TextInput,
-  Alert,
   ActivityIndicator,
 } from 'react-native';
 import { useRouter } from 'expo-router';
+import { showAlert } from '@/shared/lib/alert';
+import { shareWhatsAppMessage } from '@/shared/lib/browserActions';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -39,12 +39,12 @@ export default function OperatorReelsScreen() {
   const handleOperatorError = (e: unknown) => {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     if (msg.includes('secret not set')) {
-      Alert.alert('Operator secret required', msg, [
+      showAlert('Operator secret required', msg, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Go to Settings', onPress: () => router.push('/(operator)/settings' as never) },
       ]);
     } else {
-      Alert.alert('Failed', msg);
+      showAlert('Failed', msg);
     }
   };
 
@@ -75,9 +75,7 @@ export default function OperatorReelsScreen() {
     const msg = encodeURIComponent(
       `Your SportReel highlight is ready. Watch it here: ${url}`
     );
-    Linking.openURL(`whatsapp://send?text=${msg}`).catch(() =>
-      Linking.openURL(`https://wa.me/?text=${msg}`)
-    );
+    void shareWhatsAppMessage(msg);
   };
 
   const submitReprocess = async () => {
@@ -94,7 +92,7 @@ export default function OperatorReelsScreen() {
       });
       setReprocessTarget(null);
       setReprocessNotes('');
-      Alert.alert(
+      showAlert(
         'Sent for re-edit',
         `Pipeline run: ${shortId(result.pipeline_run_id)}. Check Pipeline status for progress.`
       );

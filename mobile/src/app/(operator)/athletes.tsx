@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
+import { showAlert } from '@/shared/lib/alert';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -55,7 +56,7 @@ export default function OperatorAthletesScreen() {
   const byId = new Map(athletes.map((athlete) => [athlete.id, athlete]));
 
   const confirmMerge = (from: Athlete, into: Athlete) => {
-    Alert.alert(
+    showAlert(
       'Same athlete?',
       `Merge\n"${from.label}" (${from.recording_dates.join(', ')})\ninto\n"${into.label}" (${into.recording_dates.join(', ')})?\n\nFollowers of either will be told about the other's clips. This cannot be undone.`,
       [
@@ -70,10 +71,10 @@ export default function OperatorAthletesScreen() {
                 '/api/operator/athletes/merge',
                 { method: 'POST', body: JSON.stringify({ from: from.id, into: into.id }) },
               );
-              Alert.alert('Merged', `${result.reels_moved} clip(s) moved, ${result.notified} follower notification(s) sent.`);
+              showAlert('Merged', `${result.reels_moved} clip(s) moved, ${result.notified} follower notification(s) sent.`);
               await load();
             } catch (e) {
-              Alert.alert('Merge failed', e instanceof Error ? e.message : 'Please try again.');
+              showAlert('Merge failed', e instanceof Error ? e.message : 'Please try again.');
             } finally {
               setMerging(null);
             }

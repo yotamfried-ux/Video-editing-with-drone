@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { View, StyleSheet, ScrollView, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, ScrollView, TextInput } from 'react-native';
+import { showAlert } from '@/shared/lib/alert';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Card } from '@/shared/components/Card';
@@ -24,7 +25,7 @@ function TicketCard({ ticket, onReplied }: { ticket: OperatorSupportTicket; onRe
       });
       onReplied();
     } catch (e: any) {
-      Alert.alert('Failed to send reply', e.message);
+      showAlert('Failed to send reply', e.message);
     } finally {
       setSending(false);
     }

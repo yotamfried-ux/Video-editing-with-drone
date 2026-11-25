@@ -133,6 +133,17 @@ def find_weak_perception_windows(
 
     # Detect inter-track gaps where a track disappears and another appears nearby
     track_spans.sort(key=lambda item: (item[0], item[1]))
+    # PQ-05 / PA-09: When a short/medium 4K clip opens on a distant or prone athlete that 640px primary inference
+    # misses for the first 0.5-6.0s, probe [0.0, earliest_start + 0.5] at 1280px so onset detection sees frame 0.
+    if track_spans and 0.0 < max_time <= 45.0:
+        earliest_start, _, earliest_tid, _, _ = track_spans[0]
+        if 0.5 < earliest_start <= 6.0:
+            raw_windows.append({
+                "start_sec": 0.0,
+                "end_sec": min(max_time, earliest_start + 0.5),
+                "track_ids": [earliest_tid],
+                "reasons": ["early_onset_recall_probe"],
+            })
     for i in range(len(track_spans)):
         _, end_a, tid_a, _, last_a = track_spans[i]
         box_a = last_a.get("bbox_xyxy") or last_a.get("xyxy")

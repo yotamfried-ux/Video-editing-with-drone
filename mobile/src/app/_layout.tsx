@@ -1,7 +1,5 @@
 import { useEffect } from 'react';
-import { Platform } from 'react-native';
-import { Stack, usePathname, useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
+import { Stack, usePathname } from 'expo-router';
 import {
   useFonts,
   PlusJakartaSans_400Regular,
@@ -10,45 +8,21 @@ import {
   PlusJakartaSans_700Bold,
   PlusJakartaSans_800ExtraBold,
 } from '@expo-google-fonts/plus-jakarta-sans';
-import * as SplashScreen from 'expo-splash-screen';
-import * as Updates from 'expo-updates';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { PaperProvider } from 'react-native-paper';
 import { paperTheme } from '@/shared/constants/paperTheme';
 import { supabase } from '@/shared/lib/supabase';
 import { useAuthStore } from '@/shared/hooks/useAuth';
-import { registerPushToken } from '@/shared/lib/notifications';
 import { setCrashContext, installJsCrashReporter } from '@/shared/lib/crashReporter';
+import { initSplashScreen, hideSplashScreen } from '@/shared/lib/splash';
+import { applyPendingUpdate } from '@/shared/lib/updates';
+import { NotificationLinks, syncPushToken } from '@/shared/lib/notificationSetup';
+import { ConfirmDialogHost } from '@/shared/lib/alert';
 
-SplashScreen.preventAutoHideAsync();
+initSplashScreen();
 installJsCrashReporter();
-
-// Apply pending OTA updates on cold start so fixes land on the first open,
-// not the one after. Incompatible bundles are filtered out by the
-// fingerprint runtimeVersion, so reloading here is safe.
-async function applyPendingUpdate() {
-  if (__DEV__ || !Updates.isEnabled) return;
-  try {
-    const check = await Updates.checkForUpdateAsync();
-    if (check.isAvailable) {
-      await Updates.fetchUpdateAsync();
-      await Updates.reloadAsync();
-    }
-  } catch {
-    // Offline or update server unreachable — continue with the current bundle.
-  }
-}
-applyPendingUpdate();
-
-async function syncPushToken(userId: string) {
-  const token = await registerPushToken();
-  if (!token) return;
-  await supabase.from('push_tokens').upsert(
-    { user_id: userId, token, platform: Platform.OS, updated_at: new Date().toISOString() },
-    { onConflict: 'user_id,platform' }
-  );
-}
+void applyPendingUpdate();
 
 function CrashContextSync() {
   const pathname = usePathname();
@@ -57,23 +31,6 @@ function CrashContextSync() {
   useEffect(() => { setCrashContext({ screen: pathname }); }, [pathname]);
   useEffect(() => { setCrashContext({ userId }); }, [userId]);
 
-  return null;
-}
-
-/** Tapping "new clip of an athlete you follow" opens that clip's preview. */
-function NotificationLinks() {
-  const router = useRouter();
-  useEffect(() => {
-    const open = (response: Notifications.NotificationResponse | null) => {
-      const data = response?.notification.request.content.data as { screen?: string; token?: string } | undefined;
-      if (data?.screen === 'reel' && typeof data.token === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(data.token)) {
-        router.push(`/reel/${data.token}`);
-      }
-    };
-    Notifications.getLastNotificationResponseAsync().then(open).catch(() => {});
-    const sub = Notifications.addNotificationResponseReceivedListener(open);
-    return () => sub.remove();
-  }, [router]);
   return null;
 }
 
@@ -103,7 +60,7 @@ export default function RootLayout() {
   }, []);
 
   useEffect(() => {
-    if (fontsLoaded) SplashScreen.hideAsync();
+    if (fontsLoaded) hideSplashScreen();
   }, [fontsLoaded]);
 
   if (!fontsLoaded) return null;
@@ -114,6 +71,7 @@ export default function RootLayout() {
         <PaperProvider theme={paperTheme}>
           <CrashContextSync />
           <NotificationLinks />
+          <ConfirmDialogHost />
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: paperTheme.colors.background } }} />
         </PaperProvider>
       </SafeAreaProvider>

@@ -42,13 +42,21 @@ def enabled() -> bool:
 def build_prompt(policy: Any, times: list[float]) -> str:
     states = "\n".join(f"  {name}: {text}" for name, text in policy.state_definitions)
     stamps = ", ".join(f"{t:.1f}" for t in times)
+    requires_cue = bool(getattr(policy, "requires_engagement_cue", False))
+    cue_text = str(getattr(policy, "engagement_cue", "") or "").strip()
+    if requires_cue and cue_text:
+        cue_line = f"and {cue_text}.\n"
+        frame_schema = '{"t": <seconds>, "state": "<state>", "carried": true|false}'
+    else:
+        cue_line = ""
+        frame_schema = '{"t": <seconds>, "state": "<state>"}'
     return (
         "The image is a grid of crops of ONE target athlete filmed by a drone, in time order; each crop is labelled "
         f"with its clip time in seconds ({stamps}). Describe ONLY the target. Do not judge quality or intent.\n"
         f"For EVERY crop give exactly one state from this list:\n{states}\n"
-        "and whether the target's board is being carried by the wave or whitewater in that crop.\n"
-        'Answer with ONE JSON object and nothing else: {"frames": [{"t": <seconds>, "state": "<state>", '
-        '"carried": true|false}, ...], "confidence": "high"|"medium"|"low"}'
+        f"{cue_line}"
+        f'Answer with ONE JSON object and nothing else: {{"frames": [{frame_schema}, ...], '
+        '"confidence": "high"|"medium"|"low"}'
     )
 
 
@@ -71,12 +79,14 @@ def parse_observations(raw: str, policy: Any, expected_times: list[float] | None
     except (json.JSONDecodeError, TypeError):
         return None
     vocab = set(policy.established_states) | set(policy.transitional_states) | set(policy.other_states)
+    requires_cue = bool(getattr(policy, "requires_engagement_cue", False))
     frames = []
     for row in data.get("frames") or [] if isinstance(data, dict) else []:
         try:
-            t, state, carried = float(row["t"]), str(row["state"]).strip().lower(), row.get("carried")
+            t, state = float(row["t"]), str(row["state"]).strip().lower()
         except (KeyError, TypeError, ValueError):
             return None
+        carried = row.get("carried") if requires_cue else row.get("carried", True)
         if state not in vocab or not isinstance(carried, bool):
             return None
         frames.append((t, state, carried))
@@ -92,15 +102,17 @@ def parse_observations(raw: str, policy: Any, expected_times: list[float] | None
 
 
 def longest_established_sec(frames: list[tuple[float, str, bool]], policy: Any) -> float:
-    """Longest continuous run of established-and-carried frames, in seconds: k consecutive frames sampled every
+    """Longest continuous run of established frames, in seconds: k consecutive frames sampled every
     `step` seconds cover k * step seconds (the median sampling step of the pass)."""
     if not frames:
         return 0.0
+    requires_cue = bool(getattr(policy, "requires_engagement_cue", False))
     gaps = sorted(b[0] - a[0] for a, b in zip(frames, frames[1:]) if b[0] > a[0])
     step = gaps[len(gaps) // 2] if gaps else 0.0
     best = run = 0
     for _, state, carried in frames:
-        run = run + 1 if (state in policy.established_states and carried) else 0
+        ok = (state in policy.established_states and carried) if requires_cue else (state in policy.established_states)
+        run = run + 1 if ok else 0
         best = max(best, run)
     return round(best * step, 2)
 

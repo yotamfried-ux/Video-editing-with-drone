@@ -178,12 +178,43 @@ def stitch_detection_tracks(
             if first_bbox is None or last_bbox is None:
                 continue
             overlap = _iou(last_bbox, first_bbox)
-            center_ratio = _center_distance(last_bbox, first_bbox) / _frame_diag(segment["first"])
-            if overlap < min_iou and center_ratio > max_center_distance_ratio:
+            diag = _frame_diag(segment["first"])
+            center_ratio = _center_distance(last_bbox, first_bbox) / diag
+            projected_ratio = center_ratio
+            cand_dets = candidate.get("detections") or []
+            if len(cand_dets) >= 2 and gap > 0.0:
+                prev_det = cand_dets[-min(4, len(cand_dets))]
+                prev_bbox = _bbox(prev_det)
+                dt = float(_time(candidate["last"])) - float(_time(prev_det))
+                if prev_bbox is not None and dt >= 0.15:
+                    lcx = (last_bbox[0] + last_bbox[2]) / 2.0
+                    lcy = (last_bbox[1] + last_bbox[3]) / 2.0
+                    pcx = (prev_bbox[0] + prev_bbox[2]) / 2.0
+                    pcy = (prev_bbox[1] + prev_bbox[3]) / 2.0
+                    vx = (lcx - pcx) / dt
+                    vy = (lcy - pcy) / dt
+                    speed_ratio = ((vx * vx + vy * vy) ** 0.5) / diag
+                    if speed_ratio <= 0.25:
+                        proj_x = lcx + vx * gap
+                        proj_y = lcy + vy * gap
+                        fcx = (first_bbox[0] + first_bbox[2]) / 2.0
+                        fcy = (first_bbox[1] + first_bbox[3]) / 2.0
+                        competing = any(
+                            other is not candidate
+                            and float(other["end"]) > float(candidate["end"])
+                            and float(other["start"]) < float(segment["start"])
+                            and _bbox(other["last"]) is not None
+                            and (_center_distance(_bbox(other["last"]), first_bbox) / diag) <= max_center_distance_ratio
+                            for other in canonical_segments[group_key]
+                        )
+                        if not competing:
+                            projected_ratio = (((proj_x - fcx) ** 2 + (proj_y - fcy) ** 2) ** 0.5) / diag
+            effective_center_ratio = min(center_ratio, projected_ratio)
+            if overlap < min_iou and effective_center_ratio > max_center_distance_ratio:
                 continue
             if _area_ratio(last_bbox, first_bbox) < 0.15:
                 continue
-            score = (center_ratio, gap, -overlap)
+            score = (effective_center_ratio, gap, -overlap)
             if best is None or score < best_score:  # type: ignore[operator]
                 best = candidate
                 best_score = score

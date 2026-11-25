@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev --port 3001",
     "build": "next build",
+    "sync-spa": "node scripts/sync-web-spa.mjs",
     "start": "next start --port 3001",
     "type-check": "tsc --noEmit"
   },

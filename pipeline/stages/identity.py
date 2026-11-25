@@ -754,14 +754,20 @@ def _merge_duplicate_clusters(clusters: list[dict]) -> list[dict]:
     return [merged[k] for k in order]
 
 
-_GARMENT_WORD = r"(?:one-piece|swimsuit|bikini|wetsuit(?:\s+top)?|rash\s+guard|shorts|trunks|boardshorts)"
+_GARMENT_WORD = (
+    r"(?:one-piece|swimsuit|bikini|wetsuit(?:\s+top)?|rash\s+guard|shorts|trunks|boardshorts"
+    r"|jersey|kit|singlet|uniform|tank(?:\s+top)?|t-shirt|leggings)"
+)
 _HEDGED_GARMENT = re.compile(rf"\b{_GARMENT_WORD}(?:\s+or\s+(?:an?\s+)?|\s*/\s*){_GARMENT_WORD}\b")
 
 
 def extract_structured_attributes(description: str) -> dict:
     """Extract normalized multi-sport athlete & equipment attributes from an aerial/sports description."""
     text = " " + re.sub(r"[^a-z0-9/-]+", " ", str(description or "").lower()).strip() + " "
-    if " no surfer visible " in text or " empty wave " in text or text.strip() in {"", "unknown athlete"}:
+    if any(
+        phrase in text
+        for phrase in (" no surfer visible ", " empty wave ", " no athlete visible ", " no player visible ", " empty field ", " empty court ")
+    ) or text.strip() in {"", "unknown athlete"}:
         return {"empty": True}
     # A garment the describer could not tell apart ("a dark one-piece or wetsuit", "one-piece/wetsuit") is not a
     # reading of either. Run 43203677423: a backlit shirtless man (0097) was described that way; "one-piece" made
@@ -786,7 +792,7 @@ def extract_structured_attributes(description: str) -> dict:
         gender_age = "male"
 
     equip_match = re.search(
-        r"\b(?:on|riding|carrying|with)\s+(?:a|an|the)?\s*((?:(?!\bin\b|\bwith\b|\band\b|\bon\b)[a-z0-9/()-]+\s+){0,4}?)(longboard|surfboard|shortboard|board|wakeboard|snowboard|skateboard|paddleboard|bike|bicycle|kayak|skis)\b",
+        r"\b(?:on|riding|carrying|with|holding)\s+(?:a|an|the)?\s*((?:(?!\bin\b|\bwith\b|\band\b|\bon\b)[a-z0-9/()-]+\s+){0,4}?)(longboard|surfboard|shortboard|board|wakeboard|snowboard|skateboard|paddleboard|foil|kite|wing|bike|bicycle|kayak|skis|racket|bat|scooter)\b",
         text,
     )
     equip_type = None

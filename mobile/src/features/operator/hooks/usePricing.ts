@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import * as Haptics from 'expo-haptics';
+import { hapticLight } from '@/shared/lib/haptics';
 import { apiFetch } from '@/shared/lib/api';
 import { getOperatorSecret } from '../lib/operatorSecret';
 
@@ -47,7 +47,7 @@ export function usePricing() {
       setRows((prev) =>
         prev.map((r) => (r.sport === sport ? { ...r, price_ils: priceIls } : r))
       );
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await hapticLight();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Save failed');
     } finally {
@@ -61,7 +61,7 @@ export function usePricing() {
     try {
       await writePrice(sport, priceIls);
       setRows((prev) => [...prev, { sport, price_ils: priceIls }]);
-      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await hapticLight();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Add failed');
     } finally {

@@ -13,9 +13,11 @@ RECORDING_END_TAIL_MAX_SEC = 2.0
 
 
 def _is_complete_performance_action(event: dict[str, Any]) -> bool:
-    return str(event.get("performance_reel_contract") or "") == (
-        "all_usable_waves_per_athlete_v1"
-    )
+    contract = str(event.get("performance_reel_contract") or "")
+    return contract in {
+        "all_usable_waves_per_athlete_v1",
+        "all_usable_actions_per_athlete_v1",
+    } or bool(event.get("complete_action_window_preserved"))
 
 
 def _source_path(event: dict[str, Any], video_path: str | None) -> str | None:
@@ -45,10 +47,16 @@ def extend_to_recording_end(event: dict[str, Any], duration: float | None) -> di
         end = float(event.get("end"))
     except (TypeError, ValueError):
         return event
-    remaining = duration - end
+    target_end = duration
+    if isinstance(refinement, dict) and not refinement.get("track_lost_in_fall_kept"):
+        last_track = refinement.get("last_track_sec")
+        if isinstance(last_track, (int, float)) and (duration - float(last_track)) > 1.0:
+            # PQ-06 / PQ-11: Never extend past last_track_sec + 1.0s (output_qualification PAD_END_SEC) into empty water.
+            target_end = min(duration, float(last_track) + 1.0)
+    remaining = target_end - end
     if not (0.0 < remaining <= RECORDING_END_TAIL_MAX_SEC):
         return event
-    return {**event, "end": round(duration, 3), "end_before_recording_tail": round(end, 3),
+    return {**event, "end": round(target_end, 3), "end_before_recording_tail": round(end, 3),
             "recording_end_tail_sec": round(remaining, 3)}
 
 

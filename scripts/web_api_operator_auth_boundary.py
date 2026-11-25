@@ -164,7 +164,8 @@ def main() -> int:
     env.update(SUPABASE_URL=backend.url, SUPABASE_SERVICE_KEY="probe-service-key",
                OPERATOR_SECRET=SECRET, NEXT_TELEMETRY_DISABLED="1",
                NO_PROXY="127.0.0.1,localhost", no_proxy="127.0.0.1,localhost")
-    server = subprocess.Popen(["npx", "next", "start", "-p", str(port)], cwd=WEB, env=env,
+    import shutil as _shutil
+    server = subprocess.Popen([_shutil.which("npx") or "npx", "next", "start", "-p", str(port)], cwd=WEB, env=env,
                               stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     base = f"http://127.0.0.1:{port}"
     failures: list[str] = []
