@@ -1,5 +1,7 @@
 # SportReel — Pipeline quality gap register and 20-run regression investigation
 
+**Latest living status (2026-11-25):** see [§16 pipeline reconciliation](#16-current-pipeline-reconciliation-2026-11-25--living-status-not-a-release-certificate) and [§17 conversion-only web app plan](#17-web-only-conversion-plan--preserve-the-existing-sportreel-product-and-infrastructure-2026-11-25). Historical findings below remain append-only.
+
 **Audit date:** 2026-11-16 UTC. **GitHub main baseline:** 59c84864b2e7f2242f358bde9923c621575ce7c5.  
 **State:** OPEN / NOT_READY. This is a **read-only historical investigation and remediation register**, not evidence that the media defects have been fixed.  
 **Scope:** source-event inference, tracking, cross-source athlete grouping, action boundaries, final QA, qualification and output vs frozen Ground Truth.  
@@ -558,3 +560,140 @@ Synthetic football-like fixtures **test architecture only**. They do **not** qua
 | PQ-06 / PA-15 ends | OPEN | EVD-12-003 | E1 motion end rule rejected (31.9 s include lost) |
 | PQ-01 / PA-04 validity | OPEN | EVD-12-006 | 3 negatives in GT-v1; kept in review |
 | Budget | — | — | $1.727 spent of $4; $2.273 remaining; paid budget reset to 0 |
+
+
+---
+
+## 16. Current pipeline reconciliation (2026-11-25) — living status, not a release certificate
+
+**Purpose and freshness.** This section supersedes the *current-status interpretation* of the historical November 16–18 entries above; it does **not** erase those observations or imply the underlying code has shipped. Observed default branch: **main 90fa08e17b5828bb25541043c1b5dee35a29d5c6** (checked 2026-11-25). The last independently replayed full production diagnostics cohort used below is **run 44388634790**, on main, and is **warm/cached development footage**. No more recent complete blind cold-media qualification was established during this audit. This is a documentation-only update: no pipeline run, paid model call, schema change, deployment, or GT mutation was performed.
+
+**Evidence sources:** [Cycle 13 investigation (draft branch)](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/ccr-3f12fc2f-pdvirt/docs/production-readiness/CYCLE-13-GAP-MATRIX-AND-QUALIFICATION.md); [Cycle 14 draft investigation](https://github.com/yotamfried-ux/Video-editing-with-drone/blob/ccr-3f12fc2f-pdvirt/docs/production-readiness/CYCLE-14-ROOT-CAUSE-REMEDIATION-AND-QUALIFICATION.md); [production diagnostics run 44388634790](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/44388634790); [offline real-artifact GT audit 44542451144](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/44542451144); [historical cold run 44374982006](https://github.com/yotamfried-ux/Video-editing-with-drone/actions/runs/44374982006). Cycle 14's pixel-level/adjudication findings are **reported in its draft branch**, not independently re-watched for this document-only update. CI and checks prove their own contracts, not end-to-end visual quality.
+
+### 16.1 Exact reference measurements, with caveats
+
+| Metric | Run 44388634790 | Target / interpretation |
+|---|---:|---|
+| GT-v1 cohort | 24 catalogued rides, 24 annotated sources | Development cohort; not a blind holdout |
+| Rides selected FULL | **15/24** | 24/24 after adjudication |
+| FULL rides recalled in correct, publishable reels | **2/24** | 24/24 for eligible, adjudicated rides |
+| Selected intervals overlapping GT exclusions | **999 source frames** | 0 *confirmed prohibited* frames, after explicit label-policy adjudication |
+| Selected non-ride windows | **2** | 0 |
+| Boundaries exceeding 0.5 seconds | **8** | 0 on adjudicated boundaries |
+| Maximum boundary error | **2.49 s** | ≤ 0.5 s |
+| Correct reels withheld | **6** | 0 avoidable; never bypass safety gates to improve the number |
+| Visible primary-subject issues | **3 flagged** in the offline audit | Independent pixel review + 0 proven violations |
+| Publishable / scored correct | **5 / 4** | Publication never treated as proof of completeness |
+| Cold-run duration (run 44374982006) | **60.2 min, incomplete** | ~30 min *complete* with all analyses, identity, QA and render |
+| Historic warm duration (EXP-12-001) | **29.2 min** | **NOT** a valid no-memory speed result: cached model/perception decisions |
+
+**Do not collapse the 999 frames into “999 confirmed invalid frames.”** Reported cycle-14 frame breakdown: **0155: 476** (failed take-off; clear selection defect); **0095: 379** (genuine ride by an uncatalogued performer; policy/roster question); **0108: 144** (continuing ride that approved GT labels “missing landing”; annotation dispute). These sum to 999. Keep the original approved GT immutable and present candidate adjudication adjustments as a separate, versioned evaluator view. Do not teach inference the disputed answers. For 0094, distinguish the featured whitewater rider from another GT athlete by actual rendered crop frames; active whitewater riding is a usable action.
+
+### 16.2 Open engineering and evidence gaps, prioritized
+
+| ID / concern | Priority | Verified situation / candidate | Remaining exit proof (before declaring resolved) |
+|---|---|---|---|
+| PQ-01, PQ-33: failed take-off / action validity | P0 | 0155 entered a real reel; draft #402 includes an action-validity module and production hook, with gate **OFF**; real-clip model experiment EXP-14-002 is **not proven executed** in inspected evidence | Real media experiment: reject/withhold 0155, preserve every valid prone/kneeling/standing ride, report uncertainty; no GT leakage; enable only after representative positive/negative evidence |
+| PQ-05: late action starts | P0 | Draft #402 camera-compensated onset, replayed against 13 frozen runs / 236 cuts: 24 improved, 0 worse; projected FULL 15→17, **not rendered confirmation** | Strict cold generated video and frozen source-frame mapping prove improvement and no waiting/paddling over-inclusion |
+| PQ-05: early missing tracks | P0 | 0070, 0094, 0115, 0152 remain absent from initial YOLO detections; boundary adjustments alone cannot safely reconstruct unobserved action | Higher-quality/validated perception recall and target binding on actual first frames; no false starts |
+| PQ-06: end accuracy / tracker loss | P0 | 0151 loses the subject and clips early; 0094 whitewater ending and 0108 last-frame riding require adjudication | Source/reel pixel timeline, correct athlete, all valid whitewater riding preserved, no inactive tail |
+| PQ-02/03/18/23: cross-source identity & fragmentation | P0 | Draft #402 repairs missing identity-sheet crop count; 0143/0152 lookalike pair and true pairs still need real output verification; conservative block remains in force | Independent pair evidence, no wrong merges, no avoidable splits or false withheld reels on real cold output |
+| PQ-07/08/19/21: scorecard, ride units & prohibited frames | P0 | Draft #404 adds absolute GT metric veto; #406 distinguishes QA model verdict from later safety withholding; ride-unit grouping is still partially heuristic | Evaluator after frozen output, GT digest + per-frame EDL, absolute safety gate, explicit ambiguous/unknown cohort handling; no baseline-only green release |
+| PQ-22/26: output-versus-EDL and primary performer | P0 | Real-artifact audit 44542451144 still failed PRIMARY_SUBJECT_GATE after QA bookkeeping correction | Inspect rendered MP4s and target crops; validate frames, tracking, QA, approval and publishability end-to-end |
+| MEM-01..06: inference cold isolation | P0 | #401/#402/#403 implement candidate no-memory controls and aliases; no complete strict cold cloud run on exact merged code; cycle 14 reports draft SQL role **not applied** | Fail-closed file/network/DB read audit, no prior clips/caches/GT/feedback, complete model+identity+QA cold run and independent post-run scoring |
+| Cold-run budget | P0 | Last documented campaign remainder **$1.519**; cycle-14 estimates ~**$1.89** without added validity calls and **$2.17** with them (subject to new pricing and usage verification) | Pre-register budget/reserve, obtain owner authorization for added funding; no implicit paid dispatch |
+| Performance PQ-27 | P1 | Cold run measured ~60.2 min on 4 vCPU, and did not finish all analyses; warm cache-assisted run achieved 29.2 min | Measure complete cold stage timing, 4K quality and paired CPU/OpenVINO/GPU/runner experiment, no reused video-specific outputs |
+| Blind generalization PQ-24 | P0 qualification | Existing 24-source GT has already informed development; no fresh labelled blind capture-day cohort verified | New untouched footage + independent annotation, freeze output before revealing labels; no repeated tuning on holdout |
+| Recovery & duplicate handling PQ-25 | P1 | Main has retry/ledger protections, but long-video and staged paths retain naming/verification gaps | Real restart, retry, cancel, storage reconciliation and source/part no-duplicate evidence, no production mutation |
+| Multi-sport PQ-30 | P1 | Shared core exists; surfing is the only substantive approved GT cohort | Synthetic second-sport architecture contract plus separately annotated real footage before claiming second-sport accuracy |
+
+**PR/code-state reconciliation on 2026-11-25:** [#401](https://github.com/yotamfried-ux/Video-editing-with-drone/pull/401), [#402](https://github.com/yotamfried-ux/Video-editing-with-drone/pull/402), [#403](https://github.com/yotamfried-ux/Video-editing-with-drone/pull/403), [#404](https://github.com/yotamfried-ux/Video-editing-with-drone/pull/404), [#406](https://github.com/yotamfried-ux/Video-editing-with-drone/pull/406) are all **open Draft, unmerged**; #402 latest inspected head **ce0b1c0a**, with 31 associated passing PR workflow runs. [#407](https://github.com/yotamfried-ux/Video-editing-with-drone/pull/407) is a separate **open Draft** native-app/store remediation, not part of the deployed web surface. A green workflow does not establish production qualification. Do not merge these application/pipeline changes with this documentation-only PR.
+
+### 16.3 Next independent experimental sequence
+
+1. **Free first:** replay frozen diagnostics and positive/negative controls; verify the *production* invocation path for action validity, source-to-output mapping and denied GT/history reads. A changed commit invalidates dependent prior tests.
+2. **Real clipped-media experiment:** validate failed take-offs and difficult valid prone/kneeling/whitewater rides; record exact model inputs, source hashes, cost and independent verdict. EXP-14-002 remains a preregistered, limited-cost candidate, not a completed experiment.
+3. **One complete strict cold run:** 24-source development cohort, no previous per-video inference results, strict DB and storage boundaries, adequate downstream identity/QA reserve, full MP4 artifacts and real timing. Spend only under explicit owner-approved cap.
+4. **Independent evaluator:** freeze outputs, evaluate source SHA + EDL + rendered frames against GT, count exclusions by adjudication status, boundary errors, actor continuity, duplicate rides and withheld-correct. Include unlabelled performers as UNKNOWN rather than invented GT successes.
+5. **Untouched holdout:** new capture-day video annotated independently after output freeze; needed for generalized quality claims, not for this document merge.
+6. **Merge decisions:** apply release gates to the exact candidate SHA, separate scoped CI proof from real-media or production proof. Never merge P0 pipeline fixes merely because simulation contracts pass.
+
+**Current verdict:** PIPELINE_NOT_QUALIFIED. This document update itself is safe to merge independently because it changes documentation only and does not authorize deployment, model costs, app release or pipeline code.
+
+---
+
+## 17. Web-only conversion plan — preserve the existing SportReel product and infrastructure (2026-11-25)
+
+**Owner scope:** Convert the existing SportReel app from an installed Expo/React Native client to a **browser-accessible web application**. **The only intended functional change is the client delivery platform.** Preserve screens, flows, designs, roles, prices, permissions, customer/operator experiences, backend behavior, pipeline logic, data, storage and payment semantics. Do **not** interpret the platform migration as an opportunity to redesign, add features, alter business rules, switch providers or change the database. This is a **PLAN**, not a completed web migration.
+
+This section is an application-delivery dependency included at owner request. Detailed historical native-app defects remain in [MOBILE-APP-GAP-REGISTER.md](MOBILE-APP-GAP-REGISTER.md); pipeline quality remains governed by sections 1–16. Migration must **not** silently close preexisting APP/PQ issues.
+
+### 17.1 Verified baseline and infrastructure reuse
+
+| Existing component | Observed on main or read-only service inventory | Conversion decision |
+|---|---|---|
+| Client | mobile/ is **Expo SDK 53 / React Native 0.79.6 / Expo Router 5**, React 19; mobile/src/app contains auth, Discover, reel, checkout, support and operator screens | **Reuse existing routes/components and business hooks** with React Native Web and narrow platform-specific adapters; no broad Next.js rewrite by default |
+| API | web-api/ is **Next.js 15.5.28**, already exposing operator/upload/start/status, checkout/ownership, stream and other APIs | Preserve **existing API routes, payloads, authorization and GitHub dispatch**; do not duplicate API into the browser |
+| Vercel | Existing project **video-editing-with-drone** (project ID prj_ucNsOHpdQBum3FHgED5ZPuGimrTq); configured code root web-api, region fra1 | **Prefer the same Vercel project and API origin** with an added web UI build; prove routing/build feasibility before deploying. The latest inspected preview deployments were canceled; production health/deployed SHA need an independent smoke check |
+| Database | Existing active Supabase **sportreel** project **bcndgmymnismbxvdeetc**, eu-central-1; public tables include pipeline_status, pipeline_runs, drafts, draft_publishability, reprocess_requests, source_uploads, purchases, athlete_profiles, delivery_runs; listed public tables have RLS enabled | **Same project, schemas, records, Auth users, RLS policies and existing migrations**; no fresh DB project, duplicate tables, destructive migration or entitlement reset |
+| Storage | Existing R2 / storage prefixes and protected streaming/download URLs | Keep same raw/processed/review/approved/previews and signed-media contracts; browsers never receive R2 secret keys |
+| Compute | GitHub Actions -> Python, Gemini, YOLO/BoT-SORT, FFmpeg, QA | Leave entirely unchanged; browser only calls existing API and displays status/results |
+| Payments | Existing API provider registry defaults to Stripe; Grow provider at web-api/src/lib/payments/providers/grow.ts is a **stub returning not configured** | Preserve the existing checkout/webhook/purchase implementation and configured provider. **Web conversion does not implement Grow** or prove a successful payment; APP-001/003 remain open |
+| Accounts/roles | Supabase Auth with current mobile SecureStore session adapter; operatorFetch attaches x-operator-secret from OS storage | Retain account identities and server-side operator authorization; implement equivalent secure **browser** session/secret handling, never expose service-role/admin keys |
+
+**Actual client compatibility gaps observed:** mobile/package.json does not yet declare react-native-web or the corresponding Expo web runtime setup; native dependencies include expo-secure-store, expo-file-system, expo-image-picker, expo-local-authentication, expo-notifications, react-native-video, expo-updates, expo-screen-capture and a custom native background upload/source-reader. These are **not** guaranteed browser-compatible just because Expo Router supports web. The conversion must replace only their platform adapters and keep existing user-facing contracts. Exact parity limitations must be explicitly surfaced, never hidden.
+
+### 17.2 Proposed minimal-change target architecture
+
+Browser/PWA-capable **existing SportReel UI** -> existing same-origin **Vercel Next.js web-api** -> existing **Supabase Auth + DB** and **R2** -> unchanged **GitHub Actions/Python pipeline** and delivery/payment services.
+
+**Preferred first feasibility experiment: SAME existing Vercel project.** Keep web-api/ as the source of server routes and secrets; add a static Expo Router web export to the Vercel build output, or mount it under an explicit web public path while forwarding navigation routes. Reserve **/api/** for existing Next API routes, webhook endpoints and callback URLs. Check that asset URLs, deep links, Next.js routing and SPA fallback do not conflict. Only adopt this design if a preview proves both the UI and all existing API routes work. The present app is API-only: co-hosting has **not** been proven and must not be claimed trivial.
+
+**Fallback decision, not pre-authorized:** if unified co-hosting cannot be proven without rewriting/weakening the API, document that constraint and request an explicit choice before introducing a **second front-end Vercel project** in the *same account*; it would still reuse the existing Supabase, API and storage but would be a hosting-topology change beyond the preferred no-infrastructure-change plan. Do not create that project silently. Do not move the site to a different hosting provider.
+
+**No parallel backend:** no new Python runtime, no server-side rendering of reels, no separate checkout engine, no Supabase replacement, no new payment provider, no revised product database. A mobile-first responsive browser layout preserves the current screens; desktop responsiveness may adapt presentation only, not behavior or pricing.
+
+### 17.3 Implementation stages and mapping
+
+| Stage | Exact planned changes | Explicit proof / stop condition |
+|---|---|---|
+| WEB-01 Inventory | Freeze existing Expo route map, screens, component library, hooks, API calls, Supabase reads, deep links and dependencies; compare against the mobile baseline screen by screen | Full feature/route parity matrix; all native-only APIs identified, no silent dropped workflows |
+| WEB-02 Web build | On a feature branch, use Expo SDK-**53-compatible** versions of react-native-web, react-dom and web runtime packages; configure Expo Router browser target and static SPA export (consider web.output=single) | Build a static web bundle locally/CI and demonstrate navigation, reload and deep links; no upgrade of Expo/RN/Next solely for migration without proof |
+| WEB-03 Browser compatibility | Implement .web.ts(x) adapters where necessary for protected player (HTML video), file picker/browser File API, chunked upload continuation, browser storage/auth, links, downloads, app resume/visibility, errors and notifications | Equivalent API requests, preserved permissions, no native module import at runtime; detailed fallback/limitation audit |
+| WEB-04 Auth and operator security | Reuse Supabase project, users and RLS; browser-compatible token persistence and callback handling; preserve operatorFetch server authorization; operator secret must not be permanently written to localStorage or bundled | Session/login/logout/reset callback smoke; authorization/IDOR/XSS/CSP checks; no service-role/admin credential or R2 secret in browser bundle |
+| WEB-05 API and hosting | Add the web frontend to a Vercel Preview while preserving current web-api Next build and /api/*; maintain existing domains/route contracts until verified | UI loads at preview URL, reload and deep links work; all existing operator/auth/checkout/webhook/stream routes unaffected, preview and active production SHA recorded |
+| WEB-06 Business E2E | Re-run upload -> status -> review/re-edit -> approval -> Discover -> preview -> existing hosted checkout -> entitlement -> protected download, including provider failure/retry paths | Compare responses, state transitions and visible behavior to current client; **no simulated paid success** accepted as proof of live payment |
+| WEB-07 Controlled cutover | Review visual parity on desktop/mobile browsers, a11y and upload limits; then deploy the **frontend-only** change with verified instant rollback to previous Vercel deployment | Production domain/callback verification, no DB migrations, signed links still protected, API smoke post-deploy, rollback exercised |
+
+### 17.4 Browser-specific risks — parity is a requirement, not an assumption
+
+1. **Large drone footage upload:** mobile's native SD/USB/background upload and FileSystem/WorkManager semantics do not exist unchanged in a browser. Use browser File/Blob streams and the **existing** upload init/part/verify API; persist only upload IDs and non-secret resumable metadata where safe, reconcile verified parts server-side, recover after refresh/reselection. A browser cannot guarantee continued transfer when the tab closes. If this loss of native behavior violates required parity, mark **WEB_BLOCKED** and seek approval; do not fake background success, invent a new upload backend or delete original media.
+2. **Operator unlock and secrets:** expo-local-authentication and SecureStore are native. Browser adaptation may use **session-memory-only entry of the same operator secret** with explicit lock/expiry, while API validation remains authoritative; do not silently replace biometric protection with unsecured persistent localStorage. If exact secure operator UX requires an API/auth contract change, stop for a scoped design decision.
+3. **Protected video:** react-native-video and screen-capture APIs need browser player equivalents. Preserve signed short-lived preview URLs, watermark and ownership checks. Browser screenshot prevention is **not technically guaranteed**; do not claim DRM equivalence or expose full assets publicly.
+4. **Notifications:** Expo push tokens and native notification handlers are not browser push. Reuse existing in-app status/notification data where available. New web-push subscriptions would require additional provider/backend work, **outside conversion-only scope unless explicitly approved**. Test all existing meaningful notification journeys and document any gap.
+5. **Auth, payment return and deep links:** browser URL paths, refresh, OAuth/email reset and checkout redirects differ from sportreel:// native links. Keep existing server trust/ownership decisions and add only required browser redirects to the existing project's Supabase Auth allowlist and checkout return configuration. Verify the actual configured payment provider; Grow remains a stub, not a conversion deliverable.
+6. **Responsive parity:** preserve visual identity, screen order, terminology, pricing and role visibility. No redesign, new admin dashboard, new subscription, language switch or monetization experiment under this migration PR.
+7. **Security:** verify CORS (if split origins), CSRF where cookie auth is involved, CSP/XSS, download URL leakage, and all RLS/security checks. Client-side environment variables may contain publishable Supabase URLs/keys only. Privileged actions still go through the existing Vercel API.
+
+### 17.5 Hard acceptance gates for web release
+
+- **W1 Exact functional parity:** approved screen/route inventory and operator/customer workflows match baseline, including errors, permission failures, reload, navigation and account lifecycle; documented unavoidable browser differences require owner approval.
+- **W2 Infrastructure invariants:** same Supabase project ref bcndgmymnismbxvdeetc; no schema/table/policy/data migration; same GitHub/R2 and provider/API contracts; no changed inference/QA/delivery algorithms or video hashes attributable to frontend conversion.
+- **W3 Vercel integrity:** reuse project video-editing-with-drone when feasible; Next API/build, webhook paths and Expo assets coexist; verify preview and actual production deployed SHA. A canceled preview deployment is not evidence of readiness.
+- **W4 Security & commerce:** test login/session, RLS, privileged operator permissions, URLs, checkout/return/webhook/entitlement/download and failure/retry using test credentials and provider sandbox; no keys in browser. Grow integration remains separately blocked if chosen.
+- **W5 Upload/media:** prove real browser upload of a representative large source (including interruption/reselect/retry and server-side verified parts), safe preview playback and authenticated download, without loss/duplicates.
+- **W6 Cross-browser:** Chrome/Edge/Safari desktop and supported mobile browsers; deep links, refresh, accessibility/keyboard, upload and video permission behavior tested.
+- **W7 Rollback:** reversible Vercel deployment; previous functional API and web routes recover without data/schema migration.
+- **W8 Strict change scope:** every PR file classified as frontend/web build or narrowly necessary compatibility wiring. Any pipeline, model, data, provider or business-logic change requires a **separate PR/decision**. Documentation-only commits do not satisfy implementation gates.
+
+**Delivery order:** separate docs-only PR (this change) -> feasibility/proof PR (no production deploy) -> frontend conversion PR with browser adapters -> independent preview E2E -> owner-accepted browser limitations -> controlled production cutover. **No production deployment authorized by this plan.** Implementing or releasing the browser UI is future work; merging this document must not imply the existing native app has been converted.
+
+### 17.6 External implementation references (verify against pinned SDK during execution)
+
+- Expo, developing websites and React Native Web: https://docs.expo.dev/workflow/web/
+- Expo, publishing a web export on Vercel: https://docs.expo.dev/guides/publishing-websites/
+- Expo app configuration, single/static/server web output: https://docs.expo.dev/versions/latest/config/app/
+- Supabase Auth redirect allowlist: https://supabase.com/docs/guides/auth/redirect-urls
+- Vercel build/deployment behavior: https://vercel.com/docs/builds
+
+**Current web migration status:** WEB_PLAN_DOCUMENTED / IMPLEMENTATION_NOT_STARTED / PRODUCTION_UNCHANGED.
