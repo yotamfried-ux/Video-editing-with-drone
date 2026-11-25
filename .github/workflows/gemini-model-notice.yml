@@ -1,0 +1,57 @@
+name: Gemini model and billing notice
+on:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+    inputs:
+      send_email:
+        description: 'Send email if the monitor detects an alert'
+        type: boolean
+        default: false
+  pull_request:
+    paths:
+      - '.github/workflows/gemini-model-notice.yml'
+      - 'scripts/check_gemini_model_notice.py'
+      - 'tests/test_gemini_model_notice.py'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gemini-model-notice-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test the parsers and alert logic
+        run: python -m unittest discover -s tests -p test_gemini_model_notice.py
+      - name: Read the previous monitor state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/gemini-model-notice.json
+          key: gemini-model-notice-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: gemini-model-notice-v1-
+      - name: Check Google's model catalog, deprecation schedule and pricing
+        if: github.event_name != 'pull_request'
+        env:
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          RESEND_FROM_EMAIL: ${{ secrets.RESEND_FROM_EMAIL || vars.RESEND_FROM_EMAIL }}
+          NOTIFY_EMAIL: ${{ secrets.NOTIFY_EMAIL || secrets.OWNER_EMAIL }}
+          DELIVER: ${{ github.event_name == 'schedule' || inputs.send_email }}
+        run: |
+          args=(--state "$RUNNER_TEMP/gemini-model-notice.json")
+          if [[ "$DELIVER" == true ]]; then args+=(--send); fi
+          python scripts/check_gemini_model_notice.py "${args[@]}"
+      - name: Remember the successful notification check
+        if: github.event_name == 'schedule' || inputs.send_email
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/gemini-model-notice.json
+          key: gemini-model-notice-v1-${{ github.run_id }}-${{ github.run_attempt }}
