@@ -547,11 +547,30 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 if _has_subject_gate_defect(reel_events):
                     flagged_set.add(reel)
                 qa_label = " QA-FLAGGED" if reel in flagged_set else ""
-                name = orchestrator._safe_draft_name(person.get("description", "") + part_label + music_label + qa_label)
-                staged_reel = _stage_reel_candidate(reel, os.path.dirname(reel) or orchestrator.config.TMP_DIR, len(pending), name)
+                from pipeline.context_qa_gate import _LEDGER_CTX, _ledger_assign, _ledger_upload, _proposed_draft_name
+                is_music = "_music" in os.path.basename(reel)
+                proposed_name = _proposed_draft_name(orchestrator, str(person.get("description", "")), part_label + music_label + qa_label)
+                staged_reel = _stage_reel_candidate(reel, os.path.dirname(reel) or orchestrator.config.TMP_DIR, len(pending), proposed_name)
                 if not staged_reel:
-                    orchestrator.logger.warning("Skipping draft candidate %s — rendered file missing before staging: %s", name, reel)
+                    orchestrator.logger.warning("Skipping draft candidate %s — rendered file missing before staging: %s", proposed_name, reel)
                     continue
+                synthetic_cluster = {
+                    "description": str(person.get("description", "")),
+                    "appearances": [{
+                        "path": local_path,
+                        "_person_id": str(person.get("id") or person.get("person_id") or person.get("description") or ""),
+                        "events": reel_events,
+                    }],
+                }
+                name = _ledger_assign(
+                    synthetic_cluster,
+                    clean_idx,
+                    is_music,
+                    proposed_name,
+                    staged_reel,
+                    reel_events,
+                    reel in flagged_set,
+                )
                 pending.append((staged_reel, name))
                 pending_meta.append((staged_reel, name, reel_events, source_quality))
                 staged_reels.add(staged_reel)
@@ -559,21 +578,36 @@ def _patch_orchestrator(orchestrator: Any) -> None:
         pending, pending_meta, dropped = filter_duplicate_draft_candidates(pending, pending_meta)
         kept_reels = {reel for reel, _ in pending}
         for staged in staged_reels - kept_reels:
+            _LEDGER_CTX.pop(staged, None)
             _cleanup_file(staged)
         for detail in dropped:
             print(f"  Context QA blocked duplicate long-video draft {detail['dropped_draft']} -> kept {detail['kept_draft']}")
         drafts = 0
+        from pipeline.context_qa_gate import _LEDGER_CTX, _ledger_upload
         for reel, name in pending:
             events = next((m[2] for m in pending_meta if m[0] == reel and m[1] == name), [])
             try:
-                orchestrator.upload_draft(reel, name)
+                _ledger_upload(orchestrator, reel, name)
                 orchestrator._save_reel_metadata(name, activity, events, source_quality)
                 args = name_sources.get(name)
                 if args:
                     orchestrator._record_draft_sources(*args[:4], athlete_key_of(events))
                 drafts += 1
-            except Exception:
+            except Exception as exc:
                 orchestrator.logger.exception("Draft upload failed for %s", name)
+                os.makedirs(orchestrator.config.PENDING_UPLOADS_DIR, exist_ok=True)
+                staged_dest = os.path.join(orchestrator.config.PENDING_UPLOADS_DIR, os.path.basename(reel))
+                ledger_ctx = _LEDGER_CTX.pop(reel, None)
+                try:
+                    orchestrator.shutil.move(reel, staged_dest)
+                    with open(staged_dest + ".name", "w", encoding="utf-8") as nf:
+                        nf.write(name)
+                    if ledger_ctx:
+                        import json as _json
+                        with open(staged_dest + ".ledger.json", "w", encoding="utf-8") as lf:
+                            _json.dump(ledger_ctx, lf)
+                except Exception:
+                    orchestrator.logger.error("Could not stage long-video reel %s: %s", reel, exc)
             finally:
                 _cleanup_file(reel)
         for reel in produced_reels - kept_reels:

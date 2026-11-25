@@ -240,7 +240,53 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
                               if "_music" not in os.path.basename(r)), None)
             if not new_clean:
                 break
-            # Swap old reel + its music sibling for the re-edited versions
+            from pipeline.qa_gate_policy import qa_gate_score as _score_of
+            new_evs = events_by_reel.get(new_clean) or fixed
+            new_qa = qa_check_reel(new_clean, sport=sport, athlete_label=athlete_label, events=new_evs)
+            _print_qa_result(new_clean, new_qa)
+
+            # PQ-37: Never accept a re-edit that drops a previously verified action without an explicit
+            # critical drop defect, or that stays blocking while worsening critical defect count / gate score.
+            had_drop_defect = any(
+                str(d.get("severity", "")).lower() == "critical"
+                and str(d.get("type", "")).upper() in _DROP_DEFECTS
+                for d in (qa.get("defects") or [])
+                if isinstance(d, dict)
+            )
+            prev_verified = {
+                str(e.get("ride_uid") or e.get("event_uid") or e.get("event_id") or "")
+                for e in evs
+                if isinstance(e, dict)
+                and not e.get("_teaser")
+                and str(e.get("ride_uid") or e.get("event_uid") or e.get("event_id") or "")
+                and (e.get("complete_action_window_preserved") or (e.get("action_validity") or {}).get("verdict") == "VALID")
+            }
+            next_verified = {
+                str(e.get("ride_uid") or e.get("event_uid") or e.get("event_id") or "")
+                for e in new_evs
+                if isinstance(e, dict) and not e.get("_teaser")
+            }
+            prev_crit = sum(1 for d in (qa.get("defects") or []) if isinstance(d, dict) and str(d.get("severity", "")).lower() == "critical")
+            new_crit = sum(1 for d in (new_qa.get("defects") or []) if isinstance(d, dict) and str(d.get("severity", "")).lower() == "critical")
+            dropped_verified = bool(prev_verified - next_verified) and not had_drop_defect
+            regressed_while_blocking = _qa_blocking(new_qa) and (new_crit > prev_crit or (_score_of(new_qa) < _score_of(qa) and new_crit >= prev_crit))
+            if dropped_verified or regressed_while_blocking:
+                reason = "dropped_verified_action" if dropped_verified else "qa_regression"
+                print(f"  ↩️  Rolling back QA re-edit ({reason}) — keeping prior verified reel")
+                for p, _ in new_out:
+                    if p != cur:
+                        events_by_reel.pop(p, None)
+                for nr in new_reels:
+                    if nr not in (cur, cur.replace(".mp4", "_music.mp4")) and os.path.exists(nr):
+                        try:
+                            os.remove(nr)
+                        except OSError:
+                            pass
+                qa["reedit_rolled_back"] = True
+                qa["reedit_rollback_reason"] = reason
+                break
+
+            # Swap old reel + its music sibling for the verified re-edited versions
             sibling = cur.replace(".mp4", "_music.mp4")
             for old in (cur, sibling):
                 if old in final:
@@ -250,8 +296,7 @@ def _qa_gate(reels: list[str], events_out: list, sport: str, athlete_label: str,
                     except OSError: pass
             final.extend(r for r in new_reels if r not in final)
             cur = new_clean
-            qa = qa_check_reel(cur, sport=sport, athlete_label=athlete_label, events=events_by_reel.get(cur))
-            _print_qa_result(cur, qa)
+            qa = new_qa
 
         if _qa_blocking(qa):
             flagged.add(cur)
@@ -321,9 +366,10 @@ def _retry_pending_uploads() -> None:
         return
     print(f"\n📂 Retrying {len(staged)} staged reel(s) from previous run...")
     for filename in staged:
-        reel_path  = os.path.join(pending_dir, filename)
-        name_path  = reel_path + ".name"
-        count_path = reel_path + ".attempts"
+        reel_path   = os.path.join(pending_dir, filename)
+        name_path   = reel_path + ".name"
+        count_path  = reel_path + ".attempts"
+        ledger_path = reel_path + ".ledger.json"
         try:
             attempts = int(open(count_path).read())
         except Exception:
@@ -331,14 +377,33 @@ def _retry_pending_uploads() -> None:
         if attempts >= _MAX_STAGED_ATTEMPTS:
             logger.error("Staged reel '%s' failed %d time(s) — removing", filename, attempts)
             print(f"  ❌ Abandoned '{filename}' after {attempts} retries — deleted")
-            for p in (reel_path, name_path, count_path):
+            for p in (reel_path, name_path, count_path, ledger_path):
                 try: os.remove(p)
                 except OSError: pass
             continue
-        draft_name = open(name_path).read().strip() if os.path.exists(name_path) else filename
+        draft_name = open(name_path, encoding="utf-8").read().strip() if os.path.exists(name_path) else filename
         try:
-            upload_draft(reel_path, draft_name)
-            for p in (reel_path, name_path, count_path):
+            if os.path.exists(ledger_path):
+                import json as _json
+                from pipeline import draft_ledger
+                ctx = _json.loads(open(ledger_path, encoding="utf-8").read())
+                store = draft_ledger.default_store(upload_draft)
+                if store is not None and isinstance(ctx, dict) and ctx.get("cid"):
+                    draft_ledger.publish(
+                        store,
+                        cid=ctx["cid"],
+                        draft_name=draft_name,
+                        plan=ctx.get("plan", ""),
+                        render_path=reel_path,
+                        run_id=ctx.get("run_id", ""),
+                        qa_verdict=ctx.get("qa_verdict", "PASS"),
+                        members=ctx.get("members", []),
+                    )
+                else:
+                    upload_draft(reel_path, draft_name)
+            else:
+                upload_draft(reel_path, draft_name)
+            for p in (reel_path, name_path, count_path, ledger_path):
                 try: os.remove(p)
                 except OSError: pass
             print(f"  ✅ Staged reel uploaded: {draft_name}")
@@ -560,6 +625,10 @@ def _compile_clusters(clusters: list[dict], activity: str,
     """SHADOWED IN PRODUCTION (PA-14): pipeline.context_qa_gate.install replaces this function with
     compile_clusters_with_context_qa at startup, and real_identity_gate wraps that. A change made only here is inert in
     a real run (Gate A run 44140263067: fault hooks placed here never fired). Change the context-QA path."""
+    if os.getenv("SPORTREEL_ALLOW_SHADOWED_COMPILE_CLUSTERS", "").strip() != "1":
+        raise RuntimeError(
+            "PA-14: orchestrator._compile_clusters is shadowed in production; install pipeline.bootstrap / context_qa_gate first."
+        )
     pending: list[tuple[str, str]] = []
     pending_meta: list[tuple[str, str, list[dict], dict]] = []
     fn_to_id = fn_to_id or {}

@@ -50,17 +50,39 @@ def qa_pass_threshold() -> int:
     return 60
 
 
-def qa_gate_score(qa: dict[str, Any] | None) -> int:
-    """The score final QA passes on: the deliverable score, or the engagement score when the reviewer gave none."""
+def _parse_numeric_score(value: Any) -> int | None:
+    if isinstance(value, bool) or value in (None, ""):
+        return None
+    try:
+        return int(float(value))
+    except (TypeError, ValueError):
+        return None
+
+
+def has_deliverable_score(qa: dict[str, Any] | None) -> bool:
+    return _parse_numeric_score((qa or {}).get(GATE_SCORE_KEY)) is not None
+
+
+def used_engagement_fallback(qa: dict[str, Any] | None) -> bool:
     qa = qa or {}
-    for key in (GATE_SCORE_KEY, "engagement_score"):
-        value = qa.get(key)
-        if isinstance(value, bool) or value in (None, ""):
-            continue
-        try:
-            return int(float(value))
-        except (TypeError, ValueError):
-            continue
+    return not has_deliverable_score(qa) and _parse_numeric_score(qa.get("engagement_score")) is not None
+
+
+def strict_deliverable_score_enabled() -> bool:
+    return os.getenv("SPORTREEL_STRICT_DELIVERABLE_SCORE", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def qa_gate_score(qa: dict[str, Any] | None, *, allow_engagement_fallback: bool | None = None) -> int:
+    """The score final QA passes on: deliverable_score, with explicit engagement fallback only when permitted."""
+    qa = qa or {}
+    primary = _parse_numeric_score(qa.get(GATE_SCORE_KEY))
+    if primary is not None:
+        return primary
+    allow_fallback = (not strict_deliverable_score_enabled()) if allow_engagement_fallback is None else allow_engagement_fallback
+    if allow_fallback:
+        fallback = _parse_numeric_score(qa.get("engagement_score"))
+        if fallback is not None:
+            return fallback
     return 0
 
 
@@ -149,6 +171,12 @@ def build_qa_diagnostics(qa: dict[str, Any], *, retry_count: int, decision: str,
         "overall": qa.get("overall", ""),
         "engagement_score": qa.get("engagement_score"),
         "deliverable_score": qa.get(GATE_SCORE_KEY),
+        "deliverable_score_present": has_deliverable_score(qa),
+        "score_source": (
+            GATE_SCORE_KEY
+            if has_deliverable_score(qa)
+            else ("engagement_score_fallback" if used_engagement_fallback(qa) else "missing")
+        ),
         "gate_score": qa_gate_score(qa),
     }
 

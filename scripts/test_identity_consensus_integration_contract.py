@@ -256,7 +256,7 @@ def c8():
                 continue
             for n, line in enumerate(f.read_text(encoding="utf-8", errors="ignore").splitlines(), 1):
                 if re.search(r"\[\s*[\"']_visual_verified[\"']\s*\]\s*=\s*True|_visual_verified\W+True\)", line) and "assert" not in line:
-                    writers.append(f"{f.relative_to(ROOT)}:{n}")
+                    writers.append(f"{f.relative_to(ROOT).as_posix()}:{n}")
     allowed = {"pipeline/identity_evidence.py", "pipeline/stages/identity.py"}   # stamp(s) and the strip copy
     bad = [w for w in writers if w.split(":")[0] not in allowed]
     check(not bad, f"C8: other writers of _visual_verified: {bad}")

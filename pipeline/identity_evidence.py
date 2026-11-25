@@ -27,15 +27,41 @@ OPERATOR_REVIEW = "operator_review"
 ACCEPTED_METHODS = {PAIRWISE_CONSENSUS, OPERATOR_REVIEW}
 
 
-def member_key(app: dict[str, Any]) -> str:
-    """Stable key of one appearance: its source file and the person inside it.
+def _resolve_source_key(app: dict[str, Any]) -> str:
+    """Resolve collision-resistant content SHA-256 when available, else basename fallback."""
+    explicit_sha = str(app.get("source_sha256") or "").strip()
+    if explicit_sha:
+        return explicit_sha if explicit_sha.startswith("sha256:") else f"sha256:{explicit_sha}"
+    for ev in app.get("events", []) or []:
+        if not isinstance(ev, dict):
+            continue
+        ev_sha = str(ev.get("source_sha256") or "").strip()
+        if ev_sha:
+            return ev_sha if ev_sha.startswith("sha256:") else f"sha256:{ev_sha}"
+        ev_ref = str(ev.get("event_source_ref") or "").strip()
+        if ev_ref.startswith("sha256:") and len(ev_ref) > 7:
+            return ev_ref
+    path_str = str(app.get("path") or "").strip()
+    if path_str and os.path.isfile(path_str):
+        try:
+            from pipeline.event_identity import source_ref
+            kind, val = source_ref(path_str)
+            if kind == "sha256" and val:
+                return f"sha256:{val}"
+        except Exception:
+            pass
+    return os.path.basename(str(app.get("path") or app.get("_clip_index") or ""))
 
-    Works before and after `identity._strip_internal_fields` (which keeps only path and events). The source is the
-    file name of `path`: `_clip_index` is a run-local integer that the strip removes, so a key built from it at
-    verification time never matched the key built from the path at the release gate (run 43920602179). Two members of
-    one cluster that map to the same key are ambiguous and the cluster is never covered (see `coverage_problem`).
+
+def member_key(app: dict[str, Any]) -> str:
+    """Stable key of one appearance: its content-addressed source (or basename fallback) and person.
+
+    Works before and after `identity._strip_internal_fields` (which keeps path, events, and source_sha256).
+    Real files on disk or appearances carrying `source_sha256` resolve to `sha256:<digest>` so identically
+    named camera files across cards/folders never collide (PQ-10 / PQ-23), while synthetic non-existent paths
+    fall back cleanly to `os.path.basename(path)`.
     """
-    source = os.path.basename(str(app.get("path") or app.get("_clip_index") or ""))
+    source = _resolve_source_key(app)
     person = app.get("_person_id")
     if not person:
         person = next((str(e.get("person_id")) for e in app.get("events", []) or []

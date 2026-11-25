@@ -108,9 +108,15 @@ def run_tier1_local_qa_checks(
                 "at_seconds": round(s, 1),
                 "note": f"Event window ({s:.1f}s-{e:.1f}s) is shorter than 2.0s minimum action floor.",
             })
+        ride_uid = str(ev.get("ride_uid") or "").strip()
+        actor_key = str(ev.get("target_track_id") or ev.get("person_id") or ev.get("athlete_id") or "").strip()
         if src:
-            for prev_src, ps, pe in seen_windows:
+            for prev_src, ps, pe, prev_ride_uid, prev_actor_key in seen_windows:
                 if src == prev_src:
+                    if ride_uid and prev_ride_uid and ride_uid != prev_ride_uid:
+                        continue
+                    if actor_key and prev_actor_key and actor_key != prev_actor_key:
+                        continue
                     overlap = max(0.0, min(e, pe) - max(s, ps))
                     min_dur = max(0.1, min(e - s, pe - ps))
                     if overlap / min_dur >= 0.50:
@@ -121,7 +127,7 @@ def run_tier1_local_qa_checks(
                             "note": f"Overlapping source window in {src}: [{s:.1f}s, {e:.1f}s] overlaps [{ps:.1f}s, {pe:.1f}s].",
                         })
                         break
-            seen_windows.append((src, s, e))
+            seen_windows.append((src, s, e, ride_uid, actor_key))
 
     # 2. Check athlete identity continuity across events
     athlete_ids = {str(ev.get("athlete_id")) for ev in non_teaser_events if ev.get("athlete_id")}

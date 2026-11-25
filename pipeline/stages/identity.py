@@ -275,6 +275,8 @@ def _strip_internal_fields(clusters: list[dict]) -> list[dict]:
             }
             if app.get("thumbnail"):
                 out["thumbnail"] = app["thumbnail"]
+            if app.get("source_sha256"):
+                out["source_sha256"] = app["source_sha256"]
             appearances.append(out)
         if appearances:
             item = {

@@ -238,7 +238,19 @@ def filter_duplicate_draft_candidates(pending: list[tuple[str, str]], pending_me
 def _annotate_subject_gates(events: list[dict[str, Any]], source_video: str, athlete_label: str) -> list[dict[str, Any]]:
     from pipeline.multi_person_clip_gate import annotate_multi_person_events
     from pipeline.subject_gate_policy import annotate_subject_events
-    annotated = annotate_subject_events(events, source_video=source_video, athlete_label=athlete_label)
+    if not events:
+        return []
+    annotated: list[dict[str, Any]] = []
+    for ev in events:
+        ev_src = str(
+            (ev.get("_src") if isinstance(ev, dict) else "")
+            or (ev.get("source_video") if isinstance(ev, dict) else "")
+            or (ev.get("source") if isinstance(ev, dict) else "")
+            or (ev.get("video") if isinstance(ev, dict) else "")
+            or source_video
+            or ""
+        )
+        annotated.extend(annotate_subject_events([ev], source_video=ev_src, athlete_label=athlete_label))
     return annotate_multi_person_events(annotated, athlete_label)
 
 
@@ -288,6 +300,32 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 )
                 out[:] = [(reel, _annotate_subject_gates(events, source_video, str(cluster.get("description", "")))) for reel, events in out]
                 return result
+
+            # PA-08: When a multi-clip athlete cluster contains both clean clip(s) and clip(s) failing the
+            # subject isolation / multi-person gate (e.g. 0097 clean + 0115 PRIMARY_ACTOR_UNCLEAR), quarantine
+            # only the defective clip(s) and recompile the clean clip(s) rather than withholding the whole athlete.
+            annotated_all = _annotate_subject_gates(all_events, source_video, str(cluster.get("description", "")))
+            non_teaser_all = [ev for ev in annotated_all if isinstance(ev, dict) and not ev.get("_teaser")]
+            if len(non_teaser_all) > 1:
+                clean_evs = [ev for ev in non_teaser_all if not _has_subject_gate_defect([ev])]
+                bad_evs = [ev for ev in non_teaser_all if _has_subject_gate_defect([ev])]
+                if clean_evs and bad_evs:
+                    clean_out: list[tuple[str, list[dict]]] = []
+                    try:
+                        clean_reels = _recompile(clean_evs, clean_out)
+                    except Exception:
+                        clean_reels = []
+                    if clean_reels:
+                        for old_r in reels:
+                            if old_r not in clean_reels and os.path.exists(old_r):
+                                try:
+                                    os.remove(old_r)
+                                except OSError:
+                                    pass
+                        cluster.setdefault("_quarantined_subject_gate_events", []).extend(bad_evs)
+                        reels = clean_reels
+                        events_out = clean_out
+                        all_events = clean_evs
 
             reels, events_by_reel, flagged = _qa_gate_with_edit_context(
                 orchestrator,
@@ -349,7 +387,13 @@ def _patch_orchestrator(orchestrator: Any) -> None:
                 first_path = cluster["appearances"][0]["path"] if cluster.get("appearances") else None
                 source_video = str(first_path or "")
                 source_quality = orchestrator._get_source_info(first_path) if first_path else {}
-                all_events = [ev for app in cluster.get("appearances", []) for ev in app.get("events", [])]
+                all_events: list[dict] = []
+                for app in cluster.get("appearances", []):
+                    app_path = str(app.get("path") or "")
+                    for ev in app.get("events", []):
+                        if isinstance(ev, dict) and app_path and not ev.get("_src"):
+                            ev["_src"] = app_path
+                        all_events.append(ev)
                 import uuid as _uuid
                 inv_id = str(cluster.get("invocation_id") or f"inv_{ci}_{_uuid.uuid4().hex[:8]}")
                 cluster["invocation_id"] = inv_id
@@ -388,10 +432,15 @@ def _patch_orchestrator(orchestrator: Any) -> None:
             except Exception as exc:
                 os.makedirs(orchestrator.config.PENDING_UPLOADS_DIR, exist_ok=True)
                 staged = os.path.join(orchestrator.config.PENDING_UPLOADS_DIR, os.path.basename(reel_path))
+                ledger_ctx = _LEDGER_CTX.pop(reel_path, None)
                 try:
                     orchestrator.shutil.move(reel_path, staged)
-                    with open(staged + ".name", "w") as f:
+                    with open(staged + ".name", "w", encoding="utf-8") as f:
                         f.write(name)
+                    if ledger_ctx:
+                        import json as _json
+                        with open(staged + ".ledger.json", "w", encoding="utf-8") as lf:
+                            _json.dump(ledger_ctx, lf)
                     orchestrator.logger.error("Upload failed for '%s' — staged at %s for next run", name, staged)
                     print("Upload failed — reel saved to pending_uploads/ for next run")
                 except Exception:
@@ -487,13 +536,15 @@ def _ledger_assign(cluster: dict, part_index: int, is_music: bool, proposed: str
 def _ledger_upload(orchestrator, reel_path: str, name: str) -> None:
     from pipeline import draft_ledger
 
-    ctx = _LEDGER_CTX.pop(reel_path, None)
+    ctx = _LEDGER_CTX.get(reel_path)
     store = draft_ledger.default_store(orchestrator.upload_draft) if ctx else None
     if store is None:
         orchestrator.upload_draft(reel_path, name)
+        _LEDGER_CTX.pop(reel_path, None)
         return
     outcome = draft_ledger.publish(store, cid=ctx["cid"], draft_name=name, plan=ctx["plan"], render_path=reel_path,
                                    run_id=ctx["run_id"], qa_verdict=ctx["qa_verdict"], members=ctx["members"])
+    _LEDGER_CTX.pop(reel_path, None)
     print(f"  📒 {outcome.action}: {outcome.draft_name} revision {outcome.revision}")
 
 def install() -> None:
