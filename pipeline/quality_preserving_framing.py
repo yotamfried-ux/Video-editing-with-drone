@@ -639,6 +639,7 @@ def _encode_clip(out: str, video_path: str, start: float, duration: float, filte
         "-colorspace", "bt709",
         "-color_primaries", "bt709",
         "-color_trc", "bt709",
+        "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
         "-movflags", "+faststart",
         out,
     ]

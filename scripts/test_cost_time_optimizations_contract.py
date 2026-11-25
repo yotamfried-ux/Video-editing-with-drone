@@ -159,6 +159,8 @@ def test_concurrent_analysis_keeps_order_isolates_failures_and_is_faster() -> No
         logger=types.SimpleNamespace(exception=lambda *a, **k: None), os=os, _ANALYSIS_WORKERS=4,
         record_failure=lambda file_id: failures.append(file_id) or True, mark_as_processed=lambda *_: None)
     exec(helper, namespace)
+    if "_analysis_progress_update" in namespace:
+        namespace["_analysis_progress_update"](completed=0, total=1, failed=0, elapsed_seconds=0.0)
     items = [{"path": f"/nonexistent/{n}.mp4", "meta": {"id": n, "name": f"{n}.mp4"}} for n in ("a", "bad", "c", "d")]
     start = time.monotonic()
     out = namespace["_analyze_downloaded"](items)
@@ -244,14 +246,18 @@ def test_stage_timer_persists_and_never_raises() -> None:
     assert [r["stage"] for r in rows] == ["unit", "failing"] and rows[0]["source"] == "x.mp4", rows
 
 
-def test_pipeline_log_is_unbuffered_and_cache_is_wired() -> None:
+def test_pipeline_log_is_unbuffered_and_only_safe_caches_are_wired() -> None:
     script = (ROOT / "scripts" / "run_pipeline_with_diagnostics.sh").read_text(encoding='utf-8')
     assert "PYTHONUNBUFFERED=1 python -u scripts/run_tracked.py" in script
     workflow = (ROOT / ".github" / "workflows" / "pipeline-run.yml").read_text(encoding='utf-8')
+    # Dependency / model-weight caches can be reused, but never previous-source
+    # model answers, perception sidecars, or GT/manually labeled athlete decisions.
     assert "actions/cache/restore@v4" in workflow and "actions/cache/save@v4" in workflow
-    assert "LLM_CACHE_DIR: /tmp/llm-cache" in workflow
-    save = workflow[workflow.index("Save LLM analysis cache"):]
-    assert "if: always()" in save.split("Upload pipeline diagnostics")[0]
+    assert "LLM_CACHE: '0'" in workflow
+    assert "SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''" in workflow
+    assert "python scripts/assert_cold_inference.py --prepare" in workflow
+    assert "Restore LLM analysis cache" not in workflow
+    assert "Save LLM analysis cache" not in workflow
 
 
 def main() -> int:

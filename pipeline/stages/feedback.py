@@ -123,6 +123,9 @@ def get_all_label_injections() -> str:
     Returns a prompt block for ALL sports with >= _MIN_APPROVALS approvals.
     Returns "" if no sport has enough data yet — no injection until there is signal.
     """
+    from pipeline import inference_memory_policy as _memory
+    if _memory.closed("label_feedback_history"):
+        return ""
     data = _load()
     sports: dict[str, int] = {}
     for entry in data["approvals"]:
@@ -184,6 +187,9 @@ def get_qa_calibration_hint(sport: str) -> str:
     Intentionally aggregate — conveys approved moment-types + engagement range,
     NOT the editing instructions for the reel under review (independence preserved).
     """
+    from pipeline import inference_memory_policy as _memory
+    if _memory.closed("qa_calibration_history"):
+        return ""
     data = _load()
     approvals = sum(1 for a in data["approvals"] if a.get("sport", "").lower() == sport.lower())
     if approvals < _MIN_APPROVALS:
@@ -305,6 +311,9 @@ def get_negative_feedback_hint() -> str:
     Returns "" until there is enough signal (_STRUCTURED_MIN_FEEDBACK rows) or
     if Supabase is unreachable — never blocks or fails the analysis prompt.
     """
+    from pipeline import inference_memory_policy as _memory
+    if _memory.closed("draft_feedback"):
+        return ""
     rows = _fetch_structured_feedback()
     if len(rows) < _STRUCTURED_MIN_FEEDBACK:
         return ""
@@ -366,6 +375,9 @@ def get_operator_notes(draft_name: str | None = None) -> str:
     returns all pending notes (for fresh footage with no prior draft name).
     Returns "" when no notes exist.
     """
+    from pipeline import inference_memory_policy as _memory
+    if _memory.closed("operator_notes"):
+        return ""
     path = getattr(config, "OPERATOR_NOTES_FILE", "operator_notes.json")
     try:
         with open(path) as f:

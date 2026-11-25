@@ -59,6 +59,12 @@ def _install_r2_batch_scope() -> None:
 
 def install_pre_orchestrator_patches() -> None:
     """Install every patch that must be active before `pipeline.orchestrator` is imported."""
+    # MEM-03: in strict cold inference, refuse evaluation-only reads and record the run's isolation evidence.
+    from pipeline import inference_memory_policy as _memory
+    if _memory.install_guard():
+        import atexit
+        atexit.register(lambda: _memory.write_report(
+            os.path.join(os.getenv("TMP_DIR", "/tmp/dtor"), "pipeline-debug", "inference_isolation_report.json")))
     _install_storage_backend_alias()
     _install_r2_batch_scope()
 

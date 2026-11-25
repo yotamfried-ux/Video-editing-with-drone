@@ -1132,6 +1132,7 @@ def cut_clip(
         "-colorspace", "bt709",     # BT.709 — תקן Microsoft ל-HD מעל 720p
         "-color_primaries", "bt709",
         "-color_trc", "bt709",
+        "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
         "-movflags", "+faststart",
         out,
     ]
@@ -1480,6 +1481,7 @@ def compile_reel(
         "-colorspace", "bt709",     # BT.709 — תקן Microsoft ל-HD מעל 720p
         "-color_primaries", "bt709",
         "-color_trc", "bt709",
+        "-x264-params", "colorprim=bt709:transfer=bt709:colormatrix=bt709",
         *(["-c:a", "aac", "-b:a", "192k", "-ar", "44100"] if has_music else []),
         "-movflags", "+faststart",
         output_path,

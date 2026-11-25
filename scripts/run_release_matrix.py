@@ -81,7 +81,7 @@ MATRIX: dict[str, dict] = {
 
 
 def run(cmd: list[str], cwd: Path) -> tuple[bool, str]:
-    env = {**os.environ, "PYTHONPATH": f"{ROOT}/scripts:{ROOT}"}
+    env = {**os.environ, "PYTHONPATH": os.pathsep.join([str(ROOT / "scripts"), str(ROOT)])}
     try:
         p = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, timeout=600)
     except subprocess.TimeoutExpired:

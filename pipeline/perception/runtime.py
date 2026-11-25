@@ -411,7 +411,8 @@ def ensure_sidecar_for_video(video_path: str) -> dict[str, Any]:
     if existing is not None:
         try:
             summary = validate_sidecar(video_path, existing)
-            if _is_reusable_sidecar(summary):
+            from pipeline import inference_memory_policy as _memory
+            if _is_reusable_sidecar(summary) and _memory.sidecar_reusable(existing):
                 return {**summary, "producer_status": "existing"}
             logger.info(
                 "Ignoring non-reusable perception sidecar for %s: status=%s reason=%s",

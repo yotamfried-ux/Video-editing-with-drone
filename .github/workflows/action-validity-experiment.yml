@@ -1,0 +1,55 @@
+name: Action Validity Experiment (EXP-14-002, read-only, label-triggered, capped)
+
+# Evaluation only. Runs the PRODUCTION observer (pipeline/action_validity_runtime.py) on the selected final windows of
+# a frozen run, with real sources read from R2 (GET only) and the run's own perception sidecars. Result artifact is
+# JSON only: the repository is public, so no image, crop or video leaves the job temp dir. Never runs the pipeline,
+# never writes R2/Supabase.
+#   label avexp-dry   -> grids + identity/coverage checks, NO model call ($0)
+#   label avexp-paid  -> production model calls, hard cap 0.40 USD (owner-authorized only)
+on:
+  pull_request:
+    types: [labeled]
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  experiment:
+    if: github.event.label.name == 'avexp-dry' || github.event.label.name == 'avexp-paid'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+      - run: pip install --disable-pip-version-check google-genai boto3 pillow numpy python-dotenv
+      - name: Download frozen run diagnostics (tracks)
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: '44388634790'
+        run: gh run download "$RUN_ID" -n "pipeline-diagnostics-$RUN_ID" -D "$RUNNER_TEMP/diag"
+      - name: Run EXP-14-002
+        env:
+          GEMINI_API_KEY: ${{ github.event.label.name == 'avexp-paid' && secrets.GEMINI_API_KEY || '' }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET || 'sportreel' }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          BATCH_ID: batch_2026-10-03T12-19-52_ttgvat95
+          MODE: ${{ github.event.label.name }}
+        run: |
+          DRY=""
+          if [ "$MODE" = "avexp-dry" ]; then DRY="--dry-run"; fi
+          python scripts/action_validity_experiment.py --diagnostics "$RUNNER_TEMP/diag" --out "$RUNNER_TEMP/exp14_002.json" \
+            --budget-usd 0.40 $DRY --extra "_0108_D.MP4:6.82:9.23:10007;_0094_D.MP4:13.2:22.5:37"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: exp14-002-${{ github.event.label.name }}
+          path: ${{ runner.temp }}/exp14_002.json
+          retention-days: 30

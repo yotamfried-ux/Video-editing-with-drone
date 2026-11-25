@@ -2,7 +2,7 @@
 # qualification/<run_id>/ (integrations/qualification.py). Never resets, never moves/deletes production objects,
 # never writes Supabase (writes are recorded in qualification_ledger.jsonl), never publishes to Discover, never
 # sends notifications, never saves caches. Production state is fingerprinted before and after; any difference fails.
-# Triggers: label `qualrun-dry` (LLM budget 0 = cache-only, free) or `qualrun-paid` (budget from
+# Triggers: label `qualrun-dry` (LLM budget 0; will fail closed if fresh inference needs funds) or `qualrun-paid` (budget from
 # evaluation/qualification/run_config.json, hard-capped by SPORTREEL_LLM_BUDGET_USD). A push alone never runs it.
 name: Pipeline Qualification Run (isolated namespace)
 'on':
@@ -97,9 +97,11 @@ jobs:
 
         budget = 0.0 if label != "qualrun-paid" else float(c["llm_budget_usd_paid"])
 
-        assert 0.0 <= budget <= 2.273, f"budget {budget} outside the authorised remainder (USD 4 total - 1.727 spent through q12-paid-01)"
+        assert 0.0 <= budget <= 1.519, f"budget {budget} outside the authorised remainder (USD 4 total - 2.481 spent through q13-cold-no-memory-01)"
 
-        print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}"); print(f"budget={budget}")
+        reserve = float(c.get("llm_downstream_reserve_usd", 0) or 0); assert 0.0 <= reserve <= max(budget, 0.0), reserve
+
+        print(f"run_id={rid}"); print(f"batch={c[''batch_id'']}"); print(f"budget={budget}"); print(f"reserve={reserve}")
 
         PY
 
@@ -148,18 +150,19 @@ jobs:
       with:
         path: ~/.cache/sportreel/openvino
         key: openvino-v1-${{ hashFiles('requirements.txt') }}-${{ vars.SPORTREEL_ULTRALYTICS_MODEL || 'yolo11s.pt' }}
-    - name: Restore LLM analysis cache
-      uses: actions/cache/restore@v4
-      with:
-        path: /tmp/llm-cache
-        key: llm-analysis-cache-v1-${{ github.run_id }}
-        restore-keys: 'llm-analysis-cache-v1-
-
-          '
+    - name: 'Enforce cold inference: deny prior AI memory and GT access'
+      env:
+        GITHUB_ACTIONS: 'true'
+        SPORTREEL_STRICT_COLD_INFERENCE: '1'
+        LLM_CACHE: '0'
+        SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''
+      run: python scripts/assert_cold_inference.py --prepare
     - name: Run pipeline (qualification namespace, Supabase writes blocked, LLM capped)
       timeout-minutes: 240
       env:
         LLM_CACHE_DIR: /tmp/llm-cache
+        LLM_CACHE: '0'
+        SPORTREEL_STRICT_COLD_INFERENCE: '1'
         ANALYSIS_WORKERS: ${{ vars.ANALYSIS_WORKERS || '3' }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
@@ -185,8 +188,10 @@ jobs:
         SPORTREEL_QUALIFICATION_RUN_ID: ${{ steps.cfg.outputs.run_id }}
         STORAGE_BACKEND: r2
         SPORTREEL_LLM_BUDGET_USD: ${{ steps.cfg.outputs.budget }}
-        # cycle 12: owner WORKING identity decisions (0097+0115 same, 0074+0151 different), qualification-only file
-        SPORTREEL_IDENTITY_REVIEW_DECISIONS: ${{ github.workspace }}/evaluation/qualification/identity_working_decisions.json
+        # MEM-04: analysis stops at budget - reserve so identity verification and final QA keep their share
+        SPORTREEL_LLM_DOWNSTREAM_RESERVE_USD: ${{ steps.cfg.outputs.reserve }}
+        # No historical owner decisions are injected during a cold qualification run.
+        SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''
       run: bash scripts/run_pipeline_with_diagnostics.sh
     - name: Collect rendered reels from the namespace
       if: always()

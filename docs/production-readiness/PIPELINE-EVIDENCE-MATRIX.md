@@ -197,6 +197,78 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **Evidence:** EVD-12-009, EVD-12-010
 - **Limits:** Next step (free): per-clip subject-gate handling in multi-clip reels (hold or drop the blocked clip for review instead of withholding the whole reel), then replay; no production identity decision without owner approval.
 
+### FIX-PQ-13-001 — Close every prior-run memory channel into inference under strict cold mode
+
+- **Gap:** MEM-03 · **Classification:** SAFETY_FIX · **Status:** `TESTED`
+- **Root cause:** operator notes, draft_feedback, approval history, QA history and identity decisions still reached prompts/decisions with SPORTREEL_STRICT_COLD_INFERENCE=1
+- **Fix:** pipeline/inference_memory_policy.py; stages/feedback; identity_review; perception/runtime; bootstrap
+- **Commit:** 644a5d9d
+- **Experiments:** RED/GREEN M1-M9
+- **Before:** history injected in strict mode
+- **After:** closed and recorded; GT open refused; stale sidecars refused
+- **Evidence:** EVD-13-002
+- **Limits:** cloud proof pending an approved strict run; DB-role least privilege not changed
+
+### FIX-PQ-13-002 — Analysis/downstream budget split; budget-starved runs read INCOMPLETE
+
+- **Gap:** MEM-04 · **Classification:** RELIABILITY_FIX · **Status:** `REPLAYED`
+- **Root cause:** single cap: analysis consumed the budget, identity and QA never ran, verdict SUCCESS/FAIL
+- **Fix:** integrations/qualification.check_llm_budget(label); scripts/write_batch_qualification.py; qualification workflow reserve
+- **Commit:** a58edb3e
+- **Experiments:** B1-B6 incl. replay of run 44374982006
+- **Before:** SUCCESS/FAIL
+- **After:** INCOMPLETE/INCOMPLETE_QA; analysis stops at cap-reserve
+- **Evidence:** EVD-13-002
+- **Limits:** not yet exercised in a real run
+
+### FIX-PQ-13-003 — CI guard: no source-specific answers in runtime strings or prompts
+
+- **Gap:** MEM-06 · **Classification:** GUARD · **Status:** `TESTED`
+- **Root cause:** risk of GT-informed source branches
+- **Fix:** scripts/test_no_source_specific_runtime_contract.py
+- **Commit:** a58edb3e
+- **Experiments:** S1-S5
+- **Before:** no guard
+- **After:** 0 violations in 126 runtime files
+- **Evidence:** EVD-13-002
+- **Limits:** does not catch numeric thresholds tuned on GT
+
+### FIX-PQ-14-001 — Start on frame 0 when the recording opens on an action already in progress (camera-compensated motion)
+
+- **Gap:** PQ-05 starts · **Classification:** SIMULATION_VERIFIED · **Status:** `REPLAYED`
+- **Root cause:** 1.0 s snap window + raw on-screen motion bounded by analyzer setup_start
+- **Fix:** pipeline/action_onset.py, window_refinement.py, complete_action_window_policy.py, sport_profiles
+- **Commit:** 2865c1f5
+- **Experiments:** EXP-14-001
+- **Before:** boundary >0.5 s on 118/236 replayed events
+- **After:** 98/236, 0 worse
+- **Evidence:** EVD-14-002
+- **Limits:** not yet rendered; 3 independent analyzer variants; perception-recall late starts remain
+
+### FIX-PQ-14-002 — Observed action validity (established prone/kneeling/standing riding; uncertainty -> review), gate off
+
+- **Gap:** PQ-01/33 validity · **Classification:** IMPLEMENTED_UNVERIFIED · **Status:** `PATCHED`
+- **Root cause:** 0155 selected on the analyzer's own claim; RC-03 accepted CV activity a failed take-off also has
+- **Fix:** pipeline/action_validity.py, output_qualification.py (RC-03)
+- **Commit:** 9bcd009c
+- **Experiments:** EXP-14-002 (preregistered, not run)
+- **Before:** 0155 VALID
+- **After:** unverified on real media
+- **Evidence:** 
+- **Limits:** needs owner authorization for EXP-14-002 ($0.40 cap)
+
+### FIX-PQ-14-003 — Identity sheet size carried through the model-clustering path
+
+- **Gap:** PQ identity · **Classification:** SIMULATION_VERIFIED · **Status:** `TESTED`
+- **Root cause:** _resolve_model_appearance omitted sheet_crops -> every multi-source cluster REVIEW without a pairwise check
+- **Fix:** pipeline/stages/identity.py
+- **Commit:** 5400b5c7
+- **Experiments:** EXP-14-003
+- **Before:** 5/5 clusters unverified
+- **After:** production-path contract RED -> GREEN
+- **Evidence:** EVD-14-003
+- **Limits:** multi-source auto-publish stays off by policy; real-run effect unmeasured
+
 ## Gaps
 
 | ID | Case | Product | Classification | Status | Finding | Next |
@@ -266,13 +338,22 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 | EVD-12-001 | contract | PA-13 RED/GREEN: scripts/test_draft_ledger_retry_contract.py drives the production hooks context_qa_gate._ledger_assign/_ledger_upload and the orchestrator.upload_draft metadata channel against a conditional-PUT store. RED with SPORTREEL_DRAFT_LEDGER=0: crash + retry next day with new descriptions -> 4 review objects for 3 reels. GREEN: D1 crash after first upload, D1b crash after upload before commit (committed without re-upload), D2 parallel crash, D3 same day, D4 another day, D5 new description, D6 after QA PASS, D7 QA FAIL->PASS, D8 render changed (revision 2, previous bytes archived by copy, new approval required), D9 after operator approval (approved untouched; new plan = pending revision), D10 two concurrent runs, S no delete / no writes outside review/ metadata/, Q name perturbation only in qualification runs, I namespace inventory check. 0 failing. | cycle-12 report |
 | EVD-12-002 | contract | Identity working decisions bound to the REAL sources (EXP-11-001 source SHA-256s): request ids reproduce 758fe7783e9c... (0097+0115) and 7b2a6964427f... (0074+0151). GREEN W1-W9: 0097+0115 kept together with operator_review evidence, identity gate pass; 0074+0151 split; model MATCH on 0074+0151 overridden; superset with an approval split; singleton merge never groups 0074 with 0151; approval does not extend to 0097+0151 / 0115+0074; working file ignored outside qualification runs; no production decision file. RED on 3da09101: W4, W5, W6, W8 fail (a model MATCH kept the owner-rejected pair together). | cycle-12 report |
 | EVD-12-003 | replay | Pre-declared end-rule replay E1 (bound actor speed < 0.35 body heights/s for >= 1.5 s, searched from start+3 s, +0.5 s margin) on EXP-11-001 windows and sidecars, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9: 5 windows cut GT include (0146 13.6 s mid-ride, 0163 6.9, 0094 5.6 time-attributed, 0130 3.6, 0070 2.1) = 31.9 s include lost for 3.8 s non-include removed; 0 helpful-only changes. REJECTED: drone follow keeps a riding surfer still in image space. | cycle-12 report |
-| EVD-12-004 | frame_sequence | PA-03 0094 boundary: EXP-11-001 reel 423a3d650854d132ff98e3a5e463f58a363e73f750d7ef8f9cdf41e4fa3e5231 (tracked crop of 9524ac02, source = reel + 2.0 s), 2 fps source 11-18 s viewed: riding the green face to 12.5 s, standing ride in whitewater 13.0-14.5 s, crouch 15.0 s, kneeling/prone 15.5-17.5 s. GT annotator box height 0.37 -> 0.26 between 13.5 and 15.5 s (aggregate). GT-v1 end 13.23 s unchanged; candidate end ~15.2 s for a separate GT version if the owner counts whitewater riding. | docs/production-readiness/PA-03-0094-BOUNDARY-EVIDENCE.md |
+| EVD-12-004 | frame_sequence | PA-03 0094 boundary: EXP-11-001 reel 423a3d650854d132ff98e3a5e463f58a363e73f750d7ef8f9cdf41e4fa3e5231 (tracked crop of 9524ac02, source = reel + 2.0 s), 2 fps source 11-18 s viewed: riding the green face to 12.5 s, standing ride in whitewater 13.0-14.5 s, crouch 15.0 s, kneeling/prone 15.5-17.5 s. GT annotator box height 0.37 -> 0.26 between 13.5 and 15.5 s (aggregate). GT-v1 end 13.23 s unchanged; candidate end ~15.2 s for a separate GT version if the owner counts whitewater riding. | CYCLE 13 CORRECTION: the reel-to-source mapping was exact (EDL shot real-time, out 608 frames = source 2.0-22.27 s); but the cycle-12 reading stopped at 17.5 s. Frames 12-22 s of the cold-run 0094-A reel (EVD-13-005) show kneeling 15.5-18.5 s, then he STANDS AGAIN and rides the whitewater 19.0-21.5 s. If whitewater riding counts, the action ends ~21.5 s (pipeline end 22.5 s), not ~15.2 s. | docs/production-readiness/PA-03-0094-BOUNDARY-EVIDENCE.md |
 | EVD-12-005 | frame_sequence | PA-01 0095: EXP-11-001 reel 'DRAFT_Man in a white long-sleeve top...' (track 10003, source 0.0-6.32 s) viewed at 2 fps: standing ride 0.0-5.0 s, fall 5.5 s = a valid action of an uncatalogued person; not the tagged athlete 6c84aed0 (GT exclude/unusable in this interval). quality_scorecard on EXP-11-001: legacy qa_false_pass 1 = publishable_non_gt_person 1, qa_false_pass_gt_cohort 0. | docs/production-readiness/UNCATALOGUED-PERSON-POLICY.md |
 | EVD-12-006 | measurement | Holdout availability (production source_uploads, read-only, 2026-11-18): the only drone sources are the 24 GT-v1 sources (20 filmed 2026-07-20, 4 filmed 2026-07-24); 5 other uploads are tiny non-drone test files. GT-v1 has 3 negative (exclude) segments only (0095 no_meaningful_action, 0108 missing_landing, 0155 failed_takeoff). | docs/production-readiness/HOLDOUT-H1-PLAN.md |
 | EVD-12-007 | contract | Holdout tooling H1-H7 (synthetic fixtures, not a holdout result); PA-01 policy U1-U6; football architecture F1-F9 (F9: cycle-12 Core sport-neutral, football reel canonical id stable). All 0 failing locally. | cycle-12 report |
 | EVD-12-008 | isolated_run | Gate A suite pa13, run 44269495332 @9c26a306 (budget 0, real R2, namespaces q12-pa13 and q12-pa13-legacy, production entry point scripts/run_tracked.py). RED legacy names (L1 crash after first upload, L2 retry with another description + date 20991231): 26 review objects, 2 left over from the crashed run next to renamed drafts. GREEN draft ledger (G1 crash: 3 partial uploads; G2 retry with another description + date): 25 review objects = 25 canonical reels, no renamed duplicate, every partial kept, same output count as the legacy retry (25); G2 ledger actions UPLOADED 22, COMMITTED_PENDING 2 (crash after upload before commit: committed without re-upload), SKIPPED_SAME_PLAN 1; G3 retry after completion: no input, 0 writes; raw/ identical to the seed in both namespaces; production fingerprint identical. The workflow verdict was FAIL only because the evaluator also required the cycle-10 phases F1-F3 that this suite does not run (evaluator bug, fixed); re-scoring the run's own inventories with the fixed evaluator: GATE A PASS (16/16). | artifact qualification-gate-a-q12-pa13-44269495332 (id 14420887587) |
 | EVD-12-009 | isolated_run | EXP-12-001 q12-paid-01 (run 44290916415 @1651bfe6, $0.219 list-price estimate, 14 calls / cap $0.40, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9; owner working identity decisions qualification-only). Production fingerprint identical. S1 OBSERVED: 0097+0115 one cluster, identity gate pass on the owner approval (request 758fe7783e9c...). S2: 0074 and 0151 in different reels. S3: split athletes 2 -> 1. S4: namespace inventory 13 review objects = 13 ledgers, 0 problems. Protected: FULL 15, missing 16.2 s, incorrect starts 7 / ends 1, non-GT 7.47 s, excluded 999, wrong-actor frames 54, visible mixed 1 (0143+0152, withheld), publishable wrong identity 0, QA false pass 1 (= 1 non-GT-person reel, GT-cohort 0) - all unchanged; publishable correct 4 -> 3 = PROTECTED CONDITION FAILED. Cause: 0115's clip carries the subject gate PRIMARY_ACTOR_UNCLEAR (it was already blocked as its own reel in EXP-11-001, where 0097's single reel was publishable); the merged reel inherits the block, so a correct reel is withheld (QA verdict PASS, no defects). VERDICT: EXP-12-001 FAILED per pre-registration; nothing adopted from it. | cycle-12 report; artifacts qualification-diagnostics/reels-q12-paid-01-44290916415 |
 | EVD-12-010 | frame_sequence | EXP-12-001 reels decoded (all 13: H.264 2160x3840 30 fps, 0 decode errors, no freeze/black). Viewed: merged 0097+0115 reel sha256 6d4457a7a133fceed7661b0118723633d01d3901106bcdda1a746c61de0298c6 (1 fps): one athlete; 0097 clip 0-9 s backlit (prone, pop-up ~1-2 s, ride into whitewater), 0115 clip 9-23 s (paddle-in with other people nearby 9-13 s, pop-up ~14 s, ride to 22 s); the PRIMARY_ACTOR_UNCLEAR block on 0115 looks conservative (rider followable). 0074 reel 9e14d590a1a63784229b197a07efd2edec872b5c1f6ca07098596c2627ee3bab one athlete (take-off ~3 s, ride to 21 s); 0151 reel 5315a28a21b561a13d733dd492497593bb54cb190bbec2f6b6b16b6b549e9b72 one athlete (ride to ~4.5 s, wipeout); the two lookalikes (black long-sleeve tops) correctly separate. | session scratch contact sheets |
+| EVD-13-001 | isolated_run | EXP-13-COLD-001 (owner, run 44374982006 @1965b368, caches off, no identity decisions, isolated namespace, GT-v1 ae844a94 digest b31fd9b42bb248591f5a92c1aeadc7506c5bdf8826a5d392eff9e3f5e36927c9). Frozen artifacts: diagnostics zip ed3003359b33a3f37617cc9b879351cb9366552084be3e70b07e3a6b8480fcc4, reels zip 84fb859de3f571153df8540fad9de415574ddff32fb27d3277dee8c22cbb5fcd (both = GitHub digests). $0.7542 / cap $0.80, 14 of 24 sources analysed, 42 budget refusals (analysis, identity, QA). Evaluator (after freeze): FULL 12/24, missing 102.9 s, starts/ends incorrect 3/0, excluded 523, wrong-actor frames 54, visible mixed 0, wrong identity 0, split 5 (identity stage never ran), duplicate GT frames 333 (time-attributed: 0094 A window 2.0-22.4 vs tandem 13.5-36.7), publishable 0 (no QA). Production fingerprint identical. Recorded verdict SUCCESS/FAIL was wrong (see EVD-13-002). | CYCLE-13-GAP-MATRIX-AND-QUALIFICATION.md section 3 |
+| EVD-13-002 | contract | MEM-03/04/06 contracts: inference memory isolation M1-M9 (control sees planted operator notes, draft feedback, approval history, identity decision, cache answer, stale sidecar, GT file; strict sees none; RED on PR #401 head: M1-M5, M9); LLM budget phases B1-B6 incl. replay of run 44374982006 artifacts: verdict SUCCESS/FAIL -> INCOMPLETE/INCOMPLETE_QA; no source-specific runtime strings S1-S5 (126 files, 0 violations; 4/4 planted caught). | PR #402 |
+| EVD-13-003 | measurement | Runtime from stage_timings: cold 44374982006 pipeline wall 60.2 min (analyze_source wall 35.6 min overlapped with yolo_perception wall 35.5 min = cpu-sum 35.5 min, i.e. serial; render_reels wall 23.7 min = cpu-sum, serial, 15 reels; qa_gate wall 22.5 min overlapped); warm EXP-12-001 (forbidden cache) 29.2 min (render 26.6 min serial). Target ~30 min cold: FAIL. | CYCLE-13 report section 4 |
+| EVD-13-004 | frame_sequence | All 15 cold-run reels inspected with scripts/inspect_reel.py: H.264 2160x3840 30 fps, 0 decode errors, no black/freeze, single clip each. Sheets viewed: the 22.9 s 'long hair and beard' reel is 0142 (window 0-22.89 s), one athlete throughout [cycle-13 correction: it was first mislabelled as 0094-A]; tandem reel (QA-flagged) contain framing with tiny subjects and another athlete dominant ~13 s (framing defect, withheld). | session scratch inspection sheets |
+| EVD-13-005 | frame_sequence | 88-second reel of the long-haired surfer (identical in runs 44166232265, 44252428407, 44290916415 and production run 44388634790): shots 0094 2.0-22.5 s, 0155 0-7.9 s, 0118 0-19.95, 0146 0-18.15, 0142 0-22.89. vs GT: 0118/0146/0142 match exactly; 0155 is a GT-excluded failed take-off kept in full (SELECTION DEFECT, 7.9 s); 0094 GT ride 0-13.23 s, rendered to 22.5 s. Frames (cold reel 0094-A, real-time, source 12-22 s): whitewater riding to 15.0, kneeling 15.5-18.5, stands again and rides 19.0-21.5, fade 22.0: the 0094 'tail' is continued whitewater riding, a labelling-convention question (PA-03), not a clear cutting error. Signals measured on all 24 sources: never-upright box (0155: 0/7 s) also holds for valid rides 0160 (0/9), 0165 (0/6), 0094 tandem (1/9); low net displacement (0155 0.8 bh) also 0140 0.3, tandem 0.9; box shrink (0155 0.43x) also 0165 0.78, 0094 0.79. No generalisable separator with 3 GT negatives: no code change; 0155 remains a known selection defect until labelled negatives exist. | cycle-13 report section 9 |
+| EVD-14-001 | scorecard_reproduction | Run 44388634790 (main 90fa08e1) re-scored with scripts/gt_scorecard.py: FULL 15/24, recalled 2/24, excluded 999 (0155 476 invalid take-off; 0095 379 uncatalogued valid rider PA-01; 0108 144 standing ride GT 'missing_landing'), boundary 8 >0.5 s (max 2.49), withheld 6. Run log: 29 analysis + 24 perception cache hits (warm, not cold evidence). | docs/production-readiness/CYCLE-14-ROOT-CAUSE-REMEDIATION-AND-QUALIFICATION.md §1 |
+| EVD-14-002 | frozen_replay | Production window code replayed on frozen sidecars reproduces 25/25 rendered windows of 44388634790 within 0.06 s; EXP-14-001 paired replay over 13 frozen runs / 236 events: 24 boundaries better, 0 worse, events with boundary >0.5 s 118 -> 98 (evaluation/boundary_experiment/c14/). | evaluation/boundary_experiment/c14/ |
+| EVD-14-003 | identity_trace | Warm runs q10p/q12p/44388634790: identity sheets 25/25 track_bbox_sheet with 6 crops, yet 5/5 multi-source clusters REVIEW 'identity_sheet_has_fewer_than_6_crops' with empty pair evidence; cause _resolve_model_appearance dropped sheet_crops. | CYCLE-14 §2 FIX-PQ-14-003; scripts/test_identity_model_path_sheet_contract.py |
+| EVD-14-004 | db_privileges | Read-only pg_catalog 2026-11-19: service_role (inference credential) has no USAGE on schema ground_truth and SELECT on 0/33 GT tables; public.draft_feedback and public.reprocess_requests readable (service_role bypasses RLS). | CYCLE-14 §4 |
 
 ## Blockers
 
@@ -284,3 +365,7 @@ GT: GT-v1 frozen, dataset ae844a94, digest b31fd9b4…27c9 (unchanged). Runs com
 - **BLK-10-001** Paid runs closed after EXP-10-001. Campaign spend $1.280 of $2; remainder $0.720 (run_config paid budget 0, workflow cap 0.72). Owner decisions open: identity review requests 758fe7783e9c (0097+0115) and 7b2a6964427f (0074+0151); PA-01 uncatalogued riders (0095); PA-03 0094 13.2-16 s.
 - **BLK-11-001** PR #391 was closed (not merged) from the owner's account at 2026-11-17T21:29:38Z, 25 s after the qualrun-paid label for EXP-11-001; label-triggered qualification workflows run only on an open PR. EXP-11-001 is pre-registered but not launched; no spend. Budget: $4 total, $1.280 spent, $2.720 remaining. Needs the owner: reopen #391 / approve a new draft PR for the branch, and confirm the paid run.
 - **BLK-12-001** Independent holdout H1 cannot run: no drone footage outside the 24 GT-v1 sources exists (EVD-12-006). Tooling, freeze/lock, metrics template and plan are ready (HOLDOUT-H1-PLAN.md). Needs: new footage from another day + labelling in the annotation studio.
+- **BLK-13-001** A complete strict cold run (COLD_INFERENCE_VERIFIED, cold identity/QA, runtime baseline) needs an authorized paid run: estimate $1.3-1.6 (cap ~$1.5, downstream reserve ~$0.30) of the remaining $1.519.
+- **BLK-14-001** EXP-14-002 (action validity on real clips) needs owner authorization, cap $0.40.
+- **BLK-14-002** Inference DB role without SELECT on public.draft_feedback / reprocess_requests (service_role bypasses RLS); production infra change.
+- **BLK-14-003** GT adjudication: 0108 tail (standing ride labelled missing_landing), 0094 13.2-22.5 s attribution/end (PA-03), 0095 uncatalogued rider (PA-01).

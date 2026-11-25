@@ -15,11 +15,32 @@ class OnsetPolicy:
     waiting, not part of the action. `min_motion_body_heights_per_sec`: the actor's displacement per second,
     measured in their own box heights (scale-free for drone height and zoom).
     `max_lead_sec`: upper bound of how far before the main moment a build-up may start.
+    `in_progress_min_relative_motion`: when set, a recording that OPENS on the actor already moving at least this
+    fast relative to the other people in frame (camera-motion compensated, actor box heights per second) opens on
+    the action, so the cut starts on the first recorded frame (pipeline.action_onset.in_progress_from_recording_start).
+    None disables it. Consumer: window_refinement (measurement) and complete_action_window_policy (the cut).
     """
     requires_motion: bool = False
     min_motion_body_heights_per_sec: float = 0.0
     max_lead_sec: float = 2.0
     step_sec: float = 1.0
+    in_progress_min_relative_motion: float | None = None
+
+
+@dataclass(frozen=True)
+class ActionValidityPolicy:
+    """What counts as an ESTABLISHED action, observed frame by frame (consumer: pipeline.action_validity, Core).
+
+    `established_states`: per-frame states that are the action itself, once established (surfing: prone, kneeling
+    AND standing riding - standing is not required). `transitional_states`: attempt states that are not yet the
+    action (surfing: a pop-up in progress, hands and feet on the board). `min_established_sec`: the shortest
+    continuous established run that is a usable action. Empty `established_states` disables the check.
+    """
+    established_states: frozenset[str] = frozenset()
+    transitional_states: frozenset[str] = frozenset()
+    other_states: frozenset[str] = frozenset({"in_water", "not_visible"})
+    min_established_sec: float = 2.0
+    state_definitions: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True)
@@ -38,6 +59,7 @@ class SportProfile:
     action_types: frozenset[str] = frozenset()
     action_phases: tuple[str, ...] = ()
     onset: OnsetPolicy = field(default_factory=OnsetPolicy)
+    action_validity: ActionValidityPolicy = field(default_factory=ActionValidityPolicy)
     # Identity: description-attribute conflicts that are only TEXT under varying light, so a split on them alone is
     # reviewable by the owner (consumer: stages.identity._text_attribute_split_reviewed). Empty = never reviewable.
     reviewable_attribute_conflicts: frozenset[str] = frozenset()

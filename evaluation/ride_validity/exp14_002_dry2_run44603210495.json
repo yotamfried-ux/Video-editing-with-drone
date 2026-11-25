@@ -1,0 +1,2838 @@
+{
+ "schema": "sportreel.action_validity_experiment.v1",
+ "experiment": "EXP-14-002",
+ "executed_code_sha": "38536ed5efadbe5652716ca0d008ebc43eb0c8f6",
+ "diagnostics_run": "diag",
+ "dry_run": true,
+ "budget_usd": 0.4,
+ "spent_usd": 0,
+ "stopped": null,
+ "model": "gemini-2.5-flash",
+ "prompt_version": "action-validity-v2",
+ "llm_calls": 0,
+ "rows": [
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+   "sha": "207fe17c86b15b7310d5cd44d5bad4ce404436d3946854fea5f1b2ce6d5a5ec6",
+   "window": [
+    1.5,
+    10.644
+   ],
+   "track": "10013",
+   "index": "0162",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      1.5,
+      2.41,
+      3.33,
+      4.24,
+      5.16,
+      6.07,
+      6.99,
+      7.9,
+      8.82,
+      9.73,
+      10.64
+     ],
+     "coverage": {
+      "first": 1.5,
+      "last": 10.64,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10013"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      1.5,
+      1.96,
+      2.87,
+      3.79,
+      4.7,
+      5.61,
+      6.53,
+      7.44,
+      8.36,
+      9.27,
+      10.19,
+      10.64
+     ],
+     "coverage": {
+      "first": 1.5,
+      "last": 10.64,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10013"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     1.5,
+     10.64
+    ],
+    "step_sec": 0.914
+   },
+   "grids": [
+    {
+     "bytes": 163714,
+     "sha256": "d124f3fa92f8f027",
+     "crops": 11
+    },
+    {
+     "bytes": 181988,
+     "sha256": "5924e5ca768ce679",
+     "crops": 12
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 17.8
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "sha": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "window": [
+    2.0,
+    22.5
+   ],
+   "track": "37",
+   "index": "0094",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      2.0,
+      3.37,
+      4.73,
+      6.1,
+      7.47,
+      8.83,
+      10.2,
+      11.57,
+      12.93,
+      14.3,
+      15.67,
+      17.03,
+      18.4,
+      19.77,
+      21.13,
+      22.5
+     ],
+     "coverage": {
+      "first": 2.0,
+      "last": 22.5,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.37
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "37"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      2.0,
+      2.68,
+      4.05,
+      5.42,
+      6.78,
+      8.15,
+      9.52,
+      10.88,
+      12.25,
+      13.62,
+      14.98,
+      16.35,
+      17.72,
+      19.08,
+      20.45,
+      21.82,
+      22.5
+     ],
+     "coverage": {
+      "first": 2.0,
+      "last": 22.5,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.37
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "37"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     2.0,
+     22.5
+    ],
+    "step_sec": 1.367
+   },
+   "grids": [
+    {
+     "bytes": 292500,
+     "sha256": "4f1b0771d68287a4",
+     "crops": 16
+    },
+    {
+     "bytes": 311160,
+     "sha256": "c49e9822c781946d",
+     "crops": 17
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 21.8
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "sha": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "window": [
+    27.0,
+    36.687
+   ],
+   "track": "154",
+   "index": "0094",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      27.0,
+      27.97,
+      28.94,
+      29.91,
+      30.87,
+      31.84,
+      32.81,
+      33.78,
+      34.75,
+      35.72,
+      36.69
+     ],
+     "coverage": {
+      "first": 27.0,
+      "last": 36.69,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.97
+     },
+     "identity": {
+      "present_ratio": 0.909,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "154"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      27.0,
+      27.48,
+      28.45,
+      29.42,
+      30.39,
+      31.36,
+      32.33,
+      33.3,
+      34.27,
+      35.23,
+      36.2,
+      36.69
+     ],
+     "coverage": {
+      "first": 27.0,
+      "last": 36.69,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.97
+     },
+     "identity": {
+      "present_ratio": 0.917,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "154"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     27.0,
+     36.69
+    ],
+    "step_sec": 0.969
+   },
+   "grids": [
+    {
+     "bytes": 252102,
+     "sha256": "323d67fe60a94f86",
+     "crops": 10
+    },
+    {
+     "bytes": 279391,
+     "sha256": "42132f14e6b174cf",
+     "crops": 11
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 15.5
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164457_0146_D.MP4",
+   "sha": "2c7c9ee430b5106722a9179db47b19592bc3d15c5a36c9f70706cfee4e2132de",
+   "window": [
+    0.0,
+    18.151
+   ],
+   "track": "10001",
+   "index": "0146",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      1.21,
+      2.42,
+      3.63,
+      4.84,
+      6.05,
+      7.26,
+      8.47,
+      9.68,
+      10.89,
+      12.1,
+      13.31,
+      14.52,
+      15.73,
+      16.94,
+      18.15
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 18.15,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.21
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.61,
+      1.82,
+      3.03,
+      4.24,
+      5.45,
+      6.66,
+      7.87,
+      9.08,
+      10.29,
+      11.5,
+      12.71,
+      13.92,
+      15.13,
+      16.34,
+      17.55,
+      18.15
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 18.15,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.21
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     18.15
+    ],
+    "step_sec": 1.21
+   },
+   "grids": [
+    {
+     "bytes": 296505,
+     "sha256": "7de2ccac8bda89bf",
+     "crops": 16
+    },
+    {
+     "bytes": 318945,
+     "sha256": "7fc32c8cb1fdafe0",
+     "crops": 17
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 22.8
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-54_DJI_20260724103255_0160_D.MP4",
+   "sha": "3095fb74eca2f5ce2104929fc9033f4b86bcbf87e0192e5d69d278f80ea0ac43",
+   "window": [
+    2.0,
+    11.328
+   ],
+   "track": "10003",
+   "index": "0160",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      2.0,
+      2.93,
+      3.87,
+      4.8,
+      5.73,
+      6.66,
+      7.6,
+      8.53,
+      9.46,
+      10.4,
+      11.33
+     ],
+     "coverage": {
+      "first": 2.0,
+      "last": 11.33,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.94
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      2.0,
+      2.47,
+      3.4,
+      4.33,
+      5.26,
+      6.2,
+      7.13,
+      8.06,
+      9.0,
+      9.93,
+      10.86,
+      11.33
+     ],
+     "coverage": {
+      "first": 2.0,
+      "last": 11.33,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.94
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     2.0,
+     11.33
+    ],
+    "step_sec": 0.933
+   },
+   "grids": [
+    {
+     "bytes": 175041,
+     "sha256": "b1d2da45bc7d4a9b",
+     "crops": 11
+    },
+    {
+     "bytes": 189200,
+     "sha256": "5ce751cd7720a998",
+     "crops": 12
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 18.0
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+   "sha": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+   "window": [
+    0.0,
+    6.139
+   ],
+   "track": "10003",
+   "index": "0165",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.88,
+      1.75,
+      2.63,
+      3.51,
+      4.38,
+      5.26,
+      6.14
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 6.14,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.88
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.44,
+      1.32,
+      2.19,
+      3.07,
+      3.95,
+      4.82,
+      5.7,
+      6.14
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 6.14,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.88
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     6.14
+    ],
+    "step_sec": 0.877
+   },
+   "grids": [
+    {
+     "bytes": 127115,
+     "sha256": "1430875432c04e36",
+     "crops": 8
+    },
+    {
+     "bytes": 137405,
+     "sha256": "d626af82a1c520f2",
+     "crops": 9
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 12.3
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "sha": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+   "window": [
+    0.0,
+    9.226
+   ],
+   "track": "10007",
+   "index": "0108",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.92,
+      1.85,
+      2.77,
+      3.69,
+      4.61,
+      5.54,
+      6.46,
+      7.38,
+      8.3,
+      9.23
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 9.23,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.93
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10007"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.46,
+      1.38,
+      2.31,
+      3.23,
+      4.15,
+      5.07,
+      6.0,
+      6.92,
+      7.84,
+      8.76,
+      9.23
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 9.23,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.93
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10007"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     9.23
+    ],
+    "step_sec": 0.923
+   },
+   "grids": [
+    {
+     "bytes": 197153,
+     "sha256": "33f27daf3e3ea16e",
+     "crops": 11
+    },
+    {
+     "bytes": 215207,
+     "sha256": "f82aa03d023c884f",
+     "crops": 12
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 17.5
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162806_0126_D.MP4",
+   "sha": "41e2f8bb26a39969955d1ee18d6e73d643229af68df2af9eb8592f9499c8c229",
+   "window": [
+    0.0,
+    9.38
+   ],
+   "track": "10005",
+   "index": "0126",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.94,
+      1.88,
+      2.81,
+      3.75,
+      4.69,
+      5.63,
+      6.57,
+      7.5,
+      8.44,
+      9.38
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 9.38,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.94
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10005"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.47,
+      1.41,
+      2.35,
+      3.28,
+      4.22,
+      5.16,
+      6.1,
+      7.04,
+      7.97,
+      8.91,
+      9.38
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 9.38,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.94
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10005"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     9.38
+    ],
+    "step_sec": 0.938
+   },
+   "grids": [
+    {
+     "bytes": 193213,
+     "sha256": "6f7f45959970fa36",
+     "crops": 11
+    },
+    {
+     "bytes": 210344,
+     "sha256": "0634155c1dfe9673",
+     "crops": 12
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 17.7
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720164122_0143_D.MP4",
+   "sha": "4e84086f72c62e4a35c369d14b1280ec495c5860546924debc6f705f4bf84e23",
+   "window": [
+    0.0,
+    8.275
+   ],
+   "track": "10001",
+   "index": "0143",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.92,
+      1.84,
+      2.76,
+      3.68,
+      4.6,
+      5.52,
+      6.44,
+      7.36,
+      8.28
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 8.28,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.46,
+      1.38,
+      2.3,
+      3.22,
+      4.14,
+      5.06,
+      5.98,
+      6.9,
+      7.82,
+      8.28
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 8.28,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     8.28
+    ],
+    "step_sec": 0.919
+   },
+   "grids": [
+    {
+     "bytes": 159439,
+     "sha256": "ebebf2229b9c4301",
+     "crops": 10
+    },
+    {
+     "bytes": 178982,
+     "sha256": "e0ffd8525dbc9d11",
+     "crops": 11
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 15.3
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+   "sha": "548cf4ffb308cb65628cb2c5209027f65587f1d926a798a021038c097c2784eb",
+   "window": [
+    1.0,
+    10.143
+   ],
+   "track": "2",
+   "index": "0097",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      1.0,
+      1.91,
+      2.83,
+      3.74,
+      4.66,
+      5.57,
+      6.49,
+      7.4,
+      8.31,
+      9.23,
+      10.14
+     ],
+     "coverage": {
+      "first": 1.0,
+      "last": 10.14,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "2"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      1.0,
+      1.46,
+      2.37,
+      3.29,
+      4.2,
+      5.11,
+      6.03,
+      6.94,
+      7.86,
+      8.77,
+      9.69,
+      10.14
+     ],
+     "coverage": {
+      "first": 1.0,
+      "last": 10.14,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "2"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     1.0,
+     10.14
+    ],
+    "step_sec": 0.914
+   },
+   "grids": [
+    {
+     "bytes": 263684,
+     "sha256": "3f7ec75eb7b4e23c",
+     "crops": 11
+    },
+    {
+     "bytes": 287145,
+     "sha256": "13d43a05c24db37d",
+     "crops": 12
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 17.8
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720154036_0070_D.MP4",
+   "sha": "575a812da943d8dd8222f33d48a681d3de25896e458c1620e5b9888bd15f0c58",
+   "window": [
+    0.8,
+    18.819
+   ],
+   "track": "10008",
+   "index": "0070",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.8,
+      2.0,
+      3.2,
+      4.4,
+      5.61,
+      6.81,
+      8.01,
+      9.21,
+      10.41,
+      11.61,
+      12.81,
+      14.01,
+      15.22,
+      16.42,
+      17.62,
+      18.82
+     ],
+     "coverage": {
+      "first": 0.8,
+      "last": 18.82,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.21
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10008"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.8,
+      1.4,
+      2.6,
+      3.8,
+      5.0,
+      6.21,
+      7.41,
+      8.61,
+      9.81,
+      11.01,
+      12.21,
+      13.41,
+      14.61,
+      15.82,
+      17.02,
+      18.22,
+      18.82
+     ],
+     "coverage": {
+      "first": 0.8,
+      "last": 18.82,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.21
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10008"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.8,
+     18.82
+    ],
+    "step_sec": 1.201
+   },
+   "grids": [
+    {
+     "bytes": 291603,
+     "sha256": "02f81907acada4d3",
+     "crops": 16
+    },
+    {
+     "bytes": 312741,
+     "sha256": "8c830a554515bb0a",
+     "crops": 17
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 25.3
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162035_0118_D.MP4",
+   "sha": "58a990e5355da9960447a491ff08e3c8cbf496851e5efa2443049991fed9c160",
+   "window": [
+    0.0,
+    19.953
+   ],
+   "track": "10003",
+   "index": "0118",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      1.33,
+      2.66,
+      3.99,
+      5.32,
+      6.65,
+      7.98,
+      9.31,
+      10.64,
+      11.97,
+      13.3,
+      14.63,
+      15.96,
+      17.29,
+      18.62,
+      19.95
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 19.95,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.33
+     },
+     "identity": {
+      "present_ratio": 0.938,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.67,
+      2.0,
+      3.33,
+      4.66,
+      5.99,
+      7.32,
+      8.65,
+      9.98,
+      11.31,
+      12.64,
+      13.97,
+      15.3,
+      16.63,
+      17.96,
+      19.29,
+      19.95
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 19.95,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.33
+     },
+     "identity": {
+      "present_ratio": 0.941,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     19.95
+    ],
+    "step_sec": 1.33
+   },
+   "grids": [
+    {
+     "bytes": 304290,
+     "sha256": "786fa9cfea456f58",
+     "crops": 15
+    },
+    {
+     "bytes": 325201,
+     "sha256": "c63ebf2e398578fe",
+     "crops": 16
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 24.2
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720161110_0104_D.MP4",
+   "sha": "5f7ba69f1c3f6535279b28f08b1e278b95a31b014ea773cc1d4473528c322165",
+   "window": [
+    2.5,
+    15.432
+   ],
+   "track": "10004",
+   "index": "0104",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      2.5,
+      3.49,
+      4.49,
+      5.48,
+      6.48,
+      7.47,
+      8.47,
+      9.46,
+      10.46,
+      11.45,
+      12.45,
+      13.44,
+      14.44,
+      15.43
+     ],
+     "coverage": {
+      "first": 2.5,
+      "last": 15.43,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.0
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10004"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      2.5,
+      3.0,
+      3.99,
+      4.99,
+      5.98,
+      6.98,
+      7.97,
+      8.97,
+      9.96,
+      10.96,
+      11.95,
+      12.95,
+      13.94,
+      14.93,
+      15.43
+     ],
+     "coverage": {
+      "first": 2.5,
+      "last": 15.43,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.0
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10004"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     2.5,
+     15.43
+    ],
+    "step_sec": 0.995
+   },
+   "grids": [
+    {
+     "bytes": 256913,
+     "sha256": "fe70bab6869c6122",
+     "crops": 14
+    },
+    {
+     "bytes": 266686,
+     "sha256": "90b5c7ede60a2987",
+     "crops": 15
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 25.4
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720160431_0095_D.MP4",
+   "sha": "6d57d3835262b3486fd8f750e7da8eb5f90d153623dcf0edf5f73cccb314770d",
+   "window": [
+    0.0,
+    6.323
+   ],
+   "track": "10003",
+   "index": "0095",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.9,
+      1.81,
+      2.71,
+      3.61,
+      4.52,
+      5.42,
+      6.32
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 6.32,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.91
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.45,
+      1.35,
+      2.26,
+      3.16,
+      4.06,
+      4.97,
+      5.87,
+      6.32
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 6.32,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.91
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10003"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     6.32
+    ],
+    "step_sec": 0.903
+   },
+   "grids": [
+    {
+     "bytes": 125184,
+     "sha256": "73cca069dba94386",
+     "crops": 8
+    },
+    {
+     "bytes": 145401,
+     "sha256": "1c6282e130bbbc93",
+     "crops": 9
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 11.7
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720163559_0140_D.MP4",
+   "sha": "82dd734957da17b9f0b0da309465cc7ba86e5c9aaf2f60bbe82b5ed5d4e903c6",
+   "window": [
+    1.4,
+    11.428
+   ],
+   "track": "2",
+   "index": "0140",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      1.4,
+      2.31,
+      3.22,
+      4.13,
+      5.05,
+      5.96,
+      6.87,
+      7.78,
+      8.69,
+      9.6,
+      10.52,
+      11.43
+     ],
+     "coverage": {
+      "first": 1.4,
+      "last": 11.43,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "2"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      1.4,
+      1.86,
+      2.77,
+      3.68,
+      4.59,
+      5.5,
+      6.41,
+      7.33,
+      8.24,
+      9.15,
+      10.06,
+      10.97,
+      11.43
+     ],
+     "coverage": {
+      "first": 1.4,
+      "last": 11.43,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.92
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "2"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     1.4,
+     11.43
+    ],
+    "step_sec": 0.912
+   },
+   "grids": [
+    {
+     "bytes": 231364,
+     "sha256": "589c25af0a6cf22a",
+     "crops": 12
+    },
+    {
+     "bytes": 250060,
+     "sha256": "ad13a88357be2b79",
+     "crops": 13
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 17.3
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164806_0152_D.MP4",
+   "sha": "85aedb594ab72a923b000b0142665fdf0238a08cb848b7e8883cd6e70213c4ed",
+   "window": [
+    4.5,
+    11.278
+   ],
+   "track": "10046",
+   "index": "0152",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      4.5,
+      5.47,
+      6.44,
+      7.4,
+      8.37,
+      9.34,
+      10.31,
+      11.28
+     ],
+     "coverage": {
+      "first": 4.5,
+      "last": 11.28,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.97
+     },
+     "identity": {
+      "present_ratio": 0.875,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10046"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      4.5,
+      4.98,
+      5.95,
+      6.92,
+      7.89,
+      8.86,
+      9.83,
+      10.79,
+      11.28
+     ],
+     "coverage": {
+      "first": 4.5,
+      "last": 11.28,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.97
+     },
+     "identity": {
+      "present_ratio": 0.889,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10046"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     4.5,
+     11.28
+    ],
+    "step_sec": 0.968
+   },
+   "grids": [
+    {
+     "bytes": 119078,
+     "sha256": "61013103701e997d",
+     "crops": 7
+    },
+    {
+     "bytes": 136030,
+     "sha256": "6eb90e3e2a1c826f",
+     "crops": 8
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 12.3
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161439_0112_D.MP4",
+   "sha": "8a01bba486b2aaeb8614ca7d399645cd930aedc51420d0301427849131428b2d",
+   "window": [
+    0.0,
+    20.254
+   ],
+   "track": "10002",
+   "index": "0112",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      1.35,
+      2.7,
+      4.05,
+      5.4,
+      6.75,
+      8.1,
+      9.45,
+      10.8,
+      12.15,
+      13.5,
+      14.85,
+      16.2,
+      17.55,
+      18.9,
+      20.25
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 20.25,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.35
+     },
+     "identity": {
+      "present_ratio": 0.938,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10002"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.68,
+      2.03,
+      3.38,
+      4.73,
+      6.08,
+      7.43,
+      8.78,
+      10.13,
+      11.48,
+      12.83,
+      14.18,
+      15.53,
+      16.88,
+      18.23,
+      19.58,
+      20.25
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 20.25,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.35
+     },
+     "identity": {
+      "present_ratio": 0.941,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10002"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     20.25
+    ],
+    "step_sec": 1.35
+   },
+   "grids": [
+    {
+     "bytes": 276064,
+     "sha256": "18fb0ee1f62b5f54",
+     "crops": 15
+    },
+    {
+     "bytes": 297389,
+     "sha256": "84bbde4cca68addc",
+     "crops": 16
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 23.7
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+   "sha": "a10e4151734f76ce2ea37df28e35262658029940e38642eb9d45efab8eb51b6a",
+   "window": [
+    0.0,
+    7.941
+   ],
+   "track": "10001",
+   "index": "0155",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.99,
+      1.99,
+      2.98,
+      3.97,
+      4.96,
+      5.96,
+      6.95,
+      7.94
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 7.94,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.0
+     },
+     "identity": {
+      "present_ratio": 0.889,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.5,
+      1.49,
+      2.48,
+      3.47,
+      4.47,
+      5.46,
+      6.45,
+      7.44,
+      7.94
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 7.94,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.0
+     },
+     "identity": {
+      "present_ratio": 0.8,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     7.94
+    ],
+    "step_sec": 0.993
+   },
+   "grids": [
+    {
+     "bytes": 146498,
+     "sha256": "df0a77651fbe1474",
+     "crops": 8
+    },
+    {
+     "bytes": 142829,
+     "sha256": "15f806f71bed8db8",
+     "crops": 8
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 13.8
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720164037_0142_D.MP4",
+   "sha": "a1adfdae432f595944026a75f772839c97df297cdcd568616750f2f1c4b7870e",
+   "window": [
+    0.0,
+    22.89
+   ],
+   "track": "10001",
+   "index": "0142",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      1.53,
+      3.05,
+      4.58,
+      6.1,
+      7.63,
+      9.16,
+      10.68,
+      12.21,
+      13.73,
+      15.26,
+      16.79,
+      18.31,
+      19.84,
+      21.36,
+      22.89
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 22.89,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.53
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.76,
+      2.29,
+      3.81,
+      5.34,
+      6.87,
+      8.39,
+      9.92,
+      11.45,
+      12.97,
+      14.5,
+      16.02,
+      17.55,
+      19.07,
+      20.6,
+      22.13,
+      22.89
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 22.89,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.53
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     22.89
+    ],
+    "step_sec": 1.526
+   },
+   "grids": [
+    {
+     "bytes": 322057,
+     "sha256": "16a476a7d7fe6dbc",
+     "crops": 16
+    },
+    {
+     "bytes": 355252,
+     "sha256": "cc4a837d50bd59b4",
+     "crops": 17
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 22.4
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+   "sha": "a683559526f1b7274fce93336c96886a6429a29653444160c90b6953dd173cea",
+   "window": [
+    0.0,
+    8.63
+   ],
+   "track": "10010",
+   "index": "0130",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.96,
+      1.92,
+      2.88,
+      3.84,
+      4.79,
+      5.75,
+      6.71,
+      7.67,
+      8.63
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 8.63,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.96
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10010"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.48,
+      1.44,
+      2.4,
+      3.36,
+      4.32,
+      5.27,
+      6.23,
+      7.19,
+      8.15,
+      8.63
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 8.63,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.96
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10010"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     8.63
+    ],
+    "step_sec": 0.959
+   },
+   "grids": [
+    {
+     "bytes": 184941,
+     "sha256": "6cf829ba9b175c86",
+     "crops": 10
+    },
+    {
+     "bytes": 199358,
+     "sha256": "e8e0d9458ecfb5a4",
+     "crops": 11
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 16.3
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720161907_0115_D.MP4",
+   "sha": "b62c8aa0cb140b103e40a2518c41c33f2081da41f0b7e0fe8b07405a41000740",
+   "window": [
+    1.5,
+    16.383
+   ],
+   "track": "10043",
+   "index": "0115",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      1.5,
+      2.49,
+      3.48,
+      4.48,
+      5.47,
+      6.46,
+      7.45,
+      8.45,
+      9.44,
+      10.43,
+      11.42,
+      12.41,
+      13.41,
+      14.4,
+      15.39,
+      16.38
+     ],
+     "coverage": {
+      "first": 1.5,
+      "last": 16.38,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.0
+     },
+     "identity": {
+      "present_ratio": 0.938,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10043"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      1.5,
+      2.0,
+      2.99,
+      3.98,
+      4.97,
+      5.96,
+      6.96,
+      7.95,
+      8.94,
+      9.93,
+      10.93,
+      11.92,
+      12.91,
+      13.9,
+      14.89,
+      15.89,
+      16.38
+     ],
+     "coverage": {
+      "first": 1.5,
+      "last": 16.38,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.0
+     },
+     "identity": {
+      "present_ratio": 0.941,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10043"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     1.5,
+     16.38
+    ],
+    "step_sec": 0.992
+   },
+   "grids": [
+    {
+     "bytes": 347806,
+     "sha256": "a6df77634de3ff73",
+     "crops": 15
+    },
+    {
+     "bytes": 361812,
+     "sha256": "3026af67a4f42de9",
+     "crops": 16
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 25.5
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-04T07-38-32_DJI_20260724103701_0163_D.MP4",
+   "sha": "bfd005ab7787c08afb9cd2c56116639a2c9f85206cf402709f8c389e7eae742d",
+   "window": [
+    0.0,
+    14.414
+   ],
+   "track": "10006",
+   "index": "0163",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.96,
+      1.92,
+      2.88,
+      3.84,
+      4.8,
+      5.77,
+      6.73,
+      7.69,
+      8.65,
+      9.61,
+      10.57,
+      11.53,
+      12.49,
+      13.45,
+      14.41
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 14.41,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.97
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10006"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.48,
+      1.44,
+      2.4,
+      3.36,
+      4.32,
+      5.29,
+      6.25,
+      7.21,
+      8.17,
+      9.13,
+      10.09,
+      11.05,
+      12.01,
+      12.97,
+      13.93,
+      14.41
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 14.41,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.97
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10006"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     14.41
+    ],
+    "step_sec": 0.961
+   },
+   "grids": [
+    {
+     "bytes": 306461,
+     "sha256": "deb5c58b0882adec",
+     "crops": 16
+    },
+    {
+     "bytes": 333384,
+     "sha256": "ee29b886e8cf5a21",
+     "crops": 17
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 24.5
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720163004_0131_D.MP4",
+   "sha": "c241b723fce2bd93881085b895b599ffc29424eb897f33f21e31e712e8b3d618",
+   "window": [
+    0.0,
+    7.808
+   ],
+   "track": "10001",
+   "index": "0131",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.98,
+      1.95,
+      2.93,
+      3.9,
+      4.88,
+      5.86,
+      6.83,
+      7.81
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 7.81,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.98
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.49,
+      1.46,
+      2.44,
+      3.42,
+      4.39,
+      5.37,
+      6.34,
+      7.32,
+      7.81
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 7.81,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.98
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10001"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     7.81
+    ],
+    "step_sec": 0.976
+   },
+   "grids": [
+    {
+     "bytes": 152193,
+     "sha256": "3b2a812faa491570",
+     "crops": 9
+    },
+    {
+     "bytes": 172390,
+     "sha256": "e91ae14cdecefd22",
+     "crops": 10
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 14.0
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+   "sha": "e01a614de6057284637f598c74004859ca144c9a3a8dea77c0ac64c466fd1da8",
+   "window": [
+    0.0,
+    6.14
+   ],
+   "track": "10002",
+   "index": "0151",
+   "verdict": "UNCERTAIN",
+   "basis": "target_coverage_insufficient",
+   "passes": null,
+   "checks": [
+    {
+     "times": [
+      0.0,
+      0.88,
+      1.75,
+      2.63,
+      3.51,
+      4.39,
+      5.26,
+      6.14
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 6.14,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.88
+     },
+     "identity": {
+      "present_ratio": 0.875,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10002"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.44,
+      1.32,
+      2.19,
+      3.07,
+      3.95,
+      4.82,
+      5.7,
+      6.14
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 6.14,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.88
+     },
+     "identity": {
+      "present_ratio": 0.778,
+      "present_at_takeoff": true,
+      "present_at_ending": false,
+      "track_ids": [
+       "10002"
+      ],
+      "ok": false
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     6.14
+    ],
+    "step_sec": 0.877
+   },
+   "grids": [],
+   "cost_usd": 0,
+   "seconds": 4.5
+  },
+  {
+   "kind": "selected_final_window",
+   "source": "2026-10-03T12-19-53_DJI_20260720154350_0074_D.MP4",
+   "sha": "f6ac72f8aeb5311993f61a78a55061506eae450fab15906815e9eca5f03ab74f",
+   "window": [
+    0.0,
+    21.755
+   ],
+   "track": "10002",
+   "index": "0074",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      0.0,
+      1.45,
+      2.9,
+      4.35,
+      5.8,
+      7.25,
+      8.7,
+      10.15,
+      11.6,
+      13.05,
+      14.5,
+      15.95,
+      17.4,
+      18.85,
+      20.3,
+      21.75
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 21.75,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.45
+     },
+     "identity": {
+      "present_ratio": 0.938,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10002"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      0.0,
+      0.73,
+      2.18,
+      3.63,
+      5.08,
+      6.53,
+      7.98,
+      9.43,
+      10.88,
+      12.33,
+      13.78,
+      15.23,
+      16.68,
+      18.13,
+      19.58,
+      21.03,
+      21.75
+     ],
+     "coverage": {
+      "first": 0.0,
+      "last": 21.75,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 1.45
+     },
+     "identity": {
+      "present_ratio": 0.882,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10002"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     0.0,
+     21.75
+    ],
+    "step_sec": 1.45
+   },
+   "grids": [
+    {
+     "bytes": 317424,
+     "sha256": "b9acd2f391fea450",
+     "crops": 15
+    },
+    {
+     "bytes": 319033,
+     "sha256": "b196079f1c7e35f5",
+     "crops": 15
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 22.7
+  },
+  {
+   "kind": "control",
+   "source": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+   "sha": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+   "window": [
+    6.82,
+    9.23
+   ],
+   "track": "10007",
+   "index": "0108",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      6.82,
+      7.16,
+      7.51,
+      7.85,
+      8.2,
+      8.54,
+      8.89,
+      9.23
+     ],
+     "coverage": {
+      "first": 6.82,
+      "last": 9.23,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.35
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10007"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      6.82,
+      6.99,
+      7.34,
+      7.68,
+      8.03,
+      8.37,
+      8.71,
+      9.06,
+      9.23
+     ],
+     "coverage": {
+      "first": 6.82,
+      "last": 9.23,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.35
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "10007"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     6.82,
+     9.23
+    ],
+    "step_sec": 0.344
+   },
+   "grids": [
+    {
+     "bytes": 180698,
+     "sha256": "b5e8041594d5fafc",
+     "crops": 8
+    },
+    {
+     "bytes": 209643,
+     "sha256": "08b269dfe0226576",
+     "crops": 9
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 11.8
+  },
+  {
+   "kind": "control",
+   "source": "2026-10-03T12-19-53_DJI_20260720160337_0094_D.MP4",
+   "sha": "250c3592fd87ba05dd8a56eee9d50de5cfcbeb079f261793d5201a31d7eda963",
+   "window": [
+    13.2,
+    22.5
+   ],
+   "track": "37",
+   "index": "0094",
+   "verdict": "UNCERTAIN",
+   "basis": "missing_or_unparsable_observation",
+   "passes": [
+    null,
+    null
+   ],
+   "checks": [
+    {
+     "times": [
+      13.2,
+      14.13,
+      15.06,
+      15.99,
+      16.92,
+      17.85,
+      18.78,
+      19.71,
+      20.64,
+      21.57,
+      22.5
+     ],
+     "coverage": {
+      "first": 13.2,
+      "last": 22.5,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.93
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "37"
+      ],
+      "ok": true
+     }
+    },
+    {
+     "times": [
+      13.2,
+      13.66,
+      14.59,
+      15.52,
+      16.45,
+      17.38,
+      18.31,
+      19.24,
+      20.18,
+      21.11,
+      22.04,
+      22.5
+     ],
+     "coverage": {
+      "first": 13.2,
+      "last": 22.5,
+      "covers_start": true,
+      "covers_end": true,
+      "max_gap_sec": 0.94
+     },
+     "identity": {
+      "present_ratio": 1.0,
+      "present_at_takeoff": true,
+      "present_at_ending": true,
+      "track_ids": [
+       "37"
+      ],
+      "ok": true
+     }
+    }
+   ],
+   "sample_plan": {
+    "window": [
+     13.2,
+     22.5
+    ],
+    "step_sec": 0.93
+   },
+   "grids": [
+    {
+     "bytes": 199389,
+     "sha256": "33a13ee58b7beb2a",
+     "crops": 11
+    },
+    {
+     "bytes": 210875,
+     "sha256": "84701c141c6f5fac",
+     "crops": 12
+    }
+   ],
+   "cost_usd": 0,
+   "seconds": 14.4
+  }
+ ]
+}
