@@ -1,8 +1,11 @@
+jest.mock('../operator/lib/operatorSecret', () => require('../operator/lib/operatorSecret.web'));
+
 import {
   clearOperatorSecret,
   getOperatorSecret,
   setOperatorSecret,
 } from '../operator/lib/operatorSecret.web';
+import { useOperatorUnlock } from '../operator/hooks/useOperatorUnlock.web';
 import {
   browserSourceKeyForFile,
   getSportReelSourceReader,
@@ -12,6 +15,7 @@ import {
 describe('WEB-04 session-memory operatorSecret.web', () => {
   afterEach(async () => {
     await clearOperatorSecret();
+    useOperatorUnlock.getState().lock();
   });
 
   it('keeps operator secret strictly in memory and never touches storage globals', async () => {
@@ -19,6 +23,16 @@ describe('WEB-04 session-memory operatorSecret.web', () => {
     await setOperatorSecret('  op-secret-123  ');
     expect(await getOperatorSecret()).toBe('op-secret-123');
     await clearOperatorSecret();
+    expect(await getOperatorSecret()).toBeNull();
+  });
+
+  it('unlocks operator state and clears secret on lock', async () => {
+    await setOperatorSecret('op-secret-123');
+    const ok = await useOperatorUnlock.getState().unlock();
+    expect(ok).toBe(true);
+    expect(useOperatorUnlock.getState().unlocked).toBe(true);
+    useOperatorUnlock.getState().lock();
+    expect(useOperatorUnlock.getState().unlocked).toBe(false);
     expect(await getOperatorSecret()).toBeNull();
   });
 });

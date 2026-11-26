@@ -92,6 +92,8 @@ export default function OperatorSettingsScreen() {
                   secureTextEntry
                   autoCapitalize="none"
                   autoCorrect={false}
+                  autoComplete="current-password"
+                  textContentType="password"
                   style={styles.input}
                 />
                 <Button testID="operator-secret-save" label="Save secret" onPress={save} loading={saving} />
