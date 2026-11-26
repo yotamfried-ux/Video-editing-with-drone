@@ -27,14 +27,14 @@ describe('WEB-04 session-memory operatorSecret.web', () => {
     expect(await getOperatorSecret()).toBeNull();
   });
 
-  it('unlocks operator state and clears secret on lock', async () => {
+  it('unlocks operator state and preserves encrypted vault across lock()', async () => {
     await setOperatorSecret('op-secret-123');
     const ok = await useOperatorUnlock.getState().unlock();
     expect(ok).toBe(true);
     expect(useOperatorUnlock.getState().unlocked).toBe(true);
     useOperatorUnlock.getState().lock();
     expect(useOperatorUnlock.getState().unlocked).toBe(false);
-    expect(await getOperatorSecret()).toBeNull();
+    expect(await getOperatorSecret()).toBe('op-secret-123');
   });
 });
 

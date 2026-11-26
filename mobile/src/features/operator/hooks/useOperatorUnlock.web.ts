@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { clearOperatorSecret } from '../lib/operatorSecret';
 import { verifyRegisteredBrowserBiometric } from '../lib/browserBiometric';
 
 const UNLOCK_TTL_MS = 60 * 60 * 1000;
@@ -12,9 +11,8 @@ interface OperatorUnlockState {
 }
 
 /**
- * WEB-04: Browser operator unlock state (session-memory only, auto-locks after 60m and clears
- * any in-memory operator secret). Uses enrolled WebAuthn biometrics on phones/capable devices;
- * on PCs without biometrics, unlocks to settings where server-verified OPERATOR_SECRET is required.
+ * WEB-04: Browser operator unlock state (auto-locks after 60m or Exit without wiping
+ * the encrypted WebCrypto IndexedDB device vault; explicit Remove in Settings clears it).
  */
 export const useOperatorUnlock = create<OperatorUnlockState>((set, get) => ({
   unlocked: false,
@@ -33,7 +31,6 @@ export const useOperatorUnlock = create<OperatorUnlockState>((set, get) => ({
       clearTimeout(lockTimer);
       lockTimer = null;
     }
-    void clearOperatorSecret();
     set({ unlocked: false });
   },
 }));
