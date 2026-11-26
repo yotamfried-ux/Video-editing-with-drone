@@ -126,8 +126,28 @@ def test_multi_sport_profiles_and_neutral_action_validity() -> None:
         court_policy,
         [0.0, 1.0, 2.0],
     )
-    check(parsed is not None and av.longest_established_sec(parsed["frames"], court_policy) == 3.0,
-          "PQ-30 non-surf action validity parses and measures established duration without 'carried'")
+    check(parsed is not None and av.longest_established_sec(parsed["frames"], court_policy) == 2.0,
+          "PQ-30 non-surf action validity parses and measures exact elapsed established span without 'carried'")
+    two_frames = av.parse_observations(
+        json.dumps({"frames": [{"t": 3.0, "state": "gathering"}, {"t": 4.0, "state": "driving"}, {"t": 5.0, "state": "driving"}], "confidence": "high"}),
+        court_policy,
+        [3.0, 4.0, 5.0],
+    )
+    check(two_frames is not None and av.longest_established_sec(two_frames["frames"], court_policy) == 1.0,
+          "PQ-33 fencepost guard: two established samples 1.0s apart measure 1.0s elapsed span, never 2.0s")
+    from pipeline import action_validity_runtime as avr
+    obs_s, obs_e = avr._observable_window(
+        0.0,
+        8.76,
+        [
+            {"track_id": "2", "time_sec": 0.0, "xyxy": [100, 100, 140, 200]},
+            {"track_id": "2", "time_sec": 4.0, "xyxy": [120, 100, 160, 200]},
+            {"track_id": "2", "time_sec": 7.758, "xyxy": [140, 100, 180, 200]},
+        ],
+        "2",
+        2.0,
+    )
+    check(obs_s == 0.0 and obs_e == 7.758, "PQ-11/PQ-33 _observable_window clamps 1.0s outcome tail pad to tracked span")
 
     attrs = extract_structured_attributes("Basketball player #23 in red jersey and black shorts")
     check("23" in attrs.get("numbers", set()) and not attrs.get("empty"), "PQ-30 multi-sport jersey & kit extraction works")

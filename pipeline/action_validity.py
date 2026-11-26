@@ -102,19 +102,29 @@ def parse_observations(raw: str, policy: Any, expected_times: list[float] | None
 
 
 def longest_established_sec(frames: list[tuple[float, str, bool]], policy: Any) -> float:
-    """Longest continuous run of established frames, in seconds: k consecutive frames sampled every
-    `step` seconds cover k * step seconds (the median sampling step of the pass)."""
-    if not frames:
+    """Longest continuous run of established frames, in seconds: elapsed span (t_last - t_first) of consecutive
+    established samples (0.0 when fewer than 2 consecutive samples are established)."""
+    if len(frames) < 2:
         return 0.0
     requires_cue = bool(getattr(policy, "requires_engagement_cue", False))
-    gaps = sorted(b[0] - a[0] for a, b in zip(frames, frames[1:]) if b[0] > a[0])
-    step = gaps[len(gaps) // 2] if gaps else 0.0
-    best = run = 0
-    for _, state, carried in frames:
+    best = 0.0
+    run_start: float | None = None
+    run_last: float | None = None
+    run_count = 0
+    for t_val, state, carried in frames:
         ok = (state in policy.established_states and carried) if requires_cue else (state in policy.established_states)
-        run = run + 1 if ok else 0
-        best = max(best, run)
-    return round(best * step, 2)
+        if ok:
+            if run_start is None:
+                run_start = float(t_val)
+            run_last = float(t_val)
+            run_count += 1
+            if run_count >= 2:
+                best = max(best, run_last - run_start)
+        else:
+            run_start = None
+            run_last = None
+            run_count = 0
+    return round(best, 2)
 
 
 def decide(passes: Iterable[dict[str, Any] | None], policy: Any) -> dict[str, Any]:
@@ -130,7 +140,8 @@ def decide(passes: Iterable[dict[str, Any] | None], policy: Any) -> dict[str, An
         states = {s for _, s, _ in obs["frames"]}
         summaries.append({"established_sec": longest_established_sec(obs["frames"], policy),
                           "transitional_seen": bool(states & set(policy.transitional_states)),
-                          "confidence": obs["confidence"]})
+                          "confidence": obs["confidence"],
+                          "states": [s for _, s, _ in obs["frames"]]})
     if not summaries or any(s is None for s in summaries):
         return {"verdict": UNCERTAIN, "basis": "missing_or_unparsable_observation", "passes": summaries}
     need = float(policy.min_established_sec)

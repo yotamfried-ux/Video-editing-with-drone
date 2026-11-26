@@ -1,0 +1,517 @@
+{
+  "schema": "sportreel.exp_14_002_real_media_vlm.v1",
+  "model": "google/gemini-2.5-flash",
+  "strict_cold_inference": true,
+  "gt_open_refused_in_worker": true,
+  "r2_mutations": 0,
+  "spend_ledger": {
+    "calls": 14,
+    "prompt_tokens": 8584,
+    "completion_tokens": 4272,
+    "total_cost_usd": 0.013255,
+    "budget_cap_usd": 0.5
+  },
+  "summary": {
+    "negative_0155_withheld": true,
+    "false_valid_on_negative": 0,
+    "valid_rides_preserved": 5,
+    "valid_rides_total": 6
+  },
+  "clips": [
+    {
+      "video_name": "2026-10-03T12-19-53_DJI_20260720160658_0097_D.MP4",
+      "source_sha256": "548cf4ffb308cb65628cb2c5209027f65587f1d926a798a021038c097c2784eb",
+      "duration_sec": 10.143,
+      "adaptive_escalation": null,
+      "stitched_merges": 0,
+      "dominant_track_id": "2",
+      "first_track_sec": 0.0,
+      "last_track_sec": 7.758,
+      "normalized_window_sec": [
+        0.0,
+        8.76
+      ],
+      "action_validity_verdict": "VALID",
+      "action_validity_basis": "established_action_in_every_pass",
+      "action_validity_passes": [
+        {
+          "confidence": "high",
+          "established_sec": 4.8,
+          "states": [
+            "paddling",
+            "paddling",
+            "paddling",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        },
+        {
+          "confidence": "high",
+          "established_sec": 4.4,
+          "states": [
+            "paddling",
+            "paddling",
+            "paddling",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        }
+      ],
+      "qualification_eligibility": {
+        "verdict": "VALID_COMPLETE_ACTION",
+        "positive": [
+          "analyzer_positive_rating",
+          "target_actor_tracked",
+          "cv_activity_of_target_track",
+          "coherent_window",
+          "observed_established_action"
+        ],
+        "missing": [],
+        "negative": []
+      },
+      "publishable": true,
+      "blocking_reasons": [],
+      "gt_has_valid_ride": true,
+      "gt_rides_sec": [
+        [
+          0.0,
+          10.143
+        ]
+      ]
+    },
+    {
+      "video_name": "2026-10-03T12-19-53_DJI_20260720161251_0108_D.MP4",
+      "source_sha256": "3f1f5e846b33dab26da1656c58140900b3625a941bd04fc37c54a63ae1dde960",
+      "duration_sec": 9.226,
+      "adaptive_escalation": null,
+      "stitched_merges": 0,
+      "dominant_track_id": "10007",
+      "first_track_sec": 0.083,
+      "last_track_sec": 9.092,
+      "normalized_window_sec": [
+        0.0,
+        9.226
+      ],
+      "action_validity_verdict": "VALID",
+      "action_validity_basis": "established_action_in_every_pass",
+      "action_validity_passes": [
+        {
+          "confidence": "high",
+          "established_sec": 6.3,
+          "states": [
+            "paddling",
+            "popping_up",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        },
+        {
+          "confidence": "high",
+          "established_sec": 6.8,
+          "states": [
+            "paddling",
+            "paddling",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        }
+      ],
+      "qualification_eligibility": {
+        "verdict": "VALID_COMPLETE_ACTION",
+        "positive": [
+          "analyzer_positive_rating",
+          "target_actor_tracked",
+          "cv_activity_of_target_track",
+          "coherent_window",
+          "observed_established_action"
+        ],
+        "missing": [],
+        "negative": []
+      },
+      "publishable": true,
+      "blocking_reasons": [],
+      "gt_has_valid_ride": true,
+      "gt_rides_sec": [
+        [
+          0.0,
+          6.823
+        ]
+      ]
+    },
+    {
+      "video_name": "2026-10-03T12-19-53_DJI_20260720162950_0130_D.MP4",
+      "source_sha256": "a683559526f1b7274fce93336c96886a6429a29653444160c90b6953dd173cea",
+      "duration_sec": 8.625,
+      "adaptive_escalation": null,
+      "stitched_merges": 0,
+      "dominant_track_id": "10008",
+      "first_track_sec": 0.083,
+      "last_track_sec": 8.592,
+      "normalized_window_sec": [
+        0.0,
+        8.625
+      ],
+      "action_validity_verdict": "VALID",
+      "action_validity_basis": "established_action_in_every_pass",
+      "action_validity_passes": [
+        {
+          "confidence": "high",
+          "established_sec": 6.6,
+          "states": [
+            "popping_up",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        },
+        {
+          "confidence": "high",
+          "established_sec": 7.1,
+          "states": [
+            "popping_up",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        }
+      ],
+      "qualification_eligibility": {
+        "verdict": "VALID_COMPLETE_ACTION",
+        "positive": [
+          "analyzer_positive_rating",
+          "target_actor_tracked",
+          "cv_activity_of_target_track",
+          "coherent_window",
+          "observed_established_action"
+        ],
+        "missing": [],
+        "negative": []
+      },
+      "publishable": true,
+      "blocking_reasons": [],
+      "gt_has_valid_ride": true,
+      "gt_rides_sec": [
+        [
+          0.0,
+          8.625
+        ]
+      ]
+    },
+    {
+      "video_name": "2026-10-03T12-19-54_DJI_20260720164734_0151_D.MP4",
+      "source_sha256": "e01a614de6057284637f598c74004859ca144c9a3a8dea77c0ac64c466fd1da8",
+      "duration_sec": 7.608,
+      "adaptive_escalation": null,
+      "stitched_merges": 0,
+      "dominant_track_id": "10042",
+      "first_track_sec": 0.751,
+      "last_track_sec": 6.59,
+      "normalized_window_sec": [
+        0.751,
+        7.59
+      ],
+      "action_validity_verdict": "VALID",
+      "action_validity_basis": "established_action_in_every_pass",
+      "action_validity_passes": [
+        {
+          "confidence": "high",
+          "established_sec": 5.0,
+          "states": [
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        },
+        {
+          "confidence": "high",
+          "established_sec": 5.4,
+          "states": [
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        }
+      ],
+      "qualification_eligibility": {
+        "verdict": "VALID_COMPLETE_ACTION",
+        "positive": [
+          "analyzer_positive_rating",
+          "target_actor_tracked",
+          "cv_activity_of_target_track",
+          "coherent_window",
+          "observed_established_action"
+        ],
+        "missing": [],
+        "negative": []
+      },
+      "publishable": true,
+      "blocking_reasons": [],
+      "gt_has_valid_ride": true,
+      "gt_rides_sec": [
+        [
+          0.0,
+          7.608
+        ]
+      ]
+    },
+    {
+      "video_name": "2026-10-04T07-38-32_DJI_20260720165153_0155_D.MP4",
+      "source_sha256": "a10e4151734f76ce2ea37df28e35262658029940e38642eb9d45efab8eb51b6a",
+      "duration_sec": 7.941,
+      "adaptive_escalation": null,
+      "stitched_merges": 0,
+      "dominant_track_id": "10001",
+      "first_track_sec": 0.083,
+      "last_track_sec": 6.924,
+      "normalized_window_sec": [
+        0.0,
+        7.92
+      ],
+      "action_validity_verdict": "UNCERTAIN",
+      "action_validity_basis": "passes_disagree_or_low_confidence",
+      "action_validity_passes": [
+        {
+          "confidence": "high",
+          "established_sec": 1.0,
+          "states": [
+            "paddling",
+            "paddling",
+            "popping_up",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "popping_up",
+            "in_water"
+          ]
+        },
+        {
+          "confidence": "high",
+          "established_sec": 1.0,
+          "states": [
+            "paddling",
+            "paddling",
+            "paddling",
+            "paddling",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "in_water",
+            "in_water"
+          ]
+        }
+      ],
+      "qualification_eligibility": {
+        "verdict": "UNCERTAIN",
+        "positive": [
+          "analyzer_positive_rating",
+          "target_actor_tracked",
+          "cv_activity_of_target_track",
+          "coherent_window"
+        ],
+        "missing": [
+          "observed_action_validity_uncertain"
+        ],
+        "negative": []
+      },
+      "publishable": false,
+      "blocking_reasons": [
+        "qualification:action_uncertain:cold_exp14_4:placeholder_4.mp4"
+      ],
+      "gt_has_valid_ride": false,
+      "gt_rides_sec": []
+    },
+    {
+      "video_name": "2026-10-04T07-38-32_DJI_20260724103552_0162_D.MP4",
+      "source_sha256": "207fe17c86b15b7310d5cd44d5bad4ce404436d3946854fea5f1b2ce6d5a5ec6",
+      "duration_sec": 10.644,
+      "adaptive_escalation": null,
+      "stitched_merges": 0,
+      "dominant_track_id": "10010",
+      "first_track_sec": 0.083,
+      "last_track_sec": 10.594,
+      "normalized_window_sec": [
+        0.0,
+        10.644
+      ],
+      "action_validity_verdict": "VALID",
+      "action_validity_basis": "established_action_in_every_pass",
+      "action_validity_passes": [
+        {
+          "confidence": "high",
+          "established_sec": 6.7,
+          "states": [
+            "paddling",
+            "paddling",
+            "popping_up",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        },
+        {
+          "confidence": "high",
+          "established_sec": 7.2,
+          "states": [
+            "paddling",
+            "paddling",
+            "popping_up",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding"
+          ]
+        }
+      ],
+      "qualification_eligibility": {
+        "verdict": "VALID_COMPLETE_ACTION",
+        "positive": [
+          "analyzer_positive_rating",
+          "target_actor_tracked",
+          "cv_activity_of_target_track",
+          "coherent_window",
+          "observed_established_action"
+        ],
+        "missing": [],
+        "negative": []
+      },
+      "publishable": true,
+      "blocking_reasons": [],
+      "gt_has_valid_ride": true,
+      "gt_rides_sec": [
+        [
+          0.033,
+          10.644
+        ]
+      ]
+    },
+    {
+      "video_name": "2026-10-04T07-38-33_DJI_20260724103751_0165_D.MP4",
+      "source_sha256": "3311db2ed35d4b4dcf64ebdcfc8b34ac3faa7cc04f4c5ba47c7ac3c5a16227a9",
+      "duration_sec": 6.139,
+      "adaptive_escalation": null,
+      "stitched_merges": 0,
+      "dominant_track_id": "10001",
+      "first_track_sec": 0.083,
+      "last_track_sec": 5.756,
+      "normalized_window_sec": [
+        0.0,
+        6.139
+      ],
+      "action_validity_verdict": "UNCERTAIN",
+      "action_validity_basis": "passes_disagree_or_low_confidence",
+      "action_validity_passes": [
+        {
+          "confidence": "high",
+          "established_sec": 1.6,
+          "states": [
+            "paddling",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "popping_up",
+            "in_water",
+            "in_water"
+          ]
+        },
+        {
+          "confidence": "high",
+          "established_sec": 4.0,
+          "states": [
+            "paddling",
+            "popping_up",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "standing_riding",
+            "in_water"
+          ]
+        }
+      ],
+      "qualification_eligibility": {
+        "verdict": "UNCERTAIN",
+        "positive": [
+          "analyzer_positive_rating",
+          "target_actor_tracked",
+          "cv_activity_of_target_track",
+          "coherent_window"
+        ],
+        "missing": [
+          "observed_action_validity_uncertain"
+        ],
+        "negative": []
+      },
+      "publishable": false,
+      "blocking_reasons": [
+        "qualification:action_uncertain:cold_exp14_6:placeholder_6.mp4"
+      ],
+      "gt_has_valid_ride": true,
+      "gt_rides_sec": [
+        [
+          0.0,
+          6.139
+        ]
+      ]
+    }
+  ]
+}

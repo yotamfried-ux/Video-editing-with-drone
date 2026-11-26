@@ -160,6 +160,10 @@ def default_ask(image: bytes, prompt: str) -> str:
 
 # ------------------------------------------------------------------ per shot
 
+MAX_LEAD_PAD_SEC = 1.1      # matches window_refinement pad_start / setup lead-in allowance
+MAX_TAIL_PAD_SEC = 1.6      # matches window_refinement pad_end (1.0s) / fall outcome tail (1.5s)
+
+
 def _window(event: dict[str, Any]) -> tuple[float, float] | None:
     for a, b in (("final_cut_start", "final_cut_end"), ("start", "end")):
         try:
@@ -169,6 +173,28 @@ def _window(event: dict[str, Any]) -> tuple[float, float] | None:
         if e > s:
             return s, e
     return None
+
+
+def _observable_window(start: float, end: float, detections: list[Any], track: Any, min_span: float) -> tuple[float, float]:
+    """Clamp intentional setup/outcome edge padding (<=1.1s lead, <=1.6s tail) to the target's tracked span,
+    while preserving genuine mid-window tracking losses (>1.6s) so they still fail coverage."""
+    from pipeline.action_onset import stitched_actor_detections
+    actor = stitched_actor_detections(detections, track)
+    times = sorted(
+        float(_f(d, "time_sec"))
+        for d in (actor or [])
+        if (start - 0.5) <= float(_f(d, "time_sec") or -999.0) <= (end + 0.5)
+    )
+    if not times:
+        return start, end
+    obs_start, obs_end = start, end
+    if 0.0 < (times[0] - start) <= MAX_LEAD_PAD_SEC:
+        obs_start = max(start, round(times[0], 3))
+    if 0.0 < (end - times[-1]) <= MAX_TAIL_PAD_SEC:
+        obs_end = min(end, round(times[-1], 3))
+    if (obs_end - obs_start) < max(1.0, min_span):
+        return start, end
+    return obs_start, obs_end
 
 
 def observe_event(event: dict[str, Any], video_path: str, detections: list[Any],
@@ -181,7 +207,8 @@ def observe_event(event: dict[str, Any], video_path: str, detections: list[Any],
     track = event.get("target_track_id")
     if window is None or track in (None, "") or not video_path or not os.path.exists(video_path):
         return {"prompt_version": av.PROMPT_VERSION, "verdict": av.UNCERTAIN, "basis": "no_window_track_or_media"}
-    start, end = window
+    raw_start, raw_end = window
+    start, end = _observable_window(raw_start, raw_end, detections, track, float(policy.min_established_sec))
     plan = sample_plan(start, end)
     tol = max(0.3, plan["step_sec"] / 2)
     checks, grids = [], []
