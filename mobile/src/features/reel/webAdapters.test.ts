@@ -1,4 +1,5 @@
 jest.mock('../operator/lib/operatorSecret', () => require('../operator/lib/operatorSecret.web'));
+jest.mock('../operator/lib/browserBiometric', () => require('../operator/lib/browserBiometric.web'));
 
 import {
   clearOperatorSecret,

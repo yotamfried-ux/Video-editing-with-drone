@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
-import { View, TextInput, StyleSheet, ScrollView } from 'react-native';
+import { Platform, View, TextInput, StyleSheet, ScrollView } from 'react-native';
 import { showAlert } from '@/shared/lib/alert';
+import { API_BASE_URL } from '@/shared/lib/publicEnv';
 import { SafeArea } from '@/shared/components/SafeArea';
 import { Text } from '@/shared/components/Text';
 import { Button } from '@/shared/components/Button';
@@ -12,25 +13,55 @@ import {
   setOperatorSecret,
   clearOperatorSecret,
 } from '@/features/operator/lib/operatorSecret';
+import {
+  disableBrowserBiometric,
+  enableBrowserBiometric,
+  isBrowserBiometricAvailable,
+  isBrowserBiometricEnabled,
+} from '@/features/operator/lib/browserBiometric';
 import { Colors, Spacing } from '@/shared/constants/theme';
 
 export default function OperatorSettingsScreen() {
   const [secretSet, setSecretSet] = useState<boolean | null>(null);
   const [input, setInput] = useState('');
   const [saving, setSaving] = useState(false);
+  const [bioAvailable, setBioAvailable] = useState(false);
+  const [bioEnabled, setBioEnabled] = useState(false);
 
   // Biometric already enforced by the (operator) layout via useOperatorUnlock.
   useEffect(() => {
     getOperatorSecret().then((s) => setSecretSet(!!s));
+    if (Platform.OS === 'web') {
+      isBrowserBiometricAvailable().then((avail) => {
+        setBioAvailable(avail);
+        setBioEnabled(isBrowserBiometricEnabled());
+      });
+    }
   }, []);
 
   const save = async () => {
-    if (!input.trim()) return;
+    const candidate = input.trim();
+    if (!candidate) return;
     setSaving(true);
-    await setOperatorSecret(input.trim());
-    setInput('');
-    setSecretSet(true);
-    setSaving(false);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/operator/pipeline/runs`, {
+        headers: { 'x-operator-secret': candidate },
+      });
+      if (res.status === 401 || res.status === 403) {
+        showAlert('Invalid operator secret', 'The secret was rejected by the server. Please check and try again.');
+        return;
+      }
+      await setOperatorSecret(candidate);
+      setInput('');
+      setSecretSet(true);
+    } catch {
+      // Allow offline/local save if network probe cannot reach server
+      await setOperatorSecret(candidate);
+      setInput('');
+      setSecretSet(true);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const remove = () => {
@@ -100,6 +131,37 @@ export default function OperatorSettingsScreen() {
               </>
             ) : null}
           </Card>
+
+          {Platform.OS === 'web' && bioAvailable ? (
+            <Card bordered style={{ gap: Spacing.md }}>
+              <Text variant="title">Device Biometrics (Phone / Windows Hello)</Text>
+              <Text variant="caption" color={Colors.textSecondary}>
+                Optional: lock the operator area on this browser with your fingerprint or FaceID.
+                PCs without biometrics can skip this and use the Operator Secret above.
+              </Text>
+              {bioEnabled ? (
+                <Button
+                  label="Disable device biometric lock"
+                  variant="secondary"
+                  onPress={() => {
+                    disableBrowserBiometric();
+                    setBioEnabled(false);
+                  }}
+                />
+              ) : (
+                <Button
+                  label="Enable fingerprint / FaceID on this device"
+                  onPress={async () => {
+                    const ok = await enableBrowserBiometric();
+                    setBioEnabled(ok);
+                    if (!ok) {
+                      showAlert('Biometric setup cancelled', 'You can continue using the Operator Secret.');
+                    }
+                  }}
+                />
+              )}
+            </Card>
+          ) : null}
 
           <Card bordered style={{ gap: Spacing.sm }}>
             <Text variant="title">Where to find the secret</Text>
