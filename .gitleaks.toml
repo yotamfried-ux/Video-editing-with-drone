@@ -8,6 +8,7 @@ description = "Supabase publishable client keys are intentionally public; the An
 regexTarget = "line"
 regexes = [
   '''EXPO_PUBLIC_SUPABASE_ANON_KEY.*sb_publishable_[A-Za-z0-9_-]+''',
+  '''^\s*'sb_publishable_[A-Za-z0-9_-]+',?\s*$''',
   '''"AndroidKeyStore",\s*"AES/GCM/NoPadding"'''
 ]
 

@@ -27,7 +27,14 @@ export const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL?.trim()
   ? process.env.EXPO_PUBLIC_API_BASE_URL.trim()
   : defaultWebApiBaseUrl();
 
+function defaultAppDomain(): string {
+  if (typeof window !== 'undefined' && window.location?.host) {
+    return window.location.host;
+  }
+  return 'sportreel.d2ryf.com';
+}
+
 export const APP_DOMAIN = fromEnv(
   process.env.EXPO_PUBLIC_APP_DOMAIN,
-  'sportreel.app'
+  defaultAppDomain()
 );
