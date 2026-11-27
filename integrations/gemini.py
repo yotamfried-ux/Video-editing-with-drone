@@ -75,13 +75,31 @@ class _Model:
             raw = item._file if isinstance(item, _CompatFile) else item
             is_video = str(getattr(raw, "mime_type", "") or "").startswith("video/")
             converted.append(self._video_part(raw) if (self._video_metadata and is_video) else raw)
-        kwargs = {"model": self._model, "contents": converted}
+        used_model = self._model
+        kwargs = {"model": used_model, "contents": converted}
         config_obj = self._config()
         if config_obj is not None:
             kwargs["config"] = config_obj
-        response = client.models.generate_content(**kwargs)
+        try:
+            response = client.models.generate_content(**kwargs)
+        except Exception as exc:
+            err_text = str(exc)
+            is_zero_quota = (
+                "limit: 0" in err_text
+                and ("RESOURCE_EXHAUSTED" in err_text or "429" in err_text)
+                and used_model != "gemini-2.5-flash"
+            )
+            if not is_zero_quota:
+                raise
+            logger.warning(
+                "Gemini model %s has zero quota (FreeTier limit: 0); falling back to gemini-2.5-flash",
+                used_model,
+            )
+            used_model = "gemini-2.5-flash"
+            kwargs["model"] = used_model
+            response = client.models.generate_content(**kwargs)
         # Token and estimated-cost line per call, plus a per-step summary at process exit.
-        llm_cost.record_call(response, model=self._model, label=llm_cost.caller_label())
+        llm_cost.record_call(response, model=used_model, label=llm_cost.caller_label())
         return response
 
 
