@@ -226,7 +226,7 @@ def compute_qa_signature(
         "kind": "sportreel_qa_cache_v1",
         "qa_policy_version": qa_policy_version,
         "pipeline_code_version": os.getenv("GITHUB_SHA") or RENDER_CODE_VERSION,
-        "qa_model": os.getenv("SPORTREEL_REEL_QA_MODEL", "gemini-2.5-flash"),
+        "qa_model": os.getenv("SPORTREEL_REEL_QA_MODEL", "gemini-3.8-flash"),
         "qa_prompt_version": os.getenv("SPORTREEL_QA_PROMPT_VERSION", "qa-prompt-2026-11-11-deliverable"),
         "engagement_threshold": int(os.getenv("QA_ENGAGEMENT_THRESHOLD", "60")),
         "deliverable_threshold": os.getenv("QA_DELIVERABLE_THRESHOLD", ""),

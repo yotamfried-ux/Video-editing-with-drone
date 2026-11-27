@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 _ANALYSIS_CACHE_VERSION = "1"   # bump to invalidate every cached analysis
 _MODEL             = config.GEMINI_MODEL   # native video understanding
-_QA_MODEL          = os.getenv("GEMINI_CLIP_QA_MODEL", "gemini-2.5-flash-lite")   # cheap per-clip crop QA (QA_CROP_CHECK)
+_QA_MODEL          = os.getenv("GEMINI_CLIP_QA_MODEL", "gemini-3.8-flash")   # cheap per-clip crop QA (QA_CROP_CHECK)
 _MIN_CLIP_SEC      = 6.0
 _CHUNK_MAX_MINUTES = 8   # Gemini ~1M token limit ≈ 8 min of drone footage @1fps
 
@@ -197,7 +197,7 @@ _QA_REASON_PROMPT = (
 
 _QA_REASON_CODES = ("PASS", "POOR_CLOSEUP", "MOTION_BLUR", "FRAMING", "LIGHTING")
 
-_QA_REEL_MODEL = "gemini-2.5-flash"
+_QA_REEL_MODEL = "gemini-3.8-flash"
 
 _QA_REEL_PROMPT = """\
 You are an independent reviewer of personal sports reels.

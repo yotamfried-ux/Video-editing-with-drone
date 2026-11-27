@@ -1192,7 +1192,7 @@ def _consensus_ask(prompt: str, images: list[bytes]) -> str:
     for index, data in enumerate(images):
         parts += [f"[Image {index}]:", types.Part.from_bytes(data=data, mime_type="image/jpeg")]
     parts.append(prompt)
-    model = genai.GenerativeModel(model_name="gemini-2.5-flash")
+    model = genai.GenerativeModel(model_name="gemini-3.8-flash")
     return _retry_gemini(lambda: model.generate_content(parts, request_options={"timeout": 60}).text.strip())
 
 
@@ -1362,7 +1362,7 @@ def _verify_merge_candidates(clusters: list[dict]) -> list[dict]:
             a_key = identity_evidence.member_key(a["appearances"][0])
             b_key = identity_evidence.member_key(a["appearances"][1])
             identity_evidence.stamp_pairwise(
-                a, [dict(pair, a=a_key, b=b_key)], model="gemini-2.5-flash",
+                a, [dict(pair, a=a_key, b=b_key)], model="gemini-3.8-flash",
                 member_images={a_key: thumb_a, b_key: thumb_b})
         else:
             identity_evidence.clear(a)

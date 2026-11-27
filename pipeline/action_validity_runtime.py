@@ -42,7 +42,7 @@ MAX_STEP_SEC = 1.0
 MIN_PRESENT_RATIO = 0.75
 ACTION_EDGE_FRACTION = 0.2
 TILE = 256
-MODEL = "gemini-2.5-flash"
+MODEL = "gemini-3.8-flash"
 
 
 # ------------------------------------------------------------------ sampling

@@ -337,7 +337,7 @@ def _cut_window(video_path: str, start: float, end: float) -> str | None:
 def _ask_model(clip: str, prompt: str) -> str:
     from integrations.gemini import delete_video, genai, upload_video
 
-    model_name = os.getenv("SPORTREEL_MISSED_MOMENT_MODEL", "gemini-2.5-flash")
+    model_name = os.getenv("SPORTREEL_MISSED_MOMENT_MODEL", "gemini-3.8-flash")
     vf = upload_video(clip)
     try:
         model = genai.GenerativeModel(model_name=model_name)
@@ -411,7 +411,7 @@ def rescue_missed_moments(video_path: str, people: list[dict[str, Any]], candida
             from integrations import llm_cache
 
             cache_key = llm_cache.make_key("missed-moment", media_sha256=llm_cache.file_sha256(str(video_path)),
-                                           prompt=prompt, model=os.getenv("SPORTREEL_MISSED_MOMENT_MODEL", "gemini-2.5-flash"),
+                                           prompt=prompt, model=os.getenv("SPORTREEL_MISSED_MOMENT_MODEL", "gemini-3.8-flash"),
                                            version=RESCUE_PROMPT_VERSION, extra=f"{lo:.2f}-{hi:.2f}")
             text = llm_cache.get(cache_key)
         except Exception as exc:

@@ -161,7 +161,7 @@ def verify_cluster(cluster: dict[str, Any], ask: Ask) -> dict[str, Any]:
 
 
 def verify_multi_clusters(clusters: list[dict[str, Any]], *, ask: Ask, split_to_singles: Callable[..., list],
-                          model: str = "gemini-2.5-flash") -> list[dict[str, Any]]:
+                          model: str = "gemini-3.8-flash") -> list[dict[str, Any]]:
     """The one cluster verifier. MATCH -> pairwise evidence stamped; NO_MATCH -> split into single appearances;
     REVIEW (doubt, error, missing image) -> kept together WITHOUT evidence, so the identity gate withholds it."""
     from pipeline import identity_evidence as ev
@@ -216,7 +216,7 @@ def singleton_pairs_max() -> int:
         return SINGLETON_PAIRS_MAX_DEFAULT
 
 
-def merge_verified_singletons(clusters: list[dict[str, Any]], *, ask: Ask, model: str = "gemini-2.5-flash",
+def merge_verified_singletons(clusters: list[dict[str, Any]], *, ask: Ask, model: str = "gemini-3.8-flash",
                               max_pairs: int | None = None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Propose cross-source pairs of SINGLE-SOURCE clusters to the same fail-closed pairwise verifier.
 

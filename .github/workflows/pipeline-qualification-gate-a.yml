@@ -154,7 +154,7 @@ jobs:
         LLM_CACHE_DIR: /tmp/llm-cache
         ANALYSIS_WORKERS: ${{ vars.ANALYSIS_WORKERS || '3' }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-        GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-flash' }}
+        GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.8-flash' }}
         R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID || secrets.ACCESS_KEY_ID }}
         R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY || secrets.SECRET_KEY_ID }}
         R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}

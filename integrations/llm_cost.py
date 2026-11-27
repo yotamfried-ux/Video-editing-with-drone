@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 
 # USD per 1M tokens. "in_long"/"out_long" apply when the prompt exceeds "long_ctx" tokens.
 DEFAULT_PRICES: dict[str, dict[str, float]] = {
+    "gemini-3.8-flash": {"in": 0.30, "out": 2.50, "audio_in": 1.00},
     "gemini-2.5-pro": {"in": 1.25, "out": 10.0, "audio_in": 1.25,
                        "long_ctx": 200_000, "in_long": 2.50, "out_long": 15.0},
     "gemini-2.5-flash-lite": {"in": 0.10, "out": 0.40, "audio_in": 0.30},

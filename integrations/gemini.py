@@ -87,15 +87,18 @@ class _Model:
             is_zero_quota = (
                 "limit: 0" in err_text
                 and ("RESOURCE_EXHAUSTED" in err_text or "429" in err_text)
-                and used_model != "gemini-2.5-flash"
             )
-            if not is_zero_quota:
+            is_model_unavailable = (
+                "404" in err_text
+                and ("NOT_FOUND" in err_text or "no longer available" in err_text)
+            )
+            if (not is_zero_quota and not is_model_unavailable) or used_model == "gemini-3.8-flash":
                 raise
             logger.warning(
-                "Gemini model %s has zero quota (FreeTier limit: 0); falling back to gemini-2.5-flash",
+                "Gemini model %s unavailable/zero-quota; falling back to gemini-3.8-flash",
                 used_model,
             )
-            used_model = "gemini-2.5-flash"
+            used_model = "gemini-3.8-flash"
             kwargs["model"] = used_model
             response = client.models.generate_content(**kwargs)
         # Token and estimated-cost line per call, plus a per-step summary at process exit.
