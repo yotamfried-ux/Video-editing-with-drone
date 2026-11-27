@@ -330,7 +330,7 @@ jobs:
           SPORTREEL_IDENTITY_REVIEW_DECISIONS: ''
           ANALYSIS_WORKERS: ${{ vars.ANALYSIS_WORKERS || '3' }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-2.5-pro' }}
+          GEMINI_MODEL: ${{ vars.GEMINI_MODEL || 'gemini-3.1-pro-preview' }}
           GOOGLE_SERVICE_ACCOUNT_JSON: service_account.json
           DRIVE_USER_TOKEN: drive_user_token.json
           RAW_FOLDER_ID: ${{ secrets.RAW_FOLDER_ID }}

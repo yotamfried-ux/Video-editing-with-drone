@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { View, StyleSheet, ScrollView, Alert, Platform, Pressable, AppState } from 'react-native';
+import { View, StyleSheet, ScrollView, Platform, Pressable, AppState } from 'react-native';
+import { showAlert } from '@/shared/lib/alert';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { useRouter } from 'expo-router';
@@ -284,12 +285,12 @@ export default function PipelineScreen() {
   const handleOperatorError = useCallback((e: unknown) => {
     const msg = e instanceof Error ? e.message : 'Unknown error';
     if (msg.includes('secret not set')) {
-      Alert.alert('Operator secret required', msg, [
+      showAlert('Operator secret required', msg, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Go to Settings', onPress: () => router.push('/(operator)/settings' as never) },
       ]);
     } else {
-      Alert.alert('Failed', msg);
+      showAlert('Failed', msg);
     }
   }, [router]);
 
@@ -444,7 +445,7 @@ export default function PipelineScreen() {
     setLastRunId(runId);
     setRunsRefreshKey((key) => key + 1);
     void refreshPipelineStatus();
-    Alert.alert(title, `Run ${runId.slice(0, 8)} ${detail} It appears under Recent pipeline runs with live stage, progress and a link to the GitHub run.`);
+    showAlert(title, `Run ${runId.slice(0, 8)} ${detail} It appears under Recent pipeline runs with live stage, progress and a link to the GitHub run.`);
   }, [refreshPipelineStatus]);
 
   const runPipeline = async () => {
@@ -467,7 +468,7 @@ export default function PipelineScreen() {
   };
 
   const confirmReset = () => {
-    Alert.alert('Reset and rerun', 'Restore original videos to RAW and start again?', [
+    showAlert('Reset and rerun', 'Restore original videos to RAW and start again?', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Standard reset', onPress: () => resetAndRerun(false) },
       { text: 'Full clean', style: 'destructive', onPress: () => resetAndRerun(true) },
@@ -685,10 +686,10 @@ export default function PipelineScreen() {
       const results = await runUploadQueue(foregroundFailed);
       const stillFailed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (stillFailed.length) {
-        Alert.alert('Some uploads still failing', `${stillFailed.length} of ${foregroundFailed.length} file${foregroundFailed.length === 1 ? '' : 's'} failed again. Check your connection and tap Retry all failed once it is stable.`);
+        showAlert('Some uploads still failing', `${stillFailed.length} of ${foregroundFailed.length} file${foregroundFailed.length === 1 ? '' : 's'} failed again. Check your connection and tap Retry all failed once it is stable.`);
         return;
       }
-      Alert.alert('Uploaded to queue', `${foregroundFailed.length} previously failed file${foregroundFailed.length === 1 ? '' : 's'} uploaded, size-verified, and locally cleaned.`);
+      showAlert('Uploaded to queue', `${foregroundFailed.length} previously failed file${foregroundFailed.length === 1 ? '' : 's'} uploaded, size-verified, and locally cleaned.`);
     } catch (e) {
       handleOperatorError(e);
     }
@@ -705,12 +706,12 @@ export default function PipelineScreen() {
       const results = await runUploadQueue(items);
       const failed = results.filter((uploadResult) => uploadResult.status === 'rejected');
       if (failed.length) {
-        Alert.alert('Some uploads failed', `${failed.length} of ${items.length} files failed after automatic part retries. Fix the connection or reconnect the source, then tap Retry all failed.`);
+        showAlert('Some uploads failed', `${failed.length} of ${items.length} files failed after automatic part retries. Fix the connection or reconnect the source, then tap Retry all failed.`);
         return;
       }
 
       const completedBatchId = items.map((item) => item.batch_id).find(Boolean) ?? activeBatchId;
-      Alert.alert(
+      showAlert(
         'Uploaded to queue',
         `${items.length} file${items.length === 1 ? '' : 's'} verified in RAW batch ${completedBatchId?.slice(0, 16) ?? 'current'}. App-owned temporary upload data was removed. The original SD / USB files were preserved.`
       );
@@ -730,7 +731,7 @@ export default function PipelineScreen() {
       setActiveBatchId(batchId);
       setUploadItems((current) => current.map((item) => ({ ...item, batch_id: batchId })));
       applyBackgroundJobs(jobs);
-      Alert.alert(
+      showAlert(
         'Uploading in the background',
         `${items.length} video${items.length === 1 ? '' : 's'} queued in batch ${batchId.slice(0, 16)}. Uploads keep running if you leave the app, and resume automatically if the connection drops or the app restarts.`
       );
@@ -744,7 +745,7 @@ export default function PipelineScreen() {
   const uploadFootage = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert('Permission required', 'Please allow access to your media library.');
+      showAlert('Permission required', 'Please allow access to your media library.');
       return;
     }
 
@@ -785,7 +786,7 @@ export default function PipelineScreen() {
   const uploadSelectedExternalVideos = async () => {
     const selectedCandidates = externalCandidates.filter((candidate) => candidate.selected);
     if (!selectedCandidates.length) {
-      Alert.alert('Select videos', 'Choose at least one video from the folder before uploading.');
+      showAlert('Select videos', 'Choose at least one video from the folder before uploading.');
       return;
     }
 
@@ -811,7 +812,7 @@ export default function PipelineScreen() {
 
   const uploadExternalStorageFolder = async () => {
     if (Platform.OS !== 'android') {
-      Alert.alert('Android only', 'Direct SD / USB video selection is currently available on Android.');
+      showAlert('Android only', 'Direct SD / USB video selection is currently available on Android.');
       return;
     }
 
@@ -832,7 +833,7 @@ export default function PipelineScreen() {
 
       if (!videoDocuments.length) {
         setExternalCandidates([]);
-        Alert.alert(
+        showAlert(
           'No videos found',
           'Choose the SD / USB folder that directly contains the video clips, then try again.'
         );
